@@ -13,6 +13,33 @@ class ProjectionError(ValueError):
     """FineSub artifacts cannot be mapped without guessing or data loss."""
 
 
+#: A cue whose two timestamps coincide is not a mapping ambiguity, so it is
+#: repaired rather than rejected. The engine can produce one: profile-1
+#: stabilization re-seats a segment's edges on its surviving words, and a
+#: segment left with a single word whose ASR timing collapsed comes out with
+#: `end == start`; `subtitles/time_order.py` only reports that, it does not
+#: rewrite it. Everything downstream -- lane seating in `axis.py`, the editor's
+#: timeline, the ASS renderer -- assumes a cue occupies time, and one degenerate
+#: row is no reason to throw a finished run away, so the row is widened to this
+#: floor instead. Below a frame, it stays where the engine put it.
+MIN_CUE_SECONDS = 0.04
+
+
+def _repaired_end(start: float, end: float, following: float | None) -> float:
+    """The end this cue needs to occupy time, without displacing the next one.
+
+    `following` is the next cue's start when there is one: widening stops there
+    so repairing one row cannot reorder rows that were already fine.
+    """
+
+    if end > start:
+        return end
+    widened = start + MIN_CUE_SECONDS
+    if following is not None and start < following < widened:
+        return following
+    return widened
+
+
 @dataclass(frozen=True)
 class SrtCue:
     start: float
@@ -59,9 +86,11 @@ def parse_srt(text: str) -> list[SrtCue]:
             body.pop(0)
         start = _srt_seconds(match.group("start"))
         end = _srt_seconds(match.group("end"))
-        if end <= start:
-            raise ProjectionError("final SRT cue has a non-positive duration")
         cues.append(SrtCue(start, end, "\n".join(line for line in body if line.strip()).strip()))
+    for index, cue in enumerate(cues):
+        if cue.end <= cue.start:
+            following = cues[index + 1].start if index + 1 < len(cues) else None
+            cues[index] = SrtCue(cue.start, _repaired_end(cue.start, cue.end, following), cue.text)
     return cues
 
 
@@ -138,8 +167,6 @@ def _load_stable(path: Path) -> tuple[list[dict[str, Any]], dict[str, dict[str, 
             start, end = float(value["start"]), float(value["end"])
         except (KeyError, TypeError, ValueError) as exc:
             raise ProjectionError(f"stable segment {source_id!r} has invalid timing") from exc
-        if end <= start:
-            raise ProjectionError(f"stable segment {source_id!r} has a non-positive duration")
         words = value.get("words")
         segment = {
             "id": source_id,
@@ -155,6 +182,12 @@ def _load_stable(path: Path) -> tuple[list[dict[str, Any]], dict[str, dict[str, 
         }
         normalized.append(segment)
         by_id[source_id] = segment
+    for index, segment in enumerate(normalized):
+        # `by_id` holds these same objects, so the repair reaches the
+        # final-mode lookups as well.
+        if segment["end"] <= segment["start"]:
+            following = normalized[index + 1]["start"] if index + 1 < len(normalized) else None
+            segment["end"] = _repaired_end(segment["start"], segment["end"], following)
     return normalized, by_id
 
 
@@ -225,13 +258,16 @@ def project_edit_document(
                 start, end, translated = cue.start, cue.end, cue.text or row["translation"]
             elif row["source_ids"]:
                 sources = [stable_by_id[source_id] for source_id in row["source_ids"]]
-                start, end, translated = sources[0]["start"], sources[-1]["end"], row["translation"]
+                start, translated = sources[0]["start"], row["translation"]
+                # Every source segment occupies time by now, but a row whose
+                # ids are not in timeline order can still span backwards.
+                end = _repaired_end(start, sources[-1]["end"], None)
             else:
                 # Insert rows have no stable source. In the unlikely event that
                 # their SRT cue is unreadable, keep the text and place it after
                 # the preceding row instead of rejecting the whole document.
                 start = previous_end
-                end = start + max(float(row["duration"]), 0.001)
+                end = start + max(float(row["duration"]), MIN_CUE_SECONDS)
                 translated = row["translation"]
             item = {
                 "t0": start,
