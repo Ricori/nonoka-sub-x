@@ -26,6 +26,15 @@ const tsc = join(root, "..", "..", "..", "frontend", "node_modules", ".bin",
   process.platform === "win32" ? "tsc.cmd" : "tsc");
 
 function build() {
+  // 先自己查一次。缺 tsc 时 spawnSync 只会抛「系统找不到指定的路径」，
+  // 既不说找的是什么、也不说该怎么办 —— 而这个仓库的 node_modules 被清空过
+  // 好几次（杀毒软件挑走可执行文件，只留空目录），所以这条错值得说人话。
+  if (!existsSync(tsc)) {
+    console.error(`  FAIL  找不到 tsc：${tsc}`);
+    console.error("        在 desktop/frontend 下跑一次 npm install。");
+    console.error("        如果反复丢失，把 node_modules 加进杀毒软件的排除列表。");
+    return { ok: false };
+  }
   const compiled = spawnSync(tsc, ["-p", join(root, "tsconfig.json")], {
     cwd: root, encoding: "utf8", shell: process.platform === "win32",
   });

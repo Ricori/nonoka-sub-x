@@ -4,7 +4,7 @@
 
 和其他示例不同，这个插件**用 TypeScript 写、有构建步骤**。原因见「为什么必须构建」。
 
-> **大模型调用目前是 dummy。** `callLLM` 等 3 秒返回占位内容，用来把整条流水线跑通。接上之前表里的内容不可信 —— 界面上有提示。宿主的 `llm.complete` 能力已经可用，接法和限额见 [docs/llm-engine.md](docs/llm-engine.md)。
+大模型调用走宿主的 `llm.complete`，接法和限额见 [docs/llm-engine.md](docs/llm-engine.md)。
 
 ## 流水线
 
@@ -90,26 +90,13 @@ New-Item -ItemType Junction -Path $installed -Target "<仓库>\clip-picker\ui"
 
 不需要 `import` —— 所有文件编译后拼进同一个作用域，直接互相调用。`main.ts` 必须排最后，因为只有它有顶层执行代码。
 
-### 接入真实大模型
+### 调界面时切回 dummy
 
-改 `llm.ts` 一个函数体，上层的批次循环、进度、日志、错误处理一行都不用动：
+`llm.ts` 里 `LLM_IS_STUB` 改成 `true`，`callLLM` 就不联网，等 3 秒返回占位内容 —— 阶段二那步还会返回一份形状正确的假 JSON，所以整条链路照样能跑到出表。
 
-```ts
-async function callLLM(system: string, user: string): Promise<string> {
-  const answer = await rpc<LLMAnswer>("llm.complete", {
-    role: "general_capable",
-    messages: [
-      { role: "system", content: system },
-      { role: "user", content: user },
-    ],
-  }, 180_000);
-  return answer.content;
-}
-```
+调表格渲染、日志排版这些跟模型无关的东西时用它：跑一遍真实流水线要几分钟，还烧用户的额度。改完记得改回 `false`。
 
-再把 `LLM_IS_STUB` 改成 `false`（界面上的 dummy 提示会跟着消失），manifest 的 `permissions` 加 `llm.complete`，然后**重新打包安装** —— 权限变了必须重装，联接只同步页面文件、不同步 manifest。
-
-**超时要放大** —— `rpc()` 默认 15 秒是为了让「方法名打错导致宿主静默不回」能报出来，模型调用几十秒起步。
+**改 manifest 的 `permissions` 后必须重新打包安装** —— 目录联接只同步页面文件，不同步 manifest。
 
 接口全貌、`role` 怎么选、限额（尤其是 **200 KB prompt 上限**，阶段二会先撞墙）见 [docs/llm-engine.md](docs/llm-engine.md)。
 
@@ -183,6 +170,17 @@ go test ./internal/plugins/ -run TestShippedExamplePackagesInstall
 
 缺字段补空串而不是整份失败 —— 模型偶尔漏一个 `editor`，不该让整场直播的结果作废。但真的坏输入（纯文本、没有 `rows`、`rows` 是空的）会明确报错，不会静默出一张空表。
 
+### 导出只有剪贴板，没有「下载」
+
+成品表只能「复制为表格」再粘进 Excel。**插件没法把文件写到磁盘上**，两条路都堵着：
+
+- iframe 是 `sandbox="allow-scripts"`，没有 `allow-downloads` —— 页面自己造 blob 或者 `<a download>`，浏览器会直接拦掉。
+- 宿主唯一能落盘的 `subtitle.save` 扩展名白名单只有 `.ass` 和 `.srt`（`internal/plugins/documents.go`）。
+
+要出真文件得给宿主加一条能力（比如允许 `.csv` 的 `file.save`），**但这个插件不修改宿主**，所以别去找导出按钮，它不存在。
+
+顺带一提，剪贴板这条路避开了中文 CSV 的头号坑：Windows 版 Excel 打开无 BOM 的 CSV 会把中文显示成乱码，而剪贴板是 Unicode 通道，不存在这个问题。
+
 ### 结果活不过页面切换
 
 **这是插件页的根本约束，不是 bug。** 页面是 iframe，切走就被销毁，而沙箱不透明源下浏览器存储也用不了，API v1 也没有任何通用存储能力。所以：
@@ -190,7 +188,9 @@ go test ./internal/plugins/ -run TestShippedExamplePackagesInstall
 - 处理期间会显示红色提醒，让你别切页面
 - 跑完后提醒变成「先复制为表格存走」
 
-内置的 video-downloader 之所以「切页面不中断」，是因为它把整个下载**一次性委托给了 Go**（`context.Background()`，和页面无关），页面只是观察者；而且它的产物是磁盘上的文件和媒体库记录，本来就在页面外。我们这条流水线的循环跑在页面的 JS 里，产物也只在页面的变量里 —— 要达到同样效果，得给宿主加一条存储能力。
+内置的 video-downloader 之所以「切页面不中断」，是因为它把整个下载**一次性委托给了 Go**（`context.Background()`，和页面无关），页面只是观察者；而且它的产物是磁盘上的文件和媒体库记录，本来就在页面外。我们这条流水线的循环跑在页面的 JS 里，产物也只在页面的变量里。
+
+要达到同样效果得给宿主加一条存储能力，而**这个插件不修改宿主** —— 所以这是一条接受下来的限制，不是待办事项。
 
 ## 几个容易踩的地方
 

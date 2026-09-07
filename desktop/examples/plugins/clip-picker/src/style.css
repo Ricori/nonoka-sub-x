@@ -34,8 +34,9 @@ body {
   font-size: 14px;
 }
 
+/* 页面里不写标题：宿主已经拿 manifest 的 tool.title 渲染了工作区标题
+   （App.tsx 的 activeMountedPlugin?.tool.title），再写一个就是重复。 */
 main { max-width: 1100px; margin: 0 auto; display: flex; flex-direction: column; gap: 16px; }
-h1 { margin: 0 0 16px; font-size: 20px; }
 
 .box {
   border: 1px solid var(--line);
@@ -95,7 +96,7 @@ button.open .caret { transform: rotate(180deg); }
 #log {
   margin: 12px 0 0;
   padding: 12px 14px;
-  max-height: 260px;
+  max-height: 175px;
   overflow: auto;
   border: 1px solid var(--line);
   border-radius: 10px;

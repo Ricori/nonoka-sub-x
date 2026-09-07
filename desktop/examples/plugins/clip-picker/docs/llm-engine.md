@@ -17,8 +17,8 @@ manifest 里声明权限：
 ```ts
 const answer = await rpc<LLMAnswer>("llm.complete", {
   role: "general_capable",
-  maxTokens: 2048,        // 可选，0 或不给则用 sidecar 默认
-  temperature: 0,         // 可选，0 不发送
+  maxTokens: 16_384,      // 可选，不给则用 sidecar 默认的 8192
+  temperature: 0.01,      // 注意不能传 0，见下
   messages: [
     { role: "system", content: system },
     { role: "user", content: user },
@@ -87,7 +87,7 @@ FineSub 内部的用法（`third_party/finesub/src/finesub/llm/routing/config.py
 
 **「同时只允许一个」不是问题。** `runAnalysis` 本来就是串行 for 循环，一批跑完再跑下一批。
 
-**「60 次 / 10 分钟」够用。** 一场 4 小时直播约 5–7 批加 1 次汇总。极端情况：17000 句会切成 22 批，加汇总 23 次调用，仍在额度内。
+**「60 次 / 10 分钟」够用，但要算上重试。** 一场 4 小时直播约 5–7 批加 1 次汇总。每次调用输出不合格最多重试 5 次，所以最坏情况是 8 × 5 = 40 次 —— 仍在额度内，但没有想象中宽裕。极端的 17000 句会切成 22 批，全部用满重试就会超限（宿主直接报错，不排队）。
 
 **200 KB 那条要盯着，这是唯一的真风险。** 中文 UTF-8 是 3 字节/字：
 
@@ -100,13 +100,10 @@ FineSub 内部的用法（`third_party/finesub/src/finesub/llm/routing/config.py
 
 真撞上了，对策是把汇总也分组：每 8 批先汇总一次，再汇总这些汇总。那要改 `to_excel.ts` 的结构，`analysis.ts` 的 `joinAnalyses()` 也要能按组切。现在没做，因为还没遇到。
 
-## 从 dummy 切到真实调用
+## dummy 开关
 
-`src/llm.ts` 里 `callLLM` 是唯一的接缝，上层的批次循环、进度、日志、错误处理一行都不用改。
+`src/llm.ts` 的 `LLM_IS_STUB` 改成 `true`，`callLLM` 就走假实现：不联网，等 3 秒返回占位内容；要 JSON 的那一步（判据是 system prompt 里有没有「只输出 JSON」）会返回形状正确的假数据，所以整条链路照样跑到出表。
 
-1. 改函数体走 `rpc("llm.complete", …)`
-2. `LLM_IS_STUB` 改成 `false`（界面上的 dummy 提示会跟着消失）
-3. manifest 的 `permissions` 加 `llm.complete`
-4. 重新打包安装（**权限变了必须重装**，联接只同步页面文件，不同步 manifest）
+留着它是为了改界面时不烧额度 —— 跑一遍真实流水线要几分钟。上层的批次循环、重试、进度、日志两条路径完全共用，所以 dummy 下验过的行为在真调用下也成立。
 
-建议同时把 `model` / `backend` / `fallbackUsed` 记进日志 —— 出问题时你需要知道是哪个模型答的、有没有降级。
+日志里记了 `model` / `backend` / `fallbackUsed`：出问题时你需要知道是哪个模型答的、有没有降级。
