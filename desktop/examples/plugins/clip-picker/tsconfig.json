@@ -1,0 +1,28 @@
+{
+  "//": "outFile 把 files 里的源文件按顺序拼成一个传统 script。不能用 ESM：插件页是 srcdoc，没有 origin 也没有 base URL，import 无从解析，CSP 也不允许取任何外部资源。加新文件就往 files 里加一行，main.ts 永远放最后（顶层执行代码都在那儿）。",
+  "compilerOptions": {
+    "target": "ES2020",
+    "lib": ["ES2020", "DOM"],
+    "module": "none",
+    "outFile": "build/plugin.js",
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noImplicitReturns": true,
+    "forceConsistentCasingInFileNames": true
+  },
+  "files": [
+    "src/types.ts",
+    "src/host.ts",
+    "src/log.ts",
+    "src/cancel.ts",
+    "src/assets.ts",
+    "src/llm.ts",
+    "src/segment.ts",
+    "src/media.ts",
+    "src/analysis.ts",
+    "src/to_excel.ts",
+    "src/table.ts",
+    "src/main.ts"
+  ]
+}
