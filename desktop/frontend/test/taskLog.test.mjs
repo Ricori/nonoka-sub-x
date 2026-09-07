@@ -14,6 +14,7 @@ test("cloud task log keeps key events and hides operator diagnostics", () => {
     event(3, "handoff", { stage: "vocal", message: "正在启动 Vocal GPU 阶段" }),
     event(4, "warning", { code: "routing-preset", message: "unused audio binding" }),
     event(7, "warning", { code: "routing-profile", message: "provider calibration" }),
+    event(8, "warning", { code: "srt-line-budget", message: "/__modal/volumes/vo-x/tasks/vid_test/subtitle.srt: Segment 1 line has 25.5 weighted characters; limit is 25." }),
     event(5, "warning", { code: "resource-budget", message: "内存接近上限" }),
     event(6, "completed"),
   ];

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Events } from "@wailsio/runtime";
 import { assStyles } from "../bridge/assStyles.ts";
 import { desktopPlugins } from "../bridge/plugins.ts";
-import type { MountedPluginTool } from "../bridge/plugins.ts";
+import type { EngineTaskRequest, LLMRequest, MountedPluginTool } from "../bridge/plugins.ts";
 import { documentAss, documentSrt } from "../subtitles/document.ts";
 import type { SubtitleRange } from "../subtitles/document.ts";
 import type { SrtLang } from "../subtitles/build.ts";
@@ -84,6 +84,22 @@ export function PluginPageHost({ mounted, theme, onOpenManager, onOpenLibrary, o
         return { text: documentSrt(document, language as SrtLang, range(params)), rev: document.rev };
       },
       "subtitle.save": (params) => desktopPlugins.saveSubtitleFile(plugin, text(params.fileName), text(params.content)),
+      // FineSub 引擎的三样能力。参数在这里整形成 Go 侧的请求结构，能不能调、
+      // 调多少、产物能不能读，全部由 Go 校验。
+      "llm.complete": (params) => desktopPlugins.llmComplete(plugin, llmRequest(params)),
+      "engine.startTask": (params) => desktopPlugins.startEngineTask(plugin, engineRequest(params)),
+      "engine.status": (params) => desktopPlugins.engineTaskStatus(plugin, text(params.taskId)),
+      // 阶段任务要跑几分钟，页面自己轮询 status 和 events —— 与主界面的
+      // pipelineController 同一套，不再给 iframe 另造一条推送通道。
+      "engine.events": (params) => {
+        const after = Number(params.after);
+        return desktopPlugins.engineTaskEvents(plugin, text(params.taskId), Number.isFinite(after) ? Math.max(0, Math.trunc(after)) : 0);
+      },
+      "engine.cancel": (params) => desktopPlugins.cancelEngineTask(plugin, text(params.taskId)),
+      "engine.artifacts": (params) => desktopPlugins.engineArtifacts(plugin, text(params.taskId)),
+      "engine.readArtifact": (params) => desktopPlugins.readArtifact(plugin, text(params.taskId), text(params.name)),
+      "engine.saveArtifact": (params) =>
+        desktopPlugins.saveArtifact(plugin, text(params.taskId), text(params.name), text(params.fileName)),
       "media.exportVideo": (params) => {
         const span = range(params);
         const height = Number(params.height);
@@ -184,6 +200,40 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 const text = (value: unknown): string => (typeof value === "string" ? value : "");
+
+/** 插件页给的 LLM 请求整形；越界的值让 Go 侧去拒，这里不悄悄改写。 */
+function llmRequest(params: Params): LLMRequest {
+  const messages = Array.isArray(params.messages) ? params.messages : [];
+  return {
+    role: text(params.role),
+    messages: messages.map((item) => {
+      const message = isRecord(item) ? item : {};
+      return { role: text(message.role), content: text(message.content) };
+    }),
+    maxTokens: integer(params.maxTokens),
+    temperature: Number.isFinite(Number(params.temperature)) ? Number(params.temperature) : 0,
+  };
+}
+
+function engineRequest(params: Params): EngineTaskRequest {
+  const correction = isRecord(params.correction) ? params.correction : {};
+  return {
+    mediaId: text(params.mediaId),
+    target: text(params.target),
+    language: text(params.language),
+    skipSeparation: params.skipSeparation === true,
+    correction: {
+      media: text(correction.media),
+      retrieval: text(correction.retrieval),
+      difficulty: text(correction.difficulty),
+      fast: text(correction.fast),
+      extraInfo: text(correction.extraInfo),
+      extraStyle: text(correction.extraStyle),
+    },
+  };
+}
+
+const integer = (value: unknown): number => (Number.isFinite(Number(value)) ? Math.trunc(Number(value)) : 0);
 
 const strings = (value: unknown): string[] =>
   Array.isArray(value) && value.every((item) => typeof item === "string") ? value as string[] : [];

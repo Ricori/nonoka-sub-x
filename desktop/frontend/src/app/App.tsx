@@ -678,7 +678,8 @@ export default function App() {
         if (item.provider === "cloud" && !cloudSession?.authenticated) return item;
         try {
           const taskProvider = item.provider === "local" ? localProvider : cloudProvider;
-          return { ...item, snapshot: await taskProvider.status(item.taskId) };
+          const snap = await taskProvider.status(item.taskId);
+          return { ...item, snapshot: { ...snap, started_at: snap.started_at || item.snapshot.started_at } };
         } catch {
           return item;
         }
@@ -710,7 +711,7 @@ export default function App() {
     const byTask = new Map(active.map((item, index) => [item.taskId, updates[index]]));
     setTaskHistory((current) => current.map((item) => {
       const snapshot = byTask.get(item.taskId);
-      return snapshot ? { ...item, snapshot } : item;
+      return snapshot ? { ...item, snapshot: { ...snapshot, started_at: snapshot.started_at || item.snapshot.started_at } } : item;
     }));
   }, [cloudProvider, cloudSession?.authenticated, localProvider]);
 
@@ -776,14 +777,35 @@ export default function App() {
       // cancelled or failed one has to be retried. Both reuse the engine's
       // checkpoints, so the button means the same thing to the user either way.
       const restart = item.snapshot.state === "interrupted" ? "resume" : "retry";
-      const snapshot = isCurrent
+      const nowIso = new Date().toISOString();
+      if (action === "resume") {
+        setTaskHistory((current) => current.map((record) =>
+          record.taskId === item.taskId
+            ? {
+                ...record,
+                snapshot: {
+                  ...record.snapshot,
+                  state: "queued",
+                  stage: "queued",
+                  started_at: nowIso,
+                  error: null,
+                  progress: null,
+                },
+              }
+            : record,
+        ));
+      }
+      const rawSnapshot = isCurrent
         ? action === "cancel"
           ? await controller.cancel()
           : restart === "resume" ? await controller.resume() : await controller.retry()
         : action === "cancel"
           ? await taskProvider.cancel(item.taskId)
           : restart === "resume" ? await taskProvider.resume(item.taskId) : await taskProvider.retry(item.taskId);
-      if (!snapshot) return;
+      if (!rawSnapshot) return;
+      const snapshot: TaskSnapshot = action === "resume"
+        ? { ...rawSnapshot, started_at: rawSnapshot.started_at || nowIso }
+        : rawSnapshot;
       setTaskHistory((current) => current.map((record) => record.taskId === item.taskId ? { ...record, snapshot } : record));
     } catch (value) {
       setTaskHistoryMessage(warnNotice(value instanceof Error ? value.message : String(value)));
@@ -834,6 +856,8 @@ export default function App() {
 
   const navigateLibrary = useCallback(() => {
     setSection("library");
+    setLibraryFilter("all");
+    setQuery("");
     // A task may have finished through history polling instead of the active
     // pipeline (for example after an app restart). Refresh on entry as a final
     // guard against rendering the pre-completion library snapshot.
@@ -890,7 +914,11 @@ export default function App() {
       else await documents.setAxis(transcriptionMedia.id, null).catch(() => undefined);
       const taskController = mode === "local" ? localController : cloudController;
       setExecutionMode(mode);
-      const snapshot = await taskController.start(request);
+      const rawSnapshot = await taskController.start(request);
+      const snapshot: TaskSnapshot = {
+        ...rawSnapshot,
+        started_at: rawSnapshot.started_at || new Date().toISOString(),
+      };
       setActiveMedia(transcriptionMedia);
       rememberTask(snapshot, transcriptionMedia);
       setTranscriptionMedia(null);

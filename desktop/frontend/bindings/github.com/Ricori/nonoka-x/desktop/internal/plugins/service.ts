@@ -18,6 +18,10 @@ export function CancelDownload(pluginID: string): $CancellablePromise<void> {
     return $Call.ByID(3321726793, pluginID);
 }
 
+export function CancelEngineTask(pluginID: string, taskID: string): $CancellablePromise<{ [_ in string]?: any } | null> {
+    return $Call.ByID(928340474, pluginID, taskID);
+}
+
 export function ClearCookies(pluginID: string): $CancellablePromise<$models.DownloaderSettings> {
     return $Call.ByID(1670581179, pluginID);
 }
@@ -51,6 +55,25 @@ export function DownloadLogLines(pluginID: string): $CancellablePromise<string[]
 }
 
 /**
+ * EngineArtifacts lists what a run produced, by name and size.
+ */
+export function EngineArtifacts(pluginID: string, taskID: string): $CancellablePromise<$models.EngineArtifact[] | null> {
+    return $Call.ByID(2736732568, pluginID, taskID);
+}
+
+export function EngineTaskEvents(pluginID: string, taskID: string, afterCursor: number): $CancellablePromise<{ [_ in string]?: any } | null> {
+    return $Call.ByID(2772313565, pluginID, taskID, afterCursor);
+}
+
+/**
+ * EngineTaskStatus, EngineTaskEvents and CancelEngineTask are the page's
+ * polling surface, the same one the app's own pipeline view uses.
+ */
+export function EngineTaskStatus(pluginID: string, taskID: string): $CancellablePromise<{ [_ in string]?: any } | null> {
+    return $Call.ByID(171016590, pluginID, taskID);
+}
+
+/**
  * ExportAudio is a structured FFmpeg capability. Plugins select a Nonoka X media
  * ID and an output format; the host owns input resolution, arguments, the save
  * dialog, temporary files, and final publication.
@@ -75,6 +98,13 @@ export function ExportVideo(pluginID: string, mediaID: string, fileName: string,
  */
 export function Install(path: string): $CancellablePromise<$models.InstalledPlugin> {
     return $Call.ByID(2389093410, path);
+}
+
+/**
+ * LLMComplete runs one call on the user's configured models.
+ */
+export function LLMComplete(pluginID: string, request: $models.LLMRequest): $CancellablePromise<$models.LLMAnswer> {
+    return $Call.ByID(1776205425, pluginID, request);
 }
 
 export function List(): $CancellablePromise<$models.InstalledPlugin[] | null> {
@@ -102,12 +132,28 @@ export function PickAndInstall(): $CancellablePromise<$models.InstalledPlugin> {
 }
 
 /**
+ * ReadArtifact returns a text artifact's content.
+ */
+export function ReadArtifact(pluginID: string, taskID: string, name: string): $CancellablePromise<string> {
+    return $Call.ByID(3394409097, pluginID, taskID, name);
+}
+
+/**
  * RunYTDLP executes plugin-supplied yt-dlp arguments from a closed safe set for
  * public YouTube and Twitch URLs. The host still owns tool resolution, the
  * output path, FFmpeg wiring and the final media-library import.
  */
 export function RunYTDLP(pluginID: string, rawURL: string, pluginArgs: string[] | null): $CancellablePromise<$models.DownloadedMedia> {
     return $Call.ByID(1243976307, pluginID, rawURL, pluginArgs);
+}
+
+/**
+ * SaveArtifact writes an artifact wherever the save dialog says. This is the
+ * only way a binary artifact leaves the host, and the plugin's file name is a
+ * suggestion: the directory is the user's, as with every other export.
+ */
+export function SaveArtifact(pluginID: string, taskID: string, name: string, fileName: string): $CancellablePromise<$models.ExportedArtifact> {
+    return $Call.ByID(1918735596, pluginID, taskID, name, fileName);
 }
 
 export function SaveCookies(pluginID: string, content: string): $CancellablePromise<$models.DownloaderSettings> {
@@ -134,6 +180,13 @@ export function SaveSubtitleFile(pluginID: string, fileName: string, content: st
 
 export function SetEnabled(id: string, enabled: boolean): $CancellablePromise<$models.InstalledPlugin> {
     return $Call.ByID(859294938, id, enabled);
+}
+
+/**
+ * StartEngineTask runs the pipeline up to one stage on a library media entry.
+ */
+export function StartEngineTask(pluginID: string, request: $models.EngineTaskRequest): $CancellablePromise<{ [_ in string]?: any } | null> {
+    return $Call.ByID(1915391222, pluginID, request);
 }
 
 export function Uninstall(id: string, removeData: boolean): $CancellablePromise<void> {

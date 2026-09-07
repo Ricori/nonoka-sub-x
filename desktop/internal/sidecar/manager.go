@@ -21,8 +21,15 @@ import (
 
 const (
 	defaultStartupTimeout = 20 * time.Second
-	maxResponseBytes      = 16 << 20
-	maxDiagnosticBytes    = 64 << 10
+	// How long one provider call may take when its caller names no deadline of
+	// its own. It lives here rather than on the shared http.Client because one
+	// number cannot serve both a file read and a model round-trip: a call that
+	// legitimately runs for minutes (an LLM completion) must be able to say so
+	// through its context without also letting a wedged document read hang the
+	// window for that long.
+	defaultCallTimeout = 30 * time.Second
+	maxResponseBytes   = 16 << 20
+	maxDiagnosticBytes = 64 << 10
 )
 
 var (
@@ -137,7 +144,10 @@ type Manager struct {
 func New(config Config) *Manager {
 	return &Manager{
 		config: config,
-		client: &http.Client{Timeout: 30 * time.Second},
+		// No client-wide Timeout: it would cap every call regardless of the
+		// context, which is exactly the bug it looks like it prevents. DoJSON
+		// applies defaultCallTimeout to callers that bring no deadline.
+		client: &http.Client{},
 	}
 }
 
@@ -336,6 +346,11 @@ func (m *Manager) DoJSON(
 ) error {
 	if err := validateEndpoint(endpoint); err != nil {
 		return err
+	}
+	if _, deadlined := ctx.Deadline(); !deadlined {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, defaultCallTimeout)
+		defer cancel()
 	}
 	m.mu.RLock()
 	process := m.process

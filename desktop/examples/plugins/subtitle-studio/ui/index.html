@@ -1,5 +1,6 @@
 <!doctype html>
 <html lang="zh-CN">
+
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -18,8 +19,19 @@
       --warn: #f08fae;
       font-family: "Segoe UI Variable Text", "Segoe UI", "Microsoft YaHei UI", "PingFang SC", "Noto Sans SC", sans-serif;
     }
-    * { box-sizing: border-box; }
-    body { margin: 0; padding: 28px; color: var(--text); background: var(--bg); }
+
+    * {
+      box-sizing: border-box;
+      scrollbar-width: thin;
+    }
+
+    body {
+      margin: 0;
+      padding: 12px 0;
+      color: var(--text);
+      background: var(--bg);
+    }
+
     body.light {
       --bg: #faf9fe;
       --panel: #fff;
@@ -31,26 +43,115 @@
       --on-accent: #fff;
       --warn: #bd4670;
     }
-    main { max-width: 780px; margin: 0 auto; display: grid; gap: 16px; }
-    section { border: 1px solid var(--line); border-radius: 16px; padding: 20px; background: var(--panel); }
-    h1 { margin: 0 0 6px; font-size: 22px; }
-    h2 { margin: 0 0 10px; font-size: 15px; }
-    p { margin: 0 0 12px; color: var(--mut); line-height: 1.7; font-size: 13px; }
-    button, select, input { border: 0; border-radius: 9px; padding: 9px 13px; font: inherit; }
-    button { background: var(--accent); color: var(--on-accent); font-weight: 700; cursor: pointer; }
-    button.quiet { background: var(--raised); color: inherit; font-weight: 500; }
-    button:disabled { opacity: .5; cursor: default; }
-    select, input { background: var(--raised); color: inherit; }
-    select { min-width: 260px; }
-    .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 10px; }
-    .stat { font-size: 13px; color: var(--mut); }
-    pre { max-height: 190px; overflow: auto; margin: 0; padding: 12px; border-radius: 10px;
-      background: var(--bg); font-size: 11px; line-height: 1.6; white-space: pre-wrap; }
-    progress { width: 100%; height: 6px; }
-    #status { font-size: 12px; min-height: 18px; }
-    .warn { color: var(--warn); }
+
+    main {
+      width: 780px;
+      display: grid;
+      gap: 16px;
+    }
+
+    section {
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      padding: 20px;
+      background: var(--panel);
+    }
+
+    h1 {
+      margin: 0 0 6px;
+      font-size: 22px;
+    }
+
+    h2 {
+      margin: 0 0 10px;
+      font-size: 15px;
+    }
+
+    p {
+      margin: 0 0 12px;
+      color: var(--mut);
+      line-height: 1.7;
+      font-size: 13px;
+    }
+
+    button,
+    select,
+    input {
+      border: 0;
+      border-radius: 9px;
+      padding: 9px 13px;
+      font: inherit;
+    }
+
+    button {
+      background: var(--accent);
+      color: var(--on-accent);
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    button.quiet {
+      background: var(--raised);
+      color: inherit;
+      font-weight: 500;
+    }
+
+    button:disabled {
+      opacity: .5;
+      cursor: default;
+    }
+
+    select,
+    input {
+      background: var(--raised);
+      color: inherit;
+    }
+
+    select {
+      min-width: 260px;
+    }
+
+    .row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+      margin-bottom: 10px;
+    }
+
+    .stat {
+      font-size: 13px;
+      color: var(--mut);
+    }
+
+    pre {
+      max-height: 190px;
+      overflow: auto;
+      margin: 0;
+      padding: 12px;
+      border-radius: 10px;
+      background: var(--bg);
+      font-size: 11px;
+      line-height: 1.6;
+      white-space: pre-wrap;
+    }
+
+    progress {
+      width: 100%;
+      height: 6px;
+    }
+
+    #status {
+      font-size: 12px;
+      min-height: 18px;
+    }
+
+    .warn {
+      color: var(--warn);
+    }
   </style>
 </head>
+
 <body>
   <main>
     <section>
@@ -58,7 +159,9 @@
       <p>示例插件：读取字幕文档、批量替换文本并写回、拿到与编辑器逐字相同的 ASS，最后压制成视频。
         所有能力都由宿主执行，插件只描述要做什么。</p>
       <div class="row">
-        <select id="media"><option value="">正在读取媒体库…</option></select>
+        <select id="media">
+          <option value="">正在读取媒体库…</option>
+        </select>
         <button id="load" class="quiet">读取字幕文档</button>
       </div>
       <div class="stat" id="summary">还没有载入文档。</div>
@@ -72,6 +175,37 @@
         <input id="replace" placeholder="替换为" size="14">
         <button id="apply" disabled>替换并保存</button>
       </div>
+    </section>
+
+    <section>
+      <h2>LLM 润色</h2>
+      <p>把译文交给宿主已配置的模型润色一遍。插件写 prompt，宿主负责路由、密钥和限流；
+        答案只做预览，要不要写回由你决定。</p>
+      <div class="row">
+        <button id="polish" disabled>润色前 20 句译文</button>
+      </div>
+    </section>
+
+    <section>
+      <h2>只跑一个阶段</h2>
+      <p>不走完整流水线，只让引擎跑到指定阶段为止，然后取回那一步的产物。插件起的任务
+        <b>不会</b>动你的字幕文档，也不会更新知识库 —— 这两样由宿主锁死。
+      </p>
+      <div class="row">
+        <select id="engine-media">
+          <option value="">正在读取媒体库…</option>
+        </select>
+        <select id="target">
+          <option value="vocal">vocal · 人声分离</option>
+          <option value="aligned">aligned · 词级对齐</option>
+          <option value="stable">stable · 稳定化</option>
+          <option value="raw-srt">raw-srt · 原始字幕</option>
+        </select>
+        <button id="run">开始</button>
+        <button id="stop" class="quiet" disabled>取消</button>
+      </div>
+      <div class="stat" id="engine-status">尚未运行。</div>
+      <div class="row" id="artifacts"></div>
     </section>
 
     <section>
@@ -116,7 +250,7 @@
       const untranslated = segs.filter((s) => !(s.zh || "").trim()).length;
       el("summary").textContent = `rev ${document_.rev} · 默认轨 ${segs.length} 句`
         + ` · 自定义轨 ${extra} 句 · 未翻译 ${untranslated} 句`;
-      for (const id of ["apply", "ass", "save-ass", "save-srt", "burn"]) el(id).disabled = false;
+      for (const id of ["apply", "ass", "save-ass", "save-srt", "burn", "polish"]) el(id).disabled = false;
     }
 
     el("load").addEventListener("click", async () => {
@@ -162,6 +296,102 @@
       } catch (error) {
         say(String(error), true);
       }
+    });
+
+    el("polish").addEventListener("click", async () => {
+      if (!loaded) return;
+      const lines = (loaded.subtitles || []).slice(0, 20)
+        .map((seg, index) => `${index + 1}. ${(seg.zh || seg.ja || "").trim()}`)
+        .filter((line) => line.length > 3);
+      if (!lines.length) return say("这份文档没有可润色的句子。", true);
+      el("polish").disabled = true;
+      say("正在调用模型…");
+      try {
+        // role 只有 lightweight 和 general_capable 两种：都是纯文本角色，
+        // 多模态角色要一段媒体引用，这条接口没有办法递。
+        const answer = await rpc("llm.complete", {
+          role: "general_capable",
+          maxTokens: 2048,
+          messages: [
+            { role: "system", content: "你是中文字幕润色助手。逐行改写得更自然，保持编号与行数不变，不要解释。" },
+            { role: "user", content: lines.join("\n") },
+          ],
+        });
+        el("preview").textContent = answer.content;
+        say(`${answer.model} 给出了 ${lines.length} 行润色结果（仅预览，未写回）。`);
+      } catch (error) {
+        say(String(error), true);
+      } finally {
+        el("polish").disabled = false;
+      }
+    });
+
+    let taskId = "";
+    let cursor = 0;
+
+    /** 阶段任务要跑几分钟，页面自己轮询 —— 与主界面同一套，宿主不额外推事件。 */
+    async function follow() {
+      const [snapshot, page] = await Promise.all([
+        rpc("engine.status", { taskId }),
+        rpc("engine.events", { taskId, after: cursor }),
+      ]);
+      cursor = page.next_cursor ?? cursor;
+      const last = (page.events || []).filter((event) => event.payload && event.payload.message).pop();
+      el("engine-status").textContent = `${snapshot.state}${snapshot.stage ? " · " + snapshot.stage : ""}`
+        + (last ? " · " + last.payload.message : "");
+      if (["completed", "failed", "cancelled", "interrupted"].includes(snapshot.state)) return snapshot;
+      await new Promise((resolve) => setTimeout(resolve, 800));
+      return follow();
+    }
+
+    async function showArtifacts() {
+      const items = await rpc("engine.artifacts", { taskId });
+      el("artifacts").replaceChildren(...items.map((item) => {
+        const button = document.createElement("button");
+        button.className = "quiet";
+        button.textContent = `${item.name} · ${Math.max(1, Math.round(item.bytes / 1024))} KB`;
+        // 文本产物直接读内容；二进制只能经保存对话框落盘 —— 插件永远拿不到本地路径。
+        button.addEventListener("click", async () => {
+          try {
+            if (item.readable) {
+              const content = await rpc("engine.readArtifact", { taskId, name: item.name });
+              el("preview").textContent = content.slice(0, 4000);
+              say(`已读取 ${item.name}（预览前 4000 字）。`);
+            } else {
+              const saved = await rpc("engine.saveArtifact", { taskId, name: item.name, fileName: item.name });
+              say(saved.path ? "已保存 " + saved.path : "已取消保存。");
+            }
+          } catch (error) {
+            say(String(error), true);
+          }
+        });
+        return button;
+      }));
+    }
+
+    el("run").addEventListener("click", async () => {
+      const mediaValue = el("engine-media").value;
+      if (!mediaValue) return say("先选一个媒体。", true);
+      el("run").disabled = true;
+      el("stop").disabled = false;
+      el("artifacts").replaceChildren();
+      cursor = 0;
+      try {
+        const started = await rpc("engine.startTask", { mediaId: mediaValue, target: el("target").value });
+        taskId = started.task_id;
+        const snapshot = await follow();
+        if (snapshot.state === "completed") await showArtifacts();
+        else say(`任务${snapshot.state === "cancelled" ? "已取消" : "失败"}。`, snapshot.state !== "cancelled");
+      } catch (error) {
+        say(String(error), true);
+      } finally {
+        el("run").disabled = false;
+        el("stop").disabled = true;
+      }
+    });
+
+    el("stop").addEventListener("click", () => {
+      if (taskId) rpc("engine.cancel", { taskId }).catch((error) => say(String(error), true));
     });
 
     el("ass").addEventListener("click", async () => {
@@ -227,7 +457,13 @@
       el("media").replaceChildren(...(usable.length
         ? usable.map((item) => new Option(item.title, item.id))
         : [new Option("媒体库里还没有带字幕文档的视频", "")]));
+      // 阶段任务不需要现成的字幕文档，它就是用来生成前面几步产物的。
+      const runnable = items.filter((item) => item.available);
+      el("engine-media").replaceChildren(...(runnable.length
+        ? runnable.map((item) => new Option(item.title, item.id))
+        : [new Option("媒体库是空的", "")]));
     }).catch((error) => say(String(error), true));
   </script>
 </body>
+
 </html>

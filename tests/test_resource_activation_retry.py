@@ -1,12 +1,19 @@
-"""Contract for `patches/finesub/0002-retry-directory-publish-rename.patch`.
+"""What a denied publishing rename has to keep doing, upstream or not.
 
 A resource install ends by renaming its staging tree onto the version
 directory, and on Windows that rename is denied while anything still holds a
 handle inside the tree -- the antivirus scan of a freshly unpacked ffmpeg.exe
-is the one users actually hit. Upstream let that `[WinError 5]` end a
-multi-minute install and surfaced it verbatim in the desktop UI.
+is the one users actually hit. A bare `os.replace` lets that `[WinError 5]`
+end a multi-minute install and surfaces it verbatim in the desktop UI.
 
-What the patch has to keep true:
+This used to be the contract for
+`patches/finesub/0002-retry-directory-publish-rename.patch`. Upstream 0.5.0
+took the behaviour (`fsops.ReplaceBudget`, `PUBLISH_REPLACE`,
+`RECORD_REPLACE`) and the patch is gone, so what remains here is a regression
+guard: the promise is Nonoka X's desktop UX, the implementation is now
+upstream's, and a sync that quietly drops it must not pass.
+
+What has to stay true:
 
 - the publishing replace waits the holder out instead of failing on the first
   denial, and the wait is bounded rather than unbounded;
@@ -70,14 +77,14 @@ def test_publishing_rename_waits_out_a_transient_denial(tmp_path, monkeypatch):
     assert (destination / "bin" / "ffmpeg.exe").read_bytes() == b"fixture"
     assert not source.exists()
     assert slept == [
-        pytest.approx(fsops.REPLACE_BACKOFF_SECONDS * attempt) for attempt in (1, 2, 3)
+        pytest.approx(fsops.PUBLISH_REPLACE.backoff_seconds * attempt) for attempt in (1, 2, 3)
     ]
 
 
 def test_the_wait_is_bounded_and_the_original_error_survives(tmp_path, monkeypatch):
     source = tmp_path / "staging"
     source.mkdir()
-    replace, state = _denials(fsops.REPLACE_ATTEMPTS)
+    replace, state = _denials(fsops.PUBLISH_REPLACE.attempts)
     monkeypatch.setattr(fsops.os, "replace", replace)
     slept = _record_sleeps(monkeypatch)
 
@@ -85,9 +92,9 @@ def test_the_wait_is_bounded_and_the_original_error_survives(tmp_path, monkeypat
         fsops.replace_path(source, tmp_path / "final")
 
     assert failure.value.errno == 5
-    assert state["calls"] == fsops.REPLACE_ATTEMPTS
-    assert len(slept) == fsops.REPLACE_ATTEMPTS - 1
-    assert max(slept) <= fsops.REPLACE_BACKOFF_CAP_SECONDS
+    assert state["calls"] == fsops.PUBLISH_REPLACE.attempts
+    assert len(slept) == fsops.PUBLISH_REPLACE.attempts - 1
+    assert max(slept) <= fsops.PUBLISH_REPLACE.cap_seconds
 
 
 def test_the_cross_volume_probe_is_not_retried(tmp_path, monkeypatch):
@@ -152,7 +159,7 @@ def test_a_denied_activation_reaches_the_user_as_something_to_act_on(
     tmp_path, monkeypatch
 ):
     manager, final = _ffmpeg_manager(tmp_path, monkeypatch)
-    replace, _ = _denials(fsops.REPLACE_ATTEMPTS)
+    replace, _ = _denials(fsops.PUBLISH_REPLACE.attempts)
     monkeypatch.setattr(fsops.os, "replace", replace)
     monkeypatch.setattr(fsops.time, "sleep", lambda _: None)
 
@@ -186,7 +193,7 @@ def test_cleanup_cannot_replace_the_diagnosis_with_its_own_error(
     """The handle that denies the rename denies the delete that follows."""
 
     manager, _ = _ffmpeg_manager(tmp_path, monkeypatch)
-    replace, _ = _denials(fsops.REPLACE_ATTEMPTS)
+    replace, _ = _denials(fsops.PUBLISH_REPLACE.attempts)
     monkeypatch.setattr(fsops.os, "replace", replace)
     monkeypatch.setattr(fsops.time, "sleep", lambda _: None)
 
@@ -213,7 +220,7 @@ def test_a_small_record_survives_a_denied_swap_on_a_shorter_budget(
     later write pay the full backoff.
     """
 
-    assert fsops.SMALL_FILE_REPLACE_ATTEMPTS < fsops.REPLACE_ATTEMPTS
+    assert fsops.RECORD_REPLACE.attempts < fsops.PUBLISH_REPLACE.attempts
     replace, state = _denials(2)
     monkeypatch.setattr(fsops.os, "replace", replace)
     slept = _record_sleeps(monkeypatch)
@@ -227,14 +234,14 @@ def test_a_small_record_survives_a_denied_swap_on_a_shorter_budget(
 
 
 def test_a_record_whose_name_stays_locked_still_fails(tmp_path, monkeypatch):
-    replace, state = _denials(fsops.SMALL_FILE_REPLACE_ATTEMPTS)
+    replace, state = _denials(fsops.RECORD_REPLACE.attempts)
     monkeypatch.setattr(fsops.os, "replace", replace)
     _record_sleeps(monkeypatch)
 
     with pytest.raises(PermissionError):
         fsops.write_atomic(tmp_path / "snapshot.json", "{}")
 
-    assert state["calls"] == fsops.SMALL_FILE_REPLACE_ATTEMPTS
+    assert state["calls"] == fsops.RECORD_REPLACE.attempts
     # The half-written temp file is still cleaned up, as it was before.
     assert not (tmp_path / "snapshot.json.tmp").exists()
 

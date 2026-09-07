@@ -12,8 +12,9 @@ it, which lets the desktop store its typed request while the CLI stores the
 TaskRequest-compatible settings it can faithfully replay.
 
 **Do not add fields to an entry, or values a `Literal` does not already
-allow.** The desktop validates each entry into a model that forbids extras, so
-one carrying something it has not heard of is skipped on read and invisible in
+allow.** The desktop validated each entry into a model that forbids extras --
+and an installed 0.4.x desktop still reads this index -- so one carrying
+something it has not heard of is skipped on read and invisible in
 its history. Writing through `merge_write` keeps such an entry -- the merge
 starts from what is on disk, not from what the caller could parse -- but a
 front end old enough to predate this module writes back only what it loaded,
@@ -26,12 +27,12 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping
 import json
 from math import inf
-import os
 from pathlib import Path
 import shutil
 import time
 from typing import Any
 
+from finesub_bootstrap.fsops import RECORD_REPLACE, replace_path
 from finesub_bootstrap.locks import holding_lock
 
 #: Written for the benefit of a reader that might one day need to tell shapes
@@ -163,10 +164,11 @@ def _decode(path: Path, tasks_root: Path | None) -> list[dict]:
 
 
 #: How many times a reader retries a file it could not open, and how long it
-#: waits between attempts. The index is replaced with `os.replace` while the
-#: other front end is possibly reading it, and on Windows that pair collides
-#: for as long as a handle is open -- microseconds, but often enough to matter
-#: when the answer to "could not open it" is "you have no history".
+#: waits between attempts. The index is renamed into place while the other
+#: front end is possibly reading it, and on Windows that pair collides for as
+#: long as a handle is open -- microseconds, but often enough to matter when
+#: the answer to "could not open it" is "you have no history". The writer's
+#: half of the same collision is `fsops.replace_path`'s record budget, below.
 _READ_ATTEMPTS = 3
 _READ_RETRY_SECONDS = 0.02
 
@@ -289,7 +291,9 @@ def merge_write(
             encoding="utf-8",
             newline="\n",
         )
-        os.replace(temporary, path)
+        # The reader retry above only covers `read()`; this is the writer
+        # the same comment describes colliding with it.
+        replace_path(temporary, path, budget=RECORD_REPLACE)
 
 
 def canonical_source(value: str) -> str:

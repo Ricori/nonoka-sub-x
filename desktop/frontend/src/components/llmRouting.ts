@@ -140,30 +140,27 @@ export function routeForTaskGroup(routing: FineSubModelRoutingState, routeID: st
 
 /** 这一格能不能承担音频或视频窗。
  *
- * 本地 CLI 后面没有兜底——引擎侧选定本地 CLI 后就不再挂 API 梯队，所以只看
- * 它自己在打包清单里声明的能力。API 提供商后面仍然跟着打包的 Gemini 候选，
- * 因此手填模型（没有能力声明）或选中的模型本身不支持时，配了 Gemini 付费 Key
- * 就仍然可行——由兜底承担。
+ * 只看这一格自己声明的能力，没有「后面还有谁」这回事。引擎 0.5.0 起，
+ * `[llm.preferred_targets]` 钉住的模型组**替换整条链**，钉不动的调用直接失败
+ * （上游 2026-08-28 的裁定）——所以这里问的就是「选中的这个模型收不收音视频」。
+ * 0.4.2 时代 API 提供商后面还挂着打包的 Gemini 候选，配了付费 Key 就能由兜底
+ * 承担；那条路没有了，判断也就不再看 Key。
  *
- * 只认付费 Key，不认免费池。免费池按模型分别限流，音视频窗要先把整段媒体传上
- * Files API 再让模型读一遍，是所有窗型里最重也最容易被挡的一种：实测一次日语
- * 现场纠错，3.7-flash 与 3.6-flash 连着回 503 UNAVAILABLE、3.5-flash 读超时，
- * 一个窗都没跑完；换个时段重来只是把等待挪到文件上传上。把免费池能选的档位收
- * 到纯文本，是让它做它做得完的事，而不是让用户在几分钟的静默后自己去猜。
+ * 免费池一律不承担音视频窗，这条与能力位无关：免费池按模型分别限流，音视频窗
+ * 要先把整段媒体传上 Files API 再让模型读一遍，是所有窗型里最重也最容易被挡的
+ * 一种。实测一次日语现场纠错，3.7-flash 与 3.6-flash 连着回 503 UNAVAILABLE、
+ * 3.5-flash 读超时，一个窗都没跑完；换个时段重来只是把等待挪到文件上传上。现在
+ * 更没有回旋余地：钉住免费池就没有别人接手，整个任务会停在那里。
  */
 export function routeServesMedia(
   routing: FineSubModelRoutingState,
   routeID: string,
   capability: MediaCapability,
-  geminiPaidConfigured: boolean,
 ): boolean {
   const route = routeForTaskGroup(routing, routeID);
   if (!route.provider || !route.model) return false;
-  // 显式指到免费池这一格时，声明的能力位也不算数：能力位描述的是模型，挡住这
-  // 条路的是它背后的配额。配了付费 Key 才重新放行——那时兜底接得住。
-  if (route.provider === "gemini-free" && !geminiPaidConfigured) return false;
+  if (route.provider === "gemini-free") return false;
   const provider = routing.providers.find((item) => item.id === route.provider);
   if (!provider) return false;
-  const declared = provider.models.find((item) => item.id === route.model)?.[capability] === true;
-  return provider.requiresKey ? declared || geminiPaidConfigured : declared;
+  return provider.models.find((item) => item.id === route.model)?.[capability] === true;
 }

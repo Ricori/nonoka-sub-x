@@ -17,6 +17,8 @@ from ..agent.local_agent import (
     CodexLocalAgentDriver,
     DshDriverConfig,
     DshLocalAgentDriver,
+    WorkBuddyDriverConfig,
+    WorkBuddyLocalAgentDriver,
     local_agent_execution_profiles,
 )
 from .model_routes import DEFAULT_EXECUTION_POLICY, default_model_routes
@@ -32,6 +34,7 @@ LOCAL_CODEX_TIER = "LOCAL_CODEX"
 LOCAL_CLAUDE_TIER = "LOCAL_CLAUDE"
 LOCAL_AGY_TIER = "LOCAL_AGY"
 LOCAL_DSH_TIER = "LOCAL_DSH"
+LOCAL_WORKBUDDY_TIER = "LOCAL_WORKBUDDY"
 
 
 @dataclass(frozen=True)
@@ -46,6 +49,13 @@ class ExecutionSettings:
     # selected model fact maps it. A non-empty value is an explicit global
     # compatibility override for every local Codex call.
     local_agent_reasoning_effort: str = ""
+    # The PHYSICAL ceiling: how many agent CLI processes this machine and
+    # subscription run at once (task-parallelism plan W4). One number for
+    # every driver -- it budgets the machine, not a vendor -- and the shared
+    # slot pool (§1.1) makes it a process-wide fact, not a per-client one.
+    # Distinct from `--llm-parallel-windows` (one task's willingness) and the
+    # batch's `max_parallel_tasks` (admission).
+    local_agent_max_parallel: int = 4
     # No transport switch here on purpose (owner decision 2026-08-22): the
     # transport derives from the cell's `agent_session_mode` and the driver's
     # probe (`agent_transports.agent_transport_for`); `FINESUB_AGENT_TRANSPORT`
@@ -64,6 +74,7 @@ class ExecutionSettings:
             timeout_seconds=self.local_agent_timeout_seconds,
             allow_unisolated_user_config=self.local_agent_allow_unisolated_user_config,
             config_overrides=tuple(overrides),
+            max_parallel=self.local_agent_max_parallel,
         )
 
     def claude_code_driver_config(self, *, model: str) -> ClaudeCodeDriverConfig:
@@ -79,6 +90,25 @@ class ExecutionSettings:
             timeout_seconds=self.local_agent_timeout_seconds,
             allow_unisolated_user_config=self.local_agent_allow_unisolated_user_config,
             effort=self.local_agent_reasoning_effort,
+            max_parallel=self.local_agent_max_parallel,
+        )
+
+    def workbuddy_driver_config(self, *, model: str) -> WorkBuddyDriverConfig:
+        """WorkBuddy's config; effort is a flag, as it is for Claude Code.
+
+        `local_agent_allow_unisolated_user_config` is not passed on: this CLI
+        has no isolated mode to opt out of, so the switch has nothing to turn
+        off here and `required_capabilities` never lists the two bits it
+        relaxes.
+        """
+
+        return WorkBuddyDriverConfig(
+            model=model,
+            timeout_seconds=self.local_agent_timeout_seconds,
+            effort=self.local_agent_reasoning_effort,
+            max_parallel=self.local_agent_max_parallel,
+            output_ceiling_hint=_workbuddy_ceiling_hint(model),
+            fallback_model=_workbuddy_fallback_model(model),
         )
 
     def agy_driver_config(self, *, model: str) -> AgyDriverConfig:
@@ -86,6 +116,7 @@ class ExecutionSettings:
             model=model,
             timeout_seconds=self.local_agent_timeout_seconds,
             effort=self.local_agent_reasoning_effort,
+            max_parallel=self.local_agent_max_parallel,
         )
 
     def dsh_driver_config(self, *, model: str) -> DshDriverConfig:
@@ -103,6 +134,7 @@ class ExecutionSettings:
             timeout_seconds=self.local_agent_timeout_seconds,
             allow_unisolated_user_config=self.local_agent_allow_unisolated_user_config,
             effort=self.local_agent_reasoning_effort,
+            max_parallel=self.local_agent_max_parallel,
         )
 
     def driver_config_for(self, *, provider_tier: str, model: str):
@@ -111,11 +143,46 @@ class ExecutionSettings:
         tier = normalized_tier(provider_tier)
         if tier == LOCAL_CLAUDE_TIER:
             return self.claude_code_driver_config(model=model)
+        if tier == LOCAL_WORKBUDDY_TIER:
+            return self.workbuddy_driver_config(model=model)
         if tier == LOCAL_AGY_TIER:
             return self.agy_driver_config(model=model)
         if tier == LOCAL_DSH_TIER:
             return self.dsh_driver_config(model=model)
         return self.codex_driver_config(model=model)
+
+
+def _workbuddy_fallback_model(model: str) -> str:
+    """The paid twin this row falls back to, or "" for none.
+
+    ⚠ Reaching a non-empty value here is what makes a call able to spend
+    credits, so it is read from the catalog row and from nowhere else.
+    """
+
+    from .model_catalog import get_model_catalog_entry_for_tier
+
+    entry = get_model_catalog_entry_for_tier(model, LOCAL_WORKBUDDY_TIER)
+    if entry is None:
+        return ""
+    return str(entry.fallback_model or "")
+
+
+def _workbuddy_ceiling_hint(model: str) -> int:
+    """This model's real per-turn output ceiling, or 0 to say nothing.
+
+    One row answers both halves: `hint_output_ceiling` says *whether* the
+    worker is told, `max_output_tokens` says *what*. Never written down twice,
+    because a number that does not match reality is measurably worse than
+    silence (`workbuddy_output_ceiling_clause` records the measurement). A
+    model with no row falls back to silence rather than to a guess.
+    """
+
+    from .model_catalog import get_model_catalog_entry_for_tier
+
+    entry = get_model_catalog_entry_for_tier(model, LOCAL_WORKBUDDY_TIER)
+    if entry is None or not entry.hint_output_ceiling:
+        return 0
+    return int(entry.max_output_tokens)
 
 
 def normalized_tier(provider_tier: str) -> str:
@@ -143,6 +210,7 @@ def driver_for_provider_tier(
         LOCAL_CLAUDE_TIER: ClaudeCodeLocalAgentDriver,
         LOCAL_AGY_TIER: AgyLocalAgentDriver,
         LOCAL_DSH_TIER: DshLocalAgentDriver,
+        LOCAL_WORKBUDDY_TIER: WorkBuddyLocalAgentDriver,
     }
     tier = normalized_tier(provider_tier)
     if tier not in drivers:
@@ -153,6 +221,48 @@ def driver_for_provider_tier(
     return drivers[tier](
         settings.driver_config_for(provider_tier=tier, model=model)
     )
+
+
+def default_agent_slot_budgets(settings: ExecutionSettings | None = None) -> tuple:
+    """The in-flight budgets a task with agent demand books against.
+
+    Task-parallelism plan W4: a task whose routing can reach a local agent
+    reserves one mandatory-lane slot ON EVERY vendor pool the chain can reach
+    -- which pool a call actually lands on is decided per attempt, so a
+    reservation on only the first pool covers nothing when the route falls
+    through to a second vendor (reviewer 2026-08-30 P1-1). "Can reach" is
+    decided from the catalog (every policy-allowed ``local_agent`` target in
+    any model group), which over-approximates on purpose: an unused
+    reservation only makes fan-out conservative, while a missing one would
+    let optional claims starve a task's mandatory lane (invariant I1).
+    Pure-API setups (no agent group, or a policy that forbids the backend)
+    get () and stay entirely outside the budgets. Pools are per vendor
+    (`_shared_in_flight_pool` keys on the driver id), so the tuple is one
+    budget per distinct vendor, typically one."""
+
+    effective = settings or load_execution_settings()
+    routes = default_model_routes()
+    policy = routes.policies[effective.policy_id]
+    if "local_agent" not in policy.allowed_backends:
+        return ()
+    budgets: list = []
+    for group_id in sorted(routes.model_groups):
+        for target_id in routes.model_groups[group_id].target_ids:
+            target = routes.targets[target_id]
+            if target.backend != "local_agent":
+                continue
+            fact = routes.target_fact(target_id)
+            try:
+                driver = driver_for_provider_tier(
+                    effective,
+                    provider_tier=fact.provider_tier,
+                    model=fact.api_model_id,
+                )
+            except ValueError:
+                continue
+            if not any(budget is driver._in_flight for budget in budgets):
+                budgets.append(driver._in_flight)
+    return tuple(budgets)
 
 
 def _llm_table() -> tuple[Mapping[str, Any], str]:
@@ -226,6 +336,9 @@ def load_execution_settings() -> ExecutionSettings:
             "low/medium/high/xhigh"
             f"{location}"
         )
+    max_parallel = _int(table, "local_agent_max_parallel", 4, location)
+    if max_parallel < 1:
+        raise ValueError(f"llm.local_agent_max_parallel must be at least 1{location}")
     return ExecutionSettings(
         policy_id=policy_id,
         local_agent_timeout_seconds=timeout,
@@ -234,6 +347,7 @@ def load_execution_settings() -> ExecutionSettings:
         ),
         local_agent_service_tier=service_tier,
         local_agent_reasoning_effort=reasoning,
+        local_agent_max_parallel=max_parallel,
     )
 
 

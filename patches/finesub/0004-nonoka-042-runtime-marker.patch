@@ -1,0 +1,28 @@
+Subject: [PATCH 4/6] Reuse the Nonoka X 0.4.2 managed runtime
+
+FineSub 0.5.0 correctly stops treating lock comments and line endings as
+dependency changes, and accepts the whole-file hashes written by pre-0.5
+markers.  The compatibility set, however, contains the upstream checkout's
+two byte representations.  Nonoka X 0.4.2 shipped the same dependency rows
+with the desktop lock's original generation-command header, so every real
+desktop marker contains a third hash (or its CRLF counterpart).
+
+The dependency-only digest of that released lock is identical to 0.5.0:
+e3bc2eaa6ac6ae0e9172a040c69c777041d8a50dada63caff12511308936e994.
+Accept its two whole-file hashes so an upgrade does not rebuild roughly 5 GB
+and download the unchanged PyTorch wheel again.
+
+diff --git a/src/finesub_bootstrap/environment.py b/src/finesub_bootstrap/environment.py
+--- a/src/finesub_bootstrap/environment.py
++++ b/src/finesub_bootstrap/environment.py
+@@ -332,5 +332,10 @@ _LEGACY_LOCK_FILE_DIGESTS = frozenset({
+     "6dfc839ce1d328fef9426c663c1ab02c03ff739b6c051eb684f59c54759289ec",  # committed bytes (LF)
+     "e56b52fba617d0caa82351e19b06cb91bb07643af11a0a1a7fe50b6854516f43",  # autocrlf working copy (CRLF)
++    # Nonoka X 0.4.2 shipped the same dependency rows with its desktop lock's
++    # original generation-command header.  That packaged file, rather than an
++    # upstream checkout, is what existing desktop markers actually hashed.
++    "86e22beb2c6d2f603547a1147f3cecad2c388e1b43ca37aadf13bd7c6d6280ce",  # packaged 0.4.2 (LF)
++    "fb58922d3725f64e505849877657bec8c96611287da6e4e36795596a17231b4d",  # packaged 0.4.2 (CRLF)
+ })
+ 
+ 

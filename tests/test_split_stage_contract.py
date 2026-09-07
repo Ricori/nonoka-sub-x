@@ -1,12 +1,19 @@
-"""What Nonoka X's FineSub engine patch is allowed to be.
+"""What Nonoka X's FineSub engine patches are allowed to be.
 
 The cloud runs one task across three containers and only the Whisper leg needs
-the GPU, so ``patches/finesub/0001-split-vad-prefix-and-qwen-pass.patch`` makes
-the VAD prefix and the Qwen pass separately runnable. Everything else about the
-cloud is upstream code called with upstream arguments, and the value of that
-claim is exactly the value of this file: it pins the seams the cloud depends on
-*and* pins the patch to being additive, so nothing local can change underneath
-a caller that never opts in.
+the GPU. Upstream 0.5.0 split the VAD half out by itself -- `run_vad_prefix`,
+`write_vad_prefix`/`read_vad_prefix`, `run_vad_asr(vad_prefix_path=...)`, and
+the referee's `warm` seam -- so the CPU container that used to need a patch now
+calls upstream code with upstream arguments. What is still ours is the other
+end: ``patches/finesub/0001-qwen-tail-entry-point.patch`` adds
+`finalize_qwen_verification`, which attaches the referee's evidence to an
+aligned artifact the GPU container already wrote.
+
+Everything else about the cloud is upstream code called with upstream
+arguments, and the value of that claim is exactly the value of this file: it
+pins the seams the cloud depends on -- upstream's and ours alike, because a
+sync can take either away -- *and* pins our patch to being additive, so nothing
+local can change underneath a caller that never opts in.
 
 That claim is about ``src/finesub`` -- the engine both sides import. A patch
 confined to ``src/finesub_bootstrap`` fixes how *this machine* installs the
@@ -27,6 +34,7 @@ VENDOR = ROOT / "third_party" / "finesub"
 PATCH_ROOT = ROOT / "patches" / "finesub"
 STAGE_PATH = VENDOR / "src/finesub/speech/recognition/vad_asr_stage.py"
 REFEREE_PATH = VENDOR / "src/finesub/speech/verification/qwen_referee.py"
+TAIL_PATCH = "0001-qwen-tail-entry-point.patch"
 
 
 def _module(path: Path) -> ast.Module:
@@ -58,34 +66,39 @@ def _touched_paths(patch: Path) -> list[str]:
     )
 
 
-#: Installer files that live outside the bootstrap package. The rule below is
-#: about engine divergence, and `resources/runtime-manifest.json` is not engine
-#: code: it is the catalog the installer downloads binaries from, its only
-#: reader in the vendor tree is `src/finesub_bootstrap/shell.py`, and no
-#: container ever runs it. Listed file by file rather than by directory so a
-#: future `resources/` entry has to be classified on its own merits.
-INSTALLER_PLUMBING_FILES = frozenset({"resources/runtime-manifest.json"})
-
-
 def _is_installer_plumbing(path: str) -> bool:
-    return path.startswith("src/finesub_bootstrap/") or path in INSTALLER_PLUMBING_FILES
+    """Whether a patched file only affects how this machine installs.
+
+    One prefix, and the runtime manifest is inside it since upstream 0.5.0 made
+    it package data: the catalog the installer downloads binaries from now
+    lives at ``src/finesub_bootstrap/runtime-manifest.json``, read there by
+    `finesub_bootstrap.resources`, and no container ever runs it.
+    """
+
+    return path.startswith("src/finesub_bootstrap/")
 
 
-#: Everything the split adds. A cloud container imports these by name, and the
-#: patch's whole job is to put them there.
-ADDED_NAMES = (
-    "PREPARED_VAD_SCHEMA",
-    "prepare_vad_asr",
-    "prepared_vad_matches",
-    "prepared_vad_has_speech",
-    "finalize_qwen_verification",
+#: What the tail patch adds. A cloud container imports it by name, and the
+#: patch's whole job is to put it there.
+ADDED_NAMES = ("finalize_qwen_verification",)
+
+#: Upstream's own split seams, which the cloud's CPU container calls instead of
+#: the ones our patch used to add. Listed here because a sync can retire them
+#: as easily as it introduced them, and the failure would otherwise be a
+#: traceback on the first cloud task rather than a red test.
+UPSTREAM_NAMES = (
+    "VadPrefix",
+    "run_vad_prefix",
+    "write_vad_prefix",
+    "read_vad_prefix",
+    "default_vad_prefix_path",
 )
 
 
 class SplitSeamTests(unittest.TestCase):
     def test_the_stage_exposes_every_seam_the_cloud_calls(self) -> None:
         names = _top_level_names(_module(STAGE_PATH))
-        for name in ADDED_NAMES:
+        for name in (*UPSTREAM_NAMES, *ADDED_NAMES):
             with self.subTest(name=name):
                 self.assertTrue(
                     name in names,
@@ -93,11 +106,11 @@ class SplitSeamTests(unittest.TestCase):
                     f"by name and would fail at the first task.",
                 )
 
-    def test_run_vad_asr_takes_a_prepared_artifact_and_defaults_to_none(self) -> None:
-        """The one existing signature the patch touches.
+    def test_run_vad_asr_takes_a_stored_prefix_and_defaults_to_none(self) -> None:
+        """Upstream's own opt-in, and the reason our half stays small.
 
-        ``None`` is what makes the patch additive: every local run, the CLI and
-        batch reach the untouched block that computes the prefix in-process.
+        ``None`` is what keeps every local run, the CLI and batch on the
+        in-process prefix; the cloud passes the path the CPU container wrote.
         """
 
         functions = {
@@ -108,13 +121,17 @@ class SplitSeamTests(unittest.TestCase):
         arguments = functions["run_vad_asr"].args
         keyword_defaults = dict(zip(arguments.kwonlyargs, arguments.kw_defaults))
         parameter = next(
-            arg for arg in arguments.kwonlyargs if arg.arg == "prepared_path"
+            arg for arg in arguments.kwonlyargs if arg.arg == "vad_prefix_path"
         )
         self.assertIsInstance(keyword_defaults[parameter], ast.Constant)
         self.assertIsNone(keyword_defaults[parameter].value)
 
     def test_the_referee_exposes_the_warm_seam(self) -> None:
-        """`warm` is why the scheduler can preload Qwen beside the GPU stage."""
+        """`warm` is why the scheduler can preload Qwen beside the GPU stage.
+
+        Upstream's since 0.5.0, pinned here for the same reason as
+        `UPSTREAM_NAMES`: the cloud calls it by name.
+        """
 
         classes = {
             node.name: node
@@ -130,72 +147,50 @@ class SplitSeamTests(unittest.TestCase):
 
 
 class PurelyAdditiveTests(unittest.TestCase):
-    """The patch may add; it may not rewrite what local execution runs."""
+    """The stack may add; it may not rewrite what local execution runs."""
 
     def test_engine_patches_are_explicit_and_the_rest_is_installer_plumbing(self) -> None:
         """Every engine patch is named here; all remaining patches are bootstrap-only.
 
         The cloud is meant to run upstream code. A patch under ``src/finesub``
         is a second thing local and cloud no longer share, so it has to be
-        justified in ``docs/engine.md`` before it is added here. One
-        under ``src/finesub_bootstrap`` is not: no container ever runs it, and
-        neither is the installer's resource catalog (see
-        ``INSTALLER_PLUMBING_FILES``).
+        justified in ``docs/engine.md`` before it is added here. One under
+        ``src/finesub_bootstrap`` is not: no container ever runs it.
         """
 
         upstream = json.loads((VENDOR / "UPSTREAM.json").read_text(encoding="utf-8"))
         names = [item["path"] for item in upstream["patches"]]
-        self.assertEqual(names[0], "0001-split-vad-prefix-and-qwen-pass.patch")
+        self.assertEqual(names[0], TAIL_PATCH)
+        # Three engine patches left this table when upstream 0.5.1 took the
+        # work over: the referee's offline load and failure containment, the
+        # live-VRAM placement veto with the verification progress it reports,
+        # and the escaped-tool-argument repair. Nothing replaced them here --
+        # the cloud reaches upstream's implementations now.
         engine_patches = {
-            "0003-desktop-model-routing.patch": [
-                "src/finesub/llm/llm_runtime.py",
-                "src/finesub/llm/routing/model_routes.py",
-            ],
-            "0004-subprocess-text-encoding-and-msvc-include.patch": [
-                "src/finesub/media/ffmpeg.py",
-                "src/finesub/media/source.py",
-                "src/finesub/speech/preprocessing/separator/separator_aoti.py",
-            ],
-            # Data, not code: a catalog row and the two targets that make it
-            # routable. The cloud runs the same declaration, so both sides
-            # still resolve the same target ids.
-            "0005-codex-terra-model.patch": [
-                "src/finesub/llm/routing/model_catalog.psv",
-                "src/finesub/llm/routing/model_routes.toml",
+            TAIL_PATCH: [
+                "src/finesub/speech/recognition/vad_asr_stage.py",
             ],
             # Local-only ground: the driver that launches a CLI on the
             # user's machine. No container ever spawns one, so the two
             # sides still run the same code on every path the cloud takes.
-            "0007-agy-workspace-read-grant.patch": [
+            "0003-agy-workspace-read-grant.patch": [
                 "src/finesub/llm/agent/local_agent.py",
             ],
-            # Reporting only: both add reporter calls (and, in 0009, the
-            # run-level tally one of them reads) without touching a decision.
-            # The cloud runs them too, which is the point -- a truncated answer
-            # or a rate limited provider is exactly as invisible there, and the
-            # two sides still compute the same subtitles from the same inputs.
-            "0009-correction-output-truncation-warning.patch": [
-                "src/finesub/llm/stages/correction/attempts.py",
-                "src/finesub/llm/stages/correction/context.py",
-                "src/finesub/llm/stages/correction/run.py",
+            # Toolchain compatibility on Windows MSVC with C11: Triton's
+            # launcher generator uses empty struct initializers `{}`.
+            "0005-triton-msvc-c11-empty-struct.patch": [
+                "src/finesub/speech/preprocessing/separator/separator_aoti.py",
             ],
-            "0010-provider-call-failure-visibility.patch": [
-                "src/finesub/llm/llm_runtime.py",
-            ],
-            # Reachability, not transcription. Loading pinned local weights
-            # offline and treating a failed evidence pass as missing evidence
-            # change what a run survives, never what it decides: the referee's
-            # output is read the same way when it exists, and the containment
-            # arm only fires where an exception would have ended the run. The
-            # cloud runs this too and wants it -- a container that cannot
-            # reach the hub loses the same alignment pass for the same reason.
-            "0011-qwen-referee-offline-and-nonfatal.patch": [
-                "src/finesub/llm/client.py",
-                "src/finesub/speech/recognition/vad_asr_stage.py",
-                "src/finesub/speech/verification/qwen_referee.py",
+            # Build reachability, not transcription: upstream's toolchain
+            # probe is deliberately Windows-shaped, and the cloud's Linux
+            # containers need it to answer for a POSIX compiler before the
+            # accelerated separator can be compiled at all. What it decides
+            # is whether AOTI compiles, never what the separator outputs.
+            "0006-aoti-posix-compiler.patch": [
+                "src/finesub/speech/preprocessing/separator/separator_aoti.py",
             ],
         }
-        for name in names[1:]:
+        for name in names:
             with self.subTest(patch=name):
                 outside = [
                     path
@@ -207,78 +202,29 @@ class PurelyAdditiveTests(unittest.TestCase):
                 else:
                     self.assertEqual(outside, [])
 
-    def test_the_patch_touches_only_the_two_files_the_split_needs(self) -> None:
+    def test_the_tail_patch_touches_one_file(self) -> None:
         self.assertEqual(
-            _touched_paths(PATCH_ROOT / "0001-split-vad-prefix-and-qwen-pass.patch"),
-            [
-                "src/finesub/speech/recognition/vad_asr_stage.py",
-                "src/finesub/speech/verification/qwen_referee.py",
-            ],
+            _touched_paths(PATCH_ROOT / TAIL_PATCH),
+            ["src/finesub/speech/recognition/vad_asr_stage.py"],
         )
 
-    def test_the_patch_removes_no_statement_it_does_not_re_indent(self) -> None:
-        """Every deleted line of code must reappear, verbatim modulo indent.
+    def test_the_tail_patch_removes_nothing_at_all(self) -> None:
+        """Additive with no exceptions, which upstream 0.5.0 made possible.
 
-        The prefix block moves into an ``else:`` arm, so its lines are removed
-        and re-added one level deeper -- that is the only rewriting allowed. A
-        removed statement with no re-indented twin would mean the patch changed
-        what upstream computes, which is the thing this whole arrangement
-        exists to avoid.
+        The old split patch had to move upstream's prefix block into an
+        ``else:`` arm, so it removed and re-added real statements and this test
+        had to reason about re-indentation. Upstream owns the prefix now, and
+        what is left adds one function: a single removed line would mean the
+        patch had started editing what local execution runs.
         """
 
-        removed, added = self._patch_lines()
-        orphans = [
-            line
-            for line in removed
-            if line and not line.startswith("#") and line not in set(added)
-        ]
-        self.assertEqual(orphans, [])
-
-    def test_the_patch_rewords_no_comment_it_only_re_wraps(self) -> None:
-        """Comments may be re-wrapped by the deeper indent, not rewritten.
-
-        Four extra columns push two of upstream's comment lines past the line
-        length, so they come back split differently. Checked as text with the
-        wrapping collapsed: the words have to be upstream's, in upstream's
-        order, or the patch is editing prose it has no business editing.
-        """
-
-        removed, added = self._patch_lines()
-        added_text = " ".join(
-            line.lstrip("#").strip() for line in added if line.startswith("#")
-        )
-        for block in self._comment_blocks(removed):
-            with self.subTest(comment=block[:40]):
-                self.assertIn(block, added_text)
-
-    @staticmethod
-    def _patch_lines() -> tuple[list[str], list[str]]:
-        patch = (PATCH_ROOT / "0001-split-vad-prefix-and-qwen-pass.patch").read_text(
-            encoding="utf-8", errors="replace"
-        )
+        patch = (PATCH_ROOT / TAIL_PATCH).read_text(encoding="utf-8", errors="replace")
         removed = [
-            line[1:].strip()
+            line
             for line in patch.splitlines()
             if line.startswith("-") and not line.startswith("---")
         ]
-        added = [
-            line[1:].strip()
-            for line in patch.splitlines()
-            if line.startswith("+") and not line.startswith("+++")
-        ]
-        return removed, added
-
-    @staticmethod
-    def _comment_blocks(lines: list[str]) -> list[str]:
-        """Runs of consecutive comment lines, joined into one string each."""
-
-        blocks: list[list[str]] = [[]]
-        for line in lines:
-            if line.startswith("#"):
-                blocks[-1].append(line.lstrip("#").strip())
-            elif blocks[-1]:
-                blocks.append([])
-        return [" ".join(block) for block in blocks if block]
+        self.assertEqual(removed, [])
 
     def test_no_execution_profile_switch_survives_in_the_engine(self) -> None:
         """The retired mechanism, kept retired.

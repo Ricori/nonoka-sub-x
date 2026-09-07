@@ -6,7 +6,8 @@ somewhere the mirror does not control -- here, shipped with the release.
 
 The shipped table describes the three pipeline models, with sizes and digests
 recorded from the official sources on 2026-08-10 and verified end to end in
-the 2026-08-21 release drill. An **unlisted** model still behaves exactly as
+the 2026-08-21 release drill, plus one opt-in alternative (`whisper-ja`, added
+2026-09-02) that no default run fetches. An **unlisted** model still behaves exactly as
 it always did: the owning library downloads it and no extra verification is
 claimed. Shipping invented hashes would be worse than shipping none, because
 a verification that cannot pass gets switched off rather than fixed.
@@ -116,6 +117,26 @@ def entry_for(model_id: str) -> ModelEntry | None:
     return load_manifest().get(model_id)
 
 
+def file_present(path: Path, expected: ManifestFile) -> bool:
+    """Whether `path` is there and the length the manifest promised.
+
+    The cheap half of `file_matches` -- a `stat`, no digest -- and the half
+    that answers "can a loader read this without the network". It rejects the
+    two states that make an offline load fail where a download would have
+    worked: absent, and truncated.
+
+    It cannot answer "is this the right file". Only the digest can, which is
+    why the verification path still hashes.
+    """
+
+    if not expected.is_verifiable:
+        return path.is_file()
+    try:
+        return path.stat().st_size == expected.size
+    except OSError:
+        return False
+
+
 def file_matches(path: Path, expected: ManifestFile) -> bool:
     """Whether `path` is the file the manifest describes.
 
@@ -129,10 +150,7 @@ def file_matches(path: Path, expected: ManifestFile) -> bool:
 
     if not expected.is_verifiable:
         return path.is_file()
-    try:
-        if path.stat().st_size != expected.size:
-            return False
-    except OSError:
+    if not file_present(path, expected):
         return False
     digest = hashlib.sha256()
     with path.open("rb") as source:

@@ -4,7 +4,7 @@ The file is optional, hand-editable and resolved by
 :func:`finesub.paths.resolve_config_file` (source checkout first, then
 the packaged user-data root -- the same order as ``.env``). It holds what a
 user may legitimately want to change *and* what more than one front end reads,
-so the CLI, the pipeline worker and the desktop app all see one answer.
+so the CLI and the pipeline worker see one answer.
 
 This module owns only the generic half -- locating, parsing and memoizing the
 document. Each domain validates its own table: ``finesub.llm.routing.api_keys`` for
@@ -74,7 +74,7 @@ def read_config_with_path(
 
     A cached entry is re-read once the file's mtime/size move, so editing
     ``config.toml`` mid-run still takes effect -- including edits made by hand
-    while the desktop app is running. A *missing* config caches the empty
+    while a run is in flight. A *missing* config caches the empty
     result until :func:`clear_config_cache`; creating the file mid-run is not
     worth a stat of every candidate root on every call.
 
@@ -116,9 +116,10 @@ def read_config(path: str | Path | None = None) -> dict[str, Any]:
 #
 # The accepted range of a shared setting is part of the file's contract, so it
 # lives with the reader rather than with the algorithm that consumes the value:
-# the desktop settings panel has to reject a bad value at write time (it is the
-# only place that can tell the user *why*), and it cannot import the speech
-# stack to find out -- that pulls in torch. What the value then *does* stays in
+# a settings writer (the desktop had one) has to reject a bad value at write
+# time -- the only moment it can tell the user *why* -- and it cannot import
+# the speech stack to find out, since that pulls in torch. What the value then
+# *does* stays in
 # ``speech.postprocessing.segmentation``.
 SPLIT_LENGTH_SCALE_MIN = 0.6
 SPLIT_LENGTH_SCALE_MAX = 1.6
@@ -163,3 +164,64 @@ def config_float(
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise ValueError(f"{section}.{key} must be a number{location}")
     return float(value)
+
+
+def config_str(
+    section: str,
+    key: str,
+    *,
+    path: str | Path | None = None,
+) -> str | None:
+    """One string setting, or ``None`` when it is not in the file.
+
+    Same contract as :func:`config_float` and :func:`config_bool`: absent means
+    "follow the code default". A present-but-blank value is *not* absent -- it
+    is somebody writing "" on purpose, and the domain that owns the key decides
+    what that means.
+    """
+
+    data, config_path = read_config_with_path(path)
+    table = data.get(section)
+    if table is None:
+        return None
+    location = f" in {config_path}" if config_path else ""
+    if not isinstance(table, Mapping):
+        raise ValueError(f"[{section}] must be a TOML table{location}")
+    if key not in table:
+        return None
+    value = table[key]
+    if not isinstance(value, str):
+        raise ValueError(f"{section}.{key} must be a string{location}")
+    return value
+
+
+def config_bool(
+    section: str,
+    key: str,
+    *,
+    path: str | Path | None = None,
+) -> bool | None:
+    """One boolean setting, or ``None`` when it is not in the file.
+
+    Same contract as :func:`config_float`: absent means "follow the code
+    default", so the file stays sparse and a default stays changeable for
+    everyone who never wrote it down.
+
+    Only a real TOML boolean counts. `1` / `"true"` are rejected rather than
+    coerced -- a config file that half-works is worse than one that says what
+    is wrong, and this is the layer that decides whether a switch is on.
+    """
+
+    data, config_path = read_config_with_path(path)
+    table = data.get(section)
+    if table is None:
+        return None
+    location = f" in {config_path}" if config_path else ""
+    if not isinstance(table, Mapping):
+        raise ValueError(f"[{section}] must be a TOML table{location}")
+    if key not in table:
+        return None
+    value = table[key]
+    if not isinstance(value, bool):
+        raise ValueError(f"{section}.{key} must be true or false{location}")
+    return value

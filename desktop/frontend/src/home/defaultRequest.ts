@@ -16,7 +16,8 @@ export function localTaskRequest(entry: MediaEntry): TaskRequest {
     target: "raw-srt",
     language: "ja",
     device: "cuda",
-    gpu_budget_gb: 8,
+    gpu_tier: "auto",
+    separate: true,
     vocal_profile: "quality",
     correction: {
       enabled: false,
@@ -46,7 +47,8 @@ export function cloudTaskRequest(entry: MediaEntry): TaskRequest {
     target: "final-srt",
     language: "ja",
     device: "cuda",
-    gpu_budget_gb: 8,
+    gpu_tier: "auto",
+    separate: true,
     vocal_profile: "cost",
     correction: {
       enabled: true,

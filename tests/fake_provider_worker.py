@@ -36,6 +36,9 @@ def main() -> int:
         sys.stdout.flush()
         sys.stdout.buffer.write("警告：显卡驱动过旧\n".encode("gbk"))
         sys.stdout.buffer.flush()
+    if mode == "onnx-cuda-warning":
+        print("2026-09-04 20:43:44,121 - WARNING - separator - CUDAExecutionProvider not available in ONNXruntime, so acceleration will NOT be enabled", flush=True)
+        print("2026-09-04 20:43:45,000 - INFO - separator - Useful information", flush=True)
     if mode == "encoding-environment":
         emit(
             "log",

@@ -29,6 +29,8 @@
 .downloading .required-dependency-copy > span { color: var(--accent); }
 .required-dependency-copy h3 { margin: 0; color: var(--text); font-size: 14px; letter-spacing: -.02em; }
 .required-dependency-copy p { margin: 0; color: var(--mut); font-size: 11px; line-height: 1.45; }
+.required-dependency-copy .required-dependency-hint { margin: 4px 0 0; overflow-wrap: anywhere; }
+.required-dependency-copy .required-dependency-hint code { padding: 0 3px; border-radius: 3px; background: var(--raised); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10px; }
 .required-dependency-action { display: grid; justify-items: end; gap: 7px; }
 .required-dependency-action small { color: var(--warn); font-size: 11px; font-weight: 600; }
 .ready .required-dependency-action small { color: var(--ok); }

@@ -1,4 +1,4 @@
-"""Contract for `patches/finesub/0008-hf-mirror-disable-xet.patch`.
+"""What a mirrored Hugging Face download has to keep doing.
 
 `huggingface_hub` 1.x downloads through Xet by default, and a Hugging Face
 mirror does not mirror Xet: the metadata it serves still names the official
@@ -7,7 +7,13 @@ metadata request succeeds, so the failure lands at the end of the preparation
 step -- `401 Unauthorized` against a host the mirror never proxied, and no
 model installed at all on a machine routed to `cn`.
 
-What the patch has to keep true:
+This used to be the contract for
+`patches/finesub/0008-hf-mirror-disable-xet.patch`. Upstream 0.5.0 fixed it
+itself (`model_fetch.apply_xet_policy`) and the patch is gone; what remains is
+a regression guard, because the machine that loses this is one Nonoka X routes
+to `cn` and cannot install a single model on.
+
+What has to stay true:
 
 - a mirrored fetch turns Xet off, and an official one does not;
 - a user's own `HF_ENDPOINT` gets the same treatment, since it is a mirror

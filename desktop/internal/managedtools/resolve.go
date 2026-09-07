@@ -89,10 +89,17 @@ func activeVersion(pointer string) string {
 
 // BootstrapPython locates the interpreter Nonoka X installs for itself.
 func BootstrapPython(dataDirectory string) string {
+	return VenvPython(filepath.Join(dataDirectory, "bootstrap", "launcher"))
+}
+
+// VenvPython names the interpreter inside a virtual environment rooted at
+// directory. The bootstrap builds its launcher in a staging directory before
+// moving it into place, so the layout has to be nameable for both.
+func VenvPython(directory string) string {
 	if runtime.GOOS == "windows" {
-		return filepath.Join(dataDirectory, "bootstrap", "launcher", "Scripts", "python.exe")
+		return filepath.Join(directory, "Scripts", "python.exe")
 	}
-	return filepath.Join(dataDirectory, "bootstrap", "launcher", "bin", "python3")
+	return filepath.Join(directory, "bin", "python3")
 }
 
 // YTDLP describes how to invoke yt-dlp: the executable to run, arguments that

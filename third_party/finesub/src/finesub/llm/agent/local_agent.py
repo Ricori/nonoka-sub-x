@@ -20,6 +20,7 @@ import signal
 import subprocess
 import sys
 import tempfile
+import textwrap
 import threading
 import time
 from typing import Any, Callable, Mapping, Sequence
@@ -71,6 +72,14 @@ ENV_ALLOWLIST = frozenset(
         "APPDATA",
         "CODEX_HOME",
         "COMSPEC",
+        # Same kind of name as CODEX_HOME -- where a CLI keeps its own
+        # configuration, not a credential. dsh is the one driver that declares
+        # `user_configuration: "inherited"` precisely because
+        # `$DSH_HOME/settings.yaml` is where its account lives, so stripping
+        # this pointed every call at the default `~/.dsh` while the user's own
+        # `dsh` read somewhere else -- and the plugin warning then named a
+        # directory that was not theirs.
+        "DSH_HOME",
         "LOCALAPPDATA",
         "PATH",
         "PATHEXT",
@@ -291,6 +300,14 @@ You are a FineSub media worker. Use only the supplied media path and return the 
 AGY_SEARCH_TOOL = "search_web"
 AGY_FETCH_TOOL = "read_url_content"
 AGY_NATIVE_AGENT_NAME = "finesub-native"
+#: agy gates `read_url_content` behind a *permission*, separate from the
+#: PreToolUse hook, and headless mode cannot prompt for one -- an ungranted
+#: fetch is auto-denied and takes the whole turn with it. Wildcard rather than
+#: a domain list for the reason the native guard inspects no arguments: once
+#: searching is allowed at all, which page to open is the model's to choose,
+#: and a list would silently break research on every site not on it. Written
+#: into the project's OWN record, never the user's global settings.
+AGY_NATIVE_PERMISSION_RULES: tuple[str, ...] = ("read_url(*)",)
 
 # A **second project**, rooted one level below the runtime domain. The two modes
 # cannot share one: the entitlement lives in the project's `.agents/` tree, so a
@@ -403,6 +420,12 @@ requested result and nothing else.
 # and the server itself decides which of its tools exist.
 AGY_TOOL_PROJECT_DIRNAME = ".finesub-tool-{slot}"
 AGY_TOOL_AGENT_NAME = "finesub-tool"
+# The retrieval-entitled twin of the above, kept a separate project for the
+# same reason the media and native capsule projects are separate: the
+# entitlement *is* the `.agents/` tree, so a slot that served both modes from
+# one project would have to rewrite its own security boundary between calls.
+AGY_TOOL_NATIVE_PROJECT_DIRNAME = ".finesub-tool-native-{slot}"
+AGY_TOOL_NATIVE_AGENT_NAME = "finesub-tool-native"
 # What the harness MCP server is called wherever a CLI names its servers.
 # Not agy's: `mcp_tool_name` has defaulted to it all along, and dsh
 # registers under the same name, so the public tool names match across
@@ -424,6 +447,16 @@ DSH_EFFORT_LEVELS = frozenset({"off", "low", "high", "max"})
 #: -- the adapter has no middle level, and `max` overshoots the abstract top.
 #: `xhigh` is *above* that top, which is exactly what `max` is for.
 DSH_EFFORT_ALIASES = {"medium": "high", "xhigh": "max"}
+#: Where the redirected dsh session log lands, under the capsule's `events/`.
+#: `_normalize` only ever sees the stdout path, and this sits beside it.
+DSH_SESSION_DIRNAME = "dsh-sessions"
+#: dsh's own web tool, as it appears in the transcript. Harness-proxied tools
+#: arrive through MCP and are prefixed, so the bare name is the native one.
+DSH_SEARCH_TOOL = "web_search"
+#: The environment name dsh's search backend looks its own key up under.
+#: Not in SENSITIVE_ENV_NAMES: that list is the harness's own credentials,
+#: which a driver could bill against. This one is the driver's.
+DSH_SEARCH_KEY_ENV = "DEEPSEEK_API_KEY"
 AGY_MCP_CALL_TOOL = "call_mcp_tool"
 
 # The tool project's guard: the finesub MCP server, plus `view_file` on files
@@ -433,7 +466,17 @@ AGY_MCP_CALL_TOOL = "call_mcp_tool"
 # model may not follow (docs/llm_local_agent_agy.md §5), while its own
 # `view_file` reads ~46k bytes a call and resumes by `ContentOffset`, so the
 # blocks are handed to the model as files it reads itself.
-AGY_TOOL_GUARD_SCRIPT = '''from __future__ import annotations
+#
+# One template, two variants (2026-08-30). The tool protocol runs a *second*
+# pair of projects, and until this date only the non-retrieval one existed:
+# every research round -- the calls whose whole job is to look things up --
+# ran on the tool-session transport, where `search_web` fell through to the
+# deny default. agy issued the call, the hook refused it, and the refusal
+# produced no result step at all, so the model quietly carried on with the
+# knowledge base and the harness recorded zero searches. Deriving both
+# variants from one template is what keeps the entitled and unentitled
+# guards from drifting the way the two branches would if written out twice.
+AGY_TOOL_GUARD_TEMPLATE = '''from __future__ import annotations
 
 import json
 import os
@@ -450,11 +493,11 @@ except NameError:  # run as `-c`: no file, no roots
     roots_path = ""
 
 decision = "deny"
-reason = "FineSub denies every native tool except calls on the finesub MCP server and view_file on the task's own files."
+reason = "__AGY_TOOL_DENY_REASON__"
 if name == "__AGY_MCP_CALL_TOOL__" and args.get("ServerName") == "__AGY_MCP_SERVER_NAME__":
     decision = "allow"
     reason = "The finesub MCP server is the task channel for this project."
-elif name == "view_file":
+__AGY_TOOL_RETRIEVAL_BRANCH__elif name == "view_file":
     raw_path = args.get("AbsolutePath")
     reason = "FineSub view_file requires one absolute path under a root this call listed."
     try:
@@ -481,6 +524,30 @@ json.dump({"decision": decision, "reason": reason}, sys.stdout)
     "__AGY_MCP_SERVER_NAME__", MCP_SERVER_NAME
 )
 
+#: No argument inspection for the two retrieval tools, same as the capsule
+#: path's native guard: a query is not a path, and the fetch tool's URL is the
+#: model's to choose once searching is allowed at all.
+AGY_TOOL_RETRIEVAL_BRANCH = f'''elif name in ("{AGY_SEARCH_TOOL}", "{AGY_FETCH_TOOL}"):
+    decision = "allow"
+    reason = "Native retrieval is entitled for this project."
+'''
+
+AGY_TOOL_GUARD_SCRIPT = AGY_TOOL_GUARD_TEMPLATE.replace(
+    "__AGY_TOOL_RETRIEVAL_BRANCH__", ""
+).replace(
+    "__AGY_TOOL_DENY_REASON__",
+    "FineSub denies every native tool except calls on the finesub MCP server "
+    "and view_file on the task's own files.",
+)
+
+AGY_TOOL_NATIVE_GUARD_SCRIPT = AGY_TOOL_GUARD_TEMPLATE.replace(
+    "__AGY_TOOL_RETRIEVAL_BRANCH__", AGY_TOOL_RETRIEVAL_BRANCH
+).replace(
+    "__AGY_TOOL_DENY_REASON__",
+    "FineSub denies every native tool except calls on the finesub MCP server, "
+    "the retrieval tools and view_file on the task's own files.",
+)
+
 AGY_TOOL_AGENT_DOCUMENT = """---
 name: __AGY_TOOL_AGENT_NAME__
 description: FineSub worker that takes and submits its task over the finesub MCP server.
@@ -501,6 +568,37 @@ prompt tells you the order. Do not read any other file and never write files.
 """.replace("__AGY_TOOL_AGENT_NAME__", AGY_TOOL_AGENT_NAME).replace(
     "__AGY_MCP_CALL_TOOL__", AGY_MCP_CALL_TOOL
 ).replace("__AGY_MCP_SERVER_NAME__", MCP_SERVER_NAME)
+
+# The document is advice, not a boundary -- but advice that disagrees with the
+# hook is what produced the silent denial this project kind exists to fix, so
+# the entitled variant says so and the unentitled one keeps saying the
+# opposite.
+AGY_TOOL_NATIVE_AGENT_DOCUMENT = """---
+name: __AGY_TOOL_NATIVE_AGENT_NAME__
+description: FineSub worker that takes its task over the finesub MCP server and may search the web.
+tools:
+  - __AGY_MCP_CALL_TOOL__
+  - view_file
+  - __AGY_SEARCH_TOOL__
+  - __AGY_FETCH_TOOL__
+mainAgent: true
+subagent: false
+inheritMcp: true
+mcpServers:
+  - __AGY_MCP_SERVER_NAME__
+commandExecutionPolicy: sandbox
+---
+
+You are a FineSub worker. Take and submit your task through the `finesub` MCP
+server, and read with `view_file` only the exact file paths a task names; the
+task prompt tells you the order. You may also use __AGY_SEARCH_TOOL__ and
+__AGY_FETCH_TOOL__ to look up facts the task asks about. Do not read any other
+file and never write files.
+""".replace("__AGY_TOOL_NATIVE_AGENT_NAME__", AGY_TOOL_NATIVE_AGENT_NAME).replace(
+    "__AGY_MCP_CALL_TOOL__", AGY_MCP_CALL_TOOL
+).replace("__AGY_MCP_SERVER_NAME__", MCP_SERVER_NAME).replace(
+    "__AGY_SEARCH_TOOL__", AGY_SEARCH_TOOL
+).replace("__AGY_FETCH_TOOL__", AGY_FETCH_TOOL)
 # `mcpServers` is what makes a custom agent see the project's servers at all
 # (measured 2026-08-21, agy 1.1.17): with `tools` alone the turn ran empty --
 # zero tokens, no server spawned -- and `inheritMcp` by itself did not help.
@@ -573,6 +671,15 @@ class AgentDriverConfig:
 
     command: tuple[str, ...] = ()
     model: str = ""
+    # The CLI release this driver's behaviour was last verified against.
+    # Advisory only -- `driver_readiness` warns below it and still uses the
+    # driver, because a pin that gated would turn "the user has not upgraded
+    # yet" into "no target on this machine". Deliberately NOT part of
+    # execution identity: `local_agent_execution_profiles` keeps probe
+    # results out on purpose (they describe this machine today, not the
+    # contract a checkpoint was produced under), so this is provenance --
+    # `driver_version` already rides every attempt record.
+    min_version: str = ""
     timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS
     max_result_bytes: int = DEFAULT_MAX_RESULT_BYTES
     max_event_bytes: int = DEFAULT_MAX_EVENT_BYTES
@@ -611,6 +718,8 @@ class AgentDriverConfig:
 @dataclass(frozen=True)
 class CodexDriverConfig(AgentDriverConfig):
     command: tuple[str, ...] = ("codex",)
+    # `codex --version` -> "codex-cli 0.147.0" (owner's machine, 2026-09-02).
+    min_version: str = "0.147.0"
     config_overrides: tuple[str, ...] = ()
     # How much of a tool result Codex shows the model (`tool_output_token_limit`,
     # owner-verified 2026-08-22). Passed as a `-c` override on a tool session
@@ -625,6 +734,8 @@ class CodexDriverConfig(AgentDriverConfig):
 @dataclass(frozen=True)
 class ClaudeCodeDriverConfig(AgentDriverConfig):
     command: tuple[str, ...] = ("claude",)
+    # `claude --version` -> "2.1.231 (Claude Code)" (owner's machine, 2026-09-02).
+    min_version: str = "2.1.231"
     # Effort is the vendor's own word for the thinking knob, so the catalog's
     # abstract level maps straight onto `--effort` without a translation table.
     effort: str = ""
@@ -642,8 +753,55 @@ class ClaudeCodeDriverConfig(AgentDriverConfig):
 
 
 @dataclass(frozen=True)
+class WorkBuddyDriverConfig(AgentDriverConfig):
+    """WorkBuddy's bundled CodeBuddy Code CLI, a fork of Claude Code.
+
+    Same `stream-json` dialect and the same `mcp__<server>__<tool>` naming, so
+    the event path is shared. What it does *not* have is the isolation half:
+    no `--safe-mode`, no `--ignore-rules`, no `--disable-slash-commands`
+    (verified against the 2.137.1 bundle, 2026-09-04). The isolation this
+    driver can promise is therefore the capsule's fresh cwd plus the exact
+    `--tools` set, and `completion_requirements` says so rather than claiming
+    guarantees the CLI does not offer.
+    """
+
+    command: tuple[str, ...] = ("codebuddy",)
+    # `codebuddy --version` -> "2.137.1", bare (owner's machine, 2026-09-04).
+    # No vendor name in the string, unlike the other four.
+    min_version: str = "2.137.1"
+    # `--effort` takes minimal/low/medium/high/xhigh/max, a superset of the
+    # abstract levels, so the catalog's identity mapping reaches it unchanged
+    # and there is no alias table to keep in execution identity.
+    effort: str = ""
+    # This model's real per-turn output ceiling, stated in the tool-session
+    # bootstrap; 0 says nothing. Comes from the catalog row's
+    # `hint_output_ceiling` switch and is never written here.
+    output_ceiling_hint: int = 0
+    # The paid twin to hand this session to when the free line stops
+    # answering, sent as `--fallback-model`; blank means "no fallback".
+    #
+    # ⚠ **Sending it spends credits.** Only the catalog says which rows have
+    # one (`fallback_model`), and only two do -- see that column.
+    fallback_model: str = ""
+    # Claude Code's idle window, kept until this fork is measured on its own.
+    conversation_ttl_seconds: float = 3600.0
+    # `MAX_MCP_OUTPUT_TOKENS` is honoured under its Claude Code name (the fork
+    # reads the same variable). This is a **prerequisite, not a safety net**:
+    # measured 2026-09-04 with a 147,034-character `next_task` reply, the stock
+    # cap replaced the whole payload with "Error: result (147,034 characters)
+    # exceeds maximum allowed tokens. Output has been saved to <path>" and the
+    # worker -- which is entitled to no file tool -- could only answer that it
+    # never saw the task. At 200,000 the same reply arrived whole and the call
+    # completed. The file-read twin (`CODEBUDDY_CODE_FILE_READ_MAX_OUTPUT_
+    # TOKENS`) is deliberately not set: no call here entitles a file tool.
+    mcp_output_tokens: int = 200_000
+
+
+@dataclass(frozen=True)
 class AgyDriverConfig(AgentDriverConfig):
     command: tuple[str, ...] = ("agy",)
+    # `agy --version` -> "1.1.24" (owner's machine, 2026-09-02).
+    min_version: str = "1.1.24"
     effort: str = ""
     project_setup_timeout_seconds: int = 45
     # Owner-observed idle window (2026-08-14), matching the vendor analysis'
@@ -681,6 +839,10 @@ class DshDriverConfig(AgentDriverConfig):
     """
 
     command: tuple[str, ...] = ("dsh",)
+    # `dsh --version` -> "0.1.1-rc.2" (owner's machine, 2026-09-02). A
+    # prerelease, so the comparison has to order `0.1.1` *above* it rather
+    # than treating the shorter string as older.
+    min_version: str = "0.1.1-rc.2"
     profile: str = "headless"
     # No flag of dsh's own: the thinking knob is a field on whichever model
     # plugin serves the route, so it goes down the patch like the rest.
@@ -706,6 +868,10 @@ class DshDriverConfig(AgentDriverConfig):
     # `tool-fs` stays -- read-only under the sandbox, and the way a block is
     # read when it is handed over as a file. `tool-web` is handled separately
     # because native search needs it.
+    #
+    # This is a DENY list, and a deny list only bounds a bundle it has seen:
+    # anything the user installs, or a dsh upgrade adds, is enabled by
+    # default. `expected_plugin_ids` below is what notices that.
     disabled_tool_plugins: tuple[str, ...] = (
         "tool-bash",
         "tool-pwsh",
@@ -717,6 +883,67 @@ class DshDriverConfig(AgentDriverConfig):
         "tool-todo",
         "tool-goal",
         "tool-skill",
+        # A second, write-capable editor, while this driver's declared
+        # entitlement is `tool-fs_read`. Leaving it loaded relied on the
+        # permission mode declining the call -- the weaker form the comment
+        # above says removing the plugin avoids. Measured 2026-09-02 (v4f,
+        # asked to list its tools): with it loaded the model is offered
+        # `str_replace_editor`, without it that name is gone.
+        "tool-str-replace-editor",
+        # Measured the same way: these five names, and nothing else, leave the
+        # model's tool list when these four plugins go, and the call still
+        # answers. `tool-fs-search` gives `glob`/`grep` -- read-only, but the
+        # blocks a call needs are handed to it by path, so searching the disk
+        # is not part of the job. The three `tool-subagent-*` helpers give
+        # `interrupt_agent`/`list_agents`/`send_message`, which are vestigial
+        # with `tool-subagent` and `tool-subagent-fork` already off.
+        "tool-fs-search",
+        "tool-subagent-control",
+        "tool-subagent-list-agents",
+        "tool-subagent-report",
+        # NOT denied, and each for a measured reason:
+        #   `commands`, `command-*` -- contribute no model-facing tool at all
+        #     (denying them changed the list by nothing), and compaction has a
+        #     job to do on a long window;
+        #   `plan-mode` -- offers `exit_plan_mode`; harmless, and the agent
+        #     loop's relationship to it is unmeasured;
+        #   `tools`, `fs-sandbox`, `tool-result-pruner`,
+        #     `fs-observation-policy`, `workflow-worker-thread` -- the registry
+        #     and the guards, not tools.
+    )
+    # Deny every composed plugin the snapshot below does not list, turning
+    # the deny list into an allowlist for anything nobody has vetted. The
+    # failure mode is the honest one: should a dsh upgrade add a plugin the
+    # *runtime* needs, this disables it and the driver breaks loudly, which
+    # is recoverable by re-taking the snapshot -- where letting it through
+    # would change how calls behave with nothing to see. Set False to keep
+    # only the explicit list.
+    deny_unknown_plugins: bool = True
+    # Every plugin id the verified bundle composes for this profile -- dsh
+    # 0.1.1-rc.2, `--dump-config`, 2026-09-02. With the flag above, this is
+    # the allowlist; without it, only the visibility a deny list cannot give.
+    expected_plugin_ids: tuple[str, ...] = (
+        "agent", "agent-default-model", "agent-instructions", "agent-loop",
+        "approval", "attachment-local", "bash-sandbox", "code-runtime",
+        "command-compact", "command-feedback", "command-goal", "commands",
+        "compaction-basic", "credentials", "fs-observation-policy",
+        "fs-sandbox", "goal", "goal-round-driver", "headless-runner",
+        "headless-startup", "hmr", "jobs", "llm", "llm-deepseek", "llm-pi-ai",
+        "llm-retry", "permission", "plan-mode", "pwsh-sandbox",
+        "repeat-tool-reminder", "sandbox", "sandbox-policy", "session",
+        "session-checkpoint-policy", "session-persistence-jsonl",
+        "session-projection", "session-query-sqlite", "session-telemetry-otel",
+        "session-title", "session-title-llm", "settings", "shell-env", "skill",
+        "skill-badge", "skill-filesystem", "spill-local", "spill-policy",
+        "subagent", "subagent-fork-in-process", "subagent-spawn-in-process",
+        "subprocess", "system-prompt", "timeout-policy", "timer", "token-meter",
+        "tool-bash", "tool-fs", "tool-fs-search", "tool-goal", "tool-jobs",
+        "tool-pwsh", "tool-ralph", "tool-result-pruner", "tool-skill",
+        "tool-str-replace-editor", "tool-subagent", "tool-subagent-control",
+        "tool-subagent-fork", "tool-subagent-list-agents",
+        "tool-subagent-report", "tool-todo", "tool-web", "tool-workflow",
+        "tools", "typert", "typert-gateway", "typert-loader", "user-questions",
+        "web", "web-search-deepseek", "workflow-worker-thread",
     )
     # dsh reads `$DSH_HOME/settings.yaml` for its provider routes and its
     # credential references, so unlike the other three there is no "ignore the
@@ -1105,6 +1332,77 @@ def _sanitized_environment() -> dict[str, str]:
     return env
 
 
+#: Where the WorkBuddy desktop app keeps the Node build it launches its CLI
+#: with, and the file naming the version directory in use. Consulted only as a
+#: fallback: the PATH shim names an interpreter too, but it hard-codes a
+#: version directory that an app update renames (observed 2026-09-04: the shim
+#: still pointed at `22.22.2` while the installed build was `22.22.2-2`), so a
+#: resolver that trusted it alone would break on every Node bump.
+#: Resolved lazily: this module is imported by `routing.execution_policy`, and
+#: `Path.home()` raises when it cannot determine a home directory -- an import
+#: that dies on a service account with no HOME would take the whole router with
+#: it, for a path only the Windows resolver ever reads.
+def _workbuddy_node_versions() -> Path:
+    return Path.home() / ".workbuddy" / "binaries" / "node" / "versions"
+#: The CLI entry script inside the desktop app, relative to the install root.
+_WORKBUDDY_CLI_ENTRY = Path("resources/app.asar.unpacked/cli/bin/codebuddy")
+
+
+def _workbuddy_entry_script(executable: str) -> Path | None:
+    """The CLI's Node entry script, found the way the vendor's own shim does.
+
+    The shim on PATH (`~/.workbuddy/bin/codebuddy`) is a **bash** script with
+    no extension, so `shutil.which` finds something this driver can neither
+    execute on Windows nor accept -- reaching a CLI through a shell is what the
+    resolver exists to prevent. The shim's second quoted path is the entry
+    script, and reading it out beats hard-coding an install directory that
+    moves with the desktop app. The default install root is the fallback for a
+    machine whose PATH never got the shim.
+    """
+
+    shim = shutil.which(executable)
+    if shim:
+        try:
+            text = Path(shim).read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            text = ""
+        for quoted in re.findall(r'"([^"]+)"', text):
+            candidate = Path(quoted)
+            if candidate.name.lower().startswith("codebuddy") and candidate.is_file():
+                return candidate
+    local_app_data = os.environ.get("LOCALAPPDATA")
+    if local_app_data:
+        default = Path(local_app_data) / "Programs" / "WorkBuddy" / _WORKBUDDY_CLI_ENTRY
+        if default.is_file():
+            return default
+    return None
+
+
+def _workbuddy_node() -> str | None:
+    """A real `node.exe` to run the CLI entry script with.
+
+    The app's own Node comes first -- it is the build the vendor tests against
+    -- read through `versions/current` rather than a pinned directory name. A
+    system Node is the fallback, and the CLI runs on one (measured 2026-09-04:
+    identical `--version` output under the bundled 22.22.2 and a PATH 22.20.0).
+    """
+
+    try:
+        current = (_workbuddy_node_versions() / "current").read_text(
+            encoding="utf-8"
+        ).strip()
+    except OSError:
+        current = ""
+    if current:
+        bundled = _workbuddy_node_versions() / current / "node.exe"
+        if bundled.is_file():
+            return str(bundled.resolve())
+    found = shutil.which("node.exe") or shutil.which("node")
+    if found and Path(found).suffix.lower() == ".exe":
+        return str(Path(found).resolve())
+    return None
+
+
 def _resolve_shell_free_command(command: Sequence[str]) -> tuple[str, ...] | None:
     if not command:
         return None
@@ -1159,6 +1457,19 @@ def _resolve_shell_free_command(command: Sequence[str]) -> tuple[str, ...] | Non
             node = shutil.which("node.exe") or shutil.which("node")
             if entry.is_file() and node and Path(node).suffix.lower() == ".exe":
                 return (str(Path(node).resolve()), str(entry), *command[1:])
+    if (
+        os.name == "nt"
+        and Path(executable).stem.lower() == "codebuddy"
+        and resolved is None
+    ):
+        # WorkBuddy ships its CLI inside the desktop app rather than as an npm
+        # package, and puts a bash shim on PATH. Same shell-free spelling as
+        # dsh's -- interpreter plus entry script -- but both halves are found
+        # rather than configured, because an app update moves either one.
+        entry = _workbuddy_entry_script(executable)
+        node = _workbuddy_node() if entry else None
+        if entry and node:
+            return (node, str(entry.resolve()), *command[1:])
     if os.name == "nt" and resolved is None and not Path(executable).suffix:
         resolved = shutil.which(executable + ".exe")
     if resolved is None:
@@ -1374,6 +1685,95 @@ def _extract_query(item: Mapping[str, Any]) -> str:
     return ""
 
 
+def _dsh_session_rows(session_root: Path) -> list[dict[str, Any]]:
+    """dsh's own session transcript -> shared event rows.
+
+    dsh prints only the final answer, so this driver long declared that it
+    observes no tool events. It does: the persistence plugin writes every
+    `tool/call` and `tool/result` -- with arguments, results and reasoning --
+    to a JSONL log, which `_patch_entries` redirects into the capsule and
+    leaves uncompressed. Measured 2026-08-30, that log is what showed dsh's
+    native search failing on a missing credential rather than going unused.
+
+    Absent or unreadable is not an error: the answer already succeeded, and a
+    transcript the plugin never wrote is a thinner audit trail, not a failed
+    call.
+    """
+
+    if not session_root.is_dir():
+        return []
+    logs = sorted(session_root.glob("*/session-*/session.jsonl"))
+    rows: list[dict[str, Any]] = []
+    for log in logs:
+        try:
+            text = log.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        pending: dict[str, dict[str, Any]] = {}
+        for line in text.splitlines():
+            if not line.strip():
+                continue
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(event, Mapping):
+                continue
+            kind = str(event.get("type") or "")
+            data = event.get("data")
+            if not isinstance(data, Mapping):
+                continue
+            if kind == "tool/call":
+                name = str(data.get("name") or "")
+                call_id = str(data.get("callId") or "")
+                row: dict[str, Any] = {
+                    "event": "tool_use",
+                    "step_type": "tool",
+                    "state": "DONE",
+                    "tool": name,
+                }
+                if name == DSH_SEARCH_TOOL:
+                    # `queries` is a list on this tool; the shared row shape
+                    # carries one string, so they are joined rather than
+                    # dropped or silently truncated to the first.
+                    arguments: Any = data.get("arguments")
+                    if isinstance(arguments, str):
+                        try:
+                            arguments = json.loads(arguments)
+                        except json.JSONDecodeError:
+                            arguments = {}
+                    queries = (
+                        arguments.get("queries")
+                        if isinstance(arguments, Mapping)
+                        else None
+                    )
+                    if isinstance(queries, Sequence) and not isinstance(queries, (str, bytes)):
+                        row["query"] = " | ".join(str(item) for item in queries)
+                    elif isinstance(arguments, Mapping):
+                        row["query"] = str(arguments.get("query") or "")
+                    row["event"] = "item.completed"
+                    row["item_type"] = "web_search"
+                    row["urls"] = []
+                    if call_id:
+                        pending[call_id] = row
+                rows.append(row)
+            elif kind == "tool/result":
+                message = data.get("message")
+                call_id = ""
+                if isinstance(message, Mapping):
+                    source = message.get("source")
+                    if isinstance(source, Mapping):
+                        call_id = str(source.get("callId") or "")
+                row = pending.pop(call_id, None) if call_id else None
+                if row is not None:
+                    # Sources come from the result payload; a failed search
+                    # simply has none, and the row stays with an empty list
+                    # rather than being dropped -- "searched and got nothing"
+                    # and "never searched" are different facts.
+                    row["urls"] = _harvest_urls(data)
+    return rows
+
+
 def _normalize_events(
     raw_path: Path,
     *,
@@ -1478,6 +1878,47 @@ def _normalize_events(
 # boundary; `--allowed-tools` separately grants permission without expanding
 # that boundary.
 CLAUDE_SEARCH_TOOLS: frozenset[str] = frozenset({"WebFetch", "WebSearch"})
+# WorkBuddy's fork ships both names, but only one of them can run unattended.
+# Measured 2026-09-04 (codebuddy 2.137.1, deepseek-v4-flash): `WebSearch`
+# returns real results with no approval channel involved, while every
+# `WebFetch` call comes back as "Permission to use WebFetch has been denied
+# because this tool requires approval but permission prompts are not available
+# in non-interactive mode" -- including with the tool named in `--allowedTools`.
+# Entitling it anyway would buy nothing but a wasted turn, so the entitlement
+# says what a call can actually do.
+WORKBUDDY_SEARCH_TOOLS: frozenset[str] = frozenset({"WebSearch"})
+
+#: The bootstrap sentence a row switches on with `hint_output_ceiling`.
+#:
+#: Measured 2026-09-04 on one real 79-line correction window at `high` effort,
+#: four hint variants per model, which is why the switch is per row and off by
+#: default rather than a driver-wide behaviour:
+#:
+#: - `glm-5.3-flash` -- **rescued by it**, but only with the true ceiling.
+#:   Unstated, or stated as 64000 against its real 32000, it wrote one 40k-token
+#:   block and hit the 28-minute deadline twice; told 32000 it checkpointed
+#:   (`next_task -> read_context x2 -> pull_status -> submit`) and finished in 707s.
+#: - `deepseek-v4-flash` -- **no effect at any number**. Unstated, 64000, its
+#:   true 50000 (where it did call `pull_status` once) and a halved 25000 all
+#:   timed out, and its thinking blocks stayed 134k-139k characters throughout.
+#:   That length is the model's own reasoning volume for the task; it is not
+#:   drawn towards whatever ceiling it is told about.
+#: - `hy3` -- unaffected either way, which is what makes the clause safe to
+#:   offer rather than merely helpful.
+#:
+#: The number is never written down twice: the row says *whether*, and the same
+#: row's `max_output_tokens` says *what*. A wrong one is worse than none.
+def workbuddy_output_ceiling_clause(ceiling: int) -> str:
+    """The bootstrap sentence for a model on the allowlist above."""
+
+    return (
+        f" Each turn you produce is capped at about {ceiling} output tokens, "
+        "and your reasoning counts against that same cap. If one stretch of "
+        "reasoning or output runs long enough to come near it, stop and call "
+        "pull_status once, then continue: a tool call ends the turn and starts "
+        "a fresh output budget, so nothing you have decided is lost. Never let "
+        "a turn end by running into the cap."
+    )
 
 
 def _codex_mcp_server_override(mcp_server: Mapping[str, Any]) -> str:
@@ -1518,6 +1959,12 @@ def claude_entitled_tools(native_search: bool) -> frozenset[str]:
     """The exact Claude built-in tool set available to this call."""
 
     return CLAUDE_SEARCH_TOOLS if native_search else frozenset()
+
+
+def workbuddy_entitled_tools(native_search: bool) -> frozenset[str]:
+    """The exact WorkBuddy built-in tool set available to this call."""
+
+    return WORKBUDDY_SEARCH_TOOLS if native_search else frozenset()
 
 
 #: dsh's contract facts are read off its config defaults rather than
@@ -1566,6 +2013,42 @@ def local_agent_execution_profiles() -> dict[str, dict[str, Any]]:
             },
             "sandbox": "named_tool_allowlist",
         },
+        "LOCAL_WORKBUDDY": {
+            "driver_id": "codebuddy",
+            # Its own version, not Claude Code's: the two share a dialect but
+            # not a contract, and a fork that drifts must invalidate its own
+            # checkpoints rather than the parent's.
+            "protocol_version": "codebuddy-stream-json-v1",
+            "configuration": {
+                "session": "no_persistence",
+                "events": "stream-json",
+                # The one thing this fork cannot do that its parent can. Left
+                # visible in identity because a checkpoint produced here was
+                # produced under a weaker isolation claim: no `--safe-mode`,
+                # no `--ignore-rules`, and `--setting-sources ""` does not
+                # reach rule files. What keeps them out is the fresh capsule
+                # cwd, which is a property of the transport, not the CLI.
+                "user_configuration": "inherited",
+                "policy_enforcement": "exact_builtin_toolset_plus_tool_use_audit",
+                # Not a knob: with deferral on, the tools a call entitles are
+                # not the tools the model is offered, so this is part of what
+                # the toolset below means.
+                "tool_deferral": "disabled",
+                # Whether a worker is told its own per-turn output ceiling is
+                # a per-row switch (`hint_output_ceiling`), so it rides
+                # `routing_identity_digest` with the rest of the catalog and
+                # has nothing to add here. What this driver contributes is
+                # only that it honours the column, which is code.
+            },
+            "toolset": {
+                "completion": [],
+                # `WebFetch` is offered by the CLI and refused by its own
+                # permission layer in non-interactive mode, so it is not here:
+                # this list is what a call can do, not what it is shown.
+                "native": sorted(WORKBUDDY_SEARCH_TOOLS),
+            },
+            "sandbox": "named_tool_allowlist",
+        },
         "LOCAL_AGY": {
             "driver_id": "agy",
             "protocol_version": "agy-stream-json-v1",
@@ -1586,6 +2069,23 @@ def local_agent_execution_profiles() -> dict[str, dict[str, Any]]:
                 ),
                 "native_agent_document_sha256": _sha256(
                     AGY_NATIVE_AGENT_DOCUMENT.encode("utf-8")
+                ),
+                # The tool protocol's own pair, recorded for the same reason:
+                # they are what a tool-session call may touch, and until
+                # 2026-08-30 only the unentitled one existed, so `native`
+                # research rounds ran with search denied while the identity
+                # claimed the toolset below.
+                "tool_guard_script_sha256": _sha256(
+                    AGY_TOOL_GUARD_SCRIPT.encode("utf-8")
+                ),
+                "tool_agent_document_sha256": _sha256(
+                    AGY_TOOL_AGENT_DOCUMENT.encode("utf-8")
+                ),
+                "tool_native_guard_script_sha256": _sha256(
+                    AGY_TOOL_NATIVE_GUARD_SCRIPT.encode("utf-8")
+                ),
+                "tool_native_agent_document_sha256": _sha256(
+                    AGY_TOOL_NATIVE_AGENT_DOCUMENT.encode("utf-8")
                 ),
             },
             "toolset": {
@@ -1624,12 +2124,44 @@ def local_agent_execution_profiles() -> dict[str, dict[str, Any]]:
                 "disabled_tool_plugins": sorted(
                     _DSH_IDENTITY.disabled_tool_plugins
                 ),
+                # The POLICY, not the resolved set: which ids this machine
+                # ended up disabling today is a machine fact, and stays out
+                # for the same reason probe results do. The policy has two
+                # halves and BOTH belong here -- the switch, and the snapshot
+                # it allows against. Re-taking the snapshot can turn a
+                # previously denied plugin into an allowed one, which is a
+                # toolset change; without it in identity an uncommitted
+                # checkpoint would resume under a tool surface it was not
+                # produced under. Digested rather than listed: eighty-odd ids
+                # would ride every assignment state file, and only equality
+                # is ever asked of them.
+                "deny_unknown_plugins": _DSH_IDENTITY.deny_unknown_plugins,
+                "expected_plugins": {
+                    "count": len(_DSH_IDENTITY.expected_plugin_ids),
+                    "sha256": hashlib.sha256(
+                        "\n".join(
+                            sorted(_DSH_IDENTITY.expected_plugin_ids)
+                        ).encode("utf-8")
+                    ).hexdigest(),
+                },
             },
             "toolset": {
                 # Nothing of the vendor's is entitled for a completion call
                 # beyond the read side of `tool-fs`, which is how a block is
                 # read when it is handed over as a file; native adds dsh's own
                 # web search.
+                #
+                # "Entitled" is narrower than "offered", and measured
+                # 2026-09-02: `dsh-tool-fs` ships `read`/`read_image`/`write`/
+                # `edit` as one plugin with no read-only option, so the model
+                # is offered the write pair and cannot be un-offered them
+                # without losing the read path. Asked to write a file under
+                # `DSH_PERMISSION_MODE=read-only`, v4f was refused by the
+                # sandbox, tried to escalate, found no approval channel in
+                # headless, and answered REFUSED -- no file appeared. So the
+                # entitlement below is what a call can actually do; the
+                # offered surface is `edit, exit_plan_mode, read, read_image,
+                # write`.
                 "completion": ["tool-fs_read"],
                 "native": ["tool-fs_read", "tool-web"],
             },
@@ -1680,7 +2212,44 @@ def _claude_tool_result_blocks(message: Mapping[str, Any]) -> list[Mapping[str, 
     ]
 
 
-def _claude_usage(payload: Mapping[str, Any]) -> dict[str, Any]:
+@dataclass(frozen=True)
+class _StreamJsonDialect:
+    """What differs between two CLIs that speak the same `stream-json`.
+
+    Claude Code and its fork emit the identical record shapes, so the parse,
+    the entitlement audit and the terminal-record checks are one
+    implementation. Only these three facts vary, and each of them is a
+    measurement rather than a preference.
+    """
+
+    #: How the vendor is named in violations and errors.
+    vendor: str
+    #: `usage["source"]` on the artifact, i.e. which stream the numbers came from.
+    usage_source: str
+    #: Whether `system.init`'s `tools` is the set this call may actually use.
+    #: True for Claude Code, where `--tools` *is* the announced set. False for
+    #: WorkBuddy, which announces its whole built-in registry regardless of
+    #: `--tools` and enforces the restriction when a tool is invoked
+    #: (measured 2026-09-04, codebuddy 2.137.1) -- auditing the announcement
+    #: there would raise a leak warning on every single call.
+    audit_announced_tools: bool
+
+
+CLAUDE_STREAM_JSON = _StreamJsonDialect(
+    vendor="Claude Code",
+    usage_source="claude_code_result_event",
+    audit_announced_tools=True,
+)
+WORKBUDDY_STREAM_JSON = _StreamJsonDialect(
+    vendor="WorkBuddy",
+    usage_source="workbuddy_result_event",
+    audit_announced_tools=False,
+)
+
+
+def _claude_usage(
+    payload: Mapping[str, Any], *, source: str = "claude_code_result_event"
+) -> dict[str, Any]:
     """Flatten the result event's usage into the shape artifacts expect."""
 
     raw = payload.get("usage")
@@ -1693,12 +2262,162 @@ def _claude_usage(payload: Mapping[str, Any]) -> dict[str, Any]:
         "cache_creation_input_tokens": int(
             raw.get("cache_creation_input_tokens") or 0
         ),
-        "source": "claude_code_result_event",
+        "source": source,
     }
     cost = payload.get("total_cost_usd")
     if isinstance(cost, (int, float)):
         usage["total_cost_usd"] = float(cost)
     return usage
+
+
+def _stream_json_error_text(event: Mapping[str, Any]) -> str:
+    """The diagnostic a failing `result` record carries.
+
+    Claude Code puts it in `result`, where the answer would otherwise be.
+    WorkBuddy leaves `result` absent on failure and carries `errors` (strings)
+    plus `errors_info` (`{status, code, category, details}`) instead, so
+    reading only `result` there would record an empty reason and leave
+    `_classify_stream_failure` with nothing to classify (measured 2026-09-04:
+    a bad `--model` arrives as `errors_info[0].category == "auth"` with the
+    supported-model list in `details`).
+    """
+
+    direct = str(event.get("result") or "").strip()
+    if direct:
+        return direct
+    parts: list[str] = []
+    errors = event.get("errors")
+    if isinstance(errors, Sequence) and not isinstance(errors, (str, bytes)):
+        parts.extend(str(item).strip() for item in errors if str(item).strip())
+    if not parts:
+        infos = event.get("errors_info")
+        if isinstance(infos, Sequence) and not isinstance(infos, (str, bytes)):
+            for info in infos:
+                if isinstance(info, Mapping):
+                    detail = str(info.get("details") or "").strip()
+                    if detail:
+                        parts.append(detail)
+    return "; ".join(parts)
+
+
+def _stream_json_error_facts(event: Mapping[str, Any]) -> dict[str, Any]:
+    """The typed half of a failing terminal record, when the CLI emits one.
+
+    Claude Code emits neither key, so this is empty there. WorkBuddy carries
+    `errors_info: [{status, code, category, details}]`; the **code** is the
+    vendor's business code and the only one of the three that distinguishes a
+    spent allowance from a rate limit (see `_workbuddy_quota_exhausted`).
+    """
+
+    infos = event.get("errors_info")
+    if not isinstance(infos, Sequence) or isinstance(infos, (str, bytes)):
+        return {}
+    categories: list[str] = []
+    statuses: list[int] = []
+    codes: list[int] = []
+    for info in infos:
+        if not isinstance(info, Mapping):
+            continue
+        category = str(info.get("category") or "").strip().lower()
+        if category and category not in categories:
+            categories.append(category)
+        status = info.get("status")
+        if isinstance(status, int) and not isinstance(status, bool):
+            if status not in statuses:
+                statuses.append(status)
+        # The CLI writes this field from `typeof code === "string" | "number"`,
+        # so a digit string is the same fact as the integer -- its own
+        # `normalizeBizCode` folds them together before looking the code up.
+        code = info.get("code")
+        if isinstance(code, str) and code.strip().isdigit():
+            code = int(code.strip())
+        if isinstance(code, int) and not isinstance(code, bool) and code > 0:
+            if code not in codes:
+                codes.append(code)
+    facts: dict[str, Any] = {}
+    if categories:
+        facts["error_categories"] = categories
+    if statuses:
+        facts["error_statuses"] = statuses
+    if codes:
+        facts["error_codes"] = codes
+    return facts
+
+
+#: Business codes that mean the allowance is spent for the day.
+#:
+#: The CLI's `ServerErrorCode` enum (bundle 2.137.1) names its rate band by
+#: window, and the band's own names are the whole answer::
+#:
+#:     6000 CraftRateLimit    6001 TPS  6002 TPM  6003 TPH  6004 TPD
+#:                            6005 RPS  6006 RPM  6007 RPH  6008 RPD
+#:
+#: so the line that matters is **per day vs per shorter window**, not tokens vs
+#: requests. `6004` (tokens/day) is what the exhausted `hy4-preview` returned;
+#: `6008` is the same statement about request count. The CLI splits them the
+#: same way and for the same reason -- `isCraftDailyQuotaBusinessCode` is
+#: exactly `{6004, 6008}`, and `isRequestLevelRetryableError` refuses to retry
+#: on it while retrying everything `isTransientRateLimitBusinessCode` covers.
+_WORKBUDDY_DAILY_QUOTA_CODES = frozenset(
+    {
+        6004,  # CraftRateTPDLimit
+        6008,  # CraftRateRPDLimit
+        # `UsageLimit*` exhausted, the CLI's own non-retryable set.
+        14001,  # UsageLimitExceeded
+        14012,  # UsageLimitExceededEnterprise
+        14013,  # UsageLimitExceededTencent
+        14014,  # UsageLimitEnterpriseExhausted
+        14018,  # UsageLimitUserExhausted
+    }
+)
+
+#: Business codes whose `quota` label means *slow down*, not *you are out*.
+#:
+#: The rate band minus the two daily codes, which is `isTransientRateLimit\
+#: BusinessCode` restated, plus `14003 RateLimitError` (the one code it adds
+#: from outside the band).
+#:
+#: The last two are ours, not the CLI's -- it places them in neither set.
+#: `10105 ConversationLimitExceeded` is too many concurrent conversations, and
+#: `15001 WebSearchRateLimit` is the *web search* allowance; neither says this
+#: model line has stopped answering, and freezing it for two hours over either
+#: is the expensive direction under docs/llm_local_agent.md §11.1.
+_WORKBUDDY_RATE_LIMIT_CODES = frozenset({6000, 6001, 6002, 6003}) | frozenset(
+    {6005, 6006, 6007, 14003, 10105, 15001}
+)
+
+
+def _workbuddy_quota_exhausted(row: Mapping[str, Any]) -> bool:
+    """Whether a failing `result` row says the model line has no allowance left.
+
+    Measured 2026-09-04 (`hy4-preview`, free daily allowance spent): HTTP 429,
+    `code: 6004`, `category: "quota"`, text naming the reset time and telling
+    the user to switch models.
+
+    ⚠ **`category` is not independent evidence**, which this read as until
+    2026-09-04. The function that builds `errors_info` for the stream
+    (`ResultMessageUtils.extractStructuredErrorInfo`) derives the label from
+    the status alone -- `429 -> "quota"`, `401/403 -> "auth"` -- and never
+    calls the classifier that knows the code table. So `category == "quota"`
+    *is* `status == 429` restated, and treating either as the answer froze the
+    line for two hours on a plain rate limit.
+
+    The code is the one field carrying more than the status does, so the two
+    sets above answer first and everything else keeps the 429 rule -- including
+    an unrecognised code, which is what the vendor's own fallback does with a
+    429 it cannot place (`quota_balance_exhausted`).
+    """
+
+    codes = tuple(row.get("error_codes") or ())
+    # Stated before the 429 rule rather than through it: a daily code is the
+    # answer whatever status carried it.
+    if any(code in _WORKBUDDY_DAILY_QUOTA_CODES for code in codes):
+        return True
+    if codes and all(code in _WORKBUDDY_RATE_LIMIT_CODES for code in codes):
+        return False
+    categories = row.get("error_categories") or ()
+    statuses = row.get("error_statuses") or ()
+    return "quota" in tuple(categories) or 429 in tuple(statuses)
 
 
 def _normalize_claude_events(
@@ -1708,7 +2427,41 @@ def _normalize_claude_events(
     max_bytes: int,
     extra_entitled: frozenset[str] = frozenset(),
 ) -> tuple[list[dict[str, Any]], dict[str, Any], list[str], str]:
-    """Claude Code `--output-format stream-json` -> the shared event rows.
+    """Claude Code `--output-format stream-json` -> the shared event rows."""
+
+    return _normalize_stream_json_events(
+        raw_path,
+        dialect=CLAUDE_STREAM_JSON,
+        entitled=claude_entitled_tools(native_search) | extra_entitled,
+        max_bytes=max_bytes,
+    )
+
+
+def _normalize_workbuddy_events(
+    raw_path: Path,
+    *,
+    native_search: bool,
+    max_bytes: int,
+    extra_entitled: frozenset[str] = frozenset(),
+) -> tuple[list[dict[str, Any]], dict[str, Any], list[str], str]:
+    """WorkBuddy `--output-format stream-json` -> the shared event rows."""
+
+    return _normalize_stream_json_events(
+        raw_path,
+        dialect=WORKBUDDY_STREAM_JSON,
+        entitled=workbuddy_entitled_tools(native_search) | extra_entitled,
+        max_bytes=max_bytes,
+    )
+
+
+def _normalize_stream_json_events(
+    raw_path: Path,
+    *,
+    dialect: _StreamJsonDialect,
+    entitled: frozenset[str],
+    max_bytes: int,
+) -> tuple[list[dict[str, Any]], dict[str, Any], list[str], str]:
+    """A Claude-family `--output-format stream-json` stream -> event rows.
 
     The dialect differs from Codex's (`system/assistant/user/result` records
     rather than `item.*` envelopes), but the checks are the same ones: exactly
@@ -1717,15 +2470,16 @@ def _normalize_claude_events(
     the point of the call.
     """
 
+    vendor = dialect.vendor
     if raw_path.stat().st_size > max_bytes:
         raise LocalAgentPolicyViolationError(
-            f"Claude Code event stream exceeds {max_bytes} bytes"
+            f"{vendor} event stream exceeds {max_bytes} bytes"
         )
     try:
         raw_text = raw_path.read_bytes().decode("utf-8")
     except UnicodeDecodeError as exc:
         raise LocalAgentPolicyViolationError(
-            f"Claude Code event stream is not UTF-8 at byte {exc.start}"
+            f"{vendor} event stream is not UTF-8 at byte {exc.start}"
         ) from exc
 
     normalized: list[dict[str, Any]] = []
@@ -1735,9 +2489,12 @@ def _normalize_claude_events(
     final_message_line = 0
     terminal_line = 0
     terminal_count = 0
-    # The harness's own MCP tools are entitled by name for a tool-protocol
-    # call; they are not search tools, so they get a plain `tool_use` row.
-    entitled = claude_entitled_tools(native_search) | extra_entitled
+    # `entitled` already carries the harness's own MCP tools for a
+    # tool-protocol call; they are not search tools, so they get a plain
+    # `tool_use` row rather than a search one.
+    harness_tools = frozenset(
+        name for name in entitled if str(name).startswith("mcp__")
+    )
     # tool_use id -> the row it produced, so the result message can fill in
     # the URLs the call itself does not carry.
     search_rows_by_id: dict[str, dict[str, Any]] = {}
@@ -1761,10 +2518,20 @@ def _normalize_claude_events(
 
         if event_type == "system":
             row["subtype"] = str(event.get("subtype") or "")
+            # Whoever actually answered. `system.init` reports the model the
+            # session opened with and the assistant messages report the one
+            # that produced them, so a mid-session switch (a fallback model
+            # taking over) is visible by comparing the two.
+            announced = str(event.get("model") or "").strip()
+            if announced:
+                row["model"] = announced
             offered = event.get("tools")
             if isinstance(offered, Sequence) and not isinstance(offered, (str, bytes)):
                 offered_names = sorted(str(name) for name in offered)
                 row["tools"] = offered_names
+                if not dialect.audit_announced_tools:
+                    normalized.append(row)
+                    continue
                 # A tripwire for CLI contract drift, not the primary guard.
                 # `--tools` supplies the exact built-in set, while this audit
                 # also covers MCP naming/entitlement changes and makes any
@@ -1776,6 +2543,9 @@ def _normalize_claude_events(
         elif event_type == "assistant":
             message = event.get("message")
             if isinstance(message, Mapping):
+                answered_by = str(message.get("model") or "").strip()
+                if answered_by:
+                    row["model"] = answered_by
                 text = _claude_text_from_message(message)
                 if text.strip():
                     final_content = text
@@ -1793,7 +2563,7 @@ def _normalize_claude_events(
                             {"event": "tool_use", "tool": tool_name}
                         )
                         continue
-                    if tool_name in extra_entitled:
+                    if tool_name in harness_tools:
                         normalized.append({"event": "tool_use", "tool": tool_name})
                         continue
                     row_for_tool = {
@@ -1833,7 +2603,7 @@ def _normalize_claude_events(
             terminal_line = line_number
             row["subtype"] = str(event.get("subtype") or "")
             row["terminal_reason"] = str(event.get("terminal_reason") or "")
-            usage = _claude_usage(event)
+            usage = _claude_usage(event, source=dialect.usage_source)
             if usage:
                 row["usage"] = usage
             denials = event.get("permission_denials")
@@ -1843,25 +2613,26 @@ def _normalize_claude_events(
                 if denials:
                     row["permission_denials"] = len(denials)
             if event.get("is_error"):
-                # `result` doubles as the failure channel: an auth failure or a
-                # provider error arrives here with is_error, and the `result`
-                # string is the diagnostic rather than an answer.
-                row["error"] = str(event.get("result") or "")[:1000]
+                # The terminal record doubles as the failure channel: an auth
+                # failure or a provider error arrives here with is_error, and
+                # the diagnostic takes the place of an answer.
+                row["error"] = _stream_json_error_text(event)[:1000]
+                row.update(_stream_json_error_facts(event))
                 violations.append(
-                    "Claude Code terminated with an error result: "
-                    + str(event.get("terminal_reason") or "unknown")
+                    f"{vendor} terminated with an error result: "
+                    + str(event.get("terminal_reason") or event.get("subtype") or "unknown")
                 )
                 final_content = ""
         normalized.append(row)
 
     if terminal_count != 1:
         violations.append(
-            "Claude Code event stream requires exactly one result event; "
+            f"{vendor} event stream requires exactly one result event; "
             f"got {terminal_count}"
         )
     if final_message_line and terminal_line <= final_message_line:
         violations.append(
-            "Claude Code result event did not follow the final assistant message"
+            f"{vendor} result event did not follow the final assistant message"
         )
     return normalized, usage, violations, final_content
 
@@ -2101,6 +2872,107 @@ def driver_meets_requirements(
 _READINESS_REPORTED: set[tuple[str, str]] = set()
 _READINESS_LOCK = threading.Lock()
 
+# The first dotted number in a `--version` line, with an optional prerelease
+# tail. The four CLIs print four shapes -- "codex-cli 0.147.0",
+# "2.1.231 (Claude Code)", "1.1.24", "0.1.1-rc.2" -- and this is the one
+# pattern that reads all of them without a per-vendor parser.
+_CLI_VERSION_RE = re.compile(r"\d+(?:\.\d+)+(?:-[0-9A-Za-z.]+)?")
+
+#: (release numbers, prerelease rank) -- ordered by plain tuple comparison.
+_VersionKey = tuple[tuple[int, ...], tuple[Any, ...]]
+
+
+def _cli_version_key(text: str) -> _VersionKey | None:
+    """A comparable key for a CLI version string, or None if unreadable.
+
+    Semver precedence, because one of the pins is a prerelease: a release
+    outranks any prerelease of the same numbers (`0.1.1` > `0.1.1-rc.2`), and
+    prerelease identifiers compare numerically when they are numbers.
+    """
+
+    match = _CLI_VERSION_RE.search(text or "")
+    if not match:
+        return None
+    core, _, pre = match.group(0).partition("-")
+    try:
+        release = tuple(int(part) for part in core.split("."))
+    except ValueError:  # pragma: no cover -- the pattern only matches digits
+        return None
+    if not pre:
+        # (1,) sorts above the (0, ...) of any prerelease of the same release.
+        return release, (1,)
+    identifiers = tuple(
+        (0, int(part), "") if part.isdigit() else (1, 0, part)
+        for part in pre.split(".")
+    )
+    return release, (0, identifiers)
+
+
+def _cli_version_is_older(reported: _VersionKey, minimum: _VersionKey) -> bool:
+    reported_release, reported_pre = reported
+    minimum_release, minimum_pre = minimum
+    width = max(len(reported_release), len(minimum_release))
+    # Pad so "1.2" and "1.2.0" compare equal rather than the shorter reading
+    # as older.
+    left = reported_release + (0,) * (width - len(reported_release))
+    right = minimum_release + (0,) * (width - len(minimum_release))
+    if left != right:
+        return left < right
+    return reported_pre < minimum_pre
+
+
+
+def _warn_readiness_once(
+    driver: "LocalAgentDriver", kind: str, message: str, *, impact: str
+) -> None:
+    """One warning per driver and kind for the life of the process."""
+
+    key = (str(getattr(driver, "driver_id", type(driver).__name__)), kind)
+    with _READINESS_LOCK:
+        first = key not in _READINESS_REPORTED
+        _READINESS_REPORTED.add(key)
+    if not first:
+        return
+    name = str(getattr(driver, "display_name", key[0]))
+    current_reporter().warning(f"agent-cli-{kind}", f"{name}: {message}", impact=impact)
+
+
+def _warn_stale_cli(driver: "LocalAgentDriver", probe: DriverProbe) -> None:
+    """Warn when the installed CLI is older than the pin, or unreadable.
+
+    The unreadable case warns too, and that is the point of it: a vendor that
+    changes its `--version` format would otherwise switch this check off
+    silently, leaving a guard that is green because it stopped looking.
+    """
+
+    # Read defensively, like `driver_readiness` reads `driver_id`: plenty of
+    # call sites hand this a duck-typed stand-in whose `config` is not an
+    # `AgentDriverConfig`, and an advisory check is the last thing that should
+    # turn those into errors.
+    minimum = str(getattr(driver.config, "min_version", "") or "")
+    if not minimum:
+        return
+    pinned = _cli_version_key(minimum)
+    if pinned is None:  # pragma: no cover -- a bad pin is a source-level bug
+        return
+    reported = _cli_version_key(probe.version)
+    if reported is None:
+        _warn_readiness_once(
+            driver,
+            "version-unreadable",
+            f"cannot read a version out of {probe.version!r}; "
+            f"the {minimum} pin is not being checked",
+            impact="a CLI older than this driver was verified against would go unnoticed",
+        )
+        return
+    if _cli_version_is_older(reported, pinned):
+        _warn_readiness_once(
+            driver,
+            "stale",
+            f"{probe.version.strip()!r} is older than the pinned {minimum}",
+            impact="this driver's behaviour was verified on a newer CLI; upgrade if it misbehaves",
+        )
+
 
 def driver_readiness(
     driver: "LocalAgentDriver", *, native_search: bool = False
@@ -2115,6 +2987,16 @@ def driver_readiness(
     candidate never leaves the chain silently and an installed-but-broken CLI
     reads differently from an absent one. The detail string is for the route
     decision trace; a probe that raises counts as ``broken``.
+
+    A probe-clean driver can still warn without losing the verdict, for the
+    things that describe how the CLI will behave rather than whether it runs:
+    ``stale`` and ``version-unreadable`` (the ``min_version`` pin,
+    `_warn_stale_cli`), ``plugin-drift`` and friends from
+    `LocalAgentDriver.check_environment`, and ``environment-uncheckable``
+    when that hook itself raises. `check_environment` can also *answer* with
+    a reason, which lands as ``unusable`` -- it is for a condition under
+    which the driver cannot serve one call, and staying in the chain would
+    only spend a ``backend_unavailable`` per window to rediscover it.
     """
 
     try:
@@ -2123,8 +3005,32 @@ def driver_readiness(
         kind, detail = "broken", f"probe raised {type(exc).__name__}: {exc}"
     else:
         if driver.meets_requirements(probe, native_search=native_search):
-            return True, ""
-        if probe.available:
+            # Advisory, and deliberately after the requirement check: these
+            # describe how the CLI will behave, not whether it runs, so they
+            # warn and leave the verdict ready.
+            _warn_stale_cli(driver, probe)
+            # Absent on a duck-typed stand-in, which is a missing check rather
+            # than a failing one -- the `except` below is for a real
+            # implementation that breaks, and should not fire for every test
+            # double in the tree. A check that raises is a bug in the check,
+            # so it warns and lets the driver through; only a check that
+            # *answers* with a reason takes the driver out.
+            check = getattr(driver, "check_environment", None)
+            blocker = ""
+            if check is not None:
+                try:
+                    blocker = check() or ""
+                except Exception as exc:  # noqa: BLE001 -- a broken check must not gate
+                    _warn_readiness_once(
+                        driver,
+                        "environment-uncheckable",
+                        f"{type(exc).__name__}: {exc}",
+                        impact="an advisory check did not run; the driver is still used",
+                    )
+            if not blocker:
+                return True, ""
+            kind, detail = "unusable", blocker
+        elif probe.available:
             kind = "unusable"
             detail = (
                 "the installed CLI lacks a capability this call needs"
@@ -2134,18 +3040,270 @@ def driver_readiness(
         else:
             kind = probe.failure_kind or "broken"
             detail = probe.error or "probe reported unavailable"
-    key = (str(getattr(driver, "driver_id", type(driver).__name__)), kind)
-    with _READINESS_LOCK:
-        first = key not in _READINESS_REPORTED
-        _READINESS_REPORTED.add(key)
-    if first:
-        name = str(getattr(driver, "display_name", key[0]))
-        current_reporter().warning(
-            f"agent-cli-{kind}",
-            f"{name}: {detail}",
-            impact="its model targets are skipped on this machine",
-        )
+    _warn_readiness_once(
+        driver, kind, detail, impact="its model targets are skipped on this machine"
+    )
     return False, f"{kind}: {detail}"
+
+
+# --- process-level slot pools (task-parallelism plan §1.1) -------------------
+#
+# A slot pool guards a PHYSICAL resource, so it is keyed by that resource and
+# shared by every driver instance naming it -- never per driver instance.
+# Drivers are built per client and a correction run builds its own client
+# (`client._local_agent_drivers` is an instance dict), so per-instance pools
+# silently multiplied `max_parallel` by the number of live clients; for agy
+# they additionally had two drivers write the same `.finesub-tool-0` project
+# (mcp_config.json / view_roots.json are rewritten per invocation), wiring one
+# task's CLI to another task's MCP server -- cross-task contamination.
+
+_SLOT_POOL_GUARD = threading.Lock()
+#: driver_id -> the in-flight budget of that vendor's CLI + subscription.
+#: ONE pool per vendor, whatever model a call names (reviewer 2026-08-30
+#: P1-1: keying on a config digest -- which carries the model id -- handed
+#: every model of one subscription its own max_parallel). The limit is fixed
+#: by whichever config builds the pool first; the config surface is the one
+#: `[llm] local_agent_max_parallel`, so drivers of one vendor agree -- a
+#: mismatch is reported, not honoured.
+_IN_FLIGHT_POOLS: dict[str, "AgentSlotBudget"] = {}
+#: normcased domain root -> the `.finesub-tool-<slot>` project pool under it.
+_TOOL_SLOT_POOLS: dict[str, "_ToolSlotPool"] = {}
+
+
+class AgentSlotBudget:
+    """One physical CLI pool's in-flight budget, reservation-aware (plan W4).
+
+    Three-state accounting: ``held`` (a CLI slot in use), ``reserved`` (a
+    task's mandatory-lane backstop -- capacity promised but no process yet),
+    ``free = limit - held - reserved``. Reservations are what keeps a task's
+    必得 lane from starving behind other tasks' optional fan-out (invariant
+    I1): optional claims and untracked callers draw from ``free`` only.
+
+    The driver enters this object around every episode (``with
+    self._in_flight``). A thread whose context carries an active claim on
+    this budget (`run_context.current_slot_claim`) is already accounted --
+    the claim holds the slot for the whole window, calls inside it are
+    covered; anything else (pseudo supervisors without a token, standalone
+    stages, tests) blocks for a free slot exactly as the old semaphore did,
+    minus the reserved capacity it must not eat.
+    """
+
+    def __init__(self, limit: int) -> None:
+        if int(limit) < 1:
+            raise ValueError("max_parallel must be positive")
+        self.limit = int(limit)
+        self._cond = threading.Condition()
+        self.held = 0
+        self.reserved = 0
+        # Per-thread entry stack: __exit__ must know whether the matching
+        # __enter__ was covered by a claim or holds a free slot of its own.
+        self._entries = threading.local()
+
+    # -- inspection -----------------------------------------------------
+
+    def snapshot(self) -> dict[str, int]:
+        with self._cond:
+            return {
+                "limit": self.limit,
+                "held": self.held,
+                "reserved": self.reserved,
+                "free": self.limit - self.held - self.reserved,
+            }
+
+    def free(self) -> int:
+        with self._cond:
+            return self.limit - self.held - self.reserved
+
+    # -- reservations (the mandatory lane's backstop, I1) ---------------
+
+    def reserve(self, timeout: float | None = None) -> bool:
+        """Book capacity for a task's mandatory lane; False on timeout."""
+
+        deadline = None if timeout is None else time.monotonic() + timeout
+        with self._cond:
+            while self.limit - self.held - self.reserved <= 0:
+                remaining = None if deadline is None else deadline - time.monotonic()
+                if remaining is not None and remaining <= 0:
+                    return False
+                self._cond.wait(remaining)
+            self.reserved += 1
+            return True
+
+    def retire_reservation(self, claim: Any) -> None:
+        """Settle a task's reservation at its end.
+
+        Deactivates the claim; the reservation is released only if no covered
+        call currently holds it (``claim.redeemed``) -- else that call's exit
+        releases the slot straight to free (a pseudo CLI outliving the close
+        grace is exactly this case, and used to crash the teardown here)."""
+
+        with self._cond:
+            claim.active = False
+            if claim.redeemed <= 0:
+                if self.reserved <= 0:
+                    raise RuntimeError("retire_reservation without a live reservation")
+                self.reserved -= 1
+            self._cond.notify_all()
+
+    # -- the driver's call-time face ------------------------------------
+
+    def _stack(self) -> list[Any]:
+        stack = getattr(self._entries, "stack", None)
+        if stack is None:
+            stack = []
+            self._entries.stack = stack
+        return stack
+
+    def __enter__(self) -> "AgentSlotBudget":
+        from .. import run_context  # lazy: avoid import cycles at module load
+
+        claims = run_context.current_slot_claim()
+        # The task carries one claim per budget of its chain; the call is
+        # covered only by THIS pool's claim -- a reservation on another
+        # vendor's pool says nothing about this one (reviewer 2026-08-30 P1-1).
+        claim = claims.claim_for(self) if claims is not None else None
+        if claim is not None and claim.active:
+            with self._cond:
+                if claim.active and claim.redeemed <= 0 and self.reserved > 0:
+                    # The mandatory lane redeems its reservation: never blocks
+                    # (the reservation guaranteed capacity -- plan W4).
+                    if self.held >= self.limit:
+                        raise RuntimeError(
+                            "slot budget inconsistent: a reservation exists but "
+                            "every slot is held -- accounting and the pool have "
+                            "diverged"
+                        )
+                    self.reserved -= 1
+                    self.held += 1
+                    claim.redeemed += 1
+                    self._stack().append(claim)
+                    return self
+                # The reservation is already redeemed elsewhere (a pseudo host
+                # holds it for the run): this covered call takes a free slot.
+                while self.limit - self.held - self.reserved <= 0:
+                    self._cond.wait()
+                self.held += 1
+                self._stack().append(None)
+                return self
+        with self._cond:
+            while self.limit - self.held - self.reserved <= 0:
+                self._cond.wait()
+            self.held += 1
+        self._stack().append(None)
+        return self
+
+    def __exit__(self, *exc_info: Any) -> None:
+        claim = self._stack().pop()
+        with self._cond:
+            self.held -= 1
+            if claim is not None:
+                claim.redeemed -= 1
+                if claim.active:
+                    # Swing back (the reviewer round-2 fix: without it, I1
+                    # only protected the first window).
+                    self.reserved += 1
+                # Task already ended: its teardown left the reservation to
+                # this exit, which releases the slot straight to free.
+            self._cond.notify_all()
+
+
+def _shared_in_flight_pool(driver_id: str, config: "AgentDriverConfig") -> AgentSlotBudget:
+    with _SLOT_POOL_GUARD:
+        pool = _IN_FLIGHT_POOLS.get(driver_id)
+        if pool is None:
+            pool = AgentSlotBudget(int(config.max_parallel))
+            _IN_FLIGHT_POOLS[driver_id] = pool
+        elif pool.limit != int(config.max_parallel):
+            current_reporter().debug(
+                "agent-slot-pool-limit",
+                {
+                    "driver": driver_id,
+                    "pool_limit": pool.limit,
+                    "requested": int(config.max_parallel),
+                },
+            )
+        return pool
+
+
+class _ToolSlotPool:
+    """The slot numbers of one domain root's tool projects.
+
+    The slot names a directory (`.finesub-tool-<slot>`), so uniqueness must
+    hold across every driver instance resolving to the same domain root."""
+
+    def __init__(self) -> None:
+        self.cond = threading.Condition()
+        self.in_use: set[int] = set()
+
+    def acquire(self, limit: int) -> int:
+        with self.cond:
+            while True:
+                for slot in range(max(1, limit)):
+                    if slot not in self.in_use:
+                        self.in_use.add(slot)
+                        return slot
+                self.cond.wait()
+
+    def release(self, slot: int) -> None:
+        with self.cond:
+            self.in_use.discard(slot)
+            self.cond.notify_all()
+
+
+def _shared_tool_slot_pool(domain_root: Path) -> _ToolSlotPool:
+    key = os.path.normcase(str(Path(domain_root).resolve()))
+    with _SLOT_POOL_GUARD:
+        return _TOOL_SLOT_POOLS.setdefault(key, _ToolSlotPool())
+
+
+#: Attempts already spoken for, so one episode is one line.
+#:
+#: `finish_attempt` runs more than once per episode on purpose: it stamps the
+#: record when the output pumps close, and again once usage has been parsed.
+#: The ledger wants that (the second pass carries `usage`); the log does not --
+#: 2026-09-03's rehearsal printed every agy call twice, 17 ms apart, with the
+#: same episode id. Keyed on episode + start rather than on the dict, because
+#: the dict is the artifact and must not grow a private field.
+_REPORTED_ATTEMPTS: set[tuple[str, str]] = set()
+
+#: Bounded so a long batch cannot grow this without limit; an episode is only
+#: ever finalised a few milliseconds apart, so a small window is plenty.
+_REPORTED_ATTEMPTS_LIMIT = 512
+
+
+def _report_attempt(
+    attempt: dict[str, Any], driver: str, episode_id: str
+) -> dict[str, Any]:
+    """Say one line about a finished CLI attempt, and hand the record back.
+
+    The agent-backed half of "one line per model call", the other being
+    `llm_runtime._record_api_attempt`, and the same discipline: status and a
+    one-line description, never the prompt or the answer -- the full text is
+    already written per call under the task's `exchanges/`, and a second copy
+    would bloat the one file that exists to be small enough to send.
+
+    Returns its argument so the caller can report and return in one statement:
+    every attempt in `_run_episode` closes through one `finish_attempt`, and
+    keeping it that way is worth more than the line it saves.
+    """
+
+    key = (episode_id, str(attempt.get("started_at", "")))
+    if key in _REPORTED_ATTEMPTS:
+        return attempt
+    if len(_REPORTED_ATTEMPTS) >= _REPORTED_ATTEMPTS_LIMIT:
+        _REPORTED_ATTEMPTS.clear()
+    _REPORTED_ATTEMPTS.add(key)
+    current_reporter().debug(
+        "agent call",
+        {
+            "driver": driver,
+            "model": attempt["reported_model"],
+            "code": attempt["return_code"],
+            "sec": f"{attempt['duration_ms'] / 1000:.3f}",
+            "episode": episode_id,
+        },
+    )
+    return attempt
 
 
 class LocalAgentDriver:
@@ -2182,7 +3340,13 @@ class LocalAgentDriver:
         self._resolved_command: tuple[str, ...] | None = None
         if int(self.config.max_parallel) < 1:
             raise ValueError("max_parallel must be positive")
-        self._in_flight = threading.BoundedSemaphore(int(self.config.max_parallel))
+        # Process-shared, not per-instance (task-parallelism plan §1.1): the
+        # semaphore guards a PHYSICAL budget -- how many CLI processes this
+        # machine and subscription run at once -- while drivers are built per
+        # client and a correction run builds its own client. Per-instance
+        # semaphores silently multiplied `max_parallel` by the number of live
+        # clients.
+        self._in_flight = _shared_in_flight_pool(self.driver_id, self.config)
 
     @property
     def conversation_ttl_seconds(self) -> float:
@@ -2223,6 +3387,20 @@ class LocalAgentDriver:
             ),
         )
 
+    def check_environment(self) -> str:
+        """Checks a probe-clean driver still wants to make on its surroundings.
+
+        Called from `driver_readiness` once the CLI itself is judged usable.
+        Most of what belongs here changes *how* a CLI behaves rather than
+        *whether* it runs, so the usual shape is to warn and return "".
+        Returning a reason marks the driver ``unusable`` instead -- for a
+        condition under which it cannot serve a single call, where staying in
+        the chain would only spend a `backend_unavailable` per window to
+        rediscover that. Only dsh overrides it today.
+        """
+
+        return ""
+
     def _argv(
         self,
         capsule: AgentCapsule,
@@ -2237,12 +3415,19 @@ class LocalAgentDriver:
         raise NotImplementedError
 
     def _spawn_environment(
-        self, *, mcp_server: Mapping[str, Any] | None = None
+        self,
+        *,
+        mcp_server: Mapping[str, Any] | None = None,
+        native_search: bool = False,
     ) -> dict[str, str]:
         """The CLI's environment for one call: sanitized, plus per-driver
-        knobs that only this invocation should see (never user settings)."""
+        knobs that only this invocation should see (never user settings).
 
-        del mcp_server
+        `native_search` is here for the one driver whose search backend reads
+        its own key from the environment; the default adds nothing.
+        """
+
+        del mcp_server, native_search
         return _sanitized_environment()
 
     def accepts_repair_context(
@@ -2311,6 +3496,29 @@ class LocalAgentDriver:
             f"(capsule {capsule.episode_id}; inspect events/stderr.log)"
         )
 
+    def _empty_answer_error(self, capsule: AgentCapsule) -> LocalAgentError:
+        """A clean exit that produced no assistant message.
+
+        Transient by default, because most of the ways a CLI ends a turn
+        empty are worth another target. Overridable because some of them are
+        not, and a driver that can tell the difference should: a transient
+        verdict makes the router drop this target and walk the chain, so
+        whatever the *last* link says becomes what the user sees -- typically
+        a sentence about an API key, for a failure that had nothing to do with
+        one.
+
+        The capsule pointer is here and not only in `_nonzero_exit` for the
+        same reason it is there at all: without it the message names no file
+        anybody can open, and the answer to "why did this end empty" lives in
+        the CLI's own logs.
+        """
+
+        return LocalAgentTransientError(
+            f"{self.display_name} event stream did not contain a final "
+            f"assistant message (capsule {capsule.episode_id}; inspect "
+            "events/stderr.log)"
+        )
+
     def _classify_stream_failure(
         self, normalized: Sequence[Mapping[str, Any]]
     ) -> LocalAgentError | None:
@@ -2324,6 +3532,35 @@ class LocalAgentDriver:
         """Things worth telling the operator that are not call failures."""
 
         return []
+
+    def _record_answering_model(
+        self, attempt: dict[str, Any], normalized: Sequence[Mapping[str, Any]]
+    ) -> None:
+        """File the answer under whoever produced it, keeping both names.
+
+        `reported_model` starts as the model that was *asked*, which is right
+        until a CLI hands the session to a different one mid-run. The artifact
+        has to be able to say "you configured X and Y replied", so the original
+        moves to `configured_model` rather than being overwritten -- and
+        `AgentExecutionResult` reads this attempt rather than the config, so
+        the two can never disagree.
+        """
+
+        answered = self._answering_model(normalized)
+        if answered and answered != attempt["reported_model"]:
+            attempt["configured_model"] = attempt["reported_model"]
+            attempt["reported_model"] = answered
+
+    def _answering_model(self, normalized: Sequence[Mapping[str, Any]]) -> str:
+        """Who the stream says produced the answer, or "" for "it does not say".
+
+        Only a driver whose dialect names the model per message can answer
+        this, and only one has a reason to: a CLI that may hand the session to
+        a different model mid-run (WorkBuddy's paid fallback) would otherwise
+        file the answer under the model nobody actually called.
+        """
+
+        return ""
 
     def _search_event_rows(
         self, normalized: Sequence[Mapping[str, Any]]
@@ -2543,7 +3780,9 @@ class LocalAgentDriver:
             process = subprocess.Popen(
                 argv,
                 cwd=working_root,
-                env=self._spawn_environment(mcp_server=mcp_server),
+                env=self._spawn_environment(
+                    mcp_server=mcp_server, native_search=native_search
+                ),
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
@@ -2563,7 +3802,7 @@ class LocalAgentDriver:
             attempt["duration_ms"] = int((time.monotonic() - started) * 1000)
             if usage:
                 attempt["usage"] = dict(usage)
-            return attempt
+            return _report_attempt(attempt, self.display_name, capsule.episode_id)
 
         process_tree: _ProcessTree | None = None
         try:
@@ -2743,6 +3982,7 @@ class LocalAgentDriver:
                 {"event": "driver_stream_warning", "message": message}
             )
             current_reporter().warning("agent-driver-stream", message)
+        self._record_answering_model(attempt, normalized)
         # Captured before any of the failure paths below, because a failed call
         # is exactly when someone wants to open the vendor's own transcript for
         # this session -- and every one of those paths used to raise before the
@@ -2767,7 +4007,17 @@ class LocalAgentDriver:
             attempt.setdefault("notes", []).append(
                 {
                     "event": "native_search_not_used",
-                    "message": "The native-search target completed without searching.",
+                    # States what was observed, not why. The earlier wording
+                    # ("completed without searching") reads as a choice the
+                    # model made, and on 2026-08-30 that reading turned a
+                    # denied-by-the-project-hook search into a reported
+                    # "the model did not search" -- see
+                    # docs/llm_local_agent_agy.md §6.1.
+                    "message": (
+                        "No completed search was observed on this "
+                        "native-search call: either the model did not search, "
+                        "or a search it started never completed."
+                    ),
                 }
                 if self.observes_tool_events
                 else {
@@ -2818,10 +4068,7 @@ class LocalAgentDriver:
             setattr(error, "_harness_execution_attempts", [attempt])
             raise error
         if not content:
-            error = LocalAgentTransientError(
-                f"{self.display_name} event stream did not contain a final "
-                "assistant message"
-            )
+            error = self._empty_answer_error(capsule)
             setattr(error, "_harness_execution_attempts", [attempt])
             raise error
         returned_handle = _conversation_handle(normalized)
@@ -2881,7 +4128,7 @@ class LocalAgentDriver:
             )
         return AgentExecutionResult(
             content=content,
-            reported_model=self.config.model or "configured-default",
+            reported_model=str(attempt["reported_model"]),
             episode_id=capsule.episode_id,
             execution_attempt=attempt,
             normalized_events=tuple(normalized),
@@ -3141,9 +4388,14 @@ class ClaudeCodeLocalAgentDriver(LocalAgentDriver):
         super().__init__(config or ClaudeCodeDriverConfig())
 
     def _spawn_environment(
-        self, *, mcp_server: Mapping[str, Any] | None = None
+        self,
+        *,
+        mcp_server: Mapping[str, Any] | None = None,
+        native_search: bool = False,
     ) -> dict[str, str]:
-        env = super()._spawn_environment(mcp_server=mcp_server)
+        env = super()._spawn_environment(
+            mcp_server=mcp_server, native_search=native_search
+        )
         if mcp_server is not None:
             limit = int(getattr(self.config, "mcp_output_tokens", 0) or 0)
             if limit > 0:
@@ -3412,6 +4664,465 @@ class ClaudeCodeLocalAgentDriver(LocalAgentDriver):
         )
 
 
+class WorkBuddyLocalAgentDriver(LocalAgentDriver):
+    """Headless CodeBuddy Code, the CLI WorkBuddy's desktop app ships.
+
+    A Claude Code fork, so the transport, the `stream-json` dialect and the
+    `mcp__<server>__<tool>` naming are the same -- and everything below is
+    where measurement said it is *not* the same (codebuddy 2.137.1,
+    2026-09-04):
+
+    - **No `--safe-mode`, no `--ignore-rules`, no `--disable-slash-commands`.**
+      A `CODEBUDDY.md` in the working directory is obeyed even under
+      `--setting-sources ""` (measured: the file's marker token came back in
+      the answer). What keeps rules out of a call is therefore the capsule's
+      fresh, harness-owned cwd -- an environment fact, not a CLI guarantee --
+      so `no_user_config` / `no_user_rules` are reported False and dropped
+      from `completion_requirements`, the way dsh's are.
+    - **`system.init` announces the whole built-in registry**, all 34 names,
+      whatever `--tools` says. The restriction is real and enforced when a
+      tool is invoked (`--tools ""`: the model could not read a file in its
+      own cwd; `--tools Read`: it read it), so `can_restrict_tools` holds --
+      but auditing the announcement would raise a leak warning on every call,
+      and the dialect switches that audit off. The per-`tool_use` audit, which
+      is the guard that matters, stays.
+    - **MCP tools are deferred by default**, reachable only through the
+      vendor's own `ToolSearch`. With the harness server declared and its two
+      tools named in `--tools`, the model saw neither and answered without
+      calling anything. `CODEBUDDY_DEFER_TOOL_LOADING=0` is what makes "the
+      tools this call is entitled to are the tools the model is offered" true,
+      and the whole `next_task` -> `submit` round then ran.
+    - **No `-y` and no `--allowedTools` are needed.** MCP tools, `Read` and
+      `WebSearch` all run unattended under the default permission mode; only
+      `WebFetch` comes back as a clean non-interactive denial, which is why it
+      is not entitled. `--allowedTools` is left off the argv entirely -- it is
+      variadic, so a list placed before the positional prompt would swallow
+      the prompt, and it grants nothing this driver needs.
+    """
+
+    driver_id = "codebuddy"
+    display_name = "WorkBuddy CodeBuddy Code CLI"
+    # Two of the five shared requirements are dropped, not faked: this CLI has
+    # no "ignore the user's configuration" mode at all (docs/llm_local_agent.md
+    # §11, and the same shape as dsh's `("can_restrict_tools",)`).
+    completion_requirements = (
+        "structured_events",
+        "no_persisted_session",
+        "can_restrict_tools",
+    )
+
+    def __init__(self, config: WorkBuddyDriverConfig | None = None) -> None:
+        super().__init__(config or WorkBuddyDriverConfig())
+
+    def _spawn_environment(
+        self,
+        *,
+        mcp_server: Mapping[str, Any] | None = None,
+        native_search: bool = False,
+    ) -> dict[str, str]:
+        env = super()._spawn_environment(
+            mcp_server=mcp_server, native_search=native_search
+        )
+        # Unconditional, because it is what makes the entitlement honest: with
+        # deferral on, the model is offered `ToolSearch`/`DeferExecuteTool`
+        # instead of the tools this call entitled it to, and an MCP tool it was
+        # granted is invisible until it goes looking. Off, the offered set is
+        # the entitled set. A completion call entitles nothing, so there it
+        # changes nothing.
+        env["CODEBUDDY_DEFER_TOOL_LOADING"] = "0"
+        if mcp_server is not None:
+            limit = int(getattr(self.config, "mcp_output_tokens", 0) or 0)
+            if limit > 0:
+                env["MAX_MCP_OUTPUT_TOKENS"] = str(limit)
+        return env
+
+    def _probe_driver(self) -> DriverProbe:
+        self._resolved_command = _resolve_shell_free_command(self.config.command)
+        if self._resolved_command is None:
+            self._probe = DriverProbe(
+                False,
+                error="WorkBuddy CodeBuddy Code CLI not found "
+                "(shell shims are rejected)",
+                failure_kind="missing",
+            )
+            return self._probe
+        try:
+            version = subprocess.run(
+                [*self._resolved_command, "--version"],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=30,
+                check=False,
+                env=_sanitized_environment(),
+            )
+            help_result = subprocess.run(
+                [*self._resolved_command, "--help"],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=30,
+                check=False,
+                env=_sanitized_environment(),
+            )
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            self._probe = DriverProbe(False, error=str(exc))
+            return self._probe
+        help_text = help_result.stdout + help_result.stderr
+        available = version.returncode == 0 and help_result.returncode == 0
+        # Driver-local rather than a `DriverProbe` bit: the probe's fields are
+        # capability *semantics* every driver has to answer for, and "this
+        # vendor spells its fallback flag this way" is neither. An unknown
+        # option is a hard exit here, so an older CLI has to lose the flag
+        # rather than lose the call.
+        self._supports_fallback_model = "--fallback-model" in help_text
+        self._probe = DriverProbe(
+            available=available,
+            version=(version.stdout or version.stderr).strip(),
+            structured_events="stream-json" in help_text,
+            no_persisted_session="--no-session-persistence" in help_text,
+            # There is no flag for either, and `--setting-sources ""` does not
+            # substitute for one: a project rule file in the working directory
+            # is still read. Both stay False and the isolation metadata says
+            # `inherited`.
+            no_user_config=False,
+            no_user_rules=False,
+            can_restrict_tools="--tools" in help_text,
+            # `--allowedTools`, camelCase, unlike Claude Code's spelling -- the
+            # probe reads the fork's own help rather than assuming the parent's.
+            has_web_search=(
+                "--tools" in help_text and "--allowedTools" in help_text
+            ),
+            supports_session_reuse=(
+                "--resume" in help_text and "--session-id" in help_text
+            ),
+            sandbox_kind="named_tool_allowlist",
+            supports_mcp_config=(
+                "--mcp-config" in help_text and "--strict-mcp-config" in help_text
+            ),
+            error="" if available else "WorkBuddy CLI probe command failed",
+            failure_kind="" if available else "broken",
+        )
+        return self._probe
+
+    def _argv(
+        self,
+        capsule: AgentCapsule,
+        *,
+        native_search: bool,
+        probe: DriverProbe,
+        reasoning_effort: str = "",
+        session_scope: str = "task",
+        conversation_handle: str = "",
+        mcp_server: Mapping[str, Any] | None = None,
+    ) -> list[str]:
+        if self._resolved_command is None:
+            raise LocalAgentUnavailableError(
+                "WorkBuddy CLI command was not resolved by probe"
+            )
+        argv = [
+            *self._resolved_command,
+            "--print",
+            "--output-format",
+            "stream-json",
+            "--verbose",
+            "--strict-mcp-config",
+        ]
+        if session_scope == "task":
+            argv.append("--no-session-persistence")
+        elif conversation_handle:
+            argv.extend(("--resume", conversation_handle))
+        # Narrows what it can: no user/project/local settings layer. It does
+        # not cover rule files, which is why the probe reports `no_user_rules`
+        # False -- but a flag that removes one source is still worth sending.
+        argv.extend(("--setting-sources", ""))
+        entitled = set(workbuddy_entitled_tools(native_search))
+        if mcp_server is not None:
+            argv.extend(
+                (
+                    "--mcp-config",
+                    json.dumps(
+                        {
+                            "mcpServers": {
+                                "finesub": {
+                                    "command": str(mcp_server["command"]),
+                                    "args": [
+                                        str(item)
+                                        for item in mcp_server.get("args") or ()
+                                    ],
+                                    "env": {
+                                        str(k): str(v)
+                                        for k, v in dict(
+                                            mcp_server.get("env") or {}
+                                        ).items()
+                                    },
+                                }
+                            }
+                        },
+                        ensure_ascii=False,
+                    ),
+                )
+            )
+            entitled.update(
+                mcp_tool_name(str(name)) for name in mcp_server.get("tools") or ()
+            )
+        # `--tools` is the availability boundary here as it is for Claude Code,
+        # but it is also the ONLY one: an MCP tool absent from this list is
+        # never offered, so the harness's own tools go in it rather than into a
+        # separate permission flag. One comma-joined argument, not a variadic
+        # list, for the same reason as Claude Code's.
+        argv.extend(("--tools", ",".join(sorted(entitled))))
+        if self.config.model:
+            argv.extend(("--model", self.config.model))
+        # Owner decision 2026-09-04, and the only flag here that can cost
+        # money. The CLI's interceptor needs `--print` (we always pass it),
+        # fires at most once per session, and retries the primary model once
+        # before switching unless the failure is an exhausted allowance.
+        #
+        # Three ways not to send it, and none of them is an error: no twin
+        # configured; a CLI too old to know the flag (it would exit on an
+        # unknown option, so the fallback is the thing to drop, not the call);
+        # and a row pointing at itself, which the CLI logs and skips anyway.
+        if (
+            self.config.fallback_model
+            and self.config.fallback_model != self.config.model
+        ):
+            if getattr(self, "_supports_fallback_model", True):
+                argv.extend(("--fallback-model", self.config.fallback_model))
+            else:
+                self._warn_fallback_unsupported()
+        effort = self.config.effort or reasoning_effort
+        if effort:
+            argv.extend(("--effort", effort))
+        if mcp_server is None:
+            argv.append(AGENT_TASK_PROMPT_STDIN_ONLY)
+            return argv
+        # Only the tool session: the clause tells the model to break a long
+        # turn with a tool call, and the capsule path has no tools to call.
+        ceiling = int(getattr(self.config, "output_ceiling_hint", 0) or 0)
+        argv.append(
+            AGENT_TASK_PROMPT_TOOL_SESSION
+            + (workbuddy_output_ceiling_clause(ceiling) if ceiling > 0 else "")
+        )
+        return argv
+
+    def _isolation_metadata(
+        self, probe: DriverProbe, reasoning_effort: str
+    ) -> dict[str, Any]:
+        return {
+            "sandbox_kind": probe.sandbox_kind,
+            "write_restriction": "exact named built-in tool allowlist",
+            "session_persistence": "disabled",
+            # What the model was told about its own per-turn output ceiling, or
+            # 0 for "nothing". It changes the prompt, so it belongs in the
+            # record beside the isolation claims.
+            "output_ceiling_hint": int(
+                getattr(self.config, "output_ceiling_hint", 0) or 0
+            ),
+            # Recorded as inherited rather than hidden: a checkpoint produced
+            # here was produced under a weaker isolation claim than a Claude
+            # Code one, and the only thing keeping this machine's rule files
+            # out of the call is that the capsule cwd is new.
+            "user_config": "inherited",
+            "user_rules": "inherited",
+            "rule_isolation": "fresh_capsule_cwd",
+            "unisolated_user_config_opt_in": (
+                self.config.allow_unisolated_user_config
+            ),
+            "read_isolation": False,
+            "process_tree": "windows_job" if os.name == "nt" else "posix_session",
+            "config_override_count": 0,
+        }
+
+    def _normalize(
+        self,
+        raw_path: Path,
+        *,
+        native_search: bool,
+        max_bytes: int,
+        extra_entitled: frozenset[str] = frozenset(),
+    ) -> tuple[list[dict[str, Any]], dict[str, Any], list[str], str]:
+        normalized, usage, violations, content = _normalize_workbuddy_events(
+            raw_path,
+            native_search=native_search,
+            max_bytes=max_bytes,
+            extra_entitled=frozenset(
+                mcp_tool_name(name) for name in extra_entitled
+            ),
+        )
+        return normalized, usage, violations, content
+
+    def _answering_model(self, normalized: Sequence[Mapping[str, Any]]) -> str:
+        """The model on the last assistant message, when the stream names one.
+
+        This CLI can hand the session to a different model part-way through
+        (`--fallback-model`), so "who was configured" and "who answered" are
+        two questions. The last message is the one that produced the answer we
+        keep.
+        """
+
+        for row in reversed(normalized):
+            if row.get("event") != "assistant":
+                continue
+            model = str(row.get("model") or "").strip()
+            # The fork writes "unknown" when it cannot name the provider's
+            # model; that is not a name, and filing an answer under it would
+            # be worse than leaving the configured one in place.
+            if model and model != "unknown":
+                return model
+        return ""
+
+    def _warn_fallback_unsupported(self) -> None:
+        """Once per driver: the configured safety net is not reachable here.
+
+        Silence would be worse than the warning it replaces -- the operator
+        configured a paid twin precisely so a spent allowance would not stop
+        the run, and on this CLI it will.
+        """
+
+        if getattr(self, "_fallback_unsupported_reported", False):
+            return
+        self._fallback_unsupported_reported = True
+        current_reporter().warning(
+            "agent-fallback-unsupported",
+            f"这台机器上的 WorkBuddy CLI 不认识 --fallback-model，"
+            f"{self.config.model or '该模型'} 的付费兜底 "
+            f"{self.config.fallback_model} 这次不会生效",
+            impact="免费额度用光时会照旧报错并冻结该模型线两小时；升级 WorkBuddy "
+            "桌面端即可恢复",
+        )
+
+    def _stream_warnings(
+        self, normalized: Sequence[Mapping[str, Any]]
+    ) -> list[str]:
+        """One line per session when the paid twin took over.
+
+        Owner decision 2026-09-04: a spent free allowance on `hy3` /
+        `hy4-preview` should **switch and carry on**, not stop the run. The
+        switch is the CLI's own, so nothing here can veto it once it has
+        happened -- which is exactly why it is worth saying out loud rather
+        than filing quietly: the call is fine, the bill is not the one the
+        binding implies. Going through this hook rather than straight to the
+        reporter is what puts it in the execution attempt too, so a bill has a
+        record and not just a console line.
+
+        ⚠ **It says what happened, not that it worked.** This runs before the
+        stream is classified, so a session the paid model also failed at would
+        otherwise be announced as finished and then error out. The terminal
+        record is already in these rows, so the wording comes from it.
+
+        Once per session, because that is the vendor's own granularity: its
+        interceptor activates at most once per session.
+        """
+
+        expected = self.config.fallback_model
+        if not expected or self._answering_model(normalized) != expected:
+            return []
+        failed = any(
+            row.get("event") == "result" and row.get("error")
+            for row in normalized
+        )
+        asked = self.config.model or "默认模型"
+        if failed:
+            return [
+                f"WorkBuddy 的 {asked} 没能应答，已按 catalog 的 fallback_model "
+                f"切到付费线 {expected}；这次调用计费，但本次会话仍然失败"
+            ]
+        return [
+            f"WorkBuddy 的 {asked} 这一轮没能应答，已按 catalog 的 fallback_model "
+            f"切到付费线 {expected} 并完成本次会话；这次调用计费"
+            f"（免费额度通常次日重置，不想自动切就清空该行的 fallback_model）"
+        ]
+
+    def _classify_stream_failure(
+        self, normalized: Sequence[Mapping[str, Any]]
+    ) -> LocalAgentError | None:
+        """Runtime failures arrive inside a clean exit, as with Claude Code.
+
+        The fork adds two shapes worth telling apart, and both would be wrong
+        as the default `transient`:
+
+        - a model name the account cannot reach (HTTP 400/401 whose text lists
+          the models it can). Permanent and about configuration: classifying it
+          as an expired login sends the operator to sign in again, and
+          classifying it as transient spends the pool's failure streak on a
+          call that can never succeed;
+        - a spent daily allowance, which this vendor reports outright as a
+          typed business code (HTTP 429, code 6004) with the reset time in the
+          text. `agent_quota` has a branch for exactly that -- "the vendor said
+          so, there is nothing to probe" -- and taking it saves a ping plus
+          every later call on the same line. ⚠ The *code* is what decides;
+          `category` and the 429 are the same fact twice over, and the band is
+          split by **window length** -- per-day is the allowance, per-second /
+          minute / hour is a rate limit (`_workbuddy_quota_exhausted`).
+
+        Reading the vendor's typed fields is not the phrase-matching that
+        docs/llm_local_agent.md §11.1 rules out: that is about guessing
+        exhaustion from free text nobody can enumerate. These are fields the
+        CLI emits, and the risk it warns about -- freezing a subscription that
+        still works -- is answered twice: by the code table above, and by the
+        catalog, where every WorkBuddy row carries its own `quota_pool`
+        because the allowance is per model line.
+        """
+
+        for row in normalized:
+            if row.get("event") != "result" or not row.get("error"):
+                continue
+            detail = str(row.get("error") or "")
+            reason = str(row.get("terminal_reason") or row.get("subtype") or "unknown")
+            lowered = detail.lower()
+            if "is not supported" in lowered or "service info not found" in lowered:
+                return LocalAgentPolicyViolationError(
+                    "WorkBuddy rejected the configured model; the catalog row "
+                    f"names a model this account cannot reach ({detail[:300]})"
+                )
+            # Auth is checked before quota on purpose (§11.1): the two need
+            # opposite fixes, and a freeze would hide the one the user can act
+            # on. Note that this vendor labels the unreachable-model case
+            # `category: "auth"` as well, which is why it is settled above.
+            if "not logged in" in lowered or "authenticate" in lowered:
+                return LocalAgentUnavailableError(
+                    "WorkBuddy is not authenticated; sign in to the WorkBuddy "
+                    f"desktop app ({detail[:200]})"
+                )
+            if _workbuddy_quota_exhausted(row):
+                return LocalAgentQuotaError(
+                    "WorkBuddy reports this model line is out of allowance "
+                    f"({detail[:300]})"
+                )
+            return LocalAgentTransientError(
+                f"WorkBuddy terminated as {reason}: {detail[:200]}"
+            )
+        return None
+
+    def _nonzero_exit(
+        self, capsule: AgentCapsule, return_code: int
+    ) -> LocalAgentError:
+        try:
+            stderr = capsule.stderr_path.read_bytes()[-65_536:].decode(
+                "utf-8", errors="replace"
+            )
+        except OSError:
+            stderr = ""
+        evidence = f"capsule {capsule.episode_id}; inspect events/stderr.log"
+        lowered = stderr.lower()
+        if "not logged in" in lowered or "authenticate" in lowered:
+            return LocalAgentUnavailableError(
+                "WorkBuddy is not authenticated; sign in to the WorkBuddy "
+                f"desktop app ({evidence})"
+            )
+        if "unknown option" in lowered or "unknown argument" in lowered:
+            return LocalAgentUnavailableError(
+                "WorkBuddy CLI does not accept the required flags; update the "
+                f"desktop app ({evidence})"
+            )
+        return LocalAgentTransientError(
+            f"WorkBuddy CLI exited with status {return_code} ({evidence})"
+        )
+
+
 class AgyLocalAgentDriver(LocalAgentDriver):
     """Antigravity headless media driver with a verified project hook.
 
@@ -3432,13 +5143,17 @@ class AgyLocalAgentDriver(LocalAgentDriver):
         # Tool-protocol worker slots (docs/llm_agent_tool_protocol.md §6):
         # one registered project per slot, at most `max_parallel` in use, the
         # slot held for the length of one CLI invocation so nobody rewrites a
-        # project's server identity underneath a running call.
-        self._tool_slot_lock = threading.Condition()
-        self._tool_slots_in_use: set[int] = set()
+        # project's server identity underneath a running call. The pool is
+        # shared per DOMAIN ROOT (plan §1.1): the slot names a directory, and
+        # two driver instances counting from 0 each handed two tasks the same
+        # `.finesub-tool-0` -- one task's CLI on the other's MCP server.
         self._tool_slot_local = threading.local()
         # Whether this CLI takes `--add-dir`; set by the probe off `--help`.
         # See `_workspace_arguments` for what the flag is doing here.
         self._supports_add_dir = False
+
+    def _tool_slot_pool(self) -> _ToolSlotPool:
+        return _shared_tool_slot_pool(self.capsules.resolve_location().parent)
 
     @property
     def agy_config(self) -> AgyDriverConfig:
@@ -3456,19 +5171,10 @@ class AgyLocalAgentDriver(LocalAgentDriver):
             self._release_tool_slot(slot)
 
     def _acquire_tool_slot(self) -> int:
-        limit = max(1, int(self.config.max_parallel))
-        with self._tool_slot_lock:
-            while True:
-                for slot in range(limit):
-                    if slot not in self._tool_slots_in_use:
-                        self._tool_slots_in_use.add(slot)
-                        return slot
-                self._tool_slot_lock.wait()
+        return self._tool_slot_pool().acquire(int(self.config.max_parallel))
 
     def _release_tool_slot(self, slot: int) -> None:
-        with self._tool_slot_lock:
-            self._tool_slots_in_use.discard(slot)
-            self._tool_slot_lock.notify_all()
+        self._tool_slot_pool().release(slot)
 
     @staticmethod
     def agy_project_records_dir() -> Path:
@@ -3484,12 +5190,26 @@ class AgyLocalAgentDriver(LocalAgentDriver):
 
         return agy_project_records_dir()
 
-    def _grant_mcp_permissions(self, project_id: str, tools: Sequence[str]) -> None:
-        """Allow `mcp(finesub/<tool>)` for each tool in the project's own record.
+    def _grant_permissions(
+        self,
+        project_id: str,
+        *,
+        mcp_tools: Sequence[str] = (),
+        rules: Sequence[str] = (),
+    ) -> None:
+        """Write allow rules into the project's own record.
 
-        Fail closed: a missing record means agy did not register the project
-        the way the driver expects, and a call would only be auto-denied
-        mid-turn (the global settings file is never written).
+        `mcp(finesub/<tool>)` for each MCP tool, plus any raw `rules` a mode
+        needs. Fail closed: a missing record means agy did not register the
+        project the way the driver expects, and a call would only be
+        auto-denied mid-turn (the global settings file is never written).
+
+        The hook is not the only gate (2026-08-30). agy asks for a *permission*
+        before `read_url_content`, and headless mode cannot prompt: without the
+        grant the tool is auto-denied and the CLI ends the whole turn with no
+        assistant message -- one refused fetch loses the call, not just the
+        fetch. `search_web` needs no such grant, which is why the entitlement
+        looked complete until a model followed a search with a fetch.
         """
 
         record_path = self.agy_project_records_dir() / f"{project_id}.json"
@@ -3511,7 +5231,8 @@ class AgyLocalAgentDriver(LocalAgentDriver):
         allow = inner.setdefault("allow", [])
         if not isinstance(allow, list):
             raise LocalAgentUnavailableError("Antigravity project record has malformed grants")
-        wanted = [f"mcp({MCP_SERVER_NAME}/{name})" for name in tools]
+        wanted = [f"mcp({MCP_SERVER_NAME}/{name})" for name in mcp_tools]
+        wanted.extend(rules)
         missing = [rule for rule in wanted if rule not in allow]
         if missing:
             allow.extend(missing)
@@ -3558,6 +5279,7 @@ class AgyLocalAgentDriver(LocalAgentDriver):
         capsule: AgentCapsule,
         *,
         mcp_server: Mapping[str, Any],
+        native_search: bool,
         reasoning_effort: str,
     ) -> list[str]:
         """argv for a tool-protocol call: the slot's project, this call's server."""
@@ -3567,9 +5289,19 @@ class AgyLocalAgentDriver(LocalAgentDriver):
         if slot is None:
             raise LocalAgentUnavailableError("Antigravity tool slot was not acquired")
         domain_root = capsule.root.parent
-        project_root = domain_root / AGY_TOOL_PROJECT_DIRNAME.format(slot=slot)
-        project_id, _digest = self._ensure_project(project_root, tool=True)
-        paths = self._project_paths(project_root, tool=True)
+        # Two projects per slot, picked by entitlement rather than rewritten in
+        # place: a slot runs one call at a time, but the guard is still the
+        # security boundary and must not be edited between a call's own steps.
+        dirname = (
+            AGY_TOOL_NATIVE_PROJECT_DIRNAME
+            if native_search
+            else AGY_TOOL_PROJECT_DIRNAME
+        )
+        project_root = domain_root / dirname.format(slot=slot)
+        project_id, _digest = self._ensure_project(
+            project_root, tool=True, native=native_search
+        )
+        paths = self._project_paths(project_root, tool=True, native=native_search)
         write_atomic(
             paths["mcp_config"],
             json.dumps(
@@ -3605,8 +5337,10 @@ class AgyLocalAgentDriver(LocalAgentDriver):
             )
             + "\n",
         )
-        self._grant_mcp_permissions(
-            project_id, [str(name) for name in mcp_server.get("tools") or ()]
+        self._grant_permissions(
+            project_id,
+            mcp_tools=[str(name) for name in mcp_server.get("tools") or ()],
+            rules=AGY_NATIVE_PERMISSION_RULES if native_search else (),
         )
         try:
             messages = json.loads(capsule.messages_path.read_text(encoding="utf-8"))
@@ -3631,7 +5365,7 @@ class AgyLocalAgentDriver(LocalAgentDriver):
             "--project",
             project_id,
             "--agent",
-            AGY_TOOL_AGENT_NAME,
+            AGY_TOOL_NATIVE_AGENT_NAME if native_search else AGY_TOOL_AGENT_NAME,
             # The blocks are files under the assignment root, which is not in
             # the registered project: without this agy denies reading them.
             *self._workspace_arguments(view_roots),
@@ -3755,7 +5489,9 @@ class AgyLocalAgentDriver(LocalAgentDriver):
     ) -> dict[str, Path]:
         agents_root = project_root / ".agents"
         if tool:
-            agent_name = AGY_TOOL_AGENT_NAME
+            agent_name = (
+                AGY_TOOL_NATIVE_AGENT_NAME if native else AGY_TOOL_AGENT_NAME
+            )
         else:
             agent_name = AGY_NATIVE_AGENT_NAME if native else AGY_AGENT_NAME
         return {
@@ -3776,8 +5512,12 @@ class AgyLocalAgentDriver(LocalAgentDriver):
         paths = self._project_paths(project_root, native=native, tool=tool)
         hooks_document = AGY_NATIVE_HOOKS_DOCUMENT if native else AGY_HOOKS_DOCUMENT
         if tool:
-            guard_script = AGY_TOOL_GUARD_SCRIPT
-            agent_document = AGY_TOOL_AGENT_DOCUMENT
+            guard_script = (
+                AGY_TOOL_NATIVE_GUARD_SCRIPT if native else AGY_TOOL_GUARD_SCRIPT
+            )
+            agent_document = (
+                AGY_TOOL_NATIVE_AGENT_DOCUMENT if native else AGY_TOOL_AGENT_DOCUMENT
+            )
         else:
             guard_script = AGY_NATIVE_GUARD_SCRIPT if native else AGY_GUARD_SCRIPT
             agent_document = AGY_NATIVE_AGENT_DOCUMENT if native else AGY_AGENT_DOCUMENT
@@ -4126,7 +5866,10 @@ class AgyLocalAgentDriver(LocalAgentDriver):
             )
         if mcp_server is not None:
             return self._tool_argv(
-                capsule, mcp_server=mcp_server, reasoning_effort=reasoning_effort
+                capsule,
+                mcp_server=mcp_server,
+                native_search=native_search,
+                reasoning_effort=reasoning_effort,
             )
         # Each mode gets its own project, because the entitlement *is* the
         # project's `.agents/` tree: sharing one would mean rewriting the guard
@@ -4139,6 +5882,11 @@ class AgyLocalAgentDriver(LocalAgentDriver):
         project_id, _digest = self._ensure_project(
             project_root, native=native_search
         )
+        # Same permission gate as the tool path: this project has no MCP
+        # server, but its entitled `read_url_content` still needs the grant or
+        # the first fetch ends the turn.
+        if native_search:
+            self._grant_permissions(project_id, rules=AGY_NATIVE_PERMISSION_RULES)
         # The native project entitles two more tools, and the per-call prompt has
         # to say so: the agent document is the only other place that mentions
         # them, and a document is not a boundary -- it is advice the model
@@ -4178,9 +5926,7 @@ class AgyLocalAgentDriver(LocalAgentDriver):
             # bounds reads to, so its capsules are outside its own
             # workspace; the media project is that domain and adds
             # nothing.
-            *self._workspace_arguments(
-                [domain_root] if native_search else []
-            ),
+            *self._workspace_arguments([domain_root] if native_search else []),
             "--sandbox",
             "--print-timeout",
             f"{self.config.timeout_seconds}s",
@@ -4265,6 +6011,53 @@ class AgyLocalAgentDriver(LocalAgentDriver):
             f"Antigravity CLI exited with status {return_code} ({evidence})"
         )
 
+    def _empty_answer_error(self, capsule: AgentCapsule) -> LocalAgentError:
+        """One shape of empty turn agy has that is not worth another target.
+
+        A permission it cannot ask about is fatal to the turn and invisible in
+        every other channel: agy soft-denies the tool, ends the turn with no
+        assistant message, writes one line to stderr and **exits 0**. Read as
+        transient -- which is what every empty turn used to be -- the router
+        drops this target and walks the rest of the chain, so what reaches the
+        user is whatever the last link says, typically that some other
+        provider has no API key. The same shape has bitten us once already,
+        for `read_url_content` (`docs/llm_local_agent_agy.md` §6.2); that time
+        the missing grant was fixed and the classification was not.
+
+        `Unavailable` rather than transient for the reason the authentication
+        branches above take it: a missing permission does not heal on the next
+        target. It still falls back to the API chain, but attributably.
+
+        Matched on stderr and not on the event stream: the line names the tool
+        that was denied, which the normalized rows do not carry for a native
+        file read, and it is the same source `_nonzero_exit` already reads. A
+        reworded line loses only the tool name -- the two substrings are what
+        decide, so the classification survives it. Same for the quoting: the
+        pattern only knows straight double quotes, so a CLI that switches to
+        curly ones or drops them costs the name and nothing else. Deliberately
+        not made clever -- a looser pattern would start naming the wrong token
+        on a line it was never written for, and a wrong tool name is worse
+        than none.
+        """
+
+        try:
+            stderr = capsule.stderr_path.read_bytes()[-65_536:].decode(
+                "utf-8", errors="replace"
+            )
+        except OSError:
+            stderr = ""
+        lowered = stderr.lower()
+        if "permission" not in lowered or "headless" not in lowered:
+            return super()._empty_answer_error(capsule)
+        named = re.search(r'required the "([^"]+)" permission', stderr)
+        tool = f" for `{named.group(1)}`" if named else ""
+        return LocalAgentUnavailableError(
+            f"Antigravity denied a tool permission{tool} and headless mode has "
+            "no way to ask, so the turn ended with no answer (capsule "
+            f"{capsule.episode_id}; inspect events/stderr.log). Grant it in the "
+            "project's own record, the way `read_url(*)` is granted."
+        )
+
 
 def _dsh_effort(effort: str) -> str:
     """One effort word in dsh's vocabulary, or a refusal naming the four.
@@ -4284,6 +6077,148 @@ def _dsh_effort(effort: str) -> str:
             f"DeepSeek adapter takes {sorted(DSH_EFFORT_LEVELS)}"
         )
     return level
+
+
+# dsh prints its composed profile as a YAML-ish list whose values include
+# custom tags (`!!js dshHomePath(...)`), so a YAML parser would both choke and
+# be a new dependency. Only the entry ids are wanted, and they are one shape.
+_DSH_ENTRY_ID_RE = re.compile(r"(?m)^- id: (\S+)")
+
+#: (resolved command, profile) -> (composed ids, stock ids), or None when dsh
+#: would not answer. Keyed on exactly what the dumps depend on: the comparison
+#: against a config's snapshot is pure and stays out of the cache, so two
+#: configs reading the same profile cannot serve each other a wrong verdict.
+_DSH_COMPOSITION_CACHE: dict[
+    tuple[str, ...], tuple[tuple[str, ...], tuple[str, ...] | None] | None
+] = {}
+_DSH_COMPOSITION_LOCK = threading.Lock()
+
+
+@dataclass(frozen=True)
+class DshPluginDrift:
+    unknown: tuple[str, ...]
+    #: None when the stock dump failed: attribution is unknown, which is not
+    #: the same as "the user added none of them" and must not read as blame.
+    from_user_layer: tuple[str, ...] | None
+
+
+def _dsh_dump_plugin_ids(
+    command: Sequence[str], profile: str, flag: str
+) -> tuple[str, ...] | None:
+    try:
+        result = subprocess.run(
+            [*command, "--profile", profile, flag],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            # Composing a profile tree is the cheap end of what dsh does
+            # (measured 0.45s), and two of these sit on the readiness path --
+            # so the same 30s the probe gives `--version`, not the 60s it
+            # gives the headless app's own boot. A hung dsh costs a minute
+            # here, not two.
+            timeout=30,
+            check=False,
+            env=_sanitized_environment(),
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if result.returncode != 0:
+        return None
+    ids = tuple(_DSH_ENTRY_ID_RE.findall(result.stdout or ""))
+    # A profile always composes something, so zero ids means the output stopped
+    # looking the way this parser expects -- the same failure the version pin
+    # reports rather than treating as "nothing to check". Reading it as an
+    # empty bundle would silently make every plugin "known".
+    return ids or None
+
+
+def _dsh_composition(
+    command: Sequence[str], profile: str
+) -> tuple[tuple[str, ...], tuple[str, ...] | None] | None:
+    """What the profile composes, and what it composes without the user.
+
+    Two dumps because "unknown" and "whose" are different questions:
+    `--dump-config` is the tree that will run, `--dump-default-config` the
+    same tree without the user's own layer or any `--patch`. Measured 0.4s
+    each and memoized for the process -- readiness is asked once per client,
+    the composition does not change under us.
+
+    None means dsh would not answer, which is the probe's business, not a
+    plugin finding.
+    """
+
+    key = (*command, profile)
+    with _DSH_COMPOSITION_LOCK:
+        if key in _DSH_COMPOSITION_CACHE:
+            return _DSH_COMPOSITION_CACHE[key]
+    composed = _dsh_dump_plugin_ids(command, profile, "--dump-config")
+    result: tuple[tuple[str, ...], tuple[str, ...] | None] | None = None
+    if composed is not None:
+        # Kept as None when the stock dump fails: "we could not tell" is a
+        # different answer from "the user added all of them".
+        result = (composed, _dsh_dump_plugin_ids(command, profile, "--dump-default-config"))
+    with _DSH_COMPOSITION_LOCK:
+        _DSH_COMPOSITION_CACHE[key] = result
+    return result
+
+
+def format_dsh_expected_plugin_ids(config: DshDriverConfig | None = None) -> str:
+    """`expected_plugin_ids` for the bundle installed on this machine now.
+
+    "Re-take the snapshot" is otherwise a sentence with no command behind it,
+    and `deny_unknown_plugins` defaults on -- so the first dsh upgrade that
+    adds a runtime plugin would leave a broken driver and a manual transcribe
+    of eighty-odd ids. Prints a paste-ready literal::
+
+        python -c "from finesub.llm.agent.local_agent import format_dsh_expected_plugin_ids as f; print(f())"
+
+    Vetting is still a person's job: read what the drift warning named, and
+    decide whether each new id belongs in the deny list before pasting.
+    """
+
+    config = config or DshDriverConfig()
+    command = _resolve_shell_free_command(config.command)
+    if command is None:
+        raise LocalAgentUnavailableError("dsh is not installed on this machine")
+    composition = _dsh_composition(command, config.profile)
+    if composition is None:
+        raise LocalAgentUnavailableError(
+            f"dsh would not describe profile {config.profile!r}"
+        )
+    composed = sorted(set(composition[0]))
+    body = textwrap.fill(
+        " ".join(f'"{name}",' for name in composed),
+        width=76,
+        initial_indent=" " * 8,
+        subsequent_indent=" " * 8,
+        # Plugin ids are hyphenated, and the default would split
+        # `workflow-worker-thread` across two lines -- a literal that no
+        # longer names the plugin.
+        break_long_words=False,
+        break_on_hyphens=False,
+    )
+    return f"    expected_plugin_ids: tuple[str, ...] = (\n{body}\n    )"
+
+
+def _dsh_plugin_drift(
+    command: Sequence[str], config: DshDriverConfig
+) -> DshPluginDrift | None:
+    """Plugins the composed profile has that ``config`` has never vetted."""
+
+    composition = _dsh_composition(command, config.profile)
+    if composition is None:
+        return None
+    composed, stock = composition
+    expected = frozenset(config.expected_plugin_ids)
+    unknown = tuple(sorted({name for name in composed if name not in expected}))
+    if stock is None:
+        return DshPluginDrift(unknown=unknown, from_user_layer=None)
+    stock_ids = frozenset(stock)
+    return DshPluginDrift(
+        unknown=unknown,
+        from_user_layer=tuple(name for name in unknown if name not in stock_ids),
+    )
 
 
 class DshLocalAgentDriver(LocalAgentDriver):
@@ -4324,7 +6259,11 @@ class DshLocalAgentDriver(LocalAgentDriver):
     # harness left in place.
     completion_requirements = ("can_restrict_tools",)
     # Headless prints the answer and nothing else -- no stream, no tool log.
-    observes_tool_events = False
+    # True since 2026-08-30: stdout still carries only the answer, but the
+    # session transcript `_patch_entries` redirects into the capsule carries
+    # every tool call. `native_search_unobserved` was honest while nothing
+    # read it, and would now be a lie.
+    observes_tool_events = True
     native_requirements = ("has_web_search",)
 
     def __init__(self, config: DshDriverConfig | None = None) -> None:
@@ -4404,6 +6343,68 @@ class DshLocalAgentDriver(LocalAgentDriver):
         )
         return self._probe
 
+    def check_environment(self) -> str:
+        """Report plugins this driver has never looked at.
+
+        `disabled_tool_plugins` can only name plugins somebody has seen, so
+        anything installed into `$DSH_HOME` -- or added by a dsh upgrade --
+        is enabled and unexamined. dsh will describe its own composition
+        (`--dump-config`), which is how a deny list gets the visibility of an
+        allowlist without dsh having to offer one.
+        """
+
+        if self._resolved_command is None:
+            return ""
+        drift = _dsh_plugin_drift(self._resolved_command, self.dsh_config)
+        if drift is None:
+            reason = (
+                f"dsh would not list the plugins composing profile "
+                f"{self.dsh_config.profile!r}"
+            )
+            if not self.dsh_config.deny_unknown_plugins:
+                _warn_readiness_once(
+                    self,
+                    "plugin-inventory-unavailable",
+                    reason,
+                    impact="unvetted plugins cannot be noticed on this machine",
+                )
+                return ""
+            # With the policy on this driver cannot serve a single call, and
+            # the composition is cached for the process -- so staying in the
+            # chain would spend one `backend_unavailable` per window to
+            # rediscover that. Say unusable once instead.
+            return (
+                f"{reason}, so the vetted-plugin policy cannot be applied "
+                f"(set deny_unknown_plugins=False to run without it)"
+            )
+        if not drift.unknown:
+            return ""
+        if drift.from_user_layer is None:
+            origin = "cannot tell whether they come from your $DSH_HOME layer"
+        elif drift.from_user_layer:
+            origin = (
+                f"{len(drift.from_user_layer)} from your $DSH_HOME layer "
+                f"({', '.join(drift.from_user_layer)})"
+            )
+        else:
+            origin = "all from the installed bundle, so likely a dsh upgrade"
+        _warn_readiness_once(
+            self,
+            "plugin-drift",
+            f"profile {self.dsh_config.profile!r} composes "
+            f"{len(drift.unknown)} plugin(s) this driver does not know: "
+            f"{', '.join(drift.unknown)} -- {origin}",
+            impact=(
+                "each is disabled for every call until the vetted bundle "
+                "snapshot is retaken"
+                if self.dsh_config.deny_unknown_plugins
+                else "they are enabled and reach the model"
+            ),
+        )
+        # Drift itself is not a blocker: the unknown ids are denied per call
+        # (or, with the policy off, deliberately allowed).
+        return ""
+
     def _bootstrap_text(self, capsule: AgentCapsule) -> str:
         """The prompt, read back from the capsule because argv is the channel.
 
@@ -4471,6 +6472,7 @@ class DshLocalAgentDriver(LocalAgentDriver):
         mcp_server: Mapping[str, Any],
         reasoning_effort: str,
         native_search: bool,
+        session_root: Path,
     ) -> list[dict[str, Any]]:
         """One overlay carrying everything this call configures.
 
@@ -4532,6 +6534,29 @@ class DshLocalAgentDriver(LocalAgentDriver):
             }
         )
 
+        # The session log, redirected into this call's own capsule and left
+        # uncompressed (2026-08-30). dsh prints only the final answer, which
+        # is why this driver used to declare `observes_tool_events = False`
+        # -- but the persistence plugin has been writing a full transcript
+        # (`tool/call`, `tool/result`, arguments, results, reasoning) all
+        # along. Two overrides make it readable:
+        #
+        # * `root` moves it out of `$DSH_HOME/sessions`. Writing a call's
+        #   evidence into the user's own session store would both violate the
+        #   "never touch `$DSH_HOME`" rule and strand the transcript outside
+        #   the capsule that gets cleaned up with it;
+        # * `compression: none` writes plain `.jsonl` instead of concatenated
+        #   zstd frames, so reading it costs no dependency. The plugin's own
+        #   README says a root may hold only one encoding -- which is the
+        #   second reason not to share the user's.
+        entries.append(
+            {
+                "id": "session-persistence-jsonl",
+                "name": "@deepseek-ai/dsh-session-persistence-jsonl",
+                "config": {"root": str(session_root), "compression": "none"},
+            }
+        )
+
         # Tool-result size. An empty config drops `maxInlineBytes` altogether,
         # which is how this plugin is switched off; a very large number would
         # still be a cap, and the spill it eventually triggers hands the model
@@ -4566,6 +6591,33 @@ class DshLocalAgentDriver(LocalAgentDriver):
             # model's only web reach, and it bills a different credential than
             # the model does.
             disabled.append("tool-web")
+        # Turn the deny list into an allowlist for anything it has not seen.
+        # dsh offers no allowlist of its own, but it will enumerate what it
+        # composed, and every id in that enumeration is deniable -- so the
+        # policy "only the vetted bundle runs" is expressible after all.
+        # Measured: a plugin dropped into `$DSH_HOME`'s patch layer is
+        # composed, reaches the model as a tool, and disappears from its tool
+        # list once named here.
+        if config.deny_unknown_plugins:
+            drift = (
+                _dsh_plugin_drift(self._resolved_command, config)
+                if self._resolved_command is not None
+                else None
+            )
+            if drift is None:
+                # Fail CLOSED. Without the inventory the policy cannot be
+                # honoured, and going ahead would quietly ship the one
+                # outcome it exists to prevent -- an unvetted plugin reaching
+                # the model. Unavailable rather than a policy violation: the
+                # cause is usually a CLI that would not answer, so the chain
+                # should move to another target instead of failing the task.
+                raise LocalAgentUnavailableError(
+                    f"dsh would not list the plugins composing profile "
+                    f"{config.profile!r}, so the vetted-plugin policy cannot "
+                    f"be applied (set deny_unknown_plugins=False to run "
+                    f"without it)"
+                )
+            disabled.extend(name for name in drift.unknown if name not in disabled)
         entries.extend({"id": plugin_id, "disabled": True} for plugin_id in disabled)
 
         # Config first, same order as the other two drivers that take one:
@@ -4638,6 +6690,7 @@ class DshLocalAgentDriver(LocalAgentDriver):
                 mcp_server=mcp_server,
                 reasoning_effort=reasoning_effort,
                 native_search=native_search,
+                session_root=capsule.root / "events" / DSH_SESSION_DIRNAME,
             ),
         )
         return [
@@ -4650,7 +6703,10 @@ class DshLocalAgentDriver(LocalAgentDriver):
         ]
 
     def _spawn_environment(
-        self, *, mcp_server: Mapping[str, Any] | None = None
+        self,
+        *,
+        mcp_server: Mapping[str, Any] | None = None,
+        native_search: bool = False,
     ) -> dict[str, str]:
         del mcp_server
         env = _sanitized_environment()
@@ -4659,6 +6715,24 @@ class DshLocalAgentDriver(LocalAgentDriver):
         env["DSH_PERMISSION_MODE"] = self.dsh_config.permission_mode
         env["DSH_TOOLS_MODE"] = "native"
         env["DSH_TELEMETRY_MODE"] = "DISABLED"
+        if native_search:
+            # dsh's search backend reads its own provider key from the
+            # environment, and the allowlist strips it -- so `--retrieval
+            # native` produced a tool the model could call and that failed
+            # every time with "no API key for DEEPSEEK_API_KEY" (measured
+            # 2026-08-30; the model tried twice and then answered honestly
+            # that it could not search).
+            #
+            # Passed only for this driver, only when retrieval is entitled,
+            # and only this one name. It is the account's own key, on the one
+            # driver already documented as reading the user's settings file
+            # for the account it runs on -- unlike the names in
+            # SENSITIVE_ENV_NAMES, which are the harness's own and must never
+            # reach a subprocess. Absent from the environment, nothing is set
+            # and the failure stays exactly as visible as before.
+            key = os.environ.get(DSH_SEARCH_KEY_ENV, "")
+            if key:
+                env[DSH_SEARCH_KEY_ENV] = key
         return env
 
     def _isolation_metadata(
@@ -4695,12 +6769,12 @@ class DshLocalAgentDriver(LocalAgentDriver):
         max_bytes: int,
         extra_entitled: frozenset[str] = frozenset(),
     ) -> tuple[list[dict[str, Any]], dict[str, Any], list[str], str]:
-        """There is no stream: stdout *is* the answer.
+        """stdout *is* the answer; the events come from the session log.
 
-        No events and no usage, because dsh reports neither. The empty usage
-        is not a parse that failed and should be repaired later -- it is what
-        this CLI offers, and the task report says so rather than inventing a
-        number.
+        There is still no event stream on stdout. The tool events are read
+        from the transcript the persistence plugin writes into this capsule
+        (`_dsh_session_rows`). Usage stays empty: dsh reports none, and the
+        task report says so rather than inventing a number.
         """
 
         del native_search, extra_entitled
@@ -4714,7 +6788,10 @@ class DshLocalAgentDriver(LocalAgentDriver):
             raise LocalAgentPolicyViolationError(
                 f"dsh returned more than the {int(max_bytes)}-byte result cap"
             )
-        return [], {}, [], content.strip()
+        # Usage stays empty -- dsh reports none, and inventing a number is
+        # worse than saying so. The events now come from the session log
+        # beside this stdout file.
+        return _dsh_session_rows(raw_path.parent / DSH_SESSION_DIRNAME), {}, [], content.strip()
 
     def _nonzero_exit(
         self, capsule: AgentCapsule, return_code: int

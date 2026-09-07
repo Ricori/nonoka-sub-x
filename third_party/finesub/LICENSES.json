@@ -2,7 +2,7 @@
   "components": [
     {
       "component": "FineSub Python engine",
-      "license": "MIT",
+      "license": "GPL-3.0-or-later",
       "path": "LICENSE"
     },
     {

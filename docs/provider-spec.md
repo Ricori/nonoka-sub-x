@@ -90,9 +90,9 @@ interface ExecutionProvider {
   "artifact_schema": 1,            // 必填，固定为 1
   "engine": {
     "name": "finesub",             // 可选，引擎名
-    "version": "0.4.2",            // 必填，引擎版本
-    "commit": "8a33092a40ab4d86872941155143fd91b84eaa56", // 必填，引擎 commit
-    "bundle_id": "finesub-0.4.2+8a33092a40ab"             // 可选，引擎包标识
+    "version": "0.5.1",            // 必填，引擎版本
+    "commit": "b9b2f10c80abd58ddff739b60461624f51c0789c", // 必填，引擎 commit
+    "bundle_id": "finesub-0.5.1+b9b2f10c80ab"             // 可选，引擎包标识
   },
   "features": {                    // 必填，六个布尔位缺一不可
     "raw_srt": true,               // 支持 target=raw-srt
@@ -134,7 +134,8 @@ interface ExecutionProvider {
   "target": "final-srt",
   "language": "ja",
   "device": "cuda:0",
-  "gpu_budget_gb": 8,
+  "gpu_tier": "auto",
+  "separate": true,
   "vocal_profile": "quality",
   "correction": {
     "enabled": true,
@@ -146,6 +147,7 @@ interface ExecutionProvider {
     "extra_style": ""
   },
   "knowledge": "update",
+  "llm_model": { "correction": "local-agy-media-gemini-3_7-flash" },
   "cleanup_intermediate": false
 }
 ```
@@ -158,7 +160,8 @@ interface ExecutionProvider {
 | `target` | `raw-srt` \| `final-srt` | ✅ | 其他值以 `unsupported_target` 拒绝 |
 | `language` | 语言码 | — | 默认 `ja` |
 | `device` | `cpu` \| `cuda` \| `cuda:<n>` | — | 默认 `cuda`；应校验并在不支持时报错 |
-| `gpu_budget_gb` | `4` \| `8` \| `12` \| `16` | — | 默认 `8`，显存预算上限提示 |
+| `gpu_tier` | `auto` \| `cpu` \| `entry` \| `standard` \| `standard_large_vram` \| `high` | — | 默认 `auto`（由引擎探测本机显卡）。取代了 0.4.x 的 `gpu_budget_gb`；仍带旧字段的请求由 worker 按 `4→entry、8→standard、12/16→standard_large_vram` 转换一次并在任务日志里说明。`auto` 最高只选到 `standard_large_vram`，`high` 需要显卡自报 24GB 以上 |
+| `separate` | `boolean` | — | 默认 `true`。仅在输入本身已是纯人声（已分离的人声轨、录音棚干声）时可设为 `false`：产物位置与格式不变（`<stem>-vocal.ogg`，16 kHz 单声道），只是由源音直接转出。⚠ 该分离而没分离不会报任何错，只是识别质量整体下降 |
 | `vocal_profile` | `cost` \| `quality` | — | 人声分离档位；不支持的档位必须显式报错 |
 | `correction.enabled` | `boolean` | — | `false` 时等价于跳过 LLM 环节 |
 | `correction.media` | `text` \| `audio` \| `video` | — | `video` 需 `features.video_multimodal=true` |
@@ -167,6 +170,7 @@ interface ExecutionProvider {
 | `correction.fast` | `auto` \| `on` \| `off` | — | 快速通道开关 |
 | `correction.extra_info` / `extra_style` | `string` | — | 用户补充的背景信息与风格要求 |
 | `knowledge` | `none` \| `collect` \| `update` | — | 需 `features.knowledge=true` |
+| `llm_model` | `string` \| `{任务组: string}` | — | 本次运行的模型覆盖，等价于引擎的 `--llm-model`。字符串钉住所有任务组，对象只钉它点名的那些。值是模型组或路由 target；名字由引擎的路由加载器校验。⚠ 钉住即**替换整条链**——钉住的模型做不了的调用会直接失败，后面不再挂任何兜底 |
 | `cleanup_intermediate` | `boolean` | — | 完成后是否清理中间产物 |
 | `axis` | `Axis` | — | 用户导入的已有产物；见 4.2.2。只在 `kind="ja"` 时出现，其余轴型不进任务请求 |
 
@@ -238,7 +242,7 @@ interface UploadedAudioSource {
     "unit": "segments",
     "message": "正在识别"
   },
-  "engine": { "version": "0.4.2", "commit": "8a33092a..." },
+  "engine": { "version": "0.5.1", "commit": "b9b2f10c..." },
   "requested_capabilities": { "target": "final-srt", "video_multimodal": false },
   "effective_capabilities": { "target": "final-srt", "video_multimodal": false },
   "error": null,                   // 或 { "code": "...", "message": "..." }
@@ -330,7 +334,7 @@ interface UploadedAudioSource {
 {
   "schema": 1,
   "task_id": "0f3c9a...",
-  "engine_commit": "8a33092a40ab4d86872941155143fd91b84eaa56",
+  "engine_commit": "b9b2f10c80abd58ddff739b60461624f51c0789c",
   "artifacts": {
     "stable_json":   { "uri": "file:///.../video-stable.json",   "sha256": "...", "bytes": 12345 },
     "raw_srt":       { "uri": "file:///.../video-raw.srt",       "sha256": "...", "bytes": 8192  },

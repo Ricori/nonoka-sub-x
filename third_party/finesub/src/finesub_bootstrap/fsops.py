@@ -11,6 +11,7 @@ untangle).
 from __future__ import annotations
 
 from collections.abc import Sequence
+from dataclasses import dataclass
 import os
 from pathlib import Path
 import shutil
@@ -18,47 +19,64 @@ import subprocess
 import time
 
 
-# Publishing anything here ends in `os.replace`, and Windows denies that while
-# anything still holds a handle on what is being replaced or on what replaces
-# it -- an antivirus scanning the bytes that were just written, a sync client,
-# a shell sitting in the folder. These are the two shapes it takes: a whole
-# tree being renamed into place after a download that took minutes, and the
-# temp-file swap of `write_atomic`, which happens after every status update. In
-# both, the write already succeeded and the handle is usually gone within a
-# second, so failing on the first denial throws away work for nothing.
-REPLACE_ATTEMPTS = 8
-REPLACE_BACKOFF_SECONDS = 0.4
-REPLACE_BACKOFF_CAP_SECONDS = 2.0
+@dataclass(frozen=True)
+class ReplaceBudget:
+    """How long a rename waits out whoever is still holding a name."""
 
-#: `write_atomic` waits less. A tree is published once and its loss is a
-#: re-download; a small record is written over and over, so a name that stays
-#: locked would slow every later write by the full budget instead of failing.
-SMALL_FILE_REPLACE_ATTEMPTS = 4
+    attempts: int
+    backoff_seconds: float
+    cap_seconds: float
+
+
+#: Publishing a tree or a downloaded file. Windows denies a rename while any
+#: handle is open on either name, and the holder is almost always something
+#: that lets go on its own: an antivirus reading the 2.8GB just written, a sync
+#: client, an ordinary reader (Python's `open` does not share deletion). Those
+#: windows are short; the budget exists so a sub-second overlap cannot discard
+#: minutes of download. Worst case is ~10s, paid once.
+PUBLISH_REPLACE = ReplaceBudget(attempts=8, backoff_seconds=0.4, cap_seconds=2.0)
+
+#: Records -- an index, a ledger, a `.env`. Deliberately much shorter: a tree
+#: is published once and losing it means downloading again, while a record is
+#: rewritten on every status update, so a name that stayed locked would make
+#: every later write pay the full budget. Losing one entry until the next write
+#: is cheaper than stalling each write for seconds.
+RECORD_REPLACE = ReplaceBudget(attempts=4, backoff_seconds=0.05, cap_seconds=0.2)
 
 
 def replace_path(
-    source: Path,
-    destination: Path,
+    source: Path | str,
+    destination: Path | str,
     *,
-    attempts: int = REPLACE_ATTEMPTS,
+    budget: ReplaceBudget = PUBLISH_REPLACE,
 ) -> None:
-    """`os.replace`, waiting out whoever is still holding either name.
+    """`os.replace`, waiting out a handle that is about to be released.
 
-    Only for the replace that *publishes* something, never for one whose
-    failure carries information: `move_directory` reads a failed `os.replace`
-    as "these are different volumes" and needs that answer immediately, so it
-    keeps the bare call.
+    Every publish in the installer ends in a rename, and on Windows that is the
+    step most likely to fail for a reason unrelated to the work: the bytes are
+    already written and verified, and something is merely *reading* one of the
+    two names. A resource activation dies with `[WinError 5]` and discards a
+    multi-minute download; the desktop then shows that line, which tells a user
+    nothing they can act on.
+
+    Not every rename belongs here. Two in this module stay bare on purpose,
+    because their failure carries information rather than costing work: the
+    same-volume probe in `move_directory`, whose `OSError` *means* "different
+    volume" and is the signal to fall through to the copy, and the quarantine
+    rename after a digest mismatch. A bounded wait also cannot outlast a reader
+    that reopens the name in a loop -- that is a starved writer, a different
+    problem, and no caller here polls that way.
     """
 
-    for attempt in range(1, attempts + 1):
+    for attempt in range(1, budget.attempts + 1):
         try:
             os.replace(source, destination)
             return
         except OSError:
-            if attempt == attempts:
+            if attempt == budget.attempts:
                 raise
             time.sleep(
-                min(REPLACE_BACKOFF_SECONDS * attempt, REPLACE_BACKOFF_CAP_SECONDS)
+                min(budget.backoff_seconds * attempt, budget.cap_seconds)
             )
 
 
@@ -295,6 +313,9 @@ def move_directory(source: Path, destination: Path) -> tuple[bool, Path | None]:
     if destination.exists():
         remove_tree(destination)
     try:
+        # Bare on purpose: this failure is the volume probe. `replace_path`
+        # would spend its budget waiting for a name that is not held, on every
+        # cross-volume move.
         os.replace(source, destination)
         return True, None
     except OSError:
@@ -334,18 +355,13 @@ def write_atomic(
 
     For records that must survive a crash *and* concurrent writers, take the
     lock first (see `locks.holding_lock`); this only guarantees atomicity.
-
-    The swap goes through `replace_path` because on Windows it is denied while
-    anything holds either name -- a scanner reading the file that was just
-    written is enough, and a task should not fail over a record it wrote
-    correctly.
     """
 
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(f"{path.name}.tmp")
     try:
         temporary.write_text(text, encoding=encoding, newline=newline)
-        replace_path(temporary, path, attempts=SMALL_FILE_REPLACE_ATTEMPTS)
+        replace_path(temporary, path, budget=RECORD_REPLACE)
     except BaseException:
         try:
             temporary.unlink(missing_ok=True)

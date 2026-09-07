@@ -130,7 +130,7 @@ const codex = {
 
 function routing(defaultRoute, taskRoutes = {}) {
   return {
-    providers: [compat, gemini, agy, codex],
+    providers: [compat, gemini, geminiPaid, agy, codex],
     defaultRoute,
     taskRoutes: ["correction", "planning", "research", "search_judge", "knowledge"].map((id) => ({
       id,
@@ -142,25 +142,25 @@ function routing(defaultRoute, taskRoutes = {}) {
 
 test("a local CLI is judged on its own declared capabilities, with no Gemini key involved", () => {
   const state = routing({ provider: "local-agy", model: "gemini-3.7-flash" });
-  assert.equal(routeServesMedia(state, "correction", "supportsAudio", false), true);
-  assert.equal(routeServesMedia(state, "correction", "supportsVideo", false), true);
+  assert.equal(routeServesMedia(state, "correction", "supportsAudio"), true);
+  assert.equal(routeServesMedia(state, "correction", "supportsVideo"), true);
 });
 
-test("a local CLI that declares no media stays unavailable even with a Gemini key", () => {
-  // 引擎侧选定本地 CLI 后不再挂 API 梯队，所以这里没有兜底可言。
+test("a model that declares no media stays unavailable, whoever serves it", () => {
+  // 引擎 0.5.0 起，钉住的模型组替换整条链，后面不再挂任何梯队——所以这里没有
+  // 兜底可言，本地 CLI 与 API 提供商同一条判断。
   const state = routing({ provider: "local-codex", model: "gpt-5.6-terra" });
-  assert.equal(routeServesMedia(state, "correction", "supportsAudio", true), false);
+  assert.equal(routeServesMedia(state, "correction", "supportsAudio"), false);
   const opus = routing({ provider: "local-agy", model: "claude-opus-4-6-thinking" });
-  assert.equal(routeServesMedia(opus, "correction", "supportsAudio", true), false);
+  assert.equal(routeServesMedia(opus, "correction", "supportsAudio"), false);
 });
 
-test("an API provider still rides on the packaged Gemini tail", () => {
-  // 手填模型没有能力声明，引擎按纯文本登记；音视频窗由后面的打包候选承担。
-  // 第四个参数是「配了付费 Key 吗」：免费池不承担音视频窗，那条尾巴也就跟着要
-  // 付费池才算数。
+test("an API provider no longer rides on a packaged Gemini tail", () => {
+  // 手填模型没有能力声明，引擎按纯文本登记。0.4.2 时代后面还挂着打包的 Gemini
+  // 候选，配了付费 Key 就仍然可行；`[llm.preferred_targets]` 把那条尾巴去掉了，
+  // 所以这一格现在就是纯文本。
   const state = routing({ provider: "openai-compat", model: "vendor/large" });
-  assert.equal(routeServesMedia(state, "correction", "supportsAudio", true), true);
-  assert.equal(routeServesMedia(state, "correction", "supportsAudio", false), false);
+  assert.equal(routeServesMedia(state, "correction", "supportsAudio"), false);
 });
 
 test("the task override decides its own cell, the global default the rest", () => {
@@ -168,9 +168,9 @@ test("the task override decides its own cell, the global default the rest", () =
     { provider: "local-codex", model: "gpt-5.6-terra" },
     { correction: { provider: "local-agy", model: "gemini-3.7-flash" } },
   );
-  assert.equal(routeServesMedia(state, "correction", "supportsAudio", false), true);
+  assert.equal(routeServesMedia(state, "correction", "supportsAudio"), true);
   // 每窗查询轮走这一格：没单独指定就落回全局默认的 codex，音频窗因此仍然不可行。
-  assert.equal(routeServesMedia(state, "planning", "supportsAudio", false), false);
+  assert.equal(routeServesMedia(state, "planning", "supportsAudio"), false);
 });
 
 test("a half-filled override falls back to the global default", () => {
@@ -178,33 +178,35 @@ test("a half-filled override falls back to the global default", () => {
     { provider: "local-agy", model: "gemini-3.7-flash" },
     { correction: { provider: "local-codex", model: "" } },
   );
-  assert.equal(routeServesMedia(state, "correction", "supportsAudio", false), true);
+  assert.equal(routeServesMedia(state, "correction", "supportsAudio"), true);
 });
 
 test("an unset route serves nothing", () => {
-  assert.equal(routeServesMedia(routing({ provider: "", model: "" }), "correction", "supportsAudio", true), false);
+  assert.equal(routeServesMedia(routing({ provider: "", model: "" }), "correction", "supportsAudio"), false);
 });
 
 test("the Gemini free pool never takes a media window, whatever the model declares", () => {
   // 免费池按模型分别限流，而音视频窗要先把整段媒体传上 Files API 再让模型读一
   // 遍。能力位描述的是模型，挡住这条路的是它背后的配额，所以声明支持也不算数。
   const state = routing({ provider: "gemini-free", model: "gemini-3.7-flash" });
-  assert.equal(routeServesMedia(state, "correction", "supportsAudio", false), false);
-  assert.equal(routeServesMedia(state, "correction", "supportsVideo", false), false);
+  assert.equal(routeServesMedia(state, "correction", "supportsAudio"), false);
+  assert.equal(routeServesMedia(state, "correction", "supportsVideo"), false);
 });
 
-test("a paid Gemini key reopens every media option", () => {
-  const state = routing({ provider: "gemini-free", model: "gemini-3.7-flash" });
-  assert.equal(routeServesMedia(state, "correction", "supportsAudio", true), true);
-  assert.equal(routeServesMedia(state, "correction", "supportsVideo", true), true);
+test("the paid pool takes them, and it has to be the pinned one", () => {
+  // 改 Key 不会改掉钉住的目标：免费池那一格钉的就是免费池的 target，所以放行
+  // 的条件是用户把这一格改指到付费池，而不是去补一把 Key。
+  const paid = routing({ provider: "gemini-paid", model: "gemini-3.7-flash" });
+  assert.equal(routeServesMedia(paid, "correction", "supportsAudio"), true);
+  assert.equal(routeServesMedia(paid, "correction", "supportsVideo"), true);
 });
 
 test("a local CLI keeps its media windows with no Gemini key of any tier", () => {
   // 引擎侧选定本地 CLI 后不再挂 API 梯队，免费池那条限制与它无关：agy 的
   // Gemini 3.7 Flash 跑在用户自己的订阅上，不花任何 Gemini 配额。
   const state = routing({ provider: "local-agy", model: "gemini-3.7-flash" });
-  assert.equal(routeServesMedia(state, "correction", "supportsAudio", false), true);
-  assert.equal(routeServesMedia(state, "correction", "supportsVideo", false), true);
+  assert.equal(routeServesMedia(state, "correction", "supportsAudio"), true);
+  assert.equal(routeServesMedia(state, "correction", "supportsVideo"), true);
 });
 
 test("the two Gemini pools fold into one provider row", () => {

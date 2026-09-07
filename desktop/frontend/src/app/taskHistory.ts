@@ -11,7 +11,18 @@ export function reconcileTaskHistory(
   refreshed: TaskHistoryEntry[],
 ): TaskHistoryEntry[] {
   const refreshedByTask = new Map(refreshed.map((item) => [item.taskId, item]));
-  return current.map((item) => refreshedByTask.get(item.taskId) ?? item)
+  return current.map((item) => {
+    const updated = refreshedByTask.get(item.taskId);
+    if (!updated) return item;
+    const startedAt = updated.snapshot.started_at || item.snapshot.started_at;
+    return {
+      ...updated,
+      snapshot: {
+        ...updated.snapshot,
+        ...(startedAt ? { started_at: startedAt } : {}),
+      },
+    };
+  })
     .sort((left, right) => Date.parse(right.snapshot.updated_at) - Date.parse(left.snapshot.updated_at))
     .slice(0, taskHistoryLimit);
 }

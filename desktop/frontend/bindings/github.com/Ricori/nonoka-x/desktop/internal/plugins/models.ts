@@ -45,6 +45,54 @@ export interface DownloaderSettings {
     "downloadRunning": boolean;
 }
 
+/**
+ * EngineArtifact is one file a run produced. No path: `readable` says whether
+ * ReadArtifact will return its content, and everything else reaches disk only
+ * through SaveArtifact's dialog.
+ */
+export interface EngineArtifact {
+    "name": string;
+    "bytes": number;
+    "readable": boolean;
+}
+
+/**
+ * EngineCorrection is the LLM stages' knobs. Empty fields are left out of the
+ * request so the engine's own defaults apply, rather than being overwritten
+ * with a value the plugin never chose.
+ */
+export interface EngineCorrection {
+    "media": string;
+    "retrieval": string;
+    "difficulty": string;
+    "fast": string;
+    "extraInfo": string;
+    "extraStyle": string;
+}
+
+/**
+ * EngineTaskRequest is what a plugin may say about a run. The source, the
+ * device, the GPU tier and the vocal profile are the host's -- a plugin names
+ * media by the id media.list gave it, exactly as everywhere else.
+ */
+export interface EngineTaskRequest {
+    "mediaId": string;
+    "target": string;
+
+    /**
+     * Empty means Japanese, the engine's own default for this pipeline.
+     */
+    "language": string;
+
+    /**
+     * Opt-in rather than opt-out: separation is on for every input that is not
+     * already a clean vocal track, and a zero value that silently turned it off
+     * would cost the whole recognition quality without saying anything.
+     */
+    "skipSeparation": boolean;
+    "correction": EngineCorrection;
+}
+
 export interface ExportedArtifact {
     "path": string;
     "format": string;
@@ -69,6 +117,41 @@ export interface InstalledPlugin {
      * manifest, so a sideloaded package cannot promote itself.
      */
     "system": boolean;
+}
+
+/**
+ * LLMAnswer reports the answer and which model gave it. The endpoint chain,
+ * the key that paid for it and the routing trace stay inside the engine.
+ */
+export interface LLMAnswer {
+    "content": string;
+    "model": string;
+    "backend": string;
+    "fallbackUsed": boolean;
+}
+
+/**
+ * LLMMessage is one turn of a plugin-authored prompt.
+ */
+export interface LLMMessage {
+    "role": string;
+    "content": string;
+}
+
+/**
+ * LLMRequest is a plugin's whole say over a call. There is deliberately no
+ * model field: which model answers is the user's configuration, and a plugin
+ * that could name one could also route around the user's choice.
+ */
+export interface LLMRequest {
+    "role": string;
+    "messages": LLMMessage[] | null;
+
+    /**
+     * 0 leaves the sidecar's default.
+     */
+    "maxTokens": number;
+    "temperature": number;
 }
 
 export interface MediaSummary {

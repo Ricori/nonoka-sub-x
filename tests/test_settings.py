@@ -99,8 +99,9 @@ class FineSubSettingsTests(unittest.TestCase):
             self.assertIn("openai_compat|https://proxy.example/v1|OPENAI_API_KEY", catalog)
             self.assertIn("|gpt-custom|gpt-custom|", catalog)
             config = (Path(temporary) / "finesub.toml").read_text(encoding="utf-8")
-            self.assertIn('default_target = "nonoka-openai-', config)
-            self.assertIn('task_route_research = "gemini-free-3_6-flash"', config)
+            self.assertIn("[llm.preferred_targets]", config)
+            self.assertIn('default = "nonoka-openai-', config)
+            self.assertIn('research = "gemini-free-3_6-flash"', config)
 
             from finesub.config import clear_config_cache
             from finesub.llm.routing.model_catalog import default_model_catalog
@@ -252,7 +253,7 @@ class FineSubSettingsTests(unittest.TestCase):
             self.assertEqual([model["id"] for model in codex["models"]], ["gpt-5.6-sol", "gpt-5.6-terra"])
             self.assertEqual(codex["defaultModel"], "gpt-5.6-sol")
             config = (Path(temporary) / "finesub.toml").read_text(encoding="utf-8")
-            self.assertIn('default_target = "local-codex-completion-gpt-5_6-sol"', config)
+            self.assertIn('default = "local-codex-completion-gpt-5_6-sol"', config)
 
             from finesub.config import clear_config_cache
             from finesub.llm.routing.model_catalog import default_model_catalog
@@ -304,7 +305,7 @@ class FineSubSettingsTests(unittest.TestCase):
             # The media target, not the search-entitled twin: a pinned target
             # is prepended to the bound group, so `retrieval=native` has to
             # stay free to fall through.
-            self.assertIn('default_target = "local-agy-media-gemini-3_7-flash"', config)
+            self.assertIn('default = "local-agy-media-gemini-3_7-flash"', config)
 
             from finesub.config import clear_config_cache
             from finesub.llm.routing.model_catalog import default_model_catalog
@@ -334,7 +335,137 @@ class FineSubSettingsTests(unittest.TestCase):
                 }
             )
             config = (Path(temporary) / "finesub.toml").read_text(encoding="utf-8")
-            self.assertIn('task_route_correction = "local-agy-opus-4_6"', config)
+            self.assertIn('correction-mm = "local-agy-opus-4_6"', config)
+            self.assertIn('correction-text = "local-agy-opus-4_6"', config)
+
+    def test_local_workbuddy_route_binds_the_packaged_agent_target(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary, patch.dict(
+            os.environ, {"FINESUB_ENV_PROTECT": "0"}, clear=False
+        ):
+            settings = FineSubSettings(temporary)
+            settings.bind_environment()
+            snapshot = settings.update_keys(
+                {
+                    "LLM_DEFAULT_PROVIDER": "local-workbuddy",
+                    "LLM_DEFAULT_MODEL": "glm-5.3-flash",
+                }
+            )
+            workbuddy = next(
+                item
+                for item in snapshot["modelRouting"]["providers"]
+                if item["id"] == "local-workbuddy"
+            )
+            self.assertFalse(workbuddy["requiresKey"])
+            self.assertEqual(workbuddy["mode"], "select")
+            self.assertEqual(
+                [model["id"] for model in workbuddy["models"]],
+                [
+                    "glm-5.3-flash",
+                    "hy3",
+                    "hy4-preview",
+                    "deepseek-v4-flash",
+                    "deepseek-v4-pro",
+                ],
+            )
+            self.assertEqual(workbuddy["defaultModel"], "glm-5.3-flash")
+            # None of the five takes a clip: the multimodal correction entry
+            # has to stay disabled on this provider rather than fail mid-run.
+            self.assertFalse(any(model["supportsAudio"] for model in workbuddy["models"]))
+            self.assertFalse(any(model["supportsVideo"] for model in workbuddy["models"]))
+            config = (Path(temporary) / "finesub.toml").read_text(encoding="utf-8")
+            # The plain target, not the search-entitled twin: a pinned target is
+            # prepended to the bound group, so `retrieval=native` has to stay
+            # free to fall through to one that declares a search tool.
+            self.assertIn('default = "local-workbuddy-glm-5_3-flash"', config)
+
+            from finesub.config import clear_config_cache
+            from finesub.llm.routing.model_catalog import default_model_catalog
+            from finesub.llm.routing.model_routes import default_model_routes
+
+            clear_config_cache()
+            default_model_catalog.cache_clear()
+            default_model_routes.cache_clear()
+            routes = default_model_routes()
+            correction, _ = routes.resolve_binding(
+                routes.active_preset_id, "correction-text", "quality"
+            )
+            self.assertEqual(correction.target_ids, ("local-workbuddy-glm-5_3-flash",))
+
+    def test_workbuddy_says_which_of_its_models_bill_automatically(self) -> None:
+        """The one provider whose default behaviour spends money unprompted.
+
+        `hy3` and `hy4-preview` carry a `fallback_model` pointing at their paid
+        twin, so a spent daily allowance switches lines and carries on instead
+        of stopping. That is the engine's decision and a good one -- a task
+        half-done is worse -- but it has to be legible *before* someone picks
+        the provider, which is what the snapshot's `note` is for.
+        """
+
+        with tempfile.TemporaryDirectory() as temporary, patch.dict(
+            os.environ, {"FINESUB_ENV_PROTECT": "0"}, clear=False
+        ):
+            settings = FineSubSettings(temporary)
+            settings.bind_environment()
+            providers = {
+                item["id"]: item
+                for item in settings.snapshot()["modelRouting"]["providers"]
+            }
+            self.assertIn("Hunyuan", providers["local-workbuddy"]["note"])
+            # Every provider carries the field; only this one has anything to
+            # say, so a frontend can render it unconditionally.
+            self.assertEqual(providers["local-agy"]["note"], "")
+            self.assertEqual(providers["openai"]["note"], "")
+
+    def test_unknown_local_workbuddy_model_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary, patch.dict(
+            os.environ, {"FINESUB_ENV_PROTECT": "0"}, clear=False
+        ):
+            settings = FineSubSettings(temporary)
+            settings.bind_environment()
+            with self.assertRaisesRegex(ValueError, "not available in local-workbuddy"):
+                settings.update_keys(
+                    {
+                        "LLM_DEFAULT_PROVIDER": "local-workbuddy",
+                        "LLM_DEFAULT_MODEL": "hy5",
+                    }
+                )
+
+    def test_workbuddy_is_detected_inside_its_desktop_app(self) -> None:
+        """The same file the engine's own resolver falls back to.
+
+        WorkBuddy ships the CLI inside the Electron app instead of as an npm
+        package, and its PATH shim is a bash script `shutil.which` cannot find
+        on Windows -- so the install root is the whole question here.
+        """
+
+        with tempfile.TemporaryDirectory() as temporary:
+            cli = (
+                Path(temporary)
+                / "Programs"
+                / "WorkBuddy"
+                / "resources"
+                / "app.asar.unpacked"
+                / "cli"
+                / "bin"
+            )
+            cli.mkdir(parents=True)
+            (cli / "codebuddy").write_bytes(b"")
+            with patch.dict(os.environ, {"LOCALAPPDATA": temporary}, clear=False), patch(
+                "nonoka_x.settings.shutil.which", return_value=None
+            ), patch("nonoka_x.settings.os.name", "nt"):
+                from nonoka_x.settings import (
+                    local_agent_executable,
+                    local_agent_path_entries,
+                )
+
+                self.assertEqual(
+                    local_agent_executable("local-workbuddy"), cli / "codebuddy"
+                )
+                # ...and deliberately not put on PATH: that file is a Node entry
+                # script, not an executable, and the engine reaches it through
+                # %LOCALAPPDATA% itself. Advertising it would put a `codebuddy`
+                # on PATH that nothing can launch.
+                self.assertEqual(local_agent_path_entries(), [])
 
     def test_unknown_local_agy_model_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as temporary, patch.dict(
@@ -414,7 +545,8 @@ class FineSubSettingsTests(unittest.TestCase):
                 }
             )
             config = (Path(temporary) / "finesub.toml").read_text(encoding="utf-8")
-            self.assertIn('task_route_correction = "local-codex-completion-gpt-5_6-terra"', config)
+            self.assertIn('correction-mm = "local-codex-completion-gpt-5_6-terra"', config)
+            self.assertIn('correction-text = "local-codex-completion-gpt-5_6-terra"', config)
 
     def test_unknown_local_codex_model_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as temporary, patch.dict(
@@ -497,10 +629,14 @@ class FineSubSettingsTests(unittest.TestCase):
 
             clear_config_cache()
             default_model_catalog.cache_clear()
+            # By `provider_tier`, not by `api_model_id`: engine 0.5.1 ships a
+            # packaged WorkBuddy row serving the same model id, and the row
+            # under test is the generated one for this endpoint.
             entry = next(
                 item
                 for item in default_model_catalog()
                 if item.api_model_id == "deepseek-v4-flash"
+                and item.provider_tier == "NONOKA_OPENAI_COMPAT"
             )
             self.assertEqual(entry.max_output_tokens, 384_000)
             self.assertEqual(entry.max_input_tokens, 1_000_000)
@@ -581,7 +717,7 @@ class FineSubSettingsTests(unittest.TestCase):
             restarted.refresh_model_catalog()
             self.assertIn("|1000000|384000|", catalog.read_text(encoding="utf-8"))
 
-    def test_unknown_model_row_stays_conservative_and_thinking_free(self) -> None:
+    def test_unknown_model_row_clears_the_engines_refusal_line(self) -> None:
         with tempfile.TemporaryDirectory() as temporary, patch.dict(
             os.environ, {"FINESUB_ENV_PROTECT": "0"}, clear=False
         ):
@@ -597,19 +733,39 @@ class FineSubSettingsTests(unittest.TestCase):
             )
             catalog = (Path(temporary) / "model_catalog.psv").read_text(encoding="utf-8")
             # No display name to borrow, and no reasoning parameter: an endpoint
-            # nobody has declared may 400 on a field it does not know.
+            # nobody has declared may 400 on a field it does not know. The two
+            # window figures sit at FineSub 0.5.0's warning line rather than
+            # under it: the engine refuses to start a run whose bound model
+            # declares `max_output < 32,000`, and the old 16,384 placeholder
+            # would have stopped every task pinned to an endpoint this table
+            # does not recognise.
             self.assertIn(
-                "|vendor-large|vendor-large|128000|16384|false|false|false|false|1|70",
+                "|vendor-large|vendor-large|194000|64000|false|false|false|false|1|70",
                 catalog,
             )
+            from finesub.llm.routing.capabilities import (
+                WINDOW_REFUSE_INPUT,
+                WINDOW_REFUSE_OUTPUT,
+            )
+            from nonoka_x.model_specs import UNKNOWN_MODEL_SPEC
 
-    def test_api_provider_keeps_the_packaged_tail_behind_it(self) -> None:
-        """Only a local CLI drops the fallback.
+            self.assertGreater(UNKNOWN_MODEL_SPEC.max_input_tokens, WINDOW_REFUSE_INPUT)
+            self.assertGreater(
+                UNKNOWN_MODEL_SPEC.max_output_tokens, WINDOW_REFUSE_OUTPUT
+            )
 
-        A compat endpoint is text-only, so the packaged candidates behind it
-        are what keeps an audio or video window routable at all. The
-        no-fallback rule is about running on somebody's own CLI subscription,
-        not about pinning in general.
+    def test_a_pinned_provider_is_the_whole_chain(self) -> None:
+        """Upstream 0.5.0: a pin replaces the chain, it does not lead it.
+
+        `0003-desktop-model-routing.patch` used to keep the packaged
+        candidates behind an API provider's selection, so an audio or video
+        window stayed routable when the user had pinned a text-only endpoint.
+        Upstream took the overlay and ruled the other way
+        (`_preferred_bindings`, owner decision 2026-08-28): a call the pinned
+        model cannot serve fails loudly instead of being served by a provider
+        nobody chose. Nonoka X follows it, and moves the moment of truth
+        forward instead -- `route_media_warnings` refuses the combination in
+        the settings panel rather than mid-run.
         """
 
         with tempfile.TemporaryDirectory() as temporary, patch.dict(
@@ -637,7 +793,7 @@ class FineSubSettingsTests(unittest.TestCase):
             correction, _ = routes.resolve_binding(
                 routes.active_preset_id, "correction-text", "quality"
             )
-            self.assertGreater(len(correction.target_ids), 1)
+            self.assertEqual(len(correction.target_ids), 1)
 
     def test_compat_provider_without_a_base_url_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as temporary, patch.dict(

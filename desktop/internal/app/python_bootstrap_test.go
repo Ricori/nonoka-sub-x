@@ -1,8 +1,12 @@
 package app
 
 import (
+	"archive/tar"
+	"bytes"
+	"compress/gzip"
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -30,7 +34,7 @@ func TestPythonBootstrapDetectsUsableInstalledLauncher(t *testing.T) {
 	if status["state"] != "ready" || status["python"] != python {
 		t.Fatalf("status = %#v", status)
 	}
-	wantSupported := runtime.GOOS == "windows" && runtime.GOARCH == "amd64"
+	_, wantSupported := bootstrapUVAssetForHost()
 	if status["supported"] != wantSupported {
 		t.Fatalf("supported = %#v, want %v", status["supported"], wantSupported)
 	}
@@ -71,8 +75,32 @@ func TestFileMatchesRequiresSizeAndSHA256(t *testing.T) {
 	}
 }
 
+// The three platforms the launcher supports, and the two archive formats their
+// uv builds come in. A typo in an asset name only surfaces at download time on
+// the platform it belongs to, which is never the machine the test runs on.
+func TestBootstrapUVAssetsCoverEverySupportedPlatform(t *testing.T) {
+	for _, platform := range []string{"windows/amd64", "darwin/arm64", "darwin/amd64"} {
+		asset, ok := bootstrapUVAssets[platform]
+		if !ok {
+			t.Fatalf("%s has no uv asset", platform)
+		}
+		if asset.Tar != strings.HasSuffix(asset.Name, ".tar.gz") {
+			t.Errorf("%s: Tar = %v for asset %q", platform, asset.Tar, asset.Name)
+		}
+		if !asset.Tar && !strings.HasSuffix(asset.Name, ".zip") {
+			t.Errorf("%s: asset %q is neither a tarball nor a zip", platform, asset.Name)
+		}
+		if asset.Size <= 0 || len(asset.SHA256) != 64 {
+			t.Errorf("%s: asset is not pinned: %#v", platform, asset)
+		}
+		if want := bootstrapUVRelease + asset.Name; asset.URL() != want {
+			t.Errorf("%s: URL = %q, want %q", platform, asset.URL(), want)
+		}
+	}
+}
+
 func TestBootstrapUVPinMatchesFineSubManifest(t *testing.T) {
-	manifestPath := filepath.Join("..", "..", "..", "third_party", "finesub", "resources", "runtime-manifest.json")
+	manifestPath := filepath.Join("..", "..", "..", "third_party", "finesub", "src", "finesub_bootstrap", "runtime-manifest.json")
 	contents, err := os.ReadFile(manifestPath)
 	if err != nil {
 		t.Fatal(err)
@@ -90,15 +118,88 @@ func TestBootstrapUVPinMatchesFineSubManifest(t *testing.T) {
 	if err := json.Unmarshal(contents, &manifest); err != nil {
 		t.Fatal(err)
 	}
+	windows := bootstrapUVAssets["windows/amd64"]
 	for _, resource := range manifest.Resources {
 		if resource.ID == "uv" {
-			if resource.Asset.URL != bootstrapUVURL || resource.Asset.Size != bootstrapUVSize || resource.Asset.SHA256 != bootstrapUVSHA256 {
+			if resource.Asset.URL != windows.URL() || resource.Asset.Size != windows.Size || resource.Asset.SHA256 != windows.SHA256 {
 				t.Fatalf("bootstrap uv pin drifted from FineSub manifest: %#v", resource.Asset)
 			}
 			return
 		}
 	}
 	t.Fatal("FineSub runtime manifest has no uv resource")
+}
+
+// The macOS uv download is a tarball whose executable sits one directory deep,
+// beside a uvx of the same shape. Taking the member by base name is what keeps
+// the two apart, and the mode written here is what makes the result runnable --
+// the archive's own mode is not carried over.
+func TestExtractNamedTarGzFileTakesTheNamedMember(t *testing.T) {
+	archive := filepath.Join(t.TempDir(), "uv-aarch64-apple-darwin.tar.gz")
+	members := []struct {
+		name     string
+		contents string
+	}{
+		{"uv-aarch64-apple-darwin/uvx", "wrong member"},
+		{"uv-aarch64-apple-darwin/uv", "uv binary"},
+	}
+	buffer := &bytes.Buffer{}
+	compressor := gzip.NewWriter(buffer)
+	writer := tar.NewWriter(compressor)
+	for _, member := range members {
+		if err := writer.WriteHeader(&tar.Header{
+			Name:     member.name,
+			Typeflag: tar.TypeReg,
+			Mode:     0o644,
+			Size:     int64(len(member.contents)),
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := writer.Write([]byte(member.contents)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := errors.Join(writer.Close(), compressor.Close()); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(archive, buffer.Bytes(), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	destination := filepath.Join(t.TempDir(), "tools", "uv")
+	if err := extractNamedArchiveFile(archive, true, "uv", destination); err != nil {
+		t.Fatal(err)
+	}
+	extracted, err := os.ReadFile(destination)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(extracted) != "uv binary" {
+		t.Fatalf("extracted %q", extracted)
+	}
+	info, err := os.Stat(destination)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if runtime.GOOS != "windows" && info.Mode().Perm()&0o100 == 0 {
+		t.Fatalf("extracted uv is not executable: %v", info.Mode())
+	}
+}
+
+func TestExtractNamedTarGzFileReportsAMissingMember(t *testing.T) {
+	archive := filepath.Join(t.TempDir(), "empty.tar.gz")
+	buffer := &bytes.Buffer{}
+	compressor := gzip.NewWriter(buffer)
+	writer := tar.NewWriter(compressor)
+	if err := errors.Join(writer.Close(), compressor.Close()); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(archive, buffer.Bytes(), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := extractNamedArchiveFile(archive, true, "uv", filepath.Join(t.TempDir(), "uv")); err == nil {
+		t.Fatal("a tarball without the member was accepted")
+	}
 }
 
 func TestGitHubDownloadURLsOrderAndEnvironment(t *testing.T) {
@@ -150,7 +251,7 @@ func TestDownloadWithFallbackFailsWithManualInstructions(t *testing.T) {
 	if !strings.Contains(errMsg, destination) {
 		t.Errorf("expected destination path in error message, got: %s", errMsg)
 	}
-	if !strings.Contains(errMsg, bootstrapUVURL) {
+	if !strings.Contains(errMsg, bootstrap.uv.URL()) {
 		t.Errorf("expected official download link in error message, got: %s", errMsg)
 	}
 }

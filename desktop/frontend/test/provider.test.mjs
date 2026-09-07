@@ -272,7 +272,7 @@ test("default local request contains a trusted path and no upload transport", ()
     video_id: "loc_0123456789ab",
     duration: 12,
   });
-  assert.equal(value.correction.media, "audio");
+  assert.equal(value.correction.media, "text");
   assert.equal(JSON.stringify(value).includes("upload"), false);
   assert.equal(JSON.stringify(value).includes("backend"), false);
 });

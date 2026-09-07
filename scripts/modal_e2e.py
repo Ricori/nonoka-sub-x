@@ -37,6 +37,19 @@ class ApiError(RuntimeError):
         self.body = body
 
 
+def temporary_key_record(login_key: str) -> dict[str, Any]:
+    """A one-run key in the same plaintext shape the deployed API verifies."""
+
+    return {
+        "id": login_key,
+        "key": login_key,
+        "name": "Modal E2E",
+        "video_ids": [],
+        "remaining": 1,
+        "created_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+    }
+
+
 def request(
     endpoint: str,
     method: str,
@@ -152,7 +165,7 @@ def main() -> int:
 
     endpoint = args.endpoint.rstrip("/")
     login_key = "e2e_" + secrets.token_urlsafe(32)
-    owner_id = "key_" + hashlib.sha256(login_key.encode("utf-8")).hexdigest()
+    owner_id = login_key
     keys = modal.Dict.from_name("nonoka-x-keys")
     videos = modal.Dict.from_name("nonoka-x-videos")
     uploads = modal.Dict.from_name("nonoka-x-uploads")
@@ -162,12 +175,7 @@ def main() -> int:
     task_id = ""
     latest_state = ""
 
-    keys.put(owner_id, {
-        "id": owner_id,
-        "video_ids": [],
-        "remaining": 1,
-        "created_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
-    })
+    keys.put(owner_id, temporary_key_record(login_key))
     print("[e2e] temporary login key registered", flush=True)
 
     try:
@@ -241,7 +249,7 @@ def main() -> int:
                     "target": "final-srt",
                     "language": "ja",
                     "device": "cuda",
-                    "gpu_budget_gb": 8,
+                    "gpu_tier": "standard",
                     "correction": {
                         "enabled": True,
                         "media": "text",

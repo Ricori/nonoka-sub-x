@@ -32,17 +32,16 @@ func main() {
 	must(os.MkdirAll(destination, 0o755))
 
 	entries := []string{
-		"bootstrap-requirements.win-py312.txt",
+		"bootstrap-requirements.py312.txt",
 		"scripts/run_local_sidecar.py",
 		"src/nonoka_x",
 		"third_party/finesub/src",
-		"third_party/finesub/resources",
-		"third_party/finesub/runtime",
 		"third_party/finesub/LICENSE",
 		"third_party/finesub/LICENSES.json",
 		"third_party/finesub/PROMPT_LICENSE.md",
 		"third_party/finesub/UPSTREAM.json",
 		"third_party/finesub/pyproject.toml",
+		"third_party/finesub/VERSION",
 	}
 	var copied []stagedFile
 	for _, entry := range entries {

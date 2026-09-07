@@ -282,12 +282,20 @@ export function RuntimePage({ capabilities, message, provisionMessage, provision
   const connectionBlocked = !provision
     ? pythonInstalling
       ? "正在准备 Python 启动环境，完成后即可安装运行时与模型。"
-      : "本地执行服务尚未连接，无法读取运行时状态。等待服务启动，或点击右上角「重新检查」。"
+      // 只在服务确实没起来时才怪 Python：服务在跑而 provision 读不到，是另一回事。
+      : sidecar?.running || !pythonBootstrap || pythonBootstrap.state === "ready"
+        ? "本地执行服务尚未连接，无法读取运行时状态。等待服务启动，或点击右上角「重新检查」。"
+        : pythonBootstrap.supported
+          ? "本地执行服务尚未连接：请先用下方「Python 3.12」卡片准备启动环境。"
+          // 平台没有自动安装，按钮点不动，所以这里必须给出手动出路，否则整页无解。
+          : `本地执行服务尚未连接：${pythonBootstrap.platform} 暂不支持自动安装 Python。可自行准备一个 Python 3.12 环境并安装 httpx、pydantic，用环境变量 NONOKA_PYTHON 指向它后重启应用。`
     : provision.bootstrap_error
       ? `FineSub bootstrap 不可用，暂时无法安装运行时或模型：${provision.bootstrap_error}。可用下方「Python 3.12」卡片安装隔离的启动环境后重试。`
       : "";
+  // 本地不支持 ≠ 用不了：云端不依赖这里的任何运行时与模型，所以这条提示要把出路说清楚，
+  // 而不是只报告「不支持」。
   const platformNotice = provision && !provision.runtime_supported
-    ? `当前 ${provision.platform} ${provision.media_supported ? "仅支持安装 FFmpeg 媒体工具；" : "暂不支持托管环境；"}本地 GPU 流水线仍仅面向 Windows x64/NVIDIA，也可继续使用云端容器。`
+    ? `本地 GPU 流水线仅面向 Windows x64/NVIDIA，${provision.platform} 上${provision.media_supported ? "只能安装 FFmpeg 媒体工具" : "无法安装托管运行时"}。在此平台请在首页把运行方式切到「云端」——云端转写不需要本地运行时与模型，只需登录账号。`
     : "";
   const jobBlocked = jobRunning ? "已有安装任务正在进行，请等待其结束。" : "";
   const runtimeUnavailable = provision && !provision.runtime_supported && !provision.media_supported
@@ -309,7 +317,7 @@ export function RuntimePage({ capabilities, message, provisionMessage, provision
   const pythonBlocked = !pythonBootstrap
     ? ""
     : !pythonBootstrap.supported
-      ? pythonBootstrap.message || "自动安装 Python 当前仅支持 Windows x64。"
+      ? pythonBootstrap.message || `${pythonBootstrap.platform} 暂不支持自动安装 Python。`
       : pythonInstalling ? "Python 正在安装中。" : "";
   return (
     <section className="runtime-layout">
@@ -376,6 +384,9 @@ export function RuntimePage({ capabilities, message, provisionMessage, provision
                 : bootstrapBroken && !pythonInstalling
                 ? "当前本地服务运行在版本不符或缺少依赖的系统 Python 上。安装隔离的 Python 3.12 后会自动重启服务。"
                 : pythonBootstrap?.message || "Nonoka Sub X 将自动下载隔离的 Python，不会修改系统 Python。"}</p>
+              {pythonBootstrap && !pythonBootstrap.supported && (
+                <p className="required-dependency-hint">手动方案：准备一个装有 httpx、pydantic 的 Python 3.12，把环境变量 <code>NONOKA_PYTHON</code> 指向它的可执行文件后重启应用。</p>
+              )}
             </div>
             <div className="required-dependency-action">
               <small>{pythonInstalling ? `↓ 正在${pythonNeedsRepair ? "修复" : "安装"}` : pythonBootstrap?.state === "failed" ? `! ${pythonNeedsRepair ? "环境损坏" : "安装失败"}` : pythonBootstrap?.state === "ready" ? "✓ 已安装" : "! 尚未安装"}</small>

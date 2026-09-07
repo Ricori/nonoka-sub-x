@@ -1,5 +1,7 @@
 import type { ProviderID, TaskEvent } from "../providers/types.ts";
 
+const OPERATOR_ONLY_WARNINGS = ["routing-", "srt-line-budget"];
+
 function value(payload: Record<string, unknown>, key: string): string {
   return String(payload[key] ?? "");
 }
@@ -28,9 +30,13 @@ export function visibleTaskEvents(events: TaskEvent[], provider: ProviderID): Ta
   const visible: TaskEvent[] = [];
   for (const event of events) {
     if (event.type === "log") continue;
-    // Provider/model routing is deployment telemetry.  It is intentionally
-    // absent from the customer-facing cloud task log.
-    if (event.type === "warning" && value(event.payload, "code").startsWith("routing-")) continue;
+    // Provider/model routing is deployment telemetry, and srt-line-budget
+    // reports a line the segmentation DP chose on purpose against a stricter
+    // literal the SRT validator keeps to itself.  Both are intentionally
+    // absent from the customer-facing cloud task log; the worker already
+    // withholds them, and this also hides them in tasks recorded before it
+    // did.
+    if (event.type === "warning" && OPERATOR_ONLY_WARNINGS.some((code) => value(event.payload, "code").startsWith(code))) continue;
 
     const previous = visible.at(-1);
     if (previous && sameProgress(previous, event)) {

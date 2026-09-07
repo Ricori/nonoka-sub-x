@@ -89,12 +89,27 @@ export function taskStageLabel(stage: string, state?: TaskSnapshot["state"]): st
 
 const INTERNAL_BLOCK_TIMECODE = /^\d{1,2}:\d{2}(?::\d{2})?$/;
 
+const errorCodeLabels: Record<string, string> = {
+  missing_llm_key: "缺少 API Key",
+  missing_gpu: "未检测到可用 GPU",
+  missing_model: "缺少所需模型",
+  insufficient_disk: "磁盘空间不足",
+  missing_dependency: "缺少系统依赖",
+  quota_exceeded: "模型用量超限或额度不足",
+  auth_failed: "本地 CLI 认证失效或未登录",
+  agent_failed: "本地 CLI 运行异常",
+  engine_failed: "引擎处理异常",
+};
+
 export function taskActivityText(snapshot: TaskSnapshot, nowMs = Date.now()): string {
-  if (snapshot.error) return `${snapshot.error.code}: ${snapshot.error.message}`;
+  if (snapshot.error) {
+    const label = errorCodeLabels[snapshot.error.code];
+    return label ? `${label}: ${snapshot.error.message}` : `${snapshot.error.code}: ${snapshot.error.message}`;
+  }
   if (activeStates.has(snapshot.state)) {
-    const created = Date.parse(snapshot.created_at);
-    const elapsed = Number.isFinite(created)
-      ? formatDuration(Math.max(0, (nowMs - created) / 1000))
+    const started = Date.parse(snapshot.started_at || snapshot.created_at);
+    const elapsed = Number.isFinite(started)
+      ? formatDuration(Math.max(0, (nowMs - started) / 1000))
       : "0:00";
     const detail = String(snapshot.progress?.message ?? "").trim();
     const usefulDetail = detail && !INTERNAL_BLOCK_TIMECODE.test(detail) ? detail : "";

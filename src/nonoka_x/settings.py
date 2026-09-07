@@ -60,7 +60,11 @@ SETTING_NAMES = KEY_NAMES | BASE_URL_NAMES
 # tier picks the packaged targets, the command is what has to be on PATH. The
 # engine ships Claude Code and dsh tiers as well; only the ones listed here
 # are offered as a desktop route.
-LOCAL_AGENT_PROVIDERS: Mapping[str, dict[str, str]] = {
+#
+# `note` is prose the settings page shows under the detection line, for a
+# provider whose behaviour a person has to know *before* selecting it. Only
+# WorkBuddy carries one today, and what it says costs money.
+LOCAL_AGENT_PROVIDERS: Mapping[str, dict[str, Any]] = {
     "local-codex": {
         "tier": "LOCAL_CODEX",
         "label": "本地 Codex",
@@ -91,6 +95,46 @@ LOCAL_AGENT_PROVIDERS: Mapping[str, dict[str, str]] = {
         # only cover the install that did not, and the two spellings the
         # vendor has shipped it under.
         "windows_app_globs": ("agy/bin/agy.exe", "Antigravity/agy.exe"),
+    },
+    "local-workbuddy": {
+        "tier": "LOCAL_WORKBUDDY",
+        "label": "本地 WorkBuddy",
+        "command": "codebuddy",
+        # GLM-5.3 Flash leads on the engine's own recommendation: it is the
+        # row whose thinking tier was lowered so it stops looping on a
+        # correction window, and the cheapest of the five in credits. Its
+        # 32000-token output ceiling is the trade -- fewer subtitles fit in a
+        # window than on the other four.
+        #
+        # ⚠ Which of these an account can actually reach is the account's
+        # business, not the CLI version's: the vendor answers a wrong `--model`
+        # with the list that login is entitled to. These five are the rows the
+        # engine packages; a plan carrying others needs a catalog row.
+        "models": (
+            "glm-5.3-flash",
+            "hy3",
+            "hy4-preview",
+            "deepseek-v4-flash",
+            "deepseek-v4-pro",
+        ),
+        # WorkBuddy ships the CLI inside its desktop app rather than as an npm
+        # package, so this is the same file the engine's own resolver falls
+        # back to when the PATH shim is absent. Detecting it anywhere else
+        # would answer a different question than the one the engine asks.
+        "windows_app_globs": (
+            "Programs/WorkBuddy/resources/app.asar.unpacked/cli/bin/codebuddy",
+        ),
+        # ...but do not put that directory on PATH: the file is a Node entry
+        # script, not something Windows can execute, and the engine reaches it
+        # through `%LOCALAPPDATA%` on its own. Pushing it would advertise a
+        # `codebuddy` that nothing can launch.
+        "path_entry": False,
+        "note": (
+            "Hunyuan 3 与 Hunyuan 4 Preview 每天有免费额度；用光之后会自动切到"
+            "同一条线的付费额度把当次任务跑完（分别按 x0.05 与 x0.29 计费），"
+            "并在结束时提示切过。不想自动扣费就选 GLM-5.3 Flash 或 DeepSeek 两行，"
+            "它们本来就按积分计费，没有免费孪生可切。"
+        ),
     },
 }
 
@@ -140,6 +184,21 @@ MODEL_ROUTE_SPECS: tuple[dict[str, str], ...] = (
     {"id": "search_judge", "label": "检索判断"},
     {"id": "knowledge", "label": "知识处理"},
 )
+#: One desktop row can own more than one engine task group. `correction` and
+#: `planning` each split into a `-mm` and a `-text` cell upstream, and a pin
+#: binds *both*: upstream 0.5.0's `[llm.preferred_targets]` replaces the bound
+#: chain outright (`_preferred_bindings`, owner decision 2026-08-28), so
+#: leaving the `-mm` half unpinned would quietly serve a multimodal correction
+#: from a provider the user did not choose. The desktop instead refuses the
+#: combination up front -- see `route_media_warnings`.
+TASK_GROUPS_BY_ROUTE: dict[str, tuple[str, ...]] = {
+    "correction": ("correction-mm", "correction-text"),
+    "planning": ("planning-mm", "planning-text"),
+    "research": ("research",),
+    "search_judge": ("search_judge",),
+    "knowledge": ("knowledge",),
+}
+
 MODEL_SETTING_NAMES = frozenset(
     {"LLM_DEFAULT_PROVIDER", "LLM_DEFAULT_MODEL"}
     | {
@@ -285,6 +344,12 @@ def local_agent_path_entries() -> list[str]:
 
     entries: list[str] = []
     for provider, spec in LOCAL_AGENT_PROVIDERS.items():
+        # `path_entry: False` is for a CLI whose entry point is not an
+        # executable -- WorkBuddy's is a Node script inside the desktop app.
+        # The engine finds that one through `%LOCALAPPDATA%` itself, so adding
+        # its directory would only advertise a name nothing can launch.
+        if not spec.get("path_entry", True):
+            continue
         if shutil.which(spec["command"]):
             continue
         executable = local_agent_executable(provider)
@@ -464,6 +529,7 @@ class FineSubSettings:
                     "groupId": spec.get("groupId", ""),
                     "groupLabel": spec.get("groupLabel", ""),
                     "tierLabel": spec.get("tierLabel", ""),
+                    "note": "",
                 }
                 for spec in API_PROVIDER_SPECS
             ],
@@ -485,6 +551,10 @@ class FineSubSettings:
                     "groupId": "",
                     "groupLabel": "",
                     "tierLabel": "",
+                    # Prose the page shows under the detection line, for what a
+                    # person has to know before selecting this provider rather
+                    # than after. Empty for the ones with nothing to say.
+                    "note": spec.get("note", ""),
                 }
                 for provider, spec in LOCAL_AGENT_PROVIDERS.items()
             ],
@@ -568,7 +638,7 @@ class FineSubSettings:
         return self.snapshot()
 
     def _update_model_routing(self, updates: Mapping[str, str | None], env_values: Mapping[str, str]) -> None:
-        from finesub_bootstrap.config_file import update_config_file
+        from nonoka_x.config_file import update_config_file
 
         current = _read_toml(self.config_file).get("nonoka_models", {})
         if not isinstance(current, Mapping):
@@ -610,8 +680,9 @@ class FineSubSettings:
         return f"nonoka-{provider}-{digest}"
 
     def _sync_model_routing(self, env_values: Mapping[str, str]) -> None:
-        from finesub_bootstrap.config_file import update_config_file
         from finesub_bootstrap.fsops import write_atomic
+
+        from nonoka_x.config_file import update_config_file
 
         data = _read_toml(self.config_file)
         model_config = data.get("nonoka_models", {})
@@ -704,13 +775,24 @@ class FineSubSettings:
                 return target if target in emitted else None
             return None
 
+        # `[llm.preferred_targets]` is upstream 0.5.0's own overlay; the
+        # `[llm] default_target` / `task_route_*` keys this used to write were
+        # read by `0003-desktop-model-routing.patch`, which the sync to 0.5.0
+        # dropped. They are cleared rather than left behind: a stale key in a
+        # hand-edited file reads like a live setting.
+        preferred: dict[str, str | None] = {"default": target_for(routes["default"])}
+        for spec in MODEL_ROUTE_SPECS:
+            target = target_for(routes[spec["id"]])
+            for group in TASK_GROUPS_BY_ROUTE[spec["id"]]:
+                preferred[group] = target
         update_config_file(
             self.config_file,
             {
+                "llm.preferred_targets": preferred,
                 "llm": {
-                    "default_target": target_for(routes["default"]),
+                    "default_target": None,
                     **{
-                        f"task_route_{spec['id']}": target_for(routes[spec["id"]])
+                        f"task_route_{spec['id']}": None
                         for spec in MODEL_ROUTE_SPECS
                     },
                 },

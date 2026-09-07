@@ -87,6 +87,8 @@ class SidecarHandler(BaseHTTPRequestHandler):
             self._json(200, provider.list_tasks(limit=limit))
         elif self.command == "POST" and parts == ["v1", "tasks"]:
             self._json(202, provider.start(self._body()))
+        elif self.command == "POST" and parts == ["v1", "llm", "complete"]:
+            self._json(200, provider.llm_complete(self._body()))
         elif self.command == "POST" and parts == ["v1", "documents", "project"]:
             self._json(200, provider.project_contents(self._body()))
         elif self.command == "POST" and parts == ["v1", "documents", "import"]:

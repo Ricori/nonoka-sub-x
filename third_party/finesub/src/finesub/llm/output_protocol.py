@@ -10,11 +10,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 import re
+import statistics
 from typing import List, Optional, Sequence
 
 from .chunking import SubtitleSegment, SubtitleWindow, WindowIdMap
 from .exchange_metadata import extract_top_level_tagged_blocks
 from .prompt_variants import CorrectionVariant
+from finesub.text import looks_escaped
 from finesub.subtitles.model import SrtSegment, render_srt
 from finesub.subtitles.metrics import (
     format_weighted_char_count,
@@ -33,6 +35,45 @@ KIND_PLAN = "plan"
 KIND_DISCARD = "discard"
 CONFIDENCE_LEVELS = frozenset({"high", "median", "low"})
 
+# A reply may discard sources, but a window that discards most of itself is a
+# failure wearing a valid shape. The 2026-08-22 canary: an agent that never saw
+# the window text answered with one `sub` row plus `discard` for everything
+# else; every structural check passed and the finished subtitle kept one line.
+#
+# This is the same rule the all-discard case has always had ("Translated CSV
+# contains no valid rows" -- see the short-circuit comment below), just moved
+# off the 100% boundary, so it adds no new class of rejection.
+#
+# The threshold is calibrated against replies that were *correct*, because the
+# only cost of getting it wrong is rejecting one of those. `tools/
+# discard_ratio_scan.py` over the local archive (63 whole windows / 49 runs,
+# 2026-09-03) reads p50 0.007, p95 0.096, **max 0.219** -- and that max is the
+# singing/English-PV material where discarding most of a song is correct. 0.5
+# sits 2.3x above anything real, so it is a wrongness detector, not a quality
+# knob. `bench-baselines.md` 二十五 has the full record.
+#
+# **Whole windows only.** The same scan replays each window through the
+# production `split_window_in_half` (cut on the reasonable boundary nearest the
+# middle, second half re-including the overlap tail -- so halves are neither
+# equal nor disjoint), and reads the worst half at **43.8%** (H6dTZf9QFTY
+# 0007-a: 128 sources, 56 discarded -- a stretch of song inside a window that
+# averages far less). Gating a leaf like that would fail validation, exhaust
+# the retries and stop the task on an answer that was right.
+#
+# 0.5 buys nothing there anyway: it is 2.3x the worst whole window but only
+# **1.14x** the worst half, which is a coin flip rather than a detector. And
+# applying the same 2.3x calibration to the half maximum lands above 100%, i.e.
+# back on the all-discard check that already runs. So on a leaf the discard
+# ratio simply has no discriminating power, and the protection there is that
+# pre-existing check.
+#
+# ⚠ That leaves a **declared gap, not a proven absence**: a leaf is its own API
+# call, so a reply that never saw the body can in principle arrive there too,
+# and this gate would not catch it. Closing it needs a *different* signal (did
+# the model receive the window text at all), not a different number -- filed in
+# `llm_followups.md`.
+MAX_DISCARD_RATIO = 0.5
+
 # End-of-line marker (v12) letting the model retract a row it already wrote
 # (e.g. it computed the duration cell and realized the merge span ran away).
 # A marked row is treated as if the physical line does not exist: no structure
@@ -44,6 +85,46 @@ OUTPUT_CSV_HEADER = (
 OUTPUT_CSV_HEADER_WITH_START = (
     "type|position|start|duration|gap|corrected_text|translation|conf|char_count|note"
 )
+
+
+def _uncovered_sources_error(
+    expected_ids: Sequence[str], covered: set[str]
+) -> str | None:
+    """Every window source must appear in a row or be explicitly discarded.
+
+    Silent omission is no longer allowed (v52)."""
+
+    uncovered = [sid for sid in expected_ids if sid not in covered]
+    if not uncovered:
+        return None
+    preview = ", ".join(uncovered[:12])
+    return (
+        f"Translated missing source id(s): {preview}"
+        + ("…" if len(uncovered) > 12 else "")
+        + ". Every source must be covered by a sub/insert row or "
+        "explicitly discarded with 'discard|<id>'."
+    )
+
+
+def _majority_discard_error(
+    discarded_ids: set[str], expected_ids: Sequence[str], *, enabled: bool
+) -> str | None:
+    """Coverage says every source was *accounted for*; this says the window
+    still produced subtitles. See MAX_DISCARD_RATIO for why 0.5, and why
+    `enabled` is false on a split leaf."""
+
+    if not enabled or not expected_ids:
+        return None
+    if len(discarded_ids) <= MAX_DISCARD_RATIO * len(expected_ids):
+        return None
+    percent = round(100 * len(discarded_ids) / len(expected_ids))
+    return (
+        f"Translated discards {len(discarded_ids)} of {len(expected_ids)} "
+        f"sources ({percent}%), over the "
+        f"{round(100 * MAX_DISCARD_RATIO)}% limit. Discard is for "
+        "individual sources that carry no speech; a window where most "
+        "sources are dropped means the window text was not read."
+    )
 
 
 def _row_is_voided(row: str) -> bool:
@@ -179,6 +260,7 @@ def _normalized_char_count(
     translation: str,
     reported: str,
     warnings: List[str],
+    ledger: Optional[List[tuple[float, float]]] = None,
     *,
     row_label: str = "",
 ) -> str:
@@ -194,7 +276,107 @@ def _normalized_char_count(
                 f"{label} char_count {reported!r} does not match the "
                 f"computed value {format_weighted_char_count(actual)}; normalized."
             )
+            if ledger is not None:
+                ledger.append((_reported_char_count(reported), actual))
     return format_weighted_char_count(actual)
+
+
+#: When a whole window's char counts disagree the same way, the text being
+#: measured is probably not the text the model wrote. Both figures were
+#: registered before the check existed, off a 116-exchange baseline
+#: (docs/plans/nonoka-downstream-findings-plan.md, 离线基线测量):
+#: the worst baseline window disagreed on **2.4%** of its rows, and **38 of 38**
+#: baseline ratios were below 1 -- models over-report their own length, they do
+#: not under-report it. The one measured transport fault disagreed on **100%**
+#: of its rows at a ratio near **2.8**, i.e. on the other side of both figures
+#: with roughly an order of magnitude to spare.
+#:
+#: ⚠ Read the direction figure for what it is: the 38 ratios come from **two**
+#: models (`gemini-3.7-flash` and `gemini-3.8-flash`). The other five in the
+#: corpus had no disagreeing rows at all, so they support "disagreement is
+#: rare" and say nothing about which way it leans. A model that systematically
+#: *under*-reports would trip this, and nothing measured so far rules one out.
+SYSTEMATIC_CHAR_COUNT_SHARE = 1 / 3
+
+
+def _window_errors(
+    errors: List[str],
+    segments: List["TranslatedCsvSegment"],
+    expected_ids: Sequence[str],
+    covered: set[str],
+    discarded_ids: set[str],
+    *,
+    check_discard_ratio: bool,
+) -> List[str]:
+    """The errors that are about the window as a whole rather than any row.
+
+    `errors` is read, never appended to: the empty-window message is
+    suppressed when the block already failed to parse, because "no valid rows"
+    adds nothing to a reader who has just been told the CSV was unreadable.
+    """
+
+    empty = (
+        "Translated CSV contains no valid rows."
+        if not segments and not any(e.startswith("Translated CSV") for e in errors)
+        else ""
+    )
+    return [
+        message
+        for message in (
+            empty,
+            _uncovered_sources_error(expected_ids, covered),
+            _majority_discard_error(
+                discarded_ids, expected_ids, enabled=check_discard_ratio
+            ),
+        )
+        if message
+    ]
+
+
+def _systematic_char_count_warning(
+    ledger: List[tuple[float, float]], row_count: int
+) -> List[str]:
+    """One window-level warning when the disagreement is systematic.
+
+    A row here and there disagreeing is ordinary: models are not good at
+    counting their own characters, and the per-row warnings already say so
+    before normalizing to the computed value. What that per-row view cannot
+    say is that **every** row disagrees **in the same direction** -- and that
+    is not a counting weakness, it is a sign that the validator and the model
+    are looking at different text.
+
+    It stays a warning and the normalization is untouched: turning this into
+    an error would put a threshold nobody has calibrated in the way of every
+    model that merely counts badly. What it fixes is narrower and real -- the
+    evidence used to be overwritten and thrown away in the same breath.
+
+    Both conditions must hold, because they answer different questions:
+    the share says "systematic", the median direction says "not just
+    imprecise". Returns a list so the caller can extend without branching.
+
+    ⚠ The direction gate is a **median**, deliberately -- it is what the
+    baseline was registered against, and it survives one row leaning the other
+    way. So the message reports how many rows actually lean each way rather
+    than describing them all as under-reports.
+    """
+
+    if not ledger or row_count <= 0:
+        return []
+    if len(ledger) / row_count < SYSTEMATIC_CHAR_COUNT_SHARE:
+        return []
+    ratios = [computed / reported for reported, computed in ledger if reported > 0]
+    if not ratios or statistics.median(ratios) <= 1:
+        return []
+    # Counted, not assumed: the gate is the *median*, so a minority of rows may
+    # lean the other way and the message must not call them all under-reports.
+    under = sum(1 for ratio in ratios if ratio > 1)
+    return [
+        f"{len(ledger)} of {row_count} rows disagree with the computed "
+        f"char_count, {under} of them reporting less "
+        f"(median x{statistics.median(ratios):.2f}). A window that disagrees "
+        "mostly in one direction usually means the text being measured is not "
+        "the text the model wrote."
+    ]
 
 
 #: The output row contract, in order. `note` is last because it is the only
@@ -303,6 +485,47 @@ def looks_truncated_translated(text: str) -> bool:
     return False
 
 
+def _refused_reply(
+    text: str, require_start_column: bool, forbid_start_column: bool
+) -> Optional[CsvValidationResult]:
+    """Whether this call can proceed at all, before anything is parsed.
+
+    Two preconditions that answer in two different ways, deliberately. The
+    column flags contradicting each other is a *caller* bug and raises; a reply
+    whose non-ASCII arrived as literal escapes is a *transport* fault and comes
+    back as a refusal, because it is the model's turn that failed, not ours.
+
+    The refusal has to sit here, ahead of every other check, because all of
+    them read this text: coverage, adjacency, scoring and the `char_count`
+    normalization would each have something to say about characters the model
+    never wrote. The one measured case went the whole way -- into the SRT and
+    into the resume cache -- with the stage reporting success, and `char_count`
+    was the check that saw it, then normalized the evidence away.
+
+    `agent_mcp_server` repairs this shape upstream, so a refusal here means the
+    repair missed a *new* shape. That is exactly when a loud failure beats a
+    quiet one, and it is why both exist (plan: decision one).
+    """
+
+    if require_start_column and forbid_start_column:
+        raise ValueError(
+            "require_start_column and forbid_start_column cannot both be true."
+        )
+    if not looks_escaped(text):
+        return None
+    return CsvValidationResult(
+        ok=False,
+        segments=[],
+        errors=[
+            "The reply is pure ASCII but carries literal escapes decoding to "
+            f"non-ASCII text ({len(text)} chars, {text.count(chr(92))} "
+            "backslashes). That is a transport fault rather than a content "
+            "one: the CLI escaped its own tool arguments."
+        ],
+        warnings=[],
+    )
+
+
 def validate_translated_csv_text(
     text: str,
     source_segments: Sequence[SubtitleSegment],
@@ -312,6 +535,7 @@ def validate_translated_csv_text(
     require_headers: bool = False,
     require_start_column: bool = False,
     forbid_start_column: bool = False,
+    check_discard_ratio: bool = True,
 ) -> CsvValidationResult:
     """Validate and parse the `<translated>` block into typed segments.
 
@@ -350,11 +574,11 @@ def validate_translated_csv_text(
 
     errors: List[str] = []
     warnings: List[str] = []
+    ledger: List[tuple[float, float]] = []
 
-    if require_start_column and forbid_start_column:
-        raise ValueError(
-            "require_start_column and forbid_start_column cannot both be true."
-        )
+    refusal = _refused_reply(text, require_start_column, forbid_start_column)
+    if refusal is not None:
+        return refusal
 
     source_by_id: dict[str, SubtitleSegment] = {}
     source_index: dict[str, int] = {}
@@ -657,6 +881,7 @@ def validate_translated_csv_text(
                     translation,
                     fields.char_count.strip(),
                     warnings,
+                    ledger,
                 ),
                 note=note,
             )
@@ -664,23 +889,17 @@ def validate_translated_csv_text(
         seen_source_ids.update(source_ids)
         previous_last_position = positions[-1]
 
-    if not translated_segments and not any(
-        e.startswith("Translated CSV") for e in errors
-    ):
-        errors.append("Translated CSV contains no valid rows.")
-
-    # Coverage: every window source must appear in a sub/insert row or be
-    # explicitly discarded. Silent omission is no longer allowed (v52).
-    covered = seen_source_ids | discarded_ids
-    uncovered = [sid for sid in expected_ids if sid not in covered]
-    if uncovered:
-        preview = ", ".join(uncovered[:12])
-        errors.append(
-            f"Translated missing source id(s): {preview}"
-            + ("…" if len(uncovered) > 12 else "")
-            + ". Every source must be covered by a sub/insert row or "
-            "explicitly discarded with 'discard|<id>'."
+    errors.extend(
+        _window_errors(
+            errors,
+            translated_segments,
+            expected_ids,
+            seen_source_ids | discarded_ids,
+            discarded_ids,
+            check_discard_ratio=check_discard_ratio,
         )
+    )
+    warnings += _systematic_char_count_warning(ledger, len(translated_segments))
 
     return CsvValidationResult(
         ok=not errors,
@@ -852,6 +1071,7 @@ def validate_correction_output_text(
     *,
     variant: CorrectionVariant,
     clip_start: float = 0.0,
+    check_discard_ratio: bool = True,
 ) -> CsvValidationResult:
     """Validate one correction reply against the exact served prompt variant.
 
@@ -869,6 +1089,7 @@ def validate_correction_output_text(
         require_headers=True,
         require_start_column=variant.output_has_start,
         forbid_start_column=not variant.output_has_start,
+        check_discard_ratio=check_discard_ratio,
     )
 
 
@@ -911,6 +1132,8 @@ def validate_correction_window_output(
         id_map.localize_segments(window.segments),
         variant=variant,
         clip_start=window.clip_start,
+        # Only whole windows: see MAX_DISCARD_RATIO.
+        check_discard_ratio=window.split_depth == 0,
     )
     return remap_validation_source_ids(result, id_map)
 

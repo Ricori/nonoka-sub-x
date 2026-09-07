@@ -22,7 +22,7 @@ export interface FineSubSettingsState {
   protection: "empty" | "protected" | "plaintext" | "unreadable";
 }
 
-export type FineSubModelProviderID = "gemini-free" | "gemini-paid" | "openai" | "anthropic" | "openai-compat" | "anthropic-compat" | "local-codex" | "local-agy";
+export type FineSubModelProviderID = "gemini-free" | "gemini-paid" | "openai" | "anthropic" | "openai-compat" | "anthropic-compat" | "local-codex" | "local-agy" | "local-workbuddy";
 
 export interface FineSubModelOption {
   id: string;
@@ -58,6 +58,8 @@ export interface FineSubModelProvider {
   groupId: string;
   groupLabel: string;
   tierLabel: string;
+  // 选中该提供商之前就该知道的事，没有则为空串
+  note: string;
 }
 
 export interface FineSubModelRoutingState {

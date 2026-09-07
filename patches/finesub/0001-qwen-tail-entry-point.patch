@@ -1,0 +1,183 @@
+Subject: [PATCH 1/6] Make the Qwen pass runnable on its own
+
+Reason: Nonoka X's cloud deployment rents its accelerator by the second and runs
+one FineSub task across three containers. Upstream 0.5.0 split the VAD half out
+by itself -- `run_vad_prefix`, `write_vad_prefix`/`read_vad_prefix` and
+`run_vad_asr(vad_prefix_path=...)` -- so the CPU container that used to need a
+patch now calls upstream code with upstream arguments. The referee's own seam
+came with it: `QwenReferee.warm` and `resolve_verification_referee` are upstream
+too, which is what lets the scheduler preload the second model beside the GPU
+stage.
+
+What upstream still has no entry point for is running the referee *after* the
+fact. Inside `run_vad_asr` the pass is inline, so the only way to keep the second
+model off the Whisper accelerator is to run the stage with `qwen_verify="off"`
+and attach the evidence later -- on a cheap CPU container, against the aligned
+artifact the GPU container already wrote. `finalize_qwen_verification` is that
+entry point and nothing else: it is additive, no existing statement is touched,
+and every local run, the CLI and batch reach the untouched inline path.
+
+It calls the same `qwen_referee.apply_verification` the inline pass calls, with
+the same arguments, so the evidence is not a second implementation. Idempotent
+by construction -- an artifact that already carries `asr_align.qwen_verify` is
+returned untouched -- which is what lets a resumed run call it without checking.
+
+Containment is upstream's own, not ours: 0.5.1 answered the "a failed referee
+must not take the run down" half of the old patch 0004 with
+`contained_verification`, and this entry point calls it rather than restating
+the policy. The cloud reaches here with the default `qwen_verify="auto"`, so
+without it a hub that cannot be reached would discard an alignment pass the GPU
+container has already been billed for. 0.5.1 likewise absorbed the offline
+weight load (`speech/runtime/hf_weights`), which is why nothing about loading
+the referee is patched any more.
+
+`tests/test_split_stage_contract.py` in the Nonoka X repository enforces that
+reading: one file touched, nothing but additions.
+
+Removal: Delete once upstream can run the referee as a separate step against an
+existing aligned artifact, or once Nonoka X stops splitting the stage across
+containers.
+
+diff --git a/src/finesub/speech/recognition/vad_asr_stage.py b/src/finesub/speech/recognition/vad_asr_stage.py
+--- a/src/finesub/speech/recognition/vad_asr_stage.py
++++ b/src/finesub/speech/recognition/vad_asr_stage.py
+@@ -536,6 +536,139 @@ def write_aligned_json(
+     )
+ 
+ 
++def finalize_qwen_verification(
++    input_path: str | Path,
++    aligned_path: str | Path,
++    *,
++    device: str = "cpu",
++    qwen_verify: str = "auto",
++    referee=None,
++) -> Path:
++    """Attach Qwen evidence to an aligned artifact that was written without it.
++
++    The counterpart to ``run_vad_asr(qwen_verify="off")``: the one-pass stage
++    keeps this work in-process, and a caller that wants the second model off
++    the Whisper accelerator can defer it to here instead. Reads and rewrites
++    the aligned JSON in place, so the result is the artifact the one-pass stage
++    would have produced.
++
++    Idempotent by construction: an artifact that already carries
++    ``asr_align.qwen_verify`` metadata is returned untouched, which is what
++    lets a resumed run call this without checking. ``referee`` accepts an
++    already-loaded :class:`~finesub.speech.verification.qwen_referee.QwenReferee`
++    so a caller that warmed one in the background can hand it over; ownership
++    stays with whoever created it.
++
++    A failed pass is contained by :func:`contained_verification` -- upstream's
++    own policy, called rather than restated, so this entry point and the inline
++    one cannot drift on the question of which failures end a run.
++    """
++
++    if qwen_verify not in {"auto", "on", "off"}:
++        raise ValueError(f"unsupported qwen verification mode: {qwen_verify}")
++    source = Path(input_path).expanduser().resolve()
++    destination = Path(aligned_path).expanduser().resolve()
++    payload = json.loads(destination.read_text(encoding="utf-8"))
++    if not isinstance(payload, dict):
++        raise RuntimeError("aligned JSON root must be an object")
++    metadata = payload.setdefault("metadata", {})
++    if not isinstance(metadata, dict):
++        raise RuntimeError("aligned JSON metadata must be an object")
++    align_meta = metadata.setdefault("asr_align", {})
++    if not isinstance(align_meta, dict):
++        raise RuntimeError("aligned JSON ASR metadata must be an object")
++    if "qwen_verify" in align_meta or qwen_verify == "off":
++        return destination
++
++    try:
++        from transformers import AutoModelForMultimodalLM  # noqa: F401
++
++        from ..verification import qwen_referee
++    except Exception as exc:
++        if qwen_verify == "on":
++            raise RuntimeError(
++                "Missing dependency for Qwen verification finalization"
++            ) from exc
++        current_reporter().warning(
++            "qwen-verify-unavailable",
++            "transformers 5.x not available; skipping second-model "
++            "verification evidence.",
++            impact="少一层校验证据",
++        )
++        return destination
++
++    segments = payload.get("segments")
++    if not isinstance(segments, list) or not all(
++        isinstance(item, dict) for item in segments
++    ):
++        raise RuntimeError("aligned JSON segments must be a list of objects")
++    vad_timeline = payload.get("vad_timeline") or {}
++    if not isinstance(vad_timeline, dict):
++        raise RuntimeError("aligned JSON VAD timeline must be an object")
++    intervals = vad_timeline.get("intervals") or []
++    if not isinstance(intervals, list) or not all(
++        isinstance(item, dict) for item in intervals
++    ):
++        raise RuntimeError("aligned JSON VAD intervals must be a list of objects")
++
++    started = time.perf_counter()
++    owns_referee = referee is None
++    active_referee = referee or qwen_referee.QwenReferee(device=device)
++    try:
++        outcome = contained_verification(
++            lambda: qwen_referee.apply_verification(
++                segments,
++                vad_intervals=intervals,
++                audio_path=str(source),
++                referee=active_referee,
++            ),
++            qwen_verify=qwen_verify,
++        )
++    finally:
++        if owns_referee:
++            active_referee.close()
++    if outcome is None:
++        # The artifact is left exactly as it was found, `qwen_verify` key
++        # included -- absent. That absence is the condition this function
++        # tests on entry, so a run whose evidence was lost to a transient
++        # fault is still eligible for it next time round.
++        return destination
++    verified, verify_stats = outcome
++    elapsed = time.perf_counter() - started
++    payload["segments"] = verified
++    align_meta["qwen_verify"] = verify_stats
++    timing = align_meta.setdefault("timing", {})
++    if not isinstance(timing, dict):
++        raise RuntimeError("aligned JSON timing metadata must be an object")
++    timing["qwen_verify_sec"] = round(elapsed, 3)
++    timing["hybrid_total_sec"] = round(
++        float(timing.get("total_sec") or 0.0) + elapsed,
++        3,
++    )
++    align_meta["qwen_execution"] = {"device": device, "split_from_whisper": True}
++
++    temporary = destination.with_name(f".{destination.name}.qwen-part")
++    temporary.unlink(missing_ok=True)
++    try:
++        temporary.write_text(
++            json.dumps(payload, ensure_ascii=False, indent=2),
++            encoding="utf-8",
++        )
++        os.replace(temporary, destination)
++    finally:
++        temporary.unlink(missing_ok=True)
++    current_reporter().debug(
++        "qwen finalize timing",
++        {
++            "device": device,
++            "elapsed_sec": f"{elapsed:.3f}",
++            "suspects": verify_stats.get("suspects", 0),
++            "gaps": verify_stats.get("gaps_probed", 0),
++        },
++    )
++    return destination
++
++
+ def annotate_segments_with_vad_energy(
+     segments: list[dict[str, object]],
+     energy_track: vad_energy.VadEnergyTrack,

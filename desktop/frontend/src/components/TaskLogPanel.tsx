@@ -27,6 +27,19 @@ function text(value: unknown): string {
   return typeof value === "string" ? value : "";
 }
 
+// A structured field (the stabilizer's `tags`, for one) is worth reading as
+// JSON; `String()` renders every one of them as `[object Object]`.
+function fieldText(value: unknown): string {
+  if (value !== null && typeof value === "object") {
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return String(value);
+    }
+  }
+  return String(value);
+}
+
 function eventText(event: TaskEvent): string {
   const payload = event.payload ?? {};
   const stage = text(payload.stage);
@@ -39,7 +52,7 @@ function eventText(event: TaskEvent): string {
     return [stage, counter, message].filter(Boolean).join(" · ");
   }
   const fields = payload.fields && typeof payload.fields === "object" && !Array.isArray(payload.fields)
-    ? Object.entries(payload.fields as Record<string, unknown>).map(([key, value]) => `${key}=${String(value)}`).join(" ")
+    ? Object.entries(payload.fields as Record<string, unknown>).map(([key, value]) => `${key}=${fieldText(value)}`).join(" ")
     : "";
   const detail = [message, text(payload.impact), text(payload.action), fields].filter(Boolean).join(" · ");
   return [stage, text(payload.code), detail].filter(Boolean).join(" · ") || typeLabels[event.type] || event.type;

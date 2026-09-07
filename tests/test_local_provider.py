@@ -45,7 +45,14 @@ def wait_progress(provider: LocalProvider, task_id: str, timeout: float = 5) -> 
     raise AssertionError(f"task did not report progress: {provider.status(task_id)}")
 
 
-class LocalProviderTests(unittest.TestCase):
+class ProviderFixture(unittest.TestCase):
+    """A provider whose worker is a fixture script, and the request it takes.
+
+    Shared by the suites below rather than subclassed from one of them: a test
+    class that inherits another's tests runs them again, and two of these
+    fixtures sleep for thirty seconds on purpose.
+    """
+
     def setUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory()
         self.root = Path(self.temp.name)
@@ -90,6 +97,8 @@ class LocalProviderTests(unittest.TestCase):
             "cleanup_intermediate": False,
         }
 
+
+class LocalProviderTests(ProviderFixture):
     def test_success_persists_monotonic_events_and_artifacts(self) -> None:
         provider = self.provider()
         task = provider.start(self.request())
@@ -199,6 +208,58 @@ class LocalProviderTests(unittest.TestCase):
         with self.assertRaisesRegex(ProviderError, "unsupported device"):
             provider2.start(invalid_req)
         provider2.shutdown()
+
+    def test_the_engines_new_switches_survive_validation(self) -> None:
+        """`separate` and `llm_model`, the two knobs FineSub 0.5.0 added.
+
+        Both are optional and both are refused rather than coerced when the
+        type is wrong: skipping separation by accident costs the whole
+        recognition quality and reports nothing, and a malformed model pin
+        would surface much later as a routing error that names neither the
+        field nor the request.
+        """
+
+        provider = self.provider()
+        accepted = self.request()
+        accepted["separate"] = False
+        accepted["llm_model"] = {"correction": "local-agy-media-gemini-3_7-flash"}
+        task = provider.start(accepted)
+        self.assertIn(task["state"], {"queued", "running"})
+        wait_state(provider, task["task_id"], {"completed"})
+        provider.shutdown()
+
+        provider2 = self.provider()
+        with self.assertRaisesRegex(ProviderError, "separate must be a boolean"):
+            provider2.start({**self.request(), "separate": "off"})
+        with self.assertRaisesRegex(ProviderError, "llm_model must be"):
+            provider2.start({**self.request(), "llm_model": ["a", "b"]})
+        with self.assertRaisesRegex(ProviderError, "llm_model entries must be strings"):
+            provider2.start({**self.request(), "llm_model": {"correction": 1}})
+        provider2.shutdown()
+
+    def test_a_request_defaults_to_separating_and_to_the_auto_tier(self) -> None:
+        """The two defaults the desktop relies on when a request omits them.
+
+        `auto` is the engine's own default and detects the card; separation on
+        is what every input that is not already a vocal track needs. A request
+        that still carries the retired `gpu_budget_gb` is left alone here and
+        converted at the worker, so the migration lives in one place.
+        """
+
+        from nonoka_x.local_provider import validate_request
+
+        request = self.request()
+        request.pop("gpu_budget_gb", None)
+        normalized = validate_request(request)
+        self.assertEqual(normalized["gpu_tier"], "auto")
+        self.assertTrue(normalized["separate"])
+
+        # A request queued before the upgrade keeps its number and gains no
+        # tier here: the worker converts it, so there is one mapping and not
+        # two that could disagree.
+        legacy = validate_request(self.request())
+        self.assertNotIn("gpu_tier", legacy)
+        self.assertEqual(legacy["gpu_budget_gb"], 8)
 
     def test_old_separator_unicode_probe_is_retried_once(self) -> None:
         accel = self.root / "models" / "audio-separator" / "accel"
@@ -316,6 +377,215 @@ class LocalProviderTests(unittest.TestCase):
         self.assertIn("qwen-referee", model_issue["message"])
         raw_stage = next(stage for stage in report["stages"] if stage["id"] == "raw-srt")
         self.assertFalse(raw_stage["ready"])
+
+    def test_misleading_onnx_cuda_warning_is_filtered_from_events(self) -> None:
+        provider = self.provider()
+        task = provider.start(self.request("onnx-cuda-warning"))
+        wait_state(provider, task["task_id"], {"completed"})
+        page = provider.events(task["task_id"])
+        messages = [event.get("payload", {}).get("message", "") for event in page["events"]]
+        self.assertFalse(any("CUDAExecutionProvider not available in ONNXruntime" in msg for msg in messages))
+        self.assertTrue(any("Useful information" in msg for msg in messages))
+
+
+class PipelineTargetTests(ProviderFixture):
+    """Every stage the engine names is a target a caller may ask for.
+
+    The provider used to accept two of the six, which was the desktop's own
+    menu written into the contract. A caller that wants the vocal track, or
+    the aligned JSON, has no reason to run recognition and the LLM stages to
+    get it -- and the engine already skips a stage whose output exists, so
+    asking for an earlier stage is also how a run is resumed cheaply.
+    """
+
+    def test_every_pipeline_stage_is_a_startable_target(self) -> None:
+        from nonoka_x.local_provider import PIPELINE_TARGETS, validate_request
+
+        for target in PIPELINE_TARGETS:
+            with self.subTest(target=target):
+                request = self.request()
+                request["target"] = target
+                self.assertEqual(validate_request(request)["target"], target)
+
+    def test_an_unknown_target_names_the_ones_that_exist(self) -> None:
+        from nonoka_x.local_provider import validate_request
+
+        request = self.request()
+        request["target"] = "subtitles"
+        with self.assertRaisesRegex(ProviderError, "translated-srt"):
+            validate_request(request)
+
+    def test_readiness_is_gated_per_target(self) -> None:
+        """An ASR-only target must not be blocked by a missing model provider.
+
+        The gate used to be "raw-srt or everything else", so `vocal` would have
+        demanded a configured LLM -- a stage that never calls one.
+        """
+
+        from nonoka_x.local_provider import TARGET_READINESS
+
+        self.assertEqual(TARGET_READINESS["vocal"], "raw-srt")
+        self.assertEqual(TARGET_READINESS["stable"], "raw-srt")
+        self.assertEqual(TARGET_READINESS["translated-srt"], "final-srt")
+
+    def test_projection_defaults_to_writing_the_document(self) -> None:
+        from nonoka_x.local_provider import validate_request
+
+        self.assertEqual(validate_request(self.request())["projection"], "document")
+        request = self.request()
+        request["projection"] = "artifacts"
+        with self.assertRaisesRegex(ProviderError, "projection must be"):
+            validate_request(request)
+
+    def test_a_run_asked_not_to_project_leaves_the_document_alone(self) -> None:
+        """`projection: none` is what makes a stage run safe to offer.
+
+        Projection replaces the video's default document. A caller that only
+        wanted one stage's artifacts would otherwise overwrite whatever the
+        user has been editing.
+        """
+
+        provider = self.provider()
+        request = self.request()
+        request["source"]["video_id"] = "loc_0123456789ab"
+        request["projection"] = "none"
+        task = provider.start(request)
+        wait_state(provider, task["task_id"], {"completed"})
+        self.assertIn("stable_json", provider.artifacts(task["task_id"])["artifacts"])
+        with self.assertRaises(ProviderError):
+            provider.document("loc_0123456789ab")
+        provider.shutdown()
+
+
+class LLMCallTests(ProviderFixture):
+    """The channel around the LLM worker, which is all the provider owns.
+
+    The call itself is the engine's; what is tested here is that one process
+    serves many calls, that a dead one is replaced instead of failing the
+    request that found it, and that a call which never answers ends.
+    """
+
+    def llm_provider(self) -> LocalProvider:
+        instance = LocalProvider(
+            self.root / "tasks",
+            ROOT / "third_party/finesub",
+            worker_command=self.command,
+            llm_worker_command=lambda: [sys.executable, str(ROOT / "tests/fake_llm_worker.py")],
+            issues=[],
+        )
+        self.providers.append(instance)
+        return instance
+
+    @staticmethod
+    def call(prompt: str = "hello", role: str = "lightweight") -> dict:
+        return {"role": role, "messages": [{"role": "user", "content": prompt}]}
+
+    def test_one_worker_serves_repeated_calls(self) -> None:
+        provider = self.llm_provider()
+        first = provider.llm_complete(self.call("one"))
+        started = provider._llm_process
+        second = provider.llm_complete(self.call("two"))
+        self.assertEqual(first["content"], "answered one as lightweight")
+        self.assertEqual(second["model"], "fixture-model")
+        self.assertIs(provider._llm_process, started)
+        provider.shutdown()
+        self.assertIsNone(provider._llm_process)
+
+    def test_a_worker_that_died_between_calls_is_replaced(self) -> None:
+        provider = self.llm_provider()
+        provider.llm_complete(self.call("one"))
+        with self.assertRaises(ProviderError):
+            provider.llm_complete(self.call("die"))
+        self.assertEqual(provider.llm_complete(self.call("three"))["content"], "answered three as lightweight")
+        provider.shutdown()
+
+    def test_a_call_that_never_answers_ends_and_takes_the_worker_with_it(self) -> None:
+        import nonoka_x.local_provider as module
+
+        provider = self.llm_provider()
+        previous = module.LLM_CALL_TIMEOUT_SEC
+        module.LLM_CALL_TIMEOUT_SEC = 0.5
+        try:
+            with self.assertRaisesRegex(ProviderError, "did not answer"):
+                provider.llm_complete(self.call("hang"))
+        finally:
+            module.LLM_CALL_TIMEOUT_SEC = previous
+        self.assertIsNone(provider._llm_process)
+        provider.shutdown()
+
+    def test_a_vendor_refusal_reaches_the_caller_with_its_own_words(self) -> None:
+        provider = self.llm_provider()
+        with self.assertRaisesRegex(ProviderError, "daily quota spent"):
+            provider.llm_complete(self.call("refuse"))
+        provider.shutdown()
+
+    def test_the_sidecar_serves_the_call_over_its_own_route(self) -> None:
+        """The route exists and carries the same refusals the provider makes.
+
+        Everything else here calls the provider directly; this is the one check
+        that the desktop's actual path -- HTTP, bearer token, JSON -- reaches
+        it, and that a rejected request comes back as an error body rather than
+        a 500.
+        """
+
+        provider = self.llm_provider()
+        try:
+            server = SidecarServer(("127.0.0.1", 0), provider, "secret-token")
+        except PermissionError:
+            provider.shutdown()
+            self.skipTest("sandbox does not permit a loopback listener")
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        url = f"http://127.0.0.1:{server.server_port}/v1/llm/complete"
+
+        def post(payload: dict):
+            return urllib.request.Request(
+                url,
+                data=json.dumps(payload).encode(),
+                headers={"Authorization": "Bearer secret-token", "Content-Type": "application/json"},
+                method="POST",
+            )
+
+        try:
+            with urllib.request.urlopen(post(self.call("over http")), timeout=5) as response:
+                body = json.load(response)
+            self.assertEqual(body["content"], "answered over http as lightweight")
+            self.assertEqual(body["role"], "lightweight")
+            with self.assertRaises(urllib.error.HTTPError) as raised:
+                urllib.request.urlopen(post({"role": "nope", "messages": []}), timeout=5)
+            self.assertEqual(raised.exception.code, 400)
+            self.assertEqual(json.load(raised.exception)["error"]["code"], "invalid_request")
+        finally:
+            server.shutdown()
+            server.server_close()
+            provider.shutdown()
+            thread.join(timeout=2)
+
+    def test_the_request_is_validated_before_a_worker_is_started(self) -> None:
+        from nonoka_x.local_provider import MAX_LLM_PROMPT_BYTES
+
+        provider = self.llm_provider()
+        for label, payload, expected in (
+            ("role", self.call(role="audio_multimodal"), "role must be one of"),
+            ("empty", {"role": "lightweight", "messages": []}, "non-empty list"),
+            (
+                "speaker",
+                {"role": "lightweight", "messages": [{"role": "tool", "content": "x"}]},
+                "system, user or assistant",
+            ),
+            (
+                "size",
+                {"role": "lightweight", "messages": [{"role": "user", "content": "x" * (MAX_LLM_PROMPT_BYTES + 1)}]},
+                "exceed",
+            ),
+            ("tokens", {**self.call(), "max_tokens": 0}, "max_tokens"),
+            ("temperature", {**self.call(), "temperature": 5}, "temperature"),
+        ):
+            with self.subTest(label):
+                with self.assertRaisesRegex(ProviderError, expected):
+                    provider.llm_complete(payload)
+        self.assertIsNone(provider._llm_process)
+        provider.shutdown()
 
 
 if __name__ == "__main__":

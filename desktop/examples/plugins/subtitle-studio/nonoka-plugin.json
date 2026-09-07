@@ -1,9 +1,9 @@
 {
   "id": "dev.nonoka.subtitle-studio",
   "name": "字幕工作台",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "apiVersion": 1,
-  "description": "读取并批量修改字幕文档，导出 ASS/SRT 与压制视频",
+  "description": "读取并批量修改字幕文档，调用宿主的 LLM 与流水线阶段，导出 ASS/SRT 与压制视频",
   "publisher": "Nonoka X",
   "license": "MIT",
   "permissions": [
@@ -11,7 +11,10 @@
     "document.read",
     "document.write",
     "subtitle.export",
-    "media.export-video"
+    "media.export-video",
+    "llm.complete",
+    "engine.run",
+    "engine.artifacts"
   ],
   "contributes": {
     "tools": [

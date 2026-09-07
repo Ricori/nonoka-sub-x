@@ -52,7 +52,11 @@ export class PipelineController {
     if (request.correction.media === "video" && !capabilities.features.video_multimodal) {
       throw new Error("Selected provider does not support video multimodal correction");
     }
-    const snapshot = await this.provider.start(request);
+    const rawSnapshot = await this.provider.start(request);
+    const snapshot: TaskSnapshot = {
+      ...rawSnapshot,
+      started_at: rawSnapshot.started_at || new Date().toISOString(),
+    };
     this.generation += 1;
     this.set({ snapshot, events: [], artifacts: null, error: null });
     return snapshot;
@@ -88,7 +92,11 @@ export class PipelineController {
         this.set({ ...this.state, error: asError(status.reason) });
         return this.state;
       }
-      const snapshot = status.value;
+      const rawSnapshot = status.value;
+      const snapshot: TaskSnapshot = {
+        ...rawSnapshot,
+        started_at: rawSnapshot.started_at || this.state.snapshot?.started_at,
+      };
       let events = this.state.events;
       if (page.status === "fulfilled") {
         const byCursor = new Map(this.state.events.map((event) => [event.cursor, event]));
@@ -124,7 +132,11 @@ export class PipelineController {
   async resume(): Promise<TaskSnapshot | null> {
     const taskId = this.state.snapshot?.task_id;
     if (!taskId) return null;
-    const snapshot = await this.provider.resume(taskId);
+    const rawSnapshot = await this.provider.resume(taskId);
+    const snapshot: TaskSnapshot = {
+      ...rawSnapshot,
+      started_at: rawSnapshot.started_at || new Date().toISOString(),
+    };
     this.generation += 1;
     this.set({ ...this.state, snapshot, error: null });
     return snapshot;
@@ -136,7 +148,11 @@ export class PipelineController {
   async retry(): Promise<TaskSnapshot | null> {
     const taskId = this.state.snapshot?.task_id;
     if (!taskId) return null;
-    const snapshot = await this.provider.retry(taskId);
+    const rawSnapshot = await this.provider.retry(taskId);
+    const snapshot: TaskSnapshot = {
+      ...rawSnapshot,
+      started_at: rawSnapshot.started_at || new Date().toISOString(),
+    };
     this.generation += 1;
     this.set({ ...this.state, snapshot, error: null });
     return snapshot;

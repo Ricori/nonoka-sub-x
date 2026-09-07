@@ -1,7 +1,9 @@
 package app
 
 import (
+	"archive/tar"
 	"archive/zip"
+	"compress/gzip"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -12,6 +14,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -23,18 +26,65 @@ import (
 )
 
 const (
-	bootstrapPythonVersion       = "3.12"
-	bootstrapUVURL               = "https://github.com/astral-sh/uv/releases/download/0.11.32/uv-x86_64-pc-windows-msvc.zip"
-	bootstrapUVSize        int64 = 25726255
-	bootstrapUVSHA256            = "acfde570451cfdb8689fa159a138ee805ba4e241c466432750302c86254b0984"
-	bootstrapPyPIIndex           = "https://pypi.tuna.tsinghua.edu.cn/simple"
-	bootstrapPythonMirror        = "https://ghproxy.net/https://github.com/astral-sh/python-build-standalone/releases/download"
+	bootstrapPythonVersion = "3.12"
+	bootstrapUVVersion     = "0.11.32"
+	bootstrapUVRelease     = "https://github.com/astral-sh/uv/releases/download/" + bootstrapUVVersion + "/"
+	bootstrapPyPIIndex     = "https://pypi.tuna.tsinghua.edu.cn/simple"
+	bootstrapPythonMirror  = "https://ghproxy.net/https://github.com/astral-sh/python-build-standalone/releases/download"
 )
 
+// bootstrapUVAsset pins one uv build. uv is the whole installer: it downloads
+// the interpreter, creates the launcher environment and installs its
+// dependencies, so pinning it by size and digest pins the only binary the
+// bootstrap ever executes without having built it.
+type bootstrapUVAsset struct {
+	Name   string
+	Size   int64
+	SHA256 string
+	// Tar distinguishes the .tar.gz assets from the Windows .zip. The two
+	// archive formats are the only thing that differs between platforms; the
+	// installation steps below are identical.
+	Tar bool
+}
+
+func (a bootstrapUVAsset) URL() string { return bootstrapUVRelease + a.Name }
+
+// bootstrapUVAssets is also the list of platforms the managed launcher supports:
+// a GOOS/GOARCH pair with no uv build here has no way to install one, which is
+// exactly what the unsupported state reports. Windows x64 pins the same asset
+// FineSub's own runtime manifest does -- a test holds the two together.
+var bootstrapUVAssets = map[string]bootstrapUVAsset{
+	"windows/amd64": {
+		Name:   "uv-x86_64-pc-windows-msvc.zip",
+		Size:   25726255,
+		SHA256: "acfde570451cfdb8689fa159a138ee805ba4e241c466432750302c86254b0984",
+	},
+	"darwin/arm64": {
+		Name:   "uv-aarch64-apple-darwin.tar.gz",
+		Size:   22510462,
+		SHA256: "ed336d0ba49db8ef89b2b41fffa372ce63bd032f22a56f001c265891aec32829",
+		Tar:    true,
+	},
+	"darwin/amd64": {
+		Name:   "uv-x86_64-apple-darwin.tar.gz",
+		Size:   24228395,
+		SHA256: "77f5ca26c0de20e992a3677a174fe1121ee25c36f9b1434a863f75bf077a05eb",
+		Tar:    true,
+	},
+}
+
+func bootstrapUVAssetForHost() (bootstrapUVAsset, bool) {
+	asset, ok := bootstrapUVAssets[runtime.GOOS+"/"+runtime.GOARCH]
+	return asset, ok
+}
+
+// Tried in order after the official URL. mirror.ghproxy.com used to be here and
+// was dropped once it stopped answering at all -- a dead mirror is not a free
+// extra attempt, it is one download timeout the user waits through before the
+// next candidate is tried.
 var defaultGitHubMirrorPrefixes = []string{
 	"https://ghproxy.net/",
 	"https://gh-proxy.com/",
-	"https://mirror.ghproxy.com/",
 }
 
 func gitHubDownloadURLs(rawURL string) []string {
@@ -101,6 +151,7 @@ type PythonBootstrap struct {
 	manager      *sidecar.Manager
 	client       *http.Client
 	usable       func(string) bool
+	uv           bootstrapUVAsset
 }
 
 func NewPythonBootstrap(dataDirectory string, manager *sidecar.Manager) *PythonBootstrap {
@@ -108,10 +159,11 @@ func NewPythonBootstrap(dataDirectory string, manager *sidecar.Manager) *PythonB
 }
 
 func newPythonBootstrap(dataDirectory string, manager *sidecar.Manager, usable func(string) bool) *PythonBootstrap {
+	uv, supported := bootstrapUVAssetForHost()
 	state := pythonBootstrapState{
 		Schema:    1,
 		Platform:  runtime.GOOS + "-" + runtime.GOARCH,
-		Supported: runtime.GOOS == "windows" && runtime.GOARCH == "amd64",
+		Supported: supported,
 		State:     "missing",
 		Stage:     "waiting",
 		Message:   "需要下载 Python 以启用本地服务",
@@ -129,8 +181,11 @@ func newPythonBootstrap(dataDirectory string, manager *sidecar.Manager, usable f
 			state.Message = "Python 启动环境已损坏，可点击“修复环境”自动重建"
 		}
 	}
-	if !state.Supported {
-		state.Message = "自动安装 Python 当前仅支持 Windows x64"
+	// Only the state the platform actually blocks: a launcher that is already
+	// installed -- or already broken -- has its own message, and overwriting it
+	// would hide the repair offer behind a platform notice.
+	if !state.Supported && state.State == "missing" {
+		state.Message = unsupportedBootstrapMessage
 	}
 	return &PythonBootstrap{
 		state:        state,
@@ -139,20 +194,25 @@ func newPythonBootstrap(dataDirectory string, manager *sidecar.Manager, usable f
 		manager:      manager,
 		client:       &http.Client{Timeout: 30 * time.Minute},
 		usable:       usable,
+		uv:           uv,
 	}
 }
 
+// The platforms named here are the keys of bootstrapUVAssets, spelled the way a
+// user would recognise them.
+const unsupportedBootstrapMessage = "自动安装 Python 当前仅支持 Windows x64 与 macOS（Apple 芯片 / Intel）"
+
 func bootstrapRequirementsPath(dataDirectory string) string {
 	if resourceRoot, _ := ensureBundledResources(dataDirectory); resourceRoot != "" {
-		candidate := filepath.Join(resourceRoot, "bootstrap-requirements.win-py312.txt")
+		candidate := filepath.Join(resourceRoot, "bootstrap-requirements.py312.txt")
 		if _, err := os.Stat(candidate); err == nil {
 			return candidate
 		}
 	}
 	workingDirectory, _ := os.Getwd()
 	for _, candidate := range []string{
-		filepath.Join(workingDirectory, "..", "bootstrap-requirements.win-py312.txt"),
-		filepath.Join(workingDirectory, "bootstrap-requirements.win-py312.txt"),
+		filepath.Join(workingDirectory, "..", "bootstrap-requirements.py312.txt"),
+		filepath.Join(workingDirectory, "bootstrap-requirements.py312.txt"),
 	} {
 		if resolved, err := filepath.Abs(candidate); err == nil {
 			if _, statErr := os.Stat(resolved); statErr == nil {
@@ -160,7 +220,7 @@ func bootstrapRequirementsPath(dataDirectory string) string {
 			}
 		}
 	}
-	return filepath.Join(workingDirectory, "..", "bootstrap-requirements.win-py312.txt")
+	return filepath.Join(workingDirectory, "..", "bootstrap-requirements.py312.txt")
 }
 
 func (b *PythonBootstrap) Status() map[string]any {
@@ -174,7 +234,7 @@ func (b *PythonBootstrap) Install() (map[string]any, error) {
 	if !b.state.Supported {
 		result := b.stateMapLocked()
 		b.mu.Unlock()
-		return result, errors.New("Python 自动安装当前仅支持 Windows x64")
+		return result, errors.New(unsupportedBootstrapMessage)
 	}
 	if b.state.State == "running" {
 		result := b.stateMapLocked()
@@ -277,10 +337,10 @@ func (b *PythonBootstrap) installPython() error {
 	if err := os.MkdirAll(downloads, 0o700); err != nil {
 		return fmt.Errorf("创建 Python 下载目录失败：%w", err)
 	}
-	uvArchive := filepath.Join(downloads, "uv-0.11.32-windows-x64.zip")
-	if !fileMatches(uvArchive, bootstrapUVSize, bootstrapUVSHA256) {
-		candidateURLs := gitHubDownloadURLs(bootstrapUVURL)
-		if err := b.downloadWithFallback(candidateURLs, uvArchive, bootstrapUVSize, bootstrapUVSHA256); err != nil {
+	uvArchive := filepath.Join(downloads, bootstrapUVVersion+"-"+b.uv.Name)
+	if !fileMatches(uvArchive, b.uv.Size, b.uv.SHA256) {
+		candidateURLs := gitHubDownloadURLs(b.uv.URL())
+		if err := b.downloadWithFallback(candidateURLs, uvArchive, b.uv.Size, b.uv.SHA256); err != nil {
 			return err
 		}
 	}
@@ -288,13 +348,17 @@ func (b *PythonBootstrap) installPython() error {
 	if err := os.RemoveAll(tools); err != nil {
 		return err
 	}
-	if err := extractNamedZipFile(uvArchive, "uv.exe", filepath.Join(tools, "uv.exe")); err != nil {
+	uvName := "uv"
+	if runtime.GOOS == "windows" {
+		uvName = "uv.exe"
+	}
+	uv := filepath.Join(tools, uvName)
+	if err := extractNamedArchiveFile(uvArchive, b.uv.Tar, uvName, uv); err != nil {
 		return fmt.Errorf("解压 Python 安装器失败：%w", err)
 	}
 	if err := os.RemoveAll(staging); err != nil {
 		return err
 	}
-	uv := filepath.Join(tools, "uv.exe")
 	environment := append(os.Environ(),
 		"UV_CACHE_DIR="+filepath.Join(root, "cache"),
 		"UV_PYTHON_INSTALL_DIR="+filepath.Join(root, "python-installations"),
@@ -327,7 +391,7 @@ func (b *PythonBootstrap) installPython() error {
 			return fmt.Errorf("安装 Python 失败：%w%s", err, commandDetail(output))
 		}
 	}
-	stagingPython := filepath.Join(staging, "Scripts", "python.exe")
+	stagingPython := managedtools.VenvPython(staging)
 	b.update("installing_dependencies", "正在安装本地服务基础依赖", nil)
 	if output, err := runBootstrapCommand(uv, environment, "pip", "install", "--python", stagingPython, "--require-hashes", "-r", b.requirements); err != nil {
 		// If custom index failed, retry once with standard index
@@ -386,14 +450,15 @@ func (b *PythonBootstrap) downloadWithFallback(candidateURLs []string, destinati
 		time.Sleep(500 * time.Millisecond)
 	}
 
-	primaryMirror := defaultGitHubMirrorPrefixes[0] + bootstrapUVURL
+	official := b.uv.URL()
+	primaryMirror := defaultGitHubMirrorPrefixes[0] + official
 	return fmt.Errorf("下载 Python 安装器失败（已尝试官方及所有加速镜像）。\n"+
 		"您可以手动下载该文件并放入指定目录后重试：\n"+
 		"• 官方下载链接：%s\n"+
 		"• 镜像加速链接：%s\n"+
 		"• 目标放置路径：%s\n"+
 		"• 详细错误日志：%s",
-		bootstrapUVURL, primaryMirror, destination, strings.Join(attempts, "；"))
+		official, primaryMirror, destination, strings.Join(attempts, "；"))
 }
 
 func (b *PythonBootstrap) downloadSingle(urlStr, destination string, size int64, digest string) error {
@@ -489,6 +554,44 @@ func fileMatches(path string, size int64, expectedDigest string) bool {
 	return hex.EncodeToString(hash.Sum(nil)) == expectedDigest
 }
 
+// extractNamedArchiveFile pulls one member out of the uv download by base name.
+// The member's own path never reaches the destination, so a crafted archive
+// cannot write outside the tools directory.
+func extractNamedArchiveFile(archive string, compressedTar bool, name, destination string) error {
+	if compressedTar {
+		return extractNamedTarGzFile(archive, name, destination)
+	}
+	return extractNamedZipFile(archive, name, destination)
+}
+
+func extractNamedTarGzFile(archive, name, destination string) error {
+	file, err := os.Open(archive)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	decompressed, err := gzip.NewReader(file)
+	if err != nil {
+		return err
+	}
+	defer decompressed.Close()
+	reader := tar.NewReader(decompressed)
+	for {
+		header, err := reader.Next()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			return err
+		}
+		if header.Typeflag != tar.TypeReg || path.Base(header.Name) != name {
+			continue
+		}
+		return writeExtractedFile(reader, destination)
+	}
+	return fmt.Errorf("%s 不在下载的压缩包中", name)
+}
+
 func extractNamedZipFile(archive, name, destination string) error {
 	reader, err := zip.OpenReader(archive)
 	if err != nil {
@@ -503,20 +606,23 @@ func extractNamedZipFile(archive, name, destination string) error {
 		if err != nil {
 			return err
 		}
-		if err := os.MkdirAll(filepath.Dir(destination), 0o700); err != nil {
-			input.Close()
-			return err
-		}
-		output, err := os.OpenFile(destination, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o700)
-		if err != nil {
-			input.Close()
-			return err
-		}
-		_, copyErr := io.Copy(output, input)
-		closeErr := errors.Join(input.Close(), output.Close())
-		return errors.Join(copyErr, closeErr)
+		return errors.Join(writeExtractedFile(input, destination), input.Close())
 	}
 	return fmt.Errorf("%s 不在下载的压缩包中", name)
+}
+
+// 0o700 is what makes the extracted uv runnable on macOS: the archive member's
+// own mode is deliberately not carried over.
+func writeExtractedFile(input io.Reader, destination string) error {
+	if err := os.MkdirAll(filepath.Dir(destination), 0o700); err != nil {
+		return err
+	}
+	output, err := os.OpenFile(destination, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o700)
+	if err != nil {
+		return err
+	}
+	_, copyErr := io.Copy(output, input)
+	return errors.Join(copyErr, output.Close())
 }
 
 func runBootstrapCommand(executable string, environment []string, arguments ...string) ([]byte, error) {

@@ -21,6 +21,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/Ricori/nonoka-x/desktop/internal/library"
 	"github.com/wailsapp/wails/v3/pkg/application"
@@ -118,6 +119,14 @@ type Service struct {
 	home             *application.WebviewWindow
 	media            mediaLibrary
 	documents        documentStore
+	engine           engineHost
+	// The engine capabilities' own state, on separate locks. An LLM call takes
+	// as long as the model does, and a task's ownership list is a file read:
+	// neither belongs behind `mu`, which every page paint takes.
+	llmMu     sync.Mutex
+	llmActive map[string]bool
+	llmCalls  map[string][]time.Time
+	engineMu  sync.Mutex
 }
 
 // mediaLibrary names exactly the library calls plugin capabilities are built
@@ -509,6 +518,9 @@ func validateManifest(manifest Manifest, root string) error {
 		"tools.yt-dlp":         true,
 		"tools.cookies":        true,
 		"ffmpeg.extract-audio": true,
+		"llm.complete":         true,
+		"engine.run":           true,
+		"engine.artifacts":     true,
 	}
 	seenPermissions := map[string]bool{}
 	for _, permission := range manifest.Permissions {

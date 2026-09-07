@@ -11,7 +11,6 @@ import signal
 import subprocess
 import sys
 import threading
-import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -42,6 +41,34 @@ STATES = {"queued", "running", "completed", "failed", "cancelled", "interrupted"
 TERMINAL = {"completed", "failed", "cancelled"}
 ARTIFACT_NAMES = {"stable_json", "raw_srt", "annotated_csv", "final_srt"}
 
+# FineSub's own `stages.PIPELINE_STAGE_ORDER`, restated because this process
+# cannot import the engine -- it runs on the bootstrap interpreter, while
+# finesub lives in the managed venv the worker is spawned into. A sync that
+# changes the engine's stage list has to change this one; `tests/
+# test_vendor_contract.py` is where that pairing is checked.
+PIPELINE_TARGETS = ("vocal", "aligned", "stable", "raw-srt", "translated-srt", "final-srt")
+# Which readiness stage of `runtime_report` a target has to clear. Everything
+# up to the raw SRT is ASR work; the two LLM stages need a configured model.
+TARGET_READINESS = {
+    "vocal": "raw-srt",
+    "aligned": "raw-srt",
+    "stable": "raw-srt",
+    "raw-srt": "raw-srt",
+    "translated-srt": "final-srt",
+    "final-srt": "final-srt",
+}
+# The text-only roles of `finesub.llm.routing.config.LLMRole`. The two
+# multimodal roles are omitted deliberately: they exist to put a clip in front
+# of a model, and this entry point has no way to pass one, so asking for them
+# would only route text at a more expensive model.
+LLM_ROLES = ("lightweight", "general_capable")
+# One call may take a while on a reasoning model behind a local agent CLI, but
+# not forever: the sidecar thread serving it is blocked for the duration.
+LLM_CALL_TIMEOUT_SEC = 300.0
+# The worker holds a routed client, its rate limiter and any agent sessions
+# open. Idle that long and the next call can afford to build them again.
+LLM_WORKER_IDLE_SEC = 600.0
+
 
 class ProviderError(RuntimeError):
     def __init__(self, code: str, message: str, *, http_status: int = 400) -> None:
@@ -66,6 +93,11 @@ def _load_upstream(vendor: Path) -> dict[str, Any]:
 
 def _issue(code: str, message: str) -> dict[str, str]:
     return {"code": code, "message": message}
+
+
+_IGNORED_WORKER_LOG_SUBSTRINGS = (
+    "CUDAExecutionProvider not available in ONNXruntime",
+)
 
 
 def _clear_legacy_separator_decode_probes(environment: Mapping[str, str]) -> None:
@@ -326,8 +358,19 @@ def validate_request(value: Mapping[str, Any]) -> dict[str, Any]:
     video_id = source.get("video_id")
     if video_id is not None and not _safe_component(str(video_id)):
         raise ProviderError("invalid_source", "source.video_id is invalid")
-    if request.get("target") not in {"raw-srt", "final-srt"}:
-        raise ProviderError("unsupported_target", "target must be raw-srt or final-srt")
+    if request.get("target") not in PIPELINE_TARGETS:
+        raise ProviderError(
+            "unsupported_target", "target must be one of: " + ", ".join(PIPELINE_TARGETS)
+        )
+    # Whether a finished run turns into the editable subtitle document. The
+    # default is the app's own behaviour and the reason this is a field at all
+    # is the other value: projection replaces the video's default document, so
+    # a caller that only wanted one stage's artifacts -- a plugin running
+    # `vocal`, say -- must be able to ask for the run without it. See
+    # `_run_worker`.
+    projection = request.setdefault("projection", "document")
+    if projection not in {"document", "none"}:
+        raise ProviderError("invalid_request", "projection must be document or none")
     correction = request.setdefault("correction", {})
     if not isinstance(correction, dict):
         raise ProviderError("invalid_request", "correction must be an object")
@@ -341,11 +384,32 @@ def validate_request(value: Mapping[str, Any]) -> dict[str, Any]:
     if device_norm not in {"cuda", "cpu"}:
         if not (device_norm.startswith("cuda:") and device_norm.split(":", 1)[1].strip().isdigit()):
             raise ProviderError("invalid_request", f"unsupported device: {device!r}")
-    request.setdefault("gpu_budget_gb", 8)
+    # `auto` is the engine's own default and detects the card; a request
+    # still carrying the retired `gpu_budget_gb` is converted at the worker
+    # (`nonoka_x.gpu_tier`), so nothing is defaulted over it here.
+    if "gpu_budget_gb" not in request:
+        request.setdefault("gpu_tier", "auto")
     # FineSub has one separator policy and the local worker no longer passes a
     # profile through to it, so this field survives only as a contract check:
     # a request asking for the cloud's cost tier is asking for something local
     # execution does not have, and saying so beats silently running quality.
+    # Separation on unless the caller says the input is already a vocal
+    # track. Refused rather than coerced when it is not a bool: skipping it
+    # by accident costs the whole recognition quality and reports nothing.
+    separate = request.setdefault("separate", True)
+    if not isinstance(separate, bool):
+        raise ProviderError("invalid_request", "separate must be a boolean")
+    # Optional per-run model pin, the engine's `--llm-model`. A string pins
+    # every task group, a table pins the ones it names. The names themselves
+    # are the route loader's to validate -- it owns the list and its error
+    # says which ones it knows.
+    llm_model = request.get("llm_model")
+    if llm_model is not None and not isinstance(llm_model, (str, dict)):
+        raise ProviderError("invalid_request", "llm_model must be a string or an object")
+    if isinstance(llm_model, dict) and not all(
+        isinstance(key, str) and isinstance(value, str) for key, value in llm_model.items()
+    ):
+        raise ProviderError("invalid_request", "llm_model entries must be strings")
     vocal_profile = request.setdefault("vocal_profile", "quality")
     if vocal_profile != "quality":
         raise ProviderError(
@@ -375,12 +439,86 @@ def validate_request(value: Mapping[str, Any]) -> dict[str, Any]:
     return request
 
 
+# Prompt bytes one call may carry. A window of the engine's own correction
+# prompt is an order of magnitude under this; the cap is here so a caller
+# cannot turn one call into a bill.
+MAX_LLM_PROMPT_BYTES = 200_000
+MAX_LLM_OUTPUT_TOKENS = 32_768
+_LLM_MESSAGE_ROLES = {"system", "user", "assistant"}
+
+
+def _validate_llm_request(value: Mapping[str, Any]) -> dict[str, Any]:
+    role = str(value.get("role") or "").strip()
+    if role not in LLM_ROLES:
+        raise ProviderError("invalid_request", "role must be one of: " + ", ".join(LLM_ROLES))
+    raw_messages = value.get("messages")
+    if not isinstance(raw_messages, list) or not raw_messages:
+        raise ProviderError("invalid_request", "messages must be a non-empty list")
+    messages: list[dict[str, str]] = []
+    total = 0
+    for index, item in enumerate(raw_messages):
+        if not isinstance(item, Mapping):
+            raise ProviderError("invalid_request", f"message {index} must be an object")
+        message_role = str(item.get("role") or "")
+        content = item.get("content")
+        if message_role not in _LLM_MESSAGE_ROLES:
+            raise ProviderError("invalid_request", f"message {index} role must be system, user or assistant")
+        if not isinstance(content, str):
+            raise ProviderError("invalid_request", f"message {index} content must be text")
+        total += len(content.encode("utf-8"))
+        if total > MAX_LLM_PROMPT_BYTES:
+            raise ProviderError("invalid_request", f"messages exceed {MAX_LLM_PROMPT_BYTES} bytes")
+        messages.append({"role": message_role, "content": content})
+    max_tokens = value.get("max_tokens", 8192)
+    if not isinstance(max_tokens, int) or isinstance(max_tokens, bool) or not 1 <= max_tokens <= MAX_LLM_OUTPUT_TOKENS:
+        raise ProviderError("invalid_request", f"max_tokens must be an integer between 1 and {MAX_LLM_OUTPUT_TOKENS}")
+    temperature = value.get("temperature", 1.0)
+    if isinstance(temperature, bool) or not isinstance(temperature, (int, float)) or not 0.0 <= float(temperature) <= 2.0:
+        raise ProviderError("invalid_request", "temperature must be a number between 0 and 2")
+    return {
+        "role": role,
+        "messages": messages,
+        "max_tokens": max_tokens,
+        "temperature": float(temperature),
+    }
+
+
+def _read_line_with_timeout(process: subprocess.Popen[str], timeout: float) -> str | None:
+    """One line of the worker's stdout, or None once `timeout` passes.
+
+    `readline` has no timeout and the pipe is not selectable on Windows, so the
+    read happens on a thread the caller can walk away from. It is a daemon
+    thread over a pipe the caller closes on timeout, so it does not outlive the
+    process it was reading.
+    """
+
+    assert process.stdout is not None
+    received: list[str] = []
+
+    def read() -> None:
+        try:
+            received.append(process.stdout.readline())  # type: ignore[union-attr]
+        except (OSError, ValueError):
+            received.append("")
+
+    reader = threading.Thread(target=read, daemon=True, name="nonoka-llm-read")
+    reader.start()
+    reader.join(timeout)
+    if reader.is_alive():
+        return None
+    return received[0] if received else ""
+
+
 def _safe_component(value: str) -> bool:
     return bool(value) and len(value) <= 80 and all(character.isalnum() or character in "_-" for character in value)
 
 
 def classify_failure(message: str) -> str:
     lowered = message.lower()
+    if any(phrase in lowered for phrase in ("usage limit", "quota", "insufficient_quota", "credit", "billing", "upgrade to pro", "额度")):
+        return "quota_exceeded"
+    if any(phrase in lowered for phrase in ("not logged in", "authenticate", "login")):
+        return "auth_failed"
     if "api key" in lowered or "api_key" in lowered:
         return "missing_llm_key"
     if "cuda" in lowered or "nvidia" in lowered:
@@ -391,6 +529,11 @@ def classify_failure(message: str) -> str:
         return "insufficient_disk"
     if "no module named" in lowered or "not found" in lowered:
         return "missing_dependency"
+    if any(
+        phrase in lowered
+        for phrase in ("codex cli", "claude code", "codebuddy", "localagent")
+    ):
+        return "agent_failed"
     return "engine_failed"
 
 
@@ -404,6 +547,7 @@ class LocalProvider:
         vendor: str | Path,
         *,
         worker_command: WorkerCommand | None = None,
+        llm_worker_command: Callable[[], list[str]] | None = None,
         issues: list[dict[str, str]] | None = None,
         settings: FineSubSettings | None = None,
         provisioner: RuntimeProvisioner | None = None,
@@ -418,9 +562,22 @@ class LocalProvider:
         self._provisioner = provisioner
         self.documents = DocumentStore(self.root.parent / "documents")
         self._worker_command = worker_command or self._default_worker_command
+        self._llm_worker_command = llm_worker_command or self._default_llm_worker_command
         self._lock = threading.RLock()
         self._processes: dict[str, subprocess.Popen[str]] = {}
         self._threads: dict[str, threading.Thread] = {}
+        # One LLM worker for the whole sidecar, held across calls: building a
+        # routed client reads the route table, the model catalog and the key
+        # file, and a caller correcting fifty lines would pay for all of it
+        # fifty times. `_llm_lock` is what makes one process enough -- the
+        # channel is one request, one response.
+        self._llm_process: subprocess.Popen[str] | None = None
+        self._llm_lock = threading.Lock()
+        self._llm_idle_timer: threading.Timer | None = None
+        # Set once by `shutdown`. Without it, killing the worker out from under
+        # an in-flight call reads as "the worker died" and the retry starts a
+        # new one -- an orphan process, spawned while the app is closing.
+        self._closed = False
         self._separator_probe_checked = False
         self._recover_interrupted()
 
@@ -437,6 +594,44 @@ class LocalProvider:
             "--vendor",
             str(self.vendor),
         ]
+
+    def _default_llm_worker_command(self) -> list[str]:
+        managed_python = self._provisioner.worker_python() if self._provisioner is not None else None
+        return [str(managed_python or sys.executable), "-m", "nonoka_x.llm_worker"]
+
+    def _engine_environment(self) -> dict[str, str]:
+        """The environment every process that imports FineSub is spawned into.
+
+        Shared by the task worker and the LLM worker rather than written twice:
+        the two would drift, and each item here is a bug someone already had to
+        find -- an agent CLI that PATH cannot see, the vendored engine that is
+        not installed anywhere, MSVC output in the ANSI code page.
+        """
+
+        environment = self._provisioner.worker_environment() if self._provisioner is not None else os.environ.copy()
+        # The engine resolves an agent CLI by name off PATH, so an install that
+        # is not on PATH has to be put there for the worker.
+        agent_dirs = local_agent_path_entries()
+        if agent_dirs:
+            environment["PATH"] = os.pathsep.join([*agent_dirs, environment.get("PATH", "")])
+        project_src = Path(__file__).resolve().parents[1]
+        python_paths = [str(project_src), str(self.vendor / "src")]
+        if environment.get("PYTHONPATH"):
+            python_paths.append(environment["PYTHONPATH"])
+        environment["PYTHONPATH"] = os.pathsep.join(python_paths)
+        # The worker's own NDJSON must be UTF-8, but stderr also carries native
+        # compiler and library output in the Windows ANSI code page. Keep the
+        # Python standard streams on UTF-8 while leaving locale-based subprocess
+        # decoding on that native code page. PYTHONUTF8=1 would make PyTorch
+        # decode MSVC's GBK diagnostics as UTF-8 during AOT compilation.
+        environment["PYTHONUTF8"] = "0"
+        environment["PYTHONIOENCODING"] = "utf-8"
+        _prepare_msvc_environment(environment)
+        with self._lock:
+            if not self._separator_probe_checked:
+                _clear_legacy_separator_decode_probes(environment)
+                self._separator_probe_checked = True
+        return environment
 
     def get_capabilities(self) -> dict[str, Any]:
         issues = self._issues if self._issues_override else runtime_report(self._settings, self._provisioner)["issues"]
@@ -512,7 +707,7 @@ class LocalProvider:
             issue = self._issues[0]
             raise ProviderError(issue["code"], issue["message"], http_status=503)
         if not self._issues_override:
-            stage_id = "raw-srt" if validated["target"] == "raw-srt" else "final-srt"
+            stage_id = TARGET_READINESS[validated["target"]]
             if validated.get("knowledge") == "update" and stage_id == "final-srt":
                 stage_id = "knowledge"
             stage = next(
@@ -543,6 +738,7 @@ class LocalProvider:
             "error": None,
             "last_cursor": 0,
             "created_at": now,
+            "started_at": now,
             "updated_at": now,
         }
         task_dir = self._task_dir(task_id)
@@ -556,6 +752,8 @@ class LocalProvider:
             value = _read_json_when_free(self._task_dir(task_id) / "snapshot.json")
         except FileNotFoundError as exc:
             raise ProviderError("task_not_found", f"Unknown task: {task_id}", http_status=404) from exc
+        if "started_at" not in value:
+            value["started_at"] = value.get("created_at")
         return value
 
     def list_tasks(self, *, limit: int = 100) -> dict[str, Any]:
@@ -565,6 +763,8 @@ class LocalProvider:
         for snapshot_path in self.root.glob("*/snapshot.json"):
             try:
                 snapshot = _read_json_when_free(snapshot_path)
+                if "started_at" not in snapshot:
+                    snapshot["started_at"] = snapshot.get("created_at")
                 request_path = snapshot_path.with_name("request.json")
                 request = _read_json_when_free(request_path) if request_path.is_file() else {}
                 source = request.get("source") if isinstance(request, Mapping) else {}
@@ -734,6 +934,145 @@ class LocalProvider:
         self._write_optional_peaks(video_id, str(value.get("source_path") or ""), float(value.get("duration") or 0))
         return document
 
+    def llm_complete(self, payload: Mapping[str, Any]) -> dict[str, Any]:
+        """Run one routed LLM call on the user's configured models.
+
+        The engine's own correction and translation calls go through the task
+        worker; this is the same routing reached without a pipeline, for
+        callers that have their own prompt. It deliberately exposes nothing
+        about *how* the call was routed beyond the answering model's name: the
+        keys, the endpoint chain and FineSub's prompt templates stay inside the
+        engine.
+        """
+
+        request = _validate_llm_request(payload)
+        if self._issues_override:
+            if self._issues:
+                issue = self._issues[0]
+                raise ProviderError(issue["code"], issue["message"], http_status=503)
+        else:
+            stage = next(
+                item for item in runtime_report(self._settings, self._provisioner)["stages"]
+                if item["id"] == "final-srt"
+            )
+            if not stage["ready"]:
+                issue = stage["issues"][0]
+                raise ProviderError(issue["code"], issue["message"], http_status=503)
+        with self._llm_lock:
+            response = self._llm_exchange(request)
+        if not response.get("ok"):
+            error = response.get("error") if isinstance(response.get("error"), Mapping) else {}
+            message = str(error.get("message") or "LLM call failed")
+            raise ProviderError(str(error.get("code") or classify_failure(message)), message, http_status=502)
+        return {
+            "schema": 1,
+            "content": str(response.get("content") or ""),
+            "model": str(response.get("model") or ""),
+            "backend": str(response.get("backend") or ""),
+            "role": request["role"],
+            "fallback_used": bool(response.get("fallback_used")),
+        }
+
+    def _llm_exchange(self, request: Mapping[str, Any]) -> dict[str, Any]:
+        """Send one request to the LLM worker and read its one response.
+
+        Caller holds `_llm_lock`. A worker that died between calls -- the CLI it
+        drives crashed, the machine slept -- is replaced once and the request
+        retried, because the failure has nothing to do with this request.
+        """
+
+        for attempt in range(2):
+            process = self._llm_worker()
+            assert process.stdin is not None and process.stdout is not None
+            try:
+                process.stdin.write(json.dumps(request, ensure_ascii=False) + "\n")
+                process.stdin.flush()
+            except (BrokenPipeError, OSError, ValueError):
+                self._stop_llm_worker()
+                if attempt == 0:
+                    continue
+                raise ProviderError("llm_unavailable", "The LLM worker could not be started", http_status=503)
+            line = _read_line_with_timeout(process, LLM_CALL_TIMEOUT_SEC)
+            if line is None:
+                self._stop_llm_worker()
+                raise ProviderError(
+                    "llm_timeout",
+                    f"The LLM call did not answer within {int(LLM_CALL_TIMEOUT_SEC)}s",
+                    http_status=504,
+                )
+            if not line.strip():
+                # EOF: the worker is gone. Its stderr went to the sidecar's.
+                self._stop_llm_worker()
+                if attempt == 0:
+                    continue
+                raise ProviderError("llm_unavailable", "The LLM worker stopped unexpectedly", http_status=503)
+            self._schedule_llm_idle_stop()
+            try:
+                value = json.loads(line)
+            except json.JSONDecodeError as exc:
+                raise ProviderError("llm_protocol", "The LLM worker sent an unreadable response", http_status=502) from exc
+            if not isinstance(value, dict):
+                raise ProviderError("llm_protocol", "The LLM worker sent an unreadable response", http_status=502)
+            return value
+        raise ProviderError("llm_unavailable", "The LLM worker stopped unexpectedly", http_status=503)
+
+    def _llm_worker(self) -> subprocess.Popen[str]:
+        if self._closed:
+            raise ProviderError("llm_unavailable", "The application is shutting down", http_status=503)
+        process = self._llm_process
+        if process is not None and process.poll() is None:
+            return process
+        kwargs: dict[str, Any] = {
+            "stdin": subprocess.PIPE,
+            "stdout": subprocess.PIPE,
+            "text": True,
+            "encoding": "utf-8",
+            "errors": "replace",
+            "env": self._engine_environment(),
+        }
+        if os.name == "nt":
+            kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
+        else:
+            kwargs["start_new_session"] = True
+        try:
+            self._llm_process = subprocess.Popen(self._llm_worker_command(), **kwargs)
+        except OSError as exc:
+            raise ProviderError("llm_unavailable", f"The LLM worker could not be started: {exc}", http_status=503) from exc
+        return self._llm_process
+
+    def _schedule_llm_idle_stop(self) -> None:
+        if self._llm_idle_timer is not None:
+            self._llm_idle_timer.cancel()
+        timer = threading.Timer(LLM_WORKER_IDLE_SEC, self._stop_idle_llm_worker)
+        timer.daemon = True
+        self._llm_idle_timer = timer
+        timer.start()
+
+    def _stop_idle_llm_worker(self) -> None:
+        # Only when nothing is mid-call: the lock is the same one `llm_complete`
+        # holds for the length of an exchange.
+        if self._llm_lock.acquire(blocking=False):
+            try:
+                self._stop_llm_worker()
+            finally:
+                self._llm_lock.release()
+
+    def _stop_llm_worker(self) -> None:
+        if self._llm_idle_timer is not None:
+            self._llm_idle_timer.cancel()
+            self._llm_idle_timer = None
+        process, self._llm_process = self._llm_process, None
+        if process is None:
+            return
+        for stream in (process.stdin, process.stdout):
+            if stream is not None and not stream.closed:
+                try:
+                    stream.close()
+                except OSError:
+                    pass
+        if process.poll() is None:
+            self._terminate(process)
+
     def cancel(self, task_id: str) -> dict[str, Any]:
         with self._lock:
             snapshot = self.status(task_id)
@@ -753,6 +1092,8 @@ class LocalProvider:
         return self._restart(task_id, {"interrupted"})
 
     def shutdown(self) -> None:
+        self._closed = True
+        self._stop_llm_worker()
         with self._lock:
             for task_id, process in list(self._processes.items()):
                 if process.poll() is None:
@@ -769,7 +1110,8 @@ class LocalProvider:
             snapshot = self.status(task_id)
             if snapshot["state"] not in allowed:
                 raise ProviderError("invalid_state", f"Cannot restart task in state {snapshot['state']}", http_status=409)
-            self._set_state(task_id, "queued", error=None)
+            now = utc_now()
+            self._set_state(task_id, "queued", error=None, started_at=now)
             self._spawn(task_id)
         return self.status(task_id)
 
@@ -783,34 +1125,12 @@ class LocalProvider:
         task_dir = self._task_dir(task_id)
         request = _read_json_when_free(task_dir / "request.json")
         command = self._worker_command(task_id, task_dir)
-        environment = self._provisioner.worker_environment() if self._provisioner is not None else os.environ.copy()
-        # The engine resolves an agent CLI by name off PATH, so an install that
-        # is not on PATH has to be put there for the worker.
-        agent_dirs = local_agent_path_entries()
-        if agent_dirs:
-            environment["PATH"] = os.pathsep.join([*agent_dirs, environment.get("PATH", "")])
-        project_src = Path(__file__).resolve().parents[1]
-        python_paths = [str(project_src), str(self.vendor / "src")]
-        if environment.get("PYTHONPATH"):
-            python_paths.append(environment["PYTHONPATH"])
-        environment["PYTHONPATH"] = os.pathsep.join(python_paths)
-        # The worker's own NDJSON must be UTF-8, but stderr also carries native
-        # compiler and library output in the Windows ANSI code page. Keep the
-        # Python standard streams on UTF-8 while leaving locale-based subprocess
-        # decoding on that native code page. PYTHONUTF8=1 would make PyTorch
-        # decode MSVC's GBK diagnostics as UTF-8 during AOT compilation.
-        environment["PYTHONUTF8"] = "0"
-        environment["PYTHONIOENCODING"] = "utf-8"
+        environment = self._engine_environment()
         request_device = str(request.get("device") or "").strip().lower()
         if request_device.startswith("cuda:"):
             gpu_index = request_device.split(":", 1)[1].strip()
             if gpu_index.isdigit():
                 environment["CUDA_VISIBLE_DEVICES"] = gpu_index
-        _prepare_msvc_environment(environment)
-        with self._lock:
-            if not self._separator_probe_checked:
-                _clear_legacy_separator_decode_probes(environment)
-                self._separator_probe_checked = True
         kwargs: dict[str, Any] = {"stdin": subprocess.PIPE, "stdout": subprocess.PIPE, "stderr": subprocess.STDOUT, "text": True, "encoding": "utf-8", "errors": "replace", "env": environment}
         if os.name == "nt":
             kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
@@ -841,6 +1161,10 @@ class LocalProvider:
                     payload = body.get("payload") if isinstance(body.get("payload"), dict) else {}
                 except (json.JSONDecodeError, KeyError, TypeError):
                     event_type, payload = "log", {"message": line}
+                if event_type == "log":
+                    msg = str(payload.get("message") or "")
+                    if any(ignored in msg for ignored in _IGNORED_WORKER_LOG_SUBSTRINGS):
+                        continue
                 with self._lock:
                     current = self.status(task_id)
                     if current["state"] in {"cancelled", "interrupted"}:
@@ -852,7 +1176,11 @@ class LocalProvider:
                         if isinstance(manifest, dict):
                             _atomic_json(task_dir / "artifacts.json", manifest)
                             video_id = str(request.get("source", {}).get("video_id") or "")
-                            if video_id:
+                            # `projection: none` runs the stages and stops: the
+                            # projection replaces the video's default document,
+                            # which is not something a caller who asked for one
+                            # stage's artifacts is asking for.
+                            if video_id and request.get("projection", "document") != "none":
                                 self._project_manifest(video_id, request.get("source", {}), manifest)
                                 self._write_optional_peaks(
                                     video_id,
@@ -954,11 +1282,13 @@ class LocalProvider:
             raise ProviderError("task_not_found", f"Unknown task: {task_id}", http_status=404)
         return self.root / task_id
 
-    def _set_state(self, task_id: str, state: str, *, error: Any = ...) -> None:
+    def _set_state(self, task_id: str, state: str, *, error: Any = ..., started_at: str | None = None) -> None:
         if state not in STATES:
             raise ValueError(state)
         snapshot = self.status(task_id)
         snapshot["state"] = state
+        if started_at is not None:
+            snapshot["started_at"] = started_at
         if state == "completed":
             if snapshot.get("progress") and isinstance(snapshot["progress"], dict):
                 if snapshot["progress"].get("message") in {"正在处理", "处理中"}:

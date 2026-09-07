@@ -2,14 +2,29 @@ import { Service as PluginService } from "../../bindings/github.com/Ricori/nonok
 import type {
   DownloadedMedia,
   DownloaderSettings,
+  EngineArtifact,
+  EngineTaskRequest,
   ExportedArtifact,
   InstalledPlugin,
+  LLMAnswer,
+  LLMRequest,
   MediaSummary,
   ToolContribution,
 } from "../../bindings/github.com/Ricori/nonoka-x/desktop/internal/plugins/models.js";
 import type { EditDocument } from "../documents/types.ts";
 
-export type { DownloadedMedia, DownloaderSettings, ExportedArtifact, InstalledPlugin, MediaSummary, ToolContribution };
+export type {
+  DownloadedMedia,
+  DownloaderSettings,
+  EngineArtifact,
+  EngineTaskRequest,
+  ExportedArtifact,
+  InstalledPlugin,
+  LLMAnswer,
+  LLMRequest,
+  MediaSummary,
+  ToolContribution,
+};
 
 export interface MountedPluginTool {
   pluginId: string;
@@ -47,6 +62,18 @@ export const desktopPlugins = {
   },
   saveSubtitleFile: PluginService.SaveSubtitleFile,
   exportVideo: PluginService.ExportVideo,
+  // FineSub 引擎：一次 LLM 调用、按阶段跑一次流水线、取回那次运行的产物。
+  // 三样各有各的权限，都在 Go 侧校验，这里只转发。
+  llmComplete: PluginService.LLMComplete,
+  startEngineTask: PluginService.StartEngineTask,
+  engineTaskStatus: PluginService.EngineTaskStatus,
+  engineTaskEvents: PluginService.EngineTaskEvents,
+  cancelEngineTask: PluginService.CancelEngineTask,
+  async engineArtifacts(pluginId: string, taskId: string): Promise<EngineArtifact[]> {
+    return (await PluginService.EngineArtifacts(pluginId, taskId)) ?? [];
+  },
+  readArtifact: PluginService.ReadArtifact,
+  saveArtifact: PluginService.SaveArtifact,
 };
 
 export function mountedTools(plugins: InstalledPlugin[]): MountedPluginTool[] {

@@ -9,6 +9,7 @@ import time
 import httpx
 
 from finesub_bootstrap.fsops import replace_path
+
 from finesub_bootstrap.locks import holding_lock
 from finesub_bootstrap.models import DownloadAsset, DownloadProgress
 from finesub_bootstrap.http_client import (
@@ -186,15 +187,14 @@ def _download_locked(
     actual_digest = _sha256(part_path)
     if actual_digest != asset.sha256:
         quarantine = part_path.with_suffix(f"{part_path.suffix}.bad")
+        # Bare on purpose: a digest mismatch is already the failure being
+        # reported, and waiting on the rename would only delay saying so.
         os.replace(part_path, quarantine)
         _expectation_path(part_path).unlink(missing_ok=True)
         raise DigestMismatch(
             f"Expected SHA-256 {asset.sha256}, received {actual_digest}"
         )
 
-    # The bytes were just written and just hashed, so a scanner is often
-    # still on them; on Windows that denies this rename and would throw the
-    # whole download away one step from the end.
     replace_path(part_path, destination)
     _expectation_path(part_path).unlink(missing_ok=True)
     elapsed = max(time.perf_counter() - started, 1e-6)

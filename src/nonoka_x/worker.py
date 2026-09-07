@@ -5,14 +5,15 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import logging
 import os
 import sys
-import time
 import traceback
 from pathlib import Path
 from typing import Any, Mapping
 
 from .axis import AxisTranslation, translate_axis as translate_rows
+from .gpu_tier import resolve_request_gpu_tier
 
 
 def _normalize_engine_device(device_value: Any) -> tuple[str, str | None]:
@@ -50,8 +51,42 @@ def emit(event_type: str, payload: Mapping[str, Any] | None = None) -> None:
 # surfaces the change as a diff.
 _UNCALIBRATED_VECTOR_NOTICE = "未标定：输出预算系数"
 
+# FineSub 0.5.0 records every LLM call, local agent call and web retrieval as
+# one debug line, which is the right shape for the run log it was written for
+# -- and the wrong shape for a task log the user is watching, where a single
+# correction pass would scroll past hundreds of successes. The failures are
+# the part worth surfacing, and they are the ones that carry `why`: the
+# endpoint's own words (`llm_runtime`), which is exactly what tells a rate
+# limit apart from a spent key apart from a hung stage. Successes stay in the
+# run log and the per-call artifacts, where nothing is lost.
+_API_CALL_MESSAGE = "llm api call"
+
+# audio-separator checks ONNXruntime execution providers on initialization and
+# logs a warning if onnxruntime-gpu is missing. FineSub uses PyTorch CUDA and
+# AOTInductor for BS-Roformer, not ONNXruntime, so this warning is irrelevant
+# and misleads users into believing GPU acceleration is disabled.
+_MISLEADING_ONNX_CUDA_WARNING = "CUDAExecutionProvider not available in ONNXruntime"
+
+
+class _MuteSeparatorONNXWarningFilter(logging.Filter):
+    def filter(self, record: logging.LogRecord) -> bool:
+        return _MISLEADING_ONNX_CUDA_WARNING not in record.getMessage()
+
+
+def _install_separator_logging_filters() -> None:
+    mute_filter = _MuteSeparatorONNXWarningFilter()
+    for name in ("separator", "audio_separator", "audio_separator.separator.separator"):
+        logging.getLogger(name).addFilter(mute_filter)
+
+
+_install_separator_logging_filters()
+
 
 class NonokaXReporter:
+    def __init__(self) -> None:
+        self._seen_warnings: set[tuple[str, str]] = set()
+        self._seen_preset_cores: set[str] = set()
+
     def planned(self, stages) -> None:
         return
 
@@ -67,10 +102,32 @@ class NonokaXReporter:
     def warning(self, code: str, message: str, *, impact: str = "", action: str = "") -> None:
         if code == "routing-profile" and _UNCALIBRATED_VECTOR_NOTICE in message:
             return
+        if code == "srt-line-budget":
+            emit("log", {"code": code, "message": message, "impact": impact, "action": action})
+            return
+        warning_key = (code, message)
+        if warning_key in self._seen_warnings:
+            return
+        self._seen_warnings.add(warning_key)
+
+        # FineSub checks all (task_group x difficulty) combinations for routing presets.
+        # For non-audio models, "组内没有成员支持音频..." fires 6 times across difficulties/groups.
+        # Deduplicate and compact them so the user only sees one clean warning.
+        if code == "routing-preset" and ": " in message:
+            _prefix, core = message.split(": ", 1)
+            if "组内没有成员支持音频" in core:
+                if core in self._seen_preset_cores:
+                    return
+                self._seen_preset_cores.add(core)
+                message = f"多模态组: {core}"
+
         emit("warning", {"code": code, "message": message, "impact": impact, "action": action})
 
     def debug(self, message: str, fields=None) -> None:
-        emit("log", {"message": message, "fields": dict(fields or {})})
+        values = dict(fields or {})
+        if message == _API_CALL_MESSAGE and not values.get("why"):
+            return
+        emit("log", {"message": message, "fields": values})
 
     def completed(self, output, elapsed_sec: float) -> None:
         emit("progress", {"completed": 100, "total": 100, "unit": "%", "message": "字幕已完成"})
@@ -107,6 +164,93 @@ def translate_axis(request: Mapping[str, Any], axis: Mapping[str, Any], output: 
     )
 
 
+def install_llm_model_override(request: Mapping[str, Any]) -> None:
+    """Apply this run's `llm_model` pin, or clear whatever a previous one left.
+
+    The engine's equivalent of `--llm-model`: a model group or route target
+    that replaces the bound chain for one run, without touching the saved
+    settings. Upstream installs it from its own CLI entry points, which this
+    worker is not one of, so the call has to happen here -- and unconditionally,
+    because the overlay is process-global. One task per process makes a leak
+    impossible today; installing only when the field is present would make that
+    a property of the process model rather than of this function.
+
+    A bare string pins every task group. A table may use either the desktop's
+    route names (`{"correction": "..."}`) or upstream's exact task groups;
+    the two desktop media routes expand to both their ``-mm`` and ``-text``
+    cells before the engine validates the result.
+    """
+
+    try:
+        from finesub.llm.routing.model_routes import (
+            install_runtime_preferred,
+            parse_llm_model_args,
+        )
+    except ImportError:
+        # No engine, nothing to override -- the caller fails on its own import.
+        return
+    value = request.get("llm_model")
+    if isinstance(value, Mapping):
+        overlay = {str(key): str(item) for key, item in value.items()}
+    elif isinstance(value, str) and value.strip():
+        overlay = parse_llm_model_args([value.strip()])
+    else:
+        overlay = {}
+    from .settings import TASK_GROUPS_BY_ROUTE
+
+    expanded: dict[str, str] = {}
+    for key, target in overlay.items():
+        groups = TASK_GROUPS_BY_ROUTE.get(key, (key,))
+        for group in groups:
+            previous = expanded.get(group)
+            if previous is not None and previous != target:
+                raise ValueError(
+                    f"llm_model assigns conflicting targets to {group}: "
+                    f"{previous!r} and {target!r}"
+                )
+            expanded[group] = target
+    install_runtime_preferred(expanded)
+
+
+def extract_execution_failure_detail(exc: BaseException) -> str:
+    """Extract vendor/CLI diagnostic details from agent execution attempts or capsules."""
+    attempts = getattr(exc, "_harness_execution_attempts", None) or []
+    for attempt in attempts:
+        if isinstance(attempt, Mapping):
+            vendor_err = attempt.get("vendor_error")
+            if vendor_err and isinstance(vendor_err, str) and vendor_err.strip():
+                return vendor_err.strip()
+
+    try:
+        from finesub.llm.agent.agent_paths import vendor_error_text
+
+        text = vendor_error_text(exc)
+        if text and text.strip():
+            return text.strip()
+    except Exception:
+        pass
+
+    current = getattr(exc, "__cause__", None) or getattr(exc, "__context__", None)
+    while current is not None:
+        sub = extract_execution_failure_detail(current)
+        if sub:
+            return sub
+        current = getattr(current, "__cause__", None) or getattr(current, "__context__", None)
+
+    return ""
+
+
+def format_worker_exception(exc: BaseException) -> str:
+    vendor_detail = extract_execution_failure_detail(exc)
+    exc_type = type(exc).__name__
+    exc_msg = str(exc).strip()
+    if vendor_detail:
+        if "inspect events/stderr.log" in exc_msg or "exited with status" in exc_msg:
+            return f"{exc_type}: 本地模型 CLI 调用失败: {vendor_detail}"
+        return f"{exc_type}: {exc_msg} ({vendor_detail})"
+    return f"{exc_type}: {exc_msg}"
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--task-id", required=True)
@@ -115,6 +259,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         request = json.loads(sys.stdin.readline())
+        install_llm_model_override(request)
         source = request["source"]
         correction = request.get("correction") or {}
         title = str(source.get("title") or Path(source["path"]).stem)
@@ -136,16 +281,22 @@ def main(argv: list[str] | None = None) -> int:
                 "final_srt": translated.final_srt,
             }
         else:
-            from finesub.pipeline import run_pipeline
+            from finesub.stages import run_pipeline
 
-            with reporting_to(NonokaXReporter()), quieted_libraries("normal"):
+            reporter = NonokaXReporter()
+            gpu_tier = resolve_request_gpu_tier(
+                request,
+                warn=lambda message: reporter.warning("gpu-tier", message),
+            )
+            with reporting_to(reporter), quieted_libraries("normal"):
                 paths = run_pipeline(
                     source["path"],
                     output_path=output,
                     stage=request["target"],
                     language=request.get("language", "ja"),
                     device=engine_device,
-                    gpu_budget_gb=int(request.get("gpu_budget_gb", 8)),
+                    gpu_tier=gpu_tier,
+                    separate=bool(request.get("separate", True)),
                     llm_media=correction.get("media", "audio"),
                     llm_retrieval=correction.get("retrieval", "local"),
                     llm_difficulty=correction.get("difficulty", "quality"),
@@ -157,11 +308,21 @@ def main(argv: list[str] | None = None) -> int:
                     task_artifact_dir=artifact_dir,
                     resume=True,
                 )
+            # Every artifact the pipeline names, not only the four the editor
+            # projects from: a caller that asked for one stage wants that
+            # stage's output, and a stage that did not run simply leaves its
+            # file absent -- the manifest below records what exists.
             candidates = {
+                "vocal_audio": paths.resolve_vocal_audio(),
+                "vad_json": Path(paths.vad_json),
+                "vad_energy_npz": Path(paths.vad_energy_npz),
+                "aligned_json": Path(paths.aligned_json),
                 "stable_json": Path(paths.stable_json),
                 "raw_srt": Path(paths.raw_srt),
+                "translated_srt": Path(paths.translated_srt),
                 "annotated_csv": Path(paths.final_srt).with_name(f"{Path(paths.final_srt).stem}-annotated.csv"),
                 "final_srt": Path(paths.final_srt),
+                "metadata_json": Path(paths.metadata_json),
             }
         upstream = json.loads((args.vendor / "UPSTREAM.json").read_text(encoding="utf-8"))
         manifest = {
@@ -173,8 +334,11 @@ def main(argv: list[str] | None = None) -> int:
         emit("completed", {"artifacts": manifest})
         return 0
     except Exception as exc:
-        emit("failed", {"message": f"{type(exc).__name__}: {exc}"})
-        traceback.print_exc(file=sys.stderr)
+        formatted_message = format_worker_exception(exc)
+        emit("failed", {"message": formatted_message})
+        vendor_detail = extract_execution_failure_detail(exc)
+        if os.environ.get("NONOKA_DEBUG") or (not vendor_detail and not type(exc).__name__.startswith("LocalAgent")):
+            traceback.print_exc(file=sys.stderr)
         return 1
 
 

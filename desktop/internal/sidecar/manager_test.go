@@ -92,6 +92,43 @@ func TestDoJSONKeepsTokenInBackendAndPreservesErrors(t *testing.T) {
 	}
 }
 
+// A call that legitimately runs for minutes -- an LLM completion -- has to be
+// able to say so. A Timeout on the shared client capped every call at 30s no
+// matter what its context said, which is what an LLM call hit first: the
+// caller's own deadline never got a chance to apply.
+func TestDoJSONLetsTheCallerOwnTheDeadline(t *testing.T) {
+	const token = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNO"
+	release := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		select {
+		case <-release:
+		case <-request.Context().Done():
+			return
+		}
+		_ = json.NewEncoder(response).Encode(map[string]any{"provider": "local"})
+	}))
+	defer server.Close()
+	defer close(release)
+
+	manager := New(Config{})
+	manager.process = &processState{baseURL: server.URL, token: token}
+	if manager.client.Timeout != 0 {
+		t.Fatal("a client-wide Timeout caps every call regardless of its context")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	err := manager.DoJSON(ctx, http.MethodPost, "/v1/llm/complete", map[string]any{}, nil)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("a short caller deadline should end the call: %v", err)
+	}
+
+	// And a caller that brings none still gets a bound rather than hanging.
+	if defaultCallTimeout <= 0 {
+		t.Fatal("a call without a deadline must still be bounded")
+	}
+}
+
 func TestManagerStartsAndStopsChildProcess(t *testing.T) {
 	manager := New(Config{
 		Executable: os.Args[0],

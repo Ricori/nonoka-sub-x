@@ -28,7 +28,8 @@ function snapshot(stage, options = {}) {
     effective_capabilities: {},
     error: null,
     last_cursor: 0,
-    created_at: "2026-08-24T00:00:00Z",
+    created_at: options.created_at ?? "2026-08-24T00:00:00Z",
+    ...(options.started_at ? { started_at: options.started_at } : {}),
     updated_at: "2026-08-24T00:00:00Z",
   };
 }
@@ -87,6 +88,19 @@ test("activity text keeps useful backend detail after elapsed time", () => {
   assert.equal(
     taskActivityText(task, Date.parse(task.created_at) + 9_000),
     "已用时 0:09 · 正在识别第 3 段",
+  );
+});
+
+test("activity text measures elapsed time from started_at when resuming or restarting", () => {
+  const task = snapshot("aligned", {
+    created_at: "2026-08-24T00:00:00Z",
+    started_at: "2026-08-24T01:30:00Z",
+    progress: { completed: 2, total: 5, unit: "intervals", message: "正在识别第 3 段" },
+  });
+  // 15 seconds after started_at (even though 5415 seconds after created_at)
+  assert.equal(
+    taskActivityText(task, Date.parse(task.started_at) + 15_000),
+    "已用时 0:15 · 正在识别第 3 段",
   );
 });
 

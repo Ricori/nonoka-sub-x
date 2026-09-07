@@ -51,6 +51,16 @@ export function InstallRuntime(target: string): $CancellablePromise<{ [_ in stri
     return $Call.ByID(477675293, target);
 }
 
+/**
+ * LLMComplete runs one routed LLM call on the user's configured models. The
+ * sidecar owns the whole request shape -- roles, prompt size, output budget --
+ * so this is a forwarder rather than a second validator that could disagree
+ * with the first.
+ */
+export function LLMComplete(request: { [_ in string]?: any } | null): $CancellablePromise<{ [_ in string]?: any } | null> {
+    return $Call.ByID(2128011860, request);
+}
+
 export function ListTasks(): $CancellablePromise<{ [_ in string]?: any } | null> {
     return $Call.ByID(2672597986);
 }

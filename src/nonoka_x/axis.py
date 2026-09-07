@@ -173,7 +173,7 @@ def translate_axis(
     media = str(correction.get("media") or "text")
     video_path: str | Path | None = None
     if source_path is not None and media != "text":
-        from finesub.pipeline import resolve_llm_media_for_source
+        from finesub.stages import resolve_llm_media_for_source
 
         media, video_path, notice = resolve_llm_media_for_source(
             Path(source_path), stage="final-srt", llm_media=media, llm_video=None

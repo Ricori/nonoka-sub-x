@@ -1,15 +1,15 @@
 {
 	"fixed": {
-		"file_version": "0.2.4"
+		"file_version": "0.3.2"
 	},
 	"info": {
 		"0000": {
-			"ProductVersion": "0.2.4",
+			"ProductVersion": "0.3.2",
 			"CompanyName": "Ricori",
-			"FileDescription": "Local-first subtitle production",
+			"FileDescription": "Nonoka Sub X",
 			"LegalCopyright": "© 2026 Ricori",
 			"ProductName": "Nonoka Sub X",
-			"Comments": "Local and cloud subtitle production in one media library."
+			"Comments": "Desktop workstation for AI subtitle generation and professional editing."
 		}
 	}
 }

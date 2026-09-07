@@ -1,219 +1,144 @@
-"""What the task log says when an LLM call goes wrong.
+"""What the task log says when an LLM call goes wrong -- and what it does not.
 
-Both behaviours under test live in the vendored engine (patches 0009 and 0010)
-and exist for one reason: before them, a run whose provider was rate limiting,
-out of balance, or truncating every answer looked from the desktop like a stage
-that had stopped moving. The contract is not the wording -- it is that the first
-occurrence of each problem reaches `warning`, that repeats degrade to `debug`
-instead of flooding, and that the numbers a user needs to act on are in the line.
+Before FineSub 0.5.0 the engine said nothing at all about the calls a run is
+almost entirely made of, so a provider that was rate limiting, out of balance
+or refusing every key looked from the desktop like a stage that had stopped
+moving. Nonoka X carried two patches for that (0009 and 0010); upstream took
+the job over and now records *every* LLM call, local agent call and web
+retrieval as one `debug` line, with the endpoint's own words under `why` when
+the call failed.
+
+That fixes the silence and introduces the opposite problem. `NonokaXReporter`
+forwards `debug` straight into the task log the user is watching, and one
+correction pass makes hundreds of successful calls. So the filter is now
+Nonoka X's half of the contract, and it is what this file pins:
+
+- a failed call still reaches the task log, with the provider's own words;
+- a successful one does not reach it at all;
+- nothing else the engine logs at `debug` is affected by the rule.
+
+The upstream half is pinned too, because it is a sync away from moving: the
+message name and the `why` field are what the filter keys on, and a rename
+upstream would silently turn the log back off.
 """
 
 from __future__ import annotations
 
+import contextlib
+import io
+import json
 import sys
 import unittest
 from pathlib import Path
-from types import SimpleNamespace
 
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "third_party/finesub/src"))
 
-from finesub.reporting import reporting_to
+from nonoka_x.worker import _API_CALL_MESSAGE, NonokaXReporter  # noqa: E402
 
 
-class RecordingReporter:
-    def __init__(self) -> None:
-        self.warnings: list[tuple[str, str, str, str]] = []
-        self.debugs: list[tuple[str, dict]] = []
+def _events(call) -> list[dict]:
+    """The NDJSON events one reporter call writes to stdout."""
 
-    def planned(self, stages) -> None:
-        return
-
-    def stage_started(self, stage, *, reused=False, detail="") -> None:
-        return
-
-    def progress(self, stage, *, completed, total=None, unit="", detail="") -> None:
-        return
-
-    def summary(self, stage, metrics) -> None:
-        return
-
-    def warning(self, code, message, *, impact="", action="") -> None:
-        self.warnings.append((code, message, impact, action))
-
-    def debug(self, message, fields=None) -> None:
-        self.debugs.append((message, dict(fields or {})))
-
-    def completed(self, output, elapsed_sec) -> None:
-        return
-
-    def failed(self, stage, message) -> None:
-        return
+    output = io.StringIO()
+    with contextlib.redirect_stdout(output):
+        call()
+    return [json.loads(line) for line in output.getvalue().splitlines()]
 
 
-class OutputTruncationWarningTests(unittest.TestCase):
-    def _run_stub(self):
-        state = {"count": 0}
-
-        def note() -> bool:
-            state["count"] += 1
-            return state["count"] == 1
-
-        return SimpleNamespace(note_output_truncation=note, seen=state)
-
-    def test_first_truncation_warns_with_the_numbers_that_explain_it(self) -> None:
-        from finesub.llm.stages.correction.attempts import _warn_output_truncated
-
-        reporter = RecordingReporter()
-        run = self._run_stub()
-        with reporting_to(reporter):
-            _warn_output_truncated(
-                run,
-                window=SimpleNamespace(chunk_id="0001"),
-                model="deepseek-v4-flash",
-                check={
-                    "observed_output_tokens": 16_380,
-                    "thinking_tokens": 12_000,
-                    "max_output_tokens": 16_384,
-                },
-                splittable=True,
-            )
-        self.assertEqual(len(reporter.warnings), 1)
-        code, message, impact, action = reporter.warnings[0]
-        self.assertEqual(code, "correction-output-truncated")
-        self.assertIn("0001", message)
-        self.assertIn("deepseek-v4-flash", message)
-        # Both numbers: the cap says what to raise, the thinking share says
-        # whether raising it is even the right move.
-        self.assertIn("16380/16384", message)
-        self.assertIn("12000", message)
-        self.assertTrue(impact)
-        self.assertTrue(action)
-
-    def test_later_truncations_stay_quiet(self) -> None:
-        from finesub.llm.stages.correction.attempts import _warn_output_truncated
-
-        reporter = RecordingReporter()
-        run = self._run_stub()
-        check = {
-            "observed_output_tokens": 16_380,
-            "thinking_tokens": 0,
-            "max_output_tokens": 16_384,
+class ApiCallLogFilterTests(unittest.TestCase):
+    def test_a_failed_call_reaches_the_task_log_with_the_providers_words(self) -> None:
+        reporter = NonokaXReporter()
+        fields = {
+            "model": "gemini-3.7-flash",
+            "tier": "GEMINI_PAID",
+            "key": "key-2",
+            "code": "429",
+            "sec": "0.412",
+            "n": 3,
+            "why": "You exceeded your current quota",
         }
-        with reporting_to(reporter):
-            for chunk in ("0001", "0001-a", "0001-a-a"):
-                _warn_output_truncated(
-                    run,
-                    window=SimpleNamespace(chunk_id=chunk),
-                    model="m",
-                    check=check,
-                    splittable=True,
-                )
-        self.assertEqual(len(reporter.warnings), 1)
-        self.assertEqual(run.seen["count"], 3)
+        events = _events(lambda: reporter.debug(_API_CALL_MESSAGE, fields))
 
-    def test_a_missing_usage_report_says_so_instead_of_quoting_zero(self) -> None:
-        from finesub.llm.stages.correction.attempts import _warn_output_truncated
+        self.assertEqual(len(events), 1)
+        payload = events[0]["payload"]
+        self.assertEqual(events[0]["type"], "log")
+        self.assertEqual(payload["message"], _API_CALL_MESSAGE)
+        # The endpoint's own sentence, not one of ours: a bare 429 does not
+        # separate "this key is spent today" from "slow down".
+        self.assertEqual(payload["fields"]["why"], "You exceeded your current quota")
+        self.assertEqual(payload["fields"]["code"], "429")
 
-        reporter = RecordingReporter()
-        with reporting_to(reporter):
-            _warn_output_truncated(
-                self._run_stub(),
-                window=SimpleNamespace(chunk_id="0007"),
-                model="m",
-                check={
-                    "observed_output_tokens": 0,
-                    "thinking_tokens": 0,
-                    "max_output_tokens": 16_384,
-                },
-                splittable=False,
+    def test_a_successful_call_says_nothing(self) -> None:
+        """The flood this filter exists for.
+
+        A successful call carries no `why`, and there are hundreds of them per
+        correction pass. They stay in the engine's run log and in the per-call
+        artifacts, so nothing is lost by keeping them out of the task log.
+        """
+
+        reporter = NonokaXReporter()
+        events = _events(
+            lambda: reporter.debug(
+                _API_CALL_MESSAGE,
+                {"model": "gemini-3.7-flash", "tier": "GEMINI_PAID", "code": "200"},
             )
-        message = reporter.warnings[0][1]
-        self.assertIn("usage", message)
-        self.assertNotIn("0/16384", message)
+        )
+
+        self.assertEqual(events, [])
+
+    def test_an_empty_reason_is_not_a_failure_either(self) -> None:
+        reporter = NonokaXReporter()
+        events = _events(
+            lambda: reporter.debug(_API_CALL_MESSAGE, {"code": "200", "why": ""})
+        )
+
+        self.assertEqual(events, [])
+
+    def test_every_other_debug_line_is_untouched(self) -> None:
+        """The rule is about one message, not about `debug` in general."""
+
+        reporter = NonokaXReporter()
+        events = _events(
+            lambda: reporter.debug("qwen finalize timing", {"device": "cpu"})
+        )
+
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0]["payload"]["message"], "qwen finalize timing")
+        self.assertEqual(events[0]["payload"]["fields"], {"device": "cpu"})
+
+    def test_a_warning_is_never_filtered(self) -> None:
+        reporter = NonokaXReporter()
+        events = _events(
+            lambda: reporter.warning("gpu-tier", "显存预算 8 GB 已改为显卡档位 standard")
+        )
+
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0]["type"], "warning")
 
 
-class ProviderFailureVisibilityTests(unittest.TestCase):
-    def setUp(self) -> None:
-        from finesub.llm import llm_runtime
+class UpstreamContractTests(unittest.TestCase):
+    """The engine side of the filter, which a sync could move underneath it."""
 
-        # Process-wide dedupe: a test that ran second would otherwise see the
-        # first one's signature and assert against a debug line.
-        llm_runtime._REPORTED_PROVIDER_FAILURES.clear()
-        self.addCleanup(llm_runtime._REPORTED_PROVIDER_FAILURES.clear)
+    def test_the_engine_still_logs_api_calls_under_that_name(self) -> None:
+        source = (
+            ROOT / "third_party/finesub/src/finesub/llm/llm_runtime.py"
+        ).read_text(encoding="utf-8")
+        self.assertIn(f'current_reporter().debug("{_API_CALL_MESSAGE}"', source)
 
-    def test_first_failure_of_a_kind_warns_and_keeps_the_providers_words(self) -> None:
-        from finesub.llm.llm_runtime import _report_provider_failure
+    def test_the_engine_still_carries_the_reason_under_why(self) -> None:
+        """`why` is the field the filter reads, and the one users need.
 
-        reporter = RecordingReporter()
-        with reporting_to(reporter):
-            _report_provider_failure(
-                RuntimeError('HTTP 402 {"error":{"message":"Insufficient Balance"}}'),
-                provider_tier="NONOKA_OPENAI_COMPAT",
-                model_name="deepseek-v4-flash",
-                return_code="402",
-                attempt=0,
-                key_label="primary",
-                outcome="rotate",
-            )
-        self.assertEqual(len(reporter.warnings), 1)
-        code, message, impact, _action = reporter.warnings[0]
-        self.assertEqual(code, "llm-call-failed")
-        self.assertIn("402", message)
-        # The provider's sentence is the diagnosis; a classification word would
-        # throw away the only part that says what to do.
-        self.assertIn("Insufficient Balance", message)
-        self.assertIn("Key", impact)
+        Upstream sets it only when the call failed, which is exactly the
+        distinction the filter turns into "worth showing".
+        """
 
-    def test_repeats_of_the_same_failure_degrade_to_debug(self) -> None:
-        from finesub.llm.llm_runtime import _report_provider_failure
-
-        reporter = RecordingReporter()
-        with reporting_to(reporter):
-            for attempt in range(4):
-                _report_provider_failure(
-                    RuntimeError("HTTP 429 rate limit"),
-                    provider_tier="NONOKA_OPENAI_COMPAT",
-                    model_name="deepseek-v4-flash",
-                    return_code="429",
-                    attempt=attempt,
-                    key_label="primary",
-                    outcome="等待 8s 后重试同一个 Key",
-                )
-        self.assertEqual(len(reporter.warnings), 1)
-        self.assertEqual(len(reporter.debugs), 3)
-        message, fields = reporter.debugs[0]
-        self.assertEqual(message, "llm call failed")
-        self.assertEqual(fields["code"], "429")
-        self.assertEqual(fields["attempt"], 1)
-        self.assertIn("等待", fields["outcome"])
-
-    def test_a_different_code_is_news_again(self) -> None:
-        from finesub.llm.llm_runtime import _report_provider_failure
-
-        reporter = RecordingReporter()
-        with reporting_to(reporter):
-            for code in ("429", "429", "500"):
-                _report_provider_failure(
-                    RuntimeError(f"HTTP {code}"),
-                    provider_tier="NONOKA_OPENAI_COMPAT",
-                    model_name="deepseek-v4-flash",
-                    return_code=code,
-                    attempt=0,
-                    key_label="primary",
-                    outcome="give_up",
-                )
-        self.assertEqual([warning[1].split("：")[1] for warning in reporter.warnings],
-                         ["429 · RuntimeError: HTTP 429", "500 · RuntimeError: HTTP 500"])
-
-    def test_a_long_body_is_trimmed_rather_than_dropped(self) -> None:
-        from finesub.llm.llm_runtime import _short_error
-
-        trimmed = _short_error(RuntimeError("x" * 1000))
-        self.assertLessEqual(len(trimmed), 240)
-        self.assertTrue(trimmed.endswith("…"))
+        source = (
+            ROOT / "third_party/finesub/src/finesub/llm/llm_runtime.py"
+        ).read_text(encoding="utf-8")
+        self.assertIn('fields["why"]', source)
 
 
 if __name__ == "__main__":

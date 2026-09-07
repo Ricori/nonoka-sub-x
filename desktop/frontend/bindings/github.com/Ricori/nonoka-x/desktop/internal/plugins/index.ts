@@ -12,8 +12,14 @@ export type {
     DownloadLog,
     DownloadedMedia,
     DownloaderSettings,
+    EngineArtifact,
+    EngineCorrection,
+    EngineTaskRequest,
     ExportedArtifact,
     InstalledPlugin,
+    LLMAnswer,
+    LLMMessage,
+    LLMRequest,
     MediaSummary,
     ToolContribution
 } from "./models.js";

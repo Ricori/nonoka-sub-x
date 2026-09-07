@@ -13,34 +13,49 @@ import subprocess
 import sys
 import tarfile
 import tempfile
-import tomllib
 import urllib.parse
 import urllib.request
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable
 
 
 REPOSITORY = "https://github.com/caca2331/finesub"
-DEFAULT_REF = "v0.4.2"
+DEFAULT_REF = "v0.5.1"
 SYNC_SCHEMA = 1
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_VENDOR = REPO_ROOT / "third_party" / "finesub"
 DEFAULT_PATCHES = REPO_ROOT / "patches" / "finesub"
+#: The un-patched manifest `tests/test_finesub_patch_stack.py` replays
+#: against. It lives beside the patches rather than inside the vendor
+#: because it describes what the vendor would be *without* them, and a
+#: file in the vendor would have to describe itself.
+DEFAULT_BASELINE = DEFAULT_PATCHES / "BASELINE_FILES.json"
 
 SOURCE_TREES = (
     "src/finesub",
     "src/finesub_bootstrap",
 )
+#: The version, read from the upstream repository root rather than from
+#: `pyproject.toml`. FineSub 0.5.0 made `project.version` dynamic and moved the
+#: single number to this file, so the metadata block no longer carries it.
+VERSION_FILE = "VERSION"
 SOURCE_FILES = (
     "README.md",
     "LICENSE",
     "pyproject.toml",
-    "desktop/runtime/pylock.win-py312.toml",
-    "desktop/runtime/pylock.win-py312.cn.toml",
-    "desktop/resources/runtime-manifest.json",
+    VERSION_FILE,
+)
+#: Where the installer's own three assets live inside the snapshot. Since 0.5.0
+#: they are package data resolved with `Path(__file__).with_name(...)` by
+#: `finesub_bootstrap.resources` and `.environment`, so these are the copies
+#: that are actually read -- a patched duplicate anywhere else would be
+#: ignored in silence.
+RUNTIME_MANIFEST = "src/finesub_bootstrap/runtime-manifest.json"
+RUNTIME_LOCKS = (
+    "src/finesub_bootstrap/pylock.win-py312.toml",
+    "src/finesub_bootstrap/pylock.win-py312.cn.toml",
 )
 VENDOR_README = """# FineSub vendor directory
 
@@ -156,13 +171,19 @@ def extract_archive(archive: Path, destination: Path, expected_commit: str) -> P
 
 
 def validate_source(source: Path) -> str:
-    missing = [path for path in (*SOURCE_TREES, *SOURCE_FILES) if not (source / path).exists()]
+    required = (
+        *SOURCE_TREES,
+        *SOURCE_FILES,
+        VERSION_FILE,
+        RUNTIME_MANIFEST,
+        *RUNTIME_LOCKS,
+    )
+    missing = [path for path in required if not (source / path).exists()]
     if missing:
         raise SyncError("upstream archive is missing required paths: " + ", ".join(missing))
     try:
-        metadata = tomllib.loads((source / "pyproject.toml").read_text(encoding="utf-8"))
-        version = metadata["project"]["version"]
-    except (OSError, tomllib.TOMLDecodeError, KeyError, TypeError) as exc:
+        version = (source / VERSION_FILE).read_text(encoding="utf-8").strip()
+    except OSError as exc:
         raise SyncError(f"cannot read FineSub version: {exc}") from exc
     if not isinstance(version, str) or not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", version):
         raise SyncError(f"invalid FineSub version: {version!r}")
@@ -178,7 +199,7 @@ def copy_source(source: Path, staging: Path) -> None:
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copytree(source / relative, target)
     for relative in SOURCE_FILES:
-        target_relative = "UPSTREAM_README.md" if relative == "README.md" else relative.removeprefix("desktop/")
+        target_relative = "UPSTREAM_README.md" if relative == "README.md" else relative
         target = staging / target_relative
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source / relative, target)
@@ -296,7 +317,12 @@ def write_metadata(
     licenses = {
         "schema": 1,
         "components": [
-            {"path": "LICENSE", "license": "MIT", "component": "FineSub Python engine"},
+            {
+                "path": "LICENSE",
+                # GPL-3.0-or-later since upstream 0.5.0; MIT up to 0.4.2.
+                "license": "GPL-3.0-or-later",
+                "component": "FineSub Python engine",
+            },
             {
                 "path": "src/finesub/llm/prompt_templates",
                 "notice": "PROMPT_LICENSE.md",
@@ -308,7 +334,7 @@ def write_metadata(
     write_json(staging / "LICENSES.json", licenses)
     files_manifest = create_files_manifest(staging)
     write_json(staging / "FILES.json", files_manifest)
-    runtime_manifest = staging / "resources" / "runtime-manifest.json"
+    runtime_manifest = staging / RUNTIME_MANIFEST
     upstream_data = {
         "archive_sha256": archive_sha256,
         "commit": upstream.commit,
@@ -409,10 +435,62 @@ def verify_snapshot(vendor: Path = DEFAULT_VENDOR) -> dict[str, object]:
         raise SyncError(f"snapshot file set differs (extra={extras}, missing={missing})")
     if tree_digest.hexdigest() != upstream.get("content_sha256"):
         raise SyncError("snapshot content hash does not match UPSTREAM.json")
-    runtime_manifest = vendor / "resources" / "runtime-manifest.json"
+    runtime_manifest = vendor / RUNTIME_MANIFEST
     if sha256_file(runtime_manifest) != upstream.get("runtime_manifest_sha256"):
         raise SyncError("runtime manifest hash does not match UPSTREAM.json")
     return upstream
+
+
+def rebuild_baseline(
+    vendor: Path = DEFAULT_VENDOR,
+    patches_dir: Path = DEFAULT_PATCHES,
+    baseline_path: Path = DEFAULT_BASELINE,
+) -> dict[str, object]:
+    """Regenerate the pinned pre-patch manifest from the current snapshot.
+
+    `sync` deliberately does not write this: the baseline is what the vendor
+    would be *without* our patches, so deriving it in the same pass that
+    applies them would make the round-trip test compare a thing against
+    itself. This is the separate step, and it exists as a command because the
+    alternative -- reverse-applying by hand -- gets the line endings wrong on
+    Windows in a way that shows up as an unexplained hash mismatch rather than
+    as a bad reverse-apply.
+
+    Reverse order, because the stack is ordered: two patches touch
+    `separator_aoti.py` and the later one was written against the earlier
+    one's output.
+    """
+
+    upstream = verify_snapshot(vendor)
+    patches = [patches_dir / str(item["path"]) for item in upstream["patches"]]
+    missing = [patch.name for patch in patches if not patch.is_file()]
+    if missing:
+        raise SyncError("UPSTREAM.json names patches that are gone: " + ", ".join(missing))
+    git = git_apply_command()
+    with tempfile.TemporaryDirectory(prefix="nonoka-finesub-baseline-") as temp:
+        replay = Path(temp) / "vendor"
+        shutil.copytree(vendor, replay)
+        environment = git_apply_env(replay)
+        for patch in reversed(patches):
+            result = subprocess.run(
+                [*git, "--verbose", "--reverse", str(patch)],
+                cwd=replay,
+                env=environment,
+                capture_output=True,
+                text=True,
+            )
+            if result.returncode:
+                raise SyncError(
+                    f"cannot reverse-apply {patch.name}: {result.stderr.strip()}"
+                )
+            if "Skipped patch" in result.stderr:
+                raise SyncError(
+                    f"reverse apply silently skipped hunks for {patch.name}: "
+                    f"{result.stderr.strip()}"
+                )
+        baseline = create_files_manifest(replay)
+    write_json(baseline_path, baseline)
+    return baseline
 
 
 def parse_upstream(args: argparse.Namespace) -> Upstream:
@@ -437,6 +515,12 @@ def build_parser() -> argparse.ArgumentParser:
     sync.add_argument("--patches-dir", type=Path, default=DEFAULT_PATCHES)
     check = subparsers.add_parser("check", help="verify the checked-in snapshot without network")
     check.add_argument("--vendor-dir", type=Path, default=DEFAULT_VENDOR)
+    baseline = subparsers.add_parser(
+        "baseline", help="regenerate BASELINE_FILES.json from the checked-in snapshot"
+    )
+    baseline.add_argument("--vendor-dir", type=Path, default=DEFAULT_VENDOR)
+    baseline.add_argument("--patches-dir", type=Path, default=DEFAULT_PATCHES)
+    baseline.add_argument("--baseline-file", type=Path, default=DEFAULT_BASELINE)
     return parser
 
 
@@ -445,6 +529,10 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.command == "check":
             result = verify_snapshot(args.vendor_dir)
+        elif args.command == "baseline":
+            result = rebuild_baseline(
+                args.vendor_dir, args.patches_dir, args.baseline_file
+            )
         else:
             upstream = parse_upstream(args)
             if args.archive:

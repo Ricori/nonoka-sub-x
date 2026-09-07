@@ -29,7 +29,7 @@ const (
 const interpreterProbeTimeout = 10 * time.Second
 
 // 3.12 exactly, not a floor: it is the one version the launcher environment is
-// built and hash-pinned for (bootstrap-requirements.win-py312.txt), and the one
+// built and hash-pinned for (bootstrap-requirements.py312.txt), and the one
 // the sidecar sources are tested on. Anything else — older or newer — hands over
 // to the managed Python rather than running the sidecar untested.
 const interpreterProbeScript = "import sys; sys.version_info[:2] == (3, 12) or sys.exit(1); import httpx, pydantic"

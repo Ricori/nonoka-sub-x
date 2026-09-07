@@ -21,7 +21,7 @@ interface TasksPageProps {
   /** Each task must read events from the provider that owns it. */
   logSources?: Partial<Record<TaskHistoryEntry["provider"], TaskLogSource>>;
   onNavigateLibrary: () => void;
-  onOpenEditor: (entry: MediaEntry) => void;
+  onOpenEditor?: (entry: MediaEntry) => void;
   onClearTasks: () => Promise<void>;
   onTaskAction: (item: TaskHistoryEntry, action: "cancel" | "resume") => Promise<void>;
   onDismissMessage: () => void;
@@ -85,7 +85,7 @@ function TaskActivityText({ snapshot }: { snapshot: TaskHistoryEntry["snapshot"]
 }
 
 export function TasksPage(props: TasksPageProps) {
-  const { tasks, media, activeCount, message, messageTone, pipelineError, logSources, onNavigateLibrary, onOpenEditor, onClearTasks, onTaskAction, onDismissMessage } = props;
+  const { tasks, activeCount, message, messageTone, pipelineError, logSources, onNavigateLibrary, onClearTasks, onTaskAction, onDismissMessage } = props;
   const clearableCount = tasks.filter((item) => !activeStates.has(item.snapshot.state)).length;
   const [openLogs, setOpenLogs] = useState<ReadonlySet<string>>(() => new Set());
   const toggleLog = (taskId: string) => setOpenLogs((current) => {
@@ -124,12 +124,6 @@ export function TasksPage(props: TasksPageProps) {
         <div className="task-list">
           {tasks.map((item) => {
             const snapshot = item.snapshot;
-            const localEntry = media.find((entry) => entry.id === item.mediaId);
-            // A completed local task has already written its subtitle document.
-            // While signed in, documentAvailable can lag behind until the library
-            // refresh/cloud sync round finishes, which must not delay editing.
-            const subtitlesEditable = localEntry !== undefined
-              && (localEntry.documentAvailable || item.provider === "local" && snapshot.state === "completed");
             const logSource = logSources?.[item.provider];
             const logsAvailable = logSource !== undefined;
             const logsOpen = logsAvailable && openLogs.has(item.taskId);
@@ -155,8 +149,15 @@ export function TasksPage(props: TasksPageProps) {
                   )}
                   {activeStates.has(snapshot.state) && <button onClick={() => void onTaskAction(item, "cancel")}>取消</button>}
                   {recoverableStates.has(snapshot.state) && <button className="resume" onClick={() => void onTaskAction(item, "resume")}>继续</button>}
-                  {snapshot.state === "completed" && subtitlesEditable && <button className="view-media" onClick={() => onOpenEditor(localEntry)}>查看媒体</button>}
-                  {snapshot.state === "completed" && !subtitlesEditable && <button className="view-media" onClick={onNavigateLibrary}>查看媒体</button>}
+                  {snapshot.state === "completed" && (
+                    <button
+                      className="view-media"
+                      onClick={onNavigateLibrary}
+                      title="前往媒体库查看"
+                    >
+                      查看媒体
+                    </button>
+                  )}
                 </div>
                 {logsOpen && logSource !== undefined && (
                   <TaskLogPanel active={activeStates.has(snapshot.state)} provider={item.provider} source={logSource} taskId={item.taskId} />

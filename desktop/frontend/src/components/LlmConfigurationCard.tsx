@@ -221,9 +221,14 @@ export function LlmConfigurationCard({ keys, baseUrls, modelRouting, drafts, bus
         {selected && (
           <div className="llm-provider-setup">
             {!selected.requiresKey ? (
-              <p className="llm-routing-note">
-                {selected.label}用你自己登录的 CLI 订阅运行，无需 API Key。检测结果：{selected.available ? "已检测到该 CLI。" : "尚未检测到该 CLI，安装后会自动识别。"}
-              </p>
+              <>
+                <p className="llm-routing-note">
+                  {selected.label}用你自己登录的 CLI 订阅运行，无需 API Key。检测结果：{selected.available ? "已检测到该 CLI。" : "尚未检测到该 CLI，安装后会自动识别。"}
+                </p>
+                {/* 提供商自己声明的注意事项，后端给什么就显示什么——没有针对某一家
+                    写死的分支，下次再有一条只需改后端。 */}
+                {selected.note ? <p className="llm-provider-note">{selected.note}</p> : null}
+              </>
             ) : (
               <>
                 {selectedChoice && selectedChoice.members.length > 1 && (

@@ -38,8 +38,9 @@
 .task-failed .task-row-copy > p { color: var(--warn); }
 .task-row-actions { display: flex; gap: 6px; }
 .task-row-actions button { border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px; background: var(--raised); color: var(--mut); font-size: 11px; cursor: pointer; white-space: nowrap; }
-.task-row-actions button:hover { border-color: var(--accent-border); color: var(--text); }
-.task-row-actions button.resume { border-color: var(--accent-line); background: var(--accent-dim); color: var(--accent); }
+.task-row-actions button.resume,
+.task-row-actions button.edit-subtitles { border-color: var(--accent-line); background: var(--accent-dim); color: var(--accent); }
+.task-row-actions button.edit-subtitles:hover { border-color: var(--accent-border); color: var(--accent); }
 .task-row-actions button.view-media { border-color: var(--accent-line); background: var(--accent-dim); color: var(--accent); }
 .task-row-actions button.view-media:hover { border-color: var(--accent-border); color: var(--accent); }
 .task-row-actions button.task-log-toggle.open { border-color: var(--accent-border); background: var(--accent-dim); color: var(--accent); }

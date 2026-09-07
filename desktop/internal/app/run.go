@@ -12,6 +12,7 @@ import (
 	"github.com/Ricori/nonoka-x/desktop/internal/assstyles"
 	"github.com/Ricori/nonoka-x/desktop/internal/cloud"
 	"github.com/Ricori/nonoka-x/desktop/internal/library"
+	"github.com/Ricori/nonoka-x/desktop/internal/managedtools"
 	"github.com/Ricori/nonoka-x/desktop/internal/plugins"
 	"github.com/Ricori/nonoka-x/desktop/internal/preferences"
 	"github.com/Ricori/nonoka-x/desktop/internal/provider"
@@ -40,6 +41,11 @@ func init() {
 // non-fatal: the shell remains available so the settings/runtime UI can explain
 // what is missing. The failure is retained in the manager's safe Snapshot.
 func Run(assets fs.FS) error {
+	// Before anything resolves an executable: a macOS app started from Finder
+	// inherits launchd's bare PATH, and every LookPath below -- the sidecar
+	// interpreter, ffmpeg, git -- would otherwise miss tools the user has
+	// installed.
+	managedtools.EnsureSearchPath()
 	selfupdate.CleanupReplacedExecutables()
 	migration, err := migrateDefaultDataDirectory()
 	if err != nil {
@@ -109,6 +115,10 @@ func Run(assets fs.FS) error {
 	// uses, so a plugin write goes through the sidecar's revision check rather
 	// than touching document.json behind the editor's back.
 	plugins.SetDocuments(pluginService, providerService)
+	// And the engine itself: LLM calls, stage runs and the artifacts a run
+	// leaves behind. Same provider, granted separately, because it is a much
+	// wider surface than the document one and the call site should say so.
+	plugins.SetEngine(pluginService, providerService)
 	cloudService, err := cloud.New(dataDirectory, manager, libraryService)
 	if err != nil {
 		return err
@@ -122,7 +132,7 @@ func Run(assets fs.FS) error {
 
 	applicationInstance := application.New(application.Options{
 		Name:        "Nonoka Sub X",
-		Description: "Local-first subtitle production",
+		Description: "Nonoka Sub X",
 		Services: []application.Service{
 			application.NewService(providerService),
 			application.NewService(libraryService),

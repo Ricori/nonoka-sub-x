@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { MediaEntry } from "../bridge/library.ts";
 import { cloudTaskRequest, localTaskRequest } from "../home/defaultRequest.ts";
-import type { Capabilities, TaskAxis, TaskRequest } from "../providers/types.ts";
+import { GPU_TIERS } from "../providers/types.ts";
+import type { Capabilities, GpuTier, TaskAxis, TaskRequest } from "../providers/types.ts";
 import type { FineSubSettingsState } from "../bridge/settings.ts";
 import type { ExecutionMode } from "../app/types.ts";
 import { CustomSelect } from "./CustomSelect.tsx";
@@ -9,7 +10,7 @@ import {
   AXIS_KIND_HINT, AXIS_KIND_LABEL, AXIS_KIND_SHORT, parseAxisFile, recolumn,
   type AxisKind, type AxisParse,
 } from "../subtitles/assAxis.ts";
-import { routeServesMedia, type MediaCapability } from "./llmRouting.ts";
+import { routeForTaskGroup, routeServesMedia, type MediaCapability } from "./llmRouting.ts";
 import "./TranscriptionDialog.css";
 
 interface TranscriptionDialogProps {
@@ -40,7 +41,7 @@ const languageOptions = [
 ] as const;
 
 const LLM_KEY_HINT = "尚未配置模型提供商：请到设置里选择提供商与全局模型并保存，否则无法进行 LLM 纠错、翻译与知识处理。";
-const RETRIEVAL_KEY_HINT = "需要 Exa、Tavily 或 Gemini 免费池 Key 才能进行本地联网检索。";
+const RETRIEVAL_KEY_HINT = "需要 Exa、Tavily 或 Gemini Key 才能进行本地联网检索。";
 const NATIVE_SEARCH_HINT = "需要 Gemini Key：模型原生检索依赖 Gemini 内置搜索。";
 
 type Step = "axis" | "mode" | "settings";
@@ -48,7 +49,6 @@ type Step = "axis" | "mode" | "settings";
 interface KeyLimits {
   llm: boolean;
   gemini: boolean;
-  geminiPaid: boolean;
   retrieval: boolean;
   audio: boolean;
   video: boolean;
@@ -85,6 +85,23 @@ function withinLimits(request: TaskRequest, limits: KeyLimits): TaskRequest {
     knowledge: target === "final-srt" ? request.knowledge : "none",
   };
 }
+
+// 档位名是引擎的（`finesub.speech.runtime.resources`），说明按上游对它们的定义写：
+// `entry` 是「基础 GPU 加速」而不是「弱卡专用」，`auto` 探测本机显卡但最高只选到
+// `standard_large_vram`，`high` 需要显卡自报 24GB 以上。顺序与 GPU_TIERS 一致，
+// 少一个档位就会在这里露出来。
+const GPU_TIER_LABELS: Record<GpuTier, string> = {
+  auto: "自动检测（推荐）",
+  cpu: "不使用显卡",
+  entry: "入门 · 基础 GPU 加速",
+  standard: "标准",
+  standard_large_vram: "标准 · 大显存（12GB 起）",
+  high: "高 · 需 24GB 以上",
+};
+const GPU_TIER_OPTIONS = GPU_TIERS.map((value) => ({ value, label: GPU_TIER_LABELS[value] }));
+
+// 关掉分离不会报错，只会让识别质量整体塌掉——所以这里说清它是给什么输入用的。
+const SKIP_SEPARATION_HINT = "仅在输入本身就是纯人声（已分离的人声轨、录音棚干声）时关闭；该分离而没分离不会报错，只是识别质量整体下降";
 
 export function TranscriptionDialog(props: TranscriptionDialogProps) {
   const {
@@ -135,25 +152,21 @@ export function TranscriptionDialog(props: TranscriptionDialogProps) {
     const keys = target === "local" ? settings : null;
     const configured = (name: string) => keys?.keys.some((key) => key.configured && key.name === name) === true;
     const gemini = !keys || configured("GEMINI_FREE") || configured("GEMINI_PAID");
-    // 原生检索只要有 Gemini 就行，音视频窗要付费池——两条限制的理由不同，所以是
-    // 两个标志，不是一个标志的两种读法。
-    const geminiPaid = !keys || configured("GEMINI_PAID");
     const video = (target === "local" ? localCapabilities : cloudCapabilities)?.features.video_multimodal === true;
-    // 音视频窗看的是「谁来答」，不是「有没有 Gemini Key」：本地 CLI 也能收音视频
-    // （agy 的 Gemini 3.7 Flash），而它不需要任何 Gemini Key，也就不受免费池那条
-    // 限制约束。开着本地检索时每窗还有一个查询轮，它跟着纠错参考走却用「窗口
-    // 规划」那一格的模型，所以两格都得能收——否则引擎会在开跑前的能力校验里直接
-    // 拒掉整个任务。
+    // 音视频窗看的是「谁来答」，而自引擎 0.5.0 起答的人只有一个：钉住的模型组
+    // 替换整条链，后面不再挂任何兜底。所以这里问的是选中的那个模型自己收不收，
+    // 与有没有 Gemini Key 无关。开着本地检索时每窗还有一个查询轮，它跟着纠错
+    // 参考走却用「窗口规划」那一格的模型，所以两格都得能收——否则引擎会在开跑前
+    // 的能力校验里直接拒掉整个任务。
     const serves = (capability: MediaCapability) => {
       if (!keys) return true;
-      if (!routeServesMedia(keys.modelRouting, "correction", capability, geminiPaid)) return false;
-      return retrieval !== "local" || routeServesMedia(keys.modelRouting, "planning", capability, geminiPaid);
+      if (!routeServesMedia(keys.modelRouting, "correction", capability)) return false;
+      return retrieval !== "local" || routeServesMedia(keys.modelRouting, "planning", capability);
     };
     return {
       // 只认已保存的全局模型：装了 codex CLI、或在设置里选了却没保存，都不算配置好。
       llm: !keys || keys.llmReady,
       gemini,
-      geminiPaid,
       retrieval: !keys || keys.retrievalKeyConfigured,
       audio: target === "local" && serves("supportsAudio"),
       video: video && serves("supportsVideo"),
@@ -168,20 +181,23 @@ export function TranscriptionDialog(props: TranscriptionDialogProps) {
   const mediaHint = useCallback((capability: MediaCapability): string => {
     const label = capability === "supportsAudio" ? "音频" : "视频多模态";
     if (!settings) return `当前模型不支持${label}。`;
-    const serves = (routeID: string, paid: boolean) =>
-      routeServesMedia(settings.modelRouting, routeID, capability, paid);
-    const needsPlanning = request.correction.retrieval === "local";
-    // 挡住的是配额还是能力？把「有付费 Key」代进去再问一次：答案变了就说明这几格
-    // 本身收得了，缺的只是付费池。这一条必须排在前面——落到下面那句会把用户支去
-    // 「改用支持的模型」，而他选的模型明明声明了支持，照着改不会有任何效果。
-    if (!limits.geminiPaid && serves("correction", true) && (!needsPlanning || serves("planning", true))) {
-      return `Gemini 免费池不承担${label}窗：整段媒体要先传上 Files API，免费额度下极易撞上 503 与超时。请到设置里把 Gemini 档位切到付费池并填上它的 Key，或把「纠错与翻译」指到自带${label}能力的本地 CLI 模型（例如本地 Antigravity 的 Gemini 3.7 Flash）。`;
+    const serves = (routeID: string) => routeServesMedia(settings.modelRouting, routeID, capability);
+    const freePool = (routeID: string) => routeForTaskGroup(settings.modelRouting, routeID).provider === "gemini-free";
+    // 挡住的是配额还是能力？免费池那条与能力位无关，而且现在改 Key 也救不回来：
+    // 钉住的是免费池那个目标本身，换 Key 不会换掉它。所以这句指向的是改这一格，
+    // 不再是「去设置里填付费 Key」。排在前面，否则会落到下面那句、把用户支去
+    // 「改用支持的模型」——而他选的模型明明声明了支持，照着改不会有任何效果。
+    if (freePool("correction")) {
+      return `Gemini 免费池不承担${label}窗：整段媒体要先传上 Files API，免费额度下极易撞上 503 与超时，而钉住的模型后面已经没有兜底接手。请到设置里把「纠错与翻译」改指到付费池的 Gemini 模型，或指到自带${label}能力的本地 CLI 模型（例如本地 Antigravity 的 Gemini 3.7 Flash）。`;
     }
-    if (!serves("correction", limits.geminiPaid)) {
-      return `「纠错与翻译」当前使用的模型不支持${label}：请到设置里改用支持的模型（例如本地 Antigravity 的 Gemini 3.7 Flash），或把 Gemini 档位切到付费池由 Gemini 承担。`;
+    if (!serves("correction")) {
+      return `「纠错与翻译」当前使用的模型不支持${label}：引擎 0.5.0 起，钉住的模型做不了的调用会直接失败而不是改走别人，所以请到设置里把这一格改指到支持${label}的模型（例如本地 Antigravity 的 Gemini 3.7 Flash，或付费池的 Gemini）。`;
+    }
+    if (request.correction.retrieval === "local" && freePool("planning")) {
+      return `Gemini 免费池不承担${label}窗：开启资料检索后每窗的查询轮使用「窗口规划」模型，请把这一格改指到付费池的 Gemini 模型或自带${label}能力的本地 CLI 模型，或把资料检索设为「不检索」。`;
     }
     return `开启资料检索后每窗还有一个查询轮，它使用「窗口规划」的模型，而该模型不支持${label}：请把这一格也指到支持的模型，或把资料检索设为「不检索」。`;
-  }, [limits.geminiPaid, request.correction.retrieval, settings]);
+  }, [request.correction.retrieval, settings]);
 
   const summary = useMemo(() => {
     if (axis && importOnly) return `直接导入 ${axis.rows.length} 条字幕，不做任何处理`;
@@ -438,7 +454,8 @@ export function TranscriptionDialog(props: TranscriptionDialogProps) {
             {!translateOnly && <section className="transcription-section form-grid">
               <label>原始语言<CustomSelect value={request.language} options={languageOptions.map(([value, label]) => ({ value, label }))} onChange={(language) => setRequest((current) => ({ ...current, language }))} /></label>
               {mode === "local" && <label>计算设备<CustomSelect value={request.device} options={devices.length > 0 ? devices.map((device) => ({ value: device.id, label: `${device.name} · ${Math.round(device.memory_mb / 1024)} GB` })) : [{ value: "cuda", label: "自动选择 NVIDIA GPU" }]} onChange={(device) => setRequest((current) => ({ ...current, device }))} /></label>}
-              {mode === "local" && <label>显存预算<CustomSelect value={request.gpu_budget_gb} options={([4, 8, 12, 16] as const).map((value) => ({ value, label: `${value} GB` }))} onChange={(gpu_budget_gb) => setRequest((current) => ({ ...current, gpu_budget_gb }))} /></label>}
+              {mode === "local" && <label>显卡档位<CustomSelect value={request.gpu_tier} options={GPU_TIER_OPTIONS} onChange={(gpu_tier) => setRequest((current) => ({ ...current, gpu_tier }))} /></label>}
+              {mode === "local" && <label>人声分离<CustomSelect value={request.separate ? "on" : "off"} options={[{ value: "on", label: "开启" }, { value: "off", label: "关闭（输入已是纯人声）", hint: SKIP_SEPARATION_HINT }]} onChange={(value) => setRequest((current) => ({ ...current, separate: value === "on" }))} /></label>}
             </section>}
 
             {finalOutput && <>
@@ -447,7 +464,7 @@ export function TranscriptionDialog(props: TranscriptionDialogProps) {
                 <label>处理质量<CustomSelect value={request.correction.difficulty} options={[{ value: "efficiency", label: "效率优先" }, { value: "intermediate", label: "均衡" }, { value: "quality", label: "质量优先" }]} onChange={(difficulty) => setRequest((current) => ({ ...current, correction: { ...current.correction, difficulty } }))} /></label>
                 <label>快速模式<CustomSelect value={request.correction.fast} options={[{ value: "auto", label: "自动" }, { value: "on", label: "开启" }, { value: "off", label: "关闭" }]} onChange={(fast) => setRequest((current) => ({ ...current, correction: { ...current.correction, fast } }))} /></label>
                 {mode === "local" && <label>资料检索<CustomSelect value={request.correction.retrieval} options={[{ value: "none", label: "不检索" }, { value: "local", label: "本地检索", disabled: !limits.retrieval, hint: limits.retrieval ? undefined : RETRIEVAL_KEY_HINT }, { value: "native", label: "模型原生检索", disabled: !limits.gemini, hint: limits.gemini ? undefined : NATIVE_SEARCH_HINT }]} onChange={(retrieval) => setRequest((current) => ({ ...current, correction: { ...current.correction, retrieval } }))} /></label>}
-                {supportsKnowledge && <label>知识库<CustomSelect value={request.knowledge} options={[{ value: "none", label: "不使用" }, { value: "collect", label: "读取并收集" }, { value: "update", label: "更新知识库", disabled: mode === "cloud" }]} onChange={(knowledge) => setRequest((current) => ({ ...current, knowledge }))} /></label>}
+                {supportsKnowledge && <label>知识库<CustomSelect value={request.knowledge} options={[{ value: "none", label: "不使用" }, { value: "collect", label: "读取知识库" }, { value: "update", label: "读取知识库并自动更新", disabled: mode === "cloud" }]} onChange={(knowledge) => setRequest((current) => ({ ...current, knowledge }))} /></label>}
               </section>
 
               <section className="transcription-section prompt-grid">

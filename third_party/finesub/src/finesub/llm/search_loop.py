@@ -365,6 +365,11 @@ def run_search_loop(
     # group at intermediate/efficiency was silently ignored otherwise.
     difficulty: str = "quality",
     resume: bool = True,
+    # Concurrent research chunks must share ONE store (plan W7): separate
+    # instances append to the same JSONL without a common lock, and a large
+    # committed content spans several buffered writes -- interleaving them
+    # corrupts a line. None keeps the per-call instance for solo callers.
+    checkpoint_store: "SessionCheckpointStore | None" = None,
 ) -> SearchLoopResult:
     """Run the multi-round search loop and return the evidence pack.
 
@@ -427,7 +432,8 @@ def run_search_loop(
         if content_filter_blacklist is not None
         else set()
     )
-    checkpoint_store = SessionCheckpointStore(task_artifact_dir, enabled=resume)
+    if checkpoint_store is None:
+        checkpoint_store = SessionCheckpointStore(task_artifact_dir, enabled=resume)
 
     def _remember_seen_urls(*texts: str) -> None:
         """Record every URL the model has been shown, first spelling wins.
@@ -786,7 +792,7 @@ def run_search_loop(
                 prompt_version=PROMPT_VERSION,
                 call_config={
                     "role": LLMRole.LIGHTWEIGHT.value,
-                    "max_tokens": SEARCH_LOOP_MAX_TOKENS,
+                    "output_reserve": SEARCH_LOOP_MAX_TOKENS,
                     "loop_version": loop_version,
                     # In the checkpoint key: difficulty can bind a different
                     # model group (and thinking knob) for search_judge, so a
@@ -828,7 +834,7 @@ def run_search_loop(
                 call = client.complete(
                     LLMRole.LIGHTWEIGHT,
                     messages,
-                    max_tokens=SEARCH_LOOP_MAX_TOKENS,
+                    output_reserve=SEARCH_LOOP_MAX_TOKENS,
                     task_group="search_judge",
                     difficulty=difficulty,
                     **validation_retry_sampling_kwargs(0),
@@ -895,7 +901,7 @@ def run_search_loop(
                     call = client.complete(
                         LLMRole.LIGHTWEIGHT,
                         messages,
-                        max_tokens=SEARCH_LOOP_MAX_TOKENS,
+                        output_reserve=SEARCH_LOOP_MAX_TOKENS,
                         task_group="search_judge",
                         difficulty=difficulty,
                         **validation_retry_sampling_kwargs(attempt),

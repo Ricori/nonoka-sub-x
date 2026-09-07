@@ -1,59 +1,39 @@
 {
-  "archive_sha256": "c927e0f103d4a7cb9a8733a4e23c333bad6ecbb418d98aaa6dce8a383544cea8",
-  "commit": "8a33092a40ab4d86872941155143fd91b84eaa56",
-  "content_sha256": "07507be8ec0db4d8d0c706b9f163d054e0a8226627dbaddf5e27e55efc27e1c6",
-  "engine_bundle_id": "finesub-0.4.2+8a33092a40ab",
-  "engine_version": "0.4.2",
-  "files_manifest_sha256": "d990989547a2f891e76138aa885120981991180ac186b0717789f36144abf66c",
+  "archive_sha256": "5f96a9c6ab0a08ce8370ee577b69f160210259d797f23bb3ea58bce338fa15a6",
+  "commit": "b9b2f10c80abd58ddff739b60461624f51c0789c",
+  "content_sha256": "ede7bd9ec64ebfc9a1e8cba0d274ee27fd5004ed0f015b6f68fca9bc18340917",
+  "engine_bundle_id": "finesub-0.5.1+b9b2f10c80ab",
+  "engine_version": "0.5.1",
+  "files_manifest_sha256": "a682bf99f7c142d97eb8cc7099ecc298f4ff9ffe1cb953cef3f315018e31ba33",
   "patches": [
     {
-      "path": "0001-split-vad-prefix-and-qwen-pass.patch",
-      "sha256": "fc8d450d67c0683c9f621a4ffd794cf5932a37fe9984564d1676dfdc8afdfac6"
+      "path": "0001-qwen-tail-entry-point.patch",
+      "sha256": "cf88873057cc9804ab1a025e608dee9301050e68e43741a27c9a363617328710"
     },
     {
-      "path": "0002-retry-directory-publish-rename.patch",
-      "sha256": "2ad9db8c395bf981331e162aec6e735112d72267f58750bc2b7c7375bbf81310"
+      "path": "0002-runtime-tool-manifest.patch",
+      "sha256": "f231b5c9f28b99e693610337aa04f3334098acd62b3d93c57a7aac536052df8d"
     },
     {
-      "path": "0003-desktop-model-routing.patch",
-      "sha256": "60fd7ce2437808ee60814feabdd46acfb316c131e4a3c472244fc28f34265528"
+      "path": "0003-agy-workspace-read-grant.patch",
+      "sha256": "0ffb018a05921259207dc34a3544b00a35891d87418e48b0052fc6af5e62bed2"
     },
     {
-      "path": "0004-subprocess-text-encoding-and-msvc-include.patch",
-      "sha256": "95f8bf44d3c745e9ec0b35a1c8d6300348d7426fcf8e39003f401b91d209bff7"
+      "path": "0004-nonoka-042-runtime-marker.patch",
+      "sha256": "c59989c55444ba7517a0119d0f2eb352fadd503191bdfd1f520f4997ec4b0fd1"
     },
     {
-      "path": "0005-codex-terra-model.patch",
-      "sha256": "45a751433c6707de28de097267cf46345efba62ef9f2c3404e9b85a566ad3df4"
+      "path": "0005-triton-msvc-c11-empty-struct.patch",
+      "sha256": "834c6ba640779891bcf2367d8a84d4ae2824ec799f88e0a482743eaeac7b28ac"
     },
     {
-      "path": "0006-runtime-tool-manifest.patch",
-      "sha256": "ce27ce197c71adaf0e82c5689a1dce5992dc7bb37ea2b995486f3917af7d71b3"
-    },
-    {
-      "path": "0007-agy-workspace-read-grant.patch",
-      "sha256": "4b92be722ba709271a45b5afe17043299d769ae5d7116269788f4cfc0d62b46a"
-    },
-    {
-      "path": "0008-hf-mirror-disable-xet.patch",
-      "sha256": "536ec1d7f1e8dbc0c867e767d81b2b2761da92a62ec0669d8796971b3ee136f1"
-    },
-    {
-      "path": "0009-correction-output-truncation-warning.patch",
-      "sha256": "ef87b8ba685b94a272a6993e3ad66d03ebd4e3f8f9c3e4ef12e2668116b73ac0"
-    },
-    {
-      "path": "0010-provider-call-failure-visibility.patch",
-      "sha256": "2bb2c3bcdd9202867712d09f0652b3288d50d4009873c1fe8a6d8214e77e562a"
-    },
-    {
-      "path": "0011-qwen-referee-offline-and-nonfatal.patch",
-      "sha256": "d553b3806373e0d4346c7609b3145aa13dc26b4aa596f3fdb47af9955bc705dd"
+      "path": "0006-aoti-posix-compiler.patch",
+      "sha256": "abed7a4f64738774bd699012f891e673609766bdff198b506c54bafc8917499c"
     }
   ],
-  "ref": "v0.4.2",
+  "ref": "v0.5.1",
   "repository": "https://github.com/caca2331/finesub",
-  "runtime_manifest_sha256": "fd0606dbf285c061cd9d3cbda14a4e41eb928eba28e826f8790720c2568d4957",
+  "runtime_manifest_sha256": "036bfc3d4725ef49fc9995feb84492625f6fe72cf98c07ed7b4295bb13f10c84",
   "sync_schema": 1,
-  "synced_at": "2026-08-26T08:02:23Z"
+  "synced_at": "2026-09-05T07:36:04Z"
 }

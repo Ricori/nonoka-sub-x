@@ -81,20 +81,19 @@ tasks:
     run: once
     sources:
       - ../scripts/run_local_sidecar.py
-      - ../bootstrap-requirements.win-py312.txt
+      - ../bootstrap-requirements.py312.txt
       - ../src/nonoka_x/**/*
       - exclude: ../src/nonoka_x/**/__pycache__/**/*
       - exclude: ../src/nonoka_x/**/*.pyc
       - ../third_party/finesub/src/**/*
       - exclude: ../third_party/finesub/src/**/__pycache__/**/*
       - exclude: ../third_party/finesub/src/**/*.pyc
-      - ../third_party/finesub/resources/**/*
-      - ../third_party/finesub/runtime/**/*
       - ../third_party/finesub/LICENSE
       - ../third_party/finesub/LICENSES.json
       - ../third_party/finesub/PROMPT_LICENSE.md
       - ../third_party/finesub/UPSTREAM.json
       - ../third_party/finesub/pyproject.toml
+      - ../third_party/finesub/VERSION
       - build/tools/stage/main.go
     generates:
       - internal/app/bundled/nonoka_x/STAGED.json

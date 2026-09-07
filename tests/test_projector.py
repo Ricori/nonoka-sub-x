@@ -101,6 +101,50 @@ class ProjectorTests(unittest.TestCase):
                     title="Sample",
                 )
 
+    def test_zero_duration_stable_segment_is_widened_instead_of_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            stable = Path(temp) / "collapsed-stable.json"
+            stable.write_text(
+                json.dumps(
+                    {
+                        "segments": [
+                            {"id": "1", "start": 1.0, "end": 1.0, "text": "はい"},
+                            {"id": "2", "start": 1.02, "end": 1.02, "text": "うん"},
+                            {"id": "3", "start": 4.0, "end": 4.0, "text": "またね"},
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            document = project_edit_document(stable, video_id="video-1", title="Sample")
+
+        timings = [(cue["t0"], cue["t1"]) for cue in document["subtitles"]]
+        # The second segment starts before the floor would put the first one's
+        # end, so the first stops there instead of swallowing it.
+        self.assertEqual(timings, [(1.0, 1.02), (1.02, 1.06), (4.0, 4.04)])
+
+    def test_zero_duration_final_srt_cue_is_widened_instead_of_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            final_srt = Path(temp) / "collapsed.srt"
+            final_srt.write_text(
+                "1\n00:00:01,000 --> 00:00:01,000\n早上好\n\n"
+                "2\n00:00:04,000 --> 00:00:05,000\n再见\n",
+                encoding="utf-8",
+            )
+
+            document = project_edit_document(
+                FIXTURES / "sample-stable.json",
+                annotated_csv=FIXTURES / "sample-annotated.csv",
+                final_srt=final_srt,
+                video_id="video-1",
+                title="Sample",
+            )
+
+        first = document["subtitles"][0]
+        self.assertEqual((first["t0"], first["t1"]), (1.0, 1.04))
+        self.assertEqual(first["zh"], "早上好")
+
     def test_cloud_projection_recovers_from_unusable_final_srt(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             invalid_srt = Path(temp) / "invalid.srt"

@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/Ricori/nonoka-x/desktop/internal/sidecar"
 )
@@ -130,6 +131,32 @@ func (s *Service) SaveKeys(keys map[string]any) (map[string]any, error) {
 	}
 	var result map[string]any
 	err := s.provider.DoJSON(context.Background(), http.MethodPut, "/v1/settings/keys", map[string]any{"keys": keys}, &result)
+	return result, err
+}
+
+// llmCallTimeout outlives the sidecar's own LLM_CALL_TIMEOUT_SEC on purpose.
+// The sidecar is the side that knows a call went nowhere and can say so --
+// naming the model, the endpoint's own words -- so it must be the one whose
+// clock runs out first; this deadline only exists so a sidecar that stopped
+// answering at all cannot hold the window forever.
+//
+// The default 30s that covers every other provider call is far too short here:
+// the first call also spawns the LLM worker and imports the engine, and the
+// call itself waits on a model, or on a local agent CLI's whole session.
+const llmCallTimeout = 330 * time.Second
+
+// LLMComplete runs one routed LLM call on the user's configured models. The
+// sidecar owns the whole request shape -- roles, prompt size, output budget --
+// so this is a forwarder rather than a second validator that could disagree
+// with the first.
+func (s *Service) LLMComplete(request map[string]any) (map[string]any, error) {
+	if request == nil {
+		return nil, errors.New("LLM request is required")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), llmCallTimeout)
+	defer cancel()
+	var result map[string]any
+	err := s.provider.DoJSON(ctx, http.MethodPost, "/v1/llm/complete", request, &result)
 	return result, err
 }
 

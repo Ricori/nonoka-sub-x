@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from functools import lru_cache
 import hashlib
 import json
@@ -20,6 +20,7 @@ from .model_catalog import (
     get_model_catalog_entry_by_fact,
     get_model_catalog_entry_for_tier,
     quality_floor_warnings,
+    unstated_quality_notes,
 )
 
 
@@ -38,15 +39,24 @@ ALLOWED_BACKENDS = frozenset(
 CUSTOM_PROVIDER_KINDS = frozenset({"openai_compat", "anthropic"})
 
 
-#: Which execution profile a local-agent tier's auto-built targets get. Only
-#: dsh is listed, and that is the whole point: the other three CLIs *are* their
-#: account, so their model lists are the vendor's and belong in the packaged
-#: catalog. dsh is a harness around whatever provider its owner configured in
-#: `$DSH_HOME/settings.yaml`, so the models it can reach are unknowable when
-#: this package is built -- a person adds one by writing a row, the same way
-#: they add an OpenAI-compatible endpoint.
+#: Which execution profile a local-agent tier's auto-built targets get. Codex,
+#: Claude Code and agy are absent because those CLIs *are* their account: the
+#: model list is the vendor's and belongs in the packaged catalog. The two
+#: listed here are the ones whose reachable models are unknowable when this
+#: package is built, so a person adds one by writing a row, the same way they
+#: add an OpenAI-compatible endpoint:
+#:
+#: - dsh is a harness around whatever provider its owner configured in
+#:   `$DSH_HOME/settings.yaml`;
+#: - WorkBuddy's menu is per **account**, not per release. `codebuddy --help`
+#:   prints a generic list that this login could not use at all, while a wrong
+#:   `--model` is answered by the server with the models it can reach
+#:   (measured 2026-09-04: the two lists overlapped in one name). The packaged
+#:   rows are the ones that menu was verified against; another plan's models
+#:   are the owner's to declare.
 AUTO_TARGET_LOCAL_AGENT_PROFILES = {
     "LOCAL_DSH": ("dsh-default", "dsh-web-search"),
+    "LOCAL_WORKBUDDY": ("workbuddy-default", "workbuddy-web-search"),
 }
 
 
@@ -88,7 +98,9 @@ def _auto_target_profile(
 BACKEND_PROVIDER_TIERS = {
     "gemini_rest": frozenset({"GEMINI_FREE", "GEMINI_PAID"}),
     # One backend, one driver per tier: the tier is what selects the CLI.
-    "local_agent": frozenset({"LOCAL_CODEX", "LOCAL_CLAUDE", "LOCAL_AGY", "LOCAL_DSH"}),
+    "local_agent": frozenset(
+        {"LOCAL_CODEX", "LOCAL_CLAUDE", "LOCAL_AGY", "LOCAL_DSH", "LOCAL_WORKBUDDY"}
+    ),
     CONVERSATIONAL_BACKEND: frozenset({"LOCAL_CONVERSATIONAL"}),
 }
 # D8: the v1 chains' step-wise fallback sets were all identical, so groups are
@@ -196,7 +208,9 @@ DIFFICULTY_FALLBACK = {
 ALLOWED_VARIANTS = frozenset({"", "capableB", "capableC", "basicA", "basicB"})
 # §5.3: the envelope warning baseline is today's free-Gemini ceiling, not the
 # in-group spread -- a small-context member is worth flagging even in a group
-# of equals.
+# of equals. It survived the 2026-09 window-limit rewrite unchanged because
+# free Gemini's envelope still lands on it exactly: it declares no context
+# window, so the pool is `194000 + 65536` and the ceiling is `max_input`.
 ENVELOPE_BASELINE_INPUT = 194_000
 ENVELOPE_BASELINE_OUTPUT = 32_768
 
@@ -231,6 +245,129 @@ def _wrap_single_target(
         group_id, ModelGroup(group_id, (target_id,), MappingProxyType({}))
     )
     return group_id
+
+
+# Where a preferred-target overlay used to land. Still reserved so a declared
+# group can never squat a namespace synthesised groups have ever used.
+PREFERRED_GROUP_PREFIX = "preferred:"
+
+# Process-local routing override (kb-followups plan B): `--llm-model` installs
+# it once per CLI entry, BEFORE any routing consumption, and every consumer —
+# planning envelopes, capability preflight, research/correction's internal
+# RoleClient() constructions, resume identity — reads it through the memoized
+# `default_model_routes()`. Lifecycle: entry points call install
+# unconditionally (empty → clears), so repeated `main()` calls in one
+# interpreter never leak the previous run's override.
+_RUNTIME_PREFERRED: dict[str, str] = {}
+
+
+def install_runtime_preferred(overlay: Mapping[str, str] | None) -> None:
+    """Install (or clear, with None/empty) the process-local `--llm-model`
+    override. Values follow `[llm.preferred_targets]` semantics — a model
+    group or a route target — validated at the next route load."""
+
+    global _RUNTIME_PREFERRED
+    _RUNTIME_PREFERRED = {str(k).strip(): str(v).strip() for k, v in (overlay or {}).items()}
+    default_model_routes.cache_clear()
+
+
+def runtime_preferred() -> dict[str, str]:
+    return dict(_RUNTIME_PREFERRED)
+
+
+def parse_llm_model_args(values: list[str] | None) -> dict[str, str]:
+    """`--llm-model [task-group=]value` (repeatable) → overlay table.
+
+    A bare value is the `default` key; later occurrences of the same key win.
+    Name validation happens at route load, where the tables live."""
+
+    if isinstance(values, str):  # a lone value, not argparse's append list
+        values = [values]
+    overlay: dict[str, str] = {}
+    for raw in values or []:
+        raw = str(raw).strip()
+        key, sep, value = raw.partition("=")
+        if not sep:
+            key, value = "default", raw
+        key, value = key.strip(), value.strip()
+        if not key or not value:
+            raise ModelRouteConfigError(
+                f"--llm-model expects [任务组=]模型组或target，got {raw!r}"
+            )
+        overlay[key] = value
+    return overlay
+
+
+def _preferred_bindings(
+    table: Mapping[str, Any],
+    targets: Mapping[str, ExecutionTarget],
+    model_groups: dict[str, ModelGroup],
+    *,
+    source: str,
+) -> dict[str, str]:
+    """One preferred table resolved to `{task group or "default": group id}`.
+
+    A value may name a **model group** (the cell rebinds to it wholesale) or a
+    **target** (the cell rebinds to a synthesised single-member group). Both
+    REPLACE the bound chain — no fallback behind the pin (owner decision
+    2026-08-28): a call the pinned model cannot serve fails loudly instead of
+    silently routing elsewhere; `-mm` load-time member checks still run on the
+    rebound bindings and warn at startup."""
+
+    resolved: dict[str, str] = {}
+    for key, value in table.items():
+        name = str(key).strip()
+        if name != "default" and name not in TASK_GROUP_IDS:
+            raise ModelRouteConfigError(
+                f"{source}.{name} names no task group; known: "
+                f"default, {', '.join(sorted(TASK_GROUP_IDS))}"
+            )
+        if not isinstance(value, str) or not value.strip():
+            raise ModelRouteConfigError(f"{source}.{name} must name a model group or target")
+        ident = value.strip()
+        in_groups = ident in model_groups
+        in_targets = ident in targets
+        if in_groups and in_targets:
+            raise ModelRouteConfigError(
+                f"{source}.{name} = {ident!r} is ambiguous: it names both a "
+                "model group and a target — rename one"
+            )
+        if in_groups:
+            resolved[name] = ident
+        elif in_targets:
+            resolved[name] = _wrap_single_target(ident, model_groups)
+        else:
+            raise ModelRouteConfigError(
+                f"{source}.{name} names no known target or model group: {ident!r}; "
+                f"known groups: {', '.join(sorted(g for g in model_groups if ':' not in g))}"
+            )
+    return resolved
+
+
+def _with_preferred_bindings(
+    preset: Preset,
+    runtime: Mapping[str, str],
+    config: Mapping[str, str],
+    model_groups: dict[str, ModelGroup],
+) -> Preset:
+    """Rebind cells by the four-step chain
+    `CLI[组] > CLI[default] > config[组] > config[default]` — resolved per
+    task group, never dict-merged: a bare `--llm-model X` overrides a
+    config-side per-group pin (the user said "this run, use X"), while the
+    config's other task-group pins stay live where the CLI is silent."""
+
+    bindings = dict(preset.bindings)
+    for (task_group_id, difficulty), _group_id in preset.bindings.items():
+        bound = (
+            runtime.get(task_group_id)
+            or runtime.get("default")
+            or config.get(task_group_id)
+            or config.get("default")
+        )
+        if bound is None:
+            continue
+        bindings[(task_group_id, difficulty)] = bound
+    return replace(preset, bindings=MappingProxyType(bindings))
 
 
 @dataclass(frozen=True)
@@ -407,20 +544,100 @@ class ModelRouteCatalog:
                     return mode
         return DEFAULT_AGENT_SESSION_MODE
 
-    def group_planning_envelope(self, group_id: str) -> tuple[int, int]:
-        """(min max_input, min max_output) over the group (D13).
+    def reachable_group_ids(self) -> tuple[str, ...]:
+        """Every model group a run under the active preset could dispatch to.
 
-        Window planning happens before "who answers" is known, so it must be
-        conservative; each candidate is still hard-checked against its own
-        limits at dispatch (v1 behaviour, unchanged).
+        The active preset *and* the default one, because a task group the
+        active preset binds nothing for falls back across to the default
+        (`resolve_binding`). Deliberately not "every group in the file": a
+        packaged `model_routes.toml` also carries the `agy-*` / `dsh-*` groups
+        for presets this run never selects, and a check that walked those would
+        answer for somebody else's configuration.
         """
 
-        group = self.model_groups[group_id]
-        facts = [self.target_fact(target_id) for target_id in group.target_ids]
+        return tuple(
+            dict.fromkeys(
+                group_id
+                for preset_id in dict.fromkeys(("default", self.active_preset_id))
+                for group_id in self.presets[preset_id].bindings.values()
+            )
+        )
+
+    def group_declared_minima(self, group_id: str) -> tuple[int, int]:
+        """(min max_input_tokens, min max_output_tokens) over the group.
+
+        The catalog's two columns as declared, with no arithmetic between them
+        -- which is what makes this a different question from
+        `group_planning_envelope` below, not a cheaper version of it.
+
+        Planning has to be conservative about the *joint* budget, so the
+        envelope subtracts the answer from each member's context window. This
+        one asks about **shape**: can this member take a long enough input,
+        and can it write a long enough answer. A model whose two limits are
+        both ample while their sum exceeds its context window is a normal,
+        healthy model -- `local-claude-haiku-4_5` (200000 / 64000 in a 200000
+        window) is the worked example, and the owner's 2026-09-03 ruling that
+        it passes is what these two methods are kept apart for.
+        """
+
+        facts = [
+            self.target_fact(target_id)
+            for target_id in self.model_groups[group_id].target_ids
+        ]
         return (
             min(fact.max_input_tokens for fact in facts),
             min(fact.max_output_tokens for fact in facts),
         )
+
+    def group_planning_envelope(
+        self, group_id: str, *, output_reserve: int | None = None
+    ) -> tuple[int, int]:
+        """(input ceiling, min max_output) over the group (D13).
+
+        ``output_reserve`` is how much of each member's context the caller
+        expects the answer to take. ``None`` keeps the conservative reading --
+        set aside the whole declared ceiling -- which is what a caller with no
+        estimate must do. The correction planner has one (`output_scale x c x`
+        the window cap) and passes it, freeing the difference on the input
+        side. The **second return value is unchanged either way**: a call still
+        requests the full declared ceiling, because how much room the answer is
+        allowed is a different question from how much we set aside for it
+        (owner 2026-09-04).
+
+        ✱ Reserving less than we request is only safe while the output cap
+        binds a window before the input ceiling does -- otherwise planning
+        would size a window that `client._complete` then drops on
+        ``estimated_input + max_tokens > context_window``. That holds for every
+        packaged row with a wide margin; `test_llm_model_routes` pins the
+        condition so a future row cannot break it quietly.
+
+        Window planning happens before "who answers" is known, so it must be
+        conservative; each candidate is still hard-checked against its own
+        limits at dispatch (v1 behaviour, unchanged).
+
+        **Two passes, not a per-column min.** The output is settled first,
+        because every member will be asked for that many tokens; only then does
+        each member say how much input it can still take -- its own
+        `max_input_tokens`, or what is left of its context window once the
+        answer is reserved. Taking the min of `context_window` and of
+        `max_output_tokens` separately and subtracting would *overestimate* in a
+        heterogeneous group: a member with `ctx=200000/out=64000` (ceiling
+        136000) beside one with `ctx=210000/out=128000` (ceiling 82000) yields
+        `200000 - 64000 = 136000`, 54000 above what the second member can
+        actually take -- the one direction a planning envelope may not err in.
+        """
+
+        group = self.model_groups[group_id]
+        facts = [self.target_fact(target_id) for target_id in group.target_ids]
+        min_output = min(fact.max_output_tokens for fact in facts)
+        reserve = min_output
+        if output_reserve is not None:
+            reserve = max(1, min(min_output, int(output_reserve)))
+        input_ceiling = min(
+            min(fact.max_input_tokens, fact.context_window - reserve)
+            for fact in facts
+        )
+        return (max(1, input_ceiling), min_output)
 
     def group_estimate_scale(self, group_id: str) -> float:
         """The group's conservative ``token_scale`` for window planning.
@@ -500,21 +717,67 @@ class ModelRouteCatalog:
                         )
                 if group.id not in seen_groups:
                     seen_groups.add(group.id)
-                    min_input, min_output = self.group_planning_envelope(group.id)
+                    input_ceiling, min_output = self.group_planning_envelope(
+                        group.id
+                    )
+                    # By ceiling, not by `max_input_tokens`: a member can be the
+                    # one that binds because its context window has to hold the
+                    # answer too, while its declared input limit is the largest
+                    # in the group.
                     limiting = min(
-                        facts, key=lambda fact: fact.max_input_tokens
+                        facts,
+                        key=lambda fact: min(
+                            fact.max_input_tokens, fact.context_window - min_output
+                        ),
                     ).fact_id
                     if (
-                        min_input < ENVELOPE_BASELINE_INPUT
+                        input_ceiling < ENVELOPE_BASELINE_INPUT
                         or min_output < ENVELOPE_BASELINE_OUTPUT
                     ):
-                        ratio = max(1.0, ENVELOPE_BASELINE_INPUT / max(1, min_input))
+                        ratio = max(
+                            1.0, ENVELOPE_BASELINE_INPUT / max(1, input_ceiling)
+                        )
                         messages.append(
                             f"模型组 {group.id}: 规划包络由 {limiting} 决定 "
-                            f"({min_input}/{min_output} tokens，基线 "
+                            f"({input_ceiling}/{min_output} tokens，基线 "
                             f"{ENVELOPE_BASELINE_INPUT}/{ENVELOPE_BASELINE_OUTPUT})，"
                             f"窗口数约 ×{ratio:.1f}"
                         )
+        return messages
+
+    def preset_binding_notes(self, preset_id: str) -> list[str]:
+        """Binding-time notes: true, worth logging, and not a problem.
+
+        Separate from `preset_binding_warnings` because the reporter's two
+        channels mean different things -- a warning is "look at this", a note
+        is "for the record". The only note today is a member whose row states
+        no `quality_score`, which the run then treats as
+        `UNSTATED_QUALITY_SCORE`; that is the intended reading, so warning
+        about it would train people to ignore the channel that does matter.
+
+        Reported once per bound group, not per cell: the same group answers
+        several cells and the fact is about the group's members.
+        """
+
+        messages: list[str] = []
+        seen_groups: set[str] = set()
+        for task_group_id in TASK_GROUP_IDS:
+            for difficulty in DIFFICULTIES:
+                group, _cell = self.resolve_binding(
+                    preset_id, task_group_id, difficulty
+                )
+                if group.id in seen_groups:
+                    continue
+                seen_groups.add(group.id)
+                messages.extend(
+                    unstated_quality_notes(
+                        [
+                            self.target_fact(target_id)
+                            for target_id in group.target_ids
+                        ],
+                        owner=f"模型组 {group.id}",
+                    )
+                )
         return messages
 
     def target_fact(self, target_id: str) -> ModelCatalogEntry:
@@ -563,7 +826,7 @@ class ModelRouteCatalog:
 
         Per cell rather than per task group, because a preset may bind a
         different group per difficulty: correction's ``quality`` is calibrated to
-        3.7 Flash while its ``intermediate`` (the declared downgrade tier) is
+        the leading full Flash while its ``intermediate`` (the declared downgrade tier) is
         calibrated to 3.5 Flash Lite. The floor warning still only fires on
         ``quality``, so that is the default.
         """
@@ -813,6 +1076,11 @@ def load_model_routes(
             raise ModelRouteConfigError(
                 f"model_groups.{group_id}: the {SINGLE_TARGET_GROUP_PREFIX!r} "
                 "prefix is reserved for bindings that name a single target"
+            )
+        if group_id.startswith(PREFERRED_GROUP_PREFIX):
+            raise ModelRouteConfigError(
+                f"model_groups.{group_id}: the {PREFERRED_GROUP_PREFIX!r} "
+                "prefix is reserved for preferred-target overlays"
             )
         members = raw.get("targets")
         if not isinstance(members, list) or not members or any(
@@ -1081,112 +1349,29 @@ def load_model_routes(
             f"known: {sorted(presets)}"
         )
 
-    # Desktop-friendly quick routing. A preferred target is prepended to the
-    # selected preset's existing group, so text-only OpenAI/Anthropic models
-    # automatically fall back to a media-capable packaged target for audio or
-    # video calls instead of making a multimodal task unroutable.
-    default_target = str(user.get("default_target") or "").strip()
-    task_route_groups = {
-        "correction": ("correction-mm", "correction-text"),
-        "planning": ("planning-mm", "planning-text"),
-        "research": ("research",),
-        "search_judge": ("search_judge",),
-        "knowledge": ("knowledge",),
-    }
-    requested_targets = {
-        name: str(user.get(f"task_route_{name}") or "").strip()
-        for name in task_route_groups
-    }
-    missing_targets = sorted(
-        {
-            target_id
-            for target_id in (default_target, *requested_targets.values())
-            if target_id and target_id not in targets
-        }
+    # Both presets, not just the active one: a cell the active preset leaves
+    # unbound falls back to the default preset's, and a preferred model that
+    # stopped applying at exactly those cells would be the harder bug to see.
+    config_preferred = _preferred_bindings(
+        _table(user, "preferred_targets"), targets, model_groups,
+        source="llm.preferred_targets",
     )
-    if missing_targets:
-        raise ModelRouteConfigError(
-            f"Configured LLM routing references missing targets: {missing_targets}"
-        )
-    if default_target or any(requested_targets.values()):
-        base_preset = presets[active_preset_id]
-        bindings = dict(base_preset.bindings)
-        target_by_task_group: dict[str, str] = {}
-        if default_target:
-            target_by_task_group.update(
-                {task_group_id: default_target for task_group_id in TASK_GROUP_IDS}
-            )
-        for route_name, target_id in requested_targets.items():
-            if target_id:
-                target_by_task_group.update(
-                    {
-                        task_group_id: target_id
-                        for task_group_id in task_route_groups[route_name]
-                    }
-                )
-        for task_group_id, target_id in target_by_task_group.items():
-            base_group_id = bindings.get((task_group_id, "quality"))
-            if base_group_id is None and active_preset_id != "default":
-                base_group_id = presets["default"].bindings.get(
-                    (task_group_id, "quality")
-                )
-            existing = (
-                model_groups[base_group_id].target_ids if base_group_id else ()
-            )
-            # A pinned local CLI does not fall back onto an API model.
-            # The packaged tail is there so a text-only *API* provider
-            # still has a media-capable candidate behind it; behind a
-            # local agent it means a run the user pointed at their own
-            # CLI subscription quietly continues on Gemini instead --
-            # and with no Gemini key configured the call dies naming a
-            # tier nobody chose ("Provider GEMINI_PAID is disabled")
-            # rather than saying what the CLI did. Packaged members on
-            # the same tier stay: they are the same CLI, and they are
-            # how an entitlement twin (agy's search-declaring target)
-            # remains reachable for a retrieval=native call.
-            pinned_target = targets[target_id]
-            if pinned_target.backend == "local_agent":
-                pinned_tier = facts[pinned_target.fact_id].provider_tier
-                existing = tuple(
-                    member
-                    for member in existing
-                    if targets[member].backend == "local_agent"
-                    and facts[targets[member].fact_id].provider_tier
-                    == pinned_tier
-                )
-            members = tuple(dict.fromkeys((target_id, *existing)))
-            group_id = f"nonoka-route:{task_group_id}"
-            model_groups[group_id] = ModelGroup(
-                group_id, members, MappingProxyType({})
-            )
-            for difficulty in DIFFICULTIES:
-                bindings.pop((task_group_id, difficulty), None)
-            bindings[(task_group_id, "quality")] = group_id
-        synthetic_id = "nonoka-routed"
-        presets[synthetic_id] = Preset(
-            synthetic_id,
-            "Nonoka Sub X 模型路由",
-            base_preset.test_target_id,
-            MappingProxyType(bindings),
-            base_preset.thinking,
-            base_preset.agent_session,
-        )
-        active_preset_id = synthetic_id
-
-    # What the active run can actually reach: the active preset's bindings and
-    # the default preset's (per-cell fallback).
-    referenced_group_ids = set(presets[active_preset_id].bindings.values()) | set(
+    runtime_preferred_map = _preferred_bindings(
+        _RUNTIME_PREFERRED, targets, model_groups, source="--llm-model",
+    )
+    # The test-target reachability check runs on the DECLARED composition,
+    # before any preferred pin overlays the bindings: the test endpoint is
+    # resolved directly from its target id (`routing/config.py`), never through
+    # the bound groups, so an exclusive pin covering every cell must not fail
+    # this composition-sanity check.
+    declared_group_ids = set(presets[active_preset_id].bindings.values()) | set(
         presets["default"].bindings.values()
     )
-
-    # The test target has to be reachable, but only for the presets this run
-    # can actually use. Checking every *declared* preset let a packaged one
-    # fail somebody's config: override `default` in your own config.toml and
-    # the shipped `agy` preset -- which you never selected -- stops loading
-    # because its test target lived in a group you replaced.
+    # Checking only the presets this run can actually use: a packaged preset
+    # you never selected must not fail your config.
     reachable_targets = {
         target_id
-        for group_id in referenced_group_ids
+        for group_id in declared_group_ids
         for target_id in model_groups[group_id].target_ids
     }
     for preset_id in sorted({"default", active_preset_id}):
@@ -1198,6 +1383,19 @@ def load_model_routes(
                 f"presets.{preset_id}.test_target {test_target!r} is not in any "
                 "bound model group"
             )
+
+    if config_preferred or runtime_preferred_map:
+        for preset_id in sorted({"default", active_preset_id}):
+            presets[preset_id] = _with_preferred_bindings(
+                presets[preset_id], runtime_preferred_map, config_preferred, model_groups
+            )
+
+    # What the active run can actually reach: the active preset's bindings and
+    # the default preset's (per-cell fallback), pins included — these feed the
+    # routing identity, so a changed pin invalidates stale resumes by design.
+    referenced_group_ids = set(presets[active_preset_id].bindings.values()) | set(
+        presets["default"].bindings.values()
+    )
     routing_target_ids = {
         target_id
         for group_id in referenced_group_ids

@@ -16,11 +16,11 @@ from ...client import (
     GeminiPromptBlockedError,
     LLMCallResult,
     RoleClient,
-    UploadedFileRef,
     extract_token_distribution,
     is_prompt_blocked,
     validation_retry_sampling_kwargs,
 )
+from ...media_upload import UploadedFileRef
 from ...routing.capabilities import planning_task_group
 from ...chunking import SubtitleWindow
 from ...routing.config import (
@@ -183,7 +183,7 @@ def run_window_query_round(
         prompt_version=PROMPT_VERSION,
         call_config={
             "role": query_role.value,
-            "max_tokens": QUERY_ROUND_MAX_TOKENS,
+            "output_reserve": QUERY_ROUND_MAX_TOKENS,
             "file_backed": bool(profile.planning_use_audio and file_ref is not None),
         },
         extra_identity=checkpoint_extra_identity,
@@ -220,10 +220,20 @@ def run_window_query_round(
         result = client.complete(
             query_role,
             messages,
-            max_tokens=QUERY_ROUND_MAX_TOKENS,
+            output_reserve=QUERY_ROUND_MAX_TOKENS,
             file_ref=file_ref if profile.planning_use_audio else None,
             task_group=planning_task_group(profile),
             difficulty=profile.difficulty,
+            # §4.3 matrix: the query round reads the kb like the window it serves
+            agent_task_extras=(
+                {
+                    "kb_tools": "read",
+                    "kb_signal_task": task_id,
+                    "kb_signal_window": window.chunk_id,
+                }
+                if knowledge_enabled
+                else None
+            ),
             **(validation_retry_sampling_kwargs(query_attempt) if query_attempt else {}),
         )
         if is_prompt_blocked(result.content, result.raw_response):
@@ -319,7 +329,7 @@ def run_window_query_round(
             query_attempt += 1
     finish_reason = _response_finish_reason(result.raw_response)
     output_limit_check = _output_limit_check(
-        result.raw_response, QUERY_ROUND_MAX_TOKENS
+        result.raw_response, result.requested_output_tokens or QUERY_ROUND_MAX_TOKENS
     )
     output_limited = bool(output_limit_check["limited"])
     if token_rows is not None and not checkpoint_replayed:

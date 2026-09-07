@@ -73,6 +73,9 @@ API v1 认识的权限：
 | `subtitle.export` | 通过保存对话框导出字幕文件 |
 | `ffmpeg.extract-audio` | 用托管 FFmpeg 导出音频 |
 | `tools.yt-dlp` | 执行受控的 yt-dlp 命令 |
+| `llm.complete` | 用用户已配置的模型跑一次 LLM 调用 |
+| `engine.run` | 把 FineSub 流水线跑到指定阶段 |
+| `engine.artifacts` | 读取或落盘该次运行的中间产物（与 `engine.run` 同时声明才有意义） |
 
 权限只在 manifest 里声明，安装时展示在插件管理页；每次调用由 Go 侧再校验一次，停用的插件调用任何能力都会被拒绝。
 
@@ -125,6 +128,12 @@ window.nonoka.post("host.getInfo", {});
 - `media.exportVideo`：需要 `media.export-video` 权限。参数 `{ mediaId, ass, fileName?, t0?, t1?, height? }`，宿主用托管的 FFmpeg 把 ASS 压制进视频，返回 `{ path, format, size }`。编码参数（CRF 21、preset medium、AAC 192k）由宿主固定，`height` 只能是 0（原分辨率）或 240–4320。压制期间宿主会向页面推送 `media.progress` 消息（`{ done, total }`，单位秒）。
 - `ffmpeg.extractAudio`：需要 `ffmpeg.extract-audio` 权限。参数为 `{ mediaId, format }`，其中格式只能是 `wav`、`flac`、`mp3` 或 `m4a`。Nonoka Sub X 负责解析输入、选择输出位置、构造 FFmpeg 参数和原子发布结果。
 - `tools.runYtDLP`：需要 `tools.yt-dlp` 和 `media.import` 权限。插件传入 `{ url, args }`，自行决定受支持的 yt-dlp 参数；Nonoka Sub X 解析项目托管的 yt-dlp/FFmpeg、让用户选择输出位置，并在命令成功后自动导入媒体库。yt-dlp 以 Python wheel 形式安装，因此该能力同时依赖 Nonoka Sub X 的 Python 运行时。下载单次上限 20 分钟，超时会结束子进程并报错，避免卡住的分片服务器一直占着媒体任务锁。下载期间宿主向页面推送 `download.progress` 消息（`{ done, total }`，`total` 恒为 100，即百分比），节流到 400ms 一条。
+- `llm.complete`：需要 `llm.complete` 权限。参数 `{ role, messages, maxTokens?, temperature? }`，返回 `{ content, model, backend, fallbackUsed }`。详见下文「引擎能力」。
+- `engine.startTask`：需要 `engine.run` 权限。参数 `{ mediaId, target, language?, skipSeparation?, correction? }`，返回任务快照（含 `task_id`）。
+- `engine.status` / `engine.events` / `engine.cancel`：需要 `engine.run` 权限。参数 `{ taskId }`（`engine.events` 另接 `after` 游标），只认本插件起过的任务。
+- `engine.artifacts`：需要 `engine.artifacts` 和 `engine.run` 权限。参数 `{ taskId }`，返回 `[{ name, bytes, readable }]`，按流水线顺序排列，**不含路径**。
+- `engine.readArtifact`：需要 `engine.artifacts` 和 `engine.run` 权限。参数 `{ taskId, name }`，返回文本产物的内容，上限 8 MB。
+- `engine.saveArtifact`：需要 `engine.artifacts` 和 `engine.run` 权限。参数 `{ taskId, name, fileName? }`，宿主弹保存对话框并落盘，返回 `{ path, format, size }`；用户取消时 `path` 为空串。
 
 字幕文档能力有几条固定规则：
 
@@ -238,6 +247,62 @@ window.addEventListener("message", (event) => {
 
 API v1 暂不执行插件原生进程，也不开放任意 FFmpeg 参数或媒体路径。后续 Runtime API 会沿用同一 manifest 和安装生命周期，以独立进程 JSON-RPC 接入；在权限、任务取消、临时目录和输出 artifact 契约稳定之前，不应让插件直接取得任意 Wails service。
 
+## 引擎能力
+
+FineSub 引擎跑在托管的 Python 环境里，桌面端自己那份解释器导不动它。所以这三样能力都由宿主代跑：插件描述要什么，宿主决定用哪个模型、跑在哪块卡上、产物落在哪里。
+
+### `llm.complete`
+
+一次调用，用用户在设置里配好的那套路由——API Key，或者本机已登录的 Codex / Antigravity CLI。
+
+```js
+const answer = await rpc("llm.complete", {
+  role: "general_capable",
+  maxTokens: 2048,
+  messages: [
+    { role: "system", content: "你是中文字幕润色助手。" },
+    { role: "user", content: "1. 这句话有点生硬" },
+  ],
+});
+// answer.content / answer.model / answer.backend / answer.fallbackUsed
+```
+
+几条边界：
+
+- **`role` 只有两个**：`lightweight`（轻量文本）和 `general_capable`（通用能力）。引擎另有两个多模态角色，它们存在的意义是把一段音视频递给模型，而这条接口没有办法递媒体引用——开放它们只会把纯文本路由到更贵的模型上。
+- **没有 `model` 字段**。用哪个模型是用户的配置；一个能指定模型的插件也就能绕开用户的选择。
+- **插件永远拿不到密钥**，也拿不到 FineSub 自己的提示词模板（CC BY-SA，属引擎内部）。
+- **宿主兜底限流**：单插件同时只允许一个调用在飞，10 分钟内最多 60 次，prompt 总长上限 200 KB，`maxTokens` 上限 32768。越限直接报错而不是排队——页面显示成「卡住」而用户额度在背后流失是更坏的结果。
+- 供应商自己的话会原样带回来（额度用尽、CLI 没登录、限流），因为除此之外插件没有别的办法分辨这几种失败。
+
+### `engine.startTask`：跑到某个阶段为止
+
+FineSub 的流水线有六个阶段，每个阶段的产物存在就跳过，所以指定一个更早的阶段既是「只要这一步」，也是「便宜地续跑」：
+
+| `target` | 跑完之后有 | 产物 |
+| --- | --- | --- |
+| `vocal` | 人声分离 | `vocal_audio` |
+| `aligned` | VAD + 词级对齐 | 加上 `vad_json`、`vad_energy_npz`、`aligned_json` |
+| `stable` | 稳定化 | 加上 `stable_json` |
+| `raw-srt` | 原始字幕 | 加上 `raw_srt` |
+| `translated-srt` | LLM 纠错与翻译 | 加上 `translated_srt` |
+| `final-srt` | 成品字幕 | 加上 `annotated_csv`、`final_srt`、`metadata_json` |
+
+插件能给的只有 `target`、`language`（默认 `ja`）、`skipSeparation`（默认否）和 `correction` 的几个旋钮（`media` / `retrieval` / `difficulty` / `fast` / `extraInfo` / `extraStyle`）。其余由宿主填：
+
+- **来源**用 `media.list` 给的 `mediaId` 解析，插件依旧拿不到本地路径。
+- **`device`、`gpu_tier`、`vocal_profile`** 是宿主的，与主界面同一套。
+- **`knowledge` 恒为 `none`、`projection` 恒为 `none`**，这两条是锁死的：更新知识库会改用户的知识库，而投影会用这次运行的结果**替换用户正在编辑的字幕文档**。两样都不是「跑一个阶段」这个请求包含的意思，能申请就等于能在用户看不见的地方做。插件要把结果变成字幕文档，走 `document.save`——那条有 rev 乐观锁。
+- **同一时间只允许一个引擎任务**。流水线占着 GPU 好几分钟，第二个任务不会失败，只会让两个都变慢，而用户正看着其中一个。
+
+任务是异步的，页面自己轮询 `engine.status` 和 `engine.events`——与主界面的流水线视图同一套做法，宿主不再为 iframe 另开一条推送通道。任务 id 由宿主按插件记在 `plugin-data/<id>/engine-tasks.json`（页面是 iframe，用户切走就什么都不记得了），**一个插件只看得到自己起过的任务**。
+
+### 中间产物
+
+产物只能按任务取，而任务只有本插件起过的那些才认得，所以这三个方法同时要求 `engine.run` —— 单独声明 `engine.artifacts` 拿不到任何东西。
+
+`engine.artifacts` 只回名字、字节数和「能不能直接读」，永远不回路径。文本产物（`.json` / `.srt` / `.csv` / `.md` / `.txt`）用 `engine.readArtifact` 拿内容，8 MB 封顶；其余（`vocal_audio` 的 `.ogg`、`vad_energy_npz` 的 `.npz`）只能用 `engine.saveArtifact` 经保存对话框落盘。分界不是「安全等级」，而是用途：几十 MB 的音频经 postMessage 递进沙箱页面，除了把内存吃光之外做不成什么事。
+
 ## 安装布局和生命周期
 
 ```text
@@ -265,4 +330,4 @@ NonokaXData/
 
 - `desktop/examples/plugins/hello-tool`：最小 UI、媒体列表与 FFmpeg 音频导出。
 - `desktop/examples/plugins/video-downloader`：插件自行组织 yt-dlp 参数，下载公开的 YouTube/Twitch 视频并自动导入媒体库。
-- `desktop/examples/plugins/subtitle-studio`：读取字幕文档、批量替换后带 rev 写回，导出 ASS/SRT 并压制视频。
+- `desktop/examples/plugins/subtitle-studio`：读取字幕文档、批量替换后带 rev 写回，导出 ASS/SRT 并压制视频；另外演示 LLM 润色、只跑一个流水线阶段，以及读取/落盘该次运行的中间产物。

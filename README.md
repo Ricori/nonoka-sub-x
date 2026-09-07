@@ -3,7 +3,7 @@
 
   <h1>Nonoka Sub X</h1>
 
-  <p><b>本地 AI 视频字幕翻译与编辑的桌面工作台</b></p>
+  <p><b>AI 视频字幕翻译与编辑的桌面工作台</b></p>
 
   <p>
     <a href="https://github.com/Ricori/nonoka-sub-x/releases/latest"><img src="https://img.shields.io/github/v/release/Ricori/nonoka-sub-x?label=Release&color=4c1&sort=semver" alt="Release"></a>
@@ -19,7 +19,7 @@
 
 <br>
 
-Nonoka Sub X 是专为外语视频翻译与高质量字幕制作打造的桌面应用。项目深度整合了高精度转写流水线与专业字幕编辑器，兼具 Aegisub 的精准可控与剪映的直观便捷，支持**本地离线**与**云端**双模式无缝切换。
+Nonoka Sub X 是为外语视频翻译与字幕制作打造的桌面应用。项目整合了高精度转写流水线与易用的字幕编辑器，兼具 Aegisub 的精准可控与剪映的直观便捷，支持**本地离线**与**云端**双模式无缝切换。
 
 **目录**：[下载安装](#-下载安装) · [核心特性](#-核心特性) · [快速开始](#-快速开始开发指南) · [插件开发](#-插件开发) · [项目结构](#-项目结构) · [数据与存储路径](#-数据与存储路径) · [进阶架构与规范](#-进阶架构与规范)
 
@@ -34,28 +34,29 @@ Nonoka Sub X 是专为外语视频翻译与高质量字幕制作打造的桌面�
 | **Windows** | `Nonoka-Sub-X-<版本>-windows-amd64.exe` | 免安装单文件，自带环境引导，双击即用 |
 | **macOS** | `Nonoka-Sub-X-<版本>-macOS.zip` | 适配 Apple Silicon 与 Intel 架构 |
 
-> Windows 用户初次使用本地转写时，应用会自动引导下载 `uv` 并部署隔离的 Python 3.12 运行环境，无需手动安装 Python 或配置系统 PATH。
+> Windows 用户初次使用本地转写时，应用会自动引导部署隔离的 Python 3.12 运行环境，无需手动安装 Python 或配置系统 PATH。
 
 ---
 
 ## ✨ 核心特性
 
 - 🎙️ **全链路 AI 字幕转写与翻译**
-  - **人声分离**：采用 BS-Roformer 神经网络模型精确剥离伴奏与背景噪音。
-  - **精准对齐与 VAD**：结合 energy VAD 与带 WT-refine 补丁的 CTranslate2 / Whisper 引擎，实现毫秒级词级时间戳定位。
+  - **人声分离**：采用神经网络模型精确剥离伴奏与背景噪音。
+  - **精准对齐与 VAD**：结合 energy VAD 与补丁版 CTranslate2 / Whisper 引擎，实现毫秒级词级时间戳定位。
   - **智能纠错与翻译**：LLM 上下文感知纠错与高质量中日双语翻译，告别生硬机翻。
-- ⚡ **本地优先与同源双执行模式**
-  - **本地模式**：NVIDIA GPU 本地直接推理，私密数据不出机，支持配置用户自持的 LLM API Key，也可直接把 LLM 环节路由到本机已登录的 Codex CLI / Antigravity CLI（无需 API Key）。
+  - **知识库系统**：自动收集翻译中所学到的知识，用于改善下次翻译。
+- ⚡ **本地与云端同源双执行模式**
+  - **本地模式**：NVIDIA GPU 本地直接推理，私密数据不出机，支持配置用户自持的 LLM API Key，也可直接把 LLM 环节路由到本机已登录的 Codex CLI / Antigravity CLI / WorkBuddy （无需 API Key）。
   - **云端模式**：一键调度云端 GPU 算力，桌面端仅提取上传无损纯音频（零损失、保护原片隐私），断点自动保存与续跑。
-  - **完全同源**：本地与云端运行完全一致的 FineSub 引擎快照与校验规则，保证产物质量一致。
+  - **完全同源**：本地与云端运行完全一致的引擎与校验规则，保证产物质量一致。
 - 🎬 **专业级轨道编辑与所见即所得**
   - **JASSUB 渲染引擎**：基于 WebAssembly 的专业 ASS 字幕实时渲染，与主流播放器像素级对齐。
   - **多轨可视化时间轴**：波形图、词级对齐高亮、低置信度警告段落标记、多轨道拖拽。
   - **灵活导出**：支持导出 SRT、带样式的 ASS 字幕，以及硬件加速的**字幕内嵌压制视频**。
 - 🛡️ **轻量、安全与现代化体验**
-  - **原生 Go + React 19 架构**：依托 Wails v3，超低内存占用，无卡顿启动。
-  - **智能缓存管理**：内置 LRU 视频缓存策略，工程受保护，支持自定义缓存上限。
-  - **本地乐观锁存储**：工程快照与版本历史落盘保护，防止并发覆盖。
+  - **原生 Go + React 19 架构**：依托 Wails v3，包体仅 20M，超低内存占用，无卡顿秒启动。
+  - **智能缓存管理**：内置视频缓存策略，工程受保护，支持自定义缓存上限。
+  - **乐观锁存储**：工程快照与版本历史落盘保护，防止并发覆盖。
 
 ---
 
@@ -101,7 +102,7 @@ task dev
 
 ## 🧩 插件开发
 
-Nonoka Sub X 插件可以在左侧“工具”菜单中增加独立页面，并通过权限受控的宿主 API 复用媒体库、FFmpeg 和 yt-dlp 等能力。插件可单独安装、启用、停用和卸载。
+Nonoka Sub X 插件可以在左侧“工具”菜单中增加独立页面，并通过权限受控的宿主 API 复用媒体库、转写引擎 和 LLM 等能力。插件可单独安装、启用、停用和卸载。
 
 ### 1. 创建最小插件
 
@@ -185,6 +186,18 @@ Rename-Item .\hello-tool.zip hello-tool.nonoka-plugin
 - 使用 `tools.yt-dlp` 和 `media.import` 权限隔离高风险能力。
 
 运行 Demo 前，请先在 Nonoka Sub X“运行环境”页面安装 FFmpeg 和可选工具 yt-dlp。当前示例支持公开的 YouTube 视频、Twitch VOD 和 Twitch Clips，不读取浏览器 Cookie，也不支持需要登录的内容。
+
+### 4. 引擎能力：LLM、阶段与中间产物
+
+插件还可以借用引擎本身，不必自带 API Key、也不必自己装模型：
+
+| 权限 | 能做什么 |
+| :--- | :--- |
+| `llm.complete` | 插件写 prompt，宿主用用户已配置的模型（API Key 或本机 Codex / Antigravity / WorkBuddy CLI）跑一次，返回文本。插件不需要拿到密钥。 |
+| `engine.run` | 只把流水线跑到指定阶段（`vocal` / `aligned` / `stable` / `raw-srt` / `translated-srt` / `final-srt`），复用宿主的任务队列、事件与取消。 |
+| `engine.artifacts` | 取回那次运行的中间产物：文本直接读内容，音频等二进制只能经保存对话框落盘。 |
+
+[`desktop/examples/plugins/subtitle-studio`](desktop/examples/plugins/subtitle-studio) 把这三样都用了一遍。
 
 更多 manifest 字段、权限、消息协议和生命周期说明请阅读 **[Nonoka Sub X 插件开发文档](desktop/docs/PLUGINS.md)**。另有 **[最小 Hello Tool 示例](desktop/examples/plugins/hello-tool)** 可用于快速复制修改。
 

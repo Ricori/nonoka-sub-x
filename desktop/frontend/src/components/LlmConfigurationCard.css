@@ -12,6 +12,9 @@
 .llm-routing-heading small, .llm-routing-heading i, .llm-default-route small, .llm-task-routing summary small, .llm-task-routing summary i, .llm-task-routing-locked small, .llm-task-routing-locked i, .llm-task-route-row small { color: var(--faint); font-size: 10px; font-style: normal; }
 .llm-routing-note { margin: 0; padding: 11px 25px 13px; color: var(--faint); font-size: 10px; line-height: 1.6; }
 .llm-default-route { padding: 8px 25px 17px; }
+/* 提供商自陈的注意事项。比 .llm-routing-note 显眼一档：它讲的是会花钱的行为，
+   不是背景说明。 */
+.llm-provider-note { margin: 0 25px 13px; border-left: 2px solid color-mix(in srgb, var(--warn) 60%, transparent); padding: 2px 0 2px 10px; color: var(--mut); font-size: 10px; line-height: 1.6; }
 .llm-default-route > span, .llm-task-route-row > span { flex: 0 0 180px; }
 .llm-default-route strong, .llm-task-route-row strong, .llm-task-routing summary strong, .llm-task-routing-locked strong { font-size: 11px; }
 .llm-route-controls { display: grid; grid-template-columns: minmax(150px, .65fr) minmax(260px, 1fr); gap: 9px; width: min(100%, 650px); }

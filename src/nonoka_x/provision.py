@@ -15,6 +15,13 @@ from collections import deque
 from pathlib import Path
 from typing import Any
 
+#: Where the installer's own two assets sit inside the FineSub snapshot. They
+#: used to live under `resources/` and `runtime/`; upstream 0.5.0 made them
+#: package data, resolved by `finesub_bootstrap.resources` and `.environment`
+#: with `Path(__file__).with_name(...)`, so the snapshot no longer carries a
+#: copy anywhere else -- and a copy elsewhere would be the one nobody reads.
+VENDOR_BOOTSTRAP = Path("src") / "finesub_bootstrap"
+
 OPTIONAL_TOOLS = ("git", "yt-dlp", "tokcount", "aria2c", "node", "pot-provider")
 
 # 按组安装
@@ -178,7 +185,7 @@ class RuntimeProvisioner:
             if self.platform in {"macos-arm64", "macos-amd64"}:
                 manifest_path = Path(__file__).resolve().parent / "resources" / self._manifest_name()
             else:
-                manifest_path = self.vendor / "resources" / self._manifest_name()
+                manifest_path = self.vendor / VENDOR_BOOTSTRAP / self._manifest_name()
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
             self.resources = ResourceManager(self.paths, resource_specs(manifest))
         except Exception as exc:
@@ -200,7 +207,7 @@ class RuntimeProvisioner:
             self.runtime = ProgressRuntimeEnvironment(
                 paths=self.paths,
                 app_source=self.vendor,
-                runtime_lock=self.vendor / "runtime" / "pylock.win-py312.toml",
+                runtime_lock=self.vendor / VENDOR_BOOTSTRAP / "pylock.win-py312.toml",
                 uv_executable=managed_uv,
                 download_progress=self._progress,
             )

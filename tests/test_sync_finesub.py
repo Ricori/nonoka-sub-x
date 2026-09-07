@@ -8,7 +8,17 @@ import unittest
 from pathlib import Path
 
 from scripts.build_finesub_bundle import build_bundle
-from scripts.sync_finesub import SOURCE_FILES, SOURCE_TREES, SyncError, Upstream, sync_archive, verify_snapshot
+from scripts.sync_finesub import (
+    RUNTIME_LOCKS,
+    RUNTIME_MANIFEST,
+    SOURCE_FILES,
+    SOURCE_TREES,
+    SyncError,
+    Upstream,
+    VERSION_FILE,
+    sync_archive,
+    verify_snapshot,
+)
 
 
 COMMIT = "1" * 40
@@ -19,10 +29,12 @@ def fixture_files() -> dict[str, bytes]:
     files = {
         "README.md": b"# FineSub fixture\n",
         "LICENSE": b"MIT fixture\n",
-        "pyproject.toml": b'[project]\nname = "finesub"\nversion = "1.2.3"\n',
-        "desktop/runtime/pylock.win-py312.toml": b"lock = 1\n",
-        "desktop/runtime/pylock.win-py312.cn.toml": b"lock = 1\n",
-        "desktop/resources/runtime-manifest.json": b'{"schema_version": 1}\n',
+        # Dynamic since upstream 0.5.0; the number lives in `VERSION`.
+        "pyproject.toml": b'[project]\nname = "finesub"\ndynamic = ["version"]\n',
+        VERSION_FILE: b'1.2.3\n',
+        RUNTIME_LOCKS[0]: b'lock = 1\n',
+        RUNTIME_LOCKS[1]: b'lock = 1\n',
+        RUNTIME_MANIFEST: b'{"schema_version": 1}\n',
         "src/finesub/__init__.py": b'__version__ = "1.2.3"\n',
         "src/finesub/llm/prompt_templates/LICENSE.md": b"CC BY-SA 4.0 fixture\n",
         "src/finesub/llm/prompt_templates/prompt.md": b"prompt\n",
@@ -34,6 +46,9 @@ def fixture_files() -> dict[str, bytes]:
     }
     assert all(any(path == item or path.startswith(item + "/") for path in files) for item in SOURCE_TREES)
     assert all(path in files for path in SOURCE_FILES)
+    assert VERSION_FILE in files
+    assert RUNTIME_MANIFEST in files
+    assert all(path in files for path in RUNTIME_LOCKS)
     return files
 
 
@@ -68,6 +83,7 @@ class SyncFineSubTests(unittest.TestCase):
             )
             metadata = verify_snapshot(first)
             self.assertEqual(metadata["engine_bundle_id"], "finesub-1.2.3+111111111111")
+            self.assertEqual((first / VERSION_FILE).read_text(encoding="utf-8"), "1.2.3\n")
             self.assertTrue((first / "UPSTREAM_README.md").is_file())
             vendor_readme = (first / "README.md").read_text(encoding="utf-8")
             self.assertIn("scripts/sync_finesub.py", vendor_readme)
@@ -114,6 +130,8 @@ class SyncFineSubTests(unittest.TestCase):
             with zipfile.ZipFile(bundle) as zipped:
                 manifest_name = next(name for name in zipped.namelist() if name.endswith("engine-bundle.json"))
                 manifest = json.loads(zipped.read(manifest_name))
+                version_name = next(name for name in zipped.namelist() if name.endswith("/VERSION"))
+                self.assertEqual(zipped.read(version_name), b"1.2.3\n")
             self.assertEqual(manifest["engine"]["commit"], COMMIT)
             self.assertEqual(manifest["adapter_schema"], 1)
 
