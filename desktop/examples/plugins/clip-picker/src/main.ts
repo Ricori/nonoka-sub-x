@@ -10,6 +10,22 @@ const DONE_NOTICE = "结果只存在这个页面里，切换页面就会丢 —�
 let running = false;
 
 /**
+ * 阶段一跑完就存下来。
+ *
+ * 阶段二失败（重试 5 次仍不合格、额度用尽、限流、超时）时，前面那些分析结果
+ * 本来会随着局部变量一起丢掉 —— 而它们是这条流水线里最贵的东西：一场四小时的
+ * 直播是六次模型调用、两三分钟。偏偏阶段二正是实际会失败的那一步。
+ *
+ * 存住之后「重新汇总」就只花一次调用，不用把分析重跑一遍。
+ * 注意它跳过的是阶段一，不是跑一部分 —— 出来的仍是整场直播的完整表。
+ */
+let stageOne: { batches: Batch[]; analyses: string[] } | null = null;
+
+function setResummarize(visible: boolean): void {
+  el("resummarize").hidden = !visible;
+}
+
+/**
  * 跑完整条流水线。返回 false 表示「正常地没跑出结果」（比如文档里没有句子），
  * 出错则抛出 —— 界面怎么收场由 start() 统一决定。
  */
@@ -38,8 +54,23 @@ async function runPipeline(media: MediaSummary): Promise<boolean> {
   }
 
   const analyses = await runAnalysis(batches);
+  // 存在这里而不是等整条跑完：阶段二失败时它才有意义
+  stageOne = { batches, analyses };
+  setResummarize(true);
+
   checkCancel();
-  showSummary(await runToExcel(joinAnalyses(batches, analyses)));
+  return summarize();
+}
+
+/**
+ * 只跑阶段二：把**全部**批次的分析合并成一张表。
+ *
+ * 「跳过阶段一」不等于「只处理一部分」—— stageOne 只在 runAnalysis 全部跑完
+ * 之后才被赋值，中途取消或失败都会直接抛出，所以它要么是完整的要么不存在。
+ */
+async function summarize(): Promise<boolean> {
+  if (!stageOne) throw new Error("没有可汇总的分析结果，先跑一次完整流程");
+  showSummary(await runToExcel(joinAnalyses(stageOne.batches, stageOne.analyses)));
 
   const tail = LLM_IS_STUB ? "（dummy 内容，不是模型结果）" : "";
   say(`完成${tail}。点「复制为表格」，去 Excel 里 Ctrl+V。`);
@@ -60,9 +91,11 @@ function setRunning(on: boolean): void {
   button.classList.toggle("primary", !on);
   button.disabled = false;
 
-  // 这两个跑起来之后没有意义：换字幕档或重读列表，结果都对不上现在选中的那个
+  // 这些跑起来之后没有意义：换字幕档或重读列表，结果都对不上现在选中的那个；
+  // 「重新汇总」在跑的时候再点一次也只是白等
   el<HTMLButtonElement>("reload").disabled = on;
   el<HTMLSelectElement>("media").disabled = on;
+  el<HTMLButtonElement>("resummarize").disabled = on;
 }
 
 function requestStop(): void {
@@ -72,6 +105,40 @@ function requestStop(): void {
   button.disabled = true;
   say("正在停止：等当前这一批返回后停下。");
   logLine("用户请求停止");
+}
+
+/**
+ * 跑一件长任务的外壳：锁控件、展开日志、收拾提醒条、分辨「停止」和「失败」。
+ *
+ * 完整流水线和「重新汇总」共用它 —— 这些收尾动作各写一遍的话，漏掉一处就会
+ * 留一条过期的警告挂在界面上，或者按钮一直卡在「停止」。
+ */
+async function runGuarded(task: () => Promise<boolean>): Promise<void> {
+  resetCancel();
+  setRunning(true);
+  hideSummary();
+  // 自动展开日志：这一跑要好几分钟，状态栏只有一行，不展开的话用户看不到
+  // 进行到第几批，容易以为卡住了。
+  setLogVisible(true);
+  notice(RUNNING_NOTICE, true);
+  try {
+    notice(await task() ? DONE_NOTICE : null);
+  } catch (error) {
+    const detail = (error as Error).message;
+    notice(null);
+    if (detail === CANCELLED) {
+      say("已停止。");
+      logLine("已停止");
+    } else {
+      // 分析结果还在的话说一声 —— 否则用户会以为整轮都白跑了，直接重来一遍，
+      // 白花几分钟和一整轮额度。
+      const kept = stageOne ? `（阶段一的 ${stageOne.analyses.length} 批分析都还在，点「重新汇总」直接出整场的表，不用重跑分析）` : "";
+      say(`失败：${detail}${kept}`, true);
+      logLine(`失败：${detail}`);
+    }
+  } finally {
+    setRunning(false);
+  }
 }
 
 async function start(): Promise<void> {
@@ -91,33 +158,17 @@ async function start(): Promise<void> {
     return;
   }
 
-  resetCancel();
-  setRunning(true);
-  hideSummary();
-  // 自动展开日志：这一跑要好几分钟，状态栏只有一行，不展开的话用户看不到
-  // 进行到第几批，容易以为卡住了。
-  setLogVisible(true);
-  notice(RUNNING_NOTICE, true);
-  try {
-    // 提醒条在这一处统一收场：跑通了换成「先复制走」，没跑出结果或出错就收起。
-    // 散在各个分支里各写一遍的话，漏掉一处就会留一条过期的警告挂在界面上。
-    notice(await runPipeline(media) ? DONE_NOTICE : null);
-  } catch (error) {
-    const detail = (error as Error).message;
-    notice(null);
-    if (detail === CANCELLED) {
-      say("已停止。");
-      logLine("已停止");
-    } else {
-      say(`失败：${detail}`, true);
-      logLine(`失败：${detail}`);
-    }
-  } finally {
-    setRunning(false);
-  }
+  // 新的一轮，上一轮存的分析作废
+  stageOne = null;
+  setResummarize(false);
+  await runGuarded(() => runPipeline(media));
 }
 
 el("start").addEventListener("click", () => void start());
+el("resummarize").addEventListener("click", () => {
+  if (running) return;
+  void runGuarded(summarize);
+});
 el("reload").addEventListener("click", () => void loadMedia());
 el("log-toggle").addEventListener("click", toggleLog);
 el("log-copy").addEventListener("click", copyLog);

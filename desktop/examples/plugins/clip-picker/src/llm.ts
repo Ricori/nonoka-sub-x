@@ -106,12 +106,17 @@ async function askOnce(system: string, user: string, complaint: string, attempt:
 
   // 超时给 3 分钟：rpc 默认的 15 秒是为了让「方法名打错、宿主静默不回」能报
   // 出来，模型调用几十秒起步，长的更久。
-  const answer = await rpc<LLMAnswer>("llm.complete", {
-    role: LLM_ROLE,
-    temperature: LOW_TEMPERATURE,
-    maxTokens: 16_384,
-    messages,
-  }, 180_000);
+  let answer: LLMAnswer;
+  try {
+    answer = await rpc<LLMAnswer>("llm.complete", {
+      role: LLM_ROLE,
+      temperature: LOW_TEMPERATURE,
+      maxTokens: 16_384,
+      messages,
+    }, 180_000);
+  } catch (error) {
+    throw new Error(explainHostError((error as Error).message));
+  }
 
   // fallbackUsed 为真表示首选模型没能应答（额度、限流、报错），换了链上靠后
   // 的一个 —— 输出质量可能和平时不一样，出问题时这是关键线索。
@@ -122,6 +127,31 @@ async function askOnce(system: string, user: string, complaint: string, attempt:
     + `  ${answer.content.length} 字：${firstLine(answer.content)}`);
   return answer.content;
 }
+
+/**
+ * 把宿主的英文报错翻成能照着做的话。
+ *
+ * 这两条都出自 internal/plugins/engine.go 的 claimLLMCall，是宿主自己的限流，
+ * 不是供应商的话 —— 供应商的原话（额度用尽、CLI 没登录）要原样保留，那是插件
+ * 分辨失败类型的唯一依据。所以这里只认这两条，其余照抄。
+ */
+function explainHostError(message: string): string {
+  // 典型触发：上一轮跑到一半切走了页面。页面没了，但那次请求还在宿主里跑完，
+  // 期间插件的「同时只允许一个」名额被占着。它会自己释放 —— provider 那层有
+  // 330 秒的兜底超时，所以最坏五分半后一定能再开始。
+  if (message.includes("already has an LLM call in flight")) {
+    return "上一次的模型调用还没结束，多半是上次跑到一半切走了页面 —— 那次请求仍在后台跑完。"
+      + "等一分钟再点「开始」（最长五分半后一定能开始）。";
+  }
+  if (message.includes("LLM calls in the last")) {
+    return `模型调用太频繁，宿主限制 10 分钟内最多 ${LLM_CALLS_PER_WINDOW} 次。歇一会儿再试。`
+      + `原文：${message}`;
+  }
+  return message;
+}
+
+/** 和宿主 engine.go 的 llmCallsPerWindow 对齐，只用于文案。 */
+const LLM_CALLS_PER_WINDOW = 60;
 
 /* ---------- 以下是 LLM_IS_STUB 时走的假实现 ---------- */
 

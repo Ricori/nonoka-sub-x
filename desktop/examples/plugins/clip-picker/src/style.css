@@ -89,7 +89,9 @@ button.open .caret { transform: rotate(180deg); }
 
 /* 状态文字和「复制日志」同一行：文字占满剩余宽度，按钮被顶到右端 */
 #status-row { display: flex; align-items: center; gap: 12px; margin-top: 14px; }
-#status { flex: 1; margin: 0; color: var(--mut); line-height: 1.7; min-height: 20px; }
+/* 字号和颜色都跟 label（「字幕档」那种）对齐：两者都是说明性文字，不该有
+   两套大小。原来没设 font-size，继承了 body 的 14px，比标签大一号。 */
+#status { flex: 1; margin: 0; color: var(--mut); font-size: 12px; line-height: 1.7; min-height: 20px; }
 #status.bad { color: var(--warn); }
 
 /* 进度日志。等宽字体是为了对齐时间戳和缩进的批次行。 */
