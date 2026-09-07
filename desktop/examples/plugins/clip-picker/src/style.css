@@ -81,11 +81,14 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 button.primary { border-color: var(--accent-border); color: var(--accent); }
 button.primary:hover:not(:disabled) { border-color: var(--accent); }
 
-/* 「日志」的折叠箭头，展开时翻转 */
-.caret { display: inline-block; margin-left: 6px; font-size: 11px; transition: transform .15s; }
+/* 「日志」的折叠箭头（▾ U+25BE），展开时翻转。
+   inline-block 是 transform 生效的前提 —— 纯 inline 元素转不动。 */
+.caret { display: inline-block; margin-left: 6px; font-size: 10px; vertical-align: 1px; transition: transform .15s; }
 button.open .caret { transform: rotate(180deg); }
 
-#status { margin: 14px 0 0; color: var(--mut); line-height: 1.7; min-height: 20px; }
+/* 状态文字和「复制日志」同一行：文字占满剩余宽度，按钮被顶到右端 */
+#status-row { display: flex; align-items: center; gap: 12px; margin-top: 14px; }
+#status { flex: 1; margin: 0; color: var(--mut); line-height: 1.7; min-height: 20px; }
 #status.bad { color: var(--warn); }
 
 /* 进度日志。等宽字体是为了对齐时间戳和缩进的批次行。 */
@@ -105,14 +108,11 @@ button.open .caret { transform: rotate(180deg); }
   word-break: break-all;
 }
 
-label.inline { flex-direction: row; align-items: center; gap: 7px; }
-input[type=checkbox] { width: auto; accent-color: var(--accent); }
-
 #result-head { flex: 1; font-size: 13px; color: var(--text); }
 
 .table-wrap {
   margin-top: 14px;
-  max-height: 560px;
+  max-height: 380px;
   overflow: auto;
   border: 1px solid var(--line);
   border-radius: 10px;
@@ -140,7 +140,21 @@ th {
 tr:last-child td { border-bottom: 0; }
 td.num { white-space: nowrap; font-variant-numeric: tabular-nums; color: var(--mut); }
 /* 详情和高能里有 <br>，渲染成真实换行显示，跟粘进 Excel 后一致 */
-td.wrap { min-width: 220px; line-height: 1.65; white-space: pre-wrap; }
+td.wrap { min-width: 200px; line-height: 1.6; white-space: pre-wrap; }
+
+/* 页面内那张是压缩预览：每格最多 3 行，超出打省略号，一屏能扫到更多行。
+   浮层里那张不套这层 div，用来通读。
+
+   这个 class 只能加在 td **里面**的 div 上：-webkit-line-clamp 要配
+   display:-webkit-box，加在 td 上会顶掉它的 display:table-cell，那一格就
+   不再是单元格，内容会脱离列的网格铺成整行宽的块。 */
+.clamp {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+  white-space: pre-wrap;
+}
 
 #carrier {
   width: 100%;
@@ -171,3 +185,41 @@ td.wrap { min-width: 220px; line-height: 1.65; white-space: pre-wrap; }
   line-height: 1.7;
 }
 #notice.warn { border-color: var(--warn); }
+
+/* ---------- 全表预览浮层 ---------- */
+
+#overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  display: flex;
+  padding: 32px;
+  background: rgba(0, 0, 0, .55);
+}
+/* 必须显式写：浏览器默认的 [hidden] { display: none } 优先级低于上面那条
+   ID 选择器，不补这一行浮层会一直挂在屏幕上。 */
+#overlay[hidden] { display: none; }
+body.light #overlay { background: rgba(40, 34, 56, .38); }
+
+#overlay-panel {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-height: 100%;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 18px;
+  background: var(--panel);
+}
+
+#overlay-head { flex: none; margin-bottom: 4px; align-items: center; }
+#overlay-title { flex: 1; font-size: 13px; color: var(--text); }
+/* 浮层里的表撑满剩余高度，滚动条在表内而不是整页 */
+#overlay-wrap { flex: 1; max-height: none; min-height: 0; }
+
+button.mini { padding: 4px 9px; font-size: 11px; }
+
+/* 运行时「开始」变成「停止」。和其余按钮同形，只换颜色 —— 红色够醒目了，
+   再改形状会让它看起来像另一类控件。 */
+button.danger { border-color: var(--warn); color: var(--warn); }
+button.danger:hover:not(:disabled) { border-color: var(--warn); background: color-mix(in srgb, var(--warn) 12%, transparent); }

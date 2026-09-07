@@ -1,48 +1,133 @@
-// 大模型调用的接缝。
+// 大模型调用。走宿主的 llm.complete —— 插件页跑在 sandbox iframe 里，
+// CSP 是 connect-src 'none'，自己发不出任何网络请求，密钥也归宿主管。
 //
-// 现在是 dummy：不联网，等 3 秒返回一段占位文本，好让上层的批次循环、进度、
-// 取消、错误处理先写出来并跑通。等宿主支持了，**只改 callLLM 一个函数体**，
-// 上层一行都不用动。
-//
-// 真接入长这样：
-//
-//     async function callLLM(system: string, user: string): Promise<string> {
-//       const result = await rpc<{ text: string }>(
-//         "llm.generate", { system, user }, 180_000);   // 模型慢，超时要放大
-//       return result.text;
-//     }
-//
-// 再往 nonoka-plugin.json 的 permissions 里加上对应权限。
-//
-// 为什么绕不开宿主：插件页跑在 sandbox iframe 里，CSP 是 connect-src 'none'，
-// 页面发不出任何网络请求。所以在页面里放 API key 输入框是没有意义的 —— 填了
-// 也调不通，而且宿主本来就管着密钥（设置页写到 /v1/settings/keys）。
+// 接口细节、role 怎么选、限额，见 docs/llm-engine.md。
 
-/** 真接入后改成 false，界面上的「占位输出」提示会跟着消失。 */
-const LLM_IS_STUB = true;
+/**
+ * 改成 true 就回到 dummy：不联网，等 3 秒返回占位内容。
+ *
+ * 留着它是为了改界面时不烧用户的额度 —— 调表格渲染、日志排版这些跟模型
+ * 无关的东西，跑一遍真实流水线要几分钟还花钱。
+ */
+const LLM_IS_STUB = false;
+
+/**
+ * 角色决定路由到哪一档模型，只有 lightweight 和 general_capable 两个。
+ *
+ * 两个阶段都用 general_capable：都要长文本的理解与重组 —— 阶段一从 800 行
+ * 字幕产出结构化双模块，阶段二要信息无损地跨批次合并去重。lightweight 那档
+ * 是给搜索循环里短输入短输出的判断题用的。
+ */
+const LLM_ROLE = "general_capable";
+
+/**
+ * 这两步都是「照规矩办事」，不需要创造性 —— 阶段一按固定的双模块格式输出，
+ * 阶段二严格只回一个 JSON。sidecar 的默认 temperature 是 1.0（llm_worker.py），
+ * 对这类任务太高，模型会跑偏格式。
+ *
+ * 这一条比模型档次更要紧，实测过：路由被钉在 gemini-3.5-flash-lite 时，
+ * temperature 1.0 下阶段二连续失败（回散文不回 JSON），降到 0.01 之后同一个
+ * 模型就能稳定输出合法 JSON。所以格式对不上时先查 temperature，别急着换模型。
+ *
+ * 为什么不是 0：宿主侧的校验是 `if request.Temperature != 0` 才转发，传 0
+ * 会被当成「没给」，于是又落回默认的 1.0。0.01 是能真正送达的最小值。
+ */
+const LOW_TEMPERATURE = 0.01;
 
 /** dummy 的假延迟。真调用是几十秒起步，这里短一点，够看清进度就行。 */
 const STUB_DELAY_MS = 3_000;
 
 /**
- * 调用大模型。
+ * 每次调用最多试几遍。是**每个 call 各自**的额度，不是整条流水线共享。
+ *
+ * 5 次是权衡：模型偶尔不按格式输出，重试一两次通常就好了；但每次重试都是一次
+ * 真实调用，会吃掉宿主 60 次/10 分钟的预算。3 批 + 1 汇总全部用满也才 20 次。
+ */
+const MAX_ATTEMPTS = 5;
+
+/** 校验模型输出是否合格。不合格就抛错，callLLM 收到后重试。 */
+type AnswerCheck = (text: string) => void;
+
+/**
+ * 调用大模型，输出不合格就重试。
  *
  * @param system 角色/规则，对应 assets 里那两份 prompt
  * @param user   本次要处理的内容，比如某一批的字幕正文
+ * @param check  可选。判断这次输出能不能用；抛错即视为不合格
  * @returns 模型的原始文本输出
+ *
+ * 只对**输出不合格**重试，不对宿主的报错重试 —— 额度用尽、限流、「已有调用
+ * 在飞」这些重试不可能成功，只会白烧配额，所以让它们直接往上抛。
  */
-async function callLLM(system: string, user: string): Promise<string> {
-  if (!LLM_IS_STUB) {
-    const result = await rpc<{ text: string }>("llm.generate", { system, user }, 180_000);
-    return result.text;
+async function callLLM(system: string, user: string, check?: AnswerCheck): Promise<string> {
+  if (LLM_IS_STUB) return dummyAnswer(system, user);
+
+  let complaint = "";
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
+    const text = await askOnce(system, user, complaint, attempt);
+    if (!check) return text;
+    try {
+      check(text);
+      return text;
+    } catch (error) {
+      complaint = (error as Error).message;
+      logLine(`  ✗ 第 ${attempt}/${MAX_ATTEMPTS} 次输出不合格：${complaint}`);
+      if (attempt === MAX_ATTEMPTS) {
+        throw new Error(`重试 ${MAX_ATTEMPTS} 次仍然不合格：${complaint}`);
+      }
+    }
+  }
+  // 上面的循环要么 return 要么 throw，走不到这里；写出来只是让类型收敛。
+  throw new Error("unreachable");
+}
+
+async function askOnce(system: string, user: string, complaint: string, attempt: number): Promise<string> {
+  const messages = [
+    { role: "system", content: system },
+    { role: "user", content: user },
+  ];
+  // 重试时把上一次哪儿不对告诉它。空手重试等于碰运气，指出问题命中率高得多。
+  if (complaint) {
+    messages.push({
+      role: "user",
+      content: `你上一次的回答不合格：${complaint}\n请严格按 system 里的格式要求重新输出，不要有任何额外说明。`,
+    });
   }
 
+  // 限额是按**字节**算的（200 KB），中文一个字三字节，所以别用 .length 估。
+  // 记进日志是为了撞限之前就能看出离上限还有多远 —— 阶段二的输入随批数
+  // 线性增长，是先撞墙的那个。
+  const bytes = new TextEncoder().encode(messages.map((m) => m.content).join("")).length;
+  logLine(`callLLM  role=${LLM_ROLE}  ${Math.round(bytes / 1024)} KB / 200 KB`
+    + (attempt > 1 ? `  （第 ${attempt} 次尝试）` : ""));
+
+  // 超时给 3 分钟：rpc 默认的 15 秒是为了让「方法名打错、宿主静默不回」能报
+  // 出来，模型调用几十秒起步，长的更久。
+  const answer = await rpc<LLMAnswer>("llm.complete", {
+    role: LLM_ROLE,
+    temperature: LOW_TEMPERATURE,
+    maxTokens: 16_384,
+    messages,
+  }, 180_000);
+
+  // fallbackUsed 为真表示首选模型没能应答（额度、限流、报错），换了链上靠后
+  // 的一个 —— 输出质量可能和平时不一样，出问题时这是关键线索。
+  // 首行预览是排查用的：模型不按要求输出时（比如该给 JSON 却给了散文），
+  // 只记字数看不出问题出在哪一步。
+  logLine(`  ← ${answer.model}（${answer.backend}）`
+    + `${answer.fallbackUsed ? " · 已降级到备用模型" : ""}`
+    + `  ${answer.content.length} 字：${firstLine(answer.content)}`);
+  return answer.content;
+}
+
+/* ---------- 以下是 LLM_IS_STUB 时走的假实现 ---------- */
+
+async function dummyAnswer(system: string, user: string): Promise<string> {
   logLine(`callLLM（dummy）system ${system.length} 字 / user ${user.length} 字，等 ${STUB_DELAY_MS / 1000} 秒`);
   await delay(STUB_DELAY_MS);
 
   // 要 JSON 的那一步（to_excel）得回 JSON，否则解析和出表这两段永远跑不到。
-  // 判据就看 system prompt 有没有要求只输出 JSON —— dummy 是开发用的替身，
-  // 按调用方的要求给出**形状正确**的东西，内容仍然是占位。
+  // 判据就看 system prompt 有没有要求只输出 JSON。
   if (/只输出\s*JSON|纯\s*JSON/i.test(system)) return dummySheetJSON();
 
   return [

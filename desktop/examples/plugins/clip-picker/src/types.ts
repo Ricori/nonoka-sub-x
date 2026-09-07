@@ -44,6 +44,22 @@ interface MediaSummary {
   documentAvailable: boolean;
 }
 
+/**
+ * llm.complete 的返回。对应 internal/plugins/engine.go 的 LLMAnswer。
+ *
+ * 没有 model 入参是故意的：用哪个模型是用户的配置，能指定模型的插件也就能
+ * 绕开用户的选择。这里的 model 只是回报「实际是谁答的」。
+ */
+interface LLMAnswer {
+  content: string;
+  /** 实际应答的模型 */
+  model: string;
+  /** 走的哪条后端：API Key，或本机已登录的 CLI */
+  backend: string;
+  /** 首选模型没能应答、降级到链上靠后的一个 */
+  fallbackUsed: boolean;
+}
+
 /** 字幕文档里的一句。宿主只校验 t0/t1/ja/zh，其余字段原样带过。 */
 interface SubtitleLine {
   t0: number;

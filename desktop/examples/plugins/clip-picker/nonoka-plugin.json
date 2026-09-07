@@ -8,7 +8,8 @@
   "license": "MIT",
   "permissions": [
     "media.list",
-    "document.read"
+    "document.read",
+    "llm.complete"
   ],
   "contributes": {
     "tools": [

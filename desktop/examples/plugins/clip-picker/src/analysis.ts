@@ -57,6 +57,8 @@ async function runAnalysis(list: Batch[]): Promise<string[]> {
   const results: string[] = [];
 
   for (const batch of list) {
+    // 停止只在批与批之间生效 —— 正在飞的那次调用中断不了
+    checkCancel();
     const user = batchUserPrompt(batch, list.length);
     const label = `第 ${batch.no}/${list.length} 批  ${batchRange(batch)}`;
     logLine(`${label}  送出 ${user.length} 字`);
@@ -64,7 +66,7 @@ async function runAnalysis(list: Batch[]): Promise<string[]> {
 
     const startedAt = Date.now();
     try {
-      const text = await callLLM(system, user);
+      const text = await callLLM(system, user, checkAnalysis);
       const spent = ((Date.now() - startedAt) / 1000).toFixed(1);
       results.push(text);
       logLine(`${label}  返回 ${text.length} 字，用时 ${spent} 秒`);
@@ -93,4 +95,23 @@ function joinAnalyses(list: Batch[], results: string[]): string {
       : `===== 第 ${index + 1} 组 =====`;
     return `${head}\n${text.trim()}`;
   }).join("\n\n");
+}
+
+/**
+ * 这一批的输出能不能用。不合格 callLLM 会重试。
+ *
+ * 只查两件最要命的：不能是空的（或短得不可能是分析），以及必须有时间轴条目 ——
+ * 阶段二完全靠「模块一」的时间段生成表格行，没有它这一批等于白跑。
+ *
+ * 故意不查得更细：查得越死，模型只是换了个合法写法就会被打回，白白烧掉 5 次
+ * 重试和用户的额度。
+ */
+const TIMELINE_HINT = /\d{1,2}:\d{2}(?::\d{2})?\s*[-–—]\s*\d{1,2}:\d{2}/;
+
+function checkAnalysis(text: string): void {
+  const body = text.trim();
+  if (body.length < 50) throw new Error(`输出太短（${body.length} 字），不像是分析结果`);
+  if (!TIMELINE_HINT.test(body)) {
+    throw new Error("没有找到「模块一」的时间轴条目（形如 00:12:30 - 00:15:00）");
+  }
 }

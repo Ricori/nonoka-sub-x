@@ -53,11 +53,15 @@ window.addEventListener("message", (event: MessageEvent<HostMessage>) => {
   else waiter.resolve(message.result);
 });
 
+/** 最近一次 host.info。复制日志时用它标出是哪个插件。 */
+let hostInfo: HostInfo | undefined;
+
 /**
  * 插件页是独立文档，读不到宿主的 CSS 变量，主题得自己切。原生控件跟的是
  * color-scheme，不一起切的话浅色主题下 <select> 的下拉面板会是一块突兀的深色。
  */
 function applyTheme(info: HostInfo | undefined): void {
+  hostInfo = info ?? hostInfo;
   const light = info?.theme === "light";
   document.body.classList.toggle("light", light);
   document.documentElement.style.colorScheme = light ? "light" : "dark";

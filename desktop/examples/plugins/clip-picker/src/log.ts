@@ -24,10 +24,32 @@ function clearLog(): void {
   el("log").textContent = "";
 }
 
-function toggleLog(): void {
-  const box = el("log");
-  box.hidden = !box.hidden;
+function setLogVisible(visible: boolean): void {
+  el("log").hidden = !visible;
+  // 「复制日志」跟着日志一起出现：日志收起时它没有可复制的上下文，
+  // 摆在状态行上只会让人猜它是干什么的。
+  el("log-copy").hidden = !visible;
   // 只切 class 不改 textContent —— 按钮里有个箭头 <span>，改文字会把它删掉
-  el("log-toggle").classList.toggle("open", !box.hidden);
-  if (!box.hidden) box.scrollTop = box.scrollHeight;
+  el("log-toggle").classList.toggle("open", visible);
+  if (visible) el("log").scrollTop = el("log").scrollHeight;
+}
+
+function toggleLog(): void {
+  setLogVisible(el("log").hidden);
+}
+
+/**
+ * 把日志复制走，方便用户贴给我排查。
+ *
+ * 前面补一行环境信息：出问题时最先要问的就是「哪个插件、什么时候、模型是谁」，
+ * 而模型那条本来就在日志里，这里补上前两样。
+ */
+function copyLog(): void {
+  if (logLines.length === 0) {
+    say("日志是空的。", true);
+    return;
+  }
+  const header = `选片小助手 · ${hostInfo?.pluginId ?? "dev.nonoka.clip-picker"}`
+    + ` · ${new Date().toLocaleString()}`;
+  void copyText([header, "", ...logLines].join("\n"), `已复制 ${logLines.length} 行日志。`);
 }

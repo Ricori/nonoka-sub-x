@@ -4,7 +4,7 @@
 
 和其他示例不同，这个插件**用 TypeScript 写、有构建步骤**。原因见「为什么必须构建」。
 
-> **大模型调用目前是 dummy。** `callLLM` 等 3 秒返回占位内容，用来把整条流水线跑通。宿主还没有开放大模型能力，接上之前表里的内容不可信 —— 界面上有提示。
+> **大模型调用目前是 dummy。** `callLLM` 等 3 秒返回占位内容，用来把整条流水线跑通。接上之前表里的内容不可信 —— 界面上有提示。宿主的 `llm.complete` 能力已经可用，接法和限额见 [docs/llm-engine.md](docs/llm-engine.md)。
 
 ## 流水线
 
@@ -96,12 +96,22 @@ New-Item -ItemType Junction -Path $installed -Target "<仓库>\clip-picker\ui"
 
 ```ts
 async function callLLM(system: string, user: string): Promise<string> {
-  const result = await rpc<{ text: string }>("llm.generate", { system, user }, 180_000);
-  return result.text;
+  const answer = await rpc<LLMAnswer>("llm.complete", {
+    role: "general_capable",
+    messages: [
+      { role: "system", content: system },
+      { role: "user", content: user },
+    ],
+  }, 180_000);
+  return answer.content;
 }
 ```
 
-再把 `LLM_IS_STUB` 改成 `false`（界面上的 dummy 提示会跟着消失），并往 manifest 的 `permissions` 里加对应权限。**超时要放大** —— `rpc()` 默认 15 秒是为了让「方法名打错导致宿主静默不回」能报出来，模型调用几十秒起步。
+再把 `LLM_IS_STUB` 改成 `false`（界面上的 dummy 提示会跟着消失），manifest 的 `permissions` 加 `llm.complete`，然后**重新打包安装** —— 权限变了必须重装，联接只同步页面文件、不同步 manifest。
+
+**超时要放大** —— `rpc()` 默认 15 秒是为了让「方法名打错导致宿主静默不回」能报出来，模型调用几十秒起步。
+
+接口全貌、`role` 怎么选、限额（尤其是 **200 KB prompt 上限**，阶段二会先撞墙）见 [docs/llm-engine.md](docs/llm-engine.md)。
 
 ## 为什么必须构建
 

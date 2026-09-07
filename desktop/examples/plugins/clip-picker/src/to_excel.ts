@@ -20,7 +20,9 @@ async function runToExcel(record: string): Promise<string> {
 
   const startedAt = Date.now();
   try {
-    const text = await callLLM(system, user);
+    // 校验就是「能不能解析成表」本身 —— parseSummary 抛错即视为不合格，
+    // callLLM 会带着错误原因重试。
+    const text = await callLLM(system, user, parseSummary);
     const spent = ((Date.now() - startedAt) / 1000).toFixed(1);
     logLine(`汇总完成：返回 ${text.length} 字，用时 ${spent} 秒`);
     return text;

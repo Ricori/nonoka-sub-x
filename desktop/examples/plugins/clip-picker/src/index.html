@@ -17,10 +17,13 @@
         </label>
         <button id="start" class="primary">开始</button>
         <button id="reload">重新读取</button>
-        <button id="log-toggle">日志<span class="caret" aria-hidden="true">⌄</span></button>
+        <button id="log-toggle">日志<span class="caret" aria-hidden="true">▾</span></button>
       </div>
       <p id="notice" hidden></p>
-      <p id="status"></p>
+      <div id="status-row">
+        <p id="status"></p>
+        <button id="log-copy" class="mini" hidden>复制日志</button>
+      </div>
       <pre id="log" hidden></pre>
     </section>
 
@@ -28,9 +31,7 @@
       <div class="row">
         <strong id="result-head"></strong>
         <button id="copy" class="primary">复制为表格</button>
-        <label class="inline">
-          <input id="real-newline" type="checkbox" checked>把 &lt;br&gt; 变成单元格内换行
-        </label>
+        <button id="preview">预览全表</button>
       </div>
       <div class="table-wrap">
         <table>
@@ -42,9 +43,27 @@
       </div>
       <textarea id="carrier" rows="5" hidden readonly spellcheck="false"></textarea>
       <p class="hint">按制表符复制，Excel 里 Ctrl+V 直接分列。「剪辑」一列恒为空，留给组员填。
-        粘进去发现串行了，就关掉那个勾选再复制一次。</p>
+        下面是压缩预览，长内容截断了；点「预览全表」看完整的。</p>
     </section>
   </main>
+
+  <!-- 全表预览。放在 main 之外：它是覆盖整个视口的浮层，不参与页面的纵向流。 -->
+  <div id="overlay" hidden>
+    <div id="overlay-panel">
+      <div class="row" id="overlay-head">
+        <strong id="overlay-title"></strong>
+        <button id="overlay-close">关闭</button>
+      </div>
+      <div class="table-wrap" id="overlay-wrap">
+        <table>
+          <thead>
+            <tr><th>开始</th><th>结束</th><th>分类</th><th>详情</th><th>高能切片</th><th>剪辑</th></tr>
+          </thead>
+          <tbody id="overlay-rows"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
 
   <!-- assets/*.md 打包时内联进来。页面运行时读不到包里任何别的文件
        （srcdoc 没有 origin，CSP 又是 connect-src 'none'），内联是唯一的路。 -->
