@@ -60,11 +60,14 @@ type AnswerCheck = (text: string) => void;
  * 在飞」这些重试不可能成功，只会白烧配额，所以让它们直接往上抛。
  */
 async function callLLM(system: string, user: string, check?: AnswerCheck): Promise<string> {
-  if (LLM_IS_STUB) return dummyAnswer(system, user);
-
   let complaint = "";
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
-    const text = await askOnce(system, user, complaint, attempt);
+    // 每次重试前都看一眼有没有请求停止。只在批与批之间检查是不够的：一批内部
+    // 最多重试 5 次、每次几十秒，点了「停止」要等一两分钟才有反应。
+    checkCancel();
+    const text = LLM_IS_STUB
+      ? await dummyAnswer(system, user)
+      : await askOnce(system, user, complaint, attempt);
     if (!check) return text;
     try {
       check(text);

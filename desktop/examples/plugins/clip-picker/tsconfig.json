@@ -15,6 +15,7 @@
     "src/types.ts",
     "src/host.ts",
     "src/log.ts",
+    "src/cancel.ts",
     "src/assets.ts",
     "src/llm.ts",
     "src/segment.ts",

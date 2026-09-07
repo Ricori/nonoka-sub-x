@@ -13,21 +13,16 @@ async function runToExcel(record: string): Promise<string> {
   if (!record.trim()) throw new Error("没有可汇总的分析结果");
 
   const system = promptAsset("asset-to-excel", "to_excel.md");
-  const user = record;
 
-  logLine(`汇总开始：全场记录 ${user.length} 字，system prompt ${system.length} 字`);
+  logLine(`汇总开始：全场记录 ${record.length} 字，system prompt ${system.length} 字`);
   say("正在汇总成表格…");
 
+  // 失败不在这里 catch：main 的那层已经会记「失败：…」，再记一遍只是把同一句
+  // 话写两行。分析那边之所以 catch，是因为它能补上「第几批」这个额外信息。
   const startedAt = Date.now();
-  try {
-    // 校验就是「能不能解析成表」本身 —— parseSummary 抛错即视为不合格，
-    // callLLM 会带着错误原因重试。
-    const text = await callLLM(system, user, parseSummary);
-    const spent = ((Date.now() - startedAt) / 1000).toFixed(1);
-    logLine(`汇总完成：返回 ${text.length} 字，用时 ${spent} 秒`);
-    return text;
-  } catch (error) {
-    logLine(`汇总失败：${(error as Error).message}`);
-    throw error;
-  }
+  // 校验就是「能不能解析成表」本身 —— parseSummary 抛错即视为不合格，
+  // callLLM 会带着错误原因重试。
+  const text = await callLLM(system, record, parseSummary);
+  logLine(`汇总完成：返回 ${text.length} 字，用时 ${((Date.now() - startedAt) / 1000).toFixed(1)} 秒`);
+  return text;
 }

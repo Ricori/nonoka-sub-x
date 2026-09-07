@@ -71,7 +71,11 @@ async function runAnalysis(list: Batch[]): Promise<string[]> {
       results.push(text);
       logLine(`${label}  返回 ${text.length} 字，用时 ${spent} 秒`);
     } catch (error) {
-      logLine(`${label}  失败：${(error as Error).message}`);
+      // 用户按了停止不是「这一批失败了」，别把哨兵值当错误信息写进日志 ——
+      // 现在 callLLM 在重试之间也会检查取消，所以它会从这里抛出来。
+      if ((error as Error).message !== CANCELLED) {
+        logLine(`${label}  失败：${(error as Error).message}`);
+      }
       throw error;
     }
   }

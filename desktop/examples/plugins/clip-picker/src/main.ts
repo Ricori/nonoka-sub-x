@@ -6,19 +6,8 @@
 const RUNNING_NOTICE = "处理期间请不要切换页面：插件页会被销毁，进度和已经跑完的批次都会丢失。想中途停下就点「停止」，会在当前这一批返回后停。";
 const DONE_NOTICE = "结果只存在这个页面里，切换页面就会丢 —— 先「复制为表格」存走。";
 
-/**
- * 「停止」的实现方式：一个标志位，在每批之间检查。
- *
- * 中断不了正在飞的那次调用 —— 宿主没给 llm.complete 提供取消，那次请求会跑完
- * 并照常消耗一次额度。所以语义是「当前这批返回后停下」，界面上也这么说。
- */
-const CANCELLED = "__cancelled__";
+/** 流水线是不是正在跑。「开始」按钮靠它决定自己该是开始还是停止。 */
 let running = false;
-let cancelRequested = false;
-
-function checkCancel(): void {
-  if (cancelRequested) throw new Error(CANCELLED);
-}
 
 /**
  * 跑完整条流水线。返回 false 表示「正常地没跑出结果」（比如文档里没有句子），
@@ -77,7 +66,7 @@ function setRunning(on: boolean): void {
 }
 
 function requestStop(): void {
-  cancelRequested = true;
+  requestCancel();
   const button = el<HTMLButtonElement>("start");
   button.textContent = "停止中";
   button.disabled = true;
@@ -102,7 +91,7 @@ async function start(): Promise<void> {
     return;
   }
 
-  cancelRequested = false;
+  resetCancel();
   setRunning(true);
   hideSummary();
   // 自动展开日志：这一跑要好几分钟，状态栏只有一行，不展开的话用户看不到

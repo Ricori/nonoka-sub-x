@@ -26,17 +26,22 @@ function extractJSON(raw: string): unknown {
   const text = raw.trim();
   const open = text.indexOf("{");
   const close = text.lastIndexOf("}");
+  // 错误信息里带一小段原文：只说「没有 JSON」的话，无从判断是模型输出了
+  // Markdown 表格、拒答、还是压根返回了空，而这三种的对策完全不同。这句话
+  // 还会被 callLLM 当成重试时的纠正提示发回给模型，所以得说人话。
   if (open < 0 || close <= open) {
-    // 把实际回了什么带进错误里。只说「没有 JSON」的话，你无从判断是模型
-    // 输出了 Markdown 表格、拒答、还是压根返回了空 —— 这三种的对策完全不同。
-    logLine(`汇总的原始输出（前 400 字）：\n${text.slice(0, 400) || "（空）"}`);
-    throw new Error(`模型没有返回 JSON 对象，它回的是：${preview(text)}`);
+    throw new Error(`模型没有返回 JSON 对象，它回的是：${excerpt(text)}`);
   }
-  return JSON.parse(text.slice(open, close + 1));
+  try {
+    return JSON.parse(text.slice(open, close + 1));
+  } catch (error) {
+    // 原生 SyntaxError 只会说「Unexpected token 在第几位」，模型看不懂也改不动
+    throw new Error(`JSON 解析失败（${(error as Error).message}），收到的是：${excerpt(text)}`);
+  }
 }
 
 /** 错误信息里塞一小段原文，够判断是哪类失败就行。 */
-function preview(text: string): string {
+function excerpt(text: string): string {
   if (!text) return "空内容";
   const head = text.replace(/\s+/g, " ").trim().slice(0, 80);
   return `「${head}${text.length > 80 ? "…" : ""}」（共 ${text.length} 字）`;
