@@ -1,0 +1,25 @@
+{
+  "id": "dev.nonoka.clip-picker",
+  "name": "选片小助手",
+  "version": "1.0.0",
+  "apiVersion": 1,
+  "description": "把直播字幕切分成段并逐段汇总，导出成辅助剪辑的表格",
+  "publisher": "律",
+  "license": "MIT",
+  "permissions": [
+    "media.list",
+    "document.read",
+    "llm.complete"
+  ],
+  "contributes": {
+    "tools": [
+      {
+        "id": "clip-picker",
+        "title": "选片小助手",
+        "icon": "scissors",
+        "page": "ui/index.html",
+        "order": 100
+      }
+    ]
+  }
+}

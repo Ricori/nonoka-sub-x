@@ -1,0 +1,3 @@
+# 构建产物：src/ 是源码，ui/ 和 build/ 由 node build.mjs 生成
+build/
+ui/
