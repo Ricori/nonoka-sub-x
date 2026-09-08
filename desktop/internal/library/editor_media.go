@@ -77,9 +77,7 @@ func (s *Service) ExportVideoRange(id, defaultName, ass string, t0, t1 float64, 
 	if scaleH != 0 && (scaleH < 240 || scaleH > 4320) {
 		scaleH = 0
 	}
-	if abr != "128k" && abr != "192k" && abr != "256k" {
-		abr = "192k"
-	}
+	audioArgs := editorExportAudioArgs(abr)
 
 	app, window := s.dialogWindow()
 	if app == nil || window == nil {
@@ -139,8 +137,9 @@ func (s *Service) ExportVideoRange(id, defaultName, ass string, t0, t1 float64, 
 	args := []string{
 		"-v", "error", "-y", "-ss", formatFloat(t0), "-t", formatFloat(t1 - t0), "-i", source,
 		"-vf", filter, "-c:v", "libx264", "-preset", preset, "-crf", strconv.Itoa(crf),
-		"-c:a", "aac", "-b:a", abr, "-progress", "pipe:1", "-nostats", partial,
 	}
+	args = append(args, audioArgs...)
+	args = append(args, "-progress", "pipe:1", "-nostats", partial)
 	ctx, cancel := context.WithCancel(context.Background())
 	s.mu.Lock()
 	if s.exportCancels == nil {
@@ -209,6 +208,16 @@ func (s *Service) ExportVideoRange(id, defaultName, ass string, t0, t1 float64, 
 		return ExportResult{}, err
 	}
 	return ExportResult{Path: output, Size: stat.Size()}, nil
+}
+
+func editorExportAudioArgs(option string) []string {
+	if option == "copy" {
+		return []string{"-c:a", "copy"}
+	}
+	if option != "128k" && option != "192k" && option != "256k" && option != "320k" {
+		option = "192k"
+	}
+	return []string{"-c:a", "aac", "-b:a", option}
 }
 
 func (s *Service) CancelExport(id string) error {

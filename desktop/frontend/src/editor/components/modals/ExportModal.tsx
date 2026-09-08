@@ -163,11 +163,13 @@ export function ExportModal() {
           </select>
         </div>
         <div className="exp-row">
-          <label>音频码率</label>
+          <label title="复制源音轨不会重新编码，可避免有损音频再次压缩；源音频编码需兼容 MP4 容器">音频</label>
           <select id="exp-abr" value={abr} disabled={busy} onChange={e => setAbr(e.target.value)}>
+            <option value="copy">复制源音轨（不重新编码）</option>
             <option value="128k">128k</option>
             <option value="192k">192k</option>
             <option value="256k">256k</option>
+            <option value="320k">320k</option>
           </select>
         </div>
 

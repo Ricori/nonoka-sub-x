@@ -2,8 +2,29 @@ package library
 
 import (
 	"context"
+	"reflect"
 	"testing"
 )
+
+func TestEditorExportAudioArgs(t *testing.T) {
+	tests := []struct {
+		name   string
+		option string
+		want   []string
+	}{
+		{name: "copies source audio", option: "copy", want: []string{"-c:a", "copy"}},
+		{name: "encodes 320k AAC", option: "320k", want: []string{"-c:a", "aac", "-b:a", "320k"}},
+		{name: "keeps existing 256k option", option: "256k", want: []string{"-c:a", "aac", "-b:a", "256k"}},
+		{name: "defaults invalid input", option: "lossless", want: []string{"-c:a", "aac", "-b:a", "192k"}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := editorExportAudioArgs(test.option); !reflect.DeepEqual(got, test.want) {
+				t.Fatalf("editorExportAudioArgs(%q) = %#v; want %#v", test.option, got, test.want)
+			}
+		})
+	}
+}
 
 func TestParseExportProgress(t *testing.T) {
 	done, ok := parseExportProgress("out_time_us=12500000", 20)
