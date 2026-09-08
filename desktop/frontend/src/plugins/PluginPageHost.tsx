@@ -72,6 +72,9 @@ export function PluginPageHost({ mounted, theme, onOpenManager, onOpenLibrary, o
       "downloader.cancel": () => desktopPlugins.cancelDownload(plugin),
       "downloader.log": () => desktopPlugins.downloadLog(plugin),
       "downloader.clearLog": () => desktopPlugins.clearDownloadLog(plugin),
+      "state.get": (params) => desktopPlugins.stateGet(plugin, text(params.key)),
+      "state.set": async (params) => desktopPlugins.stateSet(plugin, text(params.key), stateValue(params.value)),
+      "state.keys": () => desktopPlugins.stateKeys(plugin),
       "document.read": readDocument,
       "document.save": (params) => desktopPlugins.saveDocument(plugin, text(params.mediaId), params.document),
       "subtitle.ass": async (params) => {
@@ -184,6 +187,12 @@ export function PluginPageHost({ mounted, theme, onOpenManager, onOpenLibrary, o
       />
     </section>
   );
+}
+
+function stateValue(value: unknown): string | null {
+  if (value == null) return null;
+  if (typeof value !== "string") throw new Error("state value must be a string or null");
+  return value;
 }
 
 /** Wails 进度事件的 stage → 插件页面收到的方法名 */

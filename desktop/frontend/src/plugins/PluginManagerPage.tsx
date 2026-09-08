@@ -128,6 +128,7 @@ const PERMISSION_LABELS: Record<string, string> = {
   "tools.yt-dlp": "使用受控的 yt-dlp",
   "tools.cookies": "保存登录 Cookie",
   "ffmpeg.extract-audio": "使用 FFmpeg 导出音频",
+  "state.persist": "保存插件私有状态",
 };
 
 function permissionLabel(permission: string): string {

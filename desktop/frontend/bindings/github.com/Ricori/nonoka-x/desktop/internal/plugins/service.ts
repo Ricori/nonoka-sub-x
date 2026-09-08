@@ -189,6 +189,28 @@ export function StartEngineTask(pluginID: string, request: $models.EngineTaskReq
     return $Call.ByID(1915391222, pluginID, request);
 }
 
+/**
+ * StateGet reads one value from the calling plugin's private persistent state.
+ * A nil result distinguishes a missing key from a stored empty string.
+ */
+export function StateGet(pluginID: string, key: string): $CancellablePromise<string | null> {
+    return $Call.ByID(312092160, pluginID, key);
+}
+
+/**
+ * StateKeys lists the calling plugin's keys in stable order.
+ */
+export function StateKeys(pluginID: string): $CancellablePromise<string[] | null> {
+    return $Call.ByID(1247226160, pluginID);
+}
+
+/**
+ * StateSet stores one value, or deletes the key when value is nil.
+ */
+export function StateSet(pluginID: string, key: string, value: string | null): $CancellablePromise<void> {
+    return $Call.ByID(2492305260, pluginID, key, value);
+}
+
 export function Uninstall(id: string, removeData: boolean): $CancellablePromise<void> {
     return $Call.ByID(3533390575, id, removeData);
 }

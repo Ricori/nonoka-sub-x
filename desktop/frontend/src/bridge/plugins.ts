@@ -54,6 +54,11 @@ export const desktopPlugins = {
   downloaderSettings: PluginService.LoadDownloaderSettings,
   saveCookies: PluginService.SaveCookies,
   clearCookies: PluginService.ClearCookies,
+  stateGet: PluginService.StateGet,
+  stateSet: PluginService.StateSet,
+  async stateKeys(pluginId: string): Promise<string[]> {
+    return (await PluginService.StateKeys(pluginId)) ?? [];
+  },
   async document(pluginId: string, mediaId: string): Promise<EditDocument> {
     return await PluginService.Document(pluginId, mediaId) as unknown as EditDocument;
   },

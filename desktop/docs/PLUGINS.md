@@ -76,6 +76,7 @@ API v1 认识的权限：
 | `llm.complete` | 用用户已配置的模型跑一次 LLM 调用 |
 | `engine.run` | 把 FineSub 流水线跑到指定阶段 |
 | `engine.artifacts` | 读取或落盘该次运行的中间产物（与 `engine.run` 同时声明才有意义） |
+| `state.persist` | 在当前插件私有的持久化键值空间中读写字符串 |
 
 权限只在 manifest 里声明，安装时展示在插件管理页；每次调用由 Go 侧再校验一次，停用的插件调用任何能力都会被拒绝。
 
@@ -134,6 +135,11 @@ window.nonoka.post("host.getInfo", {});
 - `engine.artifacts`：需要 `engine.artifacts` 和 `engine.run` 权限。参数 `{ taskId }`，返回 `[{ name, bytes, readable }]`，按流水线顺序排列，**不含路径**。
 - `engine.readArtifact`：需要 `engine.artifacts` 和 `engine.run` 权限。参数 `{ taskId, name }`，返回文本产物的内容，上限 8 MB。
 - `engine.saveArtifact`：需要 `engine.artifacts` 和 `engine.run` 权限。参数 `{ taskId, name, fileName? }`，宿主弹保存对话框并落盘，返回 `{ path, format, size }`；用户取消时 `path` 为空串。
+- `state.get`：需要 `state.persist` 权限。参数 `{ key }`，返回保存的字符串；键不存在时返回 `null`。
+- `state.set`：需要 `state.persist` 权限。参数 `{ key, value }`，`value` 必须是字符串；传 `null` 或省略 `value` 会删除该键。空字符串是可保存的值。
+- `state.keys`：需要 `state.persist` 权限。返回当前插件的全部键，按字典序排列。
+
+插件状态保存在 `plugin-data/<id>/state.json`，插件之间不能互相读取。键名与插件 ID 使用同一套小写标识符规则；每个插件的状态文件上限为 10 MiB，超限写入会失败且不会覆盖原数据。写入使用临时文件和原子替换，因此页面切换或应用退出不会留下半份 JSON。状态在插件升级、停用和“卸载但保留数据”后继续存在；选择卸载并删除数据时一并清理。
 
 字幕文档能力有几条固定规则：
 

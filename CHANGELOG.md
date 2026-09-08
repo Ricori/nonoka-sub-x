@@ -4,6 +4,7 @@ GitHub Release 和应用内更新提示共用此文件。版本号标题使用 `
 
 ## 0.3.3
 - 修复：零时长段导致转写失败的 bug
+- 新功能：插件可通过 `state.get`、`state.set` 和 `state.keys` 持久化私有状态
 
 ## 0.3.2
 

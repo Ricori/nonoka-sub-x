@@ -92,6 +92,10 @@ type currentPointer struct {
 type Service struct {
 	mu         sync.RWMutex
 	mediaJobMu sync.Mutex
+	// stateMu serializes read-modify-write cycles for plugin state files. A
+	// separate lock keeps small state operations from queueing behind installs,
+	// page loads, or long-running media capabilities.
+	stateMu sync.Mutex
 	// downloadActive tracks a running yt-dlp download so a page that was
 	// unmounted mid-download can find out it is still going. The iframe is
 	// destroyed whenever the user navigates away, taking every bit of page state
@@ -521,6 +525,7 @@ func validateManifest(manifest Manifest, root string) error {
 		"llm.complete":         true,
 		"engine.run":           true,
 		"engine.artifacts":     true,
+		"state.persist":        true,
 	}
 	seenPermissions := map[string]bool{}
 	for _, permission := range manifest.Permissions {
