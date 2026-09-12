@@ -598,6 +598,24 @@ class LocalProvider:
         managed_python = self._provisioner.worker_python() if self._provisioner is not None else None
         return [str(managed_python or sys.executable), "-m", "nonoka_x.llm_worker"]
 
+    def knowledge(self, request: dict) -> dict:
+        managed_python = self._provisioner.worker_python() if self._provisioner is not None else None
+        kwargs = {"creationflags": subprocess.CREATE_NO_WINDOW} if os.name == "nt" else {}
+        try:
+            result = subprocess.run(
+                [str(managed_python or sys.executable), "-m", "nonoka_x.knowledge_worker"],
+                input=json.dumps(request, ensure_ascii=False), capture_output=True,
+                text=True, encoding="utf-8", env=self._engine_environment(), timeout=110, **kwargs,
+            )
+            if result.returncode:
+                raise ProviderError("knowledge_unavailable", "无法读取知识库，请检查本地运行环境", http_status=503)
+            response = json.loads(result.stdout)
+        except (OSError, subprocess.TimeoutExpired, json.JSONDecodeError) as exc:
+            raise ProviderError("knowledge_unavailable", "知识库服务不可用，请稍后重试", http_status=503) from exc
+        if "error" in response:
+            raise ProviderError("knowledge_error", response["error"], http_status=409)
+        return response["result"]
+
     def _engine_environment(self) -> dict[str, str]:
         """The environment every process that imports FineSub is spawned into.
 

@@ -2,8 +2,8 @@ import type { CloudEntry } from "../bridge/cloud.ts";
 import type { MediaEntry } from "../bridge/library.ts";
 import type { TaskSnapshot } from "../providers/types.ts";
 
-export type Section = "library" | "tasks" | "plugin" | "plugins" | "runtime" | "keys" | "adminKeys" | "account" | "about";
-export type NavigationSection = "library" | "tasks" | "plugins" | "runtime" | "settings" | "adminKeys" | "about";
+export type Section = "knowledge" | "library" | "tasks" | "plugin" | "plugins" | "runtime" | "keys" | "adminKeys" | "account" | "about";
+export type NavigationSection = "knowledge" | "library" | "tasks" | "plugins" | "runtime" | "settings" | "adminKeys" | "about";
 export type ExecutionMode = "local" | "cloud";
 export type LoadState = "loading" | "ready" | "error";
 export type LibraryFilter = "all" | "ready" | "running" | "cloud" | "missing";

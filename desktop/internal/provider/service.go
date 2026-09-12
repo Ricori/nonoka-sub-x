@@ -125,6 +125,14 @@ func (s *Service) Settings() (map[string]any, error) {
 	return result, err
 }
 
+func (s *Service) Knowledge(request map[string]any) (map[string]any, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer cancel()
+	var result map[string]any
+	err := s.provider.DoJSON(ctx, http.MethodPost, "/v1/knowledge", request, &result)
+	return result, err
+}
+
 func (s *Service) SaveKeys(keys map[string]any) (map[string]any, error) {
 	if keys == nil {
 		return nil, errors.New("keys are required")

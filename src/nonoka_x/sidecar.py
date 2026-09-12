@@ -80,6 +80,8 @@ class SidecarHandler(BaseHTTPRequestHandler):
             self._json(200, provider.remove_runtime_group(str(self._body().get("target") or "")))
         elif self.command == "GET" and parts == ["v1", "settings"]:
             self._json(200, provider.get_settings())
+        elif self.command == "POST" and parts == ["v1", "knowledge"]:
+            self._json(200, provider.knowledge(self._body()))
         elif self.command == "PUT" and parts == ["v1", "settings", "keys"]:
             self._json(200, provider.update_keys(self._body().get("keys", {})))
         elif self.command == "GET" and parts == ["v1", "tasks"]:

@@ -33,6 +33,7 @@ import { AboutPage } from "../pages/AboutPage.tsx";
 import { AdminKeysPage } from "../pages/AdminKeysPage.tsx";
 import { RuntimePage } from "../pages/RuntimePage.tsx";
 import { SettingsPage } from "../pages/SettingsPage.tsx";
+import { KnowledgePage } from "../pages/KnowledgePage.tsx";
 import { TasksPage } from "../pages/TasksPage.tsx";
 import { LibraryPage } from "../pages/LibraryPage.tsx";
 import { PluginManagerPage } from "../plugins/PluginManagerPage.tsx";
@@ -56,6 +57,7 @@ const okNotice = (text: string): PageNotice => ({ text, tone: "success" });
 
 function NavIcon({ kind }: { kind: NavigationSection }) {
   const paths = {
+    knowledge: "M12 5v15M3 4h5a4 4 0 0 1 4 2 4 4 0 0 1 4-2h5v15h-5a4 4 0 0 0-4 2 4 4 0 0 0-4-2H3Z",
     library: "M4 6.5h16M6 3h12a2 2 0 0 1 2 2v14H4V5a2 2 0 0 1 2-2Zm3 7h6m-6 4h4",
     tasks: "M5 4h14v16H5zM8 8h8m-8 4h8m-8 4h5",
     plugins: "M8 3v4m8-4v4M6 7h12v4a6 6 0 0 1-5 5.9V21h-2v-4.1A6 6 0 0 1 6 11V7Z",
@@ -1346,7 +1348,7 @@ export default function App() {
 
   const runtimeReady = capabilities?.runtime?.ready === true;
   const issues = capabilities?.runtime?.issues ?? [];
-  const title = section === "library"
+  const title = section === "knowledge" ? "知识库" : section === "library"
     ? "媒体库"
     : section === "tasks"
       ? "处理任务"
@@ -1428,6 +1430,9 @@ export default function App() {
               {item === "tasks" && activeTaskCount > 0 && <small className="nav-count active-count">{activeTaskCount}</small>}
             </button>
           ))}
+          <button className={section === "knowledge" ? "active" : ""} title="知识库" onClick={() => setSection("knowledge")}>
+            <NavIcon kind="knowledge" /><span className="nav-text">知识库</span>
+          </button>
         </nav>
         <span className="nav-label tools-label">工具</span>
         <nav className="plugin-tools-nav" aria-label="插件工具">
@@ -1630,6 +1635,8 @@ export default function App() {
               onCancelStorage={cancelStorage}
             />
           )}
+
+          <KnowledgePage active={section === "knowledge"} />
 
           {section === "keys" && (
             <SettingsPage

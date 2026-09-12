@@ -51,6 +51,10 @@ export function InstallRuntime(target: string): $CancellablePromise<{ [_ in stri
     return $Call.ByID(477675293, target);
 }
 
+export function Knowledge(request: { [_ in string]?: any } | null): $CancellablePromise<{ [_ in string]?: any } | null> {
+    return $Call.ByID(1766155084, request);
+}
+
 /**
  * LLMComplete runs one routed LLM call on the user's configured models. The
  * sidecar owns the whole request shape -- roles, prompt size, output budget --
