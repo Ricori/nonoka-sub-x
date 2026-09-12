@@ -78,8 +78,26 @@ func (s *Service) ExportVideoRange(id, defaultName, ass string, t0, t1 float64, 
 		scaleH = 0
 	}
 	audioArgs := editorExportAudioArgs(abr)
+	ctx, cancel := context.WithCancel(context.Background())
+	s.mu.Lock()
+	if s.exportCancels == nil {
+		s.exportCancels = make(map[string]context.CancelFunc)
+	}
+	if _, running := s.exportCancels[id]; running {
+		s.mu.Unlock()
+		cancel()
+		return ExportResult{}, errors.New("video export is already running")
+	}
+	s.exportCancels[id] = cancel
+	s.mu.Unlock()
+	defer func() {
+		s.mu.Lock()
+		delete(s.exportCancels, id)
+		s.mu.Unlock()
+		cancel()
+	}()
 
-	app, window := s.dialogWindow()
+	app, window := s.exportDialogWindow()
 	if app == nil || window == nil {
 		return ExportResult{}, errors.New("application window is not ready")
 	}
@@ -93,6 +111,9 @@ func (s *Service) ExportVideoRange(id, defaultName, ass string, t0, t1 float64, 
 	output, err := app.Dialog.SaveFile().SetFilename(name).AddFilter("MP4 视频", "*.mp4").AttachToWindow(window).PromptForSingleSelection()
 	if dialogCancelled(err) {
 		err = nil
+	}
+	if errors.Is(ctx.Err(), context.Canceled) {
+		return ExportResult{}, errors.New("已取消")
 	}
 	if err != nil || output == "" {
 		return ExportResult{}, err
@@ -140,20 +161,6 @@ func (s *Service) ExportVideoRange(id, defaultName, ass string, t0, t1 float64, 
 	}
 	args = append(args, audioArgs...)
 	args = append(args, "-progress", "pipe:1", "-nostats", partial)
-	ctx, cancel := context.WithCancel(context.Background())
-	s.mu.Lock()
-	if s.exportCancels == nil {
-		s.exportCancels = make(map[string]context.CancelFunc)
-	}
-	s.exportCancels[id] = cancel
-	s.mu.Unlock()
-	defer func() {
-		s.mu.Lock()
-		delete(s.exportCancels, id)
-		s.mu.Unlock()
-		cancel()
-	}()
-
 	command := exec.CommandContext(ctx, ffmpeg, args...)
 	command.Dir = work
 	configureMediaCommand(command)
@@ -164,6 +171,9 @@ func (s *Service) ExportVideoRange(id, defaultName, ass string, t0, t1 float64, 
 	var stderr bytes.Buffer
 	command.Stderr = &stderr
 	if err := command.Start(); err != nil {
+		if errors.Is(ctx.Err(), context.Canceled) {
+			return ExportResult{}, errors.New("已取消")
+		}
 		return ExportResult{}, err
 	}
 	duration := t1 - t0

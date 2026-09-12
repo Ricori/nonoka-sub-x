@@ -103,3 +103,24 @@ export interface StorageStatus {
     "locations": Location[] | null;
     "progress": RelocationProgress;
 }
+
+/**
+ * VideoExportDraft describes the immutable snapshot held for an independent
+ * export window. The potentially large ASS text stays in Go and is never sent
+ * back through the webview bridge.
+ */
+export interface VideoExportDraft {
+    "jobId": string;
+    "progressId": string;
+    "mediaId": string;
+    "defaultName": string;
+    "t0": number;
+    "t1": number;
+    "rangeLabel": string;
+    "missingFonts": string[] | null;
+}
+
+export interface VideoExportResult {
+    "path": string;
+    "size": number;
+}

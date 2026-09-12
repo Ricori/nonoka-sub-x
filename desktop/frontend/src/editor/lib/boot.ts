@@ -18,7 +18,6 @@ import { initSubtitles, preloadSubtitles, refreshFontMetrics } from "./subtitles
 import { setupVideo, showVideoFallback } from "./videoSource";
 import { resetAutoGain } from "./wave";
 import { resetHistory } from "./history";
-import { exportStore } from "../store/exportStore";
 import { dragStore } from "../store/dragStore";
 import type { Clip, Seg, Track } from "../types";
 
@@ -52,7 +51,6 @@ function resetTransientState() {
   ctxStore.set({ menu: null });
   askStore.set({ dialog: null });
   toastStore.set({ msg: "", show: false, sticky: false, ok: false, onClick: null });
-  exportStore.set({ open: false, clip: null, busy: false, pct: 0 });
   dragStore.set({ marquee: null, dropTi: null });
   saveStore.set({ dirty: false, saving: false, conflicted: false, stateText: "正在加载", stateCls: "" });
   selStore.set({ curTrack: -1, sel: -1, selSet: new Set(), preview: null });

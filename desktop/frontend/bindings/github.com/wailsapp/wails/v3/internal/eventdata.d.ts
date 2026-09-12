@@ -22,6 +22,8 @@ declare module "@wailsio/runtime" {
     namespace Events {
         interface CustomEvents {
             "editor:request-close": string;
+            "export:ready": string;
+            "export:request-close": string;
             "files:dropped": string[] | null;
             "home:refresh": boolean;
             "library:changed": library$0.Entry[] | null;

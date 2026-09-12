@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="zh-CN" class="export-page light">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#faf9fe" />
+    <title>Nonoka Sub X · 导出视频</title>
+  </head>
+  <body class="light">
+    <script>
+      (() => {
+        const dark = new URLSearchParams(location.search).get("theme") === "dark";
+        document.documentElement.classList.toggle("light", !dark);
+        document.body.classList.toggle("light", !dark);
+        document.querySelector('meta[name="theme-color"]').content = dark ? "#0f111b" : "#faf9fe";
+      })();
+    </script>
+    <div id="root"></div>
+    <script type="module" src="/src/export/index.tsx"></script>
+  </body>
+</html>

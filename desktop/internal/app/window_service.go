@@ -12,9 +12,9 @@ import (
 	"github.com/wailsapp/wails/v3/pkg/events"
 )
 
-// WindowService coordinates the home and editor windows. The editor owns its
-// unsaved-change UI; native close requests are forwarded to it and only
-// CloseEditor is allowed to destroy the window.
+// WindowService coordinates the home, editor and independent video-export
+// windows. The editor owns its unsaved-change UI; native close requests are
+// forwarded to it and only CloseEditor is allowed to destroy that window.
 type WindowService struct {
 	mu                     sync.Mutex
 	app                    *application.App
@@ -26,6 +26,16 @@ type WindowService struct {
 	editorStartState       application.WindowState
 	activateEditorTracking func()
 	flushEditorWindowState func()
+	export                 *application.WebviewWindow
+	exportDraft            VideoExportDraft
+	exportASS              string
+	exportSerial           uint64
+	exportRunning          bool
+	exportClosing          bool
+	exportVisible          bool
+	exportStartState       application.WindowState
+	activateExportTracking func()
+	flushExportWindowState func()
 	readyListenerInstalled bool
 	preferences            *preferences.Service
 	library                *library.Service
@@ -44,6 +54,7 @@ func (s *WindowService) attach(app *application.App, home *application.WebviewWi
 	s.mu.Unlock()
 	if installReadyListener {
 		app.Event.On("editor:ready", s.handleEditorReady)
+		app.Event.On("export:ready", s.handleExportReady)
 	}
 }
 

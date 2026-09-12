@@ -367,7 +367,7 @@ export function TranscriptionDialog(props: TranscriptionDialogProps) {
           <div className="execution-picker">
             <button className={`execution-card ${axisOn ? "" : "chosen"}`} onClick={chooseNoAxis}>
               <span className="execution-icon local">✧</span>
-              <span><strong>我没有轴</strong><small>从头识别与断句，再按继续纠错和翻译</small></span>
+              <span><strong>我没有轴</strong><small>完整的识别、纠错和翻译流程</small></span>
               <em>默认</em>
             </button>
 
@@ -415,7 +415,7 @@ export function TranscriptionDialog(props: TranscriptionDialogProps) {
           <div className="execution-picker">
             <button className={`execution-card ${mode === "local" && localReady ? "chosen" : ""}`} disabled={!localReady} onClick={() => chooseMode("local")}>
               <span className="execution-icon local">⌁</span>
-              <span><strong>本地运行</strong><small>原视频不离开电脑，使用本机转写引擎 与 GPU</small></span>
+              <span><strong>本地运行</strong><small>原视频不离开电脑，使用本机 GPU 和 LLM 资源</small></span>
               <em>{localReady ? "可用" : "未就绪"}</em>
             </button>
             {!localReady && <p className="execution-unavailable">{localIssue || "本地运行环境尚未就绪"}<button onClick={onOpenRuntime}>检查运行环境</button></p>}

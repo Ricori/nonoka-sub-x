@@ -31,6 +31,8 @@ func init() {
 	application.RegisterEvent[[]string]("files:dropped")
 	application.RegisterEvent[[]library.Entry]("library:changed")
 	application.RegisterEvent[string]("editor:request-close")
+	application.RegisterEvent[string]("export:ready")
+	application.RegisterEvent[string]("export:request-close")
 	application.RegisterEvent[bool]("home:refresh")
 	application.RegisterEvent[selfupdate.Status]("update:status")
 	application.RegisterEvent[map[string]string]("update:ready")
@@ -43,7 +45,7 @@ func init() {
 func Run(assets fs.FS) error {
 	// Before anything resolves an executable: a macOS app started from Finder
 	// inherits launchd's bare PATH, and every LookPath below -- the sidecar
-	// interpreter, ffmpeg, git -- would otherwise miss tools the user has
+	// interpreter and ffmpeg -- would otherwise miss tools the user has
 	// installed.
 	managedtools.EnsureSearchPath()
 	selfupdate.CleanupReplacedExecutables()

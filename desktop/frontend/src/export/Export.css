@@ -1,0 +1,90 @@
+:root {
+  color-scheme: dark;
+  --bg: #0f111b;
+  --panel: #191c2d;
+  --raised: #252a42;
+  --line: #363c59;
+  --text: #f5f2fb;
+  --muted: #aeaac6;
+  --accent: #9caef7;
+  --on-accent: #1b2140;
+  --warn: #ed789d;
+  --ok: #55cda9;
+  --font-ui: "Segoe UI Variable Text", "Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, "Microsoft YaHei UI", "PingFang SC", sans-serif;
+}
+
+:root.light, body.light {
+  color-scheme: light;
+  --bg: #faf9fe;
+  --panel: #fff;
+  --raised: #f0ecf8;
+  --line: #ded8ea;
+  --text: #383344;
+  --muted: #5f5a6e;
+  --accent: #6b4fd0;
+  --on-accent: #fff;
+  --warn: #bd4670;
+  --ok: #157a5f;
+}
+
+* { box-sizing: border-box; }
+html, body, #root { min-width: 100%; min-height: 100%; margin: 0; }
+body { background: var(--bg); color: var(--text); font: 13px/1.5 var(--font-ui); }
+button, input, select { color: inherit; font: inherit; }
+button { cursor: pointer; }
+button:disabled { cursor: default; opacity: .48; }
+button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.export-window {
+  min-height: 100vh;
+  padding: 28px 30px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+header .eyebrow { color: var(--accent); font-size: 11px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
+header h1 { margin: 3px 0 2px; font-size: 24px; font-weight: 650; }
+header p { margin: 0; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.settings {
+  padding: 8px 18px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+.setting-row { min-height: 54px; display: grid; grid-template-columns: 125px minmax(0, 1fr); align-items: center; gap: 16px; border-bottom: 1px solid var(--line); }
+.setting-row:last-child { border-bottom: 0; }
+.setting-row label { color: var(--muted); }
+.setting-row input, .setting-row select {
+  width: 100%; height: 32px; padding: 0 10px;
+  border: 1px solid var(--line); border-radius: 7px; background: var(--raised);
+}
+.segments { display: grid; grid-template-columns: repeat(3, 1fr); border: 1px solid var(--line); border-radius: 7px; overflow: hidden; }
+.segments button { height: 30px; border: 0; border-right: 1px solid var(--line); background: transparent; }
+.segments button:last-child { border-right: 0; }
+.segments button.selected { color: var(--on-accent); background: var(--accent); font-weight: 650; }
+
+.warning { padding: 10px 12px; color: var(--warn); background: color-mix(in srgb, var(--warn) 9%, transparent); border: 1px solid color-mix(in srgb, var(--warn) 35%, transparent); border-radius: 8px; }
+.status { min-height: 64px; color: var(--muted); }
+.status.success { color: var(--ok); }
+.status.error { color: var(--warn); }
+.status-line { display: flex; justify-content: space-between; gap: 12px; }
+.status-line strong { color: var(--text); font-variant-numeric: tabular-nums; }
+.progress { height: 6px; margin-top: 9px; overflow: hidden; border-radius: 99px; background: var(--raised); }
+.progress i { display: block; height: 100%; background: var(--accent); transition: width .15s linear; }
+.link { display: block; max-width: 100%; margin-top: 7px; padding: 0; overflow: hidden; color: inherit; background: none; border: 0; text-align: left; text-decoration: underline; text-overflow: ellipsis; white-space: nowrap; }
+
+footer { margin-top: auto; display: flex; justify-content: flex-end; gap: 10px; }
+footer button { min-width: 96px; height: 36px; padding: 0 16px; border: 1px solid var(--line); border-radius: 8px; font-weight: 600; }
+footer .secondary { background: var(--panel); }
+footer .primary { color: var(--on-accent); border-color: var(--accent); background: var(--accent); }
+
+.confirm-mask { position: fixed; inset: 0; display: grid; place-items: center; padding: 24px; background: color-mix(in srgb, var(--bg) 72%, transparent); }
+.confirm-card { width: min(390px, 100%); padding: 22px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); box-shadow: 0 18px 60px rgba(0, 0, 0, .35); }
+.confirm-card h2 { margin: 0 0 7px; font-size: 17px; }
+.confirm-card p { margin: 0 0 20px; color: var(--muted); }
+.confirm-card div { display: flex; justify-content: flex-end; gap: 9px; }
+.confirm-card button { min-height: 34px; padding: 0 14px; border: 1px solid var(--line); border-radius: 7px; font-weight: 600; }
+.confirm-card .secondary { background: var(--raised); }
+.confirm-card .danger { color: #fff; border-color: var(--warn); background: var(--warn); }

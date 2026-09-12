@@ -3,7 +3,7 @@ import { shallowEqual } from '../../home/lib/createStore';
 import { CLIP_LANE_H } from '../constants';
 import { commitClipEdge, dragClipEdgeTo, enterClip, removeClip, renameClip } from '../lib/clips';
 import { bindScrub } from '../lib/laneDrag';
-import { openExport } from '../store/exportStore';
+import { openExport } from '../lib/openExport';
 import { innerLeft } from '../store/tlStore';
 import { modalStore, showCtx } from '../store/uiStore';
 import { clipLayout, tOf, viewDur, viewStore, xOf } from '../store/viewStore';
@@ -36,7 +36,7 @@ function ticksFor(left: number, vw: number, pps: number): Tick[] {
 
 const clipMenu = (e: React.MouseEvent, c: Clip) => showCtx(e, [
   { label: "进入切片", onClick: () => enterClip(c) },
-  { label: "导出这个切片", onClick: () => openExport(c) },
+  { label: "导出这个切片", onClick: () => void openExport(c) },
   "-",
   { label: "重命名", onClick: () => void renameClip(c) },
   { label: "删除切片", danger: true, onClick: () => void removeClip(c) },

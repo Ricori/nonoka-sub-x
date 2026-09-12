@@ -106,6 +106,7 @@ type Service struct {
 	app              *application.App
 	home             *application.WebviewWindow
 	editor           *application.WebviewWindow
+	exportWindow     *application.WebviewWindow
 	media            *loopbackMediaServer
 	bundledFonts     map[string][]byte
 	cacheMu          sync.Mutex
@@ -178,6 +179,15 @@ func SetEditorWindow(s *Service, editor *application.WebviewWindow) {
 	s.mu.Unlock()
 }
 
+// SetExportWindow gives editor video exports their own native dialog owner.
+// Subtitle save dialogs must keep following the active editor while an encode
+// is running, so this is deliberately separate from SetEditorWindow.
+func SetExportWindow(s *Service, window *application.WebviewWindow) {
+	s.mu.Lock()
+	s.exportWindow = window
+	s.mu.Unlock()
+}
+
 func (s *Service) cacheDirectory() string {
 	s.cachePathMu.RLock()
 	defer s.cachePathMu.RUnlock()
@@ -239,6 +249,18 @@ func (s *Service) copyBundledFonts(directory string) (bool, error) {
 func (s *Service) dialogWindow() (*application.App, *application.WebviewWindow) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	if s.editor != nil {
+		return s.app, s.editor
+	}
+	return s.app, s.home
+}
+
+func (s *Service) exportDialogWindow() (*application.App, *application.WebviewWindow) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.exportWindow != nil {
+		return s.app, s.exportWindow
+	}
 	if s.editor != nil {
 		return s.app, s.editor
 	}

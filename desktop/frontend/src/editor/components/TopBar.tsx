@@ -5,7 +5,7 @@ import { exportAss } from '../lib/exportAss';
 import { exportSrt } from '../lib/exportSrt';
 import type { SrtLang } from '../lib/srtBuild';
 import { docStore } from '../store/docStore';
-import { openExport } from '../store/exportStore';
+import { openExport } from '../lib/openExport';
 import { manualSave, saveStore } from '../store/saveStore';
 import { modalStore, showCtx } from '../store/uiStore';
 
@@ -51,7 +51,7 @@ export function TopBar() {
               srtItem("导出 SRT（仅译文）", "zh"),
               srtItem("导出 SRT（仅原文）", "ja"),
               "-",
-              { label: "导出 MP4（内嵌字幕）", onClick: () => openExport(null) },
+              { label: "导出 MP4（内嵌字幕）", onClick: () => void openExport(null) },
             ], e.currentTarget)}>导出 ▾</button>
           <button className="btn primary" id="btn-save" title="保存 (Ctrl+S)"
             onClick={() => void manualSave()}>保存</button>

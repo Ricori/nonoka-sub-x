@@ -13,7 +13,6 @@ import { Transport } from './components/Transport';
 import { VideoStage } from './components/VideoStage';
 import { AskModal } from './components/modals/AskModal';
 import { CloseModal } from './components/modals/CloseModal';
-import { ExportModal } from './components/modals/ExportModal';
 import { EffectsModal } from './components/modals/EffectsModal';
 import { KaraokeModal } from './components/modals/KaraokeModal';
 import { TemplateModal } from './components/modals/TemplateModal';
@@ -94,7 +93,6 @@ export function EditorApp() {
       <CloseModal />
       <AskModal />
       <TemplateModal />
-      <ExportModal />
       <EffectsModal />
       <KaraokeModal />
       <TrackPopover />

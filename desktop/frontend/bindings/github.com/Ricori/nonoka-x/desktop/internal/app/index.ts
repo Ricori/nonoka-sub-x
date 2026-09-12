@@ -12,5 +12,7 @@ export type {
     Destination,
     Location,
     RelocationProgress,
-    StorageStatus
+    StorageStatus,
+    VideoExportDraft,
+    VideoExportResult
 } from "./models.js";

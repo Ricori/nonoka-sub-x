@@ -4,7 +4,6 @@ import { desktopUpdate } from "../../bridge/update.ts";
 import { AUTOSAVE_MS } from "../constants";
 import { promptMandatoryUpdate } from "../lib/closeFlow";
 import { getVid, isLeaving, reportBootError } from "../session";
-import { expJob, exportStore } from "../store/exportStore";
 import { flushLayout } from "../store/layoutStore";
 import { clipsDirty, saveStore, startAutosave } from "../store/saveStore";
 import { videoStore } from "../store/videoStore";
@@ -53,11 +52,6 @@ export function useDesktopEvents() {
 
   useEffect(() => Events.On("media:progress", (event) => {
     const progress = event.data as { id?: string; stage?: string; done?: number; total?: number };
-    if (progress.stage === "export" && progress.id === expJob() && progress.total) {
-      const pct = Math.max(0, Math.min(100, Math.round((progress.done || 0) / progress.total * 100)));
-      exportStore.set({ pct });
-      return;
-    }
     if (progress.stage === "transcode" && progress.id === getVid() && progress.total) {
       const pct = Math.max(0, Math.min(100, Math.round((progress.done || 0) / progress.total * 100)));
       videoStore.set({

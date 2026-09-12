@@ -33,7 +33,7 @@ interface RuntimePageProps {
   onCancelStorage: () => Promise<void>;
 }
 
-// 会把十几 GB 拉下来的安装目标。装小工具（git、yt-dlp）不值得为它弹位置提示。
+// 会把十几 GB 拉下来的安装目标。装 yt-dlp 等小工具不值得为它弹位置提示。
 const largeInstallTargets = new Set<RuntimeInstallTarget>(["all", "runtime", "models"]);
 
 const installPhases = [
@@ -51,7 +51,7 @@ const assetStateLabels: Record<RuntimeItem["state"], string> = {
   failed: "安装失败",
 };
 
-const optionalToolIds = new Set(["git", "yt-dlp", "tokcount", "aria2c", "node", "pot-provider"]);
+const optionalToolIds = new Set(["yt-dlp", "tokcount", "aria2c", "node", "pot-provider"]);
 
 // 这几样单独装没有意义：yt-dlp 下载，aria2c 提速，node 与 pot-provider 一起
 // 提供 YouTube 要的 PO token。所以它们作为一件事呈现，也作为一件事安装。
@@ -65,7 +65,6 @@ const assetLabels: Record<string, string> = {
   separator: "人声分离模型",
   whisper: "Whisper 转写模型",
   "qwen-referee": "Qwen 复核模型",
-  git: "Git",
   "yt-dlp": "yt-dlp",
   tokcount: "tokcount",
   aria2c: "aria2c",
@@ -74,7 +73,6 @@ const assetLabels: Record<string, string> = {
 };
 
 const toolPurposes: Record<string, string> = {
-  git: "克隆与更新知识库",
   tokcount: "本地精确统计 Token",
   "yt-dlp": "解析在线视频与字幕",
   aria2c: "多连接加速下载",

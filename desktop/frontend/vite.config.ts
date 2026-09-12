@@ -24,6 +24,7 @@ export default defineConfig({
       input: {
         index: resolve(import.meta.dirname, "index.html"),
         editor: resolve(import.meta.dirname, "editor.html"),
+        export: resolve(import.meta.dirname, "export.html"),
       },
     },
   },

@@ -61,6 +61,28 @@ func TestEditorWindowStartsInSavedLightTheme(t *testing.T) {
 	}
 }
 
+func TestExportWindowIsIndependentAndHiddenUntilReady(t *testing.T) {
+	store, err := preferences.New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	options := exportWindowOptions(store, "exp_media id", "Fixture.mp4")
+	if options.Name != "export" || options.Width != 560 || options.Height != 650 {
+		t.Fatalf("export window = %q %dx%d, want independent 560x650 window", options.Name, options.Width, options.Height)
+	}
+	if !options.Hidden {
+		t.Fatal("export window must remain hidden until its draft is loaded")
+	}
+	target, err := url.Parse(options.URL)
+	if err != nil || target.Path != "/export.html" || target.Query().Get("job") != "exp_media id" {
+		t.Fatalf("export window URL = %q, want export page and escaped job id", options.URL)
+	}
+	if target.Query().Get("theme") != "dark" {
+		t.Fatalf("export window theme = %q, want editor theme", target.Query().Get("theme"))
+	}
+}
+
 func TestWindowThemesUseSeparatePreferences(t *testing.T) {
 	store, err := preferences.New(t.TempDir())
 	if err != nil {
