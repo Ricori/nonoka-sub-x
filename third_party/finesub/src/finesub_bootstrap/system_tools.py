@@ -130,26 +130,6 @@ def find_system_ffmpeg(
     )
 
 
-def find_system_git() -> SystemTool | None:
-    """A system git, if it runs.
-
-    No capability check beyond that: the knowledge base uses init/add/commit/
-    status/rev-parse, which every git in circulation has. What matters is that
-    a broken shim on PATH does not read as success.
-    """
-
-    executable = shutil.which("git")
-    if executable is None:
-        return None
-    banner = probe([executable, "--version"], timeout=5.0)
-    if not banner:
-        return None
-    return SystemTool(
-        path=Path(executable).resolve(),
-        version=_version_token(banner, "git"),
-    )
-
-
 def find_system_token_counter() -> SystemTool | None:
     """A local tokenizer binary this machine already has, if it counts.
 

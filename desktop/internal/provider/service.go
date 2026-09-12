@@ -23,7 +23,7 @@ var validTaskID = regexp.MustCompile(`^[0-9a-f]{32}$`)
 // message is derived from it rather than written out again, because the two
 // drifted apart once already -- aria2c was added to the Python side and this
 // list still refused it, naming the old tools in the error.
-var runtimeTargets = []string{"media", "runtime", "models", "all", "git", "yt-dlp", "tokcount", "aria2c", "node", "pot-provider", "video-tools", "optional-tools"}
+var runtimeTargets = []string{"media", "runtime", "models", "all", "yt-dlp", "tokcount", "aria2c", "node", "pot-provider", "video-tools", "optional-tools"}
 var removableRuntimeGroups = []string{"video-tools", "optional-tools"}
 
 type caller interface {

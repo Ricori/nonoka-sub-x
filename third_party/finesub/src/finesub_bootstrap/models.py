@@ -131,7 +131,7 @@ class ResourceStatus(StrictModel):
     #: What is on disk when `state` is "outdated"; `version` is what it should be.
     installed_version: str = ""
     detail: str = ""
-    # On-demand tools (git, yt-dlp) are listed so the user can reach them, but
+    # On-demand tools (yt-dlp, tokcount) are listed so the user can reach them, but
     # they must not read as "your install is incomplete": only a task that needs
     # one is blocked by it. Consumers exclude these from readiness counts and
     # from the "space required" total.

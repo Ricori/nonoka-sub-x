@@ -1,10 +1,10 @@
 {
   "archive_sha256": "5f96a9c6ab0a08ce8370ee577b69f160210259d797f23bb3ea58bce338fa15a6",
   "commit": "b9b2f10c80abd58ddff739b60461624f51c0789c",
-  "content_sha256": "ede7bd9ec64ebfc9a1e8cba0d274ee27fd5004ed0f015b6f68fca9bc18340917",
+  "content_sha256": "c7e0fe10d6242a7c0a50f6fb911eab626c00ce2ee58c5db95328bc3bd97000af",
   "engine_bundle_id": "finesub-0.5.1+b9b2f10c80ab",
   "engine_version": "0.5.1",
-  "files_manifest_sha256": "a682bf99f7c142d97eb8cc7099ecc298f4ff9ffe1cb953cef3f315018e31ba33",
+  "files_manifest_sha256": "8fe8d0e6ad817d782b431199f1542b9bec7aa53621a051f0d941562166400595",
   "patches": [
     {
       "path": "0001-qwen-tail-entry-point.patch",
@@ -29,11 +29,15 @@
     {
       "path": "0006-aoti-posix-compiler.patch",
       "sha256": "abed7a4f64738774bd699012f891e673609766bdff198b506c54bafc8917499c"
+    },
+    {
+      "path": "0007-remove-managed-git.patch",
+      "sha256": "4db64404cf0b7f60e9c61d323346df5e3b814af0a62d1a2359add2cb559dac8f"
     }
   ],
   "ref": "v0.5.1",
   "repository": "https://github.com/caca2331/finesub",
-  "runtime_manifest_sha256": "036bfc3d4725ef49fc9995feb84492625f6fe72cf98c07ed7b4295bb13f10c84",
+  "runtime_manifest_sha256": "0171f663e3512bf2604e8f788942e8ed0253cb1b09ec8cd70e0c166f25f58db5",
   "sync_schema": 1,
   "synced_at": "2026-09-05T07:36:04Z"
 }

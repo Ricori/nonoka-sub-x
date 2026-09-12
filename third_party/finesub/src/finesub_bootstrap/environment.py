@@ -702,7 +702,7 @@ class RuntimeEnvironment:
         ``extra_env``: this method owns them, and a caller that merely set them
         in ``extra_env`` would have them silently overwritten. Extra entries go
         through ``extra_path_dirs`` / ``extra_python_path`` instead -- managed
-        tools that are found by execution (git) or by import (yt-dlp).
+        tools that are found by execution or by import (for example yt-dlp).
         """
 
         source_paths = [str(self.app_source), str(self.app_source / "src")]

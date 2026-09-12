@@ -87,7 +87,6 @@ from finesub_bootstrap.resources import ResourceManager
 from finesub_bootstrap import system_tools
 
 _CAPABILITY_REASONS = {
-    "git": "optional: not needed by FineSub since the SQLite knowledge base",
     "yt-dlp": "URL input needs a downloader",
     "tokcount": "the LLM layer counts tokens locally",
 }
@@ -491,7 +490,6 @@ def system_tool(resource_id: str):
 
     finder = {
         "ffmpeg": system_tools.find_system_ffmpeg,
-        "git": system_tools.find_system_git,
         "tokcount": system_tools.find_system_token_counter,
     }.get(resource_id)
     return finder() if finder is not None else None
@@ -707,7 +705,6 @@ class Shell:
         print(f"env-keys     {self._env_keys_report()}")
         for resource_id, note in (
             ("ffmpeg", ""),
-            ("git", "optional: no longer used (knowledge base is SQLite)"),
             ("yt-dlp", "installed on demand: URL input"),
             ("tokcount", "optional: offline token counting for the LLM layer"),
         ):
@@ -1681,7 +1678,6 @@ class Shell:
                     lambda: self.tool_file("tokcount", "tokcount.exe")
                 ),
             },
-            extra_path_dirs=self._git_path_dirs(),
             extra_python_path=self._yt_dlp_python_path(),
         )
         environment = os.environ.copy()
@@ -1804,13 +1800,6 @@ class Shell:
         if found is not None:
             return found.path
         return self.resources.active_file(resource_id, filename)
-
-    def _git_path_dirs(self) -> list:
-        # A system git is already on PATH; only a managed one needs injecting.
-        if self._system_tool("git") is not None:
-            return []
-        directory = self.tool_directory("git", "git.exe")
-        return [directory] if directory is not None else []
 
     def _yt_dlp_python_path(self) -> list:
         # Imported, not executed, so it joins PYTHONPATH rather than PATH.

@@ -1,0 +1,142 @@
+Subject: [PATCH 7/7] Remove the obsolete managed Git resource
+
+FineSub's knowledge store is SQLite and no runtime path uses Git anymore.
+Keeping MinGit in the resource manifest still exposes a download/install target,
+adds it to diagnostics, and injects its directory into every worker PATH.
+
+Remove the managed asset and the now-dead system-tool plumbing. Repository
+maintenance remains a developer concern outside the packaged runtime.
+
+diff --git a/src/finesub_bootstrap/environment.py b/src/finesub_bootstrap/environment.py
+index cbde745..3e6754c 100644
+--- a/src/finesub_bootstrap/environment.py
++++ b/src/finesub_bootstrap/environment.py
+@@ -702,7 +702,7 @@ class RuntimeEnvironment:
+         ``extra_env``: this method owns them, and a caller that merely set them
+         in ``extra_env`` would have them silently overwritten. Extra entries go
+         through ``extra_path_dirs`` / ``extra_python_path`` instead -- managed
+-        tools that are found by execution (git) or by import (yt-dlp).
++        tools that are found by execution or by import (for example yt-dlp).
+         """
+ 
+         source_paths = [str(self.app_source), str(self.app_source / "src")]
+diff --git a/src/finesub_bootstrap/models.py b/src/finesub_bootstrap/models.py
+index 400740e..cac087a 100644
+--- a/src/finesub_bootstrap/models.py
++++ b/src/finesub_bootstrap/models.py
+@@ -131,7 +131,7 @@ class ResourceStatus(StrictModel):
+     #: What is on disk when `state` is "outdated"; `version` is what it should be.
+     installed_version: str = ""
+     detail: str = ""
+-    # On-demand tools (git, yt-dlp) are listed so the user can reach them, but
++    # On-demand tools (yt-dlp, tokcount) are listed so the user can reach them, but
+     # they must not read as "your install is incomplete": only a task that needs
+     # one is blocked by it. Consumers exclude these from readiness counts and
+     # from the "space required" total.
+diff --git a/src/finesub_bootstrap/runtime-manifest.json b/src/finesub_bootstrap/runtime-manifest.json
+index d1ed0b0..c8f0d70 100644
+--- a/src/finesub_bootstrap/runtime-manifest.json
++++ b/src/finesub_bootstrap/runtime-manifest.json
+@@ -46,21 +46,6 @@
+         "digest_from": "github-release-api"
+       }
+     },
+-    {
+-      "id": "git",
+-      "version": "2.55.0.3",
+-      "destination": "runtime",
+-      "directory": "git",
+-      "archive_type": "zip",
+-      "required_files": [
+-        "cmd/git.exe"
+-      ],
+-      "asset": {
+-        "url": "https://github.com/git-for-windows/git/releases/download/v2.55.0.windows.3/MinGit-2.55.0.3-64-bit.zip",
+-        "size": 38791206,
+-        "sha256": "f48e2d2dc74a24454adc6d8fd0ac25bf9c2386f19cfb06202b9465aaad4f9f05"
+-      }
+-    },
+     {
+       "id": "yt-dlp",
+       "version": "2026.8.19",
+diff --git a/src/finesub_bootstrap/shell.py b/src/finesub_bootstrap/shell.py
+index 40ec9bd..c2be76d 100644
+--- a/src/finesub_bootstrap/shell.py
++++ b/src/finesub_bootstrap/shell.py
+@@ -87,7 +87,6 @@ from finesub_bootstrap.resources import ResourceManager
+ from finesub_bootstrap import system_tools
+ 
+ _CAPABILITY_REASONS = {
+-    "git": "optional: not needed by FineSub since the SQLite knowledge base",
+     "yt-dlp": "URL input needs a downloader",
+     "tokcount": "the LLM layer counts tokens locally",
+ }
+@@ -491,7 +490,6 @@ def system_tool(resource_id: str):
+ 
+     finder = {
+         "ffmpeg": system_tools.find_system_ffmpeg,
+-        "git": system_tools.find_system_git,
+         "tokcount": system_tools.find_system_token_counter,
+     }.get(resource_id)
+     return finder() if finder is not None else None
+@@ -707,7 +705,6 @@ class Shell:
+         print(f"env-keys     {self._env_keys_report()}")
+         for resource_id, note in (
+             ("ffmpeg", ""),
+-            ("git", "optional: no longer used (knowledge base is SQLite)"),
+             ("yt-dlp", "installed on demand: URL input"),
+             ("tokcount", "optional: offline token counting for the LLM layer"),
+         ):
+@@ -1681,7 +1678,6 @@ class Shell:
+                     lambda: self.tool_file("tokcount", "tokcount.exe")
+                 ),
+             },
+-            extra_path_dirs=self._git_path_dirs(),
+             extra_python_path=self._yt_dlp_python_path(),
+         )
+         environment = os.environ.copy()
+@@ -1805,13 +1801,6 @@ class Shell:
+             return found.path
+         return self.resources.active_file(resource_id, filename)
+ 
+-    def _git_path_dirs(self) -> list:
+-        # A system git is already on PATH; only a managed one needs injecting.
+-        if self._system_tool("git") is not None:
+-            return []
+-        directory = self.tool_directory("git", "git.exe")
+-        return [directory] if directory is not None else []
+-
+     def _yt_dlp_python_path(self) -> list:
+         # Imported, not executed, so it joins PYTHONPATH rather than PATH.
+         if self.resources.active_version("yt-dlp") is None:
+diff --git a/src/finesub_bootstrap/system_tools.py b/src/finesub_bootstrap/system_tools.py
+index 27c5c96..e12ee97 100644
+--- a/src/finesub_bootstrap/system_tools.py
++++ b/src/finesub_bootstrap/system_tools.py
+@@ -130,26 +130,6 @@ def find_system_ffmpeg(
+     )
+ 
+ 
+-def find_system_git() -> SystemTool | None:
+-    """A system git, if it runs.
+-
+-    No capability check beyond that: the knowledge base uses init/add/commit/
+-    status/rev-parse, which every git in circulation has. What matters is that
+-    a broken shim on PATH does not read as success.
+-    """
+-
+-    executable = shutil.which("git")
+-    if executable is None:
+-        return None
+-    banner = probe([executable, "--version"], timeout=5.0)
+-    if not banner:
+-        return None
+-    return SystemTool(
+-        path=Path(executable).resolve(),
+-        version=_version_token(banner, "git"),
+-    )
+-
+-
+ def find_system_token_counter() -> SystemTool | None:
+     """A local tokenizer binary this machine already has, if it counts.
+ 

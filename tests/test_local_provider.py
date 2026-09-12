@@ -11,6 +11,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
@@ -377,6 +378,42 @@ class LocalProviderTests(ProviderFixture):
         self.assertIn("qwen-referee", model_issue["message"])
         raw_stage = next(stage for stage in report["stages"] if stage["id"] == "raw-srt")
         self.assertFalse(raw_stage["ready"])
+
+    def test_missing_git_does_not_block_knowledge_updates(self) -> None:
+        media_tool = self.source
+
+        class Provisioner:
+            def status(self) -> dict:
+                return {
+                    "runtime": {"state": "ready"},
+                    "resources": [],
+                    "models": [
+                        {"id": "separator", "state": "ready"},
+                        {"id": "whisper", "state": "ready"},
+                        {"id": "qwen-referee", "state": "ready"},
+                    ],
+                }
+
+            def tool_path(self, name: str) -> Path | None:
+                return media_tool if name in {"ffmpeg", "ffprobe"} else None
+
+        class Settings:
+            def snapshot(self) -> dict:
+                return {"llmReady": True, "retrievalKeyConfigured": False}
+
+        def executable(name: str) -> str | None:
+            return None if name == "git" else str(media_tool)
+
+        with (
+            patch("nonoka_x.local_provider.sys.platform", "win32"),
+            patch("nonoka_x.local_provider.shutil.which", side_effect=executable),
+            patch("nonoka_x.local_provider.local_agent_executable", return_value=None),
+        ):
+            report = runtime_report(settings=Settings(), provisioner=Provisioner())
+
+        knowledge_stage = next(stage for stage in report["stages"] if stage["id"] == "knowledge")
+        self.assertTrue(knowledge_stage["ready"])
+        self.assertNotIn("missing_git", {issue["code"] for issue in knowledge_stage["issues"]})
 
     def test_misleading_onnx_cuda_warning_is_filtered_from_events(self) -> None:
         provider = self.provider()

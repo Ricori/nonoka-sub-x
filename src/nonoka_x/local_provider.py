@@ -244,11 +244,10 @@ def runtime_report(settings: FineSubSettings | None = None, provisioner: Runtime
     if not settings_snapshot.get("llmReady"):
         llm_issues.append(_issue("missing_llm_key", "尚未配置模型提供商，请在设置里选择提供商与全局模型并保存"))
 
+    # The knowledge base is a versioned SQLite store. Its update path needs a
+    # configured LLM, but Git has not been part of persistence since the node
+    # store migration; keep the readiness stage aligned with that contract.
     knowledge_issues = list(llm_issues)
-    managed_resources = {item["id"]: item for item in managed.get("resources", [])} if managed else {}
-    managed_git = managed_resources.get("git", {}).get("state") in {"ready", "outdated"}
-    if not shutil.which("git") and not managed_git:
-        knowledge_issues.append(_issue("missing_git", "知识库自动更新需要 Git"))
 
     def stage(stage_id: str, label: str, issues: list[dict[str, str]]) -> dict[str, Any]:
         return {"id": stage_id, "label": label, "ready": not issues, "issues": issues}

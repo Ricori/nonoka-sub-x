@@ -22,12 +22,12 @@ from typing import Any
 #: copy anywhere else -- and a copy elsewhere would be the one nobody reads.
 VENDOR_BOOTSTRAP = Path("src") / "finesub_bootstrap"
 
-OPTIONAL_TOOLS = ("git", "yt-dlp", "tokcount", "aria2c", "node", "pot-provider")
+OPTIONAL_TOOLS = ("yt-dlp", "tokcount", "aria2c", "node", "pot-provider")
 
 # 按组安装
 TOOL_GROUPS = {
     "video-tools": ("yt-dlp", "aria2c", "node", "pot-provider"),
-    "optional-tools": ("git", "tokcount"),
+    "optional-tools": ("tokcount",),
 }
 REMOVABLE_TOOL_GROUPS = frozenset(TOOL_GROUPS)
 TARGETS = {"media", "runtime", "models", "all", *OPTIONAL_TOOLS, *TOOL_GROUPS}
@@ -42,7 +42,6 @@ START_MESSAGES = {
     "runtime": "正在准备安装运行时（不含模型）",
     "models": "正在准备下载缺失的模型",
     "all": "正在准备安装运行时并下载缺失的模型",
-    "git": "正在准备安装可选工具 Git",
     "yt-dlp": "正在准备安装可选工具 yt-dlp",
     "tokcount": "正在准备安装可选工具 tokcount",
     "aria2c": "正在准备安装可选工具 aria2c",
@@ -56,7 +55,6 @@ DONE_MESSAGES = {
     "runtime": "运行时已就绪；模型仍需单独下载",
     "models": "缺失的模型已全部下载并校验完成",
     "all": "运行时与所需模型已全部准备就绪",
-    "git": "可选工具 Git 已安装并校验完成",
     "yt-dlp": "可选工具 yt-dlp 已安装并校验完成",
     "tokcount": "可选工具 tokcount 已安装并校验完成",
     "aria2c": "可选工具 aria2c 已安装并校验完成",
@@ -274,7 +272,7 @@ class RuntimeProvisioner:
         resources = [item.model_dump(mode="json") for item in self.resources.check_all()]
         for item in resources:
             item["source"] = "managed"
-            if item["id"] not in {"git", "tokcount"} or item["state"] == "ready":
+            if item["id"] != "tokcount" or item["state"] == "ready":
                 continue
             system_tool = shutil.which(item["id"])
             if system_tool:
@@ -712,7 +710,7 @@ class RuntimeProvisioner:
         return self.status()
 
     def tool_path(self, name: str) -> Path | None:
-        if self.resources is None or name not in {"ffmpeg", "ffprobe", "git", "tokcount"}:
+        if self.resources is None or name not in {"ffmpeg", "ffprobe", "tokcount"}:
             return None
         filename = f"{name}.exe" if os.name == "nt" else name
         resource_ids = (name, "ffmpeg") if name == "ffprobe" else (name,)
@@ -735,7 +733,7 @@ class RuntimeProvisioner:
             "UV_CACHE_DIR": str(self.paths.cache / "uv"),
         })
         path_dirs: list[str] = []
-        for name in ("ffmpeg", "ffprobe", "git", "tokcount"):
+        for name in ("ffmpeg", "ffprobe", "tokcount"):
             executable = self.tool_path(name)
             if executable is not None:
                 path_dirs.append(str(executable.parent))

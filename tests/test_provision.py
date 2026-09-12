@@ -102,7 +102,7 @@ def test_remove_tool_group_preserves_other_managed_assets(tmp_path: Path) -> Non
         (root / "fixture").write_text("video", encoding="utf-8")
         video_roots.append(root)
 
-    preserved = provisioner.resources.install_path("git").parent
+    preserved = provisioner.resources.install_path("tokcount").parent
     preserved.mkdir(parents=True, exist_ok=True)
     (preserved / "fixture").write_text("optional", encoding="utf-8")
 
@@ -216,9 +216,9 @@ def test_model_installer_events_are_validated_before_updating_ui() -> None:
 
 
 def test_optional_tools_are_explicit_install_targets() -> None:
-    assert OPTIONAL_TOOLS == ("git", "yt-dlp", "tokcount", "aria2c", "node", "pot-provider")
+    assert OPTIONAL_TOOLS == ("yt-dlp", "tokcount", "aria2c", "node", "pot-provider")
     assert TOOL_GROUPS["video-tools"] == ("yt-dlp", "aria2c", "node", "pot-provider")
-    assert TOOL_GROUPS["optional-tools"] == ("git", "tokcount")
+    assert TOOL_GROUPS["optional-tools"] == ("tokcount",)
     assert all(tool in OPTIONAL_TOOLS for tool in TOOL_GROUPS["video-tools"])
     assert all(tool in DONE_MESSAGES for tool in OPTIONAL_TOOLS)
 

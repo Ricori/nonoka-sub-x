@@ -1,5 +1,5 @@
 {
-  "content_sha256": "ede7bd9ec64ebfc9a1e8cba0d274ee27fd5004ed0f015b6f68fca9bc18340917",
+  "content_sha256": "c7e0fe10d6242a7c0a50f6fb911eab626c00ce2ee58c5db95328bc3bd97000af",
   "files": [
     {
       "bytes": 35149,
@@ -1497,9 +1497,9 @@
       "sha256": "9d5a545d9fce6f79fccdd6ac384bd9f474f78d7cd332bb578379f23b9f395867"
     },
     {
-      "bytes": 50043,
+      "bytes": 50049,
       "path": "src/finesub_bootstrap/environment.py",
-      "sha256": "ffa75749cbcf681103634047bc8a3b395c48ed231fc4ebd2c4e815531fbfd28f"
+      "sha256": "8349e4157791d2eb555925b7ed68ae270c263088f9d48b022cf3230da3d179d3"
     },
     {
       "bytes": 16477,
@@ -1577,9 +1577,9 @@
       "sha256": "a3bb1fa9777b8a211670d847d0d2f921d597ccf91410b17e0ec9f1a257ce68d1"
     },
     {
-      "bytes": 6187,
+      "bytes": 6192,
       "path": "src/finesub_bootstrap/models.py",
-      "sha256": "d462af0ca3d0e8ec59a1a97042111f960815897e19de84fccfddb77b7e7a81e6"
+      "sha256": "d0ba74fcf1c04acef02e5fa0edb5a6ce0e9cb19ff95bda35728c68dbde1e1043"
     },
     {
       "bytes": 16129,
@@ -1607,9 +1607,9 @@
       "sha256": "746eae559e43f47b351b9e0cddf7192c1a61096384ed626a7e120875440191bf"
     },
     {
-      "bytes": 4698,
+      "bytes": 4237,
       "path": "src/finesub_bootstrap/runtime-manifest.json",
-      "sha256": "036bfc3d4725ef49fc9995feb84492625f6fe72cf98c07ed7b4295bb13f10c84"
+      "sha256": "0171f663e3512bf2604e8f788942e8ed0253cb1b09ec8cd70e0c166f25f58db5"
     },
     {
       "bytes": 28995,
@@ -1617,14 +1617,14 @@
       "sha256": "ccc0565e8c4db89243fbcb756328186c34797dbf531112da7576258d1aa507d1"
     },
     {
-      "bytes": 78430,
+      "bytes": 77873,
       "path": "src/finesub_bootstrap/shell.py",
-      "sha256": "d3713f74a0fc1378f6b1fbbcd6408658d837ed1cf98994e951e958f139c4d604"
+      "sha256": "c7c38ab0c13caa0807b84b4b2edf1ca5eb39296c0928a9c3f94807c60f68c075"
     },
     {
-      "bytes": 6968,
+      "bytes": 6371,
       "path": "src/finesub_bootstrap/system_tools.py",
-      "sha256": "a86af49960cd69b7d7098c1fb2ea77bcbc66e492d9ae3e4731e57d560de7bde1"
+      "sha256": "6996cc7c26fdb4aee54301a34f946b8290709fb3928b63de1b2eb55cab3b281b"
     },
     {
       "bytes": 14891,
