@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Service } from "../../bindings/github.com/Ricori/nonoka-x/desktop/internal/provider/index.js";
+import { Notice } from "../components/Notice.tsx";
 import "./KnowledgePage.css";
 
 interface Entry { id: string; name: string; category: string; intro?: string }
@@ -28,7 +29,7 @@ export function KnowledgePage({ active }: { active: boolean }) {
   async function refresh() {
     if (loading.current) return;
     loading.current = true;
-    setBusy(true); setError("");
+    setBusy(true); setError(""); setNotice("");
     try {
       const data = await call<{ entries: Entry[] }>({ action: "list" });
       setEntries(data.entries); setLoaded(true);
@@ -72,11 +73,11 @@ export function KnowledgePage({ active }: { active: boolean }) {
   const visible = entries.filter(e => (!category || e.category === category) && `${e.name} ${e.intro ?? ""}`.toLocaleLowerCase().includes(query.toLocaleLowerCase()));
   return <section className="knowledge-page" hidden={!active} aria-label="知识库">
     <div className="knowledge-toolbar">
-      <div className="knowledge-intro"><span className="knowledge-intro-icon"><BookIcon /></span><div><strong>让每一次翻译，都有所积累</strong><p>整理主播资料、专有名词与翻译习惯，让熟悉的内容保持准确。</p></div></div>
+      <div className="knowledge-intro"><span className="knowledge-intro-icon"><BookIcon /></span><div><strong>每一次翻译，都有所积累</strong><p>整理主播资料、专有名词与翻译习惯，让熟悉的内容保持准确。</p></div></div>
       <span className="knowledge-local"><i />本机知识库</span>
     </div>
     {error && <p className="knowledge-error" role="alert">{error}</p>}
-    {notice && <p className="knowledge-notice" role="status">{notice}</p>}
+    <Notice className="knowledge-notice" message={notice} tone="success" onDismiss={() => setNotice("")} />
     {pendingID && <div className="knowledge-toolbar" role="alert"><p>当前修改尚未保存，是否放弃修改并加载条目？</p><div className="knowledge-actions"><button className="quiet-button" onClick={() => setPendingID(null)}>继续编辑</button><button className="quiet-button" onClick={() => void select(pendingID, true)}>放弃并加载</button></div></div>}
     <div className="knowledge-layout">
       <aside className="knowledge-list">
