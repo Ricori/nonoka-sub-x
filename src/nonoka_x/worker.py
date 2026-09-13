@@ -7,6 +7,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 import sys
 import traceback
 from pathlib import Path
@@ -141,6 +142,132 @@ def artifact(path: Path) -> dict[str, Any]:
     return {"uri": path.resolve().as_uri(), "sha256": digest, "bytes": path.stat().st_size}
 
 
+def compose_knowledge_context(request: Mapping[str, Any], extra_info: str = "") -> str:
+    """Turn the desktop's structured subject fields into engine prompt context.
+
+    FineSub's correction/research prompts collect the structured feedback that
+    later becomes knowledge proposals. Feeding the identity through their
+    existing ``extra_info`` inlet lets every route see it without creating a
+    second, desktop-only knowledge implementation.
+    """
+
+    context = request.get("knowledge_context")
+    if request.get("knowledge") != "update" or not isinstance(context, Mapping):
+        return str(extra_info or "")
+    subject = str(context.get("subject") or "").strip()
+    if not subject:
+        return str(extra_info or "")
+    kind_label = {
+        "streamer": "主播 / 频道",
+        "work": "作品 / 节目",
+        "topic": "其他知识主题",
+    }.get(str(context.get("kind") or ""), "其他知识主题")
+    lines = [
+        "【知识库建库信息（用户明确提供）】",
+        f"知识主体类型：{kind_label}",
+        f"知识主体官方或源语言名称：{subject}",
+    ]
+    aliases = str(context.get("aliases") or "").strip()
+    description = str(context.get("description") or "").strip()
+    if aliases:
+        lines.append(f"别名 / 常用译名：{aliases}")
+    if description:
+        lines.append(f"主体说明：{description}")
+    lines.append("请将本次确认的新名称、关系和事实归入上述主体；不要与同名主体混淆。")
+    original = str(extra_info or "").strip()
+    return "\n".join(lines) + (f"\n\n【其他背景信息】\n{original}" if original else "")
+
+
+def knowledge_task_summary(request: Mapping[str, Any], title: str) -> str:
+    """Task summary visible to the post-correction knowledge updater."""
+
+    identity = compose_knowledge_context(request)
+    return f"字幕任务：{title}" + (f"\n\n{identity}" if identity else "")
+
+
+def bootstrap_knowledge_subject(
+    request: Mapping[str, Any], task_id: str, *, knowledge_root: str | Path | None = None
+) -> dict[str, Any]:
+    """Create the user-selected subject before the pipeline reads the KB.
+
+    The subject fields are explicit user input, not a guess extracted from a
+    transcript. Persisting that small scaffold makes an empty repository
+    usable immediately; the model-owned update still decides which video
+    facts are reliable enough to append.
+    """
+
+    context = request.get("knowledge_context")
+    if request.get("knowledge") != "update" or not isinstance(context, Mapping):
+        return {"created": False}
+    subject = str(context.get("subject") or "").strip()
+    if not subject:
+        return {"created": False}
+
+    from finesub.llm.knowledge.base import knowledge_root_path
+    from finesub.llm.knowledge.node.proposals import apply_model_proposals
+    from finesub.llm.knowledge.node.repo import KnowledgeRepo
+
+    root = knowledge_root_path(knowledge_root)
+    repo = KnowledgeRepo.open(root)
+    existing = repo.resolve(subject)
+    if existing is not None:
+        return {
+            "created": False,
+            "entry": existing.key,
+            "category": existing.category,
+            "rev": repo.rev,
+        }
+
+    kind = str(context.get("kind") or "streamer")
+    category = "streamer" if kind == "streamer" else "common"
+    kind_label = {
+        "streamer": "主播 / 频道",
+        "work": "作品 / 节目",
+        "topic": "其他知识主题",
+    }.get(kind, "其他知识主题")
+    description = " ".join(str(context.get("description") or "").split())
+    intro = (description or f"用户在字幕任务中指定的{kind_label}知识主体。")[:240]
+    aliases = []
+    for alias in re.split(r"[、,，;；\n]+", str(context.get("aliases") or "")):
+        alias = alias.strip()
+        if alias and alias != subject and alias not in aliases:
+            aliases.append(alias)
+    proposal = {
+        "op": "create_entry",
+        "category": category,
+        "entry": subject,
+        "intro": intro,
+        "entry_type": "其他" if category == "common" else "",
+        "aliases": aliases,
+        "reason": "用户在任务设置中明确指定此主体；初始化词条以承接本次及后续任务知识。",
+    }
+    proposal_text = (
+        "<knowledge_proposals>\n"
+        + json.dumps(proposal, ensure_ascii=False, separators=(",", ":"))
+        + "\n</knowledge_proposals>"
+    )
+    report = apply_model_proposals(
+        proposal_text,
+        repo=repo,
+        task_id=f"{task_id}:subject-bootstrap",
+        knowledge_read_rev=repo.rev,
+    )
+    created = any(record.op == "create_entry" for record in report.applied)
+    if not created:
+        # A concurrent task may have created it after the first resolve.
+        existing = repo.resolve(subject)
+        if existing is None:
+            reasons = "; ".join(record.reason for record in report.skipped) or "unknown reason"
+            raise RuntimeError(f"知识主体初始化失败：{reasons}")
+        return {
+            "created": False,
+            "entry": existing.key,
+            "category": existing.category,
+            "rev": repo.rev,
+        }
+    return {"created": True, "entry": subject, "category": category, "rev": report.rev}
+
+
 def translate_axis(request: Mapping[str, Any], axis: Mapping[str, Any], output: Path, task_id: str, task_artifact_dir: Path) -> AxisTranslation:
     """Local entry to the shared source-text-axis run.
 
@@ -157,6 +284,7 @@ def translate_axis(request: Mapping[str, Any], axis: Mapping[str, Any], output: 
         output_path=output,
         task_id=task_id,
         task_artifact_dir=task_artifact_dir,
+        task_summary=knowledge_task_summary(request, str(request["source"].get("title") or output.stem)),
         correction=request.get("correction") or {},
         knowledge=request.get("knowledge", "none"),
         source_path=Path(request["source"]["path"]),
@@ -261,7 +389,11 @@ def main(argv: list[str] | None = None) -> int:
         request = json.loads(sys.stdin.readline())
         install_llm_model_override(request)
         source = request["source"]
-        correction = request.get("correction") or {}
+        correction = dict(request.get("correction") or {})
+        correction["extra_info"] = compose_knowledge_context(
+            request, str(correction.get("extra_info") or "")
+        )
+        request["correction"] = correction
         title = str(source.get("title") or Path(source["path"]).stem)
         output = args.task_dir / "workspace" / f"{title}.srt"
         output.parent.mkdir(parents=True, exist_ok=True)
@@ -272,6 +404,12 @@ def main(argv: list[str] | None = None) -> int:
 
         axis = request.get("axis") if isinstance(request.get("axis"), dict) else None
         artifact_dir = args.task_dir / "workspace" / "llm-artifacts"
+        bootstrap = bootstrap_knowledge_subject(request, args.task_id)
+        if bootstrap.get("created"):
+            emit("log", {
+                "message": "knowledge subject initialized",
+                "fields": {key: bootstrap[key] for key in ("entry", "category", "rev")},
+            })
         if axis is not None and axis.get("kind") == "ja":
             with reporting_to(NonokaXReporter()), quieted_libraries("normal"):
                 translated = translate_axis(request, axis, output, args.task_id, artifact_dir)
@@ -304,6 +442,7 @@ def main(argv: list[str] | None = None) -> int:
                     extra_info=correction.get("extra_info", ""),
                     extra_style=correction.get("extra_style", ""),
                     knowledge=request.get("knowledge", "update"),
+                    task_summary=knowledge_task_summary(request, title),
                     task_id=args.task_id,
                     task_artifact_dir=artifact_dir,
                     resume=True,

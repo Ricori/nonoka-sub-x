@@ -73,6 +73,16 @@ export interface TaskAxis {
 export const GPU_TIERS = ["auto", "cpu", "entry", "standard", "standard_large_vram", "high"] as const;
 export type GpuTier = (typeof GPU_TIERS)[number];
 
+export interface KnowledgeContext {
+  kind: "streamer" | "work" | "topic";
+  /** 源语言或官方名称；自动更新时用它把本次发现归到正确主体。 */
+  subject: string;
+  /** 逗号、顿号或换行分隔的常用名、旧名、译名。 */
+  aliases: string;
+  /** 帮助模型消歧的频道、作品、人物关系或领域说明。 */
+  description: string;
+}
+
 export interface TaskRequest {
   schema: 1;
   provider: ProviderID;
@@ -103,6 +113,8 @@ export interface TaskRequest {
     extra_style: string;
   };
   knowledge: "none" | "collect" | "update";
+  /** `knowledge=update` 时的建库主体；旧版调用方可省略。 */
+  knowledge_context?: KnowledgeContext;
   cleanup_intermediate: boolean;
   /** 只在日文轴上出现：worker 据它跳过识别，直接补译文。其余轴型不进任务请求 */
   axis?: TaskAxis;

@@ -414,7 +414,39 @@ def validate_request(value: Mapping[str, Any]) -> dict[str, Any]:
         raise ProviderError(
             "invalid_request", "Local Provider only supports vocal_profile=quality"
         )
-    request.setdefault("knowledge", "update")
+    knowledge = request.setdefault("knowledge", "update")
+    if knowledge not in {"none", "collect", "update"}:
+        raise ProviderError("invalid_request", "knowledge must be none, collect, or update")
+    knowledge_context = request.get("knowledge_context")
+    if knowledge_context is not None:
+        if not isinstance(knowledge_context, dict):
+            raise ProviderError("invalid_request", "knowledge_context must be an object")
+        kind = str(knowledge_context.get("kind") or "").strip()
+        if kind not in {"streamer", "work", "topic"}:
+            raise ProviderError(
+                "invalid_request", "knowledge_context.kind must be streamer, work, or topic"
+            )
+        normalized_context: dict[str, str] = {"kind": kind}
+        for field, limit in (("subject", 120), ("aliases", 300), ("description", 1200)):
+            value = knowledge_context.get(field, "")
+            if not isinstance(value, str):
+                raise ProviderError(
+                    "invalid_request", f"knowledge_context.{field} must be a string"
+                )
+            value = value.strip()
+            if len(value) > limit:
+                raise ProviderError(
+                    "invalid_request", f"knowledge_context.{field} exceeds {limit} characters"
+                )
+            normalized_context[field] = value
+        # The desktop always sends this object. Absence stays accepted so an
+        # already queued pre-field request can still be retried after upgrade.
+        if knowledge == "update" and not normalized_context["subject"]:
+            raise ProviderError(
+                "invalid_request",
+                "knowledge_context.subject is required when knowledge=update",
+            )
+        request["knowledge_context"] = normalized_context
     request.setdefault("cleanup_intermediate", False)
     # An imported axis reaches the worker only when it carries source text: the
     # `ja` shape replaces recognition outright. An empty axis is applied after

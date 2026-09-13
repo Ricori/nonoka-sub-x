@@ -18,6 +18,82 @@ from nonoka_x import worker
 
 
 class WorkerAdapterTests(unittest.TestCase):
+    def test_knowledge_subject_is_added_to_engine_extra_info(self) -> None:
+        text = worker.compose_knowledge_context(
+            {
+                "knowledge": "update",
+                "knowledge_context": {
+                    "kind": "streamer",
+                    "subject": "猫又おかゆ",
+                    "aliases": "Okayu、猫",
+                    "description": "Hololive 所属 VTuber",
+                },
+            },
+            "这期嘉宾是戌神ころね。",
+        )
+
+        self.assertIn("知识主体官方或源语言名称：猫又おかゆ", text)
+        self.assertIn("别名 / 常用译名：Okayu、猫", text)
+        self.assertIn("主体说明：Hololive 所属 VTuber", text)
+        self.assertIn("【其他背景信息】\n这期嘉宾是戌神ころね。", text)
+        self.assertEqual(
+            worker.compose_knowledge_context(
+                {"knowledge": "collect", "knowledge_context": {"subject": "ignored"}},
+                "原始背景",
+            ),
+            "原始背景",
+        )
+
+    def test_knowledge_subject_bootstraps_an_empty_repository(self) -> None:
+        from finesub.llm.knowledge.node.repo import KnowledgeRepo
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "knowledge"
+            request = {
+                "knowledge": "update",
+                "knowledge_context": {
+                    "kind": "streamer",
+                    "subject": "柊優花",
+                    "aliases": "柊优花, 优花、yuka",
+                    "description": "以游戏直播为主的主播",
+                },
+            }
+            try:
+                result = worker.bootstrap_knowledge_subject(
+                    request, "task-1", knowledge_root=root
+                )
+                self.assertTrue(result["created"])
+                repo = KnowledgeRepo.open(root)
+                resolved = repo.resolve("柊优花")
+                self.assertIsNotNone(resolved)
+                assert resolved is not None
+                self.assertEqual(resolved.key, "柊優花")
+                self.assertIn("以游戏直播为主的主播", repo.index_text("streamer"))
+
+                again = worker.bootstrap_knowledge_subject(
+                    request, "task-2", knowledge_root=root
+                )
+                self.assertFalse(again["created"])
+                self.assertEqual(again["rev"], result["rev"])
+            finally:
+                KnowledgeRepo.forget(root)
+
+    def test_knowledge_task_summary_reaches_the_update_with_subject_identity(self) -> None:
+        summary = worker.knowledge_task_summary(
+            {
+                "knowledge": "update",
+                "knowledge_context": {
+                    "kind": "streamer",
+                    "subject": "柊優花",
+                    "aliases": "优花",
+                    "description": "",
+                },
+            },
+            "测试视频",
+        )
+        self.assertIn("字幕任务：测试视频", summary)
+        self.assertIn("知识主体官方或源语言名称：柊優花", summary)
+
     def test_task_request_maps_to_pipeline_and_returns_hashed_manifest(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             task_dir = Path(temp) / "task"
@@ -108,6 +184,7 @@ class WorkerAdapterTests(unittest.TestCase):
             self.assertEqual(captured["input"], str(source))
             self.assertEqual(captured["stage"], "raw-srt")
             self.assertEqual(captured["device"], "cuda")
+            self.assertEqual(captured["task_summary"], "字幕任务：video")
             # Upstream 0.5.0 retired `--gpu-budget-gb` for `--gpu-tier`, and a
             # request queued before the upgrade still carries the number.
             self.assertEqual(captured["gpu_tier"], "standard")
@@ -220,6 +297,7 @@ class WorkerAdapterTests(unittest.TestCase):
             # the correction reference is text, and the blank row is not handed
             # to the model as something to correct.
             self.assertIsNone(captured["audio_path"])
+            self.assertEqual(captured["task_summary"], "字幕任务：video")
             stable = json.loads(Path(captured["stable_json"]).read_text(encoding="utf-8"))
             self.assertEqual(stable["segments"], [{"id": "1", "start": 0.0, "end": 1.0, "text": "こんにちは"}])
             events = [json.loads(line) for line in output.getvalue().splitlines()]

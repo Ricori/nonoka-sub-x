@@ -147,6 +147,12 @@ interface ExecutionProvider {
     "extra_style": ""
   },
   "knowledge": "update",
+  "knowledge_context": {
+    "kind": "streamer",
+    "subject": "主播的官方或源语言名称",
+    "aliases": "常用译名、旧名",
+    "description": "频道定位、所属团体等消歧说明"
+  },
   "llm_model": { "correction": "local-agy-media-gemini-3_7-flash" },
   "cleanup_intermediate": false
 }
@@ -170,6 +176,7 @@ interface ExecutionProvider {
 | `correction.fast` | `auto` \| `on` \| `off` | — | 快速通道开关 |
 | `correction.extra_info` / `extra_style` | `string` | — | 用户补充的背景信息与风格要求 |
 | `knowledge` | `none` \| `collect` \| `update` | — | 需 `features.knowledge=true` |
+| `knowledge_context` | `{kind, subject, aliases, description}` | `knowledge=update` 的新任务 | 建库主体信息。`kind` 为 `streamer`、`work` 或 `topic`；`subject` 是必填的官方/源语言名称，`aliases` 与 `description` 用于消歧。Local Provider 会先以这些用户确认的信息幂等初始化主体词条，再让纠错与知识更新补充经验证的内容。旧版已排队请求可省略，以便升级后重试 |
 | `llm_model` | `string` \| `{任务组: string}` | — | 本次运行的模型覆盖，等价于引擎的 `--llm-model`。字符串钉住所有任务组，对象只钉它点名的那些。值是模型组或路由 target；名字由引擎的路由加载器校验。⚠ 钉住即**替换整条链**——钉住的模型做不了的调用会直接失败，后面不再挂任何兜底 |
 | `cleanup_intermediate` | `boolean` | — | 完成后是否清理中间产物 |
 | `axis` | `Axis` | — | 用户导入的已有产物；见 4.2.2。只在 `kind="ja"` 时出现，其余轴型不进任务请求 |

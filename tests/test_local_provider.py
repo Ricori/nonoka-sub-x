@@ -262,6 +262,30 @@ class LocalProviderTests(ProviderFixture):
         self.assertNotIn("gpu_tier", legacy)
         self.assertEqual(legacy["gpu_budget_gb"], 8)
 
+    def test_explicit_knowledge_context_requires_a_subject_for_update(self) -> None:
+        from nonoka_x.local_provider import validate_request
+
+        request = self.request()
+        request["target"] = "final-srt"
+        request["knowledge"] = "update"
+        request["knowledge_context"] = {
+            "kind": "streamer", "subject": "   ", "aliases": "", "description": ""
+        }
+        with self.assertRaisesRegex(ProviderError, "knowledge_context.subject is required"):
+            validate_request(request)
+
+        request["knowledge_context"]["subject"] = "猫又おかゆ"
+        normalized = validate_request(request)
+        self.assertEqual(normalized["knowledge_context"]["subject"], "猫又おかゆ")
+
+    def test_pre_field_update_request_remains_retryable(self) -> None:
+        from nonoka_x.local_provider import validate_request
+
+        request = self.request()
+        request["target"] = "final-srt"
+        request["knowledge"] = "update"
+        self.assertNotIn("knowledge_context", validate_request(request))
+
     def test_old_separator_unicode_probe_is_retried_once(self) -> None:
         accel = self.root / "models" / "audio-separator" / "accel"
         decode_probe = accel / "decode" / "probe.json"
