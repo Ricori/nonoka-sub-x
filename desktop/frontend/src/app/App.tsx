@@ -734,6 +734,40 @@ export default function App() {
     return () => window.clearInterval(timer);
   }, [hasActiveHistory, refreshActiveTaskHistory]);
 
+  // The account can report running cloud tasks this history never recorded
+  // (started on another device, or before the local history file existed).
+  // Active rows are never cleared, so adopting them cannot resurrect rows the
+  // user removed; once adopted they are polled like any other active row.
+  const cloudRunning = cloudSession?.authenticated ? cloudSession.running : 0;
+  const rememberedCloudActive = taskHistory.filter((item) =>
+    item.provider === "cloud" && activeStates.has(item.snapshot.state)).length;
+  const adoptingCloudTasks = useRef(false);
+  useEffect(() => {
+    if (cloudRunning <= rememberedCloudActive || adoptingCloudTasks.current) return;
+    adoptingCloudTasks.current = true;
+    void cloudProvider.listTasks().then((listed) => {
+      const titles = new Map(cloudMedia.map((entry) => [entry.id, entry.title]));
+      setTaskHistory((current) => {
+        const known = new Set(current.map((item) => item.taskId));
+        const adopted: TaskHistoryEntry[] = listed
+          .filter((item) => activeStates.has(item.snapshot.state) && !known.has(item.snapshot.task_id))
+          .map((item) => ({
+            taskId: item.snapshot.task_id,
+            provider: "cloud",
+            mediaId: item.media_id,
+            title: item.title || titles.get(item.snapshot.task_id) || titles.get(item.media_id) || item.snapshot.task_id.slice(0, 12),
+            snapshot: item.snapshot,
+          }));
+        if (adopted.length === 0) return current;
+        return [...adopted, ...current]
+          .sort((left, right) => Date.parse(right.snapshot.updated_at) - Date.parse(left.snapshot.updated_at))
+          .slice(0, taskHistoryLimit);
+      });
+    }).catch(() => undefined).finally(() => {
+      adoptingCloudTasks.current = false;
+    });
+  }, [cloudMedia, cloudProvider, cloudRunning, rememberedCloudActive]);
+
   // Session.running and cloud library entries are snapshots loaded at login;
   // task polling does not mutate either. Reconcile them as soon as one of this
   // desktop's cloud tasks leaves its active state, otherwise the global badge
