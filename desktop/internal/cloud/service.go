@@ -337,8 +337,18 @@ func (s *Service) StartTask(localID string, options map[string]any) (map[string]
 	}
 	var snapshot map[string]any
 	if err := s.authenticatedDo(context.Background(), http.MethodPost, "/v1/tasks", request, &snapshot); err != nil {
-		s.abortUpload(initialized.ObjectID)
-		return nil, err
+		// Only a refusal proves no task holds the upload. A timeout, a dropped
+		// connection or a 5xx can arrive after the backend already reserved and
+		// dispatched the task -- deleting the audio then failed that task with a
+		// 404 on its first download, and a 502 dispatch failure leaves an
+		// interrupted task whose /resume needs the same object. An upload no task
+		// ever claimed is reclaimed by the backend's upload sweep instead.
+		var status *httpStatusError
+		if errors.As(err, &status) && status.Status >= 400 && status.Status < 500 {
+			s.abortUpload(initialized.ObjectID)
+			return nil, err
+		}
+		return nil, fmt.Errorf("%w (the cloud task may still have been created; refresh the task list before submitting again)", err)
 	}
 	taskID, _ := snapshot["task_id"].(string)
 	if !validCloudTaskID.MatchString(taskID) {
@@ -1117,6 +1127,18 @@ func (s *Service) authenticatedDo(ctx context.Context, method, path string, body
 	return s.do(ctx, session, method, path, body, result)
 }
 
+// httpStatusError is a response the backend (or its gateway) actually sent, as
+// opposed to a transport failure, so callers can tell a refusal from an
+// outcome they cannot know.
+type httpStatusError struct {
+	Status int
+	Detail string
+}
+
+func (e *httpStatusError) Error() string {
+	return fmt.Sprintf("cloud HTTP %d: %s", e.Status, e.Detail)
+}
+
 func (s *Service) do(ctx context.Context, session storedSession, method, path string, body, result any) error {
 	var reader io.Reader
 	if body != nil {
@@ -1155,7 +1177,7 @@ func (s *Service) do(ctx context.Context, session storedSession, method, path st
 		if failure.Detail == "" {
 			failure.Detail = strings.TrimSpace(string(payload))
 		}
-		return fmt.Errorf("cloud HTTP %d: %s", response.StatusCode, failure.Detail)
+		return &httpStatusError{Status: response.StatusCode, Detail: failure.Detail}
 	}
 	if result != nil {
 		if err := json.Unmarshal(payload, result); err != nil {

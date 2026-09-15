@@ -25,6 +25,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping, Sequence
 
+from .fast_mode import resolve_request_fast
+
 AXIS_KINDS = ("empty", "ja", "zh", "bi")
 
 #: An axis is one human's work on one video. The cap exists so a malformed or
@@ -200,7 +202,7 @@ def translate_axis(
         audio_path=source_path if media != "text" else None,
         video_path=video_path,
         profile=profile,
-        fast=str(correction.get("fast") or "auto"),
+        fast=resolve_request_fast(correction, warn=on_notice),
         extra_info=str(correction.get("extra_info") or ""),
         extra_style=str(correction.get("extra_style") or ""),
         knowledge=knowledge,

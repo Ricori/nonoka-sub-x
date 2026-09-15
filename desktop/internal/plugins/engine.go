@@ -655,6 +655,13 @@ func engineTaskPayload(request EngineTaskRequest, entry library.Entry) (map[stri
 
 func correctionPayload(correction EngineCorrection) (map[string]any, error) {
 	payload := map[string]any{}
+	// "on" stays accepted for plugins written against the earlier contract and
+	// is sent as "auto": the engine's "on" differs only by failing a run whose
+	// subtitles turn out too long for one window.
+	fast := correction.Fast
+	if fast == "on" {
+		fast = "auto"
+	}
 	for _, field := range []struct {
 		name    string
 		value   string
@@ -663,7 +670,7 @@ func correctionPayload(correction EngineCorrection) (map[string]any, error) {
 		{"media", correction.Media, []string{"text", "audio", "video"}},
 		{"retrieval", correction.Retrieval, []string{"none", "local", "native"}},
 		{"difficulty", correction.Difficulty, []string{"quality", "speed"}},
-		{"fast", correction.Fast, []string{"auto", "on", "off"}},
+		{"fast", fast, []string{"auto", "off"}},
 	} {
 		if field.value == "" {
 			continue

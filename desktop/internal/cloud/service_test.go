@@ -554,6 +554,67 @@ func TestWindowsFileURIPathDropsSlashBeforeDriveLetter(t *testing.T) {
 	}
 }
 
+func TestStartTaskKeepsUploadUnlessBackendRefusedTask(t *testing.T) {
+	const uploadID = "upl_0123456789abcdef0123456789abcdef"
+	tests := []struct {
+		name    string
+		status  int
+		aborted bool
+	}{
+		{name: "refused", status: http.StatusBadRequest, aborted: true},
+		{name: "quota", status: http.StatusConflict, aborted: true},
+		{name: "dispatch failed after reservation", status: http.StatusBadGateway, aborted: false},
+		{name: "gateway timeout", status: http.StatusGatewayTimeout, aborted: false},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			root := t.TempDir()
+			source := filepath.Join(root, "video.mp4")
+			if err := os.WriteFile(source, []byte("video"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			aborted := false
+			var server *httptest.Server
+			server = httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+				writer.Header().Set("Content-Type", "application/json")
+				switch {
+				case request.Method == http.MethodPut:
+					writer.WriteHeader(http.StatusNoContent)
+				case request.URL.Path == "/v1/session":
+					_, _ = writer.Write([]byte(`{"authenticated":true,"remaining":2,"running":0}`))
+				case request.URL.Path == "/v1/uploads/init":
+					_, _ = writer.Write([]byte(`{"objectId":"` + uploadID + `","uploadUrl":"` + server.URL + `/upload","contentType":"audio/mp4","thumbUploadUrl":"` + server.URL + `/upload-thumb"}`))
+				case request.Method == http.MethodPost && request.URL.Path == "/v1/tasks":
+					http.Error(writer, `{"detail":"fixture"}`, test.status)
+				case request.Method == http.MethodDelete && request.URL.Path == "/v1/uploads/"+uploadID:
+					aborted = true
+					_, _ = writer.Write([]byte(`{"aborted":true}`))
+				default:
+					http.NotFound(writer, request)
+				}
+			}))
+			defer server.Close()
+
+			service, err := New(root, &projectingProvider{}, fakeMedia{path: source})
+			if err != nil {
+				t.Fatal(err)
+			}
+			service.extractor = func(_ context.Context, _, output string) error {
+				return os.WriteFile(output, []byte("audio-fixture"), 0o600)
+			}
+			if _, err := service.Login(server.URL, "login-key"); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := service.StartTask("loc_0123456789ab", map[string]any{"target": "raw-srt"}); err == nil {
+				t.Fatal("StartTask succeeded against a failing backend")
+			}
+			if aborted != test.aborted {
+				t.Fatalf("upload aborted = %v, want %v", aborted, test.aborted)
+			}
+		})
+	}
+}
+
 func TestCloudTaskUploadsAudioPollsCancelsAndProjectsArtifacts(t *testing.T) {
 	root := t.TempDir()
 	source := filepath.Join(root, "video.mp4")

@@ -255,7 +255,7 @@ def main() -> int:
                         "media": "text",
                         "retrieval": "none",
                         "difficulty": "efficiency",
-                        "fast": "on",
+                        "fast": "auto",
                         "extra_info": "端到端测试音频。",
                         "extra_style": "简体中文，忠实简洁。",
                     },

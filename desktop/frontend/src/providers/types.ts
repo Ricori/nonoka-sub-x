@@ -108,7 +108,7 @@ export interface TaskRequest {
     media: "text" | "audio" | "video";
     retrieval: "none" | "local" | "native";
     difficulty: "efficiency" | "intermediate" | "quality";
-    fast: "auto" | "on" | "off";
+    fast: "auto" | "off";
     extra_info: string;
     extra_style: string;
   };

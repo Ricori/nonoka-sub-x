@@ -173,7 +173,7 @@ interface ExecutionProvider {
 | `correction.media` | `text` \| `audio` \| `video` | — | `video` 需 `features.video_multimodal=true` |
 | `correction.retrieval` | `none` \| `local` \| `native` | — | 知识检索来源 |
 | `correction.difficulty` | `efficiency` \| `intermediate` \| `quality` | — | LLM 质量档 |
-| `correction.fast` | `auto` \| `on` \| `off` | — | 快速通道开关 |
+| `correction.fast` | `auto` \| `off` | — | 快速通道开关，默认 `auto`：字幕放得进单个窗口时走快速通道，放不下时走正常多窗口流程。 |
 | `correction.extra_info` / `extra_style` | `string` | — | 用户补充的背景信息与风格要求 |
 | `knowledge` | `none` \| `collect` \| `update` | — | 需 `features.knowledge=true` |
 | `knowledge_context` | `{kind, subject, aliases, description}` | `knowledge=update` 的新任务 | 建库主体信息。`kind` 为 `streamer`、`work` 或 `topic`；`subject` 是必填的官方/源语言名称，`aliases` 与 `description` 用于消歧。Local Provider 会先以这些用户确认的信息幂等初始化主体词条，再让纠错与知识更新补充经验证的内容。旧版已排队请求可省略，以便升级后重试 |

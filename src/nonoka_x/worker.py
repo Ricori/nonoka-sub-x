@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from .axis import AxisTranslation, translate_axis as translate_rows
+from .fast_mode import resolve_request_fast
 from .gpu_tier import resolve_request_gpu_tier
 
 
@@ -438,7 +439,9 @@ def main(argv: list[str] | None = None) -> int:
                     llm_media=correction.get("media", "audio"),
                     llm_retrieval=correction.get("retrieval", "local"),
                     llm_difficulty=correction.get("difficulty", "quality"),
-                    llm_fast=correction.get("fast", "auto"),
+                    llm_fast=resolve_request_fast(
+                        correction, warn=lambda message: reporter.warning("fast-mode", message)
+                    ),
                     extra_info=correction.get("extra_info", ""),
                     extra_style=correction.get("extra_style", ""),
                     knowledge=request.get("knowledge", "update"),
