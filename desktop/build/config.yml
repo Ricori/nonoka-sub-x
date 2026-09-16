@@ -9,7 +9,7 @@ info:
   description: "Nonoka Sub X"
   copyright: "© 2026 Ricori"
   comments: "Desktop workstation for AI subtitle generation and professional editing."
-  version: "0.3.4"
+  version: "0.3.5"
 
 dev_mode:
   root_path: .

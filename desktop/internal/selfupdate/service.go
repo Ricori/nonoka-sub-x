@@ -25,7 +25,7 @@ import (
 
 // Version is the running desktop build. scripts/release-update.ps1 rewrites it
 // alongside build/config.yml, so the two never drift.
-const Version = "0.3.4"
+const Version = "0.3.5"
 
 const (
 	manifestEnvironment = "NONOKA_UPDATE_MANIFEST"
