@@ -31,10 +31,13 @@ export interface Capabilities {
     resume: boolean;
     diarization: boolean;
   };
+  /** 最快的在前，CPU 永远在最后一项，所以 `devices[0]` 就是该机器的默认设备。 */
   devices: Array<{ id: string; name: string; memory_mb: number }>;
   runtime?: {
     ready: boolean;
     issues: Array<{ code: string; message: string }>;
+    /** 不阻断运行、但会改变结果或耗时的情况，比如没有 N 卡因而只能走 CPU。 */
+    warnings?: Array<{ code: string; message: string }>;
     stages?: Array<{
       id: "media" | "raw-srt" | "final-srt" | "knowledge" | "video-multimodal";
       label: string;

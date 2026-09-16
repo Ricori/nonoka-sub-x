@@ -254,6 +254,8 @@ export function RuntimePage({ capabilities, message, provisionMessage, provision
     await onInstall(target);
   };
   const issues = capabilities?.runtime?.issues ?? [];
+  // 不阻断运行、但会改变耗时的情况（现在只有「没 N 卡，走 CPU」）
+  const warnings = capabilities?.runtime?.warnings ?? [];
   const stages = capabilities?.runtime?.stages ?? [];
   const job = provision?.job;
   const pythonInstalling = pythonBootstrap?.state === "running";
@@ -329,6 +331,11 @@ export function RuntimePage({ capabilities, message, provisionMessage, provision
             {issues.map((issue) => <li key={`${issue.code}:${issue.message}`}><strong>{issue.code}</strong><span>{issue.message}</span></li>)}
           </ul>
         ) : !ready && <p className="success-copy">{message || "等待环境状态。"}</p>}
+        {warnings.length > 0 && (
+          <ul className="issues advisory">
+            {warnings.map((warning) => <li key={`${warning.code}:${warning.message}`}><strong>{warning.code}</strong><span>{warning.message}</span></li>)}
+          </ul>
+        )}
         <div className="diagnostic-section-heading">
           <strong>运行环节</strong>
           <small>{stages.filter((stage) => stage.ready).length} / {stages.length} 可用</small>
@@ -380,8 +387,8 @@ export function RuntimePage({ capabilities, message, provisionMessage, provision
               <p>{pythonBootstrap?.state === "failed" && !pythonInstalling
                 ? pythonBootstrap.message
                 : bootstrapBroken && !pythonInstalling
-                ? "当前本地服务运行在版本不符或缺少依赖的系统 Python 上。安装隔离的 Python 3.12 后会自动重启服务。"
-                : pythonBootstrap?.message || "Nonoka Sub X 将自动下载隔离的 Python，不会修改系统 Python。"}</p>
+                  ? "当前本地服务运行在版本不符或缺少依赖的系统 Python 上。安装隔离的 Python 3.12 后会自动重启服务。"
+                  : pythonBootstrap?.message || "Nonoka Sub X 将自动下载隔离的 Python，不会修改系统 Python。"}</p>
               {pythonBootstrap && !pythonBootstrap.supported && (
                 <p className="required-dependency-hint">手动方案：准备一个装有 httpx、pydantic 的 Python 3.12，把环境变量 <code>NONOKA_PYTHON</code> 指向它的可执行文件后重启应用。</p>
               )}

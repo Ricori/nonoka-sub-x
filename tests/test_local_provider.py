@@ -21,6 +21,7 @@ from nonoka_x.local_provider import (
     ProviderError,
     _clear_legacy_separator_decode_probes,
     _prepare_msvc_environment,
+    detect_devices,
     runtime_report,
 )
 from nonoka_x.sidecar import SidecarServer, session_authorized
@@ -402,6 +403,66 @@ class LocalProviderTests(ProviderFixture):
         self.assertIn("qwen-referee", model_issue["message"])
         raw_stage = next(stage for stage in report["stages"] if stage["id"] == "raw-srt")
         self.assertFalse(raw_stage["ready"])
+
+    def test_absent_gpu_warns_without_blocking_asr(self) -> None:
+        """A Windows box with no card runs on the CPU rather than not at all.
+
+        The engine's `cpu` tier is a supported mode, so the missing card is a
+        speed warning. Putting it in `issues` made `ready` false, which is what
+        greyed the whole "local" execution card out.
+        """
+
+        media_tool = self.source
+
+        class Provisioner:
+            def status(self) -> dict:
+                return {
+                    "runtime": {"state": "ready"},
+                    "resources": [],
+                    "models": [
+                        {"id": model, "state": "ready"}
+                        for model in ("separator", "whisper", "qwen-referee")
+                    ],
+                }
+
+            def tool_path(self, _name: str) -> Path:
+                return media_tool
+
+        def executable(name: str) -> str | None:
+            return None if name == "nvidia-smi" else str(media_tool)
+
+        with (
+            patch("nonoka_x.local_provider.sys.platform", "win32"),
+            patch("nonoka_x.local_provider.shutil.which", side_effect=executable),
+            patch("nonoka_x.local_provider.local_agent_executable", return_value=None),
+        ):
+            report = runtime_report(provisioner=Provisioner())
+
+        self.assertTrue(report["ready"])
+        self.assertNotIn("missing_gpu", {issue["code"] for issue in report["issues"]})
+        self.assertIn("missing_gpu", {warning["code"] for warning in report["warnings"]})
+        raw_stage = next(stage for stage in report["stages"] if stage["id"] == "raw-srt")
+        self.assertTrue(raw_stage["ready"])
+
+    def test_device_list_always_offers_the_cpu(self) -> None:
+        """Empty used to mean "no choice at all" in the desktop's picker."""
+
+        with patch("nonoka_x.local_provider.shutil.which", return_value=None):
+            self.assertEqual([device["id"] for device in detect_devices()], ["cpu"])
+
+        smi = self.source
+
+        def run(*_args, **_kwargs):
+            return SimpleNamespace(stdout="0, NVIDIA GeForce RTX 4090, 24564\n")
+
+        with (
+            patch("nonoka_x.local_provider.shutil.which", return_value=str(smi)),
+            patch("nonoka_x.local_provider.subprocess.run", side_effect=run),
+        ):
+            devices = detect_devices()
+        # CPU last: the desktop defaults a task to `devices[0]`, so a machine
+        # with a card has to keep defaulting to the card.
+        self.assertEqual([device["id"] for device in devices], ["cuda:0", "cpu"])
 
     def test_missing_git_does_not_block_knowledge_updates(self) -> None:
         media_tool = self.source

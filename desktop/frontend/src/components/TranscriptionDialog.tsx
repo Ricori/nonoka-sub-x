@@ -85,10 +85,26 @@ const clock = (seconds: number) => {
   return minutes < 60 ? `${minutes}:${String(whole % 60).padStart(2, "0")}` : `${Math.floor(minutes / 60)}:${tail}`;
 };
 
+// 没有 N 卡的机器上 sidecar 只报一个 `cpu`，所以这里不必单独判断「有没有显卡」
 function requestFor(mode: ExecutionMode, entry: MediaEntry, capabilities: Capabilities | null): TaskRequest {
   const request = mode === "local" ? localTaskRequest(entry) : cloudTaskRequest(entry);
-  if (mode === "local" && capabilities?.devices[0]?.id) request.device = capabilities.devices[0].id;
+  const device = capabilities?.devices[0]?.id;
+  if (mode === "local" && device) {
+    request.device = device;
+    // `auto` 会去探测一张不存在的卡，然后按显卡档位算资源预算——跑出来的结果没错
+    // （设备意图优先），但预算是假的。选定 CPU 就把档位一起说清楚。
+    if (device === "cpu") request.gpu_tier = "cpu";
+  }
   return request;
+}
+
+/** 设备下拉项；显存只有显卡才有意义，CPU 那一项不挂 GB。 */
+function deviceOptions(devices: Capabilities["devices"]): Array<{ value: string; label: string; hint?: string }> {
+  // 读不到能力时的兜底：旧版 sidecar 不报 CPU，此时唯一能说的仍是「交给引擎选卡」。
+  if (devices.length === 0) return [{ value: "cuda", label: "自动选择 NVIDIA GPU" }];
+  return devices.map((device) => device.id === "cpu"
+    ? { value: device.id, label: "CPU（不使用显卡）", hint: CPU_DEVICE_HINT }
+    : { value: device.id, label: `${device.name} · ${Math.round(device.memory_mb / 1024)} GB` });
 }
 
 /** 把缺少 Key 的选项拉回可用值；无需改动时返回原对象。 */
@@ -122,6 +138,10 @@ const GPU_TIER_LABELS: Record<GpuTier, string> = {
   high: "高 · 需 24GB 以上",
 };
 const GPU_TIER_OPTIONS = GPU_TIERS.map((value) => ({ value, label: GPU_TIER_LABELS[value] }));
+
+// 纯 CPU 能跑完整条流水线，但人声分离和 Whisper 都是重活：按核心数不同，耗时大致
+// 是音频时长的十几到几十倍。不说清楚，用户只会以为卡死了。
+const CPU_DEVICE_HINT = "无显卡时的运行方式；整条流水线仍然完整，但耗时通常是音频时长的十几到几十倍";
 
 // 关掉分离不会报错，只会让识别质量整体塌掉——所以这里说清它是给什么输入用的。
 const SKIP_SEPARATION_HINT = "仅在输入本身就是纯人声（已分离的人声轨、录音棚干声）时关闭；该分离而没分离不会报错，只是识别质量整体下降";
@@ -174,6 +194,7 @@ export function TranscriptionDialog(props: TranscriptionDialogProps) {
   const finalOutput = request.target === "final-srt";
   const knowledgeContext = request.knowledge_context ?? emptyKnowledgeContext();
   const devices = localCapabilities?.devices ?? [];
+  const cpuOnly = (localCapabilities?.runtime?.warnings ?? []).some((warning) => warning.code === "missing_gpu");
   const speakers = axisParse && axisParse.speakers.length >= 2 ? axisParse.speakers : [];
 
   const limitsFor = useCallback((target: ExecutionMode, retrieval: TaskRequest["correction"]["retrieval"]): KeyLimits => {
@@ -499,8 +520,8 @@ export function TranscriptionDialog(props: TranscriptionDialogProps) {
           <div className="execution-picker">
             <button className={`execution-card ${mode === "local" && localReady ? "chosen" : ""}`} disabled={!localReady} onClick={() => chooseMode("local")}>
               <span className="execution-icon local">⌁</span>
-              <span><strong>本地运行</strong><small>原视频不离开电脑，使用本机 GPU 和 LLM 资源</small></span>
-              <em>{localReady ? "可用" : "未就绪"}</em>
+              <span><strong>本地运行</strong><small>{cpuOnly ? "原视频不离开电脑；本机没有可用显卡，将以 CPU 运行，耗时通常是音频时长的十几到几十倍" : "原视频不离开电脑，使用本机 GPU 和 LLM 资源"}</small></span>
+              <em>{localReady ? cpuOnly ? "可用 · CPU" : "可用" : "未就绪"}</em>
             </button>
             {!localReady && <p className="execution-unavailable">{localIssue || "本地运行环境尚未就绪"}<button onClick={onOpenRuntime}>检查运行环境</button></p>}
 
@@ -537,7 +558,7 @@ export function TranscriptionDialog(props: TranscriptionDialogProps) {
 
             {!translateOnly && <section className="transcription-section form-grid">
               <label>原始语言<CustomSelect value={request.language} options={languageOptions.map(([value, label]) => ({ value, label }))} onChange={(language) => setRequest((current) => ({ ...current, language }))} /></label>
-              {mode === "local" && <label>计算设备<CustomSelect value={request.device} options={devices.length > 0 ? devices.map((device) => ({ value: device.id, label: `${device.name} · ${Math.round(device.memory_mb / 1024)} GB` })) : [{ value: "cuda", label: "自动选择 NVIDIA GPU" }]} onChange={(device) => setRequest((current) => ({ ...current, device }))} /></label>}
+              {mode === "local" && <label>计算设备<CustomSelect value={request.device} options={deviceOptions(devices)} onChange={(device) => setRequest((current) => ({ ...current, device, gpu_tier: device === "cpu" ? "cpu" : current.gpu_tier === "cpu" ? "auto" : current.gpu_tier }))} /></label>}
               {mode === "local" && <label>显卡档位<CustomSelect value={request.gpu_tier} options={GPU_TIER_OPTIONS} onChange={(gpu_tier) => setRequest((current) => ({ ...current, gpu_tier }))} /></label>}
               {mode === "local" && <label>人声分离<CustomSelect value={request.separate ? "on" : "off"} options={[{ value: "on", label: "开启" }, { value: "off", label: "关闭（输入已是纯人声）", hint: SKIP_SEPARATION_HINT }]} onChange={(value) => setRequest((current) => ({ ...current, separate: value === "on" }))} /></label>}
             </section>}

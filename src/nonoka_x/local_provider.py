@@ -206,10 +206,12 @@ def runtime_report(settings: FineSubSettings | None = None, provisioner: Runtime
         media_issues.append(_issue("missing_ffmpeg", "缺少项目必备依赖 FFmpeg 或 FFprobe"))
 
     asr_issues = list(media_issues)
+    # 没有 N 卡不是不能跑，而是跑得慢，所以这条只作为警告传出。
+    asr_warnings: list[dict[str, str]] = []
     if sys.platform != "win32":
         asr_issues.append(_issue("unsupported_platform", "本地 GPU 流水线当前仅支持 Windows x64/NVIDIA"))
     elif not shutil.which("nvidia-smi"):
-        asr_issues.append(_issue("missing_gpu", "未检测到 NVIDIA 驱动或 GPU"))
+        asr_warnings.append(_issue("missing_gpu", "未检测到 NVIDIA 驱动或 GPU，将以 CPU 模式运行，速度显著低于显卡"))
     missing_modules = [
         name for name in ("torch", "faster_whisper", "audio_separator")
         if importlib.util.find_spec(name) is None
@@ -262,6 +264,7 @@ def runtime_report(settings: FineSubSettings | None = None, provisioner: Runtime
     return {
         "ready": not asr_issues,
         "issues": asr_issues,
+        "warnings": asr_warnings,
         "stages": stages,
         "localAgent": local_agent,
         "managed": managed,
@@ -272,10 +275,24 @@ def runtime_issues() -> list[dict[str, str]]:
     return runtime_report()["issues"]
 
 
+#: The device every machine has. Always offered, always last: the desktop picks
+#: `devices[0]` as a task's default, so a machine with a card still defaults to
+#: the card, and a machine without one has exactly one thing to pick.
+CPU_DEVICE: dict[str, Any] = {"id": "cpu", "name": "CPU", "memory_mb": 0}
+
+
 def detect_devices() -> list[dict[str, Any]]:
+    """Every device a task may be sent to, fastest first.
+
+    A machine with no usable card is not a machine that cannot run: FineSub's
+    `cpu` tier is a supported mode and `resolve_device` falls back to it on its
+    own. So the list is never empty -- an empty list used to leave the desktop's
+    device picker with nothing but a hardcoded "auto-select NVIDIA GPU".
+    """
+
     executable = shutil.which("nvidia-smi")
     if not executable:
-        return []
+        return [dict(CPU_DEVICE)]
     try:
         result = subprocess.run(
             [executable, "--query-gpu=index,name,memory.total", "--format=csv,noheader,nounits"],
@@ -287,7 +304,7 @@ def detect_devices() -> list[dict[str, Any]]:
             check=True,
         )
     except (OSError, subprocess.SubprocessError):
-        return []
+        return [dict(CPU_DEVICE)]
     devices: list[dict[str, Any]] = []
     for line in result.stdout.splitlines():
         fields = [field.strip() for field in line.split(",", 2)]
@@ -297,6 +314,7 @@ def detect_devices() -> list[dict[str, Any]]:
             devices.append({"id": f"cuda:{int(fields[0])}", "name": fields[1], "memory_mb": int(fields[2])})
         except ValueError:
             continue
+    devices.append(dict(CPU_DEVICE))
     return devices
 
 
