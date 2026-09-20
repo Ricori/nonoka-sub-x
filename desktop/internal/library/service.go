@@ -26,7 +26,6 @@ import (
 )
 
 const (
-	maxMediaDuration  = 2 * time.Hour
 	maxThumbnailBytes = 5 << 20
 	maxEditorClips    = 200
 )
@@ -551,9 +550,6 @@ func (s *Service) importOne(path string) (Entry, bool, error) {
 	}
 	if !metadata.HasVideo || metadata.Duration <= 0 {
 		return Entry{}, false, errors.New("media source does not contain a readable video track")
-	}
-	if metadata.Duration > maxMediaDuration.Seconds() {
-		return Entry{}, false, fmt.Errorf("media exceeds the %d minute limit", int(maxMediaDuration.Minutes()))
 	}
 	fingerprint, err := fileFingerprint(absolute, stat.Size())
 	if err != nil {

@@ -186,7 +186,7 @@ func TestEnsureThumbnailCoversPlaceholdersWithoutReplacingLocalFrames(t *testing
 	}
 }
 
-func TestImportRejectsUnsupportedUnreadableAndOverlongMedia(t *testing.T) {
+func TestImportAcceptsOverlongLocalMediaAndRejectsInvalidSources(t *testing.T) {
 	root := t.TempDir()
 	textPath := filepath.Join(root, "notes.txt")
 	videoPath := filepath.Join(root, "long.mp4")
@@ -195,17 +195,21 @@ func TestImportRejectsUnsupportedUnreadableAndOverlongMedia(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	tools := fixtureTools{metadata: Metadata{Duration: maxMediaDuration.Seconds() + 1, HasVideo: true}}
+	const duration = 2*60*60 + 1
+	tools := fixtureTools{metadata: Metadata{Duration: duration, HasVideo: true}}
 	service, err := newServiceWithTools(filepath.Join(root, "data"), tools, tools)
 	if err != nil {
 		t.Fatal(err)
 	}
 	result := service.Import([]string{textPath, videoPath, filepath.Join(root, "missing.mp4")})
-	if len(result.Added) != 0 || len(result.Failed) != 3 {
+	if len(result.Added) != 1 || len(result.Failed) != 2 {
 		t.Fatalf("unexpected result: %#v", result)
 	}
-	if len(service.List()) != 0 {
-		t.Fatal("rejected media entered the library")
+	if result.Added[0].SourcePath != videoPath || result.Added[0].Duration != duration {
+		t.Fatalf("overlong local video was not imported intact: %#v", result.Added[0])
+	}
+	if listed := service.List(); len(listed) != 1 || listed[0].ID != result.Added[0].ID {
+		t.Fatalf("library = %#v", listed)
 	}
 }
 

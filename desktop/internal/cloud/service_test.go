@@ -27,6 +27,7 @@ type fakeProvider struct {
 type fakeMedia struct {
 	path      string
 	thumbnail string
+	duration  float64
 	// Covers handed to the library by an adoption, keyed by local media id. A
 	// map so the value receiver the other methods use can still record.
 	covers map[string]string
@@ -45,7 +46,11 @@ func (f fakeMedia) ResolveMedia(id string) (string, string, string, float64, err
 	if id != "loc_0123456789ab" {
 		return "", "", "", 0, os.ErrNotExist
 	}
-	return f.path, "demo.mp4", "fingerprint", 60, nil
+	duration := f.duration
+	if duration == 0 {
+		duration = 60
+	}
+	return f.path, "demo.mp4", "fingerprint", duration, nil
 }
 
 func (f fakeMedia) AddPlaceholder(title, fingerprint string, duration float64) (library.Entry, error) {
@@ -68,6 +73,19 @@ func (f fakeMedia) EnsureThumbnail(id, dataURL string) error {
 		f.covers[id] = dataURL
 	}
 	return nil
+}
+
+func TestStartTaskKeepsTwoHourCloudLimit(t *testing.T) {
+	service, err := New(t.TempDir(), fakeProvider{}, fakeMedia{
+		path:     filepath.Join(t.TempDir(), "overlong.mp4"),
+		duration: 2*60*60 + 1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.StartTask("loc_0123456789ab", map[string]any{"target": "raw-srt"}); err == nil || !strings.Contains(err.Error(), "between 0 and 2 hours") {
+		t.Fatalf("StartTask error = %v", err)
+	}
 }
 
 type projectingProvider struct {

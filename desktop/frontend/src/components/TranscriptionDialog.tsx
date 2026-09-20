@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Service } from "../../bindings/github.com/Ricori/nonoka-x/desktop/internal/provider/index.js";
 import type { MediaEntry } from "../bridge/library.ts";
 import { cloudTaskRequest, localTaskRequest } from "../home/defaultRequest.ts";
+import { cloudAcceptsDuration } from "../home/executionAvailability.ts";
 import { GPU_TIERS } from "../providers/types.ts";
 import type { Capabilities, GpuTier, KnowledgeContext, TaskAxis, TaskRequest } from "../providers/types.ts";
 import type { FineSubSettingsState } from "../bridge/settings.ts";
@@ -175,11 +176,13 @@ export function TranscriptionDialog(props: TranscriptionDialogProps) {
   const axisBlocked = axisOn && axisParse === null;
   const totalSteps = importOnly ? 1 : 3;
   const stepIndex = step === "axis" ? 1 : step === "mode" ? 2 : 3;
+  const cloudDurationExceeded = !cloudAcceptsDuration(entry.duration);
+  const cloudReady = cloudAuthenticated && !cloudDurationExceeded;
 
   // 只用来定第 2 步一开始选中哪张卡（轴要到第 1 步选完才存在，所以这里无须看它）
   const preferredMode = initialMode === "local"
-    ? localReady ? "local" : cloudAuthenticated ? "cloud" : "local"
-    : cloudAuthenticated ? "cloud" : localReady ? "local" : "cloud";
+    ? localReady ? "local" : cloudReady ? "cloud" : "local"
+    : cloudReady ? "cloud" : localReady ? "local" : "cloud";
   const [mode, setMode] = useState<ExecutionMode>(preferredMode);
   const [request, setRequest] = useState<TaskRequest>(() => requestFor(preferredMode, entry, localCapabilities));
   const [knowledgeEntries, setKnowledgeEntries] = useState<KnowledgeEntry[]>([]);
@@ -187,7 +190,7 @@ export function TranscriptionDialog(props: TranscriptionDialogProps) {
   const [knowledgeLoading, setKnowledgeLoading] = useState(false);
   const [knowledgeLoaded, setKnowledgeLoaded] = useState(false);
   const [knowledgeLoadError, setKnowledgeLoadError] = useState("");
-  const selectedReady = mode === "local" ? localReady : cloudAuthenticated;
+  const selectedReady = mode === "local" ? localReady : cloudReady;
   const selectedCapabilities = mode === "local" ? localCapabilities : cloudCapabilities;
   const supportsVideo = selectedCapabilities?.features.video_multimodal === true;
   const supportsKnowledge = selectedCapabilities?.features.knowledge === true;
@@ -525,11 +528,12 @@ export function TranscriptionDialog(props: TranscriptionDialogProps) {
             </button>
             {!localReady && <p className="execution-unavailable">{localIssue || "本地运行环境尚未就绪"}<button onClick={onOpenRuntime}>检查运行环境</button></p>}
 
-            <button className={`execution-card ${mode === "cloud" && cloudAuthenticated ? "chosen" : ""}`} disabled={!cloudAuthenticated} onClick={() => chooseMode("cloud")}>
+            <button className={`execution-card ${mode === "cloud" && cloudReady ? "chosen" : ""}`} disabled={!cloudReady} onClick={() => chooseMode("cloud")}>
               <span className="execution-icon cloud">☁</span>
-              <span><strong>云端运行</strong><small>{translateOnly ? "不上传音轨，只把这条轴交给 Nonoka Cloud 补译文" : "提取音轨后交给 Nonoka Cloud 处理"}</small></span>
-              <em>{cloudAuthenticated ? cloudRemaining === undefined ? "已登录" : `剩余 ${cloudRemaining} 次` : "未登录"}</em>
+              <span><strong>云端运行</strong><small>{cloudDurationExceeded ? `视频时长 ${clock(entry.duration)}，超过云端 2 小时上限` : translateOnly ? "不上传音轨，只把这条轴交给 Nonoka Cloud 补译文" : "提取音轨后交给 Nonoka Cloud 处理"}</small></span>
+              <em>{cloudDurationExceeded ? "时长超限" : cloudAuthenticated ? cloudRemaining === undefined ? "已登录" : `剩余 ${cloudRemaining} 次` : "未登录"}</em>
             </button>
+            {cloudDurationExceeded && <p className="execution-unavailable">云端仅接受最长 2 小时的媒体，请改用本地运行。</p>}
             {/* {!cloudAuthenticated && <p className="execution-unavailable">需要先登录云端账户<button onClick={onOpenAccount}>前往登录</button></p>} */}
           </div>
         ) : (

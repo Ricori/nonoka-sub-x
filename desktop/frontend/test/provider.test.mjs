@@ -2,12 +2,18 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { cloudTaskRequest, localTaskRequest } from "../src/home/defaultRequest.ts";
+import { cloudAcceptsDuration } from "../src/home/executionAvailability.ts";
 import { PipelineController } from "../src/home/pipelineController.ts";
 import { CloudExecutionProvider } from "../src/providers/cloudProvider.ts";
 import { LocalExecutionProvider } from "../src/providers/localProvider.ts";
 import { ProviderRegistry } from "../src/providers/registry.ts";
 
 const taskId = "0123456789abcdef0123456789abcdef";
+
+test("cloud duration accepts two hours exactly and rejects anything longer", () => {
+  assert.equal(cloudAcceptsDuration(2 * 60 * 60), true);
+  assert.equal(cloudAcceptsDuration(2 * 60 * 60 + 0.001), false);
+});
 
 const snapshot = (state = "running") => ({
   schema: 1,
