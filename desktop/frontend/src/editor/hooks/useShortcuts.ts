@@ -2,19 +2,32 @@ import { useEffect } from 'react';
 import {
   addSegmentAt, deleteSegment, extendCurrent, gotoNext, gotoPrev, nudgeToPlayhead, splitAtPlayhead,
 } from '../lib/edits';
+import { openFind } from '../lib/find';
 import { redo, undo } from '../lib/history';
 import { isScrubbing, scrubSound, seek, setPlaying } from '../lib/playback';
 import { video } from '../lib/media';
 import { manualSave } from '../store/saveStore';
 import { playStore } from '../store/playStore';
 
-/** 全局快捷键。文本框内只放行 Ctrl+S，其余交给输入框自己 */
+/** 文本框里选中的那截字（用作 Ctrl+F 的初值），跨行的不要 */
+function selectedText(): string {
+  const el = document.activeElement as HTMLTextAreaElement | HTMLInputElement | null;
+  if (!el || (el.tagName !== "TEXTAREA" && el.tagName !== "INPUT")) return "";
+  const v = el.value.slice(el.selectionStart ?? 0, el.selectionEnd ?? 0);
+  return /[\r\n]/.test(v) ? "" : v;
+}
+
+/** 全局快捷键。文本框内只放行 Ctrl+S / Ctrl+F，其余交给输入框自己 */
 export function useShortcuts() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       // Ctrl+S / ⌘S 保存：在输入框内也生效，故放在 TEXTAREA 拦截之前
       if ((e.ctrlKey || e.metaKey) && (e.key === "s" || e.key === "S")) {
         e.preventDefault(); void manualSave(); return;
+      }
+      // Ctrl+F 查找替换：同样在文本框内也生效，选中的那截字直接拿来当查找词
+      if ((e.ctrlKey || e.metaKey) && (e.key === "f" || e.key === "F")) {
+        e.preventDefault(); openFind(selectedText()); return;
       }
       const tag = document.activeElement?.tagName;
       if (tag === "TEXTAREA" || tag === "INPUT") return;

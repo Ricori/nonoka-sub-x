@@ -1469,10 +1469,14 @@
       scrollbar-color: color-mix(in srgb, var(--text) 26%, transparent) transparent;
     }
 
-    .professional-editor .list-head {
+    .professional-editor .list-top {
       position: sticky;
       top: 0;
       z-index: 2;
+      background: var(--panel);
+    }
+
+    .professional-editor .list-head {
       display: flex;
       align-items: center;
       gap: 8px;
@@ -1501,6 +1505,135 @@
       border-radius: 4px;
       padding: 2px 6px;
       max-width: 58%;
+    }
+
+    .professional-editor .find-toggle {
+      background: none;
+      border: 1px solid transparent;
+      border-radius: 4px;
+      color: var(--faint);
+      cursor: pointer;
+      font-size: 15px;
+      line-height: 1;
+      padding: 1px 6px 3px;
+    }
+
+    .professional-editor .find-toggle:hover {
+      color: var(--text);
+      border-color: var(--line);
+    }
+
+    .professional-editor .find-toggle.on {
+      color: var(--accent);
+      border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+      background: var(--accent-dim);
+    }
+
+    /* 查找 / 替换条 */
+    .professional-editor .find-bar {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      padding: 8px 14px 10px;
+      background: var(--panel);
+      border-bottom: 1px solid var(--line);
+    }
+
+    .professional-editor .find-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .professional-editor .find-row.opts {
+      color: var(--faint);
+      font-size: 11px;
+    }
+
+    .professional-editor .find-input {
+      flex: 1;
+      min-width: 0;
+      background: var(--raised);
+      border: 1px solid var(--line);
+      border-radius: 4px;
+      color: var(--text);
+      font-family: var(--font-ui);
+      font-size: 12.5px;
+      padding: 4px 8px;
+    }
+
+    .professional-editor .find-input:focus {
+      border-color: var(--accent);
+      outline: none;
+    }
+
+    .professional-editor .find-count {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--faint);
+      font-variant-numeric: tabular-nums;
+      min-width: 38px;
+      text-align: right;
+    }
+
+    .professional-editor .find-count.none {
+      color: var(--warn);
+    }
+
+    .professional-editor .fbtn {
+      background: var(--raised);
+      border: 1px solid var(--line);
+      border-radius: 4px;
+      color: var(--mut);
+      cursor: pointer;
+      font-family: var(--font-ui);
+      font-size: 11.5px;
+      line-height: 1.6;
+      padding: 2px 7px;
+      white-space: nowrap;
+    }
+
+    .professional-editor .fbtn:hover:not(:disabled) {
+      color: var(--text);
+      border-color: var(--faint);
+    }
+
+    .professional-editor .fbtn:disabled {
+      opacity: .45;
+      cursor: default;
+    }
+
+    .professional-editor .fbtn.wide {
+      padding: 2px 10px;
+    }
+
+    .professional-editor .fbtn.tog.on {
+      color: var(--accent);
+      border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+      background: var(--accent-dim);
+    }
+
+    .professional-editor .find-field {
+      background: var(--raised);
+      border: 1px solid var(--line);
+      border-radius: 4px;
+      color: var(--mut);
+      font: inherit;
+      font-size: 11.5px;
+      padding: 2px 6px;
+    }
+
+    /* 列表里的命中底色；当前那一处（计数 1/N 指的那个）加重 */
+    .professional-editor .row mark.hit {
+      background: color-mix(in srgb, var(--accent) 32%, transparent);
+      border-radius: 2px;
+      color: inherit;
+      padding: 0 1px;
+    }
+
+    .professional-editor .row mark.hit.cur {
+      background: var(--accent);
+      color: var(--on-accent);
     }
 
     .professional-editor .row {
