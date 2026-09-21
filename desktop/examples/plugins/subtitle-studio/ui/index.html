@@ -22,7 +22,44 @@
 
     * {
       box-sizing: border-box;
-      scrollbar-width: thin;
+    }
+
+    /* Overlay-style scrollbars: hidden until the pointer enters the scroll area,
+       no arrow buttons. Uses ::-webkit-scrollbar (WebView2), so no element may set
+       the standard scrollbar-width / scrollbar-color — Chromium ignores these
+       pseudo-elements whenever those are present. */
+    ::-webkit-scrollbar {
+      width: 8px;
+      height: 8px;
+      background: transparent;
+    }
+
+    ::-webkit-scrollbar-button {
+      display: none;
+      width: 0;
+      height: 0;
+    }
+
+    ::-webkit-scrollbar-track,
+    ::-webkit-scrollbar-corner {
+      background: transparent;
+    }
+
+    ::-webkit-scrollbar-thumb {
+      border: 2px solid transparent;
+      border-radius: 8px;
+      background-clip: padding-box;
+      background-color: transparent;
+    }
+
+    /* .sb-hover, not :hover: Chromium does not repaint a custom scrollbar on :hover */
+    .sb-hover::-webkit-scrollbar-thumb {
+      background-color: color-mix(in srgb, var(--text) 26%, transparent);
+    }
+
+    ::-webkit-scrollbar-thumb:hover,
+    ::-webkit-scrollbar-thumb:active {
+      background-color: color-mix(in srgb, var(--text) 42%, transparent);
     }
 
     body {
@@ -222,6 +259,22 @@
 
     <div id="status"></div>
   </main>
+  <script>
+    // Tag hovered element + ancestors so their scrollbars fade in (class change forces repaint).
+    (() => {
+      let marked = [];
+      const mark = (t) => {
+        const next = [];
+        for (let el = t instanceof Element ? t : null; el; el = el.parentElement) next.push(el);
+        for (const el of marked) if (!next.includes(el)) el.classList.remove("sb-hover");
+        for (const el of next) el.classList.add("sb-hover");
+        marked = next;
+      };
+      document.addEventListener("pointerover", (e) => mark(e.target), { passive: true });
+      document.documentElement.addEventListener("pointerleave", () => mark(null));
+      window.addEventListener("blur", () => mark(null));
+    })();
+  </script>
   <script>
     const el = (id) => document.querySelector("#" + id);
     const status = el("status");

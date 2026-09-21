@@ -7,6 +7,7 @@ import { mediaLibrary } from "../bridge/library.ts";
 import type { MediaEntry } from "../bridge/library.ts";
 import { desktopPreferences } from "../bridge/preferences.ts";
 import { installWindowsTitlebar } from "../bridge/window.ts";
+import { installScrollbarHover } from "../app/scrollbars.ts";
 import { desktopWindows } from "../bridge/windows.ts";
 import { Editor } from "./Editor.tsx";
 import { requestClose } from "./lib/closeFlow.ts";
@@ -75,5 +76,6 @@ function EditorWindow() {
 
 const root = document.getElementById("root");
 if (!root) throw new Error("Nonoka X editor root element is missing");
+installScrollbarHover();
 createRoot(root).render(<EditorWindow />);
 void installWindowsTitlebar();

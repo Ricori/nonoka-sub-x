@@ -805,7 +805,6 @@ body.ctx-open .professional-editor .topbar {
   gap: 8px;
   min-width: 0;
   overflow-x: auto;
-  scrollbar-width: thin;
 }
 
 .professional-editor .sb-row.wrap {
@@ -2021,8 +2020,6 @@ body.ctx-open .professional-editor .topbar {
   min-width: 0;
   min-height: 0;
   overflow-y: auto;
-  scrollbar-width: thin;
-  scrollbar-color: color-mix(in srgb, var(--text) 26%, transparent) transparent;
 }
 
 .professional-editor .side-page>.side-panel:only-child {
@@ -2940,8 +2937,6 @@ body.ctx-open .professional-editor .topbar {
   font-family: var(--font-ui);
   font-size: 13px;
   line-height: 1.5;
-  scrollbar-width: thin;
-  scrollbar-color: color-mix(in srgb, var(--text) 26%, transparent) transparent;
 }
 
 .professional-editor .textfield textarea:hover {
@@ -2971,8 +2966,16 @@ body.ctx-open .professional-editor .topbar {
 .professional-editor .seg-list {
   padding: 6px 0;
   overflow-y: auto;
-  scrollbar-width: thin;
-  scrollbar-color: color-mix(in srgb, var(--text) 26%, transparent) transparent;
+}
+
+/* 字幕列表的滚动条常驻，不跟全局的悬停才显示 */
+.professional-editor .seg-list::-webkit-scrollbar-thumb {
+  background-color: color-mix(in srgb, var(--text) 26%, transparent);
+}
+
+.professional-editor .seg-list::-webkit-scrollbar-thumb:hover,
+.professional-editor .seg-list::-webkit-scrollbar-thumb:active {
+  background-color: color-mix(in srgb, var(--text) 42%, transparent);
 }
 
 /* 查找 / 替换条：两行输入框右侧的按钮区等宽，输入框左右都对齐 */
@@ -3309,13 +3312,13 @@ body.ctx-open .professional-editor .topbar {
 }
 
 /* 纵向滚动条：贴右边，从时间刻度下方起（top 跟 --ruler-h 走），底边让开横向滚动条。
-       宽度与配色跟横向那条（scrollbar-width:thin + scrollbar-color:var(--line)）对齐；
+       宽度与配色跟横向那条对齐；
        平时隐身，鼠标进轨道区才淡入，拖动中（.show）不受鼠标是否还在区内影响 */
 .professional-editor .vscroll {
   position: absolute;
   right: 0;
   top: var(--ruler-h);
-  width: 10px;
+  width: 8px;
   z-index: 6;
   opacity: 0;
   pointer-events: none;
@@ -3334,16 +3337,16 @@ body.ctx-open .professional-editor .topbar {
 
 .professional-editor .vthumb {
   position: absolute;
-  left: 1px;
-  right: 1px;
-  border-radius: 3px;
-  background: var(--line);
+  left: 2px;
+  right: 2px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--text) 26%, transparent);
   cursor: default;
 }
 
 .professional-editor .vthumb:hover,
 .professional-editor .vthumb.drag {
-  background: var(--faint);
+  background: color-mix(in srgb, var(--text) 42%, transparent);
 }
 
 /* 轨道行间拖拽手柄：只在最左标签栏处（宽度同 tl-labels），拖动改所在行高度 */
@@ -3708,8 +3711,6 @@ body.ctx-open .professional-editor .topbar {
   min-width: 0;
   overflow-x: auto;
   overflow-y: hidden;
-  scrollbar-width: thin;
-  scrollbar-color: color-mix(in srgb, var(--text) 26%, transparent) transparent;
   position: relative;
 }
 
@@ -3977,16 +3978,6 @@ body.ctx-open .professional-editor .topbar {
 .editor-page textarea {
   -webkit-user-select: text;
   user-select: text;
-}
-
-/* Thin, theme-tinted scrollbars everywhere. scrollbar-color inherits from the
-   page element; scrollbar-width does not, hence the `*`. */
-.editor-page * {
-  scrollbar-width: thin;
-}
-
-.editor-page body {
-  scrollbar-color: color-mix(in srgb, var(--text) 26%, transparent) transparent;
 }
 
 .editor-page body.light {

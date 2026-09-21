@@ -1550,16 +1550,6 @@ pre,
   user-select: text;
 }
 
-/* Thin, theme-tinted scrollbars in place of the wide grey Windows default.
-   scrollbar-color inherits from body; scrollbar-width does not, hence the `*`. */
-* {
-  scrollbar-width: thin;
-}
-
-body {
-  scrollbar-color: color-mix(in srgb, var(--text) 26%, transparent) transparent;
-}
-
 button,
 input,
 select {
@@ -1763,7 +1753,6 @@ html.wails-fullscreen #wails-window-controls {
   max-height: min(240px, 28vh);
   overflow-x: hidden;
   overflow-y: auto;
-  scrollbar-width: thin;
 }
 
 .sidebar nav {

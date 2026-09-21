@@ -76,7 +76,7 @@ export const LAYOUT_KEY = "ytEditorLayout";
 /** 横向滚动条高度：在轨道区底部预留同高沟槽，避免滚动条盖住最后一条轨道 */
 export const SB = typeof document === "undefined" ? 0 : (() => {
   const d = document.createElement("div");
-  d.style.cssText = "position:absolute;top:-9999px;overflow-x:scroll;scrollbar-width:thin;width:100px;height:100px;";
+  d.style.cssText = "position:absolute;top:-9999px;overflow-x:scroll;width:100px;height:100px;";
   document.body.appendChild(d);
   const h = d.offsetHeight - d.clientHeight;
   d.remove();

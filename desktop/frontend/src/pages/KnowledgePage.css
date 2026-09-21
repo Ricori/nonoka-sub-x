@@ -29,7 +29,7 @@
 .knowledge-filters button.active { background: var(--raised); color: var(--accent); border-color: var(--line-soft); font-weight: 600; }
 .knowledge-list-caption { display: flex; justify-content: space-between; margin: 0 10px 10px; color: var(--faint); font-size: 10px; }
 .knowledge-list-caption small { font-size: inherit; }
-.knowledge-entries { max-height: 64vh; overflow: auto; scrollbar-width: thin; }
+.knowledge-entries { max-height: 64vh; overflow: auto; }
 .knowledge-entries > button { display: flex; align-items: flex-start; gap: 10px; width: 100%; margin-bottom: 5px; text-align: left; padding: 13px 10px; border: 1px solid transparent; background: transparent; color: var(--text); border-radius: 11px; cursor: pointer; transition: background .15s, border-color .15s; }
 .knowledge-entries > button:hover { background: color-mix(in srgb, var(--raised) 65%, transparent); }
 .knowledge-entries > button.selected { background: var(--accent-dim); border-color: var(--accent-line); }
@@ -54,7 +54,7 @@
 .knowledge-save-state { display: flex; align-items: center; gap: 6px; font-size: 10px; }
 .knowledge-save-state.dirty { color: var(--accent2); }
 .knowledge-save-state.dirty i { background: var(--accent2); }
-.knowledge-editor textarea { display: block; flex: 1; width: 100%; min-height: 420px; box-sizing: border-box; padding: 22px 26px; border: 0; outline: none; resize: vertical; background: color-mix(in srgb, var(--bg) 28%, var(--panel)); color: var(--text); font: 13px/2 Consolas, "Microsoft YaHei UI", monospace; tab-size: 2; scrollbar-width: thin; }
+.knowledge-editor textarea { display: block; flex: 1; width: 100%; min-height: 420px; box-sizing: border-box; padding: 22px 26px; border: 0; outline: none; resize: vertical; background: color-mix(in srgb, var(--bg) 28%, var(--panel)); color: var(--text); font: 13px/2 Consolas, "Microsoft YaHei UI", monospace; tab-size: 2; }
 .knowledge-editor textarea:focus { box-shadow: inset 3px 0 var(--accent); }
 .knowledge-editor-footer { display: flex; justify-content: space-between; gap: 8px; padding: 12px 26px; border-top: 1px solid var(--line-soft); color: var(--faint); font-size: 10px; font-variant-numeric: tabular-nums; }
 .knowledge-editor-footer kbd { font: inherit; border: 1px solid var(--line); background: var(--raised); border-radius: 4px; padding: 2px 4px; }

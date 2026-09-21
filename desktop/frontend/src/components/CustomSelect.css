@@ -91,8 +91,6 @@
   background: color-mix(in srgb, var(--panel) 95%, var(--raised));
   box-shadow: 0 18px 44px rgba(0, 0, 0, .38), 0 0 0 1px color-mix(in srgb, var(--text) 3%, transparent);
   animation: custom-select-in .12s ease-out;
-  scrollbar-width: thin;
-  scrollbar-color: color-mix(in srgb, var(--text) 26%, transparent) transparent;
 }
 
 .custom-select-menu[data-side="top"] {

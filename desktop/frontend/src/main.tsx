@@ -6,10 +6,12 @@ import { createRoot } from "react-dom/client";
 import "./styles.css";
 import App from "./app/App.tsx";
 import { installWindowsTitlebar } from "./bridge/window.ts";
+import { installScrollbarHover } from "./app/scrollbars.ts";
 
 const root = document.getElementById("root");
 if (!root) throw new Error("Nonoka X root element is missing");
 
 createRoot(root).render(<App />);
 
+installScrollbarHover();
 void installWindowsTitlebar();
