@@ -6,13 +6,13 @@ import { parseSheet } from '../../../subtitles/styles';
 import { fontsMissing, getPlayRes, getStyleNames } from '../../ass';
 import { video } from '../../lib/media';
 import { boxForLane } from '../../lib/stageHit';
+import type { LaneRef } from '../../lib/stageHit';
 import {
   cloneStyleForLane, materializeMissingStyle, patchStyleFromPanel, stylesInUse, styleFields,
 } from '../../lib/styleEdit';
 import { DEFAULT_EFFECT_TRACK_ID } from '../../../subtitles/effects';
 import { bindStyle } from '../../lib/edits';
 import { docStore } from '../../store/docStore';
-import { stageStore } from '../../store/stageStore';
 import { askModal, modalStore, toast } from '../../store/uiStore';
 import { PropRow, Segmented, SideSection, SliderField, ToggleChip } from '../ui/fields';
 import { ColorField } from '../ui/ColorField';
@@ -49,10 +49,12 @@ const V_ALIGN = [
   { value: 0, title: "底部", label: <svg viewBox="0 0 16 16"><path d="M2.5 13.5h11M6 2.5h4v8H6z" /></svg> },
 ];
 
-export function StyleBar() {
-  // shallowEqual 不吃 null，所以按字段选，别整个 sel 对象比
-  const { trackId, lang } = stageStore.use(
-    s => ({ trackId: s.sel?.trackId ?? "", lang: s.sel?.lang ?? "zh" }), shallowEqual);
+/**
+ * lane 由样式页自己管（当前轨 + 原文/译文），不跟画面里的选中框绑死：
+ * 点别处取消了选中，面板照样能改；点画面里的字幕时样式页会跟过来。
+ */
+export function StyleBar({ lane }: { lane: LaneRef }) {
+  const { trackId, lang } = lane;
   const { styles, version } = docStore.use(
     s => ({ styles: s.styles, version: s.version }), shallowEqual);
   const [missing, setMissing] = useState<string[]>([]);

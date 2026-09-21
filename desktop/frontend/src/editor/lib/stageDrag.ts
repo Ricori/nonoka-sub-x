@@ -6,7 +6,7 @@ import { layoutStore } from '../store/layoutStore';
 import { playStore } from '../store/playStore';
 import { locateSeg } from '../store/docStore';
 import { select, setActiveTrack } from '../store/selectionStore';
-import { selectLane, stageStore } from '../store/stageStore';
+import { clearStageSelection, selectLane, stageStore } from '../store/stageStore';
 import type { Handle } from '../store/stageStore';
 import { pushHistory } from './history';
 import { boxForLane, hitTest, sameLane, subtitleBoxesAt } from './stageHit';
@@ -284,7 +284,11 @@ export function onStagePointerDown(event: React.PointerEvent, stage: HTMLElement
     ? boxes.find(box => sameLane(box, current))?.index
     : undefined;
   const hit = hitTest(boxes, point.x, point.y, cycleFrom);
-  if (!hit) return false;
+  if (!hit) {
+    // 点在画面空白处：取消选中（这次点击照常切播放/暂停）
+    if (current) clearStageSelection();
+    return false;
+  }
   event.preventDefault();
   selectLane({ trackId: hit.trackId, lang: hit.lang });
   beginDrag(event, stage, hit, "move");

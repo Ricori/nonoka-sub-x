@@ -58,7 +58,8 @@ function SideStylePanel() {
   const [lang, setLang] = useState<Lang>("zh");
   const stageSelection = stageStore.use(state => state.sel);
 
-  useEffect(() => { selectLane(laneRef(curTrack, lang)); }, [curTrack, lang]);
+  // 手动切原文/译文算一次选中，画面上把那条框出来；切到这一页本身不选中任何东西
+  const pickLang = (next: Lang) => { setLang(next); selectLane(laneRef(curTrack, next)); };
   useEffect(() => {
     if (!stageSelection) return;
     const ti = stageSelection.trackId === DEFAULT_EFFECT_TRACK_ID
@@ -69,15 +70,15 @@ function SideStylePanel() {
     setLang(stageSelection.lang);
   }, [curTrack, stageSelection]);
 
-  return <div className="side-page">
+  return <div className="side-page side-style-page">
     <div className="side-head">
       <TrackSelect />
       <div className="side-segmented" role="group" aria-label="样式语言轴">
-        <button type="button" className={lang === "ja" ? "on" : ""} onClick={() => setLang("ja")}>原文</button>
-        <button type="button" className={lang === "zh" ? "on" : ""} onClick={() => setLang("zh")}>译文</button>
+        <button type="button" className={lang === "ja" ? "on" : ""} onClick={() => pickLang("ja")}>原文</button>
+        <button type="button" className={lang === "zh" ? "on" : ""} onClick={() => pickLang("zh")}>译文</button>
       </div>
     </div>
-    <div className="side-panel"><StyleBar /></div>
+    <div className="side-panel"><StyleBar lane={laneRef(curTrack, lang)} /></div>
   </div>;
 }
 

@@ -10,6 +10,7 @@ import { patchStyle } from '../lib/styleEdit';
 import { docStore } from '../store/docStore';
 import { playStore } from '../store/playStore';
 import { clearStageSelection, stageStore } from '../store/stageStore';
+import { modalStore } from '../store/uiStore';
 import type { Handle } from '../store/stageStore';
 import type { Seg } from '../types';
 import { hGroupOf, ignoresMarginV } from '../../subtitles/layout';
@@ -34,12 +35,27 @@ export function StageOverlay({ stageRef }: { stageRef: React.RefObject<HTMLDivEl
   const t = playStore.use(s => s.t);   // 换了句子框要跟着换
   docStore.use(s => s.version);     // 改了样式/文本也要重算
 
-  // 方向键在 useShortcuts 里被全局占着（←→ 跳播放头、↑↓ 切句）。挂捕获阶段抢在它前面，
-  // 没选中字幕时原样放行，于是不选中就是原来的行为。
+  // 点画面以外的地方就取消选中。舞台自己的点击由 onStagePointerDown 处理（点空白也会取消）；
+  // 样式页和它弹出的下拉/取色器/弹窗算「还在编辑这条」，不取消
+  useEffect(() => {
+    const keep = ".stage, .side-style-page, .custom-select-menu, .cp-pop, .modal, .ctxmenu";
+    const onDown = (event: PointerEvent) => {
+      if (!stageStore.get().sel) return;
+      const target = event.target instanceof Element ? event.target : null;
+      if (target?.closest(keep)) return;
+      clearStageSelection();
+    };
+    document.addEventListener("pointerdown", onDown, true);
+    return () => document.removeEventListener("pointerdown", onDown, true);
+  }, []);
+
+  // 方向键在 useShortcuts 里被全局占着（←→ 跳播放头、↑↓ 切句）。只有右栏在「样式」页时
+  // 才挂捕获阶段抢过来挪字幕；其他页（尤其「字幕」页）方向键照旧切句、跳播放头。
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (!stageStore.get().sel) return;
-      const tag = document.activeElement?.tagName;
+      const active = document.activeElement;
+      const tag = active?.tagName;
       if (tag === "TEXTAREA" || tag === "INPUT") return;
       if (event.key === "Escape") {
         event.preventDefault();
@@ -53,6 +69,9 @@ export function StageOverlay({ stageRef }: { stageRef: React.RefObject<HTMLDivEl
       };
       const delta = move[event.key];
       if (!delta || event.ctrlKey || event.metaKey || event.altKey) return;
+      if (modalStore.get().sideTab !== "style") return;
+      // 焦点在下拉框上时方向键是给它选项用的
+      if (active?.closest(".custom-select") || document.querySelector(".custom-select-menu")) return;
       // 播放头停在这条 lane 的空隙里：框没画出来，方向键原样交还给全局快捷键
       const lane = stageStore.get().sel;
       if (!lane || !boxForLane(lane)?.seg) return;
