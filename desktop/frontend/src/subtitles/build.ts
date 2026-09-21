@@ -2,7 +2,7 @@ import { ASS_EVENTS_HEAD } from './constants.ts';
 import { DEFAULT_EFFECT_TRACK_ID, resolveLaneEffects } from './effects.ts';
 import { assColorFromHex, assNm, assSec, assTs, assTx, srtTs } from './format.ts';
 import { karaokeTimeline } from './karaoke.ts';
-import { glyphAdvancePx, lineHeightPx } from './metrics.ts';
+import { layoutBlock } from './layout.ts';
 import { assHeadOf, resolveStyleIn } from './styles.ts';
 import type { StyleSheet } from './styles.ts';
 import type {
@@ -112,49 +112,34 @@ function seededRandom(seed: number): () => number {
 interface PositionedGlyph { glyph: string; x: number; y: number; order: number; total: number }
 
 /**
- * libass 不暴露排版坐标，逐字特效只能自己复算一遍。字宽和行高的口径见
- * src/subtitles/metrics.ts：Fontsize 描述的是「asc+desc」而不是 em，早先按 em 估的
- * 那版每个字宽出 14%、行距宽出 18%，整行就是这么被撑开的。
+ * libass 不暴露排版坐标，逐字特效只能自己复算一遍。整块的定位数学在
+ * src/subtitles/layout.ts —— 预览里的直接操控要用同一份，两边不能各算各的。
  *
  * 返回顺序与 karaokeGlyphs 完全一致（都只数可见字形），于是 order 可以直接索引 K 轴。
  */
 function positionedGlyphs(text: string, style: AssStyle, sheet: StyleSheet): PositionedGlyph[] {
-  const rawLines = text.replace(/\r/g, "").split("\n");
-  const visibleTotal = rawLines.reduce((count, line) =>
-    count + Array.from(line).filter(glyph => !/^\s$/u.test(glyph)).length, 0);
+  const block = layoutBlock(text, style, sheet);
+  const visible = (glyph: string) => !/^\s$/u.test(glyph);
+  const visibleTotal = block.lines.reduce((count, line) =>
+    count + line.glyphs.filter(visible).length, 0);
   const result: PositionedGlyph[] = [];
   let order = 0;
-  const lineHeight = lineHeightPx(style.size, style.scy);
-  const blockHeight = Math.max(lineHeight, rawLines.length * lineHeight);
-  const verticalGroup = Math.ceil(style.align / 3);
-  let blockTop = sheet.playRes.y - style.mv - blockHeight;
-  if (verticalGroup === 2) blockTop = (sheet.playRes.y - blockHeight) / 2;
-  else if (verticalGroup === 3) blockTop = style.mv;
-
-  rawLines.forEach((line, lineIndex) => {
-    const glyphs = Array.from(line);
-    const widths = glyphs.map(glyph => glyphAdvancePx(style.font, style.size, style.sp, style.scx, glyph));
-    const lineWidth = widths.reduce((sum, width) => sum + width, 0);
-    const horizontal = ((style.align - 1) % 3) + 1;
-    // libass 是在 [MarginL, PlayResX-MarginR] 之间居中，不是在整幅画面里居中
-    let left = style.ml;
-    if (horizontal === 2) left = style.ml + (sheet.playRes.x - style.ml - style.mr - lineWidth) / 2;
-    else if (horizontal === 3) left = sheet.playRes.x - style.mr - lineWidth;
-    let cursor = left;
-    glyphs.forEach((glyph, glyphIndex) => {
-      const width = widths[glyphIndex];
-      if (!/^\s$/u.test(glyph)) {
+  for (const line of block.lines) {
+    let cursor = line.left;
+    line.glyphs.forEach((glyph, index) => {
+      const width = line.advances[index];
+      if (visible(glyph)) {
         result.push({
           glyph,
           x: cursor + width / 2,
-          y: blockTop + lineIndex * lineHeight + lineHeight / 2,
+          y: line.top + block.lineHeight / 2,
           order: order++,
           total: visibleTotal,
         });
       }
       cursor += width;
     });
-  });
+  }
   return result;
 }
 
@@ -308,7 +293,7 @@ const GENERATORS: Record<string, (line: OutputLine, segment: SubtitleSegment, st
 };
 
 /** 命中的第一个生成型绑定（模板表里的顺序），没有就照常出整句 */
-const generatorOf = (line: OutputLine): SubtitleEffectBinding | undefined =>
+export const generatorOf = (line: OutputLine): SubtitleEffectBinding | undefined =>
   line.effects.find(effect => GENERATORS[effect.templateId]);
 
 /** 有绑定、但样式表里查不到的样式名（这些线会回退到 JP/CN 照常出图） */
@@ -322,20 +307,67 @@ export function unknownStylesOf(source: SubtitleSource, sheet: StyleSheet): stri
   return [...miss];
 }
 
+export interface BuiltCue { segment: SubtitleSegment; t0: number; t1: number; text: string }
+
+/**
+ * 一条输出线上真正会出图的那些句，按时间排好、重叠钳好。
+ *
+ * 预览里的命中测试必须复用它：钳重叠这一步会改出点，自己再算一遍的话，边界处点到的
+ * 会是另一句。
+ */
+export function cuesOf(line: OutputLine): BuiltCue[] {
+  // 组内按时间排：全片一起排会让晚开口的高优先级线被挤走
+  const cues = line.arr.filter(s => (s[line.lang] || "").trim())
+    .map(s => ({ segment: s, t0: s.t0, t1: s.t1, text: transformTag(line) + assTx(s[line.lang]) }))
+    .sort((a, b) => a.t0 - b.t0 || a.t1 - b.t1);
+  // 同一条线内相邻句的毫秒级重叠（ASR 数据自带）会被当成碰撞，
+  // 把后一句整句顶离贴边位——前句出点一律钳到后句入点
+  for (let i = 0; i < cues.length - 1; i++)
+    if (cues[i].t1 > cues[i + 1].t0) cues[i].t1 = cues[i + 1].t0;
+  return cues;
+}
+
+export interface StyleBinding {
+  trackId: string;
+  trackName: string;
+  lang: Lang;
+  /** false = 这条轨绑的是别的名字，只是回退到了这个样式（见 resolveStyleIn） */
+  direct: boolean;
+}
+
+/**
+ * 哪些 lane 正用着这个样式。**被眼睛藏起来的也算**：它一样共用样式，一取消隐藏就看到改动。
+ * 拖动前拿它判断「改这一下会不会牵动别的轨」。
+ */
+export function lanesUsingStyle(source: SubtitleSource, sheet: StyleSheet, name: string): StyleBinding[] {
+  const found: StyleBinding[] = [];
+  const check = (trackId: string, trackName: string, lang: Lang, meta: LaneMeta | undefined) => {
+    if (!meta?.style) return;
+    if (meta.style === name) found.push({ trackId, trackName, lang, direct: true });
+    else if (resolveStyleIn(sheet, meta.style, lang) === name) {
+      found.push({ trackId, trackName, lang, direct: false });
+    }
+  };
+  if (source.trackMeta) {
+    const name0 = trackNameOf(source, -1);
+    check(DEFAULT_EFFECT_TRACK_ID, name0, "zh", source.trackMeta.zh);
+    check(DEFAULT_EFFECT_TRACK_ID, name0, "ja", source.trackMeta.ja);
+  }
+  source.tracks.forEach((track, index) => {
+    const trackId = track.id || `track-${index + 1}`;
+    const trackName = trackNameOf(source, index);
+    check(trackId, trackName, "zh", track.zh);
+    check(trackId, trackName, "ja", track.ja);
+  });
+  return found;
+}
+
 export function buildAssFrom(source: SubtitleSource, sheet: StyleSheet): string {
   const evs: string[] = [];
   for (const L of outputLinesOf(source, sheet)) {
     const generator = generatorOf(L);
     const style = sheet.styleMap[L.style];
-    // 组内按时间排：全片一起排会让晚开口的高优先级线被挤走
-    const g = L.arr.filter(s => (s[L.lang] || "").trim())
-      .map(s => ({ segment: s, t0: s.t0, t1: s.t1, text: transformTag(L) + assTx(s[L.lang]) }))
-      .sort((a, b) => a.t0 - b.t0 || a.t1 - b.t1);
-    // 同一条线内相邻句的毫秒级重叠（ASR 数据自带）会被当成碰撞，
-    // 把后一句整句顶离贴边位——前句出点一律钳到后句入点
-    for (let i = 0; i < g.length - 1; i++)
-      if (g[i].t1 > g[i + 1].t0) g[i].t1 = g[i + 1].t0;
-    for (const e of g) {
+    for (const e of cuesOf(L)) {
       const built = generator && style
         ? GENERATORS[generator.templateId](L, { ...e.segment, t0: e.t0, t1: e.t1 }, style, sheet, generator)
         : [{ layer: 0, t0: e.t0, t1: e.t1, text: e.text }];

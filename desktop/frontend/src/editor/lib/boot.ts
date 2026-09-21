@@ -4,7 +4,6 @@ import { mediaLibrary } from "../../bridge/library.ts";
 import { backHome, getVid, setLoadedDocument } from "../session";
 import { bumpDoc, docStore } from "../store/docStore";
 import { setLoadedState, saveStore } from "../store/saveStore";
-import { loadStyleSheet } from "../store/styleStore";
 import { select, selStore } from "../store/selectionStore";
 import { askStore, ctxStore, modalStore, toast, toastStore } from "../store/uiStore";
 import { videoStore } from "../store/videoStore";
@@ -12,6 +11,7 @@ import { ensureBlkWin, relayout, setDuration, syncZoomRange, viewStore } from ".
 import { playStore } from "../store/playStore";
 import { clampN, errText } from "../utils";
 import { unknownStyles } from "./assBuild";
+import { machineDefaultStyles, setDocStyles } from "./styleEdit";
 import { migrateLegacyFadeBindings, normalizeEffectBindings } from "../../subtitles/effects";
 import { normalizeKaraoke } from "../../subtitles/karaoke";
 import { initSubtitles, preloadSubtitles, refreshFontMetrics } from "./subtitles";
@@ -69,13 +69,14 @@ export async function runBootSequence() {
   try {
     setupVideo().catch((error) => showVideoFallback(false, "视频加载失败：" + errText(error)));
     preloadSubtitles().catch(() => undefined);
-    // 样式表存在本机，和文档一起装载：轨道绑定要靠它判断有没有落空
     const [data, peaks] = await Promise.all([
       documents.read(videoID),
       documents.peaks(videoID),
-      loadStyleSheet(),
     ]);
     setLoadedDocument(data);
+    // 样式表跟着视频走。老文档和云端投影下来的那些没有这个字段，拿本机默认模板当种子——
+    // 只装进内存不标脏：只看不改就关掉的文档不该平白 bump 一次 rev、多出一份历史快照。
+    const styles = data.styles?.trim() ? data.styles : await machineDefaultStyles();
 
     const segs = mapSegs(data.subtitles);
     const fadeMs = (value: unknown) => Math.min(60_000, Math.max(0, Math.round(Number(value) || 0)));
@@ -131,6 +132,7 @@ export async function runBootSequence() {
       knowledgeLearning: { status: "idle" },
       peaks,
     });
+    setDocStyles(styles, { dirty: false });
     resetAutoGain();
     setDuration(peaks?.duration || (segs.length ? segs[segs.length - 1].t1 + 2 : 60));
 
@@ -148,10 +150,10 @@ export async function runBootSequence() {
     ensureBlkWin(true);
     if (segs.length) select(0);
     setLoadedState();
-    // 云端同步下来的文档常绑着本机没有的样式：照常出图（回退 JP/CN），但得说一声
+    // 云端投影下来的文档常绑着这份样式表里没有的样式：照常出图（回退 JP/CN），但得说一声
     const unknown = unknownStyles();
     if (unknown.length) {
-      toast("本机样式表里没有 " + unknown.join("、") + "，相关轨道已回退到默认 JP/CN 样式 · 点此编辑样式",
+      toast("这个视频的样式表里没有 " + unknown.join("、") + "，相关轨道已回退到默认 JP/CN 样式 · 点此编辑样式",
         true, () => modalStore.set({ tplOpen: true }));
     }
   } catch (error) {

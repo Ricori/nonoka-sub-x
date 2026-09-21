@@ -39,11 +39,7 @@ export const errText = (e: any) => String(e?.message || e || "未知错误")
 // 时间码与字段转义搬到了 src/subtitles/format.ts（插件宿主共用同一份），按原名再导出。
 export { assNm, assSec, assTs, assTx } from '../subtitles/format.ts';
 
-/** ASS 颜色 &HAABBGGRR（AA 可省，00=不透明 FF=全透明）→ {css, rgb} */
-export function assColor(c: string): { css: string; rgb: [number, number, number] } {
-  const m = /&h([0-9a-f]{2})?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})\b/i.exec((c || "").trim());
-  if (!m) return { css: "#ffffff", rgb: [255, 255, 255] };
-  const a = m[1] ? (255 - parseInt(m[1], 16)) / 255 : 1;
-  const b = parseInt(m[2], 16), g = parseInt(m[3], 16), r = parseInt(m[4], 16);
-  return { css: a >= 0.999 ? `rgb(${r},${g},${b})` : `rgba(${r},${g},${b},${a.toFixed(3)})`, rgb: [r, g, b] };
-}
+// ASS 颜色（&HAABBGGRR，AA 是透明度而非不透明度）搬到了 src/subtitles/color.ts，
+// 取色器、拼装管线与插件宿主共用同一份，这里按原名再导出。
+export { cssOf, formatAssColor, hexOf, parseAssColor, parseCssHex } from '../subtitles/color.ts';
+export type { Rgba } from '../subtitles/color.ts';

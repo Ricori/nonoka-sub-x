@@ -73,6 +73,8 @@ function savePayload() {
       name: "默认轨", ja: { hidden: false, style: "JP" }, zh: { hidden: false, style: "CN" },
     },
     effects: d.effects,
+    // sidecar 的 save() 只认显式列出的字段，靠 ...base 展开是带不过去的
+    styles: d.styles,
   };
 }
 

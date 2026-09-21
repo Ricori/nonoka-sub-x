@@ -41,6 +41,8 @@ export interface EditDocument {
   tracks: EditTrack[];
   track_meta: { name: string; ja: LaneMeta; zh: LaneMeta };
   effects?: SubtitleEffectBinding[];
+  /** 这个视频的 [V4+ Styles] 原文；老文档没有，打开时拿本机默认模板当种子 */
+  styles?: string;
   projection: { schema: 1; mode: "stable" | "final" };
   created_at?: string;
   updated_at?: string;

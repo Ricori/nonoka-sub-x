@@ -148,6 +148,10 @@ class DocumentStore:
                 incoming["tracks"] = copy.deepcopy(current.get("tracks", []))
                 incoming["track_meta"] = copy.deepcopy(current.get("track_meta", incoming.get("track_meta")))
                 incoming["effects"] = copy.deepcopy(current.get("effects", incoming.get("effects", [])))
+                # 样式表跟着视频走，重新投影只换字幕内容，不该把用户调好的样式冲掉
+                styles = current.get("styles", incoming.get("styles"))
+                if styles is not None:
+                    incoming["styles"] = styles
                 incoming["rev"] = int(current.get("rev", 0)) + 1
                 incoming["created_at"] = current.get("created_at", incoming["created_at"])
                 self._snapshot(directory, current)
@@ -169,6 +173,7 @@ class DocumentStore:
         track_meta: Mapping[str, Any] | None = None,
         effects: list[dict[str, Any]] | None = None,
         title: str | None = None,
+        styles: str | None = None,
     ) -> dict[str, Any]:
         with self._lock(video_id):
             current = self.read(video_id)
@@ -186,6 +191,8 @@ class DocumentStore:
                 updated["effects"] = copy.deepcopy(effects)
             if title is not None:
                 updated["title"] = title
+            if styles is not None:
+                updated["styles"] = styles
             updated["rev"] = actual + 1
             updated["updated_at"] = _timestamp()
             _atomic_json(self.directory(video_id) / "document.json", updated)

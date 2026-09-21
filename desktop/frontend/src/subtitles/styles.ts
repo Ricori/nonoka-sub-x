@@ -1,13 +1,13 @@
 import { ASS_FMT_DEFAULT, ASS_STYLE_FORMAT, BUILTIN_ASS_STYLES } from './constants.ts';
 import type { AssStyle, Lang } from './types.ts';
 
-// 样式表解析与合成（预览渲染 + 绑定下拉 + 导出 + 插件宿主共用）。样式存在本机
-// （见 editor/store/styleStore），这里只管把「本机样式表 + 写死的 JP/CN」合成一份
-// StyleSheet：解析、规范化的 [V4+ Styles] 段、以及导出时的 ASS 头都由它给出。
-// 编辑器把结果放进模块级单例（editor/ass.ts），插件宿主则按需现合成一份。
+// 样式表解析与合成（预览渲染 + 绑定下拉 + 导出 + 插件宿主共用）。样式表跟着视频走，
+// 存在文档的 styles 字段里（见 editor/lib/styleEdit），这里只管把「文档那份 + 写死的
+// JP/CN」合成一份 StyleSheet：解析、规范化的 [V4+ Styles] 段、以及导出时的 ASS 头
+// 都由它给出。编辑器把结果放进模块级单例（editor/ass.ts），插件宿主则按需现合成一份。
 
 /** 一条 Style 行拆成「字段名 → 原文」，保留 AssStyle 里没有的字段（副色/描边样式/编码等） */
-type StyleFields = Record<string, string>;
+export type StyleFields = Record<string, string>;
 
 export interface Sheet {
   order: string[];
@@ -24,7 +24,7 @@ export interface StyleSheet {
 }
 
 /** Format 行没列到的字段用这里的值补齐，取值同 Aegisub 新建样式 */
-const FIELD_FALLBACK: Record<string, string> = {
+export const FIELD_FALLBACK: Record<string, string> = {
   name: "", fontname: "方正准圆_GBK", fontsize: "70",
   primarycolour: "&H00FFFFFF", secondarycolour: "&H000000FF",
   outlinecolour: "&H00000000", backcolour: "&H00000000",
@@ -82,7 +82,7 @@ function toStyle(name: string, f: StyleFields): AssStyle {
 }
 
 /** 按标准 23 字段顺序重新拼一行，Format 顺序被改过的外来样式也能原样落地 */
-const styleLine = (name: string, f: StyleFields) =>
+export const styleLine = (name: string, f: StyleFields) =>
   "Style: " + ASS_FMT_DEFAULT.map(k => (k === "name" ? name : f[k] ?? FIELD_FALLBACK[k])).join(",");
 
 /**

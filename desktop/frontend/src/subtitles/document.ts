@@ -21,14 +21,22 @@ export function sourceOfDocument(document: EditDocument): SubtitleSource {
   return source;
 }
 
-/** 本机样式表原文（可能是空串：还没存过就用种子），与 styleStore 的口径一致 */
-export const styleSheetText = (stored: string) => (stored.trim() ? stored : DEFAULT_STYLE_SHEET);
+/**
+ * 该用哪份样式表：文档自带的优先，其次是传进来的本机默认模板（老文档还没有 styles
+ * 字段时就走它，与编辑器打开文档时的种子口径一致），最后才是写死的那套。
+ */
+export const styleSheetText = (docStyles?: string, fallback?: string) =>
+  docStyles?.trim() || fallback?.trim() || DEFAULT_STYLE_SHEET;
 
 export interface SubtitleRange { t0: number; t1: number }
 
-/** 文档 + 本机样式表 → ASS，与编辑器导出的那份逐字相同 */
-export function documentAss(document: EditDocument, stored: string, range?: SubtitleRange): string {
-  const full = buildAssFrom(sourceOfDocument(document), composeSheet(styleSheetText(stored)));
+/**
+ * 文档 → ASS，与编辑器导出的那份逐字相同。
+ * fallback 是「本机默认模板」，只在文档还没有自己那份样式表时才用得上。
+ */
+export function documentAss(document: EditDocument, fallback?: string, range?: SubtitleRange): string {
+  const sheet = composeSheet(styleSheetText(document.styles, fallback));
+  const full = buildAssFrom(sourceOfDocument(document), sheet);
   return range ? clipAss(full, range.t0, range.t1) : full;
 }
 

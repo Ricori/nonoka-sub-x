@@ -6,8 +6,8 @@ import { closeTrackPop, modalStore } from '../store/uiStore';
 import type { Lang } from '../types';
 
 /**
- * 样式下拉。本机样式表里没有的绑定值一律显示成回退后的 JP/CN——预览和导出就是这么出的
- * （见 ass.ts::resolveStyle），下拉再显示那个查无此人的名字只会让两边对不上。
+ * 样式下拉。这个视频的样式表里没有的绑定值一律显示成回退后的 JP/CN——预览和导出就是
+ * 这么出的（见 ass.ts::resolveStyle），下拉再显示那个查无此人的名字只会让两边对不上。
  */
 function effStyle(value: string | null | undefined, allowNone: boolean, lang: Lang) {
   const v = value || "";

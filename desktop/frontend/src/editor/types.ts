@@ -80,6 +80,8 @@ export interface Snapshot {
   tracks: Track[];
   trackMeta: TrackMeta | null;
   effects: import('../subtitles/types.ts').SubtitleEffectBinding[];
+  /** 样式表是文档字段，拖字幕改的就是它，所以撤销要一起回退 */
+  styles: string;
   curTrack: number;
   sel: number;
   t: number;

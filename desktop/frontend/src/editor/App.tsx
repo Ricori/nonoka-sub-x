@@ -10,6 +10,7 @@ import { Toast } from './components/Toast';
 import { TopBar } from './components/TopBar';
 import { TrackPopover } from './components/TrackPopover';
 import { Transport } from './components/Transport';
+import { StyleBar } from './components/stage/StyleBar';
 import { VideoStage } from './components/VideoStage';
 import { AskModal } from './components/modals/AskModal';
 import { CloseModal } from './components/modals/CloseModal';
@@ -63,6 +64,9 @@ export function EditorApp() {
         <div className="main" style={{ gridTemplateColumns: `minmax(0,1fr) 6px ${sideW}px` }}>
           <section className="preview-pane">
             <VideoStage />
+            {/* 选中画面里的字幕才出现。它在流内而不是浮层：舞台会变矮，fitStage 的
+                ResizeObserver 自动重适配，于是字幕本身永远不会被盖住 */}
+            <StyleBar />
             <Transport />
           </section>
 

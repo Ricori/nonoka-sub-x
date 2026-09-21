@@ -41,6 +41,10 @@ STATES = {"queued", "running", "completed", "failed", "cancelled", "interrupted"
 TERMINAL = {"completed", "failed", "cancelled"}
 ARTIFACT_NAMES = {"stable_json", "raw_srt", "annotated_csv", "final_srt"}
 
+# 每个视频自带一份 [V4+ Styles] 原文（字幕长什么样跟着视频走）。上限与本机默认模板
+# 那份保持一致：样式表就是一行 Format 加几十行 Style，超出这个量级的多半是误粘。
+_MAX_STYLES_BYTES = 1 << 20
+
 # FineSub's own `stages.PIPELINE_STAGE_ORDER`, restated because this process
 # cannot import the engine -- it runs on the bootstrap interpreter, while
 # finesub lives in the managed venv the worker is spawned into. A sync that
@@ -961,6 +965,11 @@ class LocalProvider:
         raw_effects = value.get("effects")
         if raw_effects is not None and not isinstance(raw_effects, list):
             raise ProviderError("invalid_document", "Document effects must be a list")
+        raw_styles = value.get("styles")
+        if raw_styles is not None and not isinstance(raw_styles, str):
+            raise ProviderError("invalid_document", "Document styles must be a string")
+        if raw_styles is not None and len(raw_styles.encode("utf-8")) > _MAX_STYLES_BYTES:
+            raise ProviderError("invalid_document", "Document styles sheet is too large")
         try:
             return self.documents.save(
                 video_id,
@@ -970,6 +979,7 @@ class LocalProvider:
                 track_meta=value.get("track_meta") if isinstance(value.get("track_meta"), Mapping) else None,
                 effects=list(raw_effects or []),
                 title=str(value["title"]) if "title" in value else None,
+                styles=raw_styles,
             )
         except RevisionConflict as exc:
             raise ProviderError("revision_conflict", str(exc), http_status=409) from exc

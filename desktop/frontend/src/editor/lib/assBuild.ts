@@ -17,8 +17,8 @@ export const docSource = (): SubtitleSource => {
 export const outputLines = (): OutputLine[] => outputLinesOf(docSource(), getStyleSheet());
 
 /**
- * 有绑定、但本机样式表里查不到的样式名。这些线会回退到 JP/CN 照常出图（见 outputLines），
- * 换了副样子却一声不响，所以打开文档时得拿它提一句。
+ * 有绑定、但这个视频的样式表里查不到的样式名。这些线会回退到 JP/CN 照常出图
+ * （见 outputLines），换了副样子却一声不响，所以打开文档时得拿它提一句。
  */
 export const unknownStyles = (): string[] => unknownStylesOf(docSource(), getStyleSheet());
 

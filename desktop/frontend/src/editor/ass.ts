@@ -1,11 +1,12 @@
 import { BUNDLED_FONTS } from './constants.ts';
-import { assColor } from './utils.ts';
+import { parseAssColor } from '../subtitles/color.ts';
 import { assHeadOf, composeSheet, resolveStyleIn } from '../subtitles/styles.ts';
 import type { StyleSheet } from '../subtitles/styles.ts';
 import type { Lang } from './types';
 
-// 本机样式表的模块级单例：样式是全局的，一份解析全编辑器共用。解析、合并与 ASS 头
-// 的拼法都在 src/subtitles/styles.ts（插件宿主共用同一份），这里只管「当前装的是哪一份」。
+// 当前文档那份样式表的模块级单例：同一个编辑器窗口只开一个视频，所以一份解析全窗口共用。
+// 解析、合并与 ASS 头的拼法都在 src/subtitles/styles.ts（插件宿主共用同一份），这里只管
+// 「当前装的是哪一份」。写入口在 editor/lib/styleEdit（要连 docStore 一起更新）。
 
 export { mergeStyleText, parseSheet } from '../subtitles/styles.ts';
 
@@ -34,7 +35,7 @@ export const assHead = () => assHeadOf(sheet);
 /** 样式的主色，统一成 rgb() 形式（调用方要拆出 "r,g,b" 拼透明度） */
 export function styleRgb(name: string | null, fallback: string): string {
   const st = name ? sheet.styleMap[name] : null;
-  if (st) { const c = assColor(st.c1); return `rgb(${c.rgb.join(",")})`; }
+  if (st) { const c = parseAssColor(st.c1); return `rgb(${c.r},${c.g},${c.b})`; }
   return fallback;
 }
 

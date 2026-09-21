@@ -23,6 +23,7 @@ const (
 	maxDocumentSegments = 200_000
 	maxSubtitleBytes    = 16 << 20
 	maxTitleRunes       = 200
+	maxStyleSheetBytes  = 1 << 20
 )
 
 // documentStore is the sidecar-backed subtitle document contract. Only the two
@@ -236,6 +237,16 @@ func documentPayload(document map[string]any) (map[string]any, error) {
 			return nil, fmt.Errorf("document title must be text of at most %d characters", maxTitleRunes)
 		}
 		payload["title"] = title
+	}
+	if raw, present := document["styles"]; present && raw != nil {
+		styles, valid := raw.(string)
+		if !valid {
+			return nil, errors.New("document styles must be text")
+		}
+		if len(styles) > maxStyleSheetBytes {
+			return nil, fmt.Errorf("document styles must be at most %d bytes", maxStyleSheetBytes)
+		}
+		payload["styles"] = styles
 	}
 	return payload, nil
 }

@@ -227,10 +227,10 @@ def _new_track(index: int, name: str, segments: list[dict[str, Any]]) -> dict[st
     return {
         "id": f"axis{index}",
         "name": name,
-        # Styles are the editor's to assign: a name from the machine-level
-        # `styles.ass` may not exist here, and JP/CN are the only two guaranteed
-        # to resolve. `null` on the source lane matches what the editor writes
-        # for a track it creates itself.
+        # Styles are the editor's to assign: a name only exists inside a given
+        # document's own style sheet, and JP/CN are the only two guaranteed to
+        # resolve anywhere. `null` on the source lane matches what the editor
+        # writes for a track it creates itself.
         "ja": {"hidden": False, "style": None},
         "zh": {"hidden": False, "style": None},
         "hja": 44,

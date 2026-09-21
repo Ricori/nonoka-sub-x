@@ -1,4 +1,5 @@
 import { HISTORY_MAX } from '../constants';
+import { setStyleSheet } from '../ass';
 import { bumpDoc, docStore } from '../store/docStore';
 import { playStore } from '../store/playStore';
 import { markDirty } from '../store/saveStore';
@@ -53,6 +54,7 @@ export function snapshot(): Snapshot {
       target: { ...effect.target },
       params: { ...effect.params },
     })),
+    styles: d.styles,   // 不可变字符串，快照只多一个引用
     curTrack: sel.curTrack, sel: sel.sel, t: playStore.get().t,
   };
 }
@@ -82,7 +84,10 @@ function applySnap(snap: Snapshot) {
     tracks: snap.tracks || [],
     trackMeta: snap.trackMeta ?? null,
     effects: snap.effects ?? [],
+    styles: snap.styles,
   });
+  // 渲染读的是 ass.ts 的单例：必须赶在下面 syncSubs 之前换回去，否则重画用的还是新样式
+  setStyleSheet(snap.styles);
   const curTrack = Math.min(snap.curTrack != null ? snap.curTrack : -1, snap.tracks.length - 1);
   restoreSelection(curTrack, -1);
   const sel = Math.min(snap.sel, curSegs().length - 1);

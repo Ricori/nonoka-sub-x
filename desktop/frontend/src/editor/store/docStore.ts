@@ -21,6 +21,8 @@ interface DocState {
   tracks: Track[];          // 自定义轨（说话人/注释）
   trackMeta: TrackMeta | null;   // 默认轨展示元数据（存服务端）
   effects: SubtitleEffectBinding[];  // 统一特效模板绑定
+  /** 这个视频的 [V4+ Styles] 原文。样式跟着视频走，不再是机器级全局的那份 */
+  styles: string;
   knowledgeBase: string;    // 本视频转写时选择的知识库
   canLearnKnowledge: boolean;
   knowledgeLearning: KnowledgeLearningState;
@@ -32,7 +34,7 @@ interface DocState {
 }
 
 export const docStore = createStore<DocState>({
-  segs: [], tracks: [], trackMeta: null, effects: [],
+  segs: [], tracks: [], trackMeta: null, effects: [], styles: "",
   knowledgeBase: "", canLearnKnowledge: false, knowledgeLearning: { status: "idle" },
   rev: 0, title: "", videoFp: null, peaks: null, version: 0,
 });
@@ -72,7 +74,7 @@ export function laneColor(ti: Ti, lang: Lang): string {
   const tr = docStore.get().tracks[ti];
   const fb = TRACK_PALETTE[ti % TRACK_PALETTE.length];
   if (!tr) return fb;
-  // 绑了本机没有的样式时跟着预览一起回退到 JP/CN，块的颜色才不会和画面上的字对不上
+  // 绑了样式表里没有的样式时跟着预览一起回退到 JP/CN，块的颜色才不会和画面上的字对不上
   const bound = tr[lang].style || (lang === "ja" ? tr.zh.style : tr.ja.style);
   return styleRgb(bound ? resolveStyle(bound, lang) : null, fb);
 }

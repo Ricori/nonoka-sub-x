@@ -1,7 +1,8 @@
-// Package assstyles owns the machine-local ASS style sheet. Styles used to ride
-// along inside each document as one server-shared, admin-only template; they are
-// now a local asset the user edits freely. It is stored as a plain .ass fragment
-// so the same file can be opened in Aegisub or hand-edited.
+// Package assstyles owns the machine-local *default* ASS style sheet -- the one
+// a newly opened document is seeded from. The sheet a video actually renders
+// with travels inside its own document (the `styles` field); this file only
+// answers "what should a new video start out looking like". It is stored as a
+// plain .ass fragment so the same file can be opened in Aegisub or hand-edited.
 package assstyles
 
 import (

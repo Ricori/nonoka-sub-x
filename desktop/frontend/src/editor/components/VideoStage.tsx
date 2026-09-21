@@ -1,6 +1,8 @@
 import { useEffect, useLayoutEffect, useRef } from 'react';
 import { shallowEqual } from '../../home/lib/createStore';
 import { setSubCanvasEl, setVideoEl } from '../lib/media';
+import { onStagePointerDown, shouldSwallowStageClick } from '../lib/stageDrag';
+import { StageOverlay } from './StageOverlay';
 import { onPauseUI, onPlayUI, resetScrubWarned, setPlaying, isScrubbing } from '../lib/playback';
 import {
   attachChosen, cancelTranscode, pickVideoFile, showPlaybackError, showVideoFallback, transcodeToH264,
@@ -108,8 +110,16 @@ export function VideoStage() {
 
   return (
     <div className="stage-wrap" ref={wrapRef}>
+      {/* 点中字幕就选中并起拖，点空白处照常播放/暂停。pointerdown 和 click 是两个事件，
+          所以用一个标志位吞掉命中后那次 click，stopPropagation 在这里不管用 */}
       <div className="stage" ref={stageRef}
-        onClick={() => setPlaying(!playStore.get().playing)}>
+        onPointerDown={event => {
+          if (stageRef.current) onStagePointerDown(event, stageRef.current);
+        }}
+        onClick={() => {
+          if (shouldSwallowStageClick()) return;
+          setPlaying(!playStore.get().playing);
+        }}>
         <video id="video" ref={videoRef} playsInline preload="auto" src={vs.src || undefined} />
         <div className="vid-cache" id="vid-cache" hidden={!vs.badge}>{vs.badge}</div>
         <div className="vid-fallback" id="vid-fallback" hidden={!vs.fallbackOpen}>
@@ -143,6 +153,7 @@ export function VideoStage() {
           </div>
         </div>
         <div className="sub-overlay" id="sub-overlay"><canvas id="sub-canvas" ref={canvasRef} /></div>
+        <StageOverlay stageRef={stageRef} />
         <div className="sub-busy" id="sub-busy" hidden={!vs.subBusy}>{vs.subBusy}</div>
       </div>
     </div>

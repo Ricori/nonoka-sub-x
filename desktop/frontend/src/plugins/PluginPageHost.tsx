@@ -247,7 +247,7 @@ const integer = (value: unknown): number => (Number.isFinite(Number(value)) ? Ma
 const strings = (value: unknown): string[] =>
   Array.isArray(value) && value.every((item) => typeof item === "string") ? value as string[] : [];
 
-/** 本机 ASS 样式表原文；读不到就让拼装管线用种子兜底，与编辑器同口径 */
+/** 本机默认模板：文档自带样式表时用不上，只给还没迁移过的老文档兜底，与编辑器同口径 */
 const storedStyles = async (): Promise<string> => {
   try {
     return (await assStyles.get()) || "";

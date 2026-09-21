@@ -69,7 +69,7 @@ API v1 认识的权限：
 | `media.import` | 把宿主下载到的文件导入媒体库 |
 | `media.export-video` | 压制字幕导出 MP4 |
 | `document.read` | 读取字幕文档、生成 ASS/SRT |
-| `document.write` | 写回字幕文档（带 rev 乐观锁） |
+| `document.write` | 写回字幕文档（带 rev 乐观锁），含该视频的 ASS 样式表 |
 | `subtitle.export` | 通过保存对话框导出字幕文件 |
 | `ffmpeg.extract-audio` | 用托管 FFmpeg 导出音频 |
 | `tools.yt-dlp` | 执行受控的 yt-dlp 命令 |
@@ -122,9 +122,9 @@ window.nonoka.post("host.getInfo", {});
 - `host.getInfo`：返回主题、locale、插件 ID 和工具 ID。
 - `ui.openPluginManager` / `ui.openLibrary` / `ui.openRuntime`：切到对应的宿主页面，无返回值。
 - `media.list`：需要 `media.list` 权限，返回媒体 ID、标题、时长、画面尺寸和字幕状态，不返回本地路径。
-- `document.read`：需要 `document.read` 权限。参数 `{ mediaId }`，返回该媒体的字幕文档（`rev`、`subtitles`、`tracks`、`track_meta` 等，即编辑器打开的那一份）。
-- `document.save`：需要 `document.write` 权限。参数 `{ mediaId, document }`，宿主只取 `rev`、`subtitles`、`tracks`、`track_meta`、`effects`、`title` 六个字段写回，返回保存后的文档。
-- `subtitle.ass` / `subtitle.srt`：需要 `document.read` 权限。参数 `{ mediaId, t0?, t1?, lang? }`，返回 `{ text, rev }`。字幕由宿主用编辑器那条拼装管线现拼，因此与编辑器导出的逐字相同；给了 `t0`/`t1` 就裁成区间并把时间轴平移到 0，`lang` 只对 SRT 有效（`both` / `zh` / `ja`）。
+- `document.read`：需要 `document.read` 权限。参数 `{ mediaId }`，返回该媒体的字幕文档（`rev`、`subtitles`、`tracks`、`track_meta`、`styles` 等，即编辑器打开的那一份）。
+- `document.save`：需要 `document.write` 权限。参数 `{ mediaId, document }`，宿主只取 `rev`、`subtitles`、`tracks`、`track_meta`、`effects`、`title`、`styles` 七个字段写回，返回保存后的文档。**注意 `styles` 是这个视频的 ASS 样式表原文**：写回它等于改变字幕的长相（字体、字号、颜色、位置），上限 1 MiB。想只改字幕内容就把读到的那份原样带回去。
+- `subtitle.ass` / `subtitle.srt`：需要 `document.read` 权限。参数 `{ mediaId, t0?, t1?, lang? }`，返回 `{ text, rev }`。字幕由宿主用编辑器那条拼装管线现拼，套的是该文档自己的样式表（`styles` 字段，没有则用本机默认模板），因此与编辑器导出的逐字相同；给了 `t0`/`t1` 就裁成区间并把时间轴平移到 0，`lang` 只对 SRT 有效（`both` / `zh` / `ja`）。
 - `subtitle.save`：需要 `subtitle.export` 权限。参数 `{ fileName, content }`，宿主弹保存对话框并落盘，返回最终路径；用户取消时返回空串。扩展名只接受 `.ass` 和 `.srt`，目录由对话框决定。
 - `media.exportVideo`：需要 `media.export-video` 权限。参数 `{ mediaId, ass, fileName?, t0?, t1?, height? }`，宿主用托管的 FFmpeg 把 ASS 压制进视频，返回 `{ path, format, size }`。编码参数（CRF 21、preset medium、AAC 192k）由宿主固定，`height` 只能是 0（原分辨率）或 240–4320。压制期间宿主会向页面推送 `media.progress` 消息（`{ done, total }`，单位秒）。
 - `ffmpeg.extractAudio`：需要 `ffmpeg.extract-audio` 权限。参数为 `{ mediaId, format }`，其中格式只能是 `wav`、`flac`、`mp3` 或 `m4a`。Nonoka Sub X 负责解析输入、选择输出位置、构造 FFmpeg 参数和原子发布结果。
