@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { getStyleNames, resolveStyle } from '../ass';
-import { bindStyle, deleteTrack, renameTarget } from '../lib/edits';
+import { bindStyle, renameTarget } from '../lib/edits';
 import { docStore } from '../store/docStore';
 import { closeTrackPop, modalStore } from '../store/uiStore';
 import type { Lang } from '../types';
@@ -36,7 +36,7 @@ function StyleSelect({ id, value, lang, onPick }: {
   );
 }
 
-/** 轨道设置弹层：改名 / 绑 ASS 样式 / 删轨。改动即时生效 */
+/** 轨道设置弹层：改轨道名 / 绑当前 lane 的 ASS 样式。改动即时生效 */
 export function TrackPopover() {
   const pop = modalStore.use(s => s.trkPop);
   docStore.use(s => s.version);   // 改名/换绑后要跟着刷新
@@ -61,9 +61,10 @@ export function TrackPopover() {
   const tr = isTrack ? tracks[target.ti] : null;
   if (isTrack && !tr) return <div className="trk-pop" id="trk-pop" hidden />;
 
-  const isJa = !isTrack && target.kind === "default" && target.lang === "ja";
+  const { lang } = target;
   const name = isTrack ? (tr!.name || "") : (trackMeta?.name || "默认轨");
   const styleTarget = isTrack ? { kind: "track" as const, ti: target.ti } : { kind: "default" as const };
+  const style = isTrack ? tr![lang].style : (trackMeta?.[lang].style ?? null);
 
   return (
     <div className="trk-pop" id="trk-pop" style={{
@@ -78,21 +79,12 @@ export function TrackPopover() {
           onChange={e => renameTarget(e.target.value, styleTarget)}
           onBlur={e => renameTarget(e.target.value.trim(), styleTarget)} />
       </div>
-      {/* 默认轨 lane：只绑当前语言的样式 */}
-      <div className="tp-lane" style={{ display: isTrack || isJa ? undefined : "none" }}>
-        <label>{isTrack ? "日语字幕样式" : "字幕样式"}</label>
-        <StyleSelect id="tp-style-ja" lang="ja"
-          value={isTrack ? tr!.ja.style : (trackMeta?.ja.style ?? null)}
-          onPick={v => bindStyle("ja", v, styleTarget)} />
+      {/* 只绑齿轮所在那一行（原文 / 译文）的样式 */}
+      <div className="tp-lane">
+        <label>{lang === "ja" ? "原文样式" : "译文样式"}</label>
+        <StyleSelect id="tp-style" lang={lang} value={style}
+          onPick={v => bindStyle(lang, v, styleTarget)} />
       </div>
-      <div className="tp-lane" style={{ display: isTrack || !isJa ? undefined : "none" }}>
-        <label>{isTrack ? "中文译文样式" : "字幕样式"}</label>
-        <StyleSelect id="tp-style-zh" lang="zh"
-          value={isTrack ? tr!.zh.style : (trackMeta?.zh.style ?? null)}
-          onPick={v => bindStyle("zh", v, styleTarget)} />
-      </div>
-      <button className="btn danger" id="tp-delete" style={{ display: isTrack ? undefined : "none" }}
-        onClick={() => { closeTrackPop(); if (isTrack) void deleteTrack(target.ti); }}>删除轨道</button>
     </div>
   );
 }

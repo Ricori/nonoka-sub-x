@@ -63,9 +63,9 @@ export type { AssStyle } from '../subtitles/types.ts';
 /** ti：-1 = 默认轨，>=0 = tracks 下标 */
 export type Ti = number;
 
-/** 轨道设置弹层的作用对象 */
+/** 轨道设置弹层的作用对象：哪条轨道的哪一行（lane） */
 export type TrackPopTarget =
-  | { kind: "track"; ti: number }
+  | { kind: "track"; ti: number; lang: Lang }
   | { kind: "default"; lang: Lang };
 
 export type CtxItem = "-" | { label: string; onClick: () => void; danger?: boolean };

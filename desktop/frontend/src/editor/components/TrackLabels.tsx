@@ -94,13 +94,13 @@ function TrackLabel({ r, cur }: { r: RowSpec; cur: boolean }) {
       <span className="tname" title={isDefault ? "点击切换列表到默认轨" : full + "（点击切换列表到此轨道）"}
         onClick={() => setActiveTrack(ti)}>{full}</span>
       <button className={"lbtn eye" + (hidden ? " off" : "")}
-        title={"隐藏/显示" + (lang === "ja" ? "原文" : "译文") + (isDefault ? "轨" : " lane")}
+        title={hidden ? "显示轨道" : "隐藏轨道"}
         onClick={() => isDefault ? toggleDefaultHidden(lang) : toggleTrackHidden(ti, lang)}>
         <EyeIcon off={hidden} />
       </button>
-      <button className="lbtn gear" title={isDefault ? "绑定 ASS 样式" : "轨道设置"}
+      <button className="lbtn gear" title="轨道设置"
         onClick={e => openTrackPop(
-          isDefault ? { kind: "default", lang } : { kind: "track", ti }, e.currentTarget)}>
+          isDefault ? { kind: "default", lang } : { kind: "track", ti, lang }, e.currentTarget)}>
         <GearIcon />
       </button>
     </div>

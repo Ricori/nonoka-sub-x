@@ -78,7 +78,43 @@ export function deleteSegment() {
   toast(n > 1 ? ("已删除 " + n + " 句") : "已删除 1 句");
 }
 
-// ── 拆分：只按时间把一个轴切成两个，两侧都保留同一句原文与译文 ──
+const SPLIT_PUNCT = "、。，,．.！!？?；;：:…‥";
+/** 断句标点后面顺带吃进前半句的收尾字符（后引号、括号、空白） */
+const SPLIT_TRAIL = "」』）)】〕”’\"' 　";
+
+/**
+ * 在最接近 ratio（0..1，按字数比例）的标点处把文本切成两半；句末标点不算。
+ * 一处都切不开就返回 null，调用方两侧都保留整句。
+ */
+export function splitTextAtPunct(text: string, ratio: number): [string, string] | null {
+  const len = text.length;
+  let best = -1, bestDist = Infinity;
+  for (let i = 0; i < len; i++) {
+    const ch = text[i];
+    if (!SPLIT_PUNCT.includes(ch)) continue;
+    // 3.5 / 1,000 之类数字里的点和逗号不是断句
+    if ((ch === "." || ch === ",") && /\d/.test(text[i - 1] ?? "") && /\d/.test(text[i + 1] ?? "")) continue;
+    let cut = i + 1;
+    while (cut < len && (SPLIT_PUNCT.includes(text[cut]) || SPLIT_TRAIL.includes(text[cut]))) cut++;
+    if (cut >= len || !text.slice(0, cut).trim() || !text.slice(cut).trim()) continue;
+    const dist = Math.abs(cut / len - ratio);
+    if (dist < bestDist) { best = cut; bestDist = dist; }
+  }
+  return best < 0 ? null : [text.slice(0, best).trimEnd(), text.slice(best).trimStart()];
+}
+
+/** 原文被切开后 K 轴跟着按字切；切点不落在单元边界上就对不齐，只能丢掉 */
+function splitKAt(k: NonNullable<Seg["k"]>, ja: string, head: string, t: number) {
+  if (k.map(u => u.text).join("") !== ja) return null;
+  let n = 0, i = 0;
+  while (i < k.length && n + k[i].text.length <= head.length) n += k[i++].text.length;
+  if (n !== head.length) return null;
+  const a = k.slice(0, i).map(u => ({ ...u, t1: Math.min(u.t1, t) }));
+  const b = k.slice(i).map(u => ({ ...u, t0: Math.max(u.t0, t) }));
+  return a.length && b.length ? [a, b] : null;
+}
+
+// ── 拆分：原文、译文各自在标点处断开；没有可断的标点就两侧保留整句 ──
 export function splitAtPlayhead() {
   const arr = curSegs();
   const { sel } = selStore.get();
@@ -87,15 +123,27 @@ export function splitAtPlayhead() {
   const t = playStore.get().t;
   if (t <= s.t0 + MIN_DUR || t >= s.t1 - MIN_DUR) { toast("请把当前位置移到本句中间再拆分"); return; }
   pushHistory();
-  const b: Seg = { t0: t, t1: s.t1, ja: s.ja, zh: s.zh };
-  if (s.words) b.words = s.words.map(w => ({ ...(w as object) }));
-  // 两侧都留同一句原文，K 轴也跟着整份留下：字数没变，逐字特效照旧对得上
-  if (s.k) b.k = s.k.map(u => ({ ...u }));
+  const ratio = (t - s.t0) / (s.t1 - s.t0);
+  const ja = splitTextAtPunct(s.ja, ratio);
+  const zh = splitTextAtPunct(s.zh, ratio);
+  const b: Seg = { t0: t, t1: s.t1, ja: ja ? ja[1] : s.ja, zh: zh ? zh[1] : s.zh };
+  if (ja) {
+    // 原文变了，词级时间戳对不上了；K 轴能按字切开就切，切不开就丢
+    const k = s.k && splitKAt(s.k, s.ja, ja[0], t);
+    if (k) { s.k = k[0]; b.k = k[1]; } else delete s.k;
+    delete s.words;
+    s.ja = ja[0];
+  } else {
+    if (s.words) b.words = s.words.map(w => ({ ...(w as object) }));
+    // 两侧都留同一句原文，K 轴也跟着整份留下：字数没变，逐字特效照旧对得上
+    if (s.k) b.k = s.k.map(u => ({ ...u }));
+  }
+  if (zh) s.zh = zh[0];
   if (s.low_conf) b.low_conf = true;
   s.t1 = t;
   arr.splice(sel + 1, 0, b);
   refreshAll(); markDirty();
-  toast("已在当前位置拆分（两侧保留同一句）");
+  toast(ja || zh ? "已在当前位置按标点拆分" : "已在当前位置拆分（两侧保留同一句）");
 }
 
 // ── 合并：words 双方都有才拼接，否则丢掉 ──
@@ -214,8 +262,7 @@ export function toggleTrackHidden(ti: number, lang: Lang) {
 }
 
 /**
- * 一键隐藏所有原文轨。轨道多了以后原文 lane 占掉一半高度。等同于逐条点眼睛：
- * hidden 置位存服务端，预览与导出同步不出原文
+ * 一键隐藏所有原文轨
  */
 export function toggleFoldJa() {
   const { trackMeta, tracks } = docStore.get();
@@ -224,7 +271,7 @@ export function toggleFoldJa() {
   trackMeta.ja.hidden = hide;
   tracks.forEach(tr => { tr.ja.hidden = hide; });
   refreshAll(); markDirty();
-  toast(hide ? "已隐藏所有原文轨（预览与导出同步不出原文）" : "已显示所有原文轨");
+  toast(hide ? "已隐藏所有原文轨" : "已显示所有原文轨");
 }
 
 // ── 轨道增删（换轨靠时间轴上下拖字幕块，见 useLaneDrag）──────

@@ -37,7 +37,7 @@ export function TimelineToolbar() {
         新建字幕
       </button>
       <div className="sep"></div>
-      <button className="tool" id="btn-split" title="在当前位置把当前句拆成两句" onClick={splitAtPlayhead}>
+      <button className="tool" id="btn-split" title="在当前位置把当前句拆成两句 (D)" onClick={splitAtPlayhead}>
         <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" strokeWidth="1.3">
           <path d="M9.5 1.5 3 8l-1 3.5 3.5-1L12 4z" strokeLinejoin="round" />
           <path d="M7.3 3.7l2 2" />
@@ -46,7 +46,7 @@ export function TimelineToolbar() {
       </button>
       <div className="sep"></div>
       <button className="tool" id="btn-new-track"
-        title="新建轨道（说话人/注释），字幕独立、可与其他轨时间重叠" onClick={() => void newTrack()}>
+        title="新建轨道，字幕与样式可独立" onClick={() => void newTrack()}>
         <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" strokeWidth="1.4">
           <path d="M1.5 3h10M1.5 6.5h6M6.5 8.5v4M4.5 10.5h4" />
         </svg>
@@ -54,7 +54,7 @@ export function TimelineToolbar() {
       </button>
       <div className="sep"></div>
       <button className={"tool" + (foldJa() ? " on" : "")} id="btn-fold-ja"
-        title="一键隐藏所有原文轨：等同逐条点眼睛，导出同步不出原文" onClick={toggleFoldJa}>
+        title="一键隐藏所有原文轨，导出同步不出原文" onClick={toggleFoldJa}>
         <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" strokeWidth="1.4">
           <path d="M1 6.5S3 2.5 6.5 2.5 12 6.5 12 6.5 10 10.5 6.5 10.5 1 6.5 1 6.5Z" />
           <path d="M2 11 11 2" />

@@ -1317,7 +1317,7 @@ body.ctx-open .professional-editor .topbar {
   justify-content: flex-end;
 }
 
-/* ── 轨道设置弹层（改名/绑样式/删除）───── */
+/* ── 轨道设置弹层（改名/绑样式）───── */
 .professional-editor .trk-pop {
   position: fixed;
   z-index: 70;
@@ -1363,11 +1363,6 @@ body.ctx-open .professional-editor .topbar {
   gap: 5px;
   padding-top: 7px;
   border-top: 1px solid var(--line);
-}
-
-.professional-editor .trk-pop .btn.danger {
-  justify-content: center;
-  margin-top: 2px;
 }
 
 /* ── 统一特效字幕管理 ───────────────────── */
