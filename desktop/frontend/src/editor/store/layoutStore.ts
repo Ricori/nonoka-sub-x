@@ -36,7 +36,7 @@ interface LayoutState {
 }
 
 export const layoutStore = createStore<LayoutState>({
-  sideW: clampN(LAYOUT.sideW, 280, 640, 384),
+  sideW: clampN(LAYOUT.sideW, 340, 640, 400),
   lblW: clampN(LAYOUT.lblW, 90, 360, 160),
   tlViewH: clampN(LAYOUT.tlH, 150, 900, Math.round(window.innerHeight * .45)),
   rowH: {

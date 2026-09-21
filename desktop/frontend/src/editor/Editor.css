@@ -117,15 +117,36 @@
       display: grid;
       /* 首行必须等于 .topbar 的实际高度（48px，与 main.js TITLEBAR_H 一致），
          否则网格会把顶栏裁掉一截或在下面空出一条缝 */
-      grid-template-rows: 48px minmax(0, 1fr) 6px auto 26px;
+      grid-template-rows: 48px minmax(0, 1fr) auto 26px;
     }
 
+    .professional-editor .topbar { grid-row: 1; grid-column: 1; }
+    .professional-editor .main { grid-row: 2; grid-column: 1; }
+    .professional-editor .timeline { grid-row: 3; grid-column: 1; }
+    .professional-editor .statusbar { grid-row: 4; grid-column: 1; }
+
     .professional-editor .vsplit {
+      grid-row: 1;
+      grid-column: 2;
+      justify-self: start;
+      z-index: 8;
+      width: 6px;
+      transform: translateX(-3px);
       cursor: col-resize;
+      /* 覆盖在预览与右栏的边界上，只扩大命中区，不占布局宽度。 */
+      background: transparent;
     }
 
     .professional-editor .hsplit {
+      grid-row: 3;
+      grid-column: 1;
+      align-self: start;
+      z-index: 8;
+      height: 6px;
+      transform: translateY(-3px);
       cursor: row-resize;
+      /* 叠在时间轴上沿扩大命中区，不再作为独立网格行截断右侧分隔线。 */
+      background: transparent;
     }
 
     .professional-editor .vsplit:hover,
@@ -316,11 +337,13 @@
     /* ── 主区 ─────────────────────────────── */
     .professional-editor .main {
       display: grid;
-      grid-template-columns: minmax(0, 1fr) 6px 384px;
+      grid-template-columns: minmax(0, 1fr) 384px;
       min-height: 0;
     }
 
     .professional-editor .preview-pane {
+      grid-row: 1;
+      grid-column: 1;
       display: flex;
       flex-direction: column;
       min-width: 0;
@@ -1817,11 +1840,271 @@
 
     /* ── 右栏 ─────────────────────────────── */
     .professional-editor .side {
+      grid-row: 1;
+      grid-column: 2;
       display: grid;
-      grid-template-rows: auto minmax(0, 1fr);
+      grid-template-rows: auto auto minmax(0, 1fr);
       min-height: 0;
+      min-width: 0;
       background: var(--panel);
     }
+
+    .professional-editor .side-tabs {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      border-bottom: 1px solid var(--line);
+      background: var(--panel);
+    }
+
+    .professional-editor .side-tabs button {
+      position: relative;
+      min-width: 0;
+      padding: 11px 4px 10px;
+      border: 0;
+      color: var(--mut);
+      font: inherit;
+      font-size: 12px;
+      background: transparent;
+      cursor: pointer;
+    }
+
+    .professional-editor .side-tabs button:hover { color: var(--text); }
+
+    .professional-editor .side-tabs button.on {
+      color: var(--accent);
+      font-weight: 600;
+    }
+
+    .professional-editor .side-tabs button.on::after {
+      content: "";
+      position: absolute;
+      left: 22%;
+      right: 22%;
+      bottom: -1px;
+      height: 2px;
+      border-radius: 2px 2px 0 0;
+      background: var(--accent);
+    }
+
+    .professional-editor .side-scope {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+      padding: 7px 14px;
+      border-bottom: 1px solid var(--line-soft);
+      background: var(--raised);
+      color: var(--text);
+      font-size: 11.5px;
+    }
+
+    .professional-editor .side-scope > span {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .professional-editor .side-scope small {
+      margin-left: auto;
+      color: var(--faint);
+      white-space: nowrap;
+    }
+
+    .professional-editor .side-content {
+      min-width: 0;
+      min-height: 0;
+      overflow: hidden;
+    }
+
+    .professional-editor .side-subtitle-panel {
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr);
+      height: 100%;
+      min-height: 0;
+    }
+
+    .professional-editor .side-panel {
+      height: 100%;
+      min-width: 0;
+      min-height: 0;
+      overflow-y: auto;
+      scrollbar-width: thin;
+      scrollbar-color: color-mix(in srgb, var(--text) 26%, transparent) transparent;
+    }
+
+    .professional-editor .side-section {
+      padding: 13px 14px;
+      border-bottom: 1px solid var(--line-soft);
+    }
+
+    .professional-editor .side-section-title {
+      display: block;
+      margin-bottom: 8px;
+      color: var(--faint);
+      font-size: 10px;
+      letter-spacing: .12em;
+      text-transform: uppercase;
+    }
+
+    .professional-editor .side-field {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+      color: var(--faint);
+      font-size: 11px;
+    }
+
+    .professional-editor .side-field + .side-field { margin-top: 10px; }
+
+    .professional-editor .side-field > input,
+    .professional-editor .side-field > select {
+      width: 100%;
+      min-width: 0;
+      padding: 6px 8px;
+      border: 1px solid var(--line);
+      border-radius: 4px;
+      outline: none;
+      background: var(--raised);
+      color: var(--text);
+      font: inherit;
+      font-size: 12px;
+    }
+
+    .professional-editor .side-field > input:focus,
+    .professional-editor .side-field > select:focus { border-color: var(--faint); }
+
+    .professional-editor .side-wide-button {
+      width: 100%;
+      margin-top: 10px;
+      justify-content: center;
+    }
+
+    .professional-editor .side-switch {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      color: var(--mut);
+      font-size: 11px;
+      font-weight: 400;
+      white-space: nowrap;
+    }
+
+    .professional-editor .side-switch input { accent-color: var(--accent); }
+
+    .professional-editor .side-lane-heading,
+    .professional-editor .side-effect-heading {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+
+    .professional-editor .side-lane-heading strong,
+    .professional-editor .side-effect-heading strong {
+      font-size: 12px;
+      font-weight: 600;
+    }
+
+    /* 样式面板：沿用原属性控件，但改成适合窄侧栏的换行布局。 */
+    .professional-editor .side-style-target {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--line-soft);
+      color: var(--faint);
+      font-size: 11px;
+    }
+
+    .professional-editor .side-segmented {
+      display: inline-flex;
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: 4px;
+    }
+
+    .professional-editor .side-segmented button {
+      padding: 4px 9px;
+      border: 0;
+      border-left: 1px solid var(--line);
+      background: transparent;
+      color: var(--mut);
+      font: inherit;
+      font-size: 11px;
+      cursor: pointer;
+    }
+
+    .professional-editor .side-segmented button:first-child { border-left: 0; }
+    .professional-editor .side-segmented button.on { background: var(--accent-dim); color: var(--accent); }
+
+    .professional-editor .side-style-panel .style-bar {
+      border: 0;
+      border-radius: 0;
+      background: transparent;
+      padding: 13px 14px 18px;
+      gap: 12px;
+    }
+
+    .professional-editor .side-style-panel .sb-row,
+    .professional-editor .side-style-panel .sb-row.wrap {
+      flex-wrap: wrap;
+      overflow: visible;
+      gap: 10px;
+    }
+
+    .professional-editor .side-style-panel .sb-name {
+      max-width: 100%;
+    }
+
+    .professional-editor .side-style-panel .sb-sep {
+      flex-basis: 100%;
+      width: 100%;
+      height: 1px;
+      align-self: auto;
+    }
+
+    .professional-editor .side-style-panel .sb-spacer { display: none; }
+    .professional-editor .side-style-panel .sb-font { flex: 1 1 160px; }
+    .professional-editor .side-style-panel .sb-note { align-items: flex-start; flex-wrap: wrap; }
+    .professional-editor .side-style-panel .sb-meta { flex-basis: 100%; }
+
+    /* 特效面板 */
+    .professional-editor .side-template-list {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 6px;
+    }
+
+    .professional-editor .side-template-list button {
+      min-width: 0;
+      padding: 8px;
+      border: 1px solid var(--line);
+      border-radius: 4px;
+      background: transparent;
+      color: var(--text);
+      text-align: left;
+      cursor: pointer;
+    }
+
+    .professional-editor .side-template-list button.on {
+      border-color: var(--accent);
+      background: var(--accent-dim);
+    }
+
+    .professional-editor .side-template-list button span,
+    .professional-editor .side-template-list button small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .professional-editor .side-template-list button small { margin-top: 2px; color: var(--faint); font-size: 10px; }
+    .professional-editor .side-effect-settings > p { margin: -3px 0 12px; color: var(--mut); font-size: 11px; line-height: 1.5; }
+    .professional-editor .side-param-list { display: flex; flex-direction: column; gap: 10px; }
+    .professional-editor .side-number-field,
+    .professional-editor .side-color-field { display: flex; align-items: center; gap: 7px; }
+    .professional-editor .side-number-field input { width: 90px; padding: 5px 7px; border: 1px solid var(--line); border-radius: 4px; background: var(--raised); color: var(--text); }
+    .professional-editor .side-number-field i { color: var(--faint); font-style: normal; }
+    .professional-editor .side-color-field > input { width: 42px; height: 28px; padding: 2px; border: 1px solid var(--line); border-radius: 4px; background: var(--raised); }
+    .professional-editor .side-color-field label { display: flex; align-items: center; gap: 4px; color: var(--mut); }
 
     .professional-editor .inspector {
       border-bottom: 1px solid var(--line);

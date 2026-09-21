@@ -46,6 +46,7 @@ function resetTransientState() {
   resetHistory();
   modalStore.set({
     bootDone: false, closeOpen: false, tplOpen: false, effectsOpen: false, karaokeOpen: false,
+    sideTab: "subtitle",
     trkPop: null, clipTip: null,
   });
   ctxStore.set({ menu: null });

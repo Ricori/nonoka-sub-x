@@ -7,7 +7,7 @@ import type { SrtLang } from '../lib/srtBuild';
 import { docStore } from '../store/docStore';
 import { openExport } from '../lib/openExport';
 import { manualSave, saveStore } from '../store/saveStore';
-import { modalStore, showCtx } from '../store/uiStore';
+import { showCtx } from '../store/uiStore';
 
 /**
  * 沉浸式标题栏：这一条同时是窗口标题栏（可拖动/双击最大化），右上角那三个
@@ -37,8 +37,6 @@ export function TopBar() {
       <div className="topbar-side r">
         <span className={"savestate" + (stateCls ? " " + stateCls : "")} id="savestate">{stateText}</span>
         <div className="btn-group">
-          <button className="btn" id="btn-effects" title="统一管理所有字幕轴的特效模板"
-            onClick={() => modalStore.set({ effectsOpen: true })}>特效字幕</button>
           <button className="btn" id="themebtn" title="切换亮/暗主题" onClick={toggleTheme}>
             {theme === "light" ? "☀" : "☾"}
           </button>

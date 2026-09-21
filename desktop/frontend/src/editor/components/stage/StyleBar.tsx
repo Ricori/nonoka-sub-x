@@ -9,7 +9,6 @@ import {
   cloneStyleForLane, materializeMissingStyle, patchStyleFromPanel, stylesInUse, styleFields,
 } from '../../lib/styleEdit';
 import { docStore } from '../../store/docStore';
-import { playStore } from '../../store/playStore';
 import { stageStore } from '../../store/stageStore';
 import { modalStore, toast } from '../../store/uiStore';
 import { AlignGrid, NumField, Segmented, ToggleChip } from '../ui/fields';
@@ -39,13 +38,12 @@ export function StyleBar() {
   // shallowEqual 不吃 null，所以按字段选，别整个 sel 对象比
   const { trackId, lang } = stageStore.use(
     s => ({ trackId: s.sel?.trackId ?? "", lang: s.sel?.lang ?? "zh" }), shallowEqual);
-  const playing = playStore.use(s => s.playing);
   const { styles, version } = docStore.use(
     s => ({ styles: s.styles, version: s.version }), shallowEqual);
   const [more, setMore] = useState(false);
   const [missing, setMissing] = useState<string[]>([]);
 
-  const box = trackId && !playing ? boxForLane({ trackId, lang }) : null;
+  const box = trackId ? boxForLane({ trackId, lang }) : null;
   const name = box?.styleName ?? "";
   const fields = useMemo(() => (name ? styleFields(name) : null), [name, styles, version]);
 

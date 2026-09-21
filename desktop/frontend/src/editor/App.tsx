@@ -2,19 +2,16 @@ import { useEffect, useState } from 'react';
 import { Events } from '@wailsio/runtime';
 import { ClipTip } from './components/ClipTip';
 import { ContextMenu } from './components/ContextMenu';
-import { Inspector } from './components/Inspector';
-import { SegList } from './components/SegList';
+import { EditorSidebar } from './components/EditorSidebar';
 import { StatusBar } from './components/StatusBar';
 import { Timeline } from './components/Timeline';
 import { Toast } from './components/Toast';
 import { TopBar } from './components/TopBar';
 import { TrackPopover } from './components/TrackPopover';
 import { Transport } from './components/Transport';
-import { StyleBar } from './components/stage/StyleBar';
 import { VideoStage } from './components/VideoStage';
 import { AskModal } from './components/modals/AskModal';
 import { CloseModal } from './components/modals/CloseModal';
-import { EffectsModal } from './components/modals/EffectsModal';
 import { KaraokeModal } from './components/modals/KaraokeModal';
 import { TemplateModal } from './components/modals/TemplateModal';
 import { useDesktopEvents } from './hooks/useDesktopEvents';
@@ -61,25 +58,19 @@ export function EditorApp() {
       <div className="app editor-app">
         <TopBar />
 
-        <div className="main" style={{ gridTemplateColumns: `minmax(0,1fr) 6px ${sideW}px` }}>
+        <div className="main" style={{ gridTemplateColumns: `minmax(0,1fr) ${sideW}px` }}>
           <section className="preview-pane">
             <VideoStage />
-            {/* 选中画面里的字幕才出现。它在流内而不是浮层：舞台会变矮，fitStage 的
-                ResizeObserver 自动重适配，于是字幕本身永远不会被盖住 */}
-            <StyleBar />
             <Transport />
           </section>
 
           <div className="vsplit" id="vsplit" title="拖动调整侧栏宽度"
             onPointerDown={splitHandler(() => layoutStore.get().sideW, (v0, dx) => {
-              layoutStore.set({ sideW: Math.min(Math.max(v0 - dx, 280), 640) });
+              layoutStore.set({ sideW: Math.min(Math.max(v0 - dx, 340), 640) });
               saveLayout();
             })} />
 
-          <aside className="side">
-            <Inspector />
-            <SegList />
-          </aside>
+          <EditorSidebar />
         </div>
 
         {/* 拖动改轨道区可视高度（单条行高另有行间手柄）；轨道总高超过它就纵向滚动 */}
@@ -97,7 +88,6 @@ export function EditorApp() {
       <CloseModal />
       <AskModal />
       <TemplateModal />
-      <EffectsModal />
       <KaraokeModal />
       <TrackPopover />
       <ContextMenu />

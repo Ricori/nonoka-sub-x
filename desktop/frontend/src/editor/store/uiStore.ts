@@ -96,11 +96,13 @@ interface ModalState {
   bootDone: boolean;       // 加载遮罩是否撤掉
   /** 切片提示气泡 */
   clipTip: { clip: Clip; x: number; y: number } | null;
+  /** 右侧工作区当前标签；放在 store 里，顶栏和快捷入口也能直接切换。 */
+  sideTab: "subtitle" | "style" | "effects" | "track";
 }
 
 export const modalStore = createStore<ModalState>({
   trkPop: null, closeOpen: false, tplOpen: false, effectsOpen: false, karaokeOpen: false,
-  bootDone: false, clipTip: null,
+  bootDone: false, clipTip: null, sideTab: "subtitle",
 });
 
 export const openTrackPop = (target: TrackPopTarget, anchor: Element) =>
