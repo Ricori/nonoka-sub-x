@@ -19,14 +19,14 @@ export const getPlayRes = () => sheet.playRes;
 export const getStyleSheet = () => sheet;
 
 /**
- * 装入本机样式表：写死的 JP/CN 打底，本机样式表接在后面；同名以本机那份为准，
- * 于是 JP/CN 永远存在（resolveStyle 的回退目标），但用户想重定义也拦得住。
+ * 装入本机样式表：写死的 origin/cn 打底，本机样式表接在后面；同名以本机那份为准，
+ * 于是 origin/cn 永远存在（resolveStyle 的回退目标），但用户想重定义也拦得住。
  */
 export function setStyleSheet(userText: string) {
   sheet = composeSheet(userText);
 }
 
-/** 样式表里没有的绑定回退到写死的 JP/CN——云端同步下来的文档常绑着本机没有的样式 */
+/** 样式表里没有的绑定回退到写死的 origin/cn——云端同步下来的文档常绑着本机没有的样式 */
 export const resolveStyle = (name: string, lang: Lang): string => resolveStyleIn(sheet, name, lang);
 
 /** 预览与导出共用的 ASS 头：[Script Info] + 合并后的 [V4+ Styles] */

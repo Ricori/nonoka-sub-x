@@ -23,10 +23,6 @@ export interface SubtitleEffectBinding {
 export interface LaneMeta {
   hidden: boolean;
   style: string | null;
-  /** @deprecated 旧版轨道渐变；载入后迁移到 effects。 */
-  fadeInMs?: number;
-  /** @deprecated 旧版轨道渐变；载入后迁移到 effects。 */
-  fadeOutMs?: number;
 }
 
 /** K 轴的一个单位（一个字），t0/t1 是绝对秒 */

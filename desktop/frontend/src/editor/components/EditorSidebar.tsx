@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { DEFAULT_EFFECT_TRACK_ID } from '../../subtitles/effects';
 import { CustomSelect } from '../../components/CustomSelect';
 import { toggleFind } from '../lib/find';
@@ -60,15 +60,24 @@ function SideStylePanel() {
 
   // 手动切原文/译文算一次选中，画面上把那条框出来；切到这一页本身不选中任何东西
   const pickLang = (next: Lang) => { setLang(next); selectLane(laneRef(curTrack, next)); };
+  // 两个方向各管各的：画面上选中了别的轨 → 当前轨跟过去；顶部切了轨 → 选中跟过来。
+  // 合成一个 effect 的话，切轨时选中还指着旧轨，会当场把当前轨拽回去
   useEffect(() => {
     if (!stageSelection) return;
     const ti = stageSelection.trackId === DEFAULT_EFFECT_TRACK_ID
       ? -1
       : docStore.get().tracks.findIndex((track, index) =>
         (track.id || `track-${index + 1}`) === stageSelection.trackId);
-    if (ti >= -1 && ti !== curTrack) setActiveTrack(ti, { silent: true });
+    if (ti >= -1 && ti !== selStore.get().curTrack) setActiveTrack(ti, { silent: true });
     setLang(stageSelection.lang);
-  }, [curTrack, stageSelection]);
+  }, [stageSelection]);
+  // 首次挂载不算切轨：此时选中可能刚从别处设好（例如缺样式提示跳过来），当前轨还没跟上
+  const mounted = useRef(false);
+  useEffect(() => {
+    if (!mounted.current) { mounted.current = true; return; }
+    const sel = stageStore.get().sel;
+    if (sel && sel.trackId !== laneRef(curTrack, sel.lang).trackId) selectLane(laneRef(curTrack, sel.lang));
+  }, [curTrack]);
 
   return <div className="side-page side-style-page">
     <div className="side-head">

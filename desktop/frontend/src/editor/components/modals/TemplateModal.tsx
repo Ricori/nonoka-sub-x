@@ -12,7 +12,7 @@ import { errText } from '../../utils';
  * ASS 样式的文本编辑口。样式表跟着视频走（存 document.json 的 styles 字段），
  * 所以这里改的只是当前这个视频——别的视频各有各的一份。
  *
- * 写死的 JP/CN 不出现在这里：它们在 ass.ts::setStyleSheet 里跟这份合并，同名以这份为准，
+ * 写死的 origin/cn 不出现在这里：它们在 ass.ts::setStyleSheet 里跟这份合并，同名以这份为准，
  * 所以想改默认轨的样子，在这里写一条同名的 Style 就行。
  *
  * 图形化的改法在预览下方那条属性条；这里是兜底入口——整段粘贴、导入别人的 ASS、

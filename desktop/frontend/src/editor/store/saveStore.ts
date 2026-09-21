@@ -8,6 +8,7 @@ import { docStore } from './docStore';
 import { toast } from './uiStore';
 import { viewStore } from './viewStore';
 import type { Clip, Seg } from '../types';
+import { CN_STYLE, ORIGIN_STYLE } from '../../subtitles/styles';
 
 // 保存：手动（Ctrl+S / 保存按钮）+ 每 5 分钟自动一次（rev 乐观锁）。
 // 切片是另一条线：存本地 library.json，不吃 rev 乐观锁，也不会和别人的编辑撞车。
@@ -70,7 +71,7 @@ function savePayload() {
       ja: packLane(d.trackMeta.ja),
       zh: packLane(d.trackMeta.zh),
     } : {
-      name: "默认轨", ja: { hidden: false, style: "JP" }, zh: { hidden: false, style: "CN" },
+      name: "默认轨", ja: { hidden: false, style: ORIGIN_STYLE }, zh: { hidden: false, style: CN_STYLE },
     },
     effects: d.effects,
     // sidecar 的 save() 只认显式列出的字段，靠 ...base 展开是带不过去的

@@ -96,7 +96,7 @@ export function cloneStyleForLane(trackId: string, lang: Lang): string | null {
 }
 
 /**
- * 绑定指向的样式本机没有、正按 JP/CN 回退显示时，用当前这副样子把它落成真样式。
+ * 绑定指向的样式本机没有、正按 origin/cn 回退显示时，用当前这副样子把它落成真样式。
  * 绑定本来就指着这个名字，所以不用改绑。
  */
 export function materializeMissingStyle(trackId: string, lang: Lang): string | null {

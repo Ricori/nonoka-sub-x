@@ -1,6 +1,6 @@
 import { DEFAULT_STYLE_SHEET } from './constants.ts';
 import { buildAssFrom, buildSrtFrom, clipAss } from './build.ts';
-import { migrateLegacyFadeBindings, normalizeEffectBindings } from './effects.ts';
+import { normalizeEffectBindings } from './effects.ts';
 import type { SrtLang } from './build.ts';
 import { composeSheet } from './styles.ts';
 import type { SubtitleSource } from './types.ts';
@@ -17,7 +17,6 @@ export function sourceOfDocument(document: EditDocument): SubtitleSource {
     trackMeta: document.track_meta ?? null,
     effects: normalizeEffectBindings(document.effects),
   };
-  source.effects = migrateLegacyFadeBindings(source.effects ?? [], source);
   return source;
 }
 

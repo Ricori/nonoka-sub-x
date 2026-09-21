@@ -74,7 +74,6 @@ export function laneColor(ti: Ti, lang: Lang): string {
   const tr = docStore.get().tracks[ti];
   const fb = TRACK_PALETTE[ti % TRACK_PALETTE.length];
   if (!tr) return fb;
-  // 绑了样式表里没有的样式时跟着预览一起回退到 JP/CN，块的颜色才不会和画面上的字对不上
-  const bound = tr[lang].style || (lang === "ja" ? tr.zh.style : tr.ja.style);
-  return styleRgb(bound ? resolveStyle(bound, lang) : null, fb);
+  // 没绑或绑了样式表里没有的样式时跟着预览一起回退到 origin/cn，块的颜色才不会和画面上的字对不上
+  return styleRgb(resolveStyle(tr[lang].style || "", lang), fb);
 }

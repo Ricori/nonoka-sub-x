@@ -6,20 +6,22 @@ import { bumpDoc, docStore } from "../store/docStore";
 import { setLoadedState, saveStore } from "../store/saveStore";
 import { select, selStore } from "../store/selectionStore";
 import { askStore, ctxStore, modalStore, toast, toastStore } from "../store/uiStore";
+import { selectLane } from "../store/stageStore";
 import { videoStore } from "../store/videoStore";
 import { ensureBlkWin, relayout, setDuration, syncZoomRange, viewStore } from "../store/viewStore";
 import { playStore } from "../store/playStore";
 import { clampN, errText } from "../utils";
 import { unknownStyles } from "./assBuild";
 import { machineDefaultStyles, setDocStyles } from "./styleEdit";
-import { migrateLegacyFadeBindings, normalizeEffectBindings } from "../../subtitles/effects";
+import { DEFAULT_EFFECT_TRACK_ID, normalizeEffectBindings } from "../../subtitles/effects";
 import { normalizeKaraoke } from "../../subtitles/karaoke";
+import { CN_STYLE, ORIGIN_STYLE } from "../../subtitles/styles";
 import { initSubtitles, preloadSubtitles, refreshFontMetrics } from "./subtitles";
 import { setupVideo, showVideoFallback } from "./videoSource";
 import { resetAutoGain } from "./wave";
 import { resetHistory } from "./history";
 import { dragStore } from "../store/dragStore";
-import type { Clip, Seg, Track } from "../types";
+import type { Clip, Lang, Seg, Track } from "../types";
 
 function mapSegs(items: unknown[]): Seg[] {
   const out = (items ?? []).map((item) => {
@@ -64,6 +66,21 @@ function resetTransientState() {
   viewStore.set({ duration: 60, t0: 0, t1: 60, curClip: null, clips: [], blkWin: null });
 }
 
+/** 切到侧栏「样式」页，并选中第一条绑着缺失样式的 lane，StyleBar 里就能直接看到回退和补建入口 */
+function openStyleTabAt(missing: string[]) {
+  const { tracks, trackMeta } = docStore.get();
+  const lanes: { trackId: string; lang: Lang; style: string | null | undefined }[] = [
+    { trackId: DEFAULT_EFFECT_TRACK_ID, lang: "zh", style: trackMeta?.zh.style },
+    { trackId: DEFAULT_EFFECT_TRACK_ID, lang: "ja", style: trackMeta?.ja.style },
+    ...tracks.flatMap((track, index) => (["zh", "ja"] as Lang[]).map(lang => ({
+      trackId: track.id || `track-${index + 1}`, lang, style: track[lang].style,
+    }))),
+  ];
+  const hit = lanes.find(lane => lane.style && missing.includes(lane.style));
+  modalStore.set({ sideTab: "style" });
+  if (hit) selectLane({ trackId: hit.trackId, lang: hit.lang });
+}
+
 export async function runBootSequence() {
   resetTransientState();
   const videoID = getVid();
@@ -80,45 +97,26 @@ export async function runBootSequence() {
     const styles = data.styles?.trim() ? data.styles : await machineDefaultStyles();
 
     const segs = mapSegs(data.subtitles);
-    const fadeMs = (value: unknown) => Math.min(60_000, Math.max(0, Math.round(Number(value) || 0)));
     const tracks: Track[] = (data.tracks ?? []).map((track, index) => ({
       id: track.id || `t${Date.now().toString(36)}${index}`,
       name: track.name || `轨道 ${index + 1}`,
-      ja: {
-        hidden: !!track.ja?.hidden, style: track.ja?.style || null,
-        fadeInMs: fadeMs(track.ja?.fadeInMs), fadeOutMs: fadeMs(track.ja?.fadeOutMs),
-      },
-      zh: {
-        hidden: !!track.zh?.hidden, style: track.zh?.style || null,
-        fadeInMs: fadeMs(track.zh?.fadeInMs), fadeOutMs: fadeMs(track.zh?.fadeOutMs),
-      },
+      ja: { hidden: !!track.ja?.hidden, style: track.ja?.style || null },
+      zh: { hidden: !!track.zh?.hidden, style: track.zh?.style || null },
       hja: clampN(Number(track.hja), ROW_MIN, ROW_MAX, ROW_H0),
       hzh: clampN(Number(track.hzh), ROW_MIN, ROW_MAX, ROW_H0),
       segs: mapSegs(track.segs),
     }));
     const sourceMeta = data.track_meta ?? {
       name: "默认轨",
-      ja: { hidden: false, style: "JP" },
-      zh: { hidden: false, style: "CN" },
+      ja: { hidden: false, style: ORIGIN_STYLE },
+      zh: { hidden: false, style: CN_STYLE },
     };
     const trackMeta = {
       name: sourceMeta.name || "默认轨",
-      ja: {
-        hidden: !!sourceMeta.ja?.hidden, style: sourceMeta.ja?.style || "JP",
-        fadeInMs: fadeMs(sourceMeta.ja?.fadeInMs), fadeOutMs: fadeMs(sourceMeta.ja?.fadeOutMs),
-      },
-      zh: {
-        hidden: !!sourceMeta.zh?.hidden, style: sourceMeta.zh?.style || "CN",
-        fadeInMs: fadeMs(sourceMeta.zh?.fadeInMs), fadeOutMs: fadeMs(sourceMeta.zh?.fadeOutMs),
-      },
+      ja: { hidden: !!sourceMeta.ja?.hidden, style: sourceMeta.ja?.style || ORIGIN_STYLE },
+      zh: { hidden: !!sourceMeta.zh?.hidden, style: sourceMeta.zh?.style || CN_STYLE },
     };
-    const effectSource = { tracks, trackMeta };
-    const effects = migrateLegacyFadeBindings(normalizeEffectBindings(data.effects), effectSource);
-    // 旧字段只用于一次迁移；内存与下一次保存都只认统一 effects。
-    for (const lane of [trackMeta.ja, trackMeta.zh, ...tracks.flatMap(track => [track.ja, track.zh])]) {
-      delete lane.fadeInMs;
-      delete lane.fadeOutMs;
-    }
+    const effects = normalizeEffectBindings(data.effects);
 
     docStore.set({
       rev: data.rev || 0,
@@ -151,11 +149,11 @@ export async function runBootSequence() {
     ensureBlkWin(true);
     if (segs.length) select(0);
     setLoadedState();
-    // 云端投影下来的文档常绑着这份样式表里没有的样式：照常出图（回退 JP/CN），但得说一声
+    // 云端投影下来的文档常绑着这份样式表里没有的样式：照常出图（回退 origin/cn），但得说一声
     const unknown = unknownStyles();
     if (unknown.length) {
-      toast("这个视频的样式表里没有 " + unknown.join("、") + "，相关轨道已回退到默认 JP/CN 样式 · 点此编辑样式",
-        true, () => modalStore.set({ tplOpen: true }));
+      toast("这个视频的样式表里没有 " + unknown.join("、") + "，相关轨道已回退到默认 origin/cn 样式 · 点此查看样式",
+        true, () => openStyleTabAt(unknown), 3000);
     }
   } catch (error) {
     toast("打开字幕失败：" + errText(error), true);

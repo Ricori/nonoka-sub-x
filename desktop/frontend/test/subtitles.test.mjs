@@ -25,21 +25,21 @@ const document = {
   tracks: [{
     id: "tr1",
     name: "注释",
-    ja: { hidden: true, style: "JP" },
-    zh: { hidden: false, style: "注释" },
+    ja: { hidden: true, style: "origin" },
+    zh: { hidden: false, style: "note" },
     hja: 48,
     hzh: 48,
     segs: [{ t0: 6, t1: 7, ja: "隠れる", zh: "旁白" }],
   }],
-  track_meta: { name: "默认轨", ja: { hidden: false, style: "JP" }, zh: { hidden: false, style: "CN" } },
+  track_meta: { name: "默认轨", ja: { hidden: false, style: "origin" }, zh: { hidden: false, style: "cn" } },
   projection: { schema: 1, mode: "final" },
 };
 
 test("文档拼出的 ASS 只出未隐藏的 lane，并钳掉同线相邻句的重叠", () => {
   const ass = documentAss(document, DEFAULT_STYLE_SHEET);
-  assert.match(ass, /Dialogue: 0,0:00:01\.20,0:00:03\.40,CN,默认轨,0,0,0,,你好/);
-  assert.match(ass, /Dialogue: 0,0:00:01\.20,0:00:03\.40,JP,默认轨,0,0,0,,こんにちは/);
-  assert.match(ass, /Dialogue: 0,0:00:06\.00,0:00:07\.00,注释,注释,0,0,0,,旁白/);
+  assert.match(ass, /Dialogue: 0,0:00:01\.20,0:00:03\.40,cn,默认轨,0,0,0,,你好/);
+  assert.match(ass, /Dialogue: 0,0:00:01\.20,0:00:03\.40,origin,默认轨,0,0,0,,こんにちは/);
+  assert.match(ass, /Dialogue: 0,0:00:06\.00,0:00:07\.00,note,注释,0,0,0,,旁白/);
   // 藏起来的原文 lane 不出图
   assert.ok(!ass.includes("隠れる"));
   // 1.2–3.5 撞上 3.4 开口的下一句，前句出点被钳到 3.40
@@ -48,33 +48,19 @@ test("文档拼出的 ASS 只出未隐藏的 lane，并钳掉同线相邻句的�
   assert.ok(ass.indexOf("第二行\\N继续") < ass.indexOf("二行目"));
 });
 
-test("样式表为空时回落到种子，JP/CN 始终存在", () => {
+test("样式表为空时回落到种子，origin/cn 始终存在", () => {
   const seeded = documentAss(document, "   ");
   assert.match(seeded, /\[V4\+ Styles\]\nFormat: Name, Fontname, Fontsize, PrimaryColour,/);
-  assert.match(seeded, /Style: JP,/);
-  assert.match(seeded, /Style: CN,/);
-  assert.match(seeded, /Style: 注释,/);
+  assert.match(seeded, /Style: origin,/);
+  assert.match(seeded, /Style: cn,/);
+  assert.match(seeded, /Style: note,/);
 });
 
-test("绑到本机没有的样式回退 JP/CN，整条线不会消失", () => {
+test("绑到本机没有的样式回退 origin/cn，整条线不会消失", () => {
   const bound = { ...document, track_meta: { name: "默认轨", ja: { hidden: false, style: "不存在" }, zh: { hidden: false, style: "也不存在" } } };
   const ass = documentAss(bound, DEFAULT_STYLE_SHEET);
-  assert.match(ass, /,JP,默认轨,0,0,0,,こんにちは/);
-  assert.match(ass, /,CN,默认轨,0,0,0,,你好/);
-});
-
-test("lane 的渐入渐出生成受控 ASS fad 标签", () => {
-  const faded = {
-    ...document,
-    track_meta: {
-      ...document.track_meta,
-      ja: { ...document.track_meta.ja, fadeInMs: 200, fadeOutMs: 350 },
-    },
-  };
-  const ass = documentAss(faded, DEFAULT_STYLE_SHEET);
-  assert.match(ass, /,JP,默认轨,0,0,0,,\{\\fad\(200,350\)\}こんにちは/);
-  // 未配置特效的中文 lane 不应被加上覆写标签。
-  assert.match(ass, /,CN,默认轨,0,0,0,,你好/);
+  assert.match(ass, /,origin,默认轨,0,0,0,,こんにちは/);
+  assert.match(ass, /,cn,默认轨,0,0,0,,你好/);
 });
 
 test("统一特效绑定按 lane 覆盖 track/all", () => {
@@ -86,8 +72,8 @@ test("统一特效绑定按 lane 覆盖 track/all", () => {
     ],
   };
   const ass = documentAss(affected, DEFAULT_STYLE_SHEET);
-  assert.match(ass, /,JP,默认轨,0,0,0,,\{\\fad\(350,50\)\}こんにちは/);
-  assert.match(ass, /,CN,默认轨,0,0,0,,\{\\fad\(100,100\)\}你好/);
+  assert.match(ass, /,origin,默认轨,0,0,0,,\{\\fad\(350,50\)\}こんにちは/);
+  assert.match(ass, /,cn,默认轨,0,0,0,,\{\\fad\(100,100\)\}你好/);
 });
 
 test("逐字粒子模板稳定展开主体和矢量粒子事件", () => {
@@ -95,7 +81,7 @@ test("逐字粒子模板稳定展开主体和矢量粒子事件", () => {
     ...document,
     subtitles: [{ t0: 1, t1: 3, ja: "星空", zh: "" }],
     tracks: [],
-    track_meta: { name: "默认轨", ja: { hidden: false, style: "JP" }, zh: { hidden: true, style: "CN" } },
+    track_meta: { name: "默认轨", ja: { hidden: false, style: "origin" }, zh: { hidden: true, style: "cn" } },
     effects: [{
       id: "particle", templateId: "character-particle", enabled: true,
       target: { scope: "lane", trackId: "default", lang: "ja" },
@@ -113,8 +99,8 @@ test("逐字粒子模板稳定展开主体和矢量粒子事件", () => {
 test("区间 ASS 只留相交的行并把时间轴平移到 0", () => {
   const clip = documentAss(document, DEFAULT_STYLE_SHEET, { t0: 3.4, t1: 7 });
   assert.ok(!clip.includes("你好"));
-  assert.match(clip, /Dialogue: 0,0:00:00\.00,0:00:01\.60,CN,默认轨,0,0,0,,第二行\\N继续/);
-  assert.match(clip, /Dialogue: 0,0:00:02\.60,0:00:03\.60,注释,注释/);
+  assert.match(clip, /Dialogue: 0,0:00:00\.00,0:00:01\.60,cn,默认轨,0,0,0,,第二行\\N继续/);
+  assert.match(clip, /Dialogue: 0,0:00:02\.60,0:00:03.60,note,注释/);
 });
 
 test("SRT 摊平成一条时间流，按语言筛选并重排序号", () => {
@@ -135,7 +121,7 @@ const lyricDocument = {
     words: [{ word: "青い", start: 1.26, end: 1.98 }, { word: "帰り道", start: 1.98, end: 4.5 }],
   }],
   tracks: [],
-  track_meta: { name: "默认轨", ja: { hidden: false, style: "JP" }, zh: { hidden: true, style: "CN" } },
+  track_meta: { name: "默认轨", ja: { hidden: false, style: "origin" }, zh: { hidden: true, style: "cn" } },
 };
 
 const posOf = (ass) => [...ass.matchAll(/\\pos\((\d+),(\d+)\)/g)].map(m => [+m[1], +m[2]]);
@@ -228,7 +214,7 @@ test("脉冲单程默认压在 280ms；上限设 0 则回到 Aegisub 模板的�
       effects: [{ id: "fx", templateId: "karaoke-particle", enabled: true, target: { scope: "all" },
         params: { ...defaultEffectParams("karaoke-particle"), particleCount: 0, ...params } }],
     }, DEFAULT_STYLE_SHEET);
-    return ass.split("\n").filter(line => line.includes(",JP,")).map(line => {
+    return ass.split("\n").filter(line => line.includes(",origin,")).map(line => {
       const [, from, to] = /\\t\((\d+),(\d+),\\fscx/.exec(line);
       return +to - +from;
     });
@@ -311,12 +297,12 @@ test("K 轴只描述原文：同一份 K 轴不会被译文轴拿去用", () => 
     ...lyricDocument,
     subtitles: [{ ...lyricDocument.subtitles[0], zh: "蓝色归途", k: karaokeFromWords("青い帰り道", 1.26, 4.5,
       normalizeWords(lyricDocument.subtitles[0].words)) }],
-    track_meta: { name: "默认轨", ja: { hidden: false, style: "JP" }, zh: { hidden: false, style: "CN" } },
+    track_meta: { name: "默认轨", ja: { hidden: false, style: "origin" }, zh: { hidden: false, style: "cn" } },
     effects: [{ id: "fx", templateId: "karaoke-particle", enabled: true,
       target: { scope: "all" }, params: { particleCount: 0, entryStaggerMs: 0 } }],
   };
   const ass = documentAss(both, DEFAULT_STYLE_SHEET);
-  const zhPops = [...ass.split("\n").filter(line => line.includes(",CN,")).join("\n")
+  const zhPops = [...ass.split("\n").filter(line => line.includes(",cn,")).join("\n")
     .matchAll(/\\t\((\d+),\d+,\\fscx/g)].map(m => +m[1]).filter((_, index) => index % 2 === 0);
   // 译文 4 个字均分 1.26–4.50（每字 0.81s），与原文那 5 个字的 K 轴无关
   assert.deepEqual(zhPops, [0, 810, 1620, 2430]);

@@ -17,9 +17,9 @@ import { parseSheet } from "../src/subtitles/styles.ts";
 
 const SHEET = [
   "[V4+ Styles]",
-  "Style: JP,方正准圆_GBK,70,&H00FFF9FD,&HF0000000,&H00EF9320,&H30633306,"
+  "Style: origin,方正准圆_GBK,70,&H00FFF9FD,&HF0000000,&H00EF9320,&H30633306,"
   + "0,0,0,0,100,100,7,0,1,2,2,8,10,10,30,1",
-  "Style: CN,方正准圆_GBK,70,&H00FFF9FD,&HF0000000,&H00EF9320,&H30633306,"
+  "Style: cn,方正准圆_GBK,70,&H00FFF9FD,&HF0000000,&H00EF9320,&H30633306,"
   + "0,0,0,0,100,100,7,0,1,2,2,2,10,10,30,1",
 ].join("\n");
 
@@ -31,7 +31,7 @@ function load(over = {}) {
   docStore.set({
     segs: [{ t0: 1, t1: 3, ja: "こんにちは", zh: "你好" }],
     tracks: [],
-    trackMeta: { name: "默认轨", ja: lane("JP"), zh: lane("CN") },
+    trackMeta: { name: "默认轨", ja: lane("origin"), zh: lane("cn") },
     effects: [],
     styles: SHEET,
     rev: 0,
@@ -49,7 +49,7 @@ test("a paused frame reports one box per visible lane, in stacking order", () =>
   load();
   const boxes = subtitleBoxesAt(2);
   assert.deepEqual(boxes.map(b => b.lang), ["zh", "ja"]);
-  assert.deepEqual(boxes.map(b => b.styleName), ["CN", "JP"]);
+  assert.deepEqual(boxes.map(b => b.styleName), ["cn", "origin"]);
   assert.deepEqual(boxes.map(b => b.text), ["你好", "こんにちは"]);
 });
 
@@ -86,7 +86,7 @@ test("clicking inside a box finds it, and overlaps resolve to the top layer", ()
   assert.equal(hitTest(boxes, 5, 5), null, "画面角落没有字幕");
   // 把 JP 钉到 CN 的位置上。用上对齐 + 大 MarginV 而不是下对齐——同为下对齐会被碰撞
   // 避让推开（见下一条），跨组才会真重叠
-  patchStyle("JP", { alignment: 8, marginv: 980 });
+  patchStyle("origin", { alignment: 8, marginv: 980 });
   const stacked = subtitleBoxesAt(2);
   const hit = hitTest(stacked, centre.x, centre.y);
   assert.equal(hit.lang, "ja", "重叠时取最上层");
@@ -96,7 +96,7 @@ test("clicking inside a box finds it, and overlaps resolve to the top layer", ()
 
 test("two bottom-aligned lanes are stacked, not drawn on top of each other", () => {
   load();
-  patchStyle("JP", { alignment: 2, marginv: 30 });
+  patchStyle("origin", { alignment: 2, marginv: 30 });
   const boxes = subtitleBoxesAt(2);
   const zh = boxes.find(b => b.lang === "zh");
   const ja = boxes.find(b => b.lang === "ja");
@@ -110,11 +110,11 @@ test("nudging writes the move back into this video's style sheet", () => {
   selectLane({ trackId: "default", lang: "zh" });
   nudgeSelection(12, -20);
   // CN 居中 + 下对齐：水平靠左右边距的差值表达，垂直加到 MarginV 上
-  assert.equal(Number(field("CN", "marginl")) - Number(field("CN", "marginr")), 24);
-  assert.equal(field("CN", "marginv"), "50");
+  assert.equal(Number(field("cn", "marginl")) - Number(field("cn", "marginr")), 24);
+  assert.equal(field("cn", "marginv"), "50");
   // 别的样式一个字节都不该动
-  assert.equal(field("JP", "marginv"), "30");
-  assert.equal(field("CN", "secondarycolour"), "&HF0000000");
+  assert.equal(field("origin", "marginv"), "30");
+  assert.equal(field("cn", "secondarycolour"), "&HF0000000");
 });
 
 test("a nudge really moves the box, and Ctrl+Z puts it back", () => {
@@ -126,15 +126,15 @@ test("a nudge really moves the box, and Ctrl+Z puts it back", () => {
   assert.equal(after.top, before.top - 40);
 
   undo();
-  assert.equal(field("CN", "marginv"), "30");
+  assert.equal(field("cn", "marginv"), "30");
   assert.equal(subtitleBoxesAt(2).find(b => b.lang === "zh").block.top, before.top);
   // 撤销也要把渲染用的那份单例换回去，否则重画用的还是新样式
-  assert.equal(getStyleSheet().styleMap["CN"].mv, 30);
+  assert.equal(getStyleSheet().styleMap["cn"].mv, 30);
 });
 
 test("a vertically centred style refuses the vertical half of a nudge", () => {
   load();
-  patchStyle("CN", { alignment: 5 });
+  patchStyle("cn", { alignment: 5 });
   selectLane({ trackId: "default", lang: "zh" });
   const before = subtitleBoxesAt(2).find(b => b.lang === "zh").block.top;
   nudgeSelection(0, 30);
@@ -142,21 +142,27 @@ test("a vertically centred style refuses the vertical half of a nudge", () => {
   assert.equal(stageStore.get().hint, "middle-v", "得说一声为什么没动");
   // 水平方向照常
   nudgeSelection(25, 0);
-  assert.equal(Number(field("CN", "marginl")) - Number(field("CN", "marginr")), 50);
+  assert.equal(Number(field("cn", "marginl")) - Number(field("cn", "marginr")), 50);
 });
 
 test("Angle is read from the raw fields, not from the lossy AssStyle", () => {
   load();
-  assert.equal(styleAngle("CN"), 0);
-  patchStyle("CN", { angle: 15 });
-  assert.equal(styleAngle("CN"), 15);
+  assert.equal(styleAngle("cn"), 0);
+  patchStyle("cn", { angle: 15 });
+  assert.equal(styleAngle("cn"), 15);
   // AssStyle 不建模 Angle，改它不能顺手把别的字段冲掉
-  assert.equal(field("CN", "secondarycolour"), "&HF0000000");
-  assert.equal(field("CN", "spacing"), "7");
+  assert.equal(field("cn", "secondarycolour"), "&HF0000000");
+  assert.equal(field("cn", "spacing"), "7");
 });
 
-test("a lane bound to nothing has no box at all", () => {
-  load({ trackMeta: { name: "默认轨", ja: { hidden: false, style: null }, zh: lane("CN") } });
+test("a hidden lane has no box at all", () => {
+  load({ trackMeta: { name: "默认轨", ja: { hidden: true, style: "origin" }, zh: lane("cn") } });
   assert.deepEqual(subtitleBoxesAt(2).map(b => b.lang), ["zh"]);
   assert.equal(boxForLane({ trackId: "default", lang: "ja" }, 2), null);
+});
+
+test("a visible lane bound to nothing falls back to origin/cn", () => {
+  load({ trackMeta: { name: "默认轨", ja: { hidden: false, style: null }, zh: lane("cn") } });
+  assert.deepEqual(subtitleBoxesAt(2).map(b => b.lang), ["zh", "ja"]);
+  assert.equal(boxForLane({ trackId: "default", lang: "ja" }, 2).styleName, "origin");
 });

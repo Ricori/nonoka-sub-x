@@ -71,6 +71,13 @@ class SpeakerTests(unittest.TestCase):
         self.assertEqual([item["ja"] for item in tracks[0]["segs"]], ["1"])
         self.assertEqual(meta["name"], "A")
 
+    def test_split_tracks_show_the_translation_in_cn(self) -> None:
+        rows = [row(0, 4, spk="A"), row(4, 5, spk="B")]
+        segments = [{"t0": item["t0"], "t1": item["t1"], "ja": str(index), "zh": ""} for index, item in enumerate(rows)]
+        _, tracks, _ = split_speaker_tracks(segments, rows)
+        self.assertEqual(tracks[0]["zh"], {"hidden": False, "style": "cn"})
+        self.assertEqual(tracks[0]["ja"], {"hidden": True, "style": "origin"})
+
 
 class StableFromAxisTests(unittest.TestCase):
     def test_blank_rows_are_dropped_but_ids_stay_positional(self) -> None:

@@ -220,19 +220,19 @@ def translate_axis(
 
 
 def _track_meta(name: str) -> dict[str, Any]:
-    return {"name": name, "ja": {"hidden": False, "style": "JP"}, "zh": {"hidden": False, "style": "CN"}}
+    return {"name": name, "ja": {"hidden": False, "style": "origin"}, "zh": {"hidden": False, "style": "cn"}}
 
 
 def _new_track(index: int, name: str, segments: list[dict[str, Any]]) -> dict[str, Any]:
     return {
         "id": f"axis{index}",
         "name": name,
-        # Styles are the editor's to assign: a name only exists inside a given
-        # document's own style sheet, and JP/CN are the only two guaranteed to
-        # resolve anywhere. `null` on the source lane matches what the editor
-        # writes for a track it creates itself.
-        "ja": {"hidden": False, "style": None},
-        "zh": {"hidden": False, "style": None},
+        # Same shape as a track the editor creates itself: translation shown in
+        # cn, source lane in origin but hidden (origin/cn are the only two styles
+        # guaranteed to resolve in any document's sheet). Whether a lane is output is
+        # decided by `hidden` alone.
+        "ja": {"hidden": True, "style": "origin"},
+        "zh": {"hidden": False, "style": "cn"},
         "hja": 44,
         "hzh": 44,
         "segs": segments,

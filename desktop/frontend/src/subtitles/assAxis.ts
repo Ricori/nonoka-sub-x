@@ -53,7 +53,7 @@ const isZh = (s: string) => !KANA.test(s) && HAN.test(s);
 // 这些 Style 是排版用途而不是人：注释轨整条丢掉，其余的只是不当说话人。
 const NOTE_STYLES = new Set(["注释", "註釋", "注釋", "comment", "note", "屏注", "字幕注释"]);
 const NON_SPEAKER_STYLES = new Set([
-  "default", "jp", "cn", "zh", "ja", "sign", "signs", "staff", "title", "op", "ed", "screen",
+  "default", "jp", "cn", "origin", "zh", "ja", "sign", "signs", "staff", "title", "op", "ed", "screen",
 ]);
 
 /** ASS 的 H:MM:SS.cc / SRT 的 HH:MM:SS,mmm → 秒；解析不了返回 NaN */
@@ -138,7 +138,7 @@ function parseSrtEvents(text: string): { events: RawEvent[]; skipped: number } {
 }
 
 // 说话人一律读 **Style** 列，不读 Name。这是这套轴的实际约定：人名写在样式上
-// （优花 / haru / nana / saya / 芽衣），一人一个样式，颜色也跟着走。Name 列则装什么的都有
+// （比如 优花 / haru / 芽衣），一人一个样式，颜色也跟着走。Name 列则装什么的都有
 // ——实测有把整句日文原文写进去的轴（89 行 89 个不同值），拿它当说话人会在编辑器里炸出
 // 几十条空轨。
 const MAX_SPEAKERS = 10;
@@ -163,7 +163,7 @@ export function parseAxisFile(text: string, filename = ""): AxisParse {
     || /^\s*dialogue\s*:/im.test(text);
   const { events, skipped } = isAss ? parseAssEvents(text) : parseSrtEvents(text);
   const byStyle = styleIsSpeaker(events);
-  // Default/JP/CN 这些排版样式不是人：留空当「没标」，免得编辑器里多出一条叫 Default 的轨
+  // Default/JP/CN/origin 这些排版样式不是人：留空当「没标」，免得编辑器里多出一条叫 Default 的轨
   const spkOf = (e: RawEvent) =>
     byStyle && !NON_SPEAKER_STYLES.has(e.style.toLowerCase()) ? e.style : "";
   events.sort((x, y) => x.t0 - y.t0 || x.t1 - y.t1);

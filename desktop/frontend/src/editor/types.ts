@@ -22,10 +22,6 @@ export interface Seg {
 export interface LaneMeta {
   hidden: boolean;
   style: string | null;
-  /** @deprecated 旧版轨道渐变；载入后迁移到 effects。 */
-  fadeInMs?: number;
-  /** @deprecated 旧版轨道渐变；载入后迁移到 effects。 */
-  fadeOutMs?: number;
 }
 
 /** 自定义轨（说话人/注释），与默认轨同构的双 lane */

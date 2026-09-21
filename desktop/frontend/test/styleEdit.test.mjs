@@ -64,11 +64,11 @@ test("patching several fields at once writes them all in one pass", () => {
   assert.deepEqual([f.marginl, f.marginr, f.marginv], ["100", "0", "240"]);
 });
 
-test("a built-in style missing from the sheet is materialised from JP/CN", () => {
-  const { text, normalised } = patchStyleText(SHEET, "JP", { fontsize: 88 });
+test("a built-in style missing from the sheet is materialised from origin/cn", () => {
+  const { text, normalised } = patchStyleText(SHEET, "origin", { fontsize: 88 });
   assert.equal(normalised, false);
-  const builtin = parseSheet(BUILTIN_ASS_STYLES).fields["JP"];
-  const made = parseSheet(text).fields["JP"];
+  const builtin = parseSheet(BUILTIN_ASS_STYLES).fields["origin"];
+  const made = parseSheet(text).fields["origin"];
   assert.equal(made.fontsize, "88");
   for (const [key, value] of Object.entries(builtin)) {
     if (key !== "fontsize" && key !== "name") {
@@ -76,7 +76,7 @@ test("a built-in style missing from the sheet is materialised from JP/CN", () =>
     }
   }
   // 本机那份同名样式覆盖内置那份，所以合成后读到的就是改过的值
-  assert.equal(composeSheet(text).styleMap["JP"].size, 88);
+  assert.equal(composeSheet(text).styleMap["origin"].size, 88);
 });
 
 test("a brand-new name is created from the Aegisub defaults", () => {
@@ -156,7 +156,7 @@ test("commas and newlines can never leak into a Style line", () => {
 test("styleFieldsOf always returns all 23 fields", () => {
   const own = styleFieldsOf(SHEET, "优花");
   assert.equal(own.encoding, "134");
-  const builtin = styleFieldsOf(SHEET, "CN");
+  const builtin = styleFieldsOf(SHEET, "cn");
   assert.equal(builtin.alignment, "2");
   const unknown = styleFieldsOf(SHEET, "查无此人");
   assert.equal(unknown.name, "查无此人");
@@ -175,9 +175,9 @@ test("cloneStyleText copies every field under the new name", () => {
 
 test("uniqueStyleName avoids built-ins, existing names and stray commas", () => {
   const taken = composeSheet(DEFAULT_STYLE_SHEET).styleNames;
-  assert.equal(uniqueStyleName("优花", taken), "优花 2");
-  assert.equal(uniqueStyleName("JP", taken), "JP 2");
-  assert.equal(uniqueStyleName("优花 2", [...taken, "优花 2"]), "优花 3");
+  assert.equal(uniqueStyleName("speaker1", taken), "speaker1 2");
+  assert.equal(uniqueStyleName("origin", taken), "origin 2");
+  assert.equal(uniqueStyleName("speaker1 2", [...taken, "speaker1 2"]), "speaker1 3");
   assert.equal(uniqueStyleName("全新", taken), "全新");
   assert.equal(uniqueStyleName("坏,名字", []), "坏 名字");
 });

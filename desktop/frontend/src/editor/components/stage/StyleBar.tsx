@@ -106,7 +106,7 @@ export function StyleBar({ lane }: { lane: LaneRef }) {
   const vAlign = Math.floor((align - 1) / 3);
   const play = getPlayRes();
   const media = video();
-  // 绑定写的名字这份样式表里没有，正按 JP/CN 顶着用
+  // 绑定写的名字这份样式表里没有，正按 origin/cn 顶着用
   const unbound = box.boundStyle && !getStyleNames().includes(box.boundStyle) ? box.boundStyle : null;
   const shared = bindings.filter(binding => binding.direct).length > 1
     || bindings.some(binding => !binding.direct);
@@ -128,13 +128,13 @@ export function StyleBar({ lane }: { lane: LaneRef }) {
     <div className="style-bar">
       <SideSection title="样式">
         <PropRow label="轨道样式" title="这条轨的这一行用哪个样式；下面的改动改的是这个样式本身">
-          <StyleSelect lang={box.lang} value={box.boundStyle} allowNone={laneTarget.kind === "track"}
+          <StyleSelect lang={box.lang} value={box.boundStyle}
             onPick={value => bindStyle(box.lang, value, laneTarget)} />
         </PropRow>
         {bindings.length > 1 && (
           <div className={"sd-shared" + (shared ? " warn" : "")}>
             <span title={bindings.map(b => `${b.trackName} · ${b.lang === "ja" ? "原文" : "译文"}`).join("\n")}>
-              {bindings.length} 条轨共用「{name}」，改动会一起生效
+              {bindings.length} 条轨共用样式，改动会一起生效
             </span>
             <button type="button" className="side-text-btn" title="改成只作用于这条轨道，之后拖动不再影响别人"
               onClick={() => {

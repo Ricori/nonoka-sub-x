@@ -3,7 +3,7 @@ import type { AssStyle, Lang } from './types.ts';
 
 // 样式表解析与合成（预览渲染 + 绑定下拉 + 导出 + 插件宿主共用）。样式表跟着视频走，
 // 存在文档的 styles 字段里（见 editor/lib/styleEdit），这里只管把「文档那份 + 写死的
-// JP/CN」合成一份 StyleSheet：解析、规范化的 [V4+ Styles] 段、以及导出时的 ASS 头
+// origin/cn」合成一份 StyleSheet：解析、规范化的 [V4+ Styles] 段、以及导出时的 ASS 头
 // 都由它给出。编辑器把结果放进模块级单例（editor/ass.ts），插件宿主则按需现合成一份。
 
 /** 一条 Style 行拆成「字段名 → 原文」，保留 AssStyle 里没有的字段（副色/描边样式/编码等） */
@@ -86,8 +86,8 @@ export const styleLine = (name: string, f: StyleFields) =>
   "Style: " + ASS_FMT_DEFAULT.map(k => (k === "name" ? name : f[k] ?? FIELD_FALLBACK[k])).join(",");
 
 /**
- * 合成本机样式表：写死的 JP/CN 打底，本机样式表接在后面；同名以本机那份为准，
- * 于是 JP/CN 永远存在（resolveStyleIn 的回退目标），但用户想重定义也拦得住。
+ * 合成本机样式表：写死的 origin/cn 打底，本机样式表接在后面；同名以本机那份为准，
+ * 于是 origin/cn 永远存在（resolveStyleIn 的回退目标），但用户想重定义也拦得住。
  */
 export function composeSheet(userText: string): StyleSheet {
   const user = parseSheet(userText);
@@ -136,9 +136,13 @@ export function mergeStyleText(current: string, incoming: string) {
   return { text, added, updated };
 }
 
-/** 样式表里没有的绑定回退到写死的 JP/CN——云端同步下来的文档常绑着本机没有的样式 */
+/** 写死的两个默认样式名：原文 / 译文 */
+export const ORIGIN_STYLE = "origin";
+export const CN_STYLE = "cn";
+
+/** 样式表里没有的绑定回退到写死的 origin/cn——云端同步下来的文档常绑着本机没有的样式 */
 export const resolveStyleIn = (sheet: StyleSheet, name: string, lang: Lang): string =>
-  sheet.styleMap[name] ? name : (lang === "ja" ? "JP" : "CN");
+  sheet.styleMap[name] ? name : (lang === "ja" ? ORIGIN_STYLE : CN_STYLE);
 
 /** 预览与导出共用的 ASS 头：[Script Info] + 合并后的 [V4+ Styles] */
 export const assHeadOf = (sheet: StyleSheet) =>

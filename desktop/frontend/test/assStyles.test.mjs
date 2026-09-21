@@ -4,27 +4,27 @@ import test from "node:test";
 import { assHead, getStyleNames, mergeStyleText, resolveStyle, setStyleSheet } from "../src/editor/ass.ts";
 import { DEFAULT_STYLE_SHEET } from "../src/editor/constants.ts";
 
-test("built-in JP/CN survive whatever the local sheet says", () => {
+test("built-in origin/cn survive whatever the local sheet says", () => {
   setStyleSheet(DEFAULT_STYLE_SHEET);
-  assert.deepEqual(getStyleNames().slice(0, 2), ["JP", "CN"]);
-  assert.ok(getStyleNames().includes("优花"));
+  assert.deepEqual(getStyleNames().slice(0, 2), ["origin", "cn"]);
+  assert.ok(getStyleNames().includes("speaker1"));
   setStyleSheet("");
-  assert.deepEqual(getStyleNames(), ["JP", "CN"]);
+  assert.deepEqual(getStyleNames(), ["origin", "cn"]);
 });
 
 test("a local style of the same name overrides the built-in one", () => {
-  setStyleSheet("[V4+ Styles]\nStyle: JP,Arial,42,&H00112233,&H000000FF,&H00000000,&H00000000,"
+  setStyleSheet("[V4+ Styles]\nStyle: origin,Arial,42,&H00112233,&H000000FF,&H00000000,&H00000000,"
     + "0,0,0,0,100,100,0,0,1,2,2,8,10,10,30,1");
-  assert.deepEqual(getStyleNames(), ["JP", "CN"]);
-  assert.match(assHead(), /Style: JP,Arial,42,/);
-  assert.match(assHead(), /Style: CN,方正准圆_GBK,70,/);
+  assert.deepEqual(getStyleNames(), ["origin", "cn"]);
+  assert.match(assHead(), /Style: origin,Arial,42,/);
+  assert.match(assHead(), /Style: cn,方正准圆_GBK,70,/);
 });
 
-test("bindings the local sheet does not have fall back to JP/CN by language", () => {
+test("bindings the local sheet does not have fall back to origin/cn by language", () => {
   setStyleSheet(DEFAULT_STYLE_SHEET);
-  assert.equal(resolveStyle("优花", "zh"), "优花");
-  assert.equal(resolveStyle("某位不存在的说话人", "ja"), "JP");
-  assert.equal(resolveStyle("某位不存在的说话人", "zh"), "CN");
+  assert.equal(resolveStyle("speaker1", "zh"), "speaker1");
+  assert.equal(resolveStyle("某位不存在的说话人", "ja"), "origin");
+  assert.equal(resolveStyle("某位不存在的说话人", "zh"), "cn");
 });
 
 test("the emitted head carries the standard Format and the sheet's PlayRes", () => {

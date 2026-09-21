@@ -42,8 +42,8 @@ def _projection(**over):
         "tracks": [],
         "track_meta": {
             "name": "默认轨",
-            "ja": {"hidden": False, "style": "JP"},
-            "zh": {"hidden": False, "style": "CN"},
+            "ja": {"hidden": False, "style": "origin"},
+            "zh": {"hidden": False, "style": "cn"},
         },
         "projection": {"schema": 1, "mode": "stable"},
     }

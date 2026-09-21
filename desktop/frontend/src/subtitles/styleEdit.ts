@@ -56,7 +56,7 @@ function findStyleLine(lines: string[], limit: number, name: string): number {
   return -1;
 }
 
-/** 写死的 JP/CN 的字段原文（样式表里没有这个名字时拿来当底子） */
+/** 写死的 origin/cn 的字段原文（样式表里没有这个名字时拿来当底子） */
 let builtinFields: Record<string, StyleFields> | null = null;
 const builtinOf = (name: string): StyleFields | undefined => {
   if (!builtinFields) builtinFields = parseSheet(BUILTIN_ASS_STYLES).fields;
@@ -64,7 +64,7 @@ const builtinOf = (name: string): StyleFields | undefined => {
 };
 
 /**
- * 某个样式当前的 23 字段原文：样式表里那份优先 → 写死的 JP/CN → Aegisub 新建样式的默认值。
+ * 某个样式当前的 23 字段原文：样式表里那份优先 → 写死的 origin/cn → Aegisub 新建样式的默认值。
  * 面板读值、复制样式都走它（而不是有损的 AssStyle）。
  */
 export function styleFieldsOf(sheetText: string, name: string): StyleFields {
@@ -91,7 +91,7 @@ function normalised(sheetText: string, name: string, patch: StylePatch): string 
 
 /**
  * 把 patch 写回样式表原文。命中就原地改那一行，其余字节不动；样式表里没有这个名字
- * 就现造一条（底子取写死的 JP/CN 或 Aegisub 默认值）插在 [Events] 之前。
+ * 就现造一条（底子取写死的 origin/cn 或 Aegisub 默认值）插在 [Events] 之前。
  *
  * 文件自己的 Format 行装不下要改的字段时只能整份重排，此时 normalised 为 true，
  * 调用方应当告诉用户「样式表已按标准 Format 规范化」——那一步会丢注释。
@@ -123,7 +123,7 @@ export function patchStyleText(sheetText: string, rawName: string, patch: StyleP
     return { text: lines.join("\n"), normalised: false };
   }
 
-  // 没有这个样式：拿写死的 JP/CN 或默认值当底子现造一条
+  // 没有这个样式：拿写死的 origin/cn 或默认值当底子现造一条
   const seed: StyleFields = {};
   const base = builtinOf(name);
   for (const k of keys) seed[k] = base?.[k] ?? FIELD_FALLBACK[k] ?? "";
@@ -160,7 +160,7 @@ export function cloneStyleText(sheetText: string, from: string, to: string):
   return patchStyleText(sheetText, to, patch);
 }
 
-/** 不与 taken 里任何名字相撞的新名字：优花 → 优花 2 → 优花 3 … */
+/** 不与 taken 里任何名字相撞的新名字：speaker1 → speaker1 2 → speaker1 3 … */
 export function uniqueStyleName(base: string, taken: Iterable<string>): string {
   const used = new Set<string>();
   for (const n of taken) used.add(n);

@@ -79,9 +79,8 @@ function TrackLabel({ r, cur }: { r: RowSpec; cur: boolean }) {
   const ti: Ti = r.ti;
   const isDefault = ti < 0;
   const tr = tracks[ti];
-  const full = isDefault || !tr
-    ? (lang === "ja" ? "原文 JA" : "译文 ZH")
-    : (tr.name || ("轨道 " + (ti + 1))) + " · " + (lang === "ja" ? "原文" : "译文");
+  const full = (isDefault || !tr ? (trackMeta?.name || "默认轨") : (tr.name || ("轨道 " + (ti + 1))))
+    + " · " + (lang === "ja" ? "原文" : "译文");
   const hidden = isDefault || !tr
     ? !!trackMeta?.[lang].hidden
     : !!tr[lang].hidden;

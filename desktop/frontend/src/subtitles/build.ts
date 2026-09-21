@@ -34,14 +34,14 @@ export function trackNameOf(source: SubtitleSource, ti: number): string {
 
 /**
  * 输出线 = 堆叠优先级：默认轨 译文→原文 最贴边，再各自定义轨 译文→原文 依次向外。
- * 没绑样式的线不出现；绑了本机没有的样式则回退 JP/CN，不再整条线消失。
+ * 出不出只看 hidden；没绑样式或绑了本机没有的样式都回退 origin/cn。
  */
 export function outputLinesOf(source: SubtitleSource, sheet: StyleSheet): OutputLine[] {
   const out: OutputLine[] = [];
   const add = (arr: SubtitleSegment[], lang: Lang, meta: LaneMeta, name: string, trackId: string) => {
-    if (meta.style) out.push({
+    out.push({
       arr, lang, meta, trackId,
-      style: resolveStyleIn(sheet, meta.style, lang), name,
+      style: resolveStyleIn(sheet, meta.style || "", lang), name,
       effects: resolveLaneEffects(source.effects, trackId, lang),
     });
   };
@@ -58,13 +58,6 @@ export function outputLinesOf(source: SubtitleSource, sheet: StyleSheet): Output
   return out;
 }
 
-/** 只让程序生成受控的 ASS 覆写标签，普通字幕文本仍由 assTx 转义花括号。 */
-const legacyFadeTag = (meta: LaneMeta): string => {
-  const ms = (value: unknown) => Math.min(60_000, Math.max(0, Math.round(Number(value) || 0)));
-  const fadeIn = ms(meta.fadeInMs), fadeOut = ms(meta.fadeOutMs);
-  return fadeIn || fadeOut ? `{\\fad(${fadeIn},${fadeOut})}` : "";
-};
-
 const param = (binding: SubtitleEffectBinding, key: string, fallback: number): number => {
   const value = Number(binding.params[key]);
   return Number.isFinite(value) ? value : fallback;
@@ -79,7 +72,7 @@ const colorParam = (binding: SubtitleEffectBinding, key: string, tag: string): s
 
 function transformTag(line: OutputLine): string {
   const fade = line.effects.find(effect => effect.templateId === "fade");
-  if (!fade) return legacyFadeTag(line.meta);
+  if (!fade) return "";
   const fadeIn = Math.max(0, Math.round(param(fade, "inMs", 200)));
   const fadeOut = Math.max(0, Math.round(param(fade, "outMs", 200)));
   return fadeIn || fadeOut ? `{\\fad(${fadeIn},${fadeOut})}` : "";
@@ -296,7 +289,7 @@ const GENERATORS: Record<string, (line: OutputLine, segment: SubtitleSegment, st
 export const generatorOf = (line: OutputLine): SubtitleEffectBinding | undefined =>
   line.effects.find(effect => GENERATORS[effect.templateId]);
 
-/** 有绑定、但样式表里查不到的样式名（这些线会回退到 JP/CN 照常出图） */
+/** 有绑定、但样式表里查不到的样式名（这些线会回退到 origin/cn 照常出图） */
 export function unknownStylesOf(source: SubtitleSource, sheet: StyleSheet): string[] {
   const miss = new Set<string>();
   const chk = (lane: LaneMeta | undefined) => {
@@ -342,9 +335,9 @@ export interface StyleBinding {
 export function lanesUsingStyle(source: SubtitleSource, sheet: StyleSheet, name: string): StyleBinding[] {
   const found: StyleBinding[] = [];
   const check = (trackId: string, trackName: string, lang: Lang, meta: LaneMeta | undefined) => {
-    if (!meta?.style) return;
+    if (!meta) return;
     if (meta.style === name) found.push({ trackId, trackName, lang, direct: true });
-    else if (resolveStyleIn(sheet, meta.style, lang) === name) {
+    else if (resolveStyleIn(sheet, meta.style || "", lang) === name) {
       found.push({ trackId, trackName, lang, direct: false });
     }
   };

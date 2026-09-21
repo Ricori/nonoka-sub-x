@@ -6,13 +6,12 @@ import { closeTrackPop, modalStore } from '../store/uiStore';
 import type { Lang } from '../types';
 
 /**
- * 样式下拉。这个视频的样式表里没有的绑定值一律显示成回退后的 JP/CN——预览和导出就是
+ * 样式下拉。这个视频的样式表里没有的绑定值一律显示成回退后的 origin/cn——预览和导出就是
  * 这么出的（见 ass.ts::resolveStyle），下拉再显示那个查无此人的名字只会让两边对不上。
  */
-function effStyle(value: string | null | undefined, allowNone: boolean, lang: Lang) {
+function effStyle(value: string | null | undefined, lang: Lang) {
   const v = value || "";
   if (v && getStyleNames().includes(v)) return v;
-  if (!v && allowNone) return "";
   return resolveStyle(v, lang);
 }
 
@@ -22,16 +21,15 @@ function effStyle(value: string | null | undefined, allowNone: boolean, lang: La
  */
 const NEW_STYLE = "\n新增样式";
 
-function StyleSelect({ id, value, allowNone, lang, onPick }: {
-  id: string; value: string | null; allowNone: boolean; lang: Lang; onPick(v: string): void;
+function StyleSelect({ id, value, lang, onPick }: {
+  id: string; value: string | null; lang: Lang; onPick(v: string): void;
 }) {
   return (
-    <select id={id} value={effStyle(value, allowNone, lang)} onChange={e => {
+    <select id={id} value={effStyle(value, lang)} onChange={e => {
       // 样式模板是全屏弹窗，弹层留在后面也会被第一次点击关掉，不如自己先收干净
       if (e.target.value === NEW_STYLE) { closeTrackPop(); modalStore.set({ tplOpen: true }); return; }
       onPick(e.target.value);
     }}>
-      {allowNone && <option value="">（不导出）</option>}
       {getStyleNames().map(n => <option key={n} value={n}>{n}</option>)}
       <option value={NEW_STYLE}>＋ 新增样式</option>
     </select>
@@ -83,13 +81,13 @@ export function TrackPopover() {
       {/* 默认轨 lane：只绑当前语言的样式 */}
       <div className="tp-lane" style={{ display: isTrack || isJa ? undefined : "none" }}>
         <label>{isTrack ? "日语字幕样式" : "字幕样式"}</label>
-        <StyleSelect id="tp-style-ja" allowNone={isTrack} lang="ja"
+        <StyleSelect id="tp-style-ja" lang="ja"
           value={isTrack ? tr!.ja.style : (trackMeta?.ja.style ?? null)}
           onPick={v => bindStyle("ja", v, styleTarget)} />
       </div>
       <div className="tp-lane" style={{ display: isTrack || !isJa ? undefined : "none" }}>
         <label>{isTrack ? "中文译文样式" : "字幕样式"}</label>
-        <StyleSelect id="tp-style-zh" allowNone={isTrack} lang="zh"
+        <StyleSelect id="tp-style-zh" lang="zh"
           value={isTrack ? tr!.zh.style : (trackMeta?.zh.style ?? null)}
           onPick={v => bindStyle("zh", v, styleTarget)} />
       </div>

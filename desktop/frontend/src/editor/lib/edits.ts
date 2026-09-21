@@ -1,5 +1,4 @@
 import { MIN_DUR } from '../constants';
-import { getStyleNames } from '../ass';
 import { bumpDoc, docStore, locateSeg, segsOf } from '../store/docStore';
 import { playStore } from '../store/playStore';
 import { markDirty } from '../store/saveStore';
@@ -13,6 +12,7 @@ import { seek } from './playback';
 import { syncSubs, syncSubsSoon } from './subtitles';
 import { removeEffectsForTrack } from './effects';
 import type { Lang, Seg } from '../types';
+import { CN_STYLE, ORIGIN_STYLE } from '../../subtitles/styles';
 
 /**
  * 改了句子就必须带上 syncSubs：预览是 libass 按整份 ASS 渲染的，只重画当前帧
@@ -229,31 +229,27 @@ export function toggleFoldJa() {
 
 // ── 轨道增删（换轨靠时间轴上下拖字幕块，见 useLaneDrag）──────
 export async function newTrack() {
-  const { tracks, trackMeta } = docStore.get();
+  const { tracks } = docStore.get();
   const name = await askModal({
     title: "新建轨道",
     hint: "轨道名称（说话人 / 注释等）",
-    value: "说话人 " + (tracks.length + 1),
+    value: "轨道 " + (tracks.length + 1),
   });
   if (name == null || !String(name).trim()) return;
   pushHistory();
-  // 「隐藏原文轨」是由「所有原文 lane 都 hidden」推导出来的，新轨若默认可见，
-  // 这个条件当场就破了，看起来就是刚隐藏好的原文轨被新建轨道顶了回来
-  const hideJa = foldJa();
-  const used = new Set<string | null>([trackMeta?.ja.style ?? null, trackMeta?.zh.style ?? null]);
-  tracks.forEach(tr => { used.add(tr.ja.style); used.add(tr.zh.style); });
-  const style = getStyleNames().find(n => !used.has(n)) || getStyleNames()[0] || null;
+  // 新轨默认只出译文，原文 lane 先藏着；这样也不会破坏「所有原文 lane 都 hidden」
+  // 推导出来的「隐藏原文轨」
   tracks.push({
     id: "t" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
     name: String(name).trim(),
-    ja: { hidden: hideJa, style: null },
-    zh: { hidden: false, style },
+    ja: { hidden: true, style: ORIGIN_STYLE },
+    zh: { hidden: false, style: CN_STYLE },
     hja: 44, hzh: 44, segs: [],
   });
   refreshAll();
   setActiveTrack(tracks.length - 1, { silent: true });
   markDirty();
-  toast("已新建轨道「" + String(name).trim() + "」" + (style ? "（译文样式：" + style + "）" : ""));
+  toast("已新建轨道「" + String(name).trim() + "」");
 }
 
 export async function deleteTrack(ti: number) {

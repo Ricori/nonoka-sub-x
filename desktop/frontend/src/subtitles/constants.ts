@@ -13,21 +13,21 @@ export const ASS_STYLE_FORMAT = "Format: Name, Fontname, Fontsize, PrimaryColour
   + " BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding";
 
 /**
- * 写死的两个默认样式。默认轨的原文/译文绑的就是它们，样式编辑器里不展示，也删不掉：
+ * 写死的两个默认样式 origin（原文）/ cn（译文）。默认轨的原文/译文绑的就是它们，样式编辑器里不展示，也删不掉：
  * 文档绑到自己样式表里没有的样式时，回退的正是这两个（见 ass.ts::resolveStyle）。
  * 文档的样式表里出现同名样式时以文档那份为准——「合并」而不是「锁死」。
  */
-export const BUILTIN_ASS_STYLES = `Style: JP,方正准圆_GBK,70,&H00FFF9FD,&HF0000000,&H00EF9320,&H30633306,0,0,0,0,100,100,7,0,1,2,2,8,10,10,30,1
-Style: CN,方正准圆_GBK,70,&H00FFF9FD,&HF0000000,&H00EF9320,&H30633306,0,0,0,0,100,100,7,0,1,2,2,2,10,10,30,1`;
+export const BUILTIN_ASS_STYLES = `Style: origin,方正准圆_GBK,70,&H00FFF9FD,&HF0000000,&H00EF9320,&H30633306,0,0,0,0,100,100,7,0,1,2,2,8,10,10,30,1
+Style: cn,方正准圆_GBK,70,&H00FFF9FD,&HF0000000,&H00EF9320,&H30633306,0,0,0,0,100,100,7,0,1,2,2,2,10,10,30,1`;
 
-/** 新文档的种子：旧工程内置模板里除 JP/CN 之外的那几个样式 */
-export const DEFAULT_USER_ASS_STYLES = `Style: 注释,思源黑体 Heavy,60,&H00FFFFFF,&H000000FF,&H00000000,&H00737375,0,0,0,0,100,100,0,0,1,2,2,7,30,30,30,1
-Style: 优花,荆南波波黑,90,&H00D59B57,&H000000FF,&H00FFFFFF,&H00000000,0,0,0,0,100,100,0,0,1,5,0,2,10,10,30,1
-Style: haru,荆南波波黑,90,&H002E0C9B,&H000000FF,&H00FFFFFF,&H00000000,0,0,0,0,100,100,0,0,1,5,0,2,10,10,30,1
-Style: nana,荆南波波黑,90,&H00B9A7F0,&H000000FF,&H00FFFFFF,&H00000000,0,0,0,0,100,100,0,0,1,5,0,2,10,10,30,1
-Style: saya,荆南波波黑,90,&H0091DF82,&H000000FF,&H00FFFFFF,&H00000000,0,0,0,0,100,100,0,0,1,5,0,2,10,10,30,1`;
+/** 新文档的种子：注释 + 四个说话人样式，名字一律用通用名，由用户按需改 */
+export const DEFAULT_USER_ASS_STYLES = `Style: note,思源黑体 Heavy,60,&H00FFFFFF,&H000000FF,&H00000000,&H00737375,0,0,0,0,100,100,0,0,1,2,2,7,30,30,30,1
+Style: speaker1,荆南波波黑,90,&H00D59B57,&H000000FF,&H00FFFFFF,&H00000000,0,0,0,0,100,100,0,0,1,5,0,2,10,10,30,1
+Style: speaker2,荆南波波黑,90,&H002E0C9B,&H000000FF,&H00FFFFFF,&H00000000,0,0,0,0,100,100,0,0,1,5,0,2,10,10,30,1
+Style: speaker3,荆南波波黑,90,&H00B9A7F0,&H000000FF,&H00FFFFFF,&H00000000,0,0,0,0,100,100,0,0,1,5,0,2,10,10,30,1
+Style: speaker4,荆南波波黑,90,&H0091DF82,&H000000FF,&H00FFFFFF,&H00000000,0,0,0,0,100,100,0,0,1,5,0,2,10,10,30,1`;
 
-/** 没有本机默认模板时的兜底种子（不含写死的 JP/CN） */
+/** 没有本机默认模板时的兜底种子（不含写死的 origin/cn） */
 export const DEFAULT_STYLE_SHEET = `[V4+ Styles]
 ${ASS_STYLE_FORMAT}
 ${DEFAULT_USER_ASS_STYLES}

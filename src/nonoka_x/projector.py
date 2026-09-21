@@ -298,8 +298,8 @@ def project_edit_document(
         "tracks": [],
         "track_meta": {
             "name": "默认轨",
-            "ja": {"hidden": False, "style": "JP"},
-            "zh": {"hidden": False, "style": "CN"},
+            "ja": {"hidden": False, "style": "origin"},
+            "zh": {"hidden": False, "style": "cn"},
         },
         "effects": [],
         "projection": {"schema": 1, "mode": mode},

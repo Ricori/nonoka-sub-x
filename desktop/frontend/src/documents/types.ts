@@ -14,10 +14,6 @@ export interface EditSegment {
 export interface LaneMeta {
   hidden: boolean;
   style: string | null;
-  /** @deprecated 旧版轨道渐变；载入后迁移到 effects。 */
-  fadeInMs?: number;
-  /** @deprecated 旧版轨道渐变；载入后迁移到 effects。 */
-  fadeOutMs?: number;
 }
 
 export interface EditTrack {

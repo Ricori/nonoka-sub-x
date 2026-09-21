@@ -1,5 +1,5 @@
 import type {
-  Lang, SubtitleEffectBinding, SubtitleEffectParam, SubtitleEffectTarget, SubtitleSource,
+  Lang, SubtitleEffectBinding, SubtitleEffectParam, SubtitleEffectTarget,
 } from './types.ts';
 
 export const DEFAULT_EFFECT_TRACK_ID = "default";
@@ -205,34 +205,6 @@ export function resolveLaneEffects(bindings: SubtitleEffectBinding[] | undefined
     else if (!generator || item.specificity > generator.specificity) generator = item;
   }
   if (generator) out.push(generator.binding);
-  return out;
-}
-
-/** 把短暂发布过的 lane.fadeInMs/fadeOutMs 无损迁入统一绑定，随后保存会移除旧字段。 */
-export function migrateLegacyFadeBindings(bindings: SubtitleEffectBinding[],
-  source: Pick<SubtitleSource, "tracks" | "trackMeta">): SubtitleEffectBinding[] {
-  const out = [...bindings];
-  const add = (trackId: string, lang: Lang, lane: { fadeInMs?: number; fadeOutMs?: number }) => {
-    const fadeIn = Math.max(0, Math.round(Number(lane.fadeInMs) || 0));
-    const fadeOut = Math.max(0, Math.round(Number(lane.fadeOutMs) || 0));
-    if ((!fadeIn && !fadeOut) || resolveLaneEffects(out, trackId, lang).some(item => item.templateId === "fade")) return;
-    out.push({
-      id: `legacy-fade-${trackId}-${lang}`,
-      templateId: "fade",
-      enabled: true,
-      target: { scope: "lane", trackId, lang },
-      params: { inMs: fadeIn, outMs: fadeOut },
-    });
-  };
-  if (source.trackMeta) {
-    add(DEFAULT_EFFECT_TRACK_ID, "ja", source.trackMeta.ja);
-    add(DEFAULT_EFFECT_TRACK_ID, "zh", source.trackMeta.zh);
-  }
-  source.tracks.forEach((track, index) => {
-    const trackId = track.id || `track-${index + 1}`;
-    add(trackId, "ja", track.ja);
-    add(trackId, "zh", track.zh);
-  });
   return out;
 }
 

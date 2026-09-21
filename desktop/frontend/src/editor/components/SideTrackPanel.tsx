@@ -10,23 +10,21 @@ import type { Lang } from '../types';
 import { PropRow, SideSection, Switch } from './ui/fields';
 
 const NEW_STYLE = "__new_style__";
-const NO_EXPORT = "__no_export__";
 
-/** 给某条 lane 绑样式的下拉：轨道页和样式页共用 */
-export function StyleSelect({ lang, value, allowNone, onPick }: {
-  lang: Lang; value: string | null; allowNone: boolean; onPick(value: string): void;
+/** 给某条 lane 绑样式的下拉：轨道页和样式页共用。不出这一行靠眼睛（hidden），不靠样式 */
+export function StyleSelect({ lang, value, onPick }: {
+  lang: Lang; value: string | null; onPick(value: string): void;
 }) {
   const names = getStyleNames();
-  const effective = !value && allowNone ? NO_EXPORT : (value && names.includes(value) ? value : resolveStyle(value || "", lang));
+  const effective = value && names.includes(value) ? value : resolveStyle(value || "", lang);
   const options = [
-    ...(allowNone ? [{ value: NO_EXPORT, label: "（不导出）" }] : []),
     ...names.map(name => ({ value: name, label: name })),
     { value: NEW_STYLE, label: "＋ 新增样式…" },
   ];
   return <CustomSelect className="sd-select" ariaLabel="字幕样式" value={effective} options={options}
     onChange={picked => {
       if (picked === NEW_STYLE) { modalStore.set({ tplOpen: true }); return; }
-      onPick(picked === NO_EXPORT ? "" : picked);
+      onPick(picked);
     }} />;
 }
 
@@ -89,7 +87,7 @@ export function SideTrackPanel() {
           extra={<Switch on={!meta?.hidden} title={meta?.hidden ? "显示这一行" : "隐藏这一行"}
             onToggle={() => toggleHidden(curTrack, lang)} />}>
           <PropRow label="样式">
-            <StyleSelect lang={lang} value={meta?.style ?? null} allowNone={!isDefault}
+            <StyleSelect lang={lang} value={meta?.style ?? null}
               onPick={value => bindStyle(lang, value, target)} />
           </PropRow>
         </SideSection>;
