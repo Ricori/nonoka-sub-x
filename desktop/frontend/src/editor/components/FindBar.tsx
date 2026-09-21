@@ -4,10 +4,17 @@ import {
   closeFind, refreshHits, replaceAllHits, replaceCurrent, setField, setQuery, setRepl,
   stepHit, toggleAllTracks, toggleMatchCase,
 } from '../lib/find';
+import { CustomSelect } from '../../components/CustomSelect';
 import { docStore } from '../store/docStore';
 import { findStore, type FindField } from '../store/findStore';
 import { selStore } from '../store/selectionStore';
 import { viewStore } from '../store/viewStore';
+
+const FIELD_OPTIONS: { value: FindField; label: string }[] = [
+  { value: "both", label: "原文 + 译文" },
+  { value: "ja", label: "仅原文" },
+  { value: "zh", label: "仅译文" },
+];
 
 /** 字幕列表顶部的查找/替换条（Ctrl+F 开关） */
 export function FindBar() {
@@ -29,35 +36,44 @@ export function FindBar() {
   const hasHit = f.total > 0;
   const countText = !f.query ? "" : (hasHit ? (f.cursor + 1) + "/" + f.total : "无结果");
 
+  const icon = (d: string) => <svg viewBox="0 0 16 16" aria-hidden="true"><path d={d} /></svg>;
+
   return (
     <div className="find-bar" onKeyDown={e => { if (e.key === "Escape") { e.preventDefault(); closeFind(); } }}>
       <div className="find-row">
-        <input ref={inputRef} className="find-input" placeholder="查找字幕" spellCheck={false}
-          value={f.query} onChange={e => setQuery(e.target.value)}
-          onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); stepHit(e.shiftKey ? -1 : 1); } }} />
-        <span className={"find-count" + (f.query && !hasHit ? " none" : "")}>{countText}</span>
-        <button className="fbtn" title="上一处 (Shift+Enter)" disabled={!hasHit} onClick={() => stepHit(-1)}>↑</button>
-        <button className="fbtn" title="下一处 (Enter)" disabled={!hasHit} onClick={() => stepHit(1)}>↓</button>
-        <button className="fbtn" title="关闭 (Esc)" onClick={closeFind}>✕</button>
+        <span className="find-box">
+          <input ref={inputRef} className="find-input" placeholder="查找字幕" spellCheck={false}
+            value={f.query} onChange={e => setQuery(e.target.value)}
+            onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); stepHit(e.shiftKey ? -1 : 1); } }} />
+          {countText && <span className={"find-count" + (hasHit ? "" : " none")}>{countText}</span>}
+        </span>
+        <span className="find-actions">
+          <button type="button" className="fbtn icon" title="上一处 (Shift+Enter)" disabled={!hasHit}
+            onClick={() => stepHit(-1)}>{icon("M4 10l4-4 4 4")}</button>
+          <button type="button" className="fbtn icon" title="下一处 (Enter)" disabled={!hasHit}
+            onClick={() => stepHit(1)}>{icon("M4 6l4 4 4-4")}</button>
+          <button type="button" className="fbtn icon" title="关闭 (Esc)"
+            onClick={closeFind}>{icon("M4.5 4.5l7 7M11.5 4.5l-7 7")}</button>
+        </span>
       </div>
       <div className="find-row">
-        <input className="find-input" placeholder="替换为" spellCheck={false}
-          value={f.repl} onChange={e => setRepl(e.target.value)}
-          onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); replaceCurrent(); } }} />
-        <button className="fbtn wide" disabled={!hasHit} onClick={replaceCurrent}>替换</button>
-        <button className="fbtn wide" disabled={!hasHit} onClick={replaceAllHits}>全部替换</button>
+        <span className="find-box">
+          <input className="find-input" placeholder="替换为" spellCheck={false}
+            value={f.repl} onChange={e => setRepl(e.target.value)}
+            onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); replaceCurrent(); } }} />
+        </span>
+        <span className="find-actions">
+          <button type="button" className="fbtn" disabled={!hasHit} onClick={replaceCurrent}>替换</button>
+          <button type="button" className="fbtn" disabled={!hasHit} onClick={replaceAllHits}>全部替换</button>
+        </span>
       </div>
       <div className="find-row opts">
-        <button className={"fbtn tog" + (f.matchCase ? " on" : "")} title="区分大小写"
-          onClick={toggleMatchCase}>Aa</button>
-        <select className="find-field" title="在哪些文本里查找" value={f.field}
-          onChange={e => setField(e.target.value as FindField)}>
-          <option value="both">原文 + 译文</option>
-          <option value="ja">仅原文</option>
-          <option value="zh">仅译文</option>
-        </select>
-        <button className={"fbtn tog" + (f.allTracks ? " on" : "")} title="跨所有轨道查找（跳转时会自动切轨）"
-          onClick={toggleAllTracks}>所有轨道</button>
+        <button type="button" className={"fbtn tog" + (f.matchCase ? " on" : "")} title="区分大小写"
+          aria-pressed={f.matchCase} onClick={toggleMatchCase}>Aa</button>
+        <CustomSelect compact className="find-field" ariaLabel="在哪些文本里查找" value={f.field}
+          options={FIELD_OPTIONS} onChange={value => setField(value)} />
+        <button type="button" className={"fbtn tog" + (f.allTracks ? " on" : "")} title="跨所有轨道查找（跳转时会自动切轨）"
+          aria-pressed={f.allTracks} onClick={toggleAllTracks}>所有轨道</button>
       </div>
     </div>
   );

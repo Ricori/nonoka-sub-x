@@ -178,10 +178,15 @@ function InlineEditor({ box, seg, stage }: { box: SubtitleBox; seg: Seg; stage: 
   const width = Math.min(96, Math.max(minW, (box.block.width / X) * 100 + 6));
   const centre = ((box.block.left + box.block.width / 2) / X) * 100;
   const left = Math.min(100 - width - 2, Math.max(2, centre - width / 2));
+  // 下半屏的字幕：框贴着字的下沿往上长、提示放上面，否则提示会被舞台的 overflow 裁掉
+  const lower = box.block.top + box.block.height / 2 > Y / 2;
+  const place = lower
+    ? { bottom: Math.max(1, ((Y - box.block.top - box.block.height) / Y) * 100) + "%" }
+    : { top: Math.max(1, (box.block.top / Y) * 100) + "%" };
 
   return (
-    <div className="stage-inline-edit"
-      style={{ left: left + "%", width: width + "%", top: pct(box.block.top, Y) }}
+    <div className={"stage-inline-edit" + (lower ? " up" : "")}
+      style={{ left: left + "%", width: width + "%", ...place }}
       onPointerDown={event => event.stopPropagation()}
       onClick={event => event.stopPropagation()}
       onDoubleClick={event => event.stopPropagation()}>
