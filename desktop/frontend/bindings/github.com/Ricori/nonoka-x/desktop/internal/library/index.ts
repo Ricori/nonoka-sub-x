@@ -11,8 +11,11 @@ export type {
     Clip,
     Entry,
     ExportResult,
+    FilmstripTileResult,
     ImportFailure,
     ImportResult,
+    Range,
     SpectrogramTileResult,
-    TranscodeResult
+    TranscodeResult,
+    VideoEdit
 } from "./models.js";

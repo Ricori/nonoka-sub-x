@@ -16,14 +16,13 @@ import (
 // export window. The potentially large ASS text stays in Go and is never sent
 // back through the webview bridge.
 type VideoExportDraft struct {
-	JobID        string   `json:"jobId"`
-	ProgressID   string   `json:"progressId"`
-	MediaID      string   `json:"mediaId"`
-	DefaultName  string   `json:"defaultName"`
-	T0           float64  `json:"t0"`
-	T1           float64  `json:"t1"`
-	RangeLabel   string   `json:"rangeLabel"`
-	MissingFonts []string `json:"missingFonts"`
+	JobID        string          `json:"jobId"`
+	ProgressID   string          `json:"progressId"`
+	MediaID      string          `json:"mediaId"`
+	DefaultName  string          `json:"defaultName"`
+	Pieces       []library.Range `json:"pieces"`
+	RangeLabel   string          `json:"rangeLabel"`
+	MissingFonts []string        `json:"missingFonts"`
 }
 
 type VideoExportResult struct {
@@ -33,9 +32,10 @@ type VideoExportResult struct {
 
 // OpenVideoExport creates one modeless native export window. One window is
 // enough for now: while it exists a second request focuses it instead of
-// replacing the subtitle snapshot of a running encode.
-func (s *WindowService) OpenVideoExport(mediaID, defaultName, ass string, t0, t1 float64, rangeLabel string, missingFonts []string) error {
-	if strings.TrimSpace(mediaID) == "" || strings.TrimSpace(ass) == "" || t1 <= t0 {
+// replacing the subtitle snapshot of a running encode. pieces are the source
+// ranges to join in order; ass is already in output time.
+func (s *WindowService) OpenVideoExport(mediaID, defaultName, ass string, pieces []library.Range, rangeLabel string, missingFonts []string) error {
+	if strings.TrimSpace(mediaID) == "" || strings.TrimSpace(ass) == "" || len(pieces) == 0 {
 		return errors.New("invalid video export draft")
 	}
 	if _, err := s.library.Get(mediaID); err != nil {
@@ -63,7 +63,7 @@ func (s *WindowService) OpenVideoExport(mediaID, defaultName, ass string, t0, t1
 	draft := VideoExportDraft{
 		JobID: jobID, ProgressID: "exp_" + mediaID,
 		MediaID: mediaID, DefaultName: defaultName,
-		T0: t0, T1: t1, RangeLabel: rangeLabel,
+		Pieces: append([]library.Range(nil), pieces...), RangeLabel: rangeLabel,
 		MissingFonts: append([]string(nil), missingFonts...),
 	}
 	options, deferredState := deferWindowStart(exportWindowOptions(s.preferences, jobID, defaultName))
@@ -162,8 +162,8 @@ func (s *WindowService) RunVideoExport(jobID string, crf int, preset string, sca
 		}
 		s.mu.Unlock()
 	}()
-	result, err := s.library.ExportVideoRange(
-		draft.MediaID, draft.DefaultName, ass, draft.T0, draft.T1,
+	result, err := s.library.ExportVideoPieces(
+		draft.MediaID, draft.DefaultName, ass, draft.Pieces,
 		crf, preset, scaleH, abr,
 	)
 	return VideoExportResult{Path: result.Path, Size: result.Size}, err

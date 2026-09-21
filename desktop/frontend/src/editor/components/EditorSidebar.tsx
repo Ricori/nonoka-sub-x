@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { shallowEqual } from '../../home/lib/createStore';
 import { DEFAULT_EFFECT_TRACK_ID } from '../../subtitles/effects';
 import { CustomSelect } from '../../components/CustomSelect';
 import { toggleFind } from '../lib/find';
@@ -7,7 +8,7 @@ import { findStore } from '../store/findStore';
 import { curSegs, selStore, setActiveTrack } from '../store/selectionStore';
 import { selectLane, stageStore } from '../store/stageStore';
 import { modalStore } from '../store/uiStore';
-import { viewRange, viewStore } from '../store/viewStore';
+import { listedIdx, viewStore } from '../store/viewStore';
 import type { Lang } from '../types';
 import { FindBar } from './FindBar';
 import { Inspector } from './Inspector';
@@ -38,14 +39,14 @@ export function TrackSelect() {
 
 function SubtitleHead() {
   docStore.use(state => state.version);
-  viewStore.use(state => state.curClip);
+  viewStore.use(state => ({ t0: state.t0, t1: state.t1, pieces: state.pieces, focus: state.focus }), shallowEqual);
   selStore.use(state => state.curTrack);
   const findOpen = findStore.use(state => state.open);
-  const arr = curSegs();
-  const [vA, vB] = viewRange(arr);
+  // 聚焦成片时只数成片里还有的句
+  const n = listedIdx(curSegs()).length;
   return <div className="side-head">
     <TrackSelect />
-    <span className="side-head-meta">{vB - vA} 句</span>
+    <span className="side-head-meta">{n} 句</span>
     <button type="button" className={"side-icon-btn" + (findOpen ? " on" : "")} id="btn-find"
       title="查找 / 替换 (Ctrl+F)" aria-pressed={findOpen} onClick={toggleFind}>
       <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="4.5" /><path d="m10.5 10.5 3 3" /></svg>

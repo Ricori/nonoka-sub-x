@@ -8,14 +8,15 @@ import { findStore } from '../store/findStore';
 import {
   curSegs, registerRowScroller, select, selectRange, selStore, toggleSel,
 } from '../store/selectionStore';
-import { fmtView, viewRange, viewStore } from '../store/viewStore';
+import { fmtView, isCutSeg, viewRange, viewStore } from '../store/viewStore';
 import type { Lang, Seg } from '../types';
 
 // 和时间轴一样只渲染视口附近的行：几千行全铺出来，光它们的排版/绘制就能把每一次
 // 缩放/编辑拖到十几帧。上下各垫一块占位 div 把滚动条撑到该有的长度。
 const segRowHs = new WeakMap<Seg, number>();   // 句 → 实测行高：文本换行的行更高，一律按估值会撑歪
 let rowEstH = 46;                              // 没渲染过的行按这个估高
-const segRowH = (s: Seg) => segRowHs.get(s) || rowEstH;
+// 聚焦成片时整句都被剪掉的句不出现在列表里：行高按 0 算，窗口、占位、滚动定位就都自动跳过它
+const segRowH = (s: Seg) => isCutSeg(s) ? 0 : (segRowHs.get(s) || rowEstH);
 
 /** 把查找命中染上底色；cur 是「当前这一处」的起点（没有则 -1） */
 function Marked({ text, q, mc, cur }: { text: string; q: string; mc: boolean; cur: number }) {
@@ -60,7 +61,8 @@ const Row = memo(function Row(
 export function SegList() {
   docStore.use(s => s.version);
   const tracksVer = docStore.use(s => s.tracks.length);
-  viewStore.use(s => s.curClip);
+  // 聚焦成片会收窄列表范围、把时间码换成成片时间
+  const view = viewStore.use(s => ({ t0: s.t0, t1: s.t1, pieces: s.pieces, focus: s.focus }), shallowEqual);
   const { curTrack, selSet } = selStore.use(s => ({ curTrack: s.curTrack, selSet: s.selSet }), shallowEqual);
   // 查找条开着时行里要染命中；「当前那一处」另外描边，跟计数 1/N 对得上
   const find = findStore.use(s => {
@@ -109,8 +111,8 @@ export function SegList() {
     if (first < win[0] || i > win[1]) computeWin();
   }, [computeWin, listVp, win]);
 
-  // 句子增删/换轨/进出切片都会改行数，窗口跟着重算
-  useEffect(() => { computeWin(); }, [computeWin, curTrack, tracksVer]);
+  // 句子增删/换轨/进出聚焦、剪辑都会改行数，窗口跟着重算
+  useEffect(() => { computeWin(); }, [computeWin, curTrack, tracksVer, view]);
 
   /** 主选中行滚到眼前：没渲染出来的行按行高估算位置先跳过去，再重画窗口 */
   useEffect(() => {
@@ -168,11 +170,16 @@ export function SegList() {
   let padBot = 0;
   for (let k = b; k < vB; k++) padBot += segRowH(arr[k]);
 
+  // 序号按成片里还有的句数：被剪掉的句不占号
+  let ordinal = 0;
+  for (let k = vA; k < a; k++) if (!isCutSeg(arr[k])) ordinal++;
   const rows: React.ReactElement[] = [];
   for (let i = a; i < b; i++) {
     const s = arr[i];
+    if (isCutSeg(s)) continue;
+    ordinal++;
     rows.push(
-      <Row key={i} i={i} label={String(i - vA + 1).padStart(2, "0")}
+      <Row key={i} i={i} label={String(ordinal).padStart(2, "0")}
         tin={fmtView(s.t0)} tout={fmtView(s.t1)}
         ja={s.ja} zh={s.zh}
         q={find.q} mc={find.mc}

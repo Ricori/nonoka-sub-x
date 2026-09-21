@@ -74,16 +74,34 @@ export function ExportVideo(id: string, ass: string): $CancellablePromise<string
     return $Call.ByID(4199869291, id, ass);
 }
 
+/**
+ * ExportVideoPieces burns ass onto the given source pieces joined in order.
+ * The ASS must already be in output time (see subtitles/build.ts piecesAss).
+ * A single piece keeps the plain -ss/-t path; several go through trim+concat,
+ * which always re-encodes the audio.
+ */
+export function ExportVideoPieces(id: string, defaultName: string, ass: string, pieces: $models.Range[] | null, crf: number, preset: string, scaleH: number, abr: string): $CancellablePromise<$models.ExportResult> {
+    return $Call.ByID(221216840, id, defaultName, ass, pieces, crf, preset, scaleH, abr);
+}
+
 export function ExportVideoRange(id: string, defaultName: string, ass: string, t0: number, t1: number, crf: number, preset: string, scaleH: number, abr: string): $CancellablePromise<$models.ExportResult> {
     return $Call.ByID(1248896640, id, defaultName, ass, t0, t1, crf, preset, scaleH, abr);
+}
+
+/**
+ * FilmstripTile renders frames evenly spread over [start, start+duration) as
+ * one horizontal JPEG strip, cached per range and frame count.
+ */
+export function FilmstripTile(id: string, start: number, duration: number, frames: number): $CancellablePromise<$models.FilmstripTileResult> {
+    return $Call.ByID(1259351694, id, start, duration, frames);
 }
 
 export function Get(id: string): $CancellablePromise<$models.Entry> {
     return $Call.ByID(100225558, id);
 }
 
-export function GetClips(id: string): $CancellablePromise<$models.Clip[] | null> {
-    return $Call.ByID(3515282537, id);
+export function GetVideoEdit(id: string): $CancellablePromise<$models.VideoEdit> {
+    return $Call.ByID(60176593, id);
 }
 
 export function Import(paths: string[] | null): $CancellablePromise<$models.ImportResult> {
@@ -138,8 +156,8 @@ export function SetCacheLimitGB(limit: number): $CancellablePromise<$models.Cach
     return $Call.ByID(1214119090, limit);
 }
 
-export function SetClips(id: string, clips: $models.Clip[] | null): $CancellablePromise<boolean> {
-    return $Call.ByID(2106408941, id, clips);
+export function SetVideoEdit(id: string, edit: $models.VideoEdit): $CancellablePromise<boolean> {
+    return $Call.ByID(3122524677, id, edit);
 }
 
 export function SpectrogramTile(id: string, start: number, duration: number): $CancellablePromise<$models.SpectrogramTileResult> {

@@ -42,5 +42,5 @@ export function documentAss(document: EditDocument, fallback?: string, range?: S
 /** 文档 → SRT，与编辑器导出的那份逐字相同 */
 export function documentSrt(document: EditDocument, lang: SrtLang, range?: SubtitleRange): string {
   const source = sourceOfDocument(document);
-  return range ? buildSrtFrom(source, lang, range.t0, range.t1) : buildSrtFrom(source, lang);
+  return range ? buildSrtFrom(source, lang, [range]) : buildSrtFrom(source, lang);
 }

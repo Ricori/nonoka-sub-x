@@ -23,6 +23,9 @@ export const fmtDur = (sec: number) => {
   return (h ? h + "时" : "") + (h || m ? m + "分" : "") + s + "秒";
 };
 
+/** 片段长度：一分钟以内带一位小数（剪掉的停顿常常不到一秒），更长的走 fmtDur */
+export const fmtLen = (sec: number) => sec < 60 ? Math.max(0, sec).toFixed(1) + "秒" : fmtDur(sec);
+
 export const fmtMB = (n: number) => !n ? "—" : n >= 1024 ** 3
   ? (n / 1024 ** 3).toFixed(2) + " GB" : (n / 1024 ** 2).toFixed(0) + " MB";
 

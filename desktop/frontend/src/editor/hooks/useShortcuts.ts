@@ -6,6 +6,7 @@ import { openFind } from '../lib/find';
 import { redo, undo } from '../lib/history';
 import { isScrubbing, scrubSound, seek, setPlaying } from '../lib/playback';
 import { video } from '../lib/media';
+import { cutAtPlayhead, deleteVsel } from '../lib/videoEdit';
 import { manualSave } from '../store/saveStore';
 import { playStore } from '../store/playStore';
 
@@ -41,6 +42,10 @@ export function useShortcuts() {
       if ((e.ctrlKey || e.metaKey) && (e.key === "y" || e.key === "Y")) {
         e.preventDefault(); redo(); return;
       }
+      // Ctrl+B 在播放头处切分视频轨（与剪映一致）
+      if ((e.ctrlKey || e.metaKey) && (e.key === "b" || e.key === "B")) {
+        e.preventDefault(); cutAtPlayhead(); return;
+      }
       const t = playStore.get().t;
       const noVideo = isScrubbing() && !video()?.paused;
       if (e.code === "Space") { e.preventDefault(); setPlaying(!playStore.get().playing); }
@@ -53,7 +58,8 @@ export function useShortcuts() {
       else if (e.key === "n" || e.key === "N") { addSegmentAt(t); }
       else if (e.key === "d" || e.key === "D") { splitAtPlayhead(); }
       else if (e.key === "v" || e.key === "V") { extendCurrent(); }
-      else if (e.key === "Delete") { deleteSegment(); }
+      // 视频轨上有选中（片段或拖出来的时间段）就删它，否则删字幕句
+      else if (e.key === "Delete") { if (!deleteVsel()) deleteSegment(); }
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);

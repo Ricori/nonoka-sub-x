@@ -42,15 +42,6 @@ export interface TrackMeta {
   zh: LaneMeta;
 }
 
-/** 切片：原片上的一段命名区间，存本地 library.json */
-export interface Clip {
-  id: string;
-  name: string;
-  t0: number;
-  t1: number;
-  createdAt: number;
-}
-
 export interface Peaks {
   per_sec: number;
   duration: number;
@@ -78,6 +69,8 @@ export interface Snapshot {
   effects: import('../subtitles/types.ts').SubtitleEffectBinding[];
   /** 样式表是文档字段，拖字幕改的就是它，所以撤销要一起回退 */
   styles: string;
+  /** 视频轨片段存本地 library.json、不进文档，但剪辑和改字幕同在一条撤销栈上 */
+  pieces: import('../subtitles/pieces.ts').Piece[] | null;
   curTrack: number;
   sel: number;
   t: number;
@@ -88,10 +81,10 @@ export type LaneItem =
   | { kind: "blk"; i: number; seg: Seg }
   | { kind: "agg"; i0: number; i1: number; x: number; w: number };
 
-/** 时间轴的一行（音频行 / 某轨的某条 lane） */
+/** 时间轴的一行（视频行 / 音频行 / 某轨的某条 lane） */
 export interface RowSpec {
   key: string;
-  kind: "wave" | "lane";
+  kind: "video" | "wave" | "lane";
   ti: Ti;
   lang: Lang | null;
   /** 整行折叠（一键隐藏原文轨）：不占任何高度 */

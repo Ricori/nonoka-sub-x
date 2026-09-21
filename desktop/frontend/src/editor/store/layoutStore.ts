@@ -1,5 +1,8 @@
 import { createStore } from '../../home/lib/createStore';
-import { LAYOUT_KEY, ROW_H0, ROW_MAX, ROW_MIN, SPECTRUM_ROW_H0, WAVE_GAIN_MAX, WAVE_ROW_MAX, ZOOM_MAX } from '../constants';
+import {
+  LAYOUT_KEY, ROW_H0, ROW_MAX, ROW_MIN, SPECTRUM_ROW_H0, VIDEO_ROW_H0, VIDEO_ROW_MAX, VIDEO_ROW_MIN,
+  WAVE_GAIN_MAX, WAVE_ROW_MAX, ZOOM_MAX,
+} from '../constants';
 import { clampN } from '../utils';
 import { viewStore } from './viewStore';
 
@@ -7,7 +10,7 @@ import { viewStore } from './viewStore';
 
 interface RawLayout {
   sideW?: number; pps?: number; lblW?: number; tlH?: number;
-  rowH?: { wave?: number; ja?: number; zh?: number };
+  rowH?: { video?: number; wave?: number; ja?: number; zh?: number };
   waveGain?: number; audioView?: "wave" | "spectrum"; scrubAudio?: boolean; rowV?: number;
   /** 旧版把「隐藏原文轨」存在本机，现在迁到服务端的 track_meta 里 */
   hideJa?: boolean;
@@ -26,7 +29,7 @@ interface LayoutState {
   lblW: number;
   /** 轨道区可视高度（拖 hsplit 调）：轨道总高超过它就纵向滚动 */
   tlViewH: number;
-  rowH: { wave: number; ja: number; zh: number };
+  rowH: { video: number; wave: number; ja: number; zh: number };
   /** 波形显示增益：只放大画出来的高度，不动音频本身。0 = 自动 */
   waveGain: number;
   audioView: "wave" | "spectrum";
@@ -40,6 +43,7 @@ export const layoutStore = createStore<LayoutState>({
   lblW: clampN(LAYOUT.lblW, 90, 360, 160),
   tlViewH: clampN(LAYOUT.tlH, 150, 900, Math.round(window.innerHeight * .45)),
   rowH: {
+    video: clampN(LAYOUT.rowH?.video, VIDEO_ROW_MIN, VIDEO_ROW_MAX, VIDEO_ROW_H0),
     wave: clampN(LAYOUT.rowH?.wave, LAYOUT.audioView === "spectrum" ? SPECTRUM_ROW_H0 : ROW_MIN,
       WAVE_ROW_MAX, LAYOUT.audioView === "spectrum" ? SPECTRUM_ROW_H0 : ROW_H0),
     ja: clampN(LAYOUT.rowH?.ja, ROW_MIN, ROW_MAX, ROW_H0),
@@ -86,5 +90,5 @@ export function flushLayout() {
 /** 轨道区高度再按窗口收一道，轨道再多也挤不掉视频区 */
 export const tlCap = () => Math.min(layoutStore.get().tlViewH, Math.max(180, window.innerHeight - 300));
 
-export const setRowH = (key: "wave" | "ja" | "zh", v: number) =>
+export const setRowH = (key: "video" | "wave" | "ja" | "zh", v: number) =>
   layoutStore.set(s => ({ rowH: { ...s.rowH, [key]: v } }));

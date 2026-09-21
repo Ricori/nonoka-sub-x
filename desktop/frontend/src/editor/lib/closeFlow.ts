@@ -1,5 +1,5 @@
 import { backHome } from '../session';
-import { clipsDirty, flushSave, saveStore } from '../store/saveStore';
+import { editDirty, flushSave, saveStore } from '../store/saveStore';
 import { modalStore, toast } from '../store/uiStore';
 
 /**
@@ -8,7 +8,7 @@ import { modalStore, toast } from '../store/uiStore';
  */
 export function requestClose() {
   const st = saveStore.get();
-  if ((!st.dirty || st.conflicted) && !clipsDirty()) { backHome(); return; }
+  if ((!st.dirty || st.conflicted) && !editDirty()) { backHome(); return; }
   modalStore.set({ closeOpen: true });
 }
 
@@ -32,7 +32,7 @@ export function cancelClose() {
 /** 「保存并关闭」：落盘成功才走，失败留在原地并说明 */
 export async function saveAndClose() {
   await flushSave();
-  if (clipsDirty()) { toast("切片保存失败，仍有未保存更改"); modalStore.set({ closeOpen: false }); return; }
+  if (editDirty()) { toast("视频轨保存失败，仍有未保存更改"); modalStore.set({ closeOpen: false }); return; }
   if (saveStore.get().conflicted) { backHome(); return; }   // 409：改动已作废，没什么可再拦的
   if (saveStore.get().dirty) { toast("保存失败，仍有未保存更改", true); modalStore.set({ closeOpen: false }); return; }
   backHome();

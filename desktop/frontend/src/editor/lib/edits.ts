@@ -6,7 +6,7 @@ import {
   curSegs, deselect, primaryInTrack, select, selStore, setActiveTrack,
 } from '../store/selectionStore';
 import { askModal, toast } from '../store/uiStore';
-import { viewRange, viewStore } from '../store/viewStore';
+import { listedIdx, viewStore } from '../store/viewStore';
 import { pushHistory } from './history';
 import { seek } from './playback';
 import { syncSubs, syncSubsSoon } from './subtitles';
@@ -229,20 +229,21 @@ export function setSegText(lang: Lang, value: string) {
   markDirty();
 }
 
-// 上一句/下一句在切片里只在区间内走（sel 未定时从区间头尾起步）
+// 上一句/下一句：聚焦成片时只在成片里还有的句之间走（sel 未定时从头尾起步）
 export function gotoPrev() {
-  const a = curSegs(), [vA, vB] = viewRange(a);
-  if (vB <= vA) return;
+  const a = curSegs(), list = listedIdx(a);
+  if (!list.length) return;
   const { sel } = selStore.get();
-  const i = Math.max(sel < 0 ? vB - 1 : sel - 1, vA);
+  const before = list.filter(i => i < sel);
+  const i = sel < 0 ? list[list.length - 1] : (before.length ? before[before.length - 1] : list[0]);
   select(i); seek(a[i].t0 + 0.01);
 }
 
 export function gotoNext() {
-  const a = curSegs(), [vA, vB] = viewRange(a);
-  if (vB <= vA) return;
+  const a = curSegs(), list = listedIdx(a);
+  if (!list.length) return;
   const { sel } = selStore.get();
-  const i = Math.min(sel < 0 ? vA : sel + 1, vB - 1);
+  const i = sel < 0 ? list[0] : (list.find(k => k > sel) ?? list[list.length - 1]);
   select(i); seek(a[i].t0 + 0.01);
 }
 

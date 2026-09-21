@@ -7,14 +7,6 @@ import type {
 
 export type { CacheStatus, MediaEntry, ImportResult };
 
-export interface EditorClip {
-  id: string;
-  name: string;
-  t0: number;
-  t1: number;
-  createdAt: number;
-}
-
 export const mediaLibrary = {
   async list(): Promise<MediaEntry[]> {
     return (await LibraryService.List()) ?? [];
@@ -31,18 +23,21 @@ export const mediaLibrary = {
   saveSubtitle: LibraryService.SaveSubtitle,
   exportVideo: LibraryService.ExportVideo,
   exportVideoRange: LibraryService.ExportVideoRange,
+  exportVideoPieces: LibraryService.ExportVideoPieces,
   cancelExport: LibraryService.CancelExport,
   transcodeToH264: LibraryService.TranscodeToH264,
   cancelTranscode: LibraryService.CancelTranscode,
   spectrogramTile: LibraryService.SpectrogramTile,
+  filmstripTile: LibraryService.FilmstripTile,
   revealInFolder: LibraryService.RevealInFolder,
   cacheStatus: LibraryService.CacheStatus,
   cacheMedia: LibraryService.CacheMedia,
   setCacheLimitGB: LibraryService.SetCacheLimitGB,
   clearVideoCache: LibraryService.ClearVideoCache,
   setActiveMedia: LibraryService.SetActiveMedia,
-  async getClips(id: string): Promise<EditorClip[]> {
-    return ((await LibraryService.GetClips(id)) ?? []) as EditorClip[];
+  /** 视频轨片段；空数组 = 没剪过 */
+  async getVideoEdit(id: string): Promise<{ t0: number; t1: number }[]> {
+    return (await LibraryService.GetVideoEdit(id))?.pieces ?? [];
   },
-  setClips: LibraryService.SetClips,
+  setVideoEdit: LibraryService.SetVideoEdit,
 };

@@ -5,7 +5,7 @@ import { AUTOSAVE_MS } from "../constants";
 import { promptMandatoryUpdate } from "../lib/closeFlow";
 import { getVid, isLeaving, reportBootError } from "../session";
 import { flushLayout } from "../store/layoutStore";
-import { clipsDirty, saveStore, startAutosave } from "../store/saveStore";
+import { editDirty, saveStore, startAutosave } from "../store/saveStore";
 import { videoStore } from "../store/videoStore";
 import { fmt } from "../utils";
 
@@ -26,7 +26,7 @@ export function useDesktopEvents() {
       flushLayout();
       if (isLeaving()) return;
       const state = saveStore.get();
-      if ((state.dirty && !state.conflicted) || clipsDirty()) {
+      if ((state.dirty && !state.conflicted) || editDirty()) {
         event.preventDefault();
         event.returnValue = "";
       }

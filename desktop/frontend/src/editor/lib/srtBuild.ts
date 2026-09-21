@@ -1,6 +1,7 @@
 import { buildSrtFrom } from '../../subtitles/build';
 import type { SrtLang } from '../../subtitles/build';
 import { docSource } from './assBuild';
+import type { Piece } from '../../subtitles/pieces.ts';
 
 export type { SrtLang };
 
@@ -10,6 +11,6 @@ export type { SrtLang };
  * 各轨摊平成一条时间流：同时开口的两个人就是两条时间重叠的字幕，怎么摆由播放器决定。
  * 要保留轨道与样式走 ASS。
  */
-export function buildSrt(lang: SrtLang, T0?: number, T1?: number): string {
-  return buildSrtFrom(docSource(), lang, T0, T1);
+export function buildSrt(lang: SrtLang, pieces?: readonly Piece[]): string {
+  return buildSrtFrom(docSource(), lang, pieces);
 }

@@ -24,11 +24,11 @@ export function FindBar() {
   }), shallowEqual);
   const ver = docStore.use(s => s.version);
   const curTrack = selStore.use(s => s.curTrack);
-  const clip = viewStore.use(s => s.curClip);
+  const win = viewStore.use(s => s.t0 + ":" + s.t1);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // 文本被改（检查器编辑、替换、撤销）、换轨、进出切片，命中都得整份重算
-  useEffect(() => { if (f.open) refreshHits(); }, [f.open, ver, curTrack, clip]);
+  // 文本被改（检查器编辑、替换、撤销）、换轨、进出聚焦成片，命中都得整份重算
+  useEffect(() => { if (f.open) refreshHits(); }, [f.open, ver, curTrack, win]);
   useEffect(() => { if (f.open) { inputRef.current?.focus(); inputRef.current?.select(); } }, [f.open, f.focusSeq]);
 
   if (!f.open) return null;

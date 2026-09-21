@@ -12,7 +12,7 @@ import type { Lang } from '../types';
 
 export function Inspector() {
   docStore.use(s => s.version);
-  viewStore.use(s => s.curClip);
+  viewStore.use(s => ({ t0: s.t0, pieces: s.pieces, focus: s.focus }), shallowEqual);
   const { sel, curTrack, selSize } = selStore.use(
     s => ({ sel: s.sel, curTrack: s.curTrack, selSize: s.selSet.size }), shallowEqual);
   const jaRef = useRef<HTMLTextAreaElement>(null);

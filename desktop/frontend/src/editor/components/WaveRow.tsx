@@ -5,7 +5,8 @@ import { effGain, waveAmp } from '../lib/wave';
 import { docStore } from '../store/docStore';
 import { layoutStore } from '../store/layoutStore';
 import { videoStore } from '../store/videoStore';
-import { tOf, viewDur, viewStore } from '../store/viewStore';
+import { isFocused, tOf, viewDur, viewStore, xOf } from '../store/viewStore';
+import { joinPieces } from '../../subtitles/pieces.ts';
 import { getVid } from '../session';
 import { errText } from '../utils';
 import { mediaLibrary } from '../../bridge/library.ts';
@@ -47,7 +48,13 @@ function mergeSpectrumTiles(current: SpectrumTile[], added: SpectrumTile[], cent
     .sort((a, b) => a.start - b.start);
 }
 
-function SpectrumRow({ height, left, w, pps }: { height: number; left: number; w: number; pps: number }) {
+/** 时间轴上连续显示的几截原片：聚焦成片时是首尾相接并好的片段，否则是整个视图窗口 */
+function keptSpans() {
+  const v = viewStore.get();
+  return isFocused() ? joinPieces(v.pieces!) : [{ t0: v.t0, t1: v.t1 }];
+}
+
+function SpectrumRow({ height, left, w, pps, t0 }: { height: number; left: number; w: number; pps: number; t0: number }) {
   const [tiles, setTiles] = useState<SpectrumTile[]>([]);
   const [message, setMessage] = useState("正在本地计算频谱…");
   const src = videoStore.use(s => s.src);
@@ -81,13 +88,22 @@ function SpectrumRow({ height, left, w, pps }: { height: number; left: number; w
       if (!disposed) setMessage(failure ? errText(failure) : "");
     }, 100);
     return () => { disposed = true; clearTimeout(timer); };
-  }, [left, w, pps, src]);
+  }, [left, w, pps, t0, src]);
 
   return <>
     <div className="spectrum-grid" style={{ left, width: w }} />
-    {tiles.map(tile => <img key={`${tile.start}-${tile.duration}`} className="spectrum-tile"
-      src={tile.url} draggable={false} alt=""
-      style={{ left: (tile.start - viewStore.get().t0) * pps, width: tile.duration * pps, height }} />)}
+    {/* 频谱图按原片时间连续生成：聚焦成片时按留下的每一段各裁一截摆到合拢后的位置 */}
+    {tiles.flatMap(tile => keptSpans().flatMap(sp => {
+      const a = Math.max(sp.t0, tile.start), b = Math.min(sp.t1, tile.start + tile.duration);
+      if (b <= a) return [];
+      return [
+        <div key={`${tile.start}-${tile.duration}-${sp.t0}`} className="spectrum-clip"
+          style={{ left: xOf(a), width: (b - a) * pps, height }}>
+          <img className="spectrum-tile" src={tile.url} draggable={false} alt=""
+            style={{ left: -(a - tile.start) * pps, width: tile.duration * pps, height }} />
+        </div>,
+      ];
+    }))}
     {message && <span className="spectrum-message">{message}</span>}
   </>;
 }
@@ -98,7 +114,8 @@ function SpectrumRow({ height, left, w, pps }: { height: number; left: number; w
  */
 export function WaveRow({ height, left, w }: { height: number; left: number; w: number }) {
   const cvRef = useRef<HTMLCanvasElement>(null);
-  const { pps } = viewStore.use(s => ({ pps: s.pps, t0: s.t0, t1: s.t1 }), shallowEqual);
+  const { pps, t0, t1, pieces, focus } = viewStore.use(
+    s => ({ pps: s.pps, t0: s.t0, t1: s.t1, pieces: s.pieces, focus: s.focus }), shallowEqual);
   const gain = layoutStore.use(s => s.waveGain);
   const audioView = layoutStore.use(s => s.audioView);
   const peaks = docStore.use(s => s.peaks);
@@ -126,14 +143,15 @@ export function WaveRow({ height, left, w }: { height: number; left: number; w: 
     }
     ctx.fillStyle = "rgba(139,147,165,0.18)";
     ctx.fillRect(0, mid - 0.5, W, 1);
-  }, [height, left, w, pps, gain, peaks, audioView]);
+    // 视图窗口或剪辑变了但缩放没变时也得重画：画布宽度、起点和每一列对应的原片时间都跟着变
+  }, [height, left, w, pps, t0, t1, pieces, focus, gain, peaks, audioView]);
 
   return (
     <div className={"waverow" + (audioView === "spectrum" ? " spectrum" : "")} id="waverow" style={{ height: height + "px" }}
       onPointerDown={e => bindScrub(e, true)}>{/* 点音频行同时取消句子选定 */}
       {audioView === "wave"
         ? <canvas id="wave" ref={cvRef} />
-        : <SpectrumRow height={height} left={left} w={w} pps={pps} />}
+        : <SpectrumRow height={height} left={left} w={w} pps={pps} t0={t0} />}
     </div>
   );
 }

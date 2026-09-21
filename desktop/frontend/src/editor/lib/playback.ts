@@ -8,7 +8,9 @@ import { curSegs, select, selStore } from '../store/selectionStore';
 import { setScrollLeft, tlStore } from '../store/tlStore';
 import { toast } from '../store/uiStore';
 import { viewStore, xOf } from '../store/viewStore';
-import { safeSeekVideo, video } from './media';
+import { MIN_PIECE, pieceAt } from '../../subtitles/pieces.ts';
+import type { Piece } from '../../subtitles/pieces.ts';
+import { safeSeekVideo, standbyVideo, swapVideo, video } from './media';
 import { drawSubs } from './subtitles';
 
 /** 激活轨里当前播放头落在第几句 */
@@ -31,6 +33,7 @@ function applyPlayhead() {
  * 固定间隔对位（见 scrubFollow），这里再写就把声音打断了
  */
 export function seek(nt: number, opt?: { noVideo?: boolean }) {
+  armedAt = NaN;   // 位置变了，待命的那个得按新位置重新备
   const v = viewStore.get();
   const t = Math.min(Math.max(nt, v.t0), v.t1);
   playStore.set({ t });
@@ -43,13 +46,69 @@ export function seek(nt: number, opt?: { noVideo?: boolean }) {
 // ── 播放：<video> 驱动播放头 ─────────────
 let raf: number | null = null;
 
+// ── 成片播放的接力 ─────────────────────────
+// 跨过删掉的部分时若让正在播的 <video> 当场 seek，它得回到关键帧重新解码，画面和声音会
+// 顿一下。改成两个 <video> 接力：离拼接点还有 ARM_AHEAD 秒时让待命的那个先跳到下一段起点
+// 解好帧，到点直接对调接着播。待命的没备好（关键帧太稀、还在 seek）就退回当场 seek。
+const ARM_AHEAD = 2;
+/** 提前这么多秒切：rAF 一帧 16ms，等越过拼接点再切会先漏出一两帧删掉的画面 */
+const SWAP_LEAD = 0.03;
+let armedAt = NaN;
+
+/** 播放头所在这串首尾相接的片段在哪儿结束，以及下一段（跨过删掉部分之后）从哪开始 */
+function nextJoin(pieces: Piece[], t: number): { end: number; next: Piece } | null {
+  let j = pieceAt(pieces, t);
+  if (j < 0) return null;
+  while (j + 1 < pieces.length && pieces[j + 1].t0 - pieces[j].t1 < MIN_PIECE) j++;
+  return j + 1 < pieces.length ? { end: pieces[j].t1, next: pieces[j + 1] } : null;
+}
+
+function armStandby(at: number) {
+  const sb = standbyVideo();
+  if (!sb || !sb.src) return;
+  try { sb.pause(); sb.currentTime = at; armedAt = at; } catch { armedAt = NaN; }
+}
+
+const standbyReady = () => {
+  const sb = standbyVideo();
+  return !!sb && !sb.seeking && sb.readyState >= 2 && Math.abs(sb.currentTime - armedAt) < 0.1;
+};
+
+/** 对调前后台：先换角色再动播放，旧前台的 pause 事件落在「待命」身上，不会被当成停止播放 */
+function handOff(): number {
+  const old = video(), sb = standbyVideo()!;
+  sb.playbackRate = userRateOf();
+  swapVideo();
+  sb.play().catch(() => { });
+  old?.pause();
+  const t = sb.currentTime;
+  armedAt = NaN;
+  return t;
+}
+
 function tick() {
   if (!playStore.get().playing) return;
   const v = video();
   if (!v) return;
-  const t = v.currentTime;
-  // 切片播到出点就停：视频本身是整片，不停下来就直接播进切片外面去了
+  let t = v.currentTime;
+  // 聚焦时播到末段终点就停：视频本身是整片，不停下来就直接播进成片外面去了
   if (t >= viewStore.get().t1) { setPlaying(false); seek(viewStore.get().t1); return; }
+  // 剪过就跳过删掉的部分（完整片、成片都一样，听到的就是成片）：待命的 <video> 备好了就接力，
+  // 否则播到空隙里当场跳到下一段起点。后面没有片段了就停在最后一段的终点
+  const pieces = viewStore.get().pieces;
+  if (pieces?.length) {
+    const join = nextJoin(pieces, t);
+    if (join) {
+      if (join.end - t < ARM_AHEAD && armedAt !== join.next.t0) armStandby(join.next.t0);
+      if (t >= join.end - SWAP_LEAD && armedAt === join.next.t0 && standbyReady()) t = handOff();
+    }
+    if (pieceAt(pieces, t) < 0) {
+      const next = pieces.find(p => p.t0 > t);
+      if (!next) { setPlaying(false); seek(pieces[pieces.length - 1].t1); return; }
+      t = next.t0;
+      safeSeekVideo(t);
+    }
+  }
   playStore.set({ t });
   applyPlayhead();
   const px = xOf(t), { left, w } = tlStore.get();
@@ -59,6 +118,8 @@ function tick() {
 
 export function onPlayUI() {
   playStore.set({ playing: true });
+  // 接力对调后新前台会再发一次 play：别让两条 rAF 循环同时跑
+  if (raf) cancelAnimationFrame(raf);
   raf = requestAnimationFrame(tick);
 }
 

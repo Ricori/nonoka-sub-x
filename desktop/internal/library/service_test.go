@@ -1,6 +1,7 @@
 package library
 
 import (
+	"reflect"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -381,7 +382,7 @@ func TestRelinkSubtitleOnlyEntryKeepsSubtitleFingerprint(t *testing.T) {
 	}
 }
 
-func TestEditorClipsAreNormalizedAndPersisted(t *testing.T) {
+func TestVideoEditIsNormalizedAndPersisted(t *testing.T) {
 	root := t.TempDir()
 	source := filepath.Join(root, "source.mp4")
 	if err := os.WriteFile(source, []byte("media-fixture"), 0o600); err != nil {
@@ -394,23 +395,30 @@ func TestEditorClipsAreNormalizedAndPersisted(t *testing.T) {
 		t.Fatal(err)
 	}
 	entry := service.Import([]string{source}).Added[0]
-	ok, err := service.SetClips(entry.ID, []Clip{
-		{ID: "intro", Name: "开场", T0: 2, T1: 8},
-		{ID: "invalid", Name: "无效", T0: 9, T1: 4},
-	})
+	ok, err := service.SetVideoEdit(entry.ID, VideoEdit{Pieces: []Range{
+		{T0: 20, T1: 50},
+		{T0: 2, T1: 8},
+		{T0: 9, T1: 4},
+	}})
 	if err != nil || !ok {
-		t.Fatalf("set clips = %v, %v", ok, err)
+		t.Fatalf("set video edit = %v, %v", ok, err)
 	}
-	clips := service.GetClips(entry.ID)
-	if len(clips) != 1 || clips[0].Name != "开场" || clips[0].CreatedAt == 0 {
-		t.Fatalf("clips = %#v", clips)
+	want := []Range{{T0: 2, T1: 8}, {T0: 20, T1: 42}}
+	if got := service.GetVideoEdit(entry.ID).Pieces; !reflect.DeepEqual(got, want) {
+		t.Fatalf("pieces = %#v", got)
 	}
 	reloaded, err := New(data)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := reloaded.GetClips(entry.ID); len(got) != 1 || got[0].ID != "intro" {
-		t.Fatalf("reloaded clips = %#v", got)
+	if got := reloaded.GetVideoEdit(entry.ID).Pieces; !reflect.DeepEqual(got, want) {
+		t.Fatalf("reloaded pieces = %#v", got)
+	}
+	if ok, err := reloaded.SetVideoEdit(entry.ID, VideoEdit{}); err != nil || !ok {
+		t.Fatalf("clear video edit = %v, %v", ok, err)
+	}
+	if got := reloaded.GetVideoEdit(entry.ID).Pieces; len(got) != 0 {
+		t.Fatalf("cleared pieces = %#v", got)
 	}
 }
 

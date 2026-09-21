@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef } from 'react';
 import { shallowEqual } from '../../home/lib/createStore';
-import { setSubCanvasEl, setVideoEl } from '../lib/media';
+import { isActiveVideo, setSubCanvasEl, setVideoEls } from '../lib/media';
 import { onStageDoubleClick, onStagePointerDown, shouldSwallowStageClick } from '../lib/stageDrag';
 import { StageOverlay } from './StageOverlay';
 import { onPauseUI, onPlayUI, resetScrubWarned, setPlaying, isScrubbing } from '../lib/playback';
@@ -19,14 +19,16 @@ export function VideoStage() {
   const wrapRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
+  // 待命的第二个 <video>：成片播放跨拼接点时接力用（见 lib/media.ts）
+  const video2Ref = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const vs = videoStore.use(s => s, shallowEqual);
   const { title, peaks } = docStore.use(s => ({ title: s.title, peaks: s.peaks }), shallowEqual);
 
   useLayoutEffect(() => {
-    setVideoEl(videoRef.current);
+    setVideoEls(videoRef.current, video2Ref.current);
     setSubCanvasEl(canvasRef.current);
-    return () => { setVideoEl(null); setSubCanvasEl(null); };
+    return () => { setVideoEls(null, null); setSubCanvasEl(null); };
   }, []);
 
   /** 视频舞台按视频真实宽高比适配（metadata 前默认 16:9） */
@@ -48,10 +50,17 @@ export function VideoStage() {
   }, []);
 
   // ── <video> 事件 ─────────────────────────────────────────────
+  // 两个 <video> 都挂同一套监听，但只认前台那个的：待命的那个被 seek、被暂停都是接力的
+  // 内部动作，当成播放/暂停的话一对调播放态就乱了
   useEffect(() => {
-    const v = videoRef.current;
-    if (!v) return;
+    const els = [videoRef.current, video2Ref.current].filter((el): el is HTMLVideoElement => !!el);
+    const offs = els.map(v => bindVideoEvents(v));
+    return () => offs.forEach(off => off());
+  }, []);
+
+  function bindVideoEvents(v: HTMLVideoElement) {
     const smoke = isSmokeMode();
+    const mine = (fn: () => void) => () => { if (isActiveVideo(v)) fn(); };
 
     const onPlay = () => {
       if (isScrubbing()) return;   // 擦洗音起播：不进播放态，播放头由 seek 说了算
@@ -83,19 +92,13 @@ export function VideoStage() {
         + "（Win11 可装「HEVC 视频扩展」）。也可以一键转码成 H.264，或改选其它文件：");
     };
 
-    v.addEventListener("play", onPlay);
-    v.addEventListener("pause", onPause);
-    v.addEventListener("loadedmetadata", onMeta);
-    v.addEventListener("seeked", onSeeked);
-    v.addEventListener("error", onError);
-    return () => {
-      v.removeEventListener("play", onPlay);
-      v.removeEventListener("pause", onPause);
-      v.removeEventListener("loadedmetadata", onMeta);
-      v.removeEventListener("seeked", onSeeked);
-      v.removeEventListener("error", onError);
-    };
-  }, []);
+    const handlers: [string, () => void][] = [
+      ["play", mine(onPlay)], ["pause", mine(onPause)], ["loadedmetadata", mine(onMeta)],
+      ["seeked", mine(onSeeked)], ["error", mine(onError)],
+    ];
+    for (const [type, fn] of handlers) v.addEventListener(type, fn);
+    return () => { for (const [type, fn] of handlers) v.removeEventListener(type, fn); };
+  }
 
   const durHint = peaks?.duration ? `（时长约 ${fmt(peaks.duration)}）` : "";
   const busyMsg = (pct: string, done: string) =>
@@ -124,6 +127,7 @@ export function VideoStage() {
           if (stageRef.current) onStageDoubleClick(event, stageRef.current);
         }}>
         <video id="video" ref={videoRef} playsInline preload="auto" src={vs.src || undefined} />
+        <video id="video-b" ref={video2Ref} playsInline preload="auto" muted src={vs.src || undefined} />
         <div className="vid-cache" id="vid-cache" hidden={!vs.badge}>{vs.badge}</div>
         <div className="vid-fallback" id="vid-fallback" hidden={!vs.fallbackOpen}>
           <div className={"vf-card" + (vs.collapsed && !vs.retrieving && !vs.transcoding ? " collapsed" : "")} id="vf-card">

@@ -13,7 +13,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"math"
 	"os"
 	"path/filepath"
 	"sort"
@@ -27,7 +26,6 @@ import (
 
 const (
 	maxThumbnailBytes = 5 << 20
-	maxEditorClips    = 200
 )
 
 var supportedExtensions = map[string]struct{}{
@@ -50,7 +48,10 @@ type Entry struct {
 	DocumentAvailable  bool    `json:"documentAvailable"`
 	DocumentRemoved    bool    `json:"documentRemoved,omitempty"`
 	Cached             bool    `json:"cached"`
-	Clips              []Clip  `json:"clips,omitempty"`
+	// Clips is the retired named-range list. Nothing reads it any more, but it
+	// is kept so an older library.json survives a round trip untouched.
+	Clips     []Clip     `json:"clips,omitempty"`
+	VideoEdit *VideoEdit `json:"videoEdit,omitempty"`
 }
 
 type Clip struct {
@@ -414,73 +415,6 @@ func decodeThumbnailDataURL(value string) ([]byte, error) {
 		return nil, errors.New("thumbnail is not a JPEG")
 	}
 	return image, nil
-}
-
-func (s *Service) GetClips(id string) []Clip {
-	if !validID(id) {
-		return []Clip{}
-	}
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	for _, entry := range s.entries {
-		if entry.ID == id {
-			return append([]Clip(nil), entry.Clips...)
-		}
-	}
-	return []Clip{}
-}
-
-func (s *Service) SetClips(id string, clips []Clip) (bool, error) {
-	if !validID(id) {
-		return false, errors.New("invalid media id")
-	}
-	normalized := normalizeClips(clips)
-	s.mu.Lock()
-	for index := range s.entries {
-		if s.entries[index].ID != id {
-			continue
-		}
-		previous := s.entries[index].Clips
-		s.entries[index].Clips = normalized
-		if err := s.saveLocked(); err != nil {
-			s.entries[index].Clips = previous
-			s.mu.Unlock()
-			return false, err
-		}
-		s.mu.Unlock()
-		s.emitChanged()
-		return true, nil
-	}
-	s.mu.Unlock()
-	return false, errors.New("media entry not found")
-}
-
-func normalizeClips(clips []Clip) []Clip {
-	if len(clips) > maxEditorClips {
-		clips = clips[:maxEditorClips]
-	}
-	result := make([]Clip, 0, len(clips))
-	for _, clip := range clips {
-		if math.IsNaN(clip.T0) || math.IsNaN(clip.T1) || math.IsInf(clip.T0, 0) || math.IsInf(clip.T1, 0) || clip.T1 <= clip.T0 {
-			continue
-		}
-		clip.ID = truncateRunes(clip.ID, 32)
-		clip.Name = truncateRunes(clip.Name, 80)
-		clip.T0 = math.Max(0, clip.T0)
-		if clip.CreatedAt == 0 {
-			clip.CreatedAt = time.Now().UnixMilli()
-		}
-		result = append(result, clip)
-	}
-	return result
-}
-
-func truncateRunes(value string, limit int) string {
-	runes := []rune(value)
-	if len(runes) <= limit {
-		return value
-	}
-	return string(runes[:limit])
 }
 
 // AddPlaceholder records media the library has subtitles for but no file of:

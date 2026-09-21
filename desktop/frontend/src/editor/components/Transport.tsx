@@ -2,15 +2,15 @@ import { shallowEqual } from '../../home/lib/createStore';
 import { gotoNext, gotoPrev } from '../lib/edits';
 import { setPlaying, setUserRate } from '../lib/playback';
 import { playStore } from '../store/playStore';
-import { fmtView, viewDur, viewStore } from '../store/viewStore';
+import { fmtView, viewOutDur, viewStore } from '../store/viewStore';
 import { fmt } from '../utils';
 
 const RATES = [0.5, 0.75, 1, 1.5];
 
 export function Transport() {
   const { t, playing, rate } = playStore.use(s => s, shallowEqual);
-  // 进/出切片会改总时长与时间码基准
-  viewStore.use(s => ({ t0: s.t0, t1: s.t1 }), shallowEqual);
+  // 进出聚焦、剪辑都会改总时长与时间码基准
+  viewStore.use(s => ({ t0: s.t0, t1: s.t1, pieces: s.pieces, focus: s.focus }), shallowEqual);
 
   return (
     <div className="transport">
@@ -35,7 +35,7 @@ export function Transport() {
         </svg>
       </button>
       <div className="timecode">
-        <span id="tc-cur">{fmtView(t)}</span> <span className="total">/ <span id="tc-total">{fmt(viewDur())}</span></span>
+        <span id="tc-cur">{fmtView(t)}</span> <span className="total">/ <span id="tc-total">{fmt(viewOutDur())}</span></span>
       </div>
       <div className="spacer"></div>
       <div className="rate" id="rate">

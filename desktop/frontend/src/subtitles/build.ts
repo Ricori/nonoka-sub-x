@@ -1,6 +1,8 @@
 import { ASS_EVENTS_HEAD } from './constants.ts';
 import { DEFAULT_EFFECT_TRACK_ID, resolveLaneEffects } from './effects.ts';
 import { assColorFromHex, assNm, assSec, assTs, assTx, srtTs } from './format.ts';
+import { srcToOut } from './pieces.ts';
+import type { Piece } from './pieces.ts';
 import { karaokeTimeline } from './karaoke.ts';
 import { layoutBlock } from './layout.ts';
 import { assHeadOf, resolveStyleIn } from './styles.ts';
@@ -372,10 +374,12 @@ export function buildAssFrom(source: SubtitleSource, sheet: StyleSheet): string 
 }
 
 /**
- * 区间 ASS：整片那份必须与服务端逐字一致，所以只在它外面包一层做区间变换——
- * 滤掉不相交的 Dialogue，其余把起止钳进区间后统一减去 T0。
+ * 按片段拼接的 ASS：整片那份必须与服务端逐字一致，所以只在它外面包一层做时间变换——
+ * 每条 Dialogue 的起止都经 srcToOut 映射到成片时间，映射后不足一个厘秒的（整条落在
+ * 删掉的部分里）直接丢掉。特效展开出来的每条 Dialogue 也各自映射，所以句子中间被删
+ * 一截时，动画按缩短后的时长走完。
  */
-export function clipAss(full: string, T0: number, T1: number): string {
+export function piecesAss(full: string, pieces: readonly Piece[]): string {
   const i = full.indexOf("Dialogue:");
   if (i < 0) return full;
   const head = full.slice(0, i);
@@ -383,12 +387,16 @@ export function clipAss(full: string, T0: number, T1: number): string {
   for (const line of full.slice(i).split("\n")) {
     const m = /^Dialogue: (\d+),([^,]+),([^,]+),(.*)$/.exec(line);
     if (!m) continue;
-    const a = assSec(m[2]), b = assSec(m[3]);
-    if (b <= T0 || a >= T1) continue;
-    out.push(`Dialogue: ${m[1]},${assTs(Math.max(a, T0) - T0)},${assTs(Math.min(b, T1) - T0)},${m[4]}`);
+    const a = srcToOut(pieces, assSec(m[2])), b = srcToOut(pieces, assSec(m[3]));
+    if (b - a < 0.01) continue;
+    out.push(`Dialogue: ${m[1]},${assTs(a)},${assTs(b)},${m[4]}`);
   }
   return head + out.join("\n") + "\n";
 }
+
+/** 区间 ASS：只有一段的 piecesAss——滤掉不相交的 Dialogue，其余钳进区间后减去 T0 */
+export const clipAss = (full: string, T0: number, T1: number): string =>
+  piecesAss(full, [{ t0: T0, t1: T1 }]);
 
 export type SrtLang = "both" | "zh" | "ja";
 
@@ -400,24 +408,21 @@ const VISIBLE: LaneMeta = { hidden: false, style: null };
  * lang: both=译文在上原文在下 / zh=只译文 / ja=只原文；被眼睛藏起来的 lane 不出
  * （与 ASS 导出同口径）。选中语言整条都空的句子跳过、序号按合并后的时间序重排——
  * 关掉翻译跑出来的产物译文全空，照原样出就是一份满是空块的坏 SRT。
- * T0/T1 给了就裁到那个区间并把时间轴平移到 0（切片导出）。
+ * pieces 给了就按片段映射到成片时间（见 piecesAss），整句都被删掉的不出。
  */
-export function buildSrtFrom(source: SubtitleSource, lang: SrtLang, T0?: number, T1?: number): string {
-  const clip = T0 !== undefined && T1 !== undefined;
+export function buildSrtFrom(source: SubtitleSource, lang: SrtLang, pieces?: readonly Piece[]): string {
   const cues: Cue[] = [];
 
   const collect = (arr: SubtitleSegment[], ja: LaneMeta, zh: LaneMeta) => {
     for (const s of arr) {
-      if (clip && (s.t1 <= T0! || s.t0 >= T1!)) continue;
+      const t0 = pieces ? srcToOut(pieces, s.t0) : s.t0;
+      const t1 = pieces ? srcToOut(pieces, s.t1) : s.t1;
+      if (pieces && t1 - t0 < 0.001) continue;
       const lines: string[] = [];
       if (lang !== "ja" && !zh.hidden && (s.zh || "").trim()) lines.push(s.zh);
       if (lang !== "zh" && !ja.hidden && (s.ja || "").trim()) lines.push(s.ja);
       if (!lines.length) continue;
-      cues.push({
-        t0: clip ? Math.max(s.t0, T0!) - T0! : s.t0,
-        t1: clip ? Math.min(s.t1, T1!) - T0! : s.t1,
-        text: lines.join("\n"),
-      });
+      cues.push({ t0, t1, text: lines.join("\n") });
     }
   };
   collect(source.segs, source.trackMeta?.ja || VISIBLE, source.trackMeta?.zh || VISIBLE);

@@ -49,7 +49,18 @@ var editorExportPresets = map[string]bool{
 }
 
 func (s *Service) ExportVideoRange(id, defaultName, ass string, t0, t1 float64, crf int, preset string, scaleH int, abr string) (ExportResult, error) {
-	if !validID(id) || len(ass) > 64<<20 || !finite(t0) || !finite(t1) || t1 <= t0 {
+	if !finite(t0) || !finite(t1) || t1 <= t0 {
+		return ExportResult{}, errors.New("invalid video export request")
+	}
+	return s.ExportVideoPieces(id, defaultName, ass, []Range{{T0: t0, T1: t1}}, crf, preset, scaleH, abr)
+}
+
+// ExportVideoPieces burns ass onto the given source pieces joined in order.
+// The ASS must already be in output time (see subtitles/build.ts piecesAss).
+// A single piece keeps the plain -ss/-t path; several go through trim+concat,
+// which always re-encodes the audio.
+func (s *Service) ExportVideoPieces(id, defaultName, ass string, pieces []Range, crf int, preset string, scaleH int, abr string) (ExportResult, error) {
+	if !validID(id) || len(ass) > 64<<20 || len(pieces) == 0 {
 		return ExportResult{}, errors.New("invalid video export request")
 	}
 	entry, err := s.entryByID(id)
@@ -63,11 +74,11 @@ func (s *Service) ExportVideoRange(id, defaultName, ass string, t0, t1 float64, 
 	if !fileExists(source) {
 		return ExportResult{}, errors.New("local media is unavailable")
 	}
-	t0 = math.Max(0, t0)
-	t1 = math.Min(entry.Duration, t1)
-	if t1 <= t0 {
+	pieces = joinPieces(normalizePieces(pieces, entry.Duration))
+	if len(pieces) == 0 {
 		return ExportResult{}, errors.New("video export range is empty")
 	}
+	t0, t1 := pieces[0].T0, pieces[len(pieces)-1].T1
 	if crf < 1 || crf > 51 {
 		crf = 21
 	}
@@ -155,10 +166,31 @@ func (s *Service) ExportVideoRange(id, defaultName, ass string, t0, t1 float64, 
 		filter += fmt.Sprintf(",scale=-2:%d", scaleH)
 	}
 	partial := output + ".part.mp4"
-	args := []string{
-		"-v", "error", "-y", "-ss", formatFloat(t0), "-t", formatFloat(t1 - t0), "-i", source,
-		"-vf", filter, "-c:v", "libx264", "-preset", preset, "-crf", strconv.Itoa(crf),
+	args := []string{"-v", "error", "-y", "-ss", formatFloat(t0), "-t", formatFloat(t1 - t0), "-i", source}
+	if len(pieces) == 1 {
+		args = append(args, "-vf", filter)
+	} else {
+		hasAudio := true
+		if s.prober != nil {
+			if metadata, probeErr := s.prober.Probe(ctx, source); probeErr == nil {
+				hasAudio = metadata.HasAudio
+			}
+		}
+		// Written to a file: a few hundred pieces overflow the Windows command line.
+		graph := piecesFilterGraph(pieces, t0, hasAudio, filter)
+		if err := os.WriteFile(filepath.Join(work, "graph.txt"), []byte(graph), 0o600); err != nil {
+			return ExportResult{}, err
+		}
+		args = append(args, "-filter_complex_script", "graph.txt", "-map", "[vo]")
+		if hasAudio {
+			args = append(args, "-map", "[ac]")
+		}
+		// Joined audio is a new stream; there is nothing left to copy.
+		if abr == "copy" {
+			audioArgs = editorExportAudioArgs("")
+		}
 	}
+	args = append(args, "-c:v", "libx264", "-preset", preset, "-crf", strconv.Itoa(crf))
 	args = append(args, audioArgs...)
 	args = append(args, "-progress", "pipe:1", "-nostats", partial)
 	command := exec.CommandContext(ctx, ffmpeg, args...)
@@ -176,7 +208,7 @@ func (s *Service) ExportVideoRange(id, defaultName, ass string, t0, t1 float64, 
 		}
 		return ExportResult{}, err
 	}
-	duration := t1 - t0
+	duration := piecesDuration(pieces)
 	jobID := "exp_" + id
 	lastProgress := time.Time{}
 	scanner := bufio.NewScanner(stdout)

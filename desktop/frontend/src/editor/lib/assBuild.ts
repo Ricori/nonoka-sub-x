@@ -1,6 +1,7 @@
 import { fontsMissing, getStyleMap, getStyleSheet } from '../ass';
 import { docStore } from '../store/docStore';
-import { buildAssFrom, clipAss, outputLinesOf, unknownStylesOf } from '../../subtitles/build';
+import { buildAssFrom, outputLinesOf, piecesAss, unknownStylesOf } from '../../subtitles/build';
+import type { Piece } from '../../subtitles/pieces.ts';
 import type { OutputLine } from '../../subtitles/build';
 import type { SubtitleSource } from '../../subtitles/types';
 
@@ -24,8 +25,8 @@ export const unknownStyles = (): string[] => unknownStylesOf(docSource(), getSty
 
 export const buildAss = (): string => buildAssFrom(docSource(), getStyleSheet());
 
-/** 区间 ASS：在整片那份外面包一层做区间变换 */
-export const buildClipAss = (T0: number, T1: number): string => clipAss(buildAss(), T0, T1);
+/** 成片 ASS：在整片那份外面包一层，按视频轨片段映射到成片时间 */
+export const buildPiecesAss = (pieces: readonly Piece[]): string => piecesAss(buildAss(), pieces);
 
 /** 当前会真的出现在画面上的那些样式所引用的字体里，系统找不到的那部分 */
 export function missingFonts(): Promise<string[]> {

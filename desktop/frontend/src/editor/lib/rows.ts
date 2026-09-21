@@ -6,14 +6,18 @@ import { foldJa } from './edits';
 import type { RowSpec } from '../types';
 
 /**
- * 时间轴的行：音频行 + 默认轨两条 lane + 每条自定义轨两条 lane。标签栏和轨道区共用这一份，
- * 两列高度才对得上。默认三行的高度存本机，自定义轨高度随轨道对象存服务端。
+ * 时间轴的行：视频行 + 音频行 + 默认轨两条 lane + 每条自定义轨两条 lane。标签栏和轨道区共用这一份，
+ * 两列高度才对得上。前四行的高度存本机，自定义轨高度随轨道对象存服务端。
  */
 export function buildRows(): RowSpec[] {
   const { trackMeta, tracks } = docStore.get();
   const l = layoutStore.get();
   const fold = foldJa();
   const rows: RowSpec[] = [
+    {
+      key: "video", kind: "video", ti: -1, lang: null, fold: false, vis: true, local: true,
+      height: l.rowH.video, setHeight: v => setRowH("video", v),
+    },
     {
       key: "wave", kind: "wave", ti: -1, lang: null, fold: false, vis: true, local: true,
       height: l.rowH.wave, setHeight: v => setRowH("wave", v),

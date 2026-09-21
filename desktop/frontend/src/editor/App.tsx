@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
 import { Events } from '@wailsio/runtime';
-import { ClipTip } from './components/ClipTip';
 import { ContextMenu } from './components/ContextMenu';
 import { EditorSidebar } from './components/EditorSidebar';
 import { StatusBar } from './components/StatusBar';
@@ -91,7 +90,6 @@ export function EditorApp() {
       <KaraokeModal />
       <TrackPopover />
       <ContextMenu />
-      <ClipTip />
       <Toast />
     </>
   );

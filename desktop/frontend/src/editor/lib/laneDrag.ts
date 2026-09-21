@@ -10,7 +10,7 @@ import {
 } from '../store/selectionStore';
 import { innerLeft, tlInner } from '../store/tlStore';
 import { toast } from '../store/uiStore';
-import { freezeBlocks, tAtClientX, tOf, viewStore } from '../store/viewStore';
+import { dtAt, freezeBlocks, tAtClientX, tOf, viewStore } from '../store/viewStore';
 import { refreshAll } from './edits';
 import { pushHistory } from './history';
 import { endScrub, isScrubbing, resetScrubPlayed, scrubBlip, scrubSound, seek } from './playback';
@@ -125,7 +125,7 @@ function groupMove(startEv: React.PointerEvent, originTi: Ti, grabbedSeg: Seg) {
   const onMove = (ev: PointerEvent) => {
     if (!moved) pushHistory();
     moved = true;
-    const dtWanted = snapDt((ev.clientX - startX) / viewStore.get().pps);
+    const dtWanted = snapDt(dtAt(gMin, ev.clientX - startX));
     const hoverTi = laneTiAt(ev.clientY);
     let desired = curDPos;
     if (hoverTi != null) { const p = tiPos(hoverTi); if (p >= 0) desired = p - tiPos(originTi); }
@@ -234,7 +234,9 @@ export function onLanePointerDown(e: React.PointerEvent, ti: Ti) {
   const onMove = (ev: PointerEvent) => {
     if (!moved) pushHistory();   // 首次移动前存快照（纯点击不入栈）
     moved = true;
-    const dt = (ev.clientX - start.x) / viewStore.get().pps;
+    const dx = ev.clientX - start.x;
+    // 以被拖的那条边为锚换算：聚焦成片时跨过拼接点要连删掉的部分一起跳过
+    const dt = dtAt(mode === "r" ? start.t1 : start.t0, dx);
     if (mode === "move") {
       const dur = start.t1 - start.t0;
       // 跨轨：光标压到别的轨上，且那儿的空隙放得下，就把这句挪过去

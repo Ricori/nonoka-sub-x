@@ -1,6 +1,8 @@
 import { useEffect, useRef } from 'react';
 import { shallowEqual } from '../../home/lib/createStore';
-import { PAD_Y, ROW_MAX, ROW_MIN, SB, SPECTRUM_ROW_H0, WAVE_ROW_MAX } from '../constants';
+import {
+  PAD_Y, ROW_MAX, ROW_MIN, RULER_H0, SB, SPECTRUM_ROW_H0, VIDEO_ROW_MAX, VIDEO_ROW_MIN, WAVE_ROW_MAX,
+} from '../constants';
 import { toggleDefaultHidden, toggleTrackHidden } from '../lib/edits';
 import { applyRowHeight, rowDisplayH } from '../lib/rows';
 import { effGain, setWaveGain, stepWaveGain } from '../lib/wave';
@@ -9,7 +11,8 @@ import { docStore, laneColor } from '../store/docStore';
 import { layoutStore, saveLayout, setRowH } from '../store/layoutStore';
 import { selStore, setActiveTrack } from '../store/selectionStore';
 import { openTrackPop } from '../store/uiStore';
-import { rulerH, viewStore } from '../store/viewStore';
+import { viewStore } from '../store/viewStore';
+import { toggleFocus } from '../lib/videoEdit';
 import type { Lang, RowSpec, Ti } from '../types';
 
 const EyeIcon = ({ off }: { off: boolean }) => (
@@ -118,32 +121,43 @@ export function TrackLabels({ rows, labelsRef }: {
   const lblW = layoutStore.use(s => s.lblW);
   const audioView = layoutStore.use(s => s.audioView);
   const curTrack = selStore.use(s => s.curTrack);
-  // 切片层数变了标尺就会变高，分隔线的落点跟着重算
-  viewStore.use(s => ({ clips: s.clips, t0: s.t0, t1: s.t1 }), shallowEqual);
+  const { edited, focus } = viewStore.use(s => ({ edited: !!s.pieces, focus: s.focus }), shallowEqual);
 
   // 分隔线贴在其上方那条可见行的底边（与下一条可见行之间可能夹着隐藏行）
-  let acc = rulerH();
+  let acc = RULER_H0;
   const bottoms = rows.map(r => (acc += rowDisplayH(r)));
 
   return (
     <div className="tl-labels" id="tl-labels" ref={labelsRef} style={{ width: lblW + "px" }}>
       <div className="lbl ruler-spacer"></div>
-      {rows.map(r => r.kind === "wave"
+      {rows.map(r => r.kind === "video"
         ? (
-          <div className="lbl wave" key={r.key} style={{ height: rowDisplayH(r) + "px" }}>
-            <i></i><span className="tname">音频 A1</span>
-            <AudioViewButton />
-            {audioView === "wave" && <GainButton />}
+          <div className="lbl video" key={r.key} style={{ height: rowDisplayH(r) + "px" }}>
+            <i></i><span className="tname" title="视频轨：切分、删掉不要的部分，剩下的按顺序拼成成片">视频 V1</span>
+            {edited && (
+              <button className={"lbtn focus" + (focus ? " on" : "")} title="查看成片：只看剪好的范围，播放跳过删掉的部分"
+                onClick={toggleFocus}>成片</button>
+            )}
           </div>
         )
-        : <TrackLabel key={r.key} r={r} cur={r.ti === curTrack} />)}
+        : r.kind === "wave"
+          ? (
+            <div className="lbl wave" key={r.key} style={{ height: rowDisplayH(r) + "px" }}>
+              <i></i><span className="tname">音频 A1</span>
+              <AudioViewButton />
+              {audioView === "wave" && <GainButton />}
+            </div>
+          )
+          : <TrackLabel key={r.key} r={r} cur={r.ti === curTrack} />)}
       {/* 底部占位：与轨道区横向滚动条等高，保证标签与轨道对齐 */}
       <div className="sb-gutter" id="sb-gutter" style={{ height: (SB + PAD_Y) + "px" }}></div>
       {rows.map((r, i) => r.vis && (
         <div key={r.key + "-h"} className="row-resize" title="拖动改这条轨道的高度"
           style={{ top: (bottoms[i] - 3) + "px" }}
           onPointerDown={splitHandler(() => r.height, (v0, _dx, dy) =>
-            applyRowHeight(r, Math.min(Math.max(v0 + dy, ROW_MIN), r.kind === "wave" ? WAVE_ROW_MAX : ROW_MAX)))} />
+            applyRowHeight(r, r.kind === "video"
+              ? Math.min(Math.max(v0 + dy, VIDEO_ROW_MIN), VIDEO_ROW_MAX)
+              : Math.min(Math.max(v0 + dy, ROW_MIN), r.kind === "wave" ? WAVE_ROW_MAX : ROW_MAX)))} />
       ))}
     </div>
   );

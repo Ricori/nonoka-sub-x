@@ -6,7 +6,7 @@ import { laneItems } from '../lib/laneItems';
 import { docStore, laneColor, segsOf } from '../store/docStore';
 import { dragStore } from '../store/dragStore';
 import { selStore, setActiveTrack, shownSel } from '../store/selectionStore';
-import { tAtClientX, viewStore, xOf } from '../store/viewStore';
+import { tAtClientX, viewStore, wOf, xOf } from '../store/viewStore';
 import type { Lang, Seg, Ti } from '../types';
 
 interface BlockProps {
@@ -47,7 +47,9 @@ interface LaneProps {
 export function Lane({ ti, lang, height, fold, vis, onFocusText }: LaneProps) {
   docStore.use(s => s.version);
   const blkWin = viewStore.use(s => s.blkWin);
-  const pps = viewStore.use(s => s.pps);
+  viewStore.use(s => s.pps);
+  // 聚焦成片时片段一变（拖片段边缘），后面的块都要跟着挪
+  viewStore.use(s => s.pieces);
   selStore.use(s => s.selSet);
   selStore.use(s => s.preview);
   const dropping = dragStore.use(s => s.dropTi === ti);
@@ -74,7 +76,7 @@ export function Lane({ ti, lang, height, fold, vis, onFocusText }: LaneProps) {
       }}>
       {items.map(it => it.kind === "blk"
         ? <Block key={it.i} ti={ti} i={it.i}
-          left={xOf(it.seg.t0)} width={Math.max((it.seg.t1 - it.seg.t0) * pps, 8)}
+          left={xOf(it.seg.t0)} width={Math.max(wOf(it.seg.t0, it.seg.t1), 8)}
           text={(lang === "ja" ? it.seg.ja : it.seg.zh) || "（空）"}
           sel={selSet.has(it.seg)}
           bg={rgb ? `rgba(${rgb},.16)` : undefined}

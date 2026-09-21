@@ -14,6 +14,10 @@ import { Call as $Call, CancellablePromise as $CancellablePromise } from "@wails
 
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
+import * as library$0 from "../library/models.js";
+
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
 import * as $models from "./models.js";
 
 /**
@@ -34,10 +38,11 @@ export function OpenEditor(id: string): $CancellablePromise<void> {
 /**
  * OpenVideoExport creates one modeless native export window. One window is
  * enough for now: while it exists a second request focuses it instead of
- * replacing the subtitle snapshot of a running encode.
+ * replacing the subtitle snapshot of a running encode. pieces are the source
+ * ranges to join in order; ass is already in output time.
  */
-export function OpenVideoExport(mediaID: string, defaultName: string, ass: string, t0: number, t1: number, rangeLabel: string, missingFonts: string[] | null): $CancellablePromise<void> {
-    return $Call.ByID(4290372443, mediaID, defaultName, ass, t0, t1, rangeLabel, missingFonts);
+export function OpenVideoExport(mediaID: string, defaultName: string, ass: string, pieces: library$0.Range[] | null, rangeLabel: string, missingFonts: string[] | null): $CancellablePromise<void> {
+    return $Call.ByID(4290372443, mediaID, defaultName, ass, pieces, rangeLabel, missingFonts);
 }
 
 /**

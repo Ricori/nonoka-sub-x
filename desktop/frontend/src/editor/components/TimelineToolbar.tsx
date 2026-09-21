@@ -1,29 +1,39 @@
 import { shallowEqual } from '../../home/lib/createStore';
-import { enterClip, exitClip, newClipFromSelection } from '../lib/clips';
 import { addSegmentAt, foldJa, newTrack, splitAtPlayhead, toggleFoldJa } from '../lib/edits';
 import { endScrub } from '../lib/playback';
+import {
+  cutAtPlayhead, hasContiguous, keepSelectedSegs, mergeContiguous, resetVideoEdit, toggleFocus,
+} from '../lib/videoEdit';
 import { docStore } from '../store/docStore';
 import { layoutStore, saveLayout } from '../store/layoutStore';
 import { playStore } from '../store/playStore';
 import { modalStore, showCtx } from '../store/uiStore';
 import { ppsToSlider, setZoom, sliderToPps, viewStore } from '../store/viewStore';
+import { selStore } from '../store/selectionStore';
+import { joinPieces } from '../../subtitles/pieces.ts';
 import type { CtxItem } from '../types';
 
 export function TimelineToolbar() {
   docStore.use(s => s.version);
   const { snap, scrubAudio } = layoutStore.use(s => ({ snap: s.snap, scrubAudio: s.scrubAudio }), shallowEqual);
-  const { curClip, clips, pps } = viewStore.use(
-    s => ({ curClip: s.curClip, clips: s.clips, pps: s.pps }), shallowEqual);
+  const { pieces, focus, pps } = viewStore.use(
+    s => ({ pieces: s.pieces, focus: s.focus, pps: s.pps }), shallowEqual);
+  const focused = focus && !!pieces;
+  const joined = pieces ? joinPieces(pieces) : null;
 
-  /** 切片面包屑下拉：已经在完整片上就不列「完整片」；当前切片的名字写在按钮上，也不再列一遍 */
+  /** 成片面包屑下拉：在完整片和成片之间切换，外加几个整体操作 */
   function crumbMenu(e: React.MouseEvent) {
     const items: CtxItem[] = [];
-    if (curClip) items.push({ label: "完整片", onClick: exitClip });
-    for (const c of clips) {
-      if (c !== curClip) items.push({ label: c.name, onClick: () => enterClip(c) });
+    if (pieces) items.push({ label: focused ? "查看完整片" : "查看成片", onClick: toggleFocus });
+    // 成片只供预览：剪辑类的一概不给
+    if (focused) { showCtx(e, items); return; }
+    if (selStore.get().selSet.size) items.push({ label: "只保留选中字幕的范围", onClick: keepSelectedSegs });
+    items.push({ label: "在播放头处切分视频 (Ctrl+B)", onClick: cutAtPlayhead });
+    if (pieces) {
+      items.push("-");
+      if (hasContiguous()) items.push({ label: "合并连续片段", onClick: mergeContiguous });
+      items.push({ label: "恢复整片（撤销全部剪辑）", danger: true, onClick: resetVideoEdit });
     }
-    if (items.length) items.push("-");
-    items.push({ label: "以选中字幕块新建切片", onClick: () => void newClipFromSelection() });
     showCtx(e, items);
   }
 
@@ -43,6 +53,16 @@ export function TimelineToolbar() {
           <path d="M7.3 3.7l2 2" />
         </svg>
         在当前位置拆分
+      </button>
+      <div className="sep"></div>
+      <button className="tool" id="btn-cut" disabled={focused}
+        title={focused ? "成片仅供预览，回到完整片再切分" : "在播放头处把视频轨切成两段 (Ctrl+B)"} onClick={cutAtPlayhead}>
+        <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" strokeWidth="1.3">
+          <circle cx="3.2" cy="10" r="1.8" />
+          <circle cx="9.8" cy="10" r="1.8" />
+          <path d="M4.5 8.7 10.5 1.5M8.5 8.7 2.5 1.5" />
+        </svg>
+        切分视频
       </button>
       <div className="sep"></div>
       <button className="tool" id="btn-new-track"
@@ -97,18 +117,20 @@ export function TimelineToolbar() {
       </button>
       <div className="sep"></div>
 
-      {/* 切片面包屑（参考剪映）：完整片时是个切换入口，进了切片就多一颗返回键 */}
+      {/* 成片面包屑（参考剪映）：完整片时是个切换入口，聚焦成片时多一颗返回键 */}
       <div className="crumb" id="crumb">
-        <button className="back" id="crumb-back" type="button" title="返回完整片" hidden={!curClip}
-          onClick={exitClip}>
+        <button className="back" id="crumb-back" type="button" title="返回完整片" hidden={!focused}
+          onClick={toggleFocus}>
           <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.6"
             strokeLinecap="round" strokeLinejoin="round">
             <path d="M7.5 2 3.5 6l4 4" />
           </svg>
         </button>
-        <button className={"cur" + (curClip ? " on-clip" : "")} id="crumb-cur" type="button"
-          title="切换编辑对象：完整片或某个切片" onClick={crumbMenu}>
-          {(curClip ? curClip.name : "完整片") + " ▾"}
+        <button className={"cur" + (focused ? " on-edit" : "")} id="crumb-cur" type="button"
+          title="在完整片与剪好的成片之间切换" onClick={crumbMenu}>
+          {(joined
+            ? `${focused ? "成片" : "完整片"}`
+            : "完整片") + " ▾"}
         </button>
       </div>
 

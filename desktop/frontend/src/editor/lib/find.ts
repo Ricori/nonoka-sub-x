@@ -3,7 +3,7 @@ import { orderedTis, segsOf, tiPos } from '../store/docStore';
 import { markDirty } from '../store/saveStore';
 import { curSegs, select, selStore, setActiveTrack } from '../store/selectionStore';
 import { toast } from '../store/uiStore';
-import { viewRange } from '../store/viewStore';
+import { listedIdx } from '../store/viewStore';
 import { refreshAll } from './edits';
 import { pushHistory } from './history';
 import { seek } from './playback';
@@ -56,9 +56,8 @@ function collectHits(): Hit[] {
   const hits: Hit[] = [];
   for (const ti of tis) {
     const arr = segsOf(ti);
-    // 进了切片就只找切片内的句：列表、时间轴显示的也是这一段
-    const [a, b] = viewRange(arr);
-    for (let i = a; i < b; i++) {
+    // 聚焦成片时只找成片里还有的句：列表、时间轴显示的也是这些
+    for (const i of listedIdx(arr)) {
       const seg = arr[i];
       for (const lang of langs) {
         for (const [start, end] of matchRanges(seg[lang], f.query, f.matchCase)) {

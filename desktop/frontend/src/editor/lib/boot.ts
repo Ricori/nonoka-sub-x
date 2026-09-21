@@ -21,7 +21,9 @@ import { setupVideo, showVideoFallback } from "./videoSource";
 import { resetAutoGain } from "./wave";
 import { resetHistory } from "./history";
 import { dragStore } from "../store/dragStore";
-import type { Clip, Lang, Seg, Track } from "../types";
+import type { Lang, Seg, Track } from "../types";
+import { normalizePieces } from "../../subtitles/pieces.ts";
+import { clearVsel } from "../store/vselStore";
 
 function mapSegs(items: unknown[]): Seg[] {
   const out = (items ?? []).map((item) => {
@@ -49,7 +51,7 @@ function resetTransientState() {
   modalStore.set({
     bootDone: false, closeOpen: false, tplOpen: false, effectsOpen: false, karaokeOpen: false,
     sideTab: "subtitle",
-    trkPop: null, clipTip: null,
+    trkPop: null,
   });
   ctxStore.set({ menu: null });
   askStore.set({ dialog: null });
@@ -63,7 +65,8 @@ function resetTransientState() {
     transcoding: false, transcodePct: "", canTranscode: false, fbMsg: "", warn: "",
     usePath: null, badge: null, subBusy: null,
   });
-  viewStore.set({ duration: 60, t0: 0, t1: 60, curClip: null, clips: [], blkWin: null });
+  viewStore.set({ duration: 60, t0: 0, t1: 60, pieces: null, focus: false, blkWin: null });
+  clearVsel();
 }
 
 /** 切到侧栏「样式」页，并选中第一条绑着缺失样式的 lane，StyleBar 里就能直接看到回退和补建入口 */
@@ -133,11 +136,10 @@ export async function runBootSequence() {
     });
     setDocStyles(styles, { dirty: false });
     resetAutoGain();
+    // 视频轨片段存在本地媒体库里。打开时总是完整片：剪辑都在完整片里做，成片只供预览，要看再切过去
+    const stored = normalizePieces(await mediaLibrary.getVideoEdit(videoID).catch(() => []));
+    viewStore.set({ pieces: stored.length ? stored : null, focus: false });
     setDuration(peaks?.duration || (segs.length ? segs[segs.length - 1].t1 + 2 : 60));
-
-    const clips: Clip[] = ((await mediaLibrary.getClips(videoID).catch(() => [])) ?? [])
-      .sort((left, right) => left.t0 - right.t0);
-    viewStore.set({ clips });
 
     modalStore.set({ bootDone: true });
     bumpDoc();

@@ -7,11 +7,11 @@ import { errText, p2, round3 } from '../utils';
 import { docStore } from './docStore';
 import { toast } from './uiStore';
 import { viewStore } from './viewStore';
-import type { Clip, Seg } from '../types';
+import type { Seg } from '../types';
 import { CN_STYLE, ORIGIN_STYLE } from '../../subtitles/styles';
 
 // 保存：手动（Ctrl+S / 保存按钮）+ 每 5 分钟自动一次（rev 乐观锁）。
-// 切片是另一条线：存本地 library.json，不吃 rev 乐观锁，也不会和别人的编辑撞车。
+// 视频轨剪辑是另一条线：存本地 library.json，不吃 rev 乐观锁，也不会和别人的编辑撞车。
 
 interface SaveState {
   dirty: boolean;
@@ -116,33 +116,34 @@ export async function doSave() {
   }
 }
 
-// ── 切片保存 ──────────────────────────────────────────────────────
-let clipSaveVersion = 0, clipSavedVersion = 0;
-let clipSaveTail: Promise<boolean> = Promise.resolve(true);
+// ── 视频轨保存 ────────────────────────────────────────────────────
+// 每次剪辑都立刻落盘（本地 library.json，很小），排队串行免得旧的后到把新的盖掉
+let editSaveVersion = 0, editSavedVersion = 0;
+let editSaveTail: Promise<boolean> = Promise.resolve(true);
 
-export const clipsDirty = () => clipSavedVersion < clipSaveVersion;
+export const editDirty = () => editSavedVersion < editSaveVersion;
 
-export function saveClips() {
-  const version = ++clipSaveVersion;
-  const snapshot: Clip[] = viewStore.get().clips.map(c => ({ ...c }));
-  clipSaveTail = clipSaveTail.then(async () => {
-    const ok = await mediaLibrary.setClips(getVid(), snapshot);
+export function saveEdit() {
+  const version = ++editSaveVersion;
+  const pieces = (viewStore.get().pieces ?? []).map(p => ({ t0: p.t0, t1: p.t1 }));
+  editSaveTail = editSaveTail.then(async () => {
+    const ok = await mediaLibrary.setVideoEdit(getVid(), { pieces });
     if (!ok) throw new Error("本地媒体库中没有这个视频");
-    clipSavedVersion = version;
+    editSavedVersion = version;
     return true;
   }).catch(e => {
-    toast("切片保存失败：" + errText(e));
+    toast("视频轨保存失败：" + errText(e));
     return false;
   });
-  return clipSaveTail;
+  return editSaveTail;
 }
 
-export async function flushClips() {
-  await clipSaveTail;
-  return clipSavedVersion >= clipSaveVersion;
+export async function flushEdit() {
+  await editSaveTail;
+  return editSavedVersion >= editSaveVersion;
 }
 
-/** 关闭编辑器前把本地改动（字幕 + 切片）全部落盘。
+/** 关闭编辑器前把本地改动（字幕 + 视频轨）全部落盘。
  *  导出不再走这里：SRT/ASS/MP4 都在本地按内存里这份文档拼，落不落盘与产物无关。 */
 export async function flushSave() {
   let guard = 0;
@@ -150,15 +151,15 @@ export async function flushSave() {
     if (!saveStore.get().saving) await doSave();
     else await new Promise(r => setTimeout(r, 200));
   }
-  await flushClips();
+  await flushEdit();
 }
 
 /** 手动保存（按钮 / Ctrl+S） */
 export async function manualSave() {
   const st = saveStore.get();
   if (st.conflicted) { toast("版本冲突，无法保存，请刷新页面"); return; }
-  if (!st.dirty && !st.saving && !clipsDirty()) { toast("没有需要保存的更改"); return; }
-  await Promise.all([doSave(), flushClips()]);
+  if (!st.dirty && !st.saving && !editDirty()) { toast("没有需要保存的更改"); return; }
+  await Promise.all([doSave(), flushEdit()]);
 }
 
 /** 每 5 分钟自动保存一次（仅在有未保存改动且未冲突时） */

@@ -25,9 +25,6 @@
   --zh: #60cbb5;
   --warn: #ed789d;
   --ok: #55cda9;
-  /* 切片标记：暖杏色。轨道蓝(ja)/青(zh)/强调蓝都在冷区，暖色一眼就分得开，
-         又比纯黄柔和，压得住深蓝底 */
-  --clipmark: #f2ce75;
   --mask-bg: rgba(0, 0, 0, .55);
   --vf-bg: rgba(10, 11, 16, .92);
   --shadow-pop: 0 16px 48px rgba(0, 0, 0, .5);
@@ -58,8 +55,6 @@ body.light {
   --zh: #18796b;
   --warn: #bd4670;
   --ok: #157a5f;
-  /* 切片标记在亮色下要压得住白底，杏色得往赭金挪一档，同时和紫色播放头拉开 */
-  --clipmark: #9a6a12;
   --mask-bg: rgba(38, 30, 54, .42);
   --vf-bg: rgba(250, 248, 254, .94);
   --shadow-pop: 0 16px 48px rgba(70, 54, 100, .22);
@@ -394,6 +389,15 @@ body.ctx-open .professional-editor .topbar {
   width: 100%;
   height: 100%;
   background: #000;
+  z-index: 0;
+}
+
+/* 待命的那个 <video>：垫在前台下面、完全透明（不用 visibility:hidden——那样浏览器可能
+       不给它解帧），对调时一换 class 就是切画面，没有过渡 */
+.professional-editor .stage video.standby {
+  z-index: -1;
+  opacity: 0;
+  pointer-events: none;
 }
 
 /* 视频后台缓存进度：左下角小徽标，不遮挡正在播放的画面 */
@@ -3270,6 +3274,14 @@ body.ctx-open .professional-editor .topbar {
   color: var(--text);
 }
 
+/* 成片只供预览时剪辑类按钮置灰（仍保留 title 说明为什么点不了） */
+.professional-editor .tool:disabled {
+  opacity: .4;
+  background: none;
+  color: var(--mut);
+  cursor: default;
+}
+
 .professional-editor .tool.on {
   background: var(--raised);
   color: var(--accent);
@@ -3365,90 +3377,192 @@ body.ctx-open .professional-editor .topbar {
   flex: none;
 }
 
-/* ── 切片标记：直接打在时间刻度上，不另占一条轨 ──────────
-       起止各一枚小黄标（可拖），中间一条细长条；条上双击进入切片。
-       只在完整片视图下出现——进了切片就没有「它在整片哪儿」这个问题了。 */
-/* 标尺底部 22px 归时间刻度，切片标记一层层往上叠，每层 14px（top 由 JS 按层号给）。
-       单层时自上而下：切片条(1~4) → 切片名(4~14) → 时间标签(15~27) → 刻度(26~36) */
-.professional-editor .clip-mark {
-  position: absolute;
-  height: 3px;
-  background: color-mix(in srgb, var(--clipmark) 55%, transparent);
-  border-radius: 2px;
-  cursor: pointer;
-  z-index: 2;
+/* ── 视频轨：缩略图条 + 片段 ─────────────────────────────
+       片段是一层透明框，缩略图从下面透上来；删掉的空隙打斜线压暗，
+       同样的暗色（.cut-shade）也盖到下面的音频行和字幕行上。视频行与它同层（3）、DOM 里排在
+       它后面，于是压在它上面，空隙的斜线和标签不会被再压暗一遍；又低于吸顶的标尺（4）。 */
+.professional-editor .videorow {
+  position: relative;
+  z-index: 3;
+  border-bottom: 1px solid var(--line-soft);
+  background: color-mix(in srgb, var(--bg) 70%, var(--panel));
+  cursor: default;
+  user-select: none;
+  overflow: hidden;
 }
 
-.professional-editor .clip-mark:hover {
-  background: var(--clipmark);
+.professional-editor .film-frame {
+  position: absolute;
+  top: 5px;
+  background-repeat: no-repeat;
+  background-color: #000;
+  border-right: 1px solid rgba(0, 0, 0, .55);
+  pointer-events: none;
 }
 
-/* 切片名：小字挂在长条正下方，跟着条一起被裁 */
-.professional-editor .clip-mark .nm {
+.professional-editor .film-message {
+  position: sticky;
+  left: 10px;
+  z-index: 3;
+  display: inline-flex;
+  align-items: center;
+  height: 100%;
+  padding: 0 8px;
+  color: var(--faint);
+  font-size: 10px;
+  pointer-events: none;
+}
+
+/* 片段框不另起一套颜色：平时一道很淡的中性描边，悬停稍亮，选中是亮白描边（Pr/剪映同款） */
+.professional-editor .vpiece {
   position: absolute;
-  top: 3px;
-  left: 1px;
-  right: 1px;
-  font-size: 9px;
-  line-height: 10px;
-  color: var(--clipmark);
+  top: 4px;
+  bottom: 4px;
+  z-index: 1;
+  border: 1px solid color-mix(in srgb, var(--text) 16%, transparent);
+  border-radius: 4px;
+  box-sizing: border-box;
+}
+
+.professional-editor .vpiece:hover {
+  border-color: color-mix(in srgb, var(--text) 38%, transparent);
+}
+
+/* 成片里片段连成一条：交界处的左右边框和圆角都去掉，只留整条两头；预览不给悬停高亮 */
+.professional-editor .vpiece.seamless {
+  border-left-width: 0;
+  border-right-width: 0;
+  border-radius: 0;
+}
+
+.professional-editor .vpiece.seamless:hover {
+  border-color: color-mix(in srgb, var(--text) 16%, transparent);
+}
+
+.professional-editor .vpiece.seamless.first {
+  border-left-width: 1px;
+  border-top-left-radius: 4px;
+  border-bottom-left-radius: 4px;
+}
+
+.professional-editor .vpiece.seamless.last {
+  border-right-width: 1px;
+  border-top-right-radius: 4px;
+  border-bottom-right-radius: 4px;
+}
+
+.professional-editor .vpiece.sel {
+  border: 2px solid color-mix(in srgb, var(--text) 88%, transparent);
+}
+
+.professional-editor .vpiece .nm {
+  position: absolute;
+  top: 2px;
+  left: 5px;
+  max-width: calc(100% - 12px);
+  padding: 0 4px;
+  border-radius: 3px;
+  background: rgba(0, 0, 0, .6);
+  color: #fff;
+  font-size: 9.5px;
+  line-height: 14px;
+  font-variant-numeric: tabular-nums;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   pointer-events: none;
 }
 
-/* 起止标记：挂在条两端的小旗，下缘切个斜角指向自己那一侧 */
-.professional-editor .clip-flag {
+/* 两端的拖动热区：平时只露一道细边，悬停才显出把手 */
+.professional-editor .vedge {
   position: absolute;
-  width: 7px;
-  height: 8px;
-  background: var(--clipmark);
+  top: -1px;
+  bottom: -1px;
+  width: 6px;
   cursor: ew-resize;
-  z-index: 3;
+  z-index: 2;
 }
 
-.professional-editor .clip-flag.l {
-  border-radius: 2px 0 0 0;
-  clip-path: polygon(0 0, 100% 0, 100% 65%, 0 100%);
+.professional-editor .vedge.l {
+  left: -1px;
+  border-radius: 4px 0 0 4px;
 }
 
-.professional-editor .clip-flag.r {
-  border-radius: 0 2px 0 0;
-  clip-path: polygon(0 0, 100% 0, 100% 100%, 0 65%);
+.professional-editor .vedge.r {
+  right: -1px;
+  border-radius: 0 4px 4px 0;
 }
 
-.professional-editor .clip-flag:hover {
-  filter: brightness(1.2);
+.professional-editor .vedge:hover,
+.professional-editor .vpiece.sel .vedge {
+  background: color-mix(in srgb, var(--text) 88%, transparent);
 }
 
-/* 悬浮详情：跟着鼠标走的小卡片，比 title 快也比 title 能装 */
-.professional-editor .clip-tip {
-  position: fixed;
-  z-index: 62;
-  pointer-events: none;
-  padding: 5px 9px;
-  border-radius: 6px;
-  background: var(--raised);
-  border: 1px solid var(--line);
-  box-shadow: var(--shadow-pop);
-  font-size: 11px;
-  line-height: 1.6;
-  color: var(--text);
-  white-space: nowrap;
+.professional-editor .vgap {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  background:
+    repeating-linear-gradient(135deg, transparent 0 5px, color-mix(in srgb, var(--faint) 22%, transparent) 5px 6px),
+    color-mix(in srgb, var(--bg) 82%, transparent);
 }
 
-.professional-editor .clip-tip b {
-  color: var(--clipmark);
-  font-weight: 600;
-}
-
-.professional-editor .clip-tip span {
+.professional-editor .vgap span {
+  padding: 0 5px;
+  border-radius: 3px;
+  background: var(--panel);
   color: var(--faint);
-  font-variant-numeric: tabular-nums;
+  font-size: 9.5px;
+  line-height: 14px;
+  white-space: nowrap;
+  pointer-events: none;
 }
 
-/* ── 时间轴工具栏正中的切片面包屑（参考剪映）────────────
+.professional-editor .vrange {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 2;
+  /* 与字幕框选同色：都是「拖出来的一段选区」 */
+  border: 1px solid var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  pointer-events: none;
+}
+
+/* 删掉的部分在视频行以下的所有行上压暗；盖在块上面（块 z 2），但让开框选（4）和播放头（5） */
+.professional-editor .cut-shade {
+  position: absolute;
+  top: var(--ruler-h);
+  bottom: 0;
+  z-index: 3;
+  background: color-mix(in srgb, var(--bg) 55%, transparent);
+  pointer-events: none;
+}
+
+.professional-editor .lbl.video i {
+  width: 8px;
+  height: 6px;
+  border-radius: 1px;
+  background: var(--faint);
+}
+
+.professional-editor .lbl .lbtn.focus {
+  width: auto;
+  padding: 0 5px;
+  font-size: 10px;
+}
+
+.professional-editor .lbl .lbtn.focus.on {
+  color: var(--accent);
+  background: var(--accent-dim);
+}
+
+/* ── 时间轴工具栏正中的成片面包屑（参考剪映）────────────
        绝对定位保证真的居中，不受左右两侧按钮宽度影响。 */
 .professional-editor .crumb {
   position: absolute;
@@ -3498,11 +3612,11 @@ body.ctx-open .professional-editor .topbar {
   color: var(--text);
 }
 
-.professional-editor .crumb .cur.on-clip {
-  color: var(--clipmark);
+.professional-editor .crumb .cur.on-edit {
+  color: var(--accent);
 }
 
-/* ── 右键菜单（时间轴上新建切片 / 切片本身的改名删除导出）── */
+/* ── 右键菜单（时间轴上新建字幕 / 视频轨剪辑）── */
 .professional-editor .ctxmenu {
   position: fixed;
   z-index: 60;
@@ -3714,8 +3828,7 @@ body.ctx-open .professional-editor .topbar {
   min-height: 100%;
 }
 
-/* 标尺高度：无切片时就这么高，有切片时由 syncClipsUI() 按层数写成内联值覆盖。
-       行分隔线的位置靠 rulerH() 现量 offsetHeight，不会跟这里对不上。 */
+/* 标尺高度：Timeline 按 RULER_H0 写成内联值覆盖，行分隔线的位置也按它算 */
 .professional-editor .timeline {
   --ruler-h: 26px;
 }
@@ -4136,6 +4249,14 @@ html.wails-fullscreen .professional-editor .topbar {
   z-index: 1;
   pointer-events: none;
   background: repeating-linear-gradient(to bottom, transparent 0, transparent calc(25% - 1px), rgba(255, 255, 255, .08) 25%);
+}
+
+.professional-editor .spectrum-clip {
+  position: absolute;
+  top: 0;
+  overflow: hidden;
+  z-index: 0;
+  pointer-events: none;
 }
 
 .professional-editor .spectrum-tile {

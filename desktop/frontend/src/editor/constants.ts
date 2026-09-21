@@ -20,10 +20,14 @@ export const HIDDEN_H = 22;
 /** 末轨之后留一段空，留出继续往下拖的余量 */
 export const PAD_Y = 16;
 
-// 标尺底部 22px 归时间刻度，切片标记一层层往上叠，每层 14px
-export const RULER_BASE = 22;
-export const CLIP_LANE_H = 14;
 export const RULER_H0 = 26;
+
+// 视频轨：缩略图条的行高上下限
+export const VIDEO_ROW_MIN = 36;
+export const VIDEO_ROW_MAX = 96;
+export const VIDEO_ROW_H0 = 52;
+/** 片段边缘的拖动热区（像素） */
+export const PIECE_EDGE_W = 6;
 
 // 字幕块渲染
 export const BLK_DETAIL_W = 12;   // 窄于此就不画手柄和文字

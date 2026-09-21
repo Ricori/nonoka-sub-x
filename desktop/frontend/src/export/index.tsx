@@ -39,12 +39,15 @@ function ExportWindow() {
   const [confirmClose, setConfirmClose] = useState(false);
 
   const busy = phase === 'running' || phase === 'cancelling';
+  // 剪辑成片要把几段拼起来，拼出来的音轨是新的，没有源音轨可复制
+  const joined = (draft?.pieces?.length ?? 0) > 1;
 
   useEffect(() => {
     applyTheme(initialTheme('dark'));
     desktopWindows.videoExportDraft(jobID)
       .then((value) => {
         setDraft(value);
+        if ((value.pieces?.length ?? 0) > 1) setAbr((current) => current === 'copy' ? '192k' : current);
         setPhase('ready');
         setMessage('选择参数后开始导出。压制期间可以继续编辑其它项目。');
       })
@@ -157,7 +160,9 @@ function ExportWindow() {
         <div className="setting-row">
           <label htmlFor="export-audio" title="复制源音轨不会重新编码；源音频编码需兼容 MP4 容器">音频</label>
           <select id="export-audio" disabled={busy} value={abr} onChange={(event) => setAbr(event.target.value)}>
-            <option value="copy">复制源音轨（不重新编码）</option>
+            <option value="copy" disabled={joined}>
+              {joined ? '复制源音轨（多段拼接时不可用）' : '复制源音轨（不重新编码）'}
+            </option>
             <option value="128k">128k</option><option value="192k">192k</option>
             <option value="256k">256k</option><option value="320k">320k</option>
           </select>

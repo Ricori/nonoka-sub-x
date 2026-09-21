@@ -33,12 +33,25 @@ export interface Entry {
     "documentAvailable": boolean;
     "documentRemoved"?: boolean;
     "cached": boolean;
+
+    /**
+     * Clips is the retired named-range list. Nothing reads it any more, but it
+     * is kept so an older library.json survives a round trip untouched.
+     */
     "clips"?: Clip[] | null;
+    "videoEdit"?: VideoEdit | null;
 }
 
 export interface ExportResult {
     "path": string;
     "size": number;
+}
+
+export interface FilmstripTileResult {
+    "url": string;
+    "start": number;
+    "duration": number;
+    "frames": number;
 }
 
 export interface ImportFailure {
@@ -52,6 +65,14 @@ export interface ImportResult {
     "failed": ImportFailure[] | null;
 }
 
+/**
+ * Range is a half-open span of source media time in seconds.
+ */
+export interface Range {
+    "t0": number;
+    "t1": number;
+}
+
 export interface SpectrogramTileResult {
     "url": string;
     "start": number;
@@ -63,4 +84,13 @@ export interface SpectrogramTileResult {
 export interface TranscodeResult {
     "ok": boolean;
     "url": string;
+}
+
+/**
+ * VideoEdit is the editor's video track: the pieces of the source that make it
+ * into the output, in output order. The subtitles keep source time; export
+ * maps them through these pieces. An empty list means the untouched source.
+ */
+export interface VideoEdit {
+    "pieces": Range[] | null;
 }

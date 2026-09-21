@@ -1,11 +1,11 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { shallowEqual } from '../../home/lib/createStore';
-import { PAD_Y } from '../constants';
-import { newClipFromSelection } from '../lib/clips';
+import { PAD_Y, RULER_H0 } from '../constants';
 import { addSegmentAt } from '../lib/edits';
 import { laneTiAt, startMarquee } from '../lib/laneDrag';
 import { buildRows, rowDisplayH } from '../lib/rows';
 import { splitHandler } from '../lib/split';
+import { deleteSelectedSegs, keepSelectedSegs } from '../lib/videoEdit';
 import { docStore } from '../store/docStore';
 import { dragStore } from '../store/dragStore';
 import { layoutStore, saveLayout, tlCap } from '../store/layoutStore';
@@ -13,21 +13,23 @@ import { playStore } from '../store/playStore';
 import { selStore, setActiveTrack } from '../store/selectionStore';
 import { setTlEls, syncTlMetrics, tlScroll, tlStore } from '../store/tlStore';
 import { showCtx } from '../store/uiStore';
+import { clearVsel } from '../store/vselStore';
 import {
-  ensureBlkWin, rulerH, setZoom, syncZoomRange, tAtClientX, viewDur, viewStore, xOf,
+  ensureBlkWin, isFocused, setZoom, syncZoomRange, tAtClientX, viewDur, viewStore, xOf,
 } from '../store/viewStore';
 import { Lane } from './Lane';
 import { Ruler } from './Ruler';
 import { TimelineToolbar } from './TimelineToolbar';
 import { TrackLabels } from './TrackLabels';
+import { CutShade, VideoRow } from './VideoRow';
 import { VScrollbar } from './VScrollbar';
 import { WaveRow } from './WaveRow';
 import type { CtxItem } from '../types';
 
 function Playhead() {
   const t = playStore.use(s => s.t);
-  // xOf() 同时吃 pps 和 t0，两个都得订阅（相加当快照会漏掉「一增一减」那种组合）
-  viewStore.use(s => ({ pps: s.pps, t0: s.t0 }), shallowEqual);
+  // xOf() 吃 pps、t0，聚焦成片时还吃片段，都得订阅（相加当快照会漏掉「一增一减」那种组合）
+  viewStore.use(s => ({ pps: s.pps, t0: s.t0, pieces: s.pieces, focus: s.focus }), shallowEqual);
   return <div className="playhead" id="playhead" style={{ left: xOf(t) + "px" }} />;
 }
 
@@ -43,7 +45,9 @@ const focusText = (lang: "ja" | "zh") =>
 
 export function Timeline() {
   docStore.use(s => s.version);
-  const { pps } = viewStore.use(s => ({ pps: s.pps, t0: s.t0, t1: s.t1, clips: s.clips }), shallowEqual);
+  // 聚焦成片时 inner 宽度是成片时长，片段一变就得跟着变
+  const { pps } = viewStore.use(
+    s => ({ pps: s.pps, t0: s.t0, t1: s.t1, pieces: s.pieces, focus: s.focus }), shallowEqual);
   // rowH 决定各行高度，tlViewH 决定轨道区可视高度（tlCap）——少订阅一个，
   // 拖 hsplit 就只改了 store 不重渲染，看起来像「拖不动」
   layoutStore.use(s => ({ rowH: s.rowH, tlViewH: s.tlViewH }), shallowEqual);
@@ -121,21 +125,21 @@ export function Timeline() {
 
   /**
    * 时间轴级框选：挂在 inner 上，连轨道下方那块不属于任何 lane 的空白也覆盖到。
-   * 落在块上交给 lane 自己的选中/拖动，落在标尺/波形上交给它们的 scrub。
+   * 落在块上交给 lane 自己的选中/拖动，落在标尺/波形/视频行上交给它们自己。
    */
   function onInnerDown(e: React.PointerEvent) {
     if (e.button !== 0) return;
     const el = e.target as HTMLElement;
+    // 视频轨之外的任何点击都放下视频轨上的选中，Delete 才不会删到看不见的东西
+    if (!el.closest("#videorow")) clearVsel();
     if (el.closest(".blk")) return;
-    if (el.closest("#ruler") || el.closest("#waverow")) return;
+    if (el.closest("#ruler") || el.closest("#waverow") || el.closest("#videorow")) return;
     const ti = laneTiAt(e.clientY);
     startMarquee(e, ti == null ? selStore.get().curTrack : ti);
   }
 
-  /** 时间轴空白处右键：新建字幕 / 把选中的字幕块做成切片 */
+  /** 时间轴空白处右键：新建字幕 / 按选中的字幕块剪视频轨（视频行有自己的菜单） */
   function onInnerCtx(e: React.MouseEvent) {
-    // 标尺上那些切片标记有自己的菜单，且已经 stopPropagation，这里只兜底
-    if ((e.target as HTMLElement).closest(".clip-mark, .clip-flag")) return;
     const items: CtxItem[] = [];
     // 落在字幕轴（lane）内才给「新建字幕」，标尺/波形上不给
     const ti = laneTiAt(e.clientY);
@@ -147,13 +151,20 @@ export function Timeline() {
       });
     }
     const n = selStore.get().selSet.size;
-    if (n) items.push({ label: `以选中字幕块新建切片（${n} 句）`, onClick: () => void newClipFromSelection() });
+    // 按选中字幕剪视频轨只在完整片里给：成片只供预览
+    if (n && !isFocused()) {
+      if (items.length) items.push("-");
+      items.push(
+        { label: `只保留选中字幕的范围（${n} 句）`, onClick: keepSelectedSegs },
+        { label: `从成片中删掉选中字幕（${n} 句）`, danger: true, onClick: deleteSelectedSegs },
+      );
+    }
     if (!items.length) return;
     showCtx(e, items);
   }
 
   return (
-    <section className="timeline" style={{ "--ruler-h": rulerH() + "px" } as React.CSSProperties}>
+    <section className="timeline" style={{ "--ruler-h": RULER_H0 + "px" } as React.CSSProperties}>
       <TimelineToolbar />
       <div className="tl-body" style={{ height: tlCap() + "px" }}>
         <TrackLabels rows={rows} labelsRef={labelsRef} />
@@ -168,10 +179,13 @@ export function Timeline() {
             style={{ width: (viewDur() * pps) + "px", paddingBottom: PAD_Y + "px" }}
             onPointerDown={onInnerDown} onContextMenu={onInnerCtx}>
             <Ruler left={left} w={w} />
-            {rows.map(r => r.kind === "wave"
-              ? <WaveRow key={r.key} height={rowDisplayH(r)} left={left} w={w} />
-              : <Lane key={r.key} ti={r.ti} lang={r.lang!} height={rowDisplayH(r)}
-                fold={r.fold} vis={r.vis} onFocusText={focusText} />)}
+            <CutShade />
+            {rows.map(r => r.kind === "video"
+              ? <VideoRow key={r.key} height={rowDisplayH(r)} left={left} w={w} />
+              : r.kind === "wave"
+                ? <WaveRow key={r.key} height={rowDisplayH(r)} left={left} w={w} />
+                : <Lane key={r.key} ti={r.ti} lang={r.lang!} height={rowDisplayH(r)}
+                  fold={r.fold} vis={r.vis} onFocusText={focusText} />)}
             <Playhead />
             <Marquee />
           </div>

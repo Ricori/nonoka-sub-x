@@ -1,25 +1,25 @@
 import { getVid } from '../session';
 import { docStore } from '../store/docStore';
 import { toast } from '../store/uiStore';
-import { viewStore } from '../store/viewStore';
 import { errText } from '../utils';
-import { buildAss, buildClipAss } from './assBuild';
+import { buildAss, buildPiecesAss } from './assBuild';
+import { EDIT_SUFFIX, exportPieces } from './videoEdit';
 import { mediaLibrary } from '../../bridge/library.ts';
 
 /**
- * 导出 ASS。整片和切片都在本地拼（buildAss 与服务端 edit_export_ass 逐字一致，也正是
+ * 导出 ASS。整片和剪辑成片都在本地拼（buildAss 与服务端 edit_export_ass 逐字一致，也正是
  * 预览用的那份），不走服务端：导出算的就是屏幕上这份文档，离线也能出，
  * 也不必先把改动 PUT 上去等一轮往返。
  */
 export async function exportAss() {
   try {
     const { title } = docStore.get();
-    const v = viewStore.get();
+    const pieces = exportPieces();
     let name = (title || getVid()).replace(/\.[a-z0-9]{2,4}$/i, "") || getVid();
     let content: string;
-    if (v.curClip) {
-      content = buildClipAss(v.t0, v.t1);
-      name += " - " + v.curClip.name;
+    if (pieces) {
+      content = buildPiecesAss(pieces);
+      name += EDIT_SUFFIX;
     } else {
       content = buildAss();
     }

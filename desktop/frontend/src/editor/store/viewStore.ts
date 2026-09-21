@@ -1,48 +1,80 @@
 import { createStore } from '../../home/lib/createStore';
-import {
-  BLK_MARGIN, CLIP_LANE_H, MIN_DUR, RULER_BASE, RULER_H0, ZOOM_FLOOR, ZOOM_MAX,
-} from '../constants';
+import { BLK_MARGIN, MIN_DUR, ZOOM_FLOOR, ZOOM_MAX } from '../constants';
 import { fmt } from '../utils';
+import { outToSrc, piecesDuration, srcToOut } from '../../subtitles/pieces.ts';
+import type { Piece } from '../../subtitles/pieces.ts';
 import { curVp, innerLeft, syncTlMetrics, tlInner, tlScroll, tlStore } from './tlStore';
-import type { Clip, Seg } from '../types';
+import type { Seg } from '../types';
 
 /**
- * 视图窗口：完整片 = 0..duration，进切片后 = 切片的起止。
- * 时间数据（句子 t0/t1、播放头、peaks）一律是「原片绝对秒」，只有时间→像素和显示用的
- * 时间码按 t0 平移，所以存盘、ASS 生成、撤销栈都不用知道切片的存在。
+ * 视图窗口：完整片 = 0..duration，聚焦成片时 = 首段起点..末段终点。
+ * 时间数据（句子 t0/t1、播放头、peaks）一律是「原片绝对秒」，只有时间↔像素（xOf/tOf）和
+ * 显示用的时间码知道剪辑：聚焦时两者都走成片时间，删掉的部分宽度为 0，时间轴直接合拢。
+ * 存盘、ASS 生成、撤销栈都不用知道剪辑的存在。
  */
 interface ViewState {
   duration: number;
   /** 初值必须和 duration 对齐：给 0 的话 setDuration() 之前的 fitPps() 会算出天文数字 */
   t0: number;
   t1: number;
-  curClip: Clip | null;
-  clips: Clip[];
+  /** 视频轨片段（原片时间，有序）；null = 没剪过，整片就是一段 */
+  pieces: Piece[] | null;
+  /** 聚焦成片：时间轴合拢掉删掉的部分，时间码显示成片时间，播放时跳过删掉的部分 */
+  focus: boolean;
   pps: number;                       // 像素/秒
   blkWin: [number, number] | null;   // 已渲染的字幕块时间窗
 }
 
 export const viewStore = createStore<ViewState>({
-  duration: 60, t0: 0, t1: 60, curClip: null, clips: [], pps: 46, blkWin: null,
+  duration: 60, t0: 0, t1: 60, pieces: null, focus: false, pps: 46, blkWin: null,
 });
 
-export const viewDur = () => { const v = viewStore.get(); return Math.max(0.001, v.t1 - v.t0); };
-/** 绝对秒 → 时间轴像素 */
-export const xOf = (t: number) => { const v = viewStore.get(); return (t - v.t0) * v.pps; };
-/** 时间轴像素 → 绝对秒 */
-export const tOf = (x: number) => { const v = viewStore.get(); return x / v.pps + v.t0; };
-/** 面向用户的时间码（切片里从 00:00 起） */
-export const fmtView = (t: number) => fmt(t - viewStore.get().t0);
+/** 当前的片段；没剪过就是整片一段 */
+export const curPieces = (): Piece[] => {
+  const v = viewStore.get();
+  return v.pieces ?? [{ t0: 0, t1: v.duration }];
+};
+/** 聚焦成片生效中（剪过才有意义） */
+export const isFocused = () => { const v = viewStore.get(); return v.focus && !!v.pieces?.length; };
+
+/** 时间轴代表的时长（秒）：聚焦时是成片时长，决定 inner 宽度和全览缩放 */
+export const viewDur = () => {
+  const v = viewStore.get();
+  return Math.max(0.001, isFocused() ? piecesDuration(v.pieces!) : v.t1 - v.t0);
+};
+/** 绝对秒 → 时间轴像素。聚焦时按成片时间摆：删掉的部分里的点都压在拼接点上 */
+export const xOf = (t: number) => {
+  const v = viewStore.get();
+  return (isFocused() ? srcToOut(v.pieces!, t) : t - v.t0) * v.pps;
+};
+/** 时间轴像素 → 绝对秒。聚焦时落在拼接点上取后一段的起点 */
+export const tOf = (x: number) => {
+  const v = viewStore.get();
+  return isFocused() ? outToSrc(v.pieces!, x / v.pps) : x / v.pps + v.t0;
+};
+/** 原片 [a, b) 在时间轴上占多宽（跨过删掉的部分只算留下的） */
+export const wOf = (a: number, b: number) => xOf(b) - xOf(a);
+/**
+ * 拖动：把 anchor 这一点在时间轴上挪 dx 像素后，原片时间变了多少。完整片里就是 dx / pps；
+ * 聚焦成片时跨过拼接点会连删掉的部分一起跳过，拖过去的块不会掉进看不见的地方。
+ */
+export const dtAt = (anchor: number, dx: number) => tOf(xOf(anchor) + dx) - anchor;
+/** 原片时间 → 面向用户的时间：聚焦时是成片时间（跨过删掉的部分也连续），否则就是原片时间 */
+export const viewTime = (t: number) => isFocused() ? srcToOut(viewStore.get().pieces!, t) : t;
+/** 面向用户的时间码 */
+export const fmtView = (t: number) => fmt(viewTime(t));
+/** 面向用户的总时长：聚焦时是成片时长 */
+export const viewOutDur = viewDur;
 /** 鼠标视口坐标 → 绝对秒 */
 export const tAtClientX = (clientX: number) => tOf(clientX - innerLeft());
 
 /**
- * 视图内的句子在数组里必然是连续一段（同轨按 t0 有序、无重叠），所以切片模式不过滤数组、
+ * 视图内的句子在数组里必然是连续一段（同轨按 t0 有序、无重叠），所以聚焦时不过滤数组、
  * 只收窄下标区间——sel/selSet/撤销栈那套「下标即真实位置」的语义一个字都不用改。
  */
 export function viewRange(arr: Seg[]): [number, number] {
   const v = viewStore.get();
-  if (!v.curClip) return [0, arr.length];
+  if (v.t0 <= 0 && v.t1 >= v.duration) return [0, arr.length];
   let a = 0, b = arr.length;
   while (a < arr.length && arr[a].t1 <= v.t0) a++;
   while (b > a && arr[b - 1].t0 >= v.t1) b--;
@@ -50,14 +82,34 @@ export function viewRange(arr: Seg[]): [number, number] {
 }
 
 /**
+ * 聚焦成片时整句都落在删掉的部分里：成片里没有它，列表、句数、上下句、查找都跳过。
+ * 数据照留（切回完整片、恢复片段就又出来了），所以只是「不显示」，不改下标。
+ */
+export function isCutSeg(s: Seg): boolean {
+  if (!isFocused()) return false;
+  const p = viewStore.get().pieces!;
+  return srcToOut(p, s.t1) - srcToOut(p, s.t0) <= 1e-6;
+}
+
+/** 视图内、且没被整句剪掉的句子下标，按先后排好 */
+export function listedIdx(arr: Seg[]): number[] {
+  const [a, b] = viewRange(arr);
+  const out: number[] = [];
+  for (let i = a; i < b; i++) if (!isCutSeg(arr[i])) out.push(i);
+  return out;
+}
+
+/**
  * 时长会来两次（先按 peaks/末句估，视频 loadedmetadata 后才是真值），每次都要重新对齐
- * 视图窗口——切片也得按新时长钳一遍，否则出点可能落在片尾之外
+ * 视图窗口——聚焦时也得按新时长钳一遍，否则末段终点可能落在片尾之外。
+ * 片段变了、进出聚焦也走这里重算窗口。
  */
 export function setDuration(d: number) {
-  const { curClip } = viewStore.get();
-  if (curClip) {
-    const t1 = Math.min(curClip.t1, d);
-    viewStore.set({ duration: d, t1, t0: Math.max(0, Math.min(curClip.t0, t1 - MIN_DUR)) });
+  viewStore.set({ duration: d });
+  if (isFocused()) {
+    const p = viewStore.get().pieces!;
+    const t1 = Math.min(p[p.length - 1].t1, d);
+    viewStore.set({ t1, t0: Math.max(0, Math.min(p[0].t0, t1 - MIN_DUR)) });
   } else {
     viewStore.set({ duration: d, t0: 0, t1: d });
   }
@@ -142,32 +194,3 @@ export function ensureBlkWin(force = false) {
   }
   viewStore.set({ blkWin: visWin(vp) });
 }
-
-// ── 切片布局 ──────────────────────────────────────────────────────
-/**
- * 当前视图里要画哪些切片、各自摆第几层。切片可以互相嵌套，所以按时间贪心分层，
- * 重叠的往上摞。判重叠用时间而不是像素：像素随缩放变，层数会抖，标尺高度就一直在跳。
- */
-export function clipLayout() {
-  const { clips, t0, t1 } = viewStore.get();
-  // 标记是用来指「它在哪儿」的，铺满整个视图的条一点位置信息都没有，纯噪声。
-  // 当前进入的这个自己是这种情况；把它包在里面的上层切片也是——两者一并排除。
-  const coversView = (c: Clip) => c.t0 <= t0 + 1e-6 && c.t1 >= t1 - 1e-6;
-  const vis = clips
-    .filter(c => !coversView(c) && c.t1 > t0 && c.t0 < t1)
-    .sort((a, b) => a.t0 - b.t0 || a.t1 - b.t1);
-  const laneEnd: number[] = [];   // 各层当前的右端时间
-  const items = vis.map(c => {
-    let k = laneEnd.findIndex(end => end <= c.t0);
-    if (k < 0) { k = laneEnd.length; laneEnd.push(0); }
-    laneEnd[k] = c.t1;
-    return { c, lane: k };
-  });
-  return { items, lanes: laneEnd.length };
-}
-
-/** 标尺高度按切片层数算 */
-export const rulerH = () => {
-  const { lanes } = clipLayout();
-  return lanes ? RULER_BASE + lanes * CLIP_LANE_H : RULER_H0;
-};
