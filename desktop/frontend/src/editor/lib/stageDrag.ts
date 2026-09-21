@@ -4,6 +4,8 @@ import type { StylePatch } from '../../subtitles/styleEdit';
 import { getPlayRes, getStyleSheet } from '../ass';
 import { layoutStore } from '../store/layoutStore';
 import { playStore } from '../store/playStore';
+import { locateSeg } from '../store/docStore';
+import { select, setActiveTrack } from '../store/selectionStore';
 import { selectLane, stageStore } from '../store/stageStore';
 import type { Handle } from '../store/stageStore';
 import { pushHistory } from './history';
@@ -289,6 +291,28 @@ export function onStagePointerDown(event: React.PointerEvent, stage: HTMLElement
   return true;
 }
 
+/**
+ * 舞台上的双击：命中哪句就把它设成当前句，并在画面上就地打开改字框。
+ * 前面两次 pointerdown 已经选中了 lane（也起了拖，但没动就不进撤销栈），这里只管开框。
+ */
+export function onStageDoubleClick(event: React.MouseEvent, stage: HTMLElement): boolean {
+  if (playStore.get().playing) return false;
+  const sheet = getStyleSheet();
+  const rect = stage.getBoundingClientRect();
+  const point = toPlayRes(rect, rect.width / sheet.playRes.x, rect.height / sheet.playRes.y,
+    event.clientX, event.clientY);
+  const hit = hitTest(subtitleBoxesAt(), point.x, point.y);
+  if (!hit?.seg) return false;
+  const at = locateSeg(hit.seg);
+  if (!at) return false;
+  event.preventDefault();
+  setActiveTrack(at.ti, { silent: true });
+  select(at.i, { scroll: true });
+  selectLane({ trackId: hit.trackId, lang: hit.lang });
+  stageStore.set({ edit: { trackId: hit.trackId, lang: hit.lang, seg: hit.seg } });
+  return true;
+}
+
 // 连着按方向键算一步撤销：隔了这么久再按才重新落栈（换了选中同样重新落栈，
 // 时刻记在 stageStore 里，selectLane 会把它清零）
 const NUDGE_COALESCE_MS = 800;
@@ -300,7 +324,8 @@ export function nudgeSelection(dx: number, dy: number) {
   const box = boxForLane(lane);
   const sheet = getStyleSheet();
   const style = box && sheet.styleMap[box.styleName];
-  if (!box || !style) return;
+  // 空隙里没字、也不画框，不该被看不见地挪动
+  if (!box?.seg || !style) return;
   if (ignoresMarginV(style.align) && dy) {
     stageStore.set({ hint: "middle-v" });
     dy = 0;

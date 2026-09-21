@@ -19,13 +19,14 @@ import type { Rgba } from '../../../subtitles/color';
 
 const hasEyeDropper = typeof window !== "undefined" && "EyeDropper" in window;
 
-export function ColorField({ label, value, title, palette, onInput }: {
-  label: string;
+export function ColorField({ label, value, title, palette, disabled, onInput }: {
+  label?: string;
   /** ASS 原文，如 &H00FFF9FD */
   value: string;
   title?: string;
   /** 样式表里已经用过的颜色，点一下直接套用 */
   palette: string[];
+  disabled?: boolean;
   onInput(assColor: string): void;
 }) {
   const [open, setOpen] = useState(false);
@@ -33,13 +34,13 @@ export function ColorField({ label, value, title, palette, onInput }: {
   const colour = parseAssColor(value);
 
   return (
-    <span className="sp-color" title={title}>
-      <span className="sp-label">{label}</span>
-      <button type="button" ref={anchor} className="sp-swatch" aria-expanded={open}
+    <span className={"sp-color" + (disabled ? " off" : "")} title={title}>
+      {label && <span className="sp-label">{label}</span>}
+      <button type="button" ref={anchor} className="sp-swatch" aria-expanded={open} disabled={disabled}
         onClick={() => setOpen(value => !value)}>
         <i style={{ background: cssOf(colour) }} />
       </button>
-      {open && <ColorPopover anchor={anchor.current} colour={colour} palette={palette}
+      {open && !disabled && <ColorPopover anchor={anchor.current} colour={colour} palette={palette}
         onClose={() => setOpen(false)}
         onInput={next => onInput(formatAssColor(next))} />}
     </span>
@@ -74,6 +75,8 @@ function ColorPopover({ anchor, colour, palette, onInput, onClose }: {
   }, [anchor, onClose]);
 
   const rect = anchor?.getBoundingClientRect();
+  // 上面放不下（锚点靠近窗口顶部，比如侧栏上半截）就翻到下面
+  const below = !!rect && rect.top < 300 && window.innerHeight - rect.bottom > rect.top;
   const drag = (el: HTMLElement | null, event: React.PointerEvent, read: (x: number, y: number) => void) => {
     if (!el) return;
     event.preventDefault();
@@ -108,7 +111,9 @@ function ColorPopover({ anchor, colour, palette, onInput, onClose }: {
   return (
     <div className="cp-pop" ref={box} style={rect ? {
       left: Math.max(8, Math.min(rect.left, window.innerWidth - 236)) + "px",
-      bottom: (window.innerHeight - rect.top + 8) + "px",
+      ...(below
+        ? { top: (rect.bottom + 8) + "px" }
+        : { bottom: (window.innerHeight - rect.top + 8) + "px" }),
     } : undefined}
       onPointerDown={event => event.stopPropagation()}>
 

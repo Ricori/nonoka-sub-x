@@ -19,6 +19,7 @@
       --faint: #8b86a8;
       --accent: #9caef7;
       --accent-dim: rgba(156, 174, 247, .13);
+      --accent-border: rgba(156, 174, 247, .55);
       --on-accent: #1b2140;
       --ja: #7397e4;
       --zh: #60cbb5;
@@ -50,6 +51,7 @@
       --faint: #79738a;
       --accent: #6b4fd0;
       --accent-dim: rgba(107, 79, 208, .10);
+      --accent-border: rgba(107, 79, 208, .5);
       --on-accent: #fff;
       --ja: #4a63c4;
       --zh: #18796b;
@@ -584,11 +586,44 @@
       background: rgba(255, 255, 255, .09);
     }
 
-    /* 当前时刻这条轨没有字幕：画它将会落进的那条带，灰一点但照样能拖 */
-    .professional-editor .sel-box.ghost {
-      outline-style: dotted;
-      outline-color: var(--mut);
-      background: rgba(255, 255, 255, .02);
+    /* 双击画面字幕后的就地改字框 */
+    .professional-editor .stage-inline-edit {
+      position: absolute;
+      z-index: 2;
+      pointer-events: auto;
+      display: flex;
+      flex-direction: column;
+      align-items: stretch;
+      gap: 4px;
+    }
+
+    .professional-editor .stage-inline-edit textarea {
+      display: block;
+      width: 100%;
+      min-height: 1.6em;
+      max-height: 60vh;
+      padding: 4px 8px;
+      overflow-y: auto;
+      resize: none;
+      border: 1px solid var(--accent);
+      border-radius: 4px;
+      outline: none;
+      background: rgba(10, 11, 16, .82);
+      box-shadow: 0 0 0 3px var(--accent-dim), 0 8px 24px rgba(0, 0, 0, .45);
+      color: #fff;
+      font-family: var(--font-ui);
+      line-height: 1.35;
+      text-align: center;
+    }
+
+    .professional-editor .stage-inline-tip {
+      align-self: center;
+      padding: 2px 8px;
+      border-radius: 3px;
+      background: rgba(10, 11, 16, .7);
+      color: rgba(255, 255, 255, .7);
+      font-size: 10.5px;
+      white-space: nowrap;
     }
 
     .professional-editor .sel-tag {
@@ -1838,77 +1873,55 @@
       color: var(--text);
     }
 
-    /* ── 右栏 ─────────────────────────────── */
+    /* ── 右栏 ───────────────────────────────
+       版式照 CapCut 的属性面板：扁平的分节，左列标签、右列控件，
+       输入框一律「填充底色、无描边，聚焦才亮边」。 */
     .professional-editor .side {
+      --sd-field: color-mix(in srgb, var(--text) 6%, var(--panel));
+      --sd-field-hover: color-mix(in srgb, var(--text) 10%, var(--panel));
+      --sd-label-w: 64px;
       grid-row: 1;
       grid-column: 2;
       display: grid;
-      grid-template-rows: auto auto minmax(0, 1fr);
+      grid-template-rows: auto minmax(0, 1fr);
       min-height: 0;
       min-width: 0;
       background: var(--panel);
+      font-size: 12px;
     }
 
     .professional-editor .side-tabs {
-      display: grid;
-      grid-template-columns: repeat(4, minmax(0, 1fr));
-      border-bottom: 1px solid var(--line);
+      display: flex;
+      gap: 2px;
+      padding: 0 8px;
+      border-bottom: 1px solid var(--line-soft);
       background: var(--panel);
     }
 
     .professional-editor .side-tabs button {
       position: relative;
       min-width: 0;
-      padding: 11px 4px 10px;
+      padding: 11px 10px 10px;
       border: 0;
       color: var(--mut);
       font: inherit;
-      font-size: 12px;
+      font-size: 12.5px;
       background: transparent;
       cursor: pointer;
     }
 
     .professional-editor .side-tabs button:hover { color: var(--text); }
-
-    .professional-editor .side-tabs button.on {
-      color: var(--accent);
-      font-weight: 600;
-    }
+    .professional-editor .side-tabs button.on { color: var(--accent); font-weight: 600; }
 
     .professional-editor .side-tabs button.on::after {
       content: "";
       position: absolute;
-      left: 22%;
-      right: 22%;
+      left: 10px;
+      right: 10px;
       bottom: -1px;
       height: 2px;
       border-radius: 2px 2px 0 0;
       background: var(--accent);
-    }
-
-    .professional-editor .side-scope {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      min-width: 0;
-      padding: 7px 14px;
-      border-bottom: 1px solid var(--line-soft);
-      background: var(--raised);
-      color: var(--text);
-      font-size: 11.5px;
-    }
-
-    .professional-editor .side-scope > span {
-      min-width: 0;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
-
-    .professional-editor .side-scope small {
-      margin-left: auto;
-      color: var(--faint);
-      white-space: nowrap;
     }
 
     .professional-editor .side-content {
@@ -1917,15 +1930,18 @@
       overflow: hidden;
     }
 
-    .professional-editor .side-subtitle-panel {
+    .professional-editor .side-page {
       display: grid;
       grid-template-rows: auto minmax(0, 1fr);
       height: 100%;
       min-height: 0;
     }
 
+    .professional-editor .side-subtitle-page {
+      grid-template-rows: auto auto auto minmax(0, 1fr);
+    }
+
     .professional-editor .side-panel {
-      height: 100%;
       min-width: 0;
       min-height: 0;
       overflow-y: auto;
@@ -1933,346 +1949,127 @@
       scrollbar-color: color-mix(in srgb, var(--text) 26%, transparent) transparent;
     }
 
-    .professional-editor .side-section {
-      padding: 13px 14px;
-      border-bottom: 1px solid var(--line-soft);
-    }
+    .professional-editor .side-page > .side-panel:only-child { grid-row: 1 / -1; }
 
-    .professional-editor .side-section-title {
-      display: block;
-      margin-bottom: 8px;
-      color: var(--faint);
-      font-size: 10px;
-      letter-spacing: .12em;
-      text-transform: uppercase;
-    }
-
-    .professional-editor .side-field {
+    /* 每页顶部的工具行：轨道切换 / 范围 + 右侧小按钮 */
+    .professional-editor .side-head {
       display: flex;
-      flex-direction: column;
-      gap: 5px;
-      color: var(--faint);
-      font-size: 11px;
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+      padding: 10px 12px;
     }
 
-    .professional-editor .side-field + .side-field { margin-top: 10px; }
-
-    .professional-editor .side-field > input,
-    .professional-editor .side-field > select {
-      width: 100%;
-      min-width: 0;
-      padding: 6px 8px;
-      border: 1px solid var(--line);
-      border-radius: 4px;
-      outline: none;
-      background: var(--raised);
-      color: var(--text);
-      font: inherit;
+    .professional-editor .side-head-label {
+      flex: none;
+      color: var(--faint);
       font-size: 12px;
     }
 
-    .professional-editor .side-field > input:focus,
-    .professional-editor .side-field > select:focus { border-color: var(--faint); }
-
-    .professional-editor .side-wide-button {
-      width: 100%;
-      margin-top: 10px;
-      justify-content: center;
-    }
-
-    .professional-editor .side-switch {
-      display: inline-flex;
+    .professional-editor .side-head-meta {
+      flex: none;
+      display: flex;
       align-items: center;
-      gap: 5px;
-      color: var(--mut);
-      font-size: 11px;
-      font-weight: 400;
+      gap: 6px;
+      margin-left: auto;
+      color: var(--faint);
+      font-size: 11.5px;
+      font-variant-numeric: tabular-nums;
       white-space: nowrap;
     }
 
-    .professional-editor .side-switch input { accent-color: var(--accent); }
 
-    .professional-editor .side-lane-heading,
-    .professional-editor .side-effect-heading {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 8px;
-      margin-bottom: 10px;
-    }
-
-    .professional-editor .side-lane-heading strong,
-    .professional-editor .side-effect-heading strong {
-      font-size: 12px;
-      font-weight: 600;
-    }
-
-    /* 样式面板：沿用原属性控件，但改成适合窄侧栏的换行布局。 */
-    .professional-editor .side-style-target {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 10px;
-      padding: 12px 14px;
-      border-bottom: 1px solid var(--line-soft);
-      color: var(--faint);
-      font-size: 11px;
-    }
-
-    .professional-editor .side-segmented {
-      display: inline-flex;
-      overflow: hidden;
-      border: 1px solid var(--line);
-      border-radius: 4px;
-    }
-
-    .professional-editor .side-segmented button {
-      padding: 4px 9px;
-      border: 0;
-      border-left: 1px solid var(--line);
-      background: transparent;
-      color: var(--mut);
-      font: inherit;
-      font-size: 11px;
-      cursor: pointer;
-    }
-
-    .professional-editor .side-segmented button:first-child { border-left: 0; }
-    .professional-editor .side-segmented button.on { background: var(--accent-dim); color: var(--accent); }
-
-    .professional-editor .side-style-panel .style-bar {
-      border: 0;
-      border-radius: 0;
-      background: transparent;
-      padding: 13px 14px 18px;
-      gap: 12px;
-    }
-
-    .professional-editor .side-style-panel .sb-row,
-    .professional-editor .side-style-panel .sb-row.wrap {
-      flex-wrap: wrap;
-      overflow: visible;
-      gap: 10px;
-    }
-
-    .professional-editor .side-style-panel .sb-name {
-      max-width: 100%;
-    }
-
-    .professional-editor .side-style-panel .sb-sep {
-      flex-basis: 100%;
-      width: 100%;
-      height: 1px;
-      align-self: auto;
-    }
-
-    .professional-editor .side-style-panel .sb-spacer { display: none; }
-    .professional-editor .side-style-panel .sb-font { flex: 1 1 160px; }
-    .professional-editor .side-style-panel .sb-note { align-items: flex-start; flex-wrap: wrap; }
-    .professional-editor .side-style-panel .sb-meta { flex-basis: 100%; }
-
-    /* 特效面板 */
-    .professional-editor .side-template-list {
-      display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 6px;
-    }
-
-    .professional-editor .side-template-list button {
+    .professional-editor .side-track-select.custom-select.compact {
+      flex: 1 1 auto;
       min-width: 0;
-      padding: 8px;
-      border: 1px solid var(--line);
-      border-radius: 4px;
-      background: transparent;
+      max-width: 220px;
+    }
+
+    .professional-editor .side-head .side-track-select .custom-select-trigger,
+    .professional-editor .sd-select .custom-select-trigger {
+      min-height: 30px;
+      height: 30px;
+      padding: 0 8px 0 10px;
+      border: 1px solid transparent;
+      border-radius: 5px;
+      background: var(--sd-field);
       color: var(--text);
-      text-align: left;
+      font-size: 12px;
+      box-shadow: none;
+    }
+
+    .professional-editor .side-head .side-track-select .custom-select-trigger:hover,
+    .professional-editor .sd-select .custom-select-trigger:hover:not(:disabled) {
+      border-color: transparent;
+      background: var(--sd-field-hover);
+    }
+
+    .professional-editor .side-track-select.open .custom-select-trigger,
+    .professional-editor .sd-select.open .custom-select-trigger,
+    .professional-editor .sd-select .custom-select-trigger:focus-visible {
+      border-color: var(--accent);
+      box-shadow: none;
+    }
+
+    .professional-editor .sd-select.bad .custom-select-value { color: var(--warn); }
+
+    .professional-editor .side-icon-btn {
+      flex: none;
+      display: grid;
+      place-items: center;
+      width: 28px;
+      height: 28px;
+      padding: 0;
+      border: 0;
+      border-radius: 5px;
+      background: transparent;
+      color: var(--mut);
       cursor: pointer;
     }
 
-    .professional-editor .side-template-list button.on {
-      border-color: var(--accent);
-      background: var(--accent-dim);
+    .professional-editor .side-icon-btn:hover { background: var(--sd-field); color: var(--text); }
+    .professional-editor .side-icon-btn.on { background: var(--accent-dim); color: var(--accent); }
+
+    .professional-editor .side-icon-btn svg,
+    .professional-editor .side-text-btn svg,
+    .professional-editor .trk-eye svg,
+    .professional-editor .sd-align svg,
+    .professional-editor .sd-section-title svg {
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 1.4;
+      stroke-linecap: round;
+      stroke-linejoin: round;
     }
 
-    .professional-editor .side-template-list button span,
-    .professional-editor .side-template-list button small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .professional-editor .side-template-list button small { margin-top: 2px; color: var(--faint); font-size: 10px; }
-    .professional-editor .side-effect-settings > p { margin: -3px 0 12px; color: var(--mut); font-size: 11px; line-height: 1.5; }
-    .professional-editor .side-param-list { display: flex; flex-direction: column; gap: 10px; }
-    .professional-editor .side-number-field,
-    .professional-editor .side-color-field { display: flex; align-items: center; gap: 7px; }
-    .professional-editor .side-number-field input { width: 90px; padding: 5px 7px; border: 1px solid var(--line); border-radius: 4px; background: var(--raised); color: var(--text); }
-    .professional-editor .side-number-field i { color: var(--faint); font-style: normal; }
-    .professional-editor .side-color-field > input { width: 42px; height: 28px; padding: 2px; border: 1px solid var(--line); border-radius: 4px; background: var(--raised); }
-    .professional-editor .side-color-field label { display: flex; align-items: center; gap: 4px; color: var(--mut); }
+    .professional-editor .side-icon-btn svg { width: 16px; height: 16px; }
 
-    .professional-editor .inspector {
-      border-bottom: 1px solid var(--line);
-      padding: 12px 14px 14px;
-      display: flex;
-      flex-direction: column;
-      gap: 10px;
-    }
-
-    .professional-editor .insp-head {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-
-    .professional-editor .insp-head .label {
-      font-size: 10px;
-      letter-spacing: .16em;
-      text-transform: uppercase;
-      color: var(--faint);
-    }
-
-    .professional-editor .insp-head .idx {
-      font-family: var(--font-mono);
-      font-size: 11px;
-      background: var(--accent-dim);
-      color: var(--accent);
-      border-radius: 3px;
-      padding: 2px 7px;
-    }
-
-    .professional-editor .insp-head .spacer {
-      flex: 1;
-    }
-
-    .professional-editor .insp-head .dur {
-      font-family: var(--font-mono);
-      font-size: 11px;
-      color: var(--mut);
-      font-variant-numeric: tabular-nums;
-    }
-
-    .professional-editor .tc-row {
-      display: flex;
-      gap: 8px;
-    }
-
-    .professional-editor .tc-field {
-      flex: 1;
-      display: flex;
-      flex-direction: column;
-      gap: 4px;
-    }
-
-    .professional-editor .tc-field label {
-      font-size: 10px;
-      letter-spacing: .12em;
-      color: var(--faint);
-      text-transform: uppercase;
-    }
-
-    .professional-editor .tc-ctrl {
-      display: flex;
-      align-items: stretch;
-      background: var(--raised);
-      border: 1px solid var(--line);
-      border-radius: 4px;
-      overflow: hidden;
-    }
-
-    .professional-editor .tc-ctrl .val {
-      flex: 1;
-      display: flex;
+    /* 文字按钮：填充底、无描边 */
+    .professional-editor .side-text-btn {
+      display: inline-flex;
       align-items: center;
       justify-content: center;
-      font-family: var(--font-mono);
-      font-size: 12.5px;
-      font-variant-numeric: tabular-nums;
-      padding: 5px 0;
-    }
-
-    .professional-editor .tc-ctrl button {
-      width: 24px;
-      color: var(--faint);
-      font-size: 13px;
-      border-left: 1px solid var(--line-soft);
-      border-right: 1px solid var(--line-soft);
-    }
-
-    .professional-editor .tc-ctrl button:first-child {
-      border-left: none;
-    }
-
-    .professional-editor .tc-ctrl button:last-child {
-      border-right: none;
-    }
-
-    .professional-editor .tc-ctrl button:hover {
-      color: var(--accent);
-      background: color-mix(in srgb, var(--accent) 7%, transparent);
-    }
-
-    .professional-editor .textfield {
-      display: flex;
-      flex-direction: column;
-      gap: 4px;
-    }
-
-    .professional-editor .textfield label {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      font-size: 10px;
-      letter-spacing: .12em;
-      color: var(--faint);
-      text-transform: uppercase;
-    }
-
-    .professional-editor .textfield label i {
-      width: 8px;
-      height: 8px;
-      border-radius: 2px;
-      display: inline-block;
-    }
-
-    .professional-editor .textfield.lang-ja label i {
-      background: var(--ja);
-    }
-
-    .professional-editor .textfield.lang-zh label i {
-      background: var(--zh);
-    }
-
-    .professional-editor .textfield textarea {
-      resize: none;
-      background: var(--raised);
-      border: 1px solid var(--line);
-      border-radius: 4px;
+      gap: 5px;
+      height: 28px;
+      padding: 0 10px;
+      border: 0;
+      border-radius: 5px;
+      background: var(--sd-field);
       color: var(--text);
-      font-family: var(--font-ui);
-      font-size: 13.5px;
-      line-height: 1.5;
-      padding: 7px 9px;
-      height: 57px;
-      overflow-y: auto;
-      scrollbar-width: thin;
-      scrollbar-color: color-mix(in srgb, var(--text) 26%, transparent) transparent;
-    }
-
-    .professional-editor .textfield.lang-ja textarea,
-    .professional-editor .row .ja {
-      font-family: var(--font-ja);
-    }
-
-    .professional-editor .textfield textarea:focus {
-      border-color: var(--faint);
-      outline: none;
-    }
-
-    .professional-editor .insp-actions {
-      display: flex;
-      gap: 8px;
-      flex-wrap: wrap;
-    }
-
-    .professional-editor .insp-actions .btn {
+      font: inherit;
       font-size: 12px;
-      padding: 4px 10px;
+      white-space: nowrap;
+      cursor: pointer;
+    }
+
+    .professional-editor .side-text-btn:hover:not(:disabled) { background: var(--sd-field-hover); }
+    .professional-editor .side-text-btn:disabled { opacity: .45; cursor: default; }
+    .professional-editor .side-text-btn svg { width: 14px; height: 14px; }
+    .professional-editor .side-text-btn.wide { width: 100%; }
+    .professional-editor .side-text-btn.danger { color: var(--warn); }
+
+    .professional-editor .side-text-btn.danger:hover:not(:disabled) {
+      background: color-mix(in srgb, var(--warn) 14%, transparent);
     }
 
     .professional-editor .btn.danger {
@@ -2285,71 +2082,635 @@
       background: color-mix(in srgb, var(--warn) 10%, transparent);
     }
 
-    /* 字幕列表 */
-    .professional-editor .seg-list {
+    .professional-editor .side-empty {
+      padding: 36px 20px;
+      color: var(--faint);
+      text-align: center;
+      line-height: 1.6;
+    }
+
+    .professional-editor .side-empty.small { padding: 10px 0 2px; font-size: 11.5px; }
+
+    /* ── 分节 ── */
+    .professional-editor .sd-section {
+      padding: 12px 12px 14px;
+      border-top: 1px solid var(--line-soft);
+    }
+
+    .professional-editor .sd-section:first-child { border-top: 0; }
+    .professional-editor .sd-section.closed { padding-bottom: 12px; }
+
+    .professional-editor .sd-section-head {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-height: 22px;
+    }
+
+    .professional-editor .sd-section-title {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 0;
+      border: 0;
+      background: none;
+      color: var(--text);
+      font: inherit;
+      font-size: 12.5px;
+      font-weight: 600;
+    }
+
+    .professional-editor button.sd-section-title { cursor: pointer; }
+    .professional-editor button.sd-section-title:hover { color: var(--accent); }
+
+    .professional-editor .sd-section-title svg {
+      width: 12px;
+      height: 12px;
+      margin-left: -2px;
+      stroke-width: 1.8;
+      transition: rotate .14s ease;
+    }
+
+    .professional-editor .sd-section-title[aria-expanded="true"] svg { rotate: 90deg; }
+
+    .professional-editor .sd-section-extra {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      margin-left: auto;
+    }
+
+    .professional-editor .sd-section-body {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      margin-top: 12px;
+    }
+
+    .professional-editor .sd-desc {
+      margin: 0;
+      color: var(--mut);
+      font-size: 11.5px;
+      line-height: 1.6;
+    }
+
+    /* 「标签 · 控件」一行 */
+    .professional-editor .sd-prop {
+      display: grid;
+      grid-template-columns: var(--sd-label-w) minmax(0, 1fr);
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+    }
+
+    .professional-editor .sd-prop.off { opacity: .45; }
+
+    .professional-editor .sd-label {
+      min-width: 0;
+      overflow: hidden;
+      color: var(--mut);
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .professional-editor .sd-control {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+    }
+
+    .professional-editor .sd-inline { display: flex; align-items: center; gap: 12px; }
+
+    .professional-editor .sd-follow {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      color: var(--mut);
+      cursor: pointer;
+    }
+
+    .professional-editor .sd-input,
+    .professional-editor .sd-num input {
+      width: 100%;
+      min-width: 0;
+      height: 28px;
+      padding: 0 8px;
+      border: 1px solid transparent;
+      border-radius: 5px;
+      outline: none;
+      background: var(--sd-field);
+      color: var(--text);
+      font: inherit;
+      font-size: 12px;
+    }
+
+    .professional-editor .sd-input:hover,
+    .professional-editor .sd-num input:hover:not(:disabled) { background: var(--sd-field-hover); }
+
+    .professional-editor .sd-input:focus,
+    .professional-editor .sd-num input:focus { border-color: var(--accent); }
+
+    /* 滑杆行：标签 | 滑杆 | 数字框 */
+    .professional-editor .sd-slider {
+      grid-template-columns: var(--sd-label-w) minmax(0, 1fr) 66px;
+    }
+
+    .professional-editor .sd-num {
+      position: relative;
+      display: flex;
+      align-items: center;
+    }
+
+    .professional-editor .sd-num input {
+      padding-right: 22px;
+      font-variant-numeric: tabular-nums;
+      -moz-appearance: textfield;
+      appearance: textfield;
+    }
+
+    .professional-editor .sd-num input::-webkit-inner-spin-button,
+    .professional-editor .sd-num input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+
+    .professional-editor .sd-num i {
+      position: absolute;
+      right: 7px;
+      color: var(--faint);
+      font-size: 10.5px;
+      font-style: normal;
+      pointer-events: none;
+    }
+
+    .professional-editor .sd-slider input[type="range"] {
+      --fill: 0%;
+      width: 100%;
+      height: 16px;
+      margin: 0;
+      background: transparent;
+      cursor: pointer;
+      -webkit-appearance: none;
+      appearance: none;
+    }
+
+    .professional-editor .sd-slider input[type="range"]:disabled { cursor: default; }
+
+    .professional-editor .sd-slider input[type="range"]::-webkit-slider-runnable-track {
+      height: 3px;
+      border-radius: 2px;
+      background: linear-gradient(to right, var(--text) var(--fill), color-mix(in srgb, var(--text) 18%, transparent) var(--fill));
+    }
+
+    .professional-editor .sd-slider input[type="range"]::-webkit-slider-thumb {
+      width: 12px;
+      height: 12px;
+      margin-top: -4.5px;
+      border: 0;
+      border-radius: 50%;
+      background: var(--text);
+      box-shadow: 0 1px 3px rgba(0, 0, 0, .4);
+      -webkit-appearance: none;
+      transition: transform .1s ease;
+    }
+
+    .professional-editor .sd-slider input[type="range"]:hover::-webkit-slider-thumb { transform: scale(1.2); }
+
+    .professional-editor .sd-slider input[type="range"]::-moz-range-track {
+      height: 3px;
+      border-radius: 2px;
+      background: linear-gradient(to right, var(--text) var(--fill), color-mix(in srgb, var(--text) 18%, transparent) var(--fill));
+    }
+
+    .professional-editor .sd-slider input[type="range"]::-moz-range-thumb {
+      width: 12px;
+      height: 12px;
+      border: 0;
+      border-radius: 50%;
+      background: var(--text);
+    }
+
+    /* 开关 */
+    .professional-editor .sd-switch {
+      position: relative;
+      flex: none;
+      width: 30px;
+      height: 16px;
+      padding: 0;
+      border: 0;
+      border-radius: 8px;
+      background: color-mix(in srgb, var(--text) 22%, transparent);
+      cursor: pointer;
+      transition: background .15s ease;
+    }
+
+    .professional-editor .sd-switch i {
+      position: absolute;
+      top: 2px;
+      left: 2px;
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      background: #fff;
+      box-shadow: 0 1px 2px rgba(0, 0, 0, .3);
+      transition: transform .15s ease;
+    }
+
+    .professional-editor .sd-switch.on { background: var(--accent); }
+    .professional-editor .sd-switch.on i { transform: translateX(14px); }
+    .professional-editor .sd-switch:disabled { opacity: .45; cursor: default; }
+
+    /* 分段按钮、B/I/U/S、对齐 */
+    .professional-editor .side .sp-seg-wrap { flex: none; }
+
+    .professional-editor .side .sp-seg {
+      gap: 2px;
+      padding: 2px;
+      border: 0;
+      border-radius: 5px;
+      background: var(--sd-field);
+    }
+
+    .professional-editor .side .sp-seg button {
+      display: grid;
+      place-items: center;
+      min-width: 28px;
+      height: 24px;
+      padding: 0 9px;
+      border-radius: 4px;
+      font-size: 12px;
+    }
+
+    .professional-editor .side .sp-seg button:hover:not(.on) { color: var(--text); }
+
+    .professional-editor .side .sp-seg button.on {
+      background: color-mix(in srgb, var(--text) 16%, var(--panel));
+      color: var(--text);
+    }
+
+    .professional-editor .sd-align { display: flex; flex-wrap: wrap; gap: 6px; }
+    .professional-editor .sd-align .sp-seg button { padding: 0 6px; }
+    .professional-editor .sd-align svg { width: 15px; height: 15px; }
+
+    .professional-editor .sd-chips { display: flex; gap: 6px; }
+
+    .professional-editor .side .sp-chip {
+      width: 28px;
+      height: 26px;
+      border: 0;
+      border-radius: 5px;
+      background: var(--sd-field);
+      color: var(--mut);
+      font-size: 13px;
+    }
+
+    .professional-editor .side .sp-chip:hover:not(.on) { background: var(--sd-field-hover); color: var(--text); }
+    .professional-editor .side .sd-chips .sp-chip:nth-child(1) { font-weight: 700; }
+    .professional-editor .side .sd-chips .sp-chip:nth-child(2) { font-style: italic; font-family: Georgia, serif; }
+    .professional-editor .side .sd-chips .sp-chip:nth-child(3) { text-decoration: underline; }
+    .professional-editor .side .sd-chips .sp-chip:nth-child(4) { text-decoration: line-through; }
+
+    .professional-editor .side .sp-chip.on {
+      background: var(--accent-dim);
+      color: var(--accent);
+      box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 55%, transparent);
+    }
+
+    /* 颜色块：CapCut 那种宽色条 */
+    .professional-editor .side .sp-color.off { opacity: .4; }
+
+    .professional-editor .side .sp-swatch {
+      width: 64px;
+      height: 24px;
+      padding: 2px;
+      border: 0;
+      border-radius: 5px;
+      background-color: var(--sd-field);
+    }
+
+    .professional-editor .side .sp-swatch:disabled { cursor: default; }
+    .professional-editor .side .sp-swatch i { border-radius: 3px; box-shadow: inset 0 0 0 1px rgba(128, 128, 128, .35); }
+
+    /* ── 样式页 ── */
+    .professional-editor .side .style-bar {
+      display: block;
+      padding: 0;
+      border: 0;
+      border-radius: 0;
+      background: transparent;
+    }
+
+    .professional-editor .side .side-segmented {
+      flex: none;
+      display: inline-flex;
+      gap: 2px;
+      margin-left: auto;
+      padding: 2px;
+      border-radius: 5px;
+      background: var(--sd-field);
+    }
+
+    .professional-editor .side .side-segmented button {
+      height: 24px;
+      padding: 0 12px;
+      border: 0;
+      border-radius: 4px;
+      background: transparent;
+      color: var(--mut);
+      font: inherit;
+      font-size: 12px;
+      cursor: pointer;
+    }
+
+    .professional-editor .side .side-segmented button.on {
+      background: color-mix(in srgb, var(--text) 16%, var(--panel));
+      color: var(--text);
+    }
+
+    .professional-editor .sd-style-head {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 0 12px 12px;
+      min-width: 0;
+    }
+
+    .professional-editor .side .sb-name {
+      flex: 1 1 auto;
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+      min-width: 0;
+      max-width: none;
+      padding: 0;
+      border: 0;
+      color: var(--faint);
+      font-weight: 400;
+    }
+
+    .professional-editor .side .sb-name b {
+      overflow: hidden;
+      color: var(--text);
+      font-weight: 600;
+      text-overflow: ellipsis;
+    }
+
+    .professional-editor .side .sb-name.warn em { color: var(--warn); }
+    .professional-editor .side .sb-name em { font-style: normal; font-size: 11px; }
+
+    .professional-editor .side .sb-note {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 8px;
+      margin: 0 12px 12px;
+      padding: 9px 10px;
+      border-radius: 6px;
+      background: color-mix(in srgb, var(--warn) 10%, transparent);
+      color: var(--warn);
+      font-size: 11.5px;
+      line-height: 1.5;
+    }
+
+    .professional-editor .sd-foot {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 12px;
+      border-top: 1px solid var(--line-soft);
+    }
+
+    .professional-editor .sd-foot .side-text-btn:last-child { margin-left: auto; }
+    .professional-editor .sd-foot .side-text-btn.wide { margin-left: 0; }
+
+    /* ── 特效页 ── */
+    .professional-editor .fx-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
+      gap: 10px;
+    }
+
+    .professional-editor .fx-card {
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      min-width: 0;
+      padding: 0;
+      border: 0;
+      background: none;
+      color: var(--mut);
+      font: inherit;
+      font-size: 11.5px;
+      text-align: center;
+      cursor: pointer;
+    }
+
+    .professional-editor .fx-thumb {
+      position: relative;
+      display: grid;
+      place-items: center;
+      aspect-ratio: 1;
+      overflow: hidden;
+      border-radius: 6px;
+      background: radial-gradient(circle at 50% 40%, color-mix(in srgb, var(--accent) 22%, var(--sd-field)), var(--sd-field) 70%);
+      box-shadow: inset 0 0 0 1px var(--line-soft);
+      transition: box-shadow .12s ease;
+    }
+
+    .professional-editor .fx-thumb b {
+      color: #fff;
+      font-size: 22px;
+      font-weight: 800;
+      text-shadow: 0 0 1px #000, 0 1px 0 #000, 0 -1px 0 #000, 1px 0 0 #000, -1px 0 0 #000;
+    }
+
+    .professional-editor .fx-thumb i {
+      position: absolute;
+      width: 5px;
+      height: 5px;
+      border-radius: 1px;
+      background: var(--accent);
+      opacity: 0;
+      rotate: 45deg;
+    }
+
+    .professional-editor .fx-thumb-fade b {
+      -webkit-mask-image: linear-gradient(to right, #000 20%, transparent 95%);
+      mask-image: linear-gradient(to right, #000 20%, transparent 95%);
+    }
+
+    .professional-editor .fx-thumb-character-particle i,
+    .professional-editor .fx-thumb-karaoke-particle i { opacity: .9; }
+    .professional-editor .fx-thumb i:nth-of-type(1) { top: 22%; left: 20%; }
+    .professional-editor .fx-thumb i:nth-of-type(2) { top: 28%; right: 18%; width: 4px; height: 4px; }
+    .professional-editor .fx-thumb i:nth-of-type(3) { bottom: 22%; left: 58%; width: 3px; height: 3px; }
+    .professional-editor .fx-thumb-karaoke-particle b { background: linear-gradient(to right, var(--accent) 55%, #fff 55%); -webkit-background-clip: text; background-clip: text; color: transparent; text-shadow: none; -webkit-text-stroke: 1px #000; }
+
+    .professional-editor .fx-card:hover .fx-thumb { box-shadow: inset 0 0 0 1px var(--faint); }
+    .professional-editor .fx-card.on { color: var(--text); }
+    .professional-editor .fx-card.on .fx-thumb { box-shadow: inset 0 0 0 2px var(--accent); }
+
+    .professional-editor .fx-card-name {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .professional-editor .fx-card-badge,
+    .professional-editor .fx-card-count {
+      position: absolute;
+      top: 5px;
+      right: 5px;
+      display: grid;
+      place-items: center;
+      min-width: 16px;
+      height: 16px;
+      padding: 0 4px;
+      border-radius: 8px;
+      font-size: 10px;
+      font-weight: 700;
+      line-height: 1;
+    }
+
+    .professional-editor .fx-card-badge { background: var(--accent); color: var(--on-accent); }
+    .professional-editor .fx-card-count { background: color-mix(in srgb, var(--text) 25%, var(--panel)); color: var(--text); }
+
+    /* ── 轨道页 ── */
+    .professional-editor .trk-list {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .professional-editor .trk-item {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      min-width: 0;
+      height: 36px;
+      padding: 0 6px 0 12px;
+      border-radius: 6px;
+      background: var(--sd-field);
+      box-shadow: inset 0 0 0 1px transparent;
+      cursor: pointer;
+    }
+
+    .professional-editor .trk-item:hover { background: var(--sd-field-hover); }
+
+    .professional-editor .trk-item.on {
+      background: var(--accent-dim);
+      box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 55%, transparent);
+    }
+
+    .professional-editor .trk-name {
+      flex: 1 1 auto;
+      min-width: 0;
+      overflow: hidden;
+      color: var(--text);
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .professional-editor .trk-item.on .trk-name { font-weight: 600; }
+
+    .professional-editor .trk-count {
+      flex: none;
+      margin-right: 4px;
+      color: var(--faint);
+      font-size: 11px;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .professional-editor .trk-eye {
+      flex: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+      height: 24px;
+      padding: 0 6px;
+      border: 0;
+      border-radius: 4px;
+      background: transparent;
+      font: inherit;
+      font-size: 11px;
+      cursor: pointer;
+    }
+
+    .professional-editor .trk-eye svg { width: 14px; height: 14px; }
+    .professional-editor .trk-eye.lang-ja { color: var(--ja); }
+    .professional-editor .trk-eye.lang-zh { color: var(--zh); }
+    .professional-editor .trk-eye.off { color: var(--faint); opacity: .7; }
+    .professional-editor .trk-eye:hover { background: color-mix(in srgb, var(--text) 10%, transparent); }
+
+    /* ── 字幕页：当前句编辑 ── */
+    .professional-editor .inspector {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      padding: 2px 12px 12px;
+      border-bottom: 1px solid var(--line-soft);
+    }
+
+    .professional-editor .textfield {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+    }
+
+    .professional-editor .textfield label {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      color: var(--mut);
+      font-size: 11.5px;
+    }
+
+    .professional-editor .textfield label i {
+      display: inline-block;
+      width: 3px;
+      height: 11px;
+      border-radius: 2px;
+    }
+
+    .professional-editor .textfield.lang-ja label i { background: var(--ja); }
+    .professional-editor .textfield.lang-zh label i { background: var(--zh); }
+
+    .professional-editor .textfield textarea {
+      height: 58px;
+      padding: 7px 9px;
       overflow-y: auto;
+      resize: none;
+      border: 1px solid transparent;
+      border-radius: 6px;
+      outline: none;
+      background: var(--sd-field);
+      color: var(--text);
+      font-family: var(--font-ui);
+      font-size: 13px;
+      line-height: 1.5;
       scrollbar-width: thin;
       scrollbar-color: color-mix(in srgb, var(--text) 26%, transparent) transparent;
     }
 
-    .professional-editor .list-top {
-      position: sticky;
-      top: 0;
-      z-index: 2;
-      background: var(--panel);
+    .professional-editor .textfield textarea:hover { background: var(--sd-field-hover); }
+    .professional-editor .textfield textarea:focus { border-color: var(--accent); background: var(--sd-field); }
+
+    .professional-editor .textfield.lang-ja textarea,
+    .professional-editor .row .ja {
+      font-family: var(--font-ja);
     }
 
-    .professional-editor .list-head {
+    .professional-editor .insp-actions {
       display: flex;
-      align-items: center;
       gap: 8px;
-      padding: 8px 14px;
-      background: var(--panel);
-      border-bottom: 1px solid var(--line-soft);
-      font-size: 10px;
-      letter-spacing: .16em;
-      text-transform: uppercase;
-      color: var(--faint);
     }
 
-    .professional-editor .list-head .count {
-      margin-left: auto;
-      font-family: var(--font-mono);
-      letter-spacing: 0;
-    }
+    .professional-editor .insp-actions .side-text-btn { flex: 1 1 0; }
 
-    /* 列表头轨道切换器 */
-    .professional-editor .list-head select {
-      background: var(--raised);
-      border: 1px solid var(--line);
-      color: var(--text);
-      font: inherit;
-      font-size: 11px;
-      border-radius: 4px;
-      padding: 2px 6px;
-      max-width: 58%;
-    }
-
-    .professional-editor .find-toggle {
-      background: none;
-      border: 1px solid transparent;
-      border-radius: 4px;
-      color: var(--faint);
-      cursor: pointer;
-      font-size: 15px;
-      line-height: 1;
-      padding: 1px 6px 3px;
-    }
-
-    .professional-editor .find-toggle:hover {
-      color: var(--text);
-      border-color: var(--line);
-    }
-
-    .professional-editor .find-toggle.on {
-      color: var(--accent);
-      border-color: color-mix(in srgb, var(--accent) 45%, transparent);
-      background: var(--accent-dim);
+    /* 字幕列表：CapCut 那种扁平行，序号 + 文本，时间码靠右 */
+    .professional-editor .seg-list {
+      overflow-y: auto;
+      scrollbar-width: thin;
+      scrollbar-color: color-mix(in srgb, var(--text) 26%, transparent) transparent;
     }
 
     /* 查找 / 替换条 */
@@ -2357,9 +2718,7 @@
       display: flex;
       flex-direction: column;
       gap: 6px;
-      padding: 8px 14px 10px;
-      background: var(--panel);
-      border-bottom: 1px solid var(--line);
+      padding: 0 12px 10px;
     }
 
     .professional-editor .find-row {
@@ -2376,82 +2735,65 @@
     .professional-editor .find-input {
       flex: 1;
       min-width: 0;
-      background: var(--raised);
-      border: 1px solid var(--line);
-      border-radius: 4px;
+      height: 28px;
+      padding: 0 9px;
+      border: 1px solid transparent;
+      border-radius: 5px;
+      outline: none;
+      background: var(--sd-field);
       color: var(--text);
       font-family: var(--font-ui);
-      font-size: 12.5px;
-      padding: 4px 8px;
+      font-size: 12px;
     }
 
-    .professional-editor .find-input:focus {
-      border-color: var(--accent);
-      outline: none;
-    }
+    .professional-editor .find-input:focus { border-color: var(--accent); }
 
     .professional-editor .find-count {
+      min-width: 38px;
+      color: var(--faint);
       font-family: var(--font-mono);
       font-size: 11px;
-      color: var(--faint);
       font-variant-numeric: tabular-nums;
-      min-width: 38px;
       text-align: right;
     }
 
-    .professional-editor .find-count.none {
-      color: var(--warn);
-    }
+    .professional-editor .find-count.none { color: var(--warn); }
 
     .professional-editor .fbtn {
-      background: var(--raised);
-      border: 1px solid var(--line);
-      border-radius: 4px;
+      height: 26px;
+      padding: 0 8px;
+      border: 0;
+      border-radius: 5px;
+      background: var(--sd-field);
       color: var(--mut);
       cursor: pointer;
       font-family: var(--font-ui);
       font-size: 11.5px;
-      line-height: 1.6;
-      padding: 2px 7px;
       white-space: nowrap;
     }
 
-    .professional-editor .fbtn:hover:not(:disabled) {
-      color: var(--text);
-      border-color: var(--faint);
-    }
-
-    .professional-editor .fbtn:disabled {
-      opacity: .45;
-      cursor: default;
-    }
-
-    .professional-editor .fbtn.wide {
-      padding: 2px 10px;
-    }
-
-    .professional-editor .fbtn.tog.on {
-      color: var(--accent);
-      border-color: color-mix(in srgb, var(--accent) 45%, transparent);
-      background: var(--accent-dim);
-    }
+    .professional-editor .fbtn:hover:not(:disabled) { background: var(--sd-field-hover); color: var(--text); }
+    .professional-editor .fbtn:disabled { opacity: .45; cursor: default; }
+    .professional-editor .fbtn.wide { padding: 0 10px; }
+    .professional-editor .fbtn.tog.on { background: var(--accent-dim); color: var(--accent); }
 
     .professional-editor .find-field {
-      background: var(--raised);
-      border: 1px solid var(--line);
-      border-radius: 4px;
+      height: 26px;
+      padding: 0 6px;
+      border: 0;
+      border-radius: 5px;
+      background: var(--sd-field);
       color: var(--mut);
       font: inherit;
       font-size: 11.5px;
-      padding: 2px 6px;
     }
 
     /* 列表里的命中底色；当前那一处（计数 1/N 指的那个）加重 */
     .professional-editor .row mark.hit {
-      background: color-mix(in srgb, var(--accent) 32%, transparent);
-      border-radius: 2px;
-      color: inherit;
       padding: 0 1px;
+      border-radius: 2px;
+      background: color-mix(in srgb, var(--accent) 32%, transparent);
+      color: inherit;
     }
 
     .professional-editor .row mark.hit.cur {
@@ -2461,81 +2803,69 @@
 
     .professional-editor .row {
       display: grid;
-      grid-template-columns: 30px 74px minmax(0, 1fr);
-      gap: 4px 10px;
-      padding: 8px 14px 9px;
+      grid-template-columns: 26px minmax(0, 1fr) auto;
+      gap: 10px;
+      margin: 0 6px;
+      padding: 9px 8px 10px 6px;
       border-bottom: 1px solid var(--line-soft);
-      border-left: 2px solid transparent;
+      border-radius: 0;
       cursor: pointer;
     }
 
-    .professional-editor .row:hover {
-      background: color-mix(in srgb, var(--text) 3%, transparent);
-    }
+    .professional-editor .row:hover { background: color-mix(in srgb, var(--text) 4%, transparent); }
 
     .professional-editor .row.active {
+      border-bottom-color: transparent;
+      border-radius: 6px;
       background: var(--accent-dim);
-      border-left-color: var(--accent);
     }
 
     .professional-editor .row .idx {
-      grid-row: span 2;
+      padding-top: 1px;
+      color: var(--faint);
       font-family: var(--font-mono);
       font-size: 11px;
-      color: var(--faint);
-      padding-top: 2px;
+      text-align: right;
     }
 
-    .professional-editor .row .tc {
-      grid-row: span 2;
-      font-family: var(--font-mono);
-      font-size: 10.5px;
-      color: var(--mut);
-      font-variant-numeric: tabular-nums;
-      line-height: 1.7;
-      padding-top: 1px;
-    }
+    .professional-editor .row.active .idx { color: var(--accent); }
 
-    .professional-editor .row .tc .out {
-      color: var(--faint);
+    .professional-editor .row .body {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+      min-width: 0;
     }
 
     .professional-editor .row .ja {
+      color: var(--text);
       font-size: 13px;
       line-height: 1.45;
     }
 
     .professional-editor .row .zh {
+      color: var(--mut);
       font-size: 12px;
       line-height: 1.4;
-      color: var(--mut);
     }
 
-    /* 选中行底色是 accent-dim（金），译文的灰色在上面会发脏，向金色靠一点 */
-    .professional-editor .row.active .zh {
-      color: color-mix(in srgb, var(--accent) 30%, var(--text));
-    }
+    .professional-editor .row.active .zh { color: color-mix(in srgb, var(--accent) 30%, var(--text)); }
 
-    .professional-editor .row .flags {
-      grid-column: 3;
+    .professional-editor .row .tc {
       display: flex;
-      gap: 5px;
-      margin-top: 2px;
-    }
-
-    .professional-editor .flag {
-      font-size: 9.5px;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 1px;
+      padding-top: 2px;
+      color: var(--faint);
       font-family: var(--font-mono);
-      padding: 1px 6px;
-      border-radius: 3px;
-      background: color-mix(in srgb, var(--warn) 12%, transparent);
-      color: var(--warn);
+      font-size: 10px;
+      font-variant-numeric: tabular-nums;
+      line-height: 1.5;
     }
 
-    .professional-editor .flag.lc {
-      background: var(--accent-dim);
-      color: var(--accent);
-    }
+    .professional-editor .row .tc .in { color: var(--mut); }
+
 
     /* ── 时间轴 ───────────────────────────── */
     .professional-editor .timeline {
@@ -3402,8 +3732,8 @@ html.wails-fullscreen .professional-editor .topbar { padding-right: 10px; }
     padding-block: 5px;
   }
 
-  .professional-editor .insp-actions .btn {
-    padding-block: 3px;
+  .professional-editor .insp-actions .side-text-btn {
+    height: 24px;
   }
 }
 

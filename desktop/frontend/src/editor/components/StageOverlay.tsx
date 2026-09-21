@@ -1,15 +1,17 @@
-import { useEffect } from 'react';
+import { useEffect, useLayoutEffect, useRef } from 'react';
 import { shallowEqual } from '../../home/lib/createStore';
 import { getPlayRes, getStyleSheet } from '../ass';
 import { anchorOf, beginDrag, nudgeSelection, styleAngle } from '../lib/stageDrag';
 import { boxForLane } from '../lib/stageHit';
 import type { SubtitleBox } from '../lib/stageHit';
-import { pushHistory } from '../lib/history';
+import { setSegText } from '../lib/edits';
+import { armPending, commitPending, disarmPending, pushHistory } from '../lib/history';
 import { patchStyle } from '../lib/styleEdit';
 import { docStore } from '../store/docStore';
 import { playStore } from '../store/playStore';
 import { clearStageSelection, stageStore } from '../store/stageStore';
 import type { Handle } from '../store/stageStore';
+import type { Seg } from '../types';
 import { hGroupOf, ignoresMarginV } from '../../subtitles/layout';
 
 /**
@@ -26,10 +28,10 @@ const CORNER: Record<string, string> = { nw: "nwse", ne: "nesw", se: "nwse", sw:
 const pct = (value: number, span: number) => (value / span) * 100 + "%";
 
 export function StageOverlay({ stageRef }: { stageRef: React.RefObject<HTMLDivElement | null> }) {
-  const { sel, guides, hint, dragging } = stageStore.use(
-    s => ({ sel: s.sel, guides: s.guides, hint: s.hint, dragging: !!s.drag }), shallowEqual);
+  const { sel, guides, hint, dragging, edit } = stageStore.use(
+    s => ({ sel: s.sel, guides: s.guides, hint: s.hint, dragging: !!s.drag, edit: s.edit }), shallowEqual);
   const playing = playStore.use(s => s.playing);
-  playStore.use(s => s.t);          // 换了句子框要跟着换
+  const t = playStore.use(s => s.t);   // 换了句子框要跟着换
   docStore.use(s => s.version);     // 改了样式/文本也要重算
 
   // 方向键在 useShortcuts 里被全局占着（←→ 跳播放头、↑↓ 切句）。挂捕获阶段抢在它前面，
@@ -51,6 +53,9 @@ export function StageOverlay({ stageRef }: { stageRef: React.RefObject<HTMLDivEl
       };
       const delta = move[event.key];
       if (!delta || event.ctrlKey || event.metaKey || event.altKey) return;
+      // 播放头停在这条 lane 的空隙里：框没画出来，方向键原样交还给全局快捷键
+      const lane = stageStore.get().sel;
+      if (!lane || !boxForLane(lane)?.seg) return;
       event.preventDefault();
       event.stopPropagation();
       nudgeSelection(delta[0], delta[1]);
@@ -59,9 +64,26 @@ export function StageOverlay({ stageRef }: { stageRef: React.RefObject<HTMLDivEl
     return () => document.removeEventListener("keydown", onKey, true);
   }, []);
 
-  // 播放中不摆位置：框藏起来，也省掉每帧重算命中盒
+  // 就地改字：只要那一句还在画面上就一直开着；起播、播放头离开这句就收起
+  // 文字删空时画面上就没有这块了，框改用上一次量到的位置，别半路收起
+  const lastEditBox = useRef<SubtitleBox | null>(null);
+  const editing = !!edit && !playing && t >= edit.seg.t0 && t < edit.seg.t1;
+  const liveEditBox = editing ? boxForLane(edit) : null;
+  if (!edit) lastEditBox.current = null;
+  else if (liveEditBox?.seg === edit.seg) lastEditBox.current = liveEditBox;
+  useEffect(() => {
+    if (edit && !editing) stageStore.set({ edit: null });
+  }, [edit, editing]);
+  if (editing && edit && lastEditBox.current) {
+    return <div className="stage-edit">
+      <InlineEditor box={lastEditBox.current} seg={edit.seg} stage={stageRef.current} />
+    </div>;
+  }
+
+  // 播放中不摆位置：框藏起来，也省掉每帧重算命中盒。
+  // 播放头停在这条 lane 没字的空隙里也不画框——选中保留，走回有字的地方框再出来
   const box = sel && !playing ? boxForLane(sel) : null;
-  if (!box) return <div className="stage-edit" aria-hidden />;
+  if (!box?.seg) return <div className="stage-edit" aria-hidden />;
 
   const { x: X, y: Y } = getPlayRes();
   const style = getStyleSheet().styleMap[box.styleName];
@@ -81,7 +103,7 @@ export function StageOverlay({ stageRef }: { stageRef: React.RefObject<HTMLDivEl
       {guides.x.map(x => <i key={"x" + x} className="stage-guide v" style={{ left: pct(x, X) }} />)}
       {guides.y.map(y => <i key={"y" + y} className="stage-guide h" style={{ top: pct(y, Y) }} />)}
 
-      <div className={"sel-box" + (dragging ? " dragging" : "") + (box.seg ? "" : " ghost")}
+      <div className={"sel-box" + (dragging ? " dragging" : "")}
         style={{
           left: pct(box.block.left, X),
           top: pct(box.block.top, Y),
@@ -120,6 +142,63 @@ export function StageOverlay({ stageRef }: { stageRef: React.RefObject<HTMLDivEl
           这条被同一侧的别的字幕挤开了，所以没停在边距说的位置
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * 画面上的就地改字框：盖在那行字上，字号按舞台缩放近似原字号。
+ * 撤销口径和右栏的文本框一致（聚焦时布一个撤销起点，连续输入并成一步）。
+ * Enter 确认收起，Shift+Enter 换行，Esc 收起。
+ */
+function InlineEditor({ box, seg, stage }: { box: SubtitleBox; seg: Seg; stage: HTMLElement | null }) {
+  const ref = useRef<HTMLTextAreaElement>(null);
+  const { x: X, y: Y } = getPlayRes();
+  const style = getStyleSheet().styleMap[box.styleName];
+  const scale = stage ? stage.clientHeight / Y : 0.5;
+  const fontPx = Math.max(12, Math.min(40, (style?.size ?? 60) * scale * 0.8));
+  const value = seg[box.lang];
+  const close = () => { disarmPending(); stageStore.set({ edit: null }); };
+
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    el.focus();
+    el.select();
+  }, []);
+  // 高度跟着内容长
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = el.scrollHeight + "px";
+  }, [value, fontPx]);
+
+  const minW = 32;   // 百分比：短句也留出能打字的宽度
+  const width = Math.min(96, Math.max(minW, (box.block.width / X) * 100 + 6));
+  const centre = ((box.block.left + box.block.width / 2) / X) * 100;
+  const left = Math.min(100 - width - 2, Math.max(2, centre - width / 2));
+
+  return (
+    <div className="stage-inline-edit"
+      style={{ left: left + "%", width: width + "%", top: pct(box.block.top, Y) }}
+      onPointerDown={event => event.stopPropagation()}
+      onClick={event => event.stopPropagation()}
+      onDoubleClick={event => event.stopPropagation()}>
+      <textarea ref={ref} rows={1} spellCheck={false} value={value}
+        className={box.lang === "ja" ? "ja" : undefined}
+        style={{ fontSize: fontPx + "px", fontFamily: style?.font ? `"${style.font}", var(--font-ui)` : undefined }}
+        onFocus={armPending}
+        onBlur={close}
+        onChange={event => { commitPending(); setSegText(box.lang, event.target.value); }}
+        onKeyDown={event => {
+          event.stopPropagation();
+          if (event.key === "Escape" || (event.key === "Enter" && !event.shiftKey)) {
+            event.preventDefault();
+            close();
+          }
+        }} />
+      <span className="stage-inline-tip">Enter 完成 · Shift+Enter 换行 · Esc 退出</span>
     </div>
   );
 }

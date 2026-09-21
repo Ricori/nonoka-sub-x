@@ -1,5 +1,6 @@
 import { createStore } from '../../home/lib/createStore';
 import type { LaneRef } from '../lib/stageHit';
+import type { Seg } from '../types';
 
 /**
  * 预览画面里的直接操控状态。选中锚定在 **lane**（哪条轨的哪个语言轴）而不是某一句：
@@ -22,10 +23,12 @@ interface StageState {
   hint: string | null;
   /** 上一次方向键微调的时刻。连着按算一步撤销，换了选中或隔久了就重新落栈 */
   nudgeAt: number;
+  /** 双击画面里的字幕进入的就地改字：认准那条 lane 上的那一句，换句/起播就收起 */
+  edit: (LaneRef & { seg: Seg }) | null;
 }
 
 export const stageStore = createStore<StageState>({
-  sel: null, drag: null, guides: { x: [], y: [] }, hint: null, nudgeAt: 0,
+  sel: null, drag: null, guides: { x: [], y: [] }, hint: null, nudgeAt: 0, edit: null,
 });
 
 export const selectLane = (sel: LaneRef | null) =>

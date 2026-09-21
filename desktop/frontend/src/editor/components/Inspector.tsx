@@ -1,12 +1,13 @@
 import { useEffect, useRef } from 'react';
 import { shallowEqual } from '../../home/lib/createStore';
-import { deleteSegment, mergeNext, nudge, setSegText } from '../lib/edits';
+// 出入点微调暂时下线，时间轴上拖边缘更顺手；要恢复时把 nudge / fmtView 连同下面的 tc-row 一起放回来
+import { deleteSegment, mergeNext, /* nudge, */ setSegText } from '../lib/edits';
 import { armPending, commitPending, disarmPending } from '../lib/history';
 import { seek } from '../lib/playback';
 import { docStore } from '../store/docStore';
 import { curSegs, select, selStore } from '../store/selectionStore';
 import { toast } from '../store/uiStore';
-import { fmtView, viewRange, viewStore } from '../store/viewStore';
+import { /* fmtView, */ viewStore } from '../store/viewStore';
 import type { Lang } from '../types';
 
 export function Inspector() {
@@ -58,14 +59,7 @@ export function Inspector() {
 
   return (
     <div className="inspector">
-      <div className="insp-head">
-        <span className="label">当前字幕</span>
-        <span className="idx" id="insp-idx">
-          {s ? "#" + String(sel - viewRange(arr)[0] + 1).padStart(2, "0") : "--"}
-        </span>
-        <span className="spacer"></span>
-        <span className="dur" id="insp-dur">{s ? (s.t1 - s.t0).toFixed(2) + "s" : ""}</span>
-      </div>
+      {/*
       <div className="tc-row">
         <div className="tc-field">
           <label>入点 In</label>
@@ -84,24 +78,28 @@ export function Inspector() {
           </div>
         </div>
       </div>
+      */}
       <div className="textfield lang-ja">
-        <label><i></i>日语原文</label>
+        <label><i></i>原文</label>
         <textarea id="insp-ja" ref={jaRef} spellCheck={false} value={s ? s.ja : ""}
           onFocus={armPending} onBlur={disarmPending}
           onKeyDown={e => onKeyDown(e, "ja")}
           onChange={e => onInput("ja", e.target.value)} />
       </div>
       <div className="textfield lang-zh">
-        <label><i></i>中文译文</label>
+        <label><i></i>译文</label>
         <textarea id="insp-zh" ref={zhRef} spellCheck={false} value={s ? s.zh : ""}
           onFocus={armPending} onBlur={disarmPending}
           onKeyDown={e => onKeyDown(e, "zh")}
           onChange={e => onInput("zh", e.target.value)} />
       </div>
       <div className="insp-actions">
-        <button className="btn" id="btn-merge" onClick={mergeNext}>⋈ 与下句合并</button>
-        <button className="btn danger" id="btn-delete" onClick={deleteSegment}>
-          {selSize > 1 ? "🗑 删除选中 " + selSize + " 句" : "🗑 删除本句"}
+        <button type="button" className="side-text-btn" id="btn-merge" disabled={!s} onClick={mergeNext}>
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 3v4a2 2 0 0 0 2 2h8M10 6l3 3-3 3" /></svg>与下句合并
+        </button>
+        <button type="button" className="side-text-btn danger" id="btn-delete" disabled={!s} onClick={deleteSegment}>
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 4.5h10M6.5 4.5V3h3v1.5M4.5 4.5l.6 8.5h5.8l.6-8.5" /></svg>
+          {selSize > 1 ? "删除选中 " + selSize + " 句" : "删除本句"}
         </button>
       </div>
     </div>

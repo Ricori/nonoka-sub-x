@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef } from 'react';
 import { shallowEqual } from '../../home/lib/createStore';
 import { setSubCanvasEl, setVideoEl } from '../lib/media';
-import { onStagePointerDown, shouldSwallowStageClick } from '../lib/stageDrag';
+import { onStageDoubleClick, onStagePointerDown, shouldSwallowStageClick } from '../lib/stageDrag';
 import { StageOverlay } from './StageOverlay';
 import { onPauseUI, onPlayUI, resetScrubWarned, setPlaying, isScrubbing } from '../lib/playback';
 import {
@@ -119,6 +119,9 @@ export function VideoStage() {
         onClick={() => {
           if (shouldSwallowStageClick()) return;
           setPlaying(!playStore.get().playing);
+        }}
+        onDoubleClick={event => {
+          if (stageRef.current) onStageDoubleClick(event, stageRef.current);
         }}>
         <video id="video" ref={videoRef} playsInline preload="auto" src={vs.src || undefined} />
         <div className="vid-cache" id="vid-cache" hidden={!vs.badge}>{vs.badge}</div>

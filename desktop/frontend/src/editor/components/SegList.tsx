@@ -1,16 +1,15 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { shallowEqual } from '../../home/lib/createStore';
 import { LIST_MARGIN } from '../constants';
-import { matchRanges, toggleFind } from '../lib/find';
+import { matchRanges } from '../lib/find';
 import { seek } from '../lib/playback';
 import { docStore } from '../store/docStore';
 import { findStore } from '../store/findStore';
 import {
-  curSegs, registerRowScroller, select, selectRange, selStore, setActiveTrack, toggleSel,
+  curSegs, registerRowScroller, select, selectRange, selStore, toggleSel,
 } from '../store/selectionStore';
 import { fmtView, viewRange, viewStore } from '../store/viewStore';
 import type { Lang, Seg } from '../types';
-import { FindBar } from './FindBar';
 
 // 和时间轴一样只渲染视口附近的行：几千行全铺出来，光它们的排版/绘制就能把每一次
 // 缩放/编辑拖到十几帧。上下各垫一块占位 div 把滚动条撑到该有的长度。
@@ -35,24 +34,25 @@ function Marked({ text, q, mc, cur }: { text: string; q: string; mc: boolean; cu
 
 interface RowProps {
   i: number; label: string; tin: string; tout: string;
-  ja: string; zh: string; lowConf: boolean; active: boolean;
+  ja: string; zh: string; active: boolean;
   /** 查找词与大小写开关；hlJa/hlZh 是本行「当前那一处」命中的起点，没有则 -1 */
   q: string; mc: boolean; hlJa: number; hlZh: number;
   onPick(i: number, e: React.MouseEvent): void;
 }
 
 const Row = memo(function Row(
-  { i, label, tin, tout, ja, zh, lowConf, active, q, mc, hlJa, hlZh, onPick }: RowProps,
+  { i, label, tin, tout, ja, zh, active, q, mc, hlJa, hlZh, onPick }: RowProps,
 ) {
   const cell = (text: string, cur: number) =>
     (text ? (q ? <Marked text={text} q={q} mc={mc} cur={cur} /> : text) : "（空）");
   return (
     <div className={"row" + (active ? " active" : "")} data-i={i} onClick={e => onPick(i, e)}>
       <span className="idx">{label}</span>
-      <span className="tc"><span className="in">{tin}</span><br /><span className="out">{tout}</span></span>
-      <span className="ja">{cell(ja, hlJa)}</span>
-      <span className="zh">{cell(zh, hlZh)}</span>
-      {lowConf && <span className="flags"><span className="flag lc">低置信</span></span>}
+      <span className="body">
+        <span className="ja">{cell(ja, hlJa)}</span>
+        <span className="zh">{cell(zh, hlZh)}</span>
+      </span>
+      <span className="tc"><span className="in">{tin}</span><span className="out">{tout}</span></span>
     </div>
   );
 });
@@ -66,7 +66,7 @@ export function SegList() {
   const find = findStore.use(s => {
     const hit = s.cursor >= 0 ? s.hits[s.cursor] : null;
     return {
-      open: s.open, q: s.open ? s.query : "", mc: s.matchCase,
+      q: s.open ? s.query : "", mc: s.matchCase,
       curSeg: s.open ? (hit ? hit.seg : null) : null,
       curLang: (hit ? hit.lang : null) as Lang | null,
       curStart: hit ? hit.start : -1,
@@ -174,7 +174,7 @@ export function SegList() {
     rows.push(
       <Row key={i} i={i} label={String(i - vA + 1).padStart(2, "0")}
         tin={fmtView(s.t0)} tout={fmtView(s.t1)}
-        ja={s.ja} zh={s.zh} lowConf={!!s.low_conf}
+        ja={s.ja} zh={s.zh}
         q={find.q} mc={find.mc}
         hlJa={find.curSeg === s && find.curLang === "ja" ? find.curStart : -1}
         hlZh={find.curSeg === s && find.curLang === "zh" ? find.curStart : -1}
@@ -182,30 +182,12 @@ export function SegList() {
     );
   }
 
-  const nLow = arr.slice(vA, vB).filter(s => s.low_conf).length;
-  const { tracks, trackMeta } = docStore.get();
-
   return (
     <div className="seg-list" id="seg-list" ref={scRef}
       onScroll={() => {
         if (rafRef.current) return;
         rafRef.current = requestAnimationFrame(() => { rafRef.current = null; ensureRows(); });
       }}>
-      <div className="list-top">
-        <div className="list-head">
-          <select id="track-sel" title="切换列表显示的轨道" value={String(curTrack)}
-            onChange={e => setActiveTrack(+e.target.value, { silent: true })}>
-            <option value="-1">{trackMeta?.name || "默认轨"}</option>
-            {tracks.map((tr, i) => <option key={tr.id} value={i}>{tr.name || ("轨道 " + (i + 1))}</option>)}
-          </select>
-          <span className="count" id="seg-count">
-            {(vB - vA) + " 句" + (nLow ? ` · ${nLow} 低置信` : "")}
-          </span>
-          <button className={"find-toggle" + (find.open ? " on" : "")} id="btn-find"
-            title="查找 / 替换 (Ctrl+F)" onClick={toggleFind}>⌕</button>
-        </div>
-        <FindBar />
-      </div>
       <div id="rows" ref={rowsRef}>
         <div style={{ height: Math.max(0, padTop) + "px" }} />
         {rows}
