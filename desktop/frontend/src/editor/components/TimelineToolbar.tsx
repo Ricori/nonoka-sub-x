@@ -1,8 +1,8 @@
 import { shallowEqual } from '../../home/lib/createStore';
-import { addSegmentAt, foldJa, newTrack, splitAtPlayhead, toggleFoldJa } from '../lib/edits';
+import { addSegmentAt, foldJa, newTrack, toggleFoldJa } from '../lib/edits';
 import { endScrub } from '../lib/playback';
 import {
-  cutAtPlayhead, hasContiguous, keepSelectedSegs, mergeContiguous, resetVideoEdit, toggleFocus,
+  cutAtPlayhead, hasContiguous, keepSelectedSegs, mergeContiguous, resetVideoEdit, splitHere, toggleFocus,
 } from '../lib/videoEdit';
 import { docStore } from '../store/docStore';
 import { layoutStore, saveLayout } from '../store/layoutStore';
@@ -10,6 +10,7 @@ import { playStore } from '../store/playStore';
 import { modalStore, showCtx } from '../store/uiStore';
 import { ppsToSlider, setZoom, sliderToPps, viewStore } from '../store/viewStore';
 import { selStore } from '../store/selectionStore';
+import { vselStore } from '../store/vselStore';
 import { joinPieces } from '../../subtitles/pieces.ts';
 import type { CtxItem } from '../types';
 
@@ -19,6 +20,7 @@ export function TimelineToolbar() {
   const { pieces, focus, pps } = viewStore.use(
     s => ({ pieces: s.pieces, focus: s.focus, pps: s.pps }), shallowEqual);
   const focused = focus && !!pieces;
+  const videoActive = vselStore.use(s => s.videoActive);
   const joined = pieces ? joinPieces(pieces) : null;
 
   /** 成片面包屑下拉：在完整片和成片之间切换，外加几个整体操作 */
@@ -47,22 +49,15 @@ export function TimelineToolbar() {
         新建字幕
       </button>
       <div className="sep"></div>
-      <button className="tool" id="btn-split" title="在当前位置把当前句拆成两句 (D)" onClick={splitAtPlayhead}>
-        <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" strokeWidth="1.3">
-          <path d="M9.5 1.5 3 8l-1 3.5 3.5-1L12 4z" strokeLinejoin="round" />
-          <path d="M7.3 3.7l2 2" />
-        </svg>
-        在当前位置拆分
-      </button>
-      <div className="sep"></div>
-      <button className="tool" id="btn-cut" disabled={focused}
-        title={focused ? "成片仅供预览，回到完整片再切分" : "在播放头处把视频轨切成两段 (Ctrl+B)"} onClick={cutAtPlayhead}>
+      {/* 切分：点过视频轨就切视频，否则切当前字幕句（默认） */}
+      <button className="tool" id="btn-split" onClick={splitHere}
+        title={videoActive && !focused ? "在播放头处把视频轨切成两段 (Ctrl+B)" : "在当前位置把当前句拆成两句 (D)"}>
         <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" strokeWidth="1.3">
           <circle cx="3.2" cy="10" r="1.8" />
           <circle cx="9.8" cy="10" r="1.8" />
           <path d="M4.5 8.7 10.5 1.5M8.5 8.7 2.5 1.5" />
         </svg>
-        切分视频
+        切分
       </button>
       <div className="sep"></div>
       <button className="tool" id="btn-new-track"

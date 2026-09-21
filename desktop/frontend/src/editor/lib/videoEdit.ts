@@ -8,11 +8,12 @@ import { saveEdit } from '../store/saveStore';
 import { curSegs, deselect, selStore } from '../store/selectionStore';
 import { innerLeft } from '../store/tlStore';
 import { toast } from '../store/uiStore';
-import { clearVsel, vselStore } from '../store/vselStore';
+import { clearVsel, setVideoActive, vselStore } from '../store/vselStore';
 import {
   applyInnerWidth, curPieces, ensureBlkWin, fitPps, isFocused, setDuration, syncZoomRange, tOf, viewStore,
 } from '../store/viewStore';
 import { fmt, fmtLen } from '../utils';
+import { splitAtPlayhead } from './edits';
 import { armPending, commitPending, disarmPending, pushHistory } from './history';
 import { seek } from './playback';
 
@@ -97,6 +98,14 @@ export function cutAtPlayhead() {
   setPieces(next);
 }
 
+/** 切分对象是视频轨吗：点过视频轨才是，成片里视频轨只供预览，一律切字幕 */
+export const cutsVideo = () => vselStore.get().videoActive && !isFocused();
+
+/** 工具栏「切分」：当前在视频轨上就在播放头处切视频，否则把当前句在播放头处拆成两句 */
+export function splitHere() {
+  if (cutsVideo()) cutAtPlayhead(); else splitAtPlayhead();
+}
+
 export function deletePiece(i: number) {
   const cur = curPieces();
   if (!cur[i]) return;
@@ -170,8 +179,9 @@ export function deleteVsel(): boolean {
 export function toggleFocus() {
   if (!viewStore.get().pieces) { toast("还没剪过视频轨：先在视频轨上切分、删掉不要的部分"); return; }
   viewStore.set({ focus: !viewStore.get().focus });
-  // 成片里视频轨不可操作：带过去的片段选中会让 Delete 去删片段而不是字幕
+  // 成片里视频轨不可操作：带过去的片段选中会让 Delete 去删片段而不是字幕，切分也回到字幕
   clearVsel();
+  setVideoActive(false);
   refreshView(true);
 }
 

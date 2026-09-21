@@ -11,7 +11,7 @@ import { deselect } from '../store/selectionStore';
 import { innerLeft } from '../store/tlStore';
 import { showCtx } from '../store/uiStore';
 import { videoStore } from '../store/videoStore';
-import { clearVsel, vselStore } from '../store/vselStore';
+import { clearVsel, setVideoActive, vselStore } from '../store/vselStore';
 import { curPieces, isFocused, tAtClientX, tOf, viewStore, wOf, xOf } from '../store/viewStore';
 import { getVid } from '../session';
 import { errText, fmtLen } from '../utils';
@@ -206,8 +206,10 @@ export function VideoRow({ height, left, w }: { height: number; left: number; w:
   function onDown(e: React.PointerEvent) {
     // 成片里只看不点：把事件吞掉，免得落到时间轴上变成框选
     if (focused) { e.stopPropagation(); return; }
-    if (e.button !== 0) return;
     e.stopPropagation();
+    // 点了视频轨（左右键都算）：工具栏「切分」从此切视频，直到再去点字幕
+    setVideoActive(true);
+    if (e.button !== 0) return;
     const el = e.currentTarget as HTMLElement;
     el.setPointerCapture(e.pointerId);
     const v = viewStore.get();

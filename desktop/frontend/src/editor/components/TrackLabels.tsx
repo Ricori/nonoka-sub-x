@@ -12,6 +12,7 @@ import { layoutStore, saveLayout, setRowH } from '../store/layoutStore';
 import { selStore, setActiveTrack } from '../store/selectionStore';
 import { openTrackPop } from '../store/uiStore';
 import { viewStore } from '../store/viewStore';
+import { vselStore } from '../store/vselStore';
 import { toggleFocus } from '../lib/videoEdit';
 import type { Lang, RowSpec, Ti } from '../types';
 
@@ -122,6 +123,8 @@ export function TrackLabels({ rows, labelsRef }: {
   const audioView = layoutStore.use(s => s.audioView);
   const curTrack = selStore.use(s => s.curTrack);
   const { edited, focus } = viewStore.use(s => ({ edited: !!s.pieces, focus: s.focus }), shallowEqual);
+  // 当前操作对象高亮：点过视频轨就亮视频轨（工具栏「切分」切的是它），否则亮当前字幕轨
+  const videoCur = vselStore.use(s => s.videoActive) && !(focus && edited);
 
   // 分隔线贴在其上方那条可见行的底边（与下一条可见行之间可能夹着隐藏行）
   let acc = RULER_H0;
@@ -132,7 +135,7 @@ export function TrackLabels({ rows, labelsRef }: {
       <div className="lbl ruler-spacer"></div>
       {rows.map(r => r.kind === "video"
         ? (
-          <div className="lbl video" key={r.key} style={{ height: rowDisplayH(r) + "px" }}>
+          <div className={"lbl video" + (videoCur ? " cur" : "")} key={r.key} style={{ height: rowDisplayH(r) + "px" }}>
             <i></i><span className="tname" title="视频轨：切分、删掉不要的部分，剩下的按顺序拼成成片">视频 V1</span>
             {edited && (
               <button className={"lbtn focus" + (focus ? " on" : "")} title="查看成片：只看剪好的范围，播放跳过删掉的部分"
@@ -148,7 +151,7 @@ export function TrackLabels({ rows, labelsRef }: {
               {audioView === "wave" && <GainButton />}
             </div>
           )
-          : <TrackLabel key={r.key} r={r} cur={r.ti === curTrack} />)}
+          : <TrackLabel key={r.key} r={r} cur={!videoCur && r.ti === curTrack} />)}
       {/* 底部占位：与轨道区横向滚动条等高，保证标签与轨道对齐 */}
       <div className="sb-gutter" id="sb-gutter" style={{ height: (SB + PAD_Y) + "px" }}></div>
       {rows.map((r, i) => r.vis && (

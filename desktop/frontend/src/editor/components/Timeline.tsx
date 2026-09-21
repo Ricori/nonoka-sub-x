@@ -13,7 +13,7 @@ import { playStore } from '../store/playStore';
 import { selStore, setActiveTrack } from '../store/selectionStore';
 import { setTlEls, syncTlMetrics, tlScroll, tlStore } from '../store/tlStore';
 import { showCtx } from '../store/uiStore';
-import { clearVsel } from '../store/vselStore';
+import { clearVsel, setVideoActive } from '../store/vselStore';
 import {
   ensureBlkWin, isFocused, setZoom, syncZoomRange, tAtClientX, viewDur, viewStore, xOf,
 } from '../store/viewStore';
@@ -131,7 +131,7 @@ export function Timeline() {
     if (e.button !== 0) return;
     const el = e.target as HTMLElement;
     // 视频轨之外的任何点击都放下视频轨上的选中，Delete 才不会删到看不见的东西
-    if (!el.closest("#videorow")) clearVsel();
+    if (!el.closest("#videorow")) { clearVsel(); setVideoActive(false); }
     if (el.closest(".blk")) return;
     if (el.closest("#ruler") || el.closest("#waverow") || el.closest("#videorow")) return;
     const ti = laneTiAt(e.clientY);

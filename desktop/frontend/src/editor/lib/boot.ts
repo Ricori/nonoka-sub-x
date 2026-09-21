@@ -23,7 +23,7 @@ import { resetHistory } from "./history";
 import { dragStore } from "../store/dragStore";
 import type { Lang, Seg, Track } from "../types";
 import { normalizePieces } from "../../subtitles/pieces.ts";
-import { clearVsel } from "../store/vselStore";
+import { vselStore } from "../store/vselStore";
 
 function mapSegs(items: unknown[]): Seg[] {
   const out = (items ?? []).map((item) => {
@@ -66,7 +66,7 @@ function resetTransientState() {
     usePath: null, badge: null, subBusy: null,
   });
   viewStore.set({ duration: 60, t0: 0, t1: 60, pieces: null, focus: false, blkWin: null });
-  clearVsel();
+  vselStore.set({ vsel: null, videoActive: false });
 }
 
 /** 切到侧栏「样式」页，并选中第一条绑着缺失样式的 lane，StyleBar 里就能直接看到回退和补建入口 */
