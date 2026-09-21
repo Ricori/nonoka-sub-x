@@ -286,11 +286,16 @@ export function onLanePointerDown(e: React.PointerEvent, ti: Ti) {
 /**
  * 框选：轨道空白处拖出矩形，多选扫到的字幕块（跨轨、跨 lane 都算）。命中按时间区间算而不
  * 遍历块 DOM——屏幕外的句被虚拟化掉了没有 DOM，但逻辑上照样该被框到。
+ * 按住 Ctrl/⌘：追加模式——点空白不动选区（补选时误点不至于前功尽弃），拖框则并入原选区。
  */
 export function startMarquee(startEv: React.PointerEvent, ti: Ti) {
   startEv.preventDefault();
-  setActiveTrack(ti, { silent: true });
-  deselect();   // 框选替换原有选择
+  const additive = startEv.ctrlKey || startEv.metaKey;
+  const base = additive ? [...selStore.get().selSet] : [];
+  if (!additive) {
+    setActiveTrack(ti, { silent: true });
+    deselect();   // 框选替换原有选择
+  }
   const inner = tlInner();
   if (!inner) return;
   const innerRect = inner.getBoundingClientRect();
@@ -309,7 +314,7 @@ export function startMarquee(startEv: React.PointerEvent, ti: Ti) {
     dragStore.set({
       marquee: { left: L - innerRect.left, top: T - innerRect.top, w: R - L, h: B - T },
     });
-    const hit = new Set<Seg>();
+    const hit = new Set<Seg>(base);
     const tA = tOf(L - innerRect.left), tB = tOf(R - innerRect.left);
     for (const [el, ti2] of lanes) {
       if (el.classList.contains("hiddenlane") || el.classList.contains("foldlane")) continue;
@@ -327,8 +332,9 @@ export function startMarquee(startEv: React.PointerEvent, ti: Ti) {
     freezeBlocks(false);
     dragStore.set({ marquee: null });
     selStore.set({ preview: null });
-    if (!moved) { deselect(); return; }   // 没拖动 = 点空白，取消选中
-    setSelectionSegs(hitSegs);
+    // 没拖动 = 点空白：普通点击取消选中，Ctrl/⌘ 点击保留原选区
+    if (!moved) { if (!additive) deselect(); return; }
+    setSelectionSegs(hitSegs, additive ? { scroll: false } : {});
   };
   inner.addEventListener("pointermove", onMove);
   inner.addEventListener("pointerup", onUp);
