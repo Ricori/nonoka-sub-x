@@ -32,6 +32,11 @@ const (
 	maxResponseBytes  = 16 << 20
 	maxArtifactBytes  = 32 << 20
 	maxThumbnailBytes = 5 << 20
+	// Subtitle artifacts can run to tens of megabytes, so their download gets no
+	// client-wide deadline: a slow link must not cut a healthy transfer at 30s.
+	// The header timeout still catches a backend that never answers.
+	artifactHeaderTimeout   = 30 * time.Second
+	artifactDownloadTimeout = 10 * time.Minute
 )
 
 var validTaskID = regexp.MustCompile(`^[0-9a-f]{32}$`)
@@ -196,6 +201,7 @@ type Service struct {
 	media                mediaResolver
 	client               *http.Client
 	upload               *http.Client
+	download             *http.Client
 	extractor            func(context.Context, string, string) error
 	session              storedSession
 	links                map[string]taskLink
@@ -220,6 +226,7 @@ func New(dataDirectory string, provider providerCaller, resolvers ...mediaResolv
 		provider:             provider,
 		client:               &http.Client{Timeout: 30 * time.Second},
 		upload:               &http.Client{Timeout: 3 * time.Hour},
+		download:             newDownloadClient(),
 		extractor: func(ctx context.Context, source, output string) error {
 			return extractAudioWithRoot(ctx, root, source, output)
 		},
@@ -1343,6 +1350,12 @@ func decodeJPEGDataURL(value string) ([]byte, error) {
 	return image, nil
 }
 
+func newDownloadClient() *http.Client {
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.ResponseHeaderTimeout = artifactHeaderTimeout
+	return &http.Client{Transport: transport}
+}
+
 func (s *Service) authenticatedText(ctx context.Context, endpoint string) ([]byte, error) {
 	parsed, err := url.Parse(endpoint)
 	if err != nil || parsed.IsAbs() || parsed.Host != "" || !strings.HasPrefix(parsed.Path, "/v1/tasks/") {
@@ -1354,19 +1367,21 @@ func (s *Service) authenticatedText(ctx context.Context, endpoint string) ([]byt
 	if session.Backend == "" || session.Key == "" {
 		return nil, errors.New("cloud login is required")
 	}
+	ctx, cancel := context.WithTimeout(ctx, artifactDownloadTimeout)
+	defer cancel()
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, session.Backend+parsed.RequestURI(), nil)
 	if err != nil {
 		return nil, err
 	}
 	request.Header.Set("Authorization", "Bearer "+session.Key)
-	response, err := s.client.Do(request)
+	response, err := s.download.Do(request)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("download cloud artifact: %w", err)
 	}
 	defer response.Body.Close()
 	payload, err := io.ReadAll(io.LimitReader(response.Body, maxArtifactBytes+1))
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("read cloud artifact: %w", err)
 	}
 	if len(payload) > maxArtifactBytes {
 		return nil, errors.New("cloud artifact exceeds the 32 MB limit")
