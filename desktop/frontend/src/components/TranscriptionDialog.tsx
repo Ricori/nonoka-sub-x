@@ -12,7 +12,7 @@ import {
   AXIS_KIND_HINT, AXIS_KIND_LABEL, AXIS_KIND_SHORT, parseAxisFile, recolumn,
   type AxisKind, type AxisParse,
 } from "../subtitles/assAxis.ts";
-import { routeForTaskGroup, routeServesMedia, type MediaCapability } from "./llmRouting.ts";
+import { routeForTaskGroup, routeServesMedia, routeServesNativeSearch, type MediaCapability } from "./llmRouting.ts";
 import "./TranscriptionDialog.css";
 
 interface TranscriptionDialogProps {
@@ -65,14 +65,14 @@ interface KnowledgeEntry {
 const NEW_KNOWLEDGE_SUBJECT = "__new_knowledge_subject__";
 
 const LLM_KEY_HINT = "尚未配置模型提供商：请到设置里选择提供商与全局模型并保存，否则无法进行 LLM 纠错、翻译与知识处理。";
-const RETRIEVAL_KEY_HINT = "需要 Exa、Tavily 或 Gemini Key 才能进行本地联网检索。";
-const NATIVE_SEARCH_HINT = "需要 Gemini Key：模型原生检索依赖 Gemini 内置搜索。";
+const RETRIEVAL_KEY_HINT = "需要 Exa、Tavily 或 Gemini 免费池 Key 才能进行本地联网检索。";
+const NATIVE_SEARCH_HINT = "请在设置里将「纠错与翻译」和「资料研究」设为支持原生检索的模型，并配置对应 Key 或本地 CLI；可使用本地 Codex、WorkBuddy、Antigravity 的 Gemini 模型或支持搜索的 Gemini API 模型。";
 
 type Step = "axis" | "mode" | "settings";
 
 interface KeyLimits {
   llm: boolean;
-  gemini: boolean;
+  nativeSearch: boolean;
   retrieval: boolean;
   audio: boolean;
   video: boolean;
@@ -114,7 +114,7 @@ function withinLimits(request: TaskRequest, limits: KeyLimits): TaskRequest {
   const media = (request.correction.media === "audio" && !limits.audio) || (request.correction.media === "video" && !limits.video)
     ? "text"
     : request.correction.media;
-  const retrieval = (request.correction.retrieval === "local" && !limits.retrieval) || (request.correction.retrieval === "native" && !limits.gemini)
+  const retrieval = (request.correction.retrieval === "local" && !limits.retrieval) || (request.correction.retrieval === "native" && !limits.nativeSearch)
     ? "none"
     : request.correction.retrieval;
   if (target === request.target && media === request.correction.media && retrieval === request.correction.retrieval) return request;
@@ -203,8 +203,6 @@ export function TranscriptionDialog(props: TranscriptionDialogProps) {
   const limitsFor = useCallback((target: ExecutionMode, retrieval: TaskRequest["correction"]["retrieval"]): KeyLimits => {
     // 云端运行的凭据由 Nonoka Cloud 管理；读不到本地设置时也不做限制，避免误锁死。
     const keys = target === "local" ? settings : null;
-    const configured = (name: string) => keys?.keys.some((key) => key.configured && key.name === name) === true;
-    const gemini = !keys || configured("GEMINI_FREE") || configured("GEMINI_PAID");
     const video = (target === "local" ? localCapabilities : cloudCapabilities)?.features.video_multimodal === true;
     // 音视频窗看的是「谁来答」，而自引擎 0.5.0 起答的人只有一个：钉住的模型组
     // 替换整条链，后面不再挂任何兜底。所以这里问的是选中的那个模型自己收不收，
@@ -219,7 +217,7 @@ export function TranscriptionDialog(props: TranscriptionDialogProps) {
     return {
       // 只认已保存的全局模型：装了 codex CLI、或在设置里选了却没保存，都不算配置好。
       llm: !keys || keys.llmReady,
-      gemini,
+      nativeSearch: !keys || ["correction", "research"].every((routeID) => routeServesNativeSearch(keys.modelRouting, routeID)),
       retrieval: !keys || keys.retrievalKeyConfigured,
       audio: target === "local" && serves("supportsAudio"),
       video: video && serves("supportsVideo"),
@@ -481,7 +479,7 @@ export function TranscriptionDialog(props: TranscriptionDialogProps) {
 
             <button className={`execution-card ${axisOn ? "chosen" : ""}`} onClick={chooseAxis}>
               <span className="execution-icon axis">≡</span>
-              <span><strong>我已有轴</strong><small>空轴 / 单语轴 / 双语轴，成片保持你打好的时间</small></span>
+              <span><strong>我已有轴</strong><small>空轴 / 单语轴 / 双语轴，会自动检测并补充空缺内容，轴里有翻译时则会立即导入</small></span>
               <em>{axisParse ? AXIS_KIND_SHORT[axisKind] : "选择文件"}</em>
             </button>
 
@@ -523,14 +521,14 @@ export function TranscriptionDialog(props: TranscriptionDialogProps) {
           <div className="execution-picker">
             <button className={`execution-card ${mode === "local" && localReady ? "chosen" : ""}`} disabled={!localReady} onClick={() => chooseMode("local")}>
               <span className="execution-icon local">⌁</span>
-              <span><strong>本地运行</strong><small>{cpuOnly ? "原视频不离开电脑；本机没有可用显卡，将以 CPU 运行，耗时通常是音频时长的十几到几十倍" : "原视频不离开电脑，使用本机 GPU 和 LLM 资源"}</small></span>
+              <span><strong>本地运行</strong><small>{cpuOnly ? "原视频不离开电脑；本机没有可用显卡，将以 CPU 运行，耗时通常是音频时长的十几到几十倍" : "使用本机的 GPU 和模型"}</small></span>
               <em>{localReady ? cpuOnly ? "可用 · CPU" : "可用" : "未就绪"}</em>
             </button>
             {!localReady && <p className="execution-unavailable">{localIssue || "本地运行环境尚未就绪"}<button onClick={onOpenRuntime}>检查运行环境</button></p>}
 
             <button className={`execution-card ${mode === "cloud" && cloudReady ? "chosen" : ""}`} disabled={!cloudReady} onClick={() => chooseMode("cloud")}>
               <span className="execution-icon cloud">☁</span>
-              <span><strong>云端运行</strong><small>{cloudDurationExceeded ? `视频时长 ${clock(entry.duration)}，超过云端 2 小时上限` : translateOnly ? "不上传音轨，只把这条轴交给 Nonoka Cloud 补译文" : "提取音轨后交给 Nonoka Cloud 处理"}</small></span>
+              <span><strong>云端运行</strong><small>{cloudDurationExceeded ? `视频时长 ${clock(entry.duration)}，超过云端 2 小时上限` : translateOnly ? "把这轴交给 Nonoka Cloud 补译文" : "使用 Nonoka Cloud 的资源"}</small></span>
               <em>{cloudDurationExceeded ? "时长超限" : cloudAuthenticated ? cloudRemaining === undefined ? "已登录" : `剩余 ${cloudRemaining} 次` : "未登录"}</em>
             </button>
             {cloudDurationExceeded && <p className="execution-unavailable">云端仅接受最长 2 小时的媒体，请改用本地运行。</p>}
@@ -550,8 +548,8 @@ export function TranscriptionDialog(props: TranscriptionDialogProps) {
               <section className="transcription-section">
                 <div className="transcription-section-title"><strong>输出内容</strong><span>{mode === "local" ? "本地运行" : "云端运行"}</span></div>
                 <div className="option-cards two-columns">
-                  <button className={request.target === "raw-srt" ? "selected" : ""} onClick={() => setTarget("raw-srt")}><strong>原始字幕</strong><small>完成识别与断句，不调用 LLM</small></button>
-                  <button className={`${request.target === "final-srt" ? "selected" : ""} ${limits.llm ? "" : "unavailable"}`.trim()} aria-disabled={!limits.llm || undefined} title={limits.llm ? undefined : LLM_KEY_HINT} onClick={() => setTarget("final-srt")}><strong>最终字幕</strong><small>继续进行纠错、翻译与知识处理</small></button>
+                  <button className={request.target === "raw-srt" ? "selected" : ""} onClick={() => setTarget("raw-srt")}><strong>原始字幕</strong><small>只进行打轴与原文识别</small></button>
+                  <button className={`${request.target === "final-srt" ? "selected" : ""} ${limits.llm ? "" : "unavailable"}`.trim()} aria-disabled={!limits.llm || undefined} title={limits.llm ? undefined : LLM_KEY_HINT} onClick={() => setTarget("final-srt")}><strong>最终字幕</strong><small>继续进行纠错、翻译</small></button>
                 </div>
                 {!limits.llm && <p className="option-unavailable">{LLM_KEY_HINT}<button onClick={onOpenKeys}>前往配置</button></p>}
                 {/* 空轴只保证「行落在你的时间上」。纠错阶段会合并被切碎的句子，合并后的一行
@@ -572,7 +570,7 @@ export function TranscriptionDialog(props: TranscriptionDialogProps) {
                 <label>纠错参考<CustomSelect value={request.correction.media} options={[{ value: "text", label: "仅识别文本" }, ...(mode === "local" ? [{ value: "audio" as const, label: "音频", disabled: !limits.audio, hint: limits.audio ? undefined : mediaHint("supportsAudio") }] : []), ...(supportsVideo ? [{ value: "video" as const, label: "视频多模态", disabled: !limits.video, hint: limits.video ? undefined : mediaHint("supportsVideo") }] : [])]} onChange={(media) => setRequest((current) => ({ ...current, correction: { ...current.correction, media } }))} /></label>
                 <label>处理质量<CustomSelect value={request.correction.difficulty} options={[{ value: "efficiency", label: "效率优先" }, { value: "intermediate", label: "均衡" }, { value: "quality", label: "质量优先" }]} onChange={(difficulty) => setRequest((current) => ({ ...current, correction: { ...current.correction, difficulty } }))} /></label>
                 <label>快速模式<CustomSelect value={request.correction.fast} options={[{ value: "auto", label: "自动", hint: "字幕放得进单个窗口时一次完成，放不下时自动改走正常流程" }, { value: "off", label: "关闭" }]} onChange={(fast) => setRequest((current) => ({ ...current, correction: { ...current.correction, fast } }))} /></label>
-                {mode === "local" && <label>资料检索<CustomSelect value={request.correction.retrieval} options={[{ value: "none", label: "不检索" }, { value: "local", label: "本地检索", disabled: !limits.retrieval, hint: limits.retrieval ? undefined : RETRIEVAL_KEY_HINT }, { value: "native", label: "模型原生检索", disabled: !limits.gemini, hint: limits.gemini ? undefined : NATIVE_SEARCH_HINT }]} onChange={(retrieval) => setRequest((current) => ({ ...current, correction: { ...current.correction, retrieval } }))} /></label>}
+                {mode === "local" && <label>资料检索<CustomSelect value={request.correction.retrieval} options={[{ value: "none", label: "不检索" }, { value: "local", label: "本地检索", disabled: !limits.retrieval, hint: limits.retrieval ? undefined : RETRIEVAL_KEY_HINT }, { value: "native", label: "模型原生检索", disabled: !limits.nativeSearch, hint: limits.nativeSearch ? undefined : NATIVE_SEARCH_HINT }]} onChange={(retrieval) => setRequest((current) => ({ ...current, correction: { ...current.correction, retrieval } }))} /></label>}
                 {supportsKnowledge && <label>知识库<CustomSelect value={request.knowledge} options={[{ value: "none", label: "不使用" }, { value: "collect", label: "读取知识库" }, { value: "update", label: "读取知识库并自动更新", disabled: mode === "cloud" }]} onChange={(knowledge) => setRequest((current) => ({ ...current, knowledge }))} /></label>}
               </section>
 
@@ -590,7 +588,7 @@ export function TranscriptionDialog(props: TranscriptionDialogProps) {
                       ]}
                     onChange={chooseKnowledgeSubject}
                   /></label>
-                  <p>{knowledgeEntries.length > 0 ? "选择已有主体会直接在该词条下继续积累。" : knowledgeLoading ? "正在检查本机已有知识…" : "当前没有可选主体，请先建立第一条知识。"}</p>
+                  <p>{knowledgeEntries.length > 0 ? "将自动读取与积累相关知识" : knowledgeLoading ? "正在检查本机已有知识…" : "当前没有可选主体，请先建立第一条知识。"}</p>
                 </div>
                 {knowledgeLoadError && <p className="knowledge-load-warning">知识库列表读取失败，仍可新建主体：{knowledgeLoadError}</p>}
               </section>}
@@ -600,7 +598,7 @@ export function TranscriptionDialog(props: TranscriptionDialogProps) {
                   <span className="knowledge-context-icon" aria-hidden="true">⌁</span>
                   <span>
                     <strong>知识库建库信息</strong>
-                    <small>先确定这次内容属于谁，模型才能把新发现归到正确主体。</small>
+                    <small>确定视频内容属于谁，引导模型把新发现归到正确主体</small>
                   </span>
                   <em>名称必填</em>
                 </div>
@@ -608,13 +606,13 @@ export function TranscriptionDialog(props: TranscriptionDialogProps) {
                   <label>主体类型<CustomSelect value={knowledgeContext.kind} options={knowledgeKindOptions} onChange={(kind) => updateKnowledgeContext({ kind })} /></label>
                   <label>知识主体名称<input required maxLength={120} aria-invalid={knowledgeSubjectMissing || undefined} placeholder={knowledgeContext.kind === "streamer" ? "例如：主播或频道的官方名称" : knowledgeContext.kind === "work" ? "例如：作品、系列或节目名" : "例如：组织、游戏或专题名称"} value={knowledgeContext.subject} onChange={(event) => updateKnowledgeContext({ subject: event.target.value })} /></label>
                   <label>别名 / 常用译名<input maxLength={300} placeholder="多个名称可用顿号或逗号分隔（可选）" value={knowledgeContext.aliases} onChange={(event) => updateKnowledgeContext({ aliases: event.target.value })} /></label>
-                  <label className="knowledge-context-description">主体说明<textarea rows={2} maxLength={1200} placeholder="频道定位、所属团体、作品背景等消歧信息（可选）" value={knowledgeContext.description} onChange={(event) => updateKnowledgeContext({ description: event.target.value })} /></label>
+                  <label className="knowledge-context-description">主体说明<textarea rows={2} maxLength={1200} placeholder="频道定位、所属团体、作品背景等（可选）" value={knowledgeContext.description} onChange={(event) => updateKnowledgeContext({ description: event.target.value })} /></label>
                 </div>
                 {!knowledgeContext.subject.trim() && <p className="knowledge-required-hint">填写知识主体名称后才能开始任务。</p>}
               </section>}
 
               <section className="transcription-section prompt-grid">
-                <label>背景信息<textarea rows={3} maxLength={4000} placeholder="人物、节目、专有名词或上下文（可选）" value={request.correction.extra_info} onChange={(event) => setRequest((current) => ({ ...current, correction: { ...current.correction, extra_info: event.target.value } }))} /></label>
+                <label>背景信息<textarea rows={3} maxLength={4000} placeholder="人物、节目、专有名词等（可选）" value={request.correction.extra_info} onChange={(event) => setRequest((current) => ({ ...current, correction: { ...current.correction, extra_info: event.target.value } }))} /></label>
                 <label>翻译风格<textarea rows={3} maxLength={4000} placeholder="例如：简洁自然，保留角色名英文（可选）" value={request.correction.extra_style} onChange={(event) => setRequest((current) => ({ ...current, correction: { ...current.correction, extra_style: event.target.value } }))} /></label>
               </section>
             </>}

@@ -339,6 +339,24 @@ def install_llm_model_override(request: Mapping[str, Any]) -> None:
                 )
             expanded[group] = target
     install_runtime_preferred(expanded)
+    if (request.get("correction") or {}).get("retrieval") == "native":
+        from finesub.llm.routing.model_routes import default_model_routes
+        from .settings import native_search_target
+
+        routes = default_model_routes()
+        difficulty = (request.get("correction") or {}).get("difficulty") or "quality"
+        # Saved CLI routes pin the ordinary target. Entitle the same model's
+        # search tool only for native correction/research calls in this run.
+        # Explicit multi-model groups retain their declared routing semantics.
+        for group_id in ("correction-mm", "correction-text", "research"):
+            group, _cell = routes.resolve_binding(routes.active_preset_id, group_id, difficulty)
+            if len(group.target_ids) != 1:
+                continue
+            target_id = group.target_ids[0]
+            native_id = native_search_target(routes, target_id)
+            if native_id and native_id != target_id:
+                expanded[group_id] = native_id
+        install_runtime_preferred(expanded)
 
 
 def extract_execution_failure_detail(exc: BaseException) -> str:

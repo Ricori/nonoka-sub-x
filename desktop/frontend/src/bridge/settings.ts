@@ -29,6 +29,7 @@ export interface FineSubModelOption {
   label: string;
   supportsAudio: boolean;
   supportsVideo: boolean;
+  supportsNativeSearch: boolean;
 }
 
 export interface FineSubModelRoute {

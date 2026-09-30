@@ -278,6 +278,28 @@ def _read_toml(path: Path) -> dict[str, Any]:
     return data if isinstance(data, dict) else {}
 
 
+def native_search_target(routes: Any, target_id: str) -> str | None:
+    """The selected target, or its same-model twin with a search tool wired."""
+    target = routes.targets[target_id]
+    if not routes.target_fact(target_id).supports_native_search:
+        return None
+    if routes.target_profile(target_id).native_search_tool:
+        return target_id
+    if target.backend != "local_agent":
+        return None
+    return next(
+        (
+            candidate.id
+            for candidate in routes.targets.values()
+            if candidate.fact_id == target.fact_id
+            and candidate.backend == target.backend
+            and candidate.enabled_by == target.enabled_by
+            and routes.target_profile(candidate.id).native_search_tool
+        ),
+        None,
+    )
+
+
 @lru_cache(maxsize=4)
 def _local_agent_targets(provider: str) -> tuple[tuple[Any, str], ...]:
     """(fact, target id) for the models a local-agent provider offers.
@@ -285,9 +307,8 @@ def _local_agent_targets(provider: str) -> tuple[tuple[Any, str], ...]:
     Two filters, for two different reasons. The provider's own roster decides
     *which* models are offered, in the order it lists them. The execution
     profile decides which of a model's two packaged targets is pinnable: the
-    search-entitled twin stays out, because a pinned target is prepended to
-    the bound group and a `retrieval=native` call has to stay free to fall
-    through to a target that declares a search tool.
+    search-entitled twin stays out of saved settings. For `retrieval=native`,
+    the worker selects that same model's search twin for this run only.
     """
 
     from finesub.llm.routing.model_routes import load_model_routes
@@ -400,6 +421,7 @@ def _builtin_model_options() -> dict[str, list[dict[str, Any]]]:
                 "label": entry.display_name,
                 "supportsAudio": entry.supports_audio,
                 "supportsVideo": entry.supports_video,
+                "supportsNativeSearch": entry.supports_native_search,
             }
         )
     for provider in LOCAL_AGENT_PROVIDERS:
@@ -409,6 +431,7 @@ def _builtin_model_options() -> dict[str, list[dict[str, Any]]]:
                 "label": fact.display_name,
                 "supportsAudio": fact.supports_audio,
                 "supportsVideo": fact.supports_video,
+                "supportsNativeSearch": fact.supports_native_search,
             }
             for fact, _target_id in _local_agent_targets(provider)
         ]

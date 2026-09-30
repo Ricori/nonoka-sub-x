@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "third_party/finesub/src"))
 
-from nonoka_x.settings import FineSubSettings
+from nonoka_x.settings import FineSubSettings, LOCAL_AGENT_PROVIDERS
 
 
 class FineSubSettingsTests(unittest.TestCase):
@@ -417,6 +417,75 @@ class FineSubSettingsTests(unittest.TestCase):
                 routes = default_model_routes()
                 binding, _ = routes.resolve_binding(routes.active_preset_id, "research", "quality")
                 self.assertEqual(binding.target_ids, (f"local-codex-completion-{model.replace('.', '_')}",))
+
+    def test_native_search_switches_saved_cli_routes_for_one_run_only(self) -> None:
+        from finesub.llm.routing.model_routes import default_model_routes, install_runtime_preferred
+        from finesub.llm.routing.config import role_config_for
+        from finesub.llm.routing.model_router import ModelRouter
+        from nonoka_x.worker import install_llm_model_override
+
+        self.addCleanup(install_runtime_preferred, {})
+        for provider, model in (
+            (provider, model)
+            for provider, spec in LOCAL_AGENT_PROVIDERS.items()
+            for model in spec["models"]
+        ):
+            with self.subTest(provider=provider, model=model), tempfile.TemporaryDirectory() as temporary, patch.dict(
+                os.environ, {"FINESUB_ENV_PROTECT": "0"}, clear=False
+            ):
+                install_runtime_preferred({})
+                settings = FineSubSettings(temporary)
+                settings.bind_environment()
+                snapshot = settings.update_keys({"LLM_DEFAULT_PROVIDER": provider, "LLM_DEFAULT_MODEL": model})
+                selected = next(p for p in snapshot["modelRouting"]["providers"] if p["id"] == provider)
+                option = next(item for item in selected["models"] if item["id"] == model)
+                supported = model != "claude-opus-4-6-thinking"
+                self.assertEqual(option["supportsNativeSearch"], supported)
+                before = settings.config_file.read_bytes()
+                install_llm_model_override({"correction": {"retrieval": "native"}})
+                routes = default_model_routes()
+                for group_id in ("correction-text", "correction-mm", "research"):
+                    group, _ = routes.resolve_binding(routes.active_preset_id, group_id, "quality")
+                    self.assertEqual(len(group.target_ids), 1)
+                    self.assertEqual(routes.target_fact(group.target_ids[0]).api_model_id, model)
+                    plan = ModelRouter().plan(role_config_for(group_id, "quality"), native_search=True)
+                    self.assertEqual(bool(plan.candidates[0].endpoint.native_search_tool), supported)
+                self.assertEqual(settings.config_file.read_bytes(), before)
+                install_llm_model_override({"correction": {"retrieval": "none"}})
+                routes = default_model_routes()
+                group, _ = routes.resolve_binding(routes.active_preset_id, "correction-text", "quality")
+                self.assertFalse(routes.target_profile(group.target_ids[0]).native_search_tool)
+
+    def test_native_search_keeps_task_routes_and_run_override_precedence(self) -> None:
+        from finesub.llm.routing.model_routes import default_model_routes, install_runtime_preferred
+        from nonoka_x.worker import install_llm_model_override
+
+        self.addCleanup(install_runtime_preferred, {})
+        with tempfile.TemporaryDirectory() as temporary, patch.dict(
+            os.environ, {"FINESUB_ENV_PROTECT": "0"}, clear=False
+        ):
+            settings = FineSubSettings(temporary)
+            settings.bind_environment()
+            settings.update_keys({
+                "LLM_DEFAULT_PROVIDER": "local-codex",
+                "LLM_DEFAULT_MODEL": "gpt-6.1-sol",
+                "LLM_ROUTE_CORRECTION_PROVIDER": "local-agy",
+                "LLM_ROUTE_CORRECTION_MODEL": "gemini-3.7-flash",
+            })
+            request = {"correction": {"retrieval": "native", "difficulty": "efficiency"}}
+            for overrides, research_target in (
+                ({}, "local-codex-native-gpt-6_1-sol"),
+                ({"research": "local-workbuddy-glm-5_3-flash"}, "local-workbuddy-native-glm-5_3-flash"),
+            ):
+                install_llm_model_override({**request, "llm_model": overrides})
+                routes = default_model_routes()
+                for group_id, expected in (
+                    ("correction-text", "local-agy-native-gemini-3_7-flash"),
+                    ("research", research_target),
+                    ("planning-text", "local-codex-completion-gpt-6_1-sol"),
+                ):
+                    group, _ = routes.resolve_binding(routes.active_preset_id, group_id, "efficiency")
+                    self.assertEqual(group.target_ids, (expected,))
 
     def test_local_agy_route_binds_the_packaged_agent_target(self) -> None:
         with tempfile.TemporaryDirectory() as temporary, patch.dict(

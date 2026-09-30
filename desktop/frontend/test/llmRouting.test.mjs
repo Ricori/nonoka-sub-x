@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { choiceIdOf, effectiveRoute, loadModelMemory, pickModelForProvider, preferredMember, providerChoices, routeSettingName, routeServesMedia, saveModelMemory } from "../src/components/llmRouting.ts";
+import { choiceIdOf, effectiveRoute, loadModelMemory, pickModelForProvider, preferredMember, providerChoices, routeSettingName, routeServesMedia, routeServesNativeSearch, saveModelMemory } from "../src/components/llmRouting.ts";
 
 const compat = {
   id: "openai-compat",
@@ -207,6 +207,29 @@ test("a local CLI keeps its media windows with no Gemini key of any tier", () =>
   const state = routing({ provider: "local-agy", model: "gemini-3.7-flash" });
   assert.equal(routeServesMedia(state, "correction", "supportsAudio"), true);
   assert.equal(routeServesMedia(state, "correction", "supportsVideo"), true);
+});
+
+test("native search uses the selected CLI without Gemini or retrieval keys", () => {
+  for (const id of ["local-codex", "local-agy", "local-workbuddy"]) {
+    const provider = { ...codex, id, models: [{ id: "search-model", supportsNativeSearch: true }] };
+    const state = { ...routing({ provider: id, model: "search-model" }), providers: [provider] };
+    assert.equal(routeServesNativeSearch(state, "correction"), true);
+    assert.equal(routeServesNativeSearch(state, "research"), true);
+    state.providers[0] = { ...provider, available: false };
+    assert.equal(routeServesNativeSearch(state, "correction"), false);
+  }
+});
+
+test("native search checks task overrides and model support instead of spare Gemini keys", () => {
+  const paid = { ...geminiPaid, keyConfigured: true, models: [{ id: "flash", supportsNativeSearch: true }] };
+  const state = { ...routing({ provider: "gemini-paid", model: "flash" }), providers: [paid, compat, gemini] };
+  assert.equal(routeServesNativeSearch(state, "correction"), true);
+  state.taskRoutes.find((item) => item.id === "research").route = { provider: "openai-compat", model: "vendor/large" };
+  assert.equal(routeServesNativeSearch(state, "research"), false);
+  state.providers[0] = { ...paid, keyConfigured: false };
+  assert.equal(routeServesNativeSearch(state, "correction"), false);
+  state.defaultRoute = { provider: "gemini-free", model: "gemini-3.7-flash" };
+  assert.equal(routeServesNativeSearch(state, "correction"), false);
 });
 
 test("the two Gemini pools fold into one provider row", () => {

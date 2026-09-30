@@ -138,6 +138,15 @@ export function routeForTaskGroup(routing: FineSubModelRoutingState, routeID: st
   return task && task.provider && task.model ? task : routing.defaultRoute;
 }
 
+/** 原生检索需要当前模型的搜索工具，以及该提供商可用的凭据或 CLI。 */
+export function routeServesNativeSearch(routing: FineSubModelRoutingState, routeID: string): boolean {
+  const route = routeForTaskGroup(routing, routeID);
+  const provider = routing.providers.find((item) => item.id === route.provider);
+  if (!provider || !route.model) return false;
+  if (provider.requiresKey ? !provider.keyConfigured : !provider.available) return false;
+  return provider.models.find((item) => item.id === route.model)?.supportsNativeSearch === true;
+}
+
 /** 这一格能不能承担音频或视频窗。
  *
  * 只看这一格自己声明的能力，没有「后面还有谁」这回事。引擎 0.5.0 起，
