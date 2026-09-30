@@ -22,7 +22,7 @@ export interface FineSubSettingsState {
   protection: "empty" | "protected" | "plaintext" | "unreadable";
 }
 
-export type FineSubModelProviderID = "gemini-free" | "gemini-paid" | "openai" | "anthropic" | "openai-compat" | "anthropic-compat" | "local-codex" | "local-agy" | "local-workbuddy";
+export type FineSubModelProviderID = "gemini-free" | "gemini-paid" | "openai" | "anthropic" | "deepseek" | "kimi" | "aliyun-bailian" | "openai-compat" | "anthropic-compat" | "local-codex" | "local-agy" | "local-workbuddy";
 
 export interface FineSubModelOption {
   id: string;
@@ -46,7 +46,7 @@ export interface FineSubModelProvider {
   // 本地 Agent 提供商用自己的 CLI 订阅运行，不需要 API Key；available 表示该 CLI 是否已在 PATH 中。
   requiresKey: boolean;
   available: boolean;
-  // 该提供商对应的 Key 与 Base URL 设置项；本地 Agent 两者皆为空。
+  // 该提供商对应的 Key 与 Base URL 设置项；固定端点的 Base URL 为空，本地 Agent 两者皆为空。
   keyName: string;
   baseUrlName: string;
   // 兼容提供商没有官方地址兜底，Base URL 是必填项。

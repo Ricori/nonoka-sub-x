@@ -1,5 +1,5 @@
 {
-  "content_sha256": "e0d440923823c5e60cfa15aaa3e726a6af493fab26b88f42d4e1424187bf0731",
+  "content_sha256": "0dd959c32e6ec6f828e695916e0222bcbf655da582828aeb22a4a3c66e1e4d7f",
   "files": [
     {
       "bytes": 35149,
@@ -987,9 +987,9 @@
       "sha256": "a923df91056d338e7d78b39bdb2b5ee7af30bcca9e5cf06450d2d48532f31094"
     },
     {
-      "bytes": 5696,
+      "bytes": 6780,
       "path": "src/finesub/llm/routing/model_catalog.psv",
-      "sha256": "ed756d74834cf782b1391054c2c614be0b8306d427527cc3c72b7545885686c8"
+      "sha256": "5fdbc76782f966838ec934f7f85be1fed5b36fb256aba13d55a742c8302fd49f"
     },
     {
       "bytes": 30207,
@@ -1007,9 +1007,9 @@
       "sha256": "d5bd87271f2613c169217bdf1d8e2ab420f8c4d3472ac9915212abcb514dde34"
     },
     {
-      "bytes": 24074,
+      "bytes": 25386,
       "path": "src/finesub/llm/routing/model_routes.toml",
-      "sha256": "25c1b1f011e6793ac0b182213c1cbec3884b78ce90cc2889b818c0d081c713f0"
+      "sha256": "492cc4cc01b18cb957fe02d0a2b66f39514015e12057da7dda0ba1cb85605d58"
     },
     {
       "bytes": 14643,

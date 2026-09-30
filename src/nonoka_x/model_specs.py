@@ -120,6 +120,16 @@ UNKNOWN_MODEL_SPEC = ModelSpec(
 # its own, and a more specific family member wins over the generic rule.
 _MODEL_SPECS: tuple[tuple[str, ModelSpec], ...] = (
     # -- OpenAI -----------------------------------------------------------
+    # GPT-6 model pages (checked 2026-09-30) declare the same context/output
+    # envelope. All four accept the harness's high/medium/low effort words.
+    # https://developers.openai.com/api/docs/models/gpt-6.1-sol
+    # https://developers.openai.com/api/docs/models/gpt-6-sol
+    # https://developers.openai.com/api/docs/models/gpt-6-astra
+    # https://developers.openai.com/api/docs/models/gpt-6-luna
+    ("gpt-6.1-sol", ModelSpec("GPT-6.1 Sol", 1_050_000, 128_000)),
+    ("gpt-6-sol", ModelSpec("GPT-6 Sol", 1_050_000, 128_000)),
+    ("gpt-6-astra", ModelSpec("GPT-6 Astra", 1_050_000, 128_000)),
+    ("gpt-6-luna", ModelSpec("GPT-6 Luna", 1_050_000, 128_000)),
     # The 5.6 trio shares one envelope and differs only in price/quality.
     ("gpt-5.6-sol", ModelSpec("GPT-5.6 Sol", 1_050_000, 128_000, "true", 1.0, 90)),
     ("gpt-5.6-terra", ModelSpec("GPT-5.6 Terra", 1_050_000, 128_000, "true", 1.0, 80)),

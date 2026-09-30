@@ -85,6 +85,7 @@ patches/finesub/
 | `0005-triton-msvc-c11-empty-struct.patch` | `src/finesub` | Windows 下 Triton 生成的 C11 启动器代码（`__triton_launcher.c`）包含空结构体初始化 `CUlaunchAttribute clusterAttr = {};`。MSVC 在 `/std:c11` 严格模式下报 `error C2059: 语法错误: '}'`，且 Windows SDK `winbase.h` 产生 `warning C5105`。本补丁 monkey-patch Triton 的启动器生成与构建命令，将 `{}` 替换为合法的 `{0}` 并插入 `/wd5105` 屏蔽告警 | 上游 Triton 修复 C11 下的空结构体初始化或上游 FineSub 内置该适配 |
 | `0006-aoti-posix-compiler.patch` | `src/finesub` | 上游的工具链探测是**有意** Windows-shaped（`_activate_msvc` / `cxx_toolchain_available` 的 docstring 就这么写着），因为 AOTI 这条路只在 Windows 上跑过。云端容器是 Linux，于是每次构建都抛「requires MSVC」、被 `vocal_accel.install` 接住降级为 eager，云上每个 ≥270s 的任务都在无加速下跑而无人察觉。本补丁让探测在 POSIX 上认系统 C++ 编译器。⚠ 必须排在 0005 之后：两条改的是同一个文件，本条的上下文是 0005 打完之后的样子 | 上游支持 Linux 生产链路（0.5.1 已明确判定这是下游的移植需求，不收） |
 | `0008-silero-non-ascii-path.patch` | `src/finesub` | `silero_vad.load_silero_vad()` 用路径调 `torch.jit.load`，libtorch 的 `FileAdapter` 以窄字符 `fopen` 打开它；Windows 下 UTF-8 路径字节会按 ANSI 代码页（中文系统为 GBK）解释。运行时装在中文目录时，随包附带在 `site-packages` 里的模型打不开，ASR 阶段报 `open file failed because of errno 2 on fopen`。`torch.load` 先由 Python 打开文件，不受影响。本补丁在 Python 侧读出字节、从 buffer 加载，得到的模块与 `load_silero_vad()` 相同 | 上游或 silero-vad 不再用路径调用 `torch.jit.load`，或 libtorch 在 Windows 上改用 `_wfopen` |
+| `0009-codex-gpt6-models.patch` | `src/finesub/llm/routing` | 固定引擎快照只声明 GPT-5.6，桌面设置新增 GPT-6.1 Sol、GPT-6 Sol、GPT-6 Astra、GPT-6 Luna 后需要对应目录事实及普通 / 原生检索执行目标。仅新增可显式选择的目标，保留上游默认模型组 | 上游目录与路由收录这四个模型 |
 
 > 上游 0.5.1 把三条补丁整条收走，本仓库因此删掉了它们（编号随之重排为 0001–0006）：
 > **旧 0004** 的三块——钉住快照的离线加载（新 `speech/runtime/hf_weights` 的

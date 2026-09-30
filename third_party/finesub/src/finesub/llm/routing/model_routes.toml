@@ -41,6 +41,54 @@ native_search_tool = "web_search"
 
 [execution_profiles.conversational-default]
 
+[targets.local-codex-completion-gpt-6_1-sol]
+backend = "local_agent"
+fact = "local-codex-gpt-6_1-sol"
+enabled_by = "local_agent"
+execution_profile = "codex-default"
+
+[targets.local-codex-native-gpt-6_1-sol]
+backend = "local_agent"
+fact = "local-codex-gpt-6_1-sol"
+enabled_by = "local_agent"
+execution_profile = "codex-web-search"
+
+[targets.local-codex-completion-gpt-6-sol]
+backend = "local_agent"
+fact = "local-codex-gpt-6-sol"
+enabled_by = "local_agent"
+execution_profile = "codex-default"
+
+[targets.local-codex-native-gpt-6-sol]
+backend = "local_agent"
+fact = "local-codex-gpt-6-sol"
+enabled_by = "local_agent"
+execution_profile = "codex-web-search"
+
+[targets.local-codex-completion-gpt-6-astra]
+backend = "local_agent"
+fact = "local-codex-gpt-6-astra"
+enabled_by = "local_agent"
+execution_profile = "codex-default"
+
+[targets.local-codex-native-gpt-6-astra]
+backend = "local_agent"
+fact = "local-codex-gpt-6-astra"
+enabled_by = "local_agent"
+execution_profile = "codex-web-search"
+
+[targets.local-codex-completion-gpt-6-luna]
+backend = "local_agent"
+fact = "local-codex-gpt-6-luna"
+enabled_by = "local_agent"
+execution_profile = "codex-default"
+
+[targets.local-codex-native-gpt-6-luna]
+backend = "local_agent"
+fact = "local-codex-gpt-6-luna"
+enabled_by = "local_agent"
+execution_profile = "codex-web-search"
+
 [targets.local-codex-completion-gpt-5_6-luna]
 backend = "local_agent"
 fact = "local-codex-gpt-5_6-luna"

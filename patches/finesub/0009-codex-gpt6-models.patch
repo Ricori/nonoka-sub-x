@@ -1,0 +1,74 @@
+--- a/src/finesub/llm/routing/model_catalog.psv
++++ b/src/finesub/llm/routing/model_catalog.psv
+@@ -1,4 +1,14 @@
+ fact_id|provider_tier|provider_kind|base_url|key_env|display_name|api_model_id|max_input_tokens|max_output_tokens|context_window|supports_audio|supports_video|supports_native_search|thinking|token_scale|rpm|tpm|rpd|tpd|is_free|quality_score|video_high_resolution_only|hint_output_ceiling|fallback_model|quota_pool
++# GPT-6 limits and reasoning: official model pages, checked 2026-09-30.
++# https://developers.openai.com/api/docs/models/gpt-6.1-sol
++# https://developers.openai.com/api/docs/models/gpt-6-sol
++# https://developers.openai.com/api/docs/models/gpt-6-astra
++# https://developers.openai.com/api/docs/models/gpt-6-luna
++# Quality is unstated until measured; media stays off for the Codex driver.
++local-codex-gpt-6_1-sol|LOCAL_CODEX|local_agent|||GPT-6.1 Sol via Codex|gpt-6.1-sol|1050000|128000|1050000|false|false|true|high,medium,low|1.0|-1|-1|-1|-1|false||false|false||
++local-codex-gpt-6-sol|LOCAL_CODEX|local_agent|||GPT-6 Sol via Codex|gpt-6-sol|1050000|128000|1050000|false|false|true|high,medium,low|1.0|-1|-1|-1|-1|false||false|false||
++local-codex-gpt-6-astra|LOCAL_CODEX|local_agent|||GPT-6 Astra via Codex|gpt-6-astra|1050000|128000|1050000|false|false|true|high,medium,low|1.0|-1|-1|-1|-1|false||false|false||
++local-codex-gpt-6-luna|LOCAL_CODEX|local_agent|||GPT-6 Luna via Codex|gpt-6-luna|1050000|128000|1050000|false|false|true|high,medium,low|1.0|-1|-1|-1|-1|false||false|false||
+ local-codex-gpt-5_6-luna|LOCAL_CODEX|local_agent|||GPT-5.6 Luna via Codex|gpt-5.6-luna|272000|65536|272000|false|false|true|xhigh,high,medium|1.0|-1|-1|-1|-1|false|70|false|false||
+ local-codex-gpt-5_6-terra|LOCAL_CODEX|local_agent|||GPT-5.6 Terra via Codex|gpt-5.6-terra|272000|65536|272000|false|false|true|xhigh,high,medium|1.0|-1|-1|-1|-1|false|82|false|false||
+ local-codex-gpt-5_6-sol|LOCAL_CODEX|local_agent|||GPT-5.6 Sol via Codex|gpt-5.6-sol|272000|65536|272000|false|false|true|high,high,low|1.0|-1|-1|-1|-1|false|90|false|false||
+--- a/src/finesub/llm/routing/model_routes.toml
++++ b/src/finesub/llm/routing/model_routes.toml
+@@ -40,6 +40,54 @@
+ native_search_tool = "web_search"
+ 
+ [execution_profiles.conversational-default]
++
++[targets.local-codex-completion-gpt-6_1-sol]
++backend = "local_agent"
++fact = "local-codex-gpt-6_1-sol"
++enabled_by = "local_agent"
++execution_profile = "codex-default"
++
++[targets.local-codex-native-gpt-6_1-sol]
++backend = "local_agent"
++fact = "local-codex-gpt-6_1-sol"
++enabled_by = "local_agent"
++execution_profile = "codex-web-search"
++
++[targets.local-codex-completion-gpt-6-sol]
++backend = "local_agent"
++fact = "local-codex-gpt-6-sol"
++enabled_by = "local_agent"
++execution_profile = "codex-default"
++
++[targets.local-codex-native-gpt-6-sol]
++backend = "local_agent"
++fact = "local-codex-gpt-6-sol"
++enabled_by = "local_agent"
++execution_profile = "codex-web-search"
++
++[targets.local-codex-completion-gpt-6-astra]
++backend = "local_agent"
++fact = "local-codex-gpt-6-astra"
++enabled_by = "local_agent"
++execution_profile = "codex-default"
++
++[targets.local-codex-native-gpt-6-astra]
++backend = "local_agent"
++fact = "local-codex-gpt-6-astra"
++enabled_by = "local_agent"
++execution_profile = "codex-web-search"
++
++[targets.local-codex-completion-gpt-6-luna]
++backend = "local_agent"
++fact = "local-codex-gpt-6-luna"
++enabled_by = "local_agent"
++execution_profile = "codex-default"
++
++[targets.local-codex-native-gpt-6-luna]
++backend = "local_agent"
++fact = "local-codex-gpt-6-luna"
++enabled_by = "local_agent"
++execution_profile = "codex-web-search"
+ 
+ [targets.local-codex-completion-gpt-5_6-luna]
+ backend = "local_agent"

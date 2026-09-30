@@ -20,6 +20,9 @@ KEY_SPECS: tuple[dict[str, str], ...] = (
     {"name": "TAVILY_KEYS", "label": "Tavily", "purpose": "联网检索回退"},
     {"name": "ANTHROPIC_API_KEY", "label": "Anthropic", "purpose": "本地代理高级配置"},
     {"name": "OPENAI_API_KEY", "label": "OpenAI", "purpose": "本地代理高级配置"},
+    {"name": "DEEPSEEK_API_KEY", "label": "DeepSeek", "purpose": "DeepSeek 模型调用"},
+    {"name": "KIMI_API_KEY", "label": "Kimi", "purpose": "Kimi 模型调用"},
+    {"name": "DASHSCOPE_API_KEY", "label": "阿里云百炼", "purpose": "阿里云百炼模型调用"},
     {"name": "OPENAI_COMPAT_API_KEY", "label": "OpenAI 兼容提供商", "purpose": "自定义 OpenAI 兼容端点"},
     {"name": "ANTHROPIC_COMPAT_API_KEY", "label": "Anthropic 兼容提供商", "purpose": "自定义 Anthropic 兼容端点"},
     {"name": "HF_TOKEN", "label": "Hugging Face", "purpose": "受限模型下载"},
@@ -70,10 +73,17 @@ LOCAL_AGENT_PROVIDERS: Mapping[str, dict[str, Any]] = {
         "label": "本地 Codex",
         "command": "codex",
         # Which of the tier's packaged models the desktop offers, in display
-        # order — the first is what selecting the provider fills in. Codex
-        # serves luna as well; the roster here is the owner's choice, not the
-        # catalog's.
-        "models": ("gpt-5.6-sol", "gpt-5.6-terra"),
+        # order — the first is what selecting the provider fills in. Saved
+        # routes keep their model when the default advances to the latest Sol.
+        "models": (
+            "gpt-6.1-sol",
+            "gpt-6-sol",
+            "gpt-6-astra",
+            "gpt-6-luna",
+            "gpt-5.6-sol",
+            "gpt-5.6-terra",
+            "gpt-5.6-luna",
+        ),
         # The Codex app keeps its CLI in a content-hashed directory under
         # %LOCALAPPDATA% and never puts it on PATH, so `codex` is a name
         # nothing can resolve on a machine that has it installed. Windows only
@@ -84,10 +94,9 @@ LOCAL_AGENT_PROVIDERS: Mapping[str, dict[str, Any]] = {
         "tier": "LOCAL_AGY",
         "label": "本地 Antigravity",
         "command": "agy",
-        # Gemini 3.7 Flash leads: it is the only local-agent model that can
-        # take an audio or video window, so selecting the provider fills in
-        # the one that does not force a fallback. Opus follows for text.
-        "models": ("gemini-3.7-flash", "claude-opus-4-6-thinking"),
+        # Gemini 3.7 Flash remains the default used by the packaged agy groups.
+        # Both Flash versions can take media; 3.8 is also available explicitly.
+        "models": ("gemini-3.7-flash", "gemini-3.8-flash", "claude-opus-4-6-thinking"),
         # `agy` is a native Go binary installed by its own script
         # (`irm https://antigravity.google/cli/install.ps1 | iex`), *not* by
         # the Antigravity IDE — that Electron install carries no CLI at all.
@@ -142,7 +151,8 @@ LOCAL_AGENT_PROVIDERS: Mapping[str, dict[str, Any]] = {
 # them. `keyName` is what gates selecting the provider at all; `baseUrlName` is
 # the endpoint its transport reads. The two compat entries exist so a
 # third-party endpoint can be routed to without overwriting the address of the
-# official service that speaks the same dialect.
+# official service that speaks the same dialect. `fixedBaseUrl` is an internal
+# constant for named services; it has no editable setting or snapshot field.
 #
 # `groupId` folds several rows into one line of the desktop's provider list.
 # The two Gemini pools are one service to the person configuring it -- same
@@ -157,6 +167,9 @@ API_PROVIDER_SPECS: tuple[dict[str, Any], ...] = (
     {"id": "gemini-paid", "label": "Gemini 付费池", "mode": "select", "keyName": "GEMINI_PAID", "baseUrlName": "GEMINI_BASE_URL", "customEndpoint": False, "groupId": "gemini", "groupLabel": "Gemini", "tierLabel": "付费池"},
     {"id": "openai", "label": "OpenAI", "mode": "input", "keyName": "OPENAI_API_KEY", "baseUrlName": "OPENAI_BASE_URL", "customEndpoint": False},
     {"id": "anthropic", "label": "Anthropic", "mode": "input", "keyName": "ANTHROPIC_API_KEY", "baseUrlName": "ANTHROPIC_BASE_URL", "customEndpoint": False},
+    {"id": "deepseek", "label": "DeepSeek", "mode": "input", "keyName": "DEEPSEEK_API_KEY", "baseUrlName": "", "customEndpoint": False, "fixedBaseUrl": "https://api.deepseek.com"},
+    {"id": "kimi", "label": "Kimi", "mode": "input", "keyName": "KIMI_API_KEY", "baseUrlName": "", "customEndpoint": False, "fixedBaseUrl": "https://api.moonshot.cn/v1"},
+    {"id": "aliyun-bailian", "label": "阿里云百炼", "mode": "input", "keyName": "DASHSCOPE_API_KEY", "baseUrlName": "", "customEndpoint": False, "fixedBaseUrl": "https://dashscope.aliyuncs.com/compatible-mode/v1"},
     {"id": "openai-compat", "label": "OpenAI 兼容提供商", "mode": "input", "keyName": "OPENAI_COMPAT_API_KEY", "baseUrlName": "OPENAI_COMPAT_BASE_URL", "customEndpoint": True},
     {"id": "anthropic-compat", "label": "Anthropic 兼容提供商", "mode": "input", "keyName": "ANTHROPIC_COMPAT_API_KEY", "baseUrlName": "ANTHROPIC_COMPAT_BASE_URL", "customEndpoint": True},
 )
@@ -172,6 +185,9 @@ CUSTOM_ENDPOINT_PROVIDERS = frozenset(
 _HTTP_TRANSPORTS: Mapping[str, tuple[str, str]] = {
     "openai": ("openai_compat", "NONOKA_OPENAI"),
     "anthropic": ("anthropic", "NONOKA_ANTHROPIC"),
+    "deepseek": ("openai_compat", "NONOKA_DEEPSEEK"),
+    "kimi": ("openai_compat", "NONOKA_KIMI"),
+    "aliyun-bailian": ("openai_compat", "NONOKA_DASHSCOPE"),
     "openai-compat": ("openai_compat", "NONOKA_OPENAI_COMPAT"),
     "anthropic-compat": ("anthropic", "NONOKA_ANTHROPIC_COMPAT"),
 }
@@ -720,7 +736,11 @@ class FineSubSettings:
             kind, tier = _HTTP_TRANSPORTS[provider]
             key_env = API_PROVIDER_BY_ID[provider]["keyName"]
             url_name = API_PROVIDER_BY_ID[provider]["baseUrlName"]
-            base_url = (env_values.get(url_name) or default_urls[url_name]).strip().rstrip("/")
+            base_url = (
+                API_PROVIDER_BY_ID[provider].get("fixedBaseUrl")
+                or env_values.get(url_name)
+                or default_urls.get(url_name, "")
+            ).strip().rstrip("/")
             if not base_url:
                 # A compat provider whose endpoint was cleared behind the
                 # route's back: emitting the row would make the whole catalog
@@ -801,8 +821,10 @@ class FineSubSettings:
         try:
             from finesub.config import clear_config_cache
             from finesub.llm.routing.model_catalog import default_model_catalog
+            from finesub.llm.routing.model_routes import default_model_routes
 
             clear_config_cache()
             default_model_catalog.cache_clear()
+            default_model_routes.cache_clear()
         except ImportError:
             pass

@@ -127,6 +127,79 @@ class FineSubSettingsTests(unittest.TestCase):
             self.assertTrue(correction_eff.target_ids[0].startswith("nonoka-openai-"))
             self.assertEqual(research.target_ids[0], "gemini-free-3_6-flash")
 
+    def test_named_openai_compatible_providers_have_hidden_fixed_endpoints(self) -> None:
+        import json
+
+        with tempfile.TemporaryDirectory() as temporary, patch.dict(
+            os.environ, {"FINESUB_ENV_PROTECT": "0"}, clear=False
+        ):
+            settings = FineSubSettings(temporary)
+            snapshot = settings.snapshot()
+            providers = snapshot["modelRouting"]["providers"]
+            ids = [item["id"] for item in providers]
+            index = ids.index("anthropic") + 1
+            self.assertEqual(ids[index:index + 3], ["deepseek", "kimi", "aliyun-bailian"])
+            for provider in providers[index:index + 3]:
+                self.assertEqual(provider["mode"], "input")
+                self.assertEqual(provider["baseUrlName"], "")
+                self.assertFalse(provider["customEndpoint"])
+                self.assertTrue(provider["requiresKey"])
+                self.assertIn(provider["keyName"], {item["name"] for item in snapshot["keys"]})
+            encoded = json.dumps(snapshot)
+            for domain in ("api.deepseek.com", "api.moonshot.cn", "dashscope.aliyuncs.com"):
+                self.assertNotIn(domain, encoded)
+            for name in ("DEEPSEEK_BASE_URL", "KIMI_BASE_URL", "DASHSCOPE_BASE_URL"):
+                with self.assertRaisesRegex(ValueError, "Unknown FineSub key"):
+                    settings.update_keys({name: "https://override.example/v1"})
+
+    def test_named_providers_route_with_independent_keys_and_fixed_urls(self) -> None:
+        import json
+        from finesub.llm.routing.model_catalog import default_model_catalog
+        from finesub.llm.routing.model_routes import default_model_routes
+
+        cases = (
+            ("deepseek", "DEEPSEEK_API_KEY", "deepseek-v4-pro", "https://api.deepseek.com"),
+            ("kimi", "KIMI_API_KEY", "kimi-k3", "https://api.moonshot.cn/v1"),
+            ("aliyun-bailian", "DASHSCOPE_API_KEY", "qwen3.8-max", "https://dashscope.aliyuncs.com/compatible-mode/v1"),
+        )
+        for provider, key_name, model, url in cases:
+            with self.subTest(provider=provider), tempfile.TemporaryDirectory() as temporary, patch.dict(
+                os.environ, {"FINESUB_ENV_PROTECT": "0"}, clear=False
+            ):
+                settings = FineSubSettings(temporary)
+                settings.bind_environment()
+                selection = {"LLM_DEFAULT_PROVIDER": provider, "LLM_DEFAULT_MODEL": model}
+                # Another service's credentials cannot enable this provider.
+                settings.update_keys({"OPENAI_COMPAT_API_KEY": "compat-secret"})
+                with self.assertRaisesRegex(ValueError, "API key is required"):
+                    settings.update_keys(selection)
+                snapshot = settings.update_keys({
+                    **selection,
+                    key_name: f"{provider}-secret",
+                    "OPENAI_BASE_URL": "https://official-override.example/v1",
+                    "OPENAI_COMPAT_BASE_URL": "https://compat-override.example/v1",
+                    "LLM_ROUTE_RESEARCH_PROVIDER": provider,
+                    "LLM_ROUTE_RESEARCH_MODEL": model,
+                })
+                self.assertTrue(snapshot["llmReady"])
+                self.assertTrue(snapshot["llmKeyConfigured"])
+                self.assertNotIn(f"{provider}-secret", json.dumps(snapshot))
+                target_id = settings._custom_target(provider, model)
+                fact = next(item for item in default_model_catalog() if item.fact_id == target_id)
+                self.assertEqual(fact.provider_kind, "openai_compat")
+                self.assertEqual(fact.base_url, url)
+                self.assertEqual(fact.key_env, key_name)
+                routes = default_model_routes()
+                for group in ("correction-text", "research"):
+                    binding, _ = routes.resolve_binding(routes.active_preset_id, group, "quality")
+                    self.assertEqual(binding.target_ids, (target_id,))
+                    self.assertEqual(routes.targets[target_id].backend, "openai_compat")
+                restarted = FineSubSettings(temporary)
+                restarted.refresh_model_catalog()
+                self.assertEqual(restarted.snapshot()["modelRouting"]["defaultRoute"], {"provider": provider, "model": model})
+                snapshot = restarted.update_keys({key_name: None})
+                self.assertFalse(snapshot["llmReady"])
+
     def test_the_two_gemini_pools_share_one_provider_row(self) -> None:
         # 对配置的人来说 Gemini 是一个服务：同一个控制台、同一个端点，两档配额
         # 各一个 Key。对路由来说仍然是两个 tier——打包目录给了它们不同的 fact
@@ -249,9 +322,17 @@ class FineSubSettingsTests(unittest.TestCase):
             )
             self.assertFalse(codex["requiresKey"])
             self.assertEqual(codex["mode"], "select")
-            # Sol leads the roster, so selecting the provider fills it in.
-            self.assertEqual([model["id"] for model in codex["models"]], ["gpt-5.6-sol", "gpt-5.6-terra"])
-            self.assertEqual(codex["defaultModel"], "gpt-5.6-sol")
+            # The newest Sol leads; an existing saved route stays on 5.6 Sol.
+            self.assertEqual(
+                [model["id"] for model in codex["models"]],
+                ["gpt-6.1-sol", "gpt-6-sol", "gpt-6-astra", "gpt-6-luna",
+                 "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"],
+            )
+            self.assertEqual(codex["defaultModel"], "gpt-6.1-sol")
+            self.assertEqual(
+                snapshot["modelRouting"]["defaultRoute"],
+                {"provider": "local-codex", "model": "gpt-5.6-sol"},
+            )
             config = (Path(temporary) / "finesub.toml").read_text(encoding="utf-8")
             self.assertIn('default = "local-codex-completion-gpt-5_6-sol"', config)
 
@@ -275,6 +356,68 @@ class FineSubSettingsTests(unittest.TestCase):
                 correction.target_ids, ("local-codex-completion-gpt-5_6-sol",)
             )
 
+    def test_new_local_models_save_and_resolve_global_and_task_routes(self) -> None:
+        from finesub.llm.routing.model_routes import default_model_routes
+
+        cases = (
+            ("local-codex", "gpt-6.1-sol", "local-codex-completion-gpt-6_1-sol", False),
+            ("local-codex", "gpt-6-sol", "local-codex-completion-gpt-6-sol", False),
+            ("local-codex", "gpt-6-astra", "local-codex-completion-gpt-6-astra", False),
+            ("local-codex", "gpt-6-luna", "local-codex-completion-gpt-6-luna", False),
+            ("local-codex", "gpt-5.6-luna", "local-codex-completion-gpt-5_6-luna", False),
+            ("local-agy", "gemini-3.8-flash", "local-agy-media-gemini-3_8-flash", True),
+        )
+        for provider, model, target_id, media in cases:
+            with self.subTest(provider=provider, model=model), tempfile.TemporaryDirectory() as temporary, patch.dict(
+                os.environ, {"FINESUB_ENV_PROTECT": "0"}, clear=False
+            ):
+                settings = FineSubSettings(temporary)
+                settings.bind_environment()
+                snapshot = settings.update_keys({
+                    "LLM_DEFAULT_PROVIDER": provider,
+                    "LLM_DEFAULT_MODEL": model,
+                    "LLM_ROUTE_RESEARCH_PROVIDER": provider,
+                    "LLM_ROUTE_RESEARCH_MODEL": model,
+                })
+                self.assertEqual(snapshot["modelRouting"]["defaultRoute"]["model"], model)
+                routes = default_model_routes()
+                for group in ("correction-text", "research"):
+                    binding, _ = routes.resolve_binding(routes.active_preset_id, group, "quality")
+                    self.assertEqual(binding.target_ids, (target_id,))
+                target = routes.targets[target_id]
+                fact = routes.facts[target.fact_id]
+                self.assertEqual(target.backend, "local_agent")
+                self.assertEqual(fact.api_model_id, model)
+                self.assertEqual(fact.supports_audio, media)
+                self.assertEqual(fact.supports_video, media)
+                self.assertFalse(routes.execution_profiles[target.execution_profile].native_search_tool)
+                if model.startswith("gpt-6"):
+                    self.assertEqual(fact.max_input_tokens, 1_050_000)
+                    self.assertEqual(fact.max_output_tokens, 128_000)
+                    self.assertEqual(fact.thinking_levels, ("high", "medium", "low"))
+                    native_id = target_id.replace("-completion-", "-native-")
+                    native = routes.targets[native_id]
+                    self.assertEqual(native.fact_id, target.fact_id)
+                    self.assertEqual(routes.execution_profiles[native.execution_profile].native_search_tool, "web_search")
+                # Reloading the settings must keep the selected model and target.
+                restarted = FineSubSettings(temporary)
+                restarted.refresh_model_catalog()
+                self.assertEqual(restarted.snapshot()["modelRouting"]["defaultRoute"]["model"], model)
+
+    def test_changing_model_invalidates_loaded_routes(self) -> None:
+        from finesub.llm.routing.model_routes import default_model_routes
+
+        with tempfile.TemporaryDirectory() as temporary, patch.dict(
+            os.environ, {"FINESUB_ENV_PROTECT": "0"}, clear=False
+        ):
+            settings = FineSubSettings(temporary)
+            settings.bind_environment()
+            for model in ("gpt-5.6-sol", "gpt-6.1-sol", "gpt-6-astra"):
+                settings.update_keys({"LLM_DEFAULT_PROVIDER": "local-codex", "LLM_DEFAULT_MODEL": model})
+                routes = default_model_routes()
+                binding, _ = routes.resolve_binding(routes.active_preset_id, "research", "quality")
+                self.assertEqual(binding.target_ids, (f"local-codex-completion-{model.replace('.', '_')}",))
+
     def test_local_agy_route_binds_the_packaged_agent_target(self) -> None:
         with tempfile.TemporaryDirectory() as temporary, patch.dict(
             os.environ, {"FINESUB_ENV_PROTECT": "0"}, clear=False
@@ -294,7 +437,7 @@ class FineSubSettingsTests(unittest.TestCase):
             self.assertEqual(agy["mode"], "select")
             self.assertEqual(
                 [model["id"] for model in agy["models"]],
-                ["gemini-3.7-flash", "claude-opus-4-6-thinking"],
+                ["gemini-3.7-flash", "gemini-3.8-flash", "claude-opus-4-6-thinking"],
             )
             self.assertEqual(agy["defaultModel"], "gemini-3.7-flash")
             # The multimodal model is why agy leads with it; the snapshot has
@@ -593,6 +736,26 @@ class FineSubSettingsTests(unittest.TestCase):
                 item for item in snapshot["baseUrls"] if item["name"] == "OPENAI_BASE_URL"
             )
             self.assertFalse(official["customized"])
+
+    def test_gpt6_http_routes_carry_declared_limits_and_reasoning(self) -> None:
+        from finesub.llm.routing.model_catalog import default_model_catalog
+
+        for model in ("gpt-6.1-sol", "gpt-6-sol", "gpt-6-astra", "gpt-6-luna"):
+            with self.subTest(model=model), tempfile.TemporaryDirectory() as temporary, patch.dict(
+                os.environ, {"FINESUB_ENV_PROTECT": "0"}, clear=False
+            ):
+                settings = FineSubSettings(temporary)
+                settings.bind_environment()
+                settings.update_keys({
+                    "OPENAI_API_KEY": "test-secret",
+                    "LLM_DEFAULT_PROVIDER": "openai",
+                    "LLM_DEFAULT_MODEL": model,
+                })
+                entry = next(item for item in default_model_catalog()
+                             if item.api_model_id == model and item.provider_tier == "NONOKA_OPENAI")
+                self.assertEqual(entry.max_input_tokens, 1_050_000)
+                self.assertEqual(entry.max_output_tokens, 128_000)
+                self.assertEqual(entry.thinking_levels, ("high", "medium", "low"))
 
     def test_known_model_row_carries_its_declared_limits(self) -> None:
         """A recognized model is described by its own facts, not a placeholder.
