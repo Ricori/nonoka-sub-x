@@ -1,10 +1,10 @@
 {
   "archive_sha256": "5f96a9c6ab0a08ce8370ee577b69f160210259d797f23bb3ea58bce338fa15a6",
   "commit": "b9b2f10c80abd58ddff739b60461624f51c0789c",
-  "content_sha256": "c7e0fe10d6242a7c0a50f6fb911eab626c00ce2ee58c5db95328bc3bd97000af",
+  "content_sha256": "e0d440923823c5e60cfa15aaa3e726a6af493fab26b88f42d4e1424187bf0731",
   "engine_bundle_id": "finesub-0.5.1+b9b2f10c80ab",
   "engine_version": "0.5.1",
-  "files_manifest_sha256": "8fe8d0e6ad817d782b431199f1542b9bec7aa53621a051f0d941562166400595",
+  "files_manifest_sha256": "94ee16d2edaca12155a1cd94fc53b1206ea88a9d3ffb4b9dace57227251f17e5",
   "patches": [
     {
       "path": "0001-qwen-tail-entry-point.patch",
@@ -33,6 +33,10 @@
     {
       "path": "0007-remove-managed-git.patch",
       "sha256": "4db64404cf0b7f60e9c61d323346df5e3b814af0a62d1a2359add2cb559dac8f"
+    },
+    {
+      "path": "0008-silero-non-ascii-path.patch",
+      "sha256": "c0a4dd5bf696de5071ba9ce9e0b7797da091d6e20822fbea353c786ba2659121"
     }
   ],
   "ref": "v0.5.1",

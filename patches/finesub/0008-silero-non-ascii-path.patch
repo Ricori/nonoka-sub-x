@@ -1,0 +1,62 @@
+Subject: [PATCH 8/8] Load the Silero model from a buffer, not a path
+
+Reason: `silero_vad.load_silero_vad()` calls `torch.jit.load(path)`, which
+hands the string to libtorch's `FileAdapter` and opens it with the narrow
+`fopen`. On Windows that decodes the UTF-8 bytes in the ANSI code page (GBK
+on a Chinese system), so when the managed runtime is installed under a
+non-ASCII directory -- the model ships inside `site-packages` -- the ASR stage
+dies with `RuntimeError: open file failed because of errno 2 on fopen: No such
+file or directory`. `torch.load` is unaffected because it opens the file in
+Python first. Reading the bytes in Python and loading from a buffer never
+reaches `fopen`; the resulting module is the one `load_silero_vad()` returns.
+
+Removal: Delete once upstream FineSub or silero-vad loads the model without a
+path-based `torch.jit.load`, or libtorch opens paths with `_wfopen` on Windows.
+
+diff --git a/src/finesub/speech/preprocessing/silero_ghost.py b/src/finesub/speech/preprocessing/silero_ghost.py
+index f6169ac..9585b68 100644
+--- a/src/finesub/speech/preprocessing/silero_ghost.py
++++ b/src/finesub/speech/preprocessing/silero_ghost.py
+@@ -26,6 +26,7 @@ from __future__ import annotations
+ 
+ import contextlib
+ import copy
++import io
+ import math
+ import time
+ from pathlib import Path
+@@ -56,14 +57,31 @@ def _model():
+         # later torch op in this run would be single-threaded.
+         threads = torch.get_num_threads()
+         try:
+-            from silero_vad import load_silero_vad
+-
+-            _MODEL = load_silero_vad()
++            _MODEL = _load_silero_jit()
+         finally:
+             torch.set_num_threads(threads)
+     return _MODEL
+ 
+ 
++def _load_silero_jit():
++    """What `silero_vad.load_silero_vad()` returns, loaded from a buffer.
++
++    Given a path, `torch.jit.load` hands the string to libtorch, which opens it
++    with the narrow `fopen`. On Windows that reads the UTF-8 bytes in the ANSI
++    code page, so a runtime installed under a non-ASCII directory (the model
++    ships inside `site-packages`) fails with `open file failed because of
++    errno 2 on fopen`. Python opens the file instead; a buffer never reaches
++    `fopen`.
++    """
++
++    from importlib import resources
++
++    payload = resources.files("silero_vad.data").joinpath("silero_vad.jit").read_bytes()
++    model = torch.jit.load(io.BytesIO(payload), map_location=torch.device("cpu"))
++    model.eval()
++    return model
++
++
+ @contextlib.contextmanager
+ def _tf32_disabled():
+     """TF32 costs the extractor's convolutions ~3 mantissa bits, which moved 16

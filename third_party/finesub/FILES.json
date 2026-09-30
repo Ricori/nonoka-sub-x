@@ -1,5 +1,5 @@
 {
-  "content_sha256": "c7e0fe10d6242a7c0a50f6fb911eab626c00ce2ee58c5db95328bc3bd97000af",
+  "content_sha256": "e0d440923823c5e60cfa15aaa3e726a6af493fab26b88f42d4e1424187bf0731",
   "files": [
     {
       "bytes": 35149,
@@ -1232,9 +1232,9 @@
       "sha256": "aa9458c853803b71ef6f8c6f513f85334092a91b334d90c75f8dd682ad9eb360"
     },
     {
-      "bytes": 20012,
+      "bytes": 20723,
       "path": "src/finesub/speech/preprocessing/silero_ghost.py",
-      "sha256": "a0c25e4ffa0552f6a0986d452b69e79f24aefc0aa6424b4cdde016ac5f80655e"
+      "sha256": "d023cdb8e5bec808db5c2ca7be2a8b43165a364cadcf0c21d09c810bde72bcc6"
     },
     {
       "bytes": 19670,

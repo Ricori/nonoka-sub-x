@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import contextlib
 import copy
+import io
 import math
 import time
 from pathlib import Path
@@ -56,12 +57,29 @@ def _model():
         # later torch op in this run would be single-threaded.
         threads = torch.get_num_threads()
         try:
-            from silero_vad import load_silero_vad
-
-            _MODEL = load_silero_vad()
+            _MODEL = _load_silero_jit()
         finally:
             torch.set_num_threads(threads)
     return _MODEL
+
+
+def _load_silero_jit():
+    """What `silero_vad.load_silero_vad()` returns, loaded from a buffer.
+
+    Given a path, `torch.jit.load` hands the string to libtorch, which opens it
+    with the narrow `fopen`. On Windows that reads the UTF-8 bytes in the ANSI
+    code page, so a runtime installed under a non-ASCII directory (the model
+    ships inside `site-packages`) fails with `open file failed because of
+    errno 2 on fopen`. Python opens the file instead; a buffer never reaches
+    `fopen`.
+    """
+
+    from importlib import resources
+
+    payload = resources.files("silero_vad.data").joinpath("silero_vad.jit").read_bytes()
+    model = torch.jit.load(io.BytesIO(payload), map_location=torch.device("cpu"))
+    model.eval()
+    return model
 
 
 @contextlib.contextmanager
