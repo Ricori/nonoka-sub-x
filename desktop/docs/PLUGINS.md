@@ -160,8 +160,11 @@ window.nonoka.post("host.getInfo", {});
 - `-f` / `--format`：最高 1440p、最高 2160p 两种 selector
 - `-N` / `--concurrent-fragments`：`16`
 - `--no-part`：直接写最终文件名，配合多连接下载（它本来就是乱序写盘）
+- `--downloader aria2c`：请求用 aria2c 多连接下载，值只能是 `aria2c`
 
-此外，系统插件调用时如果能找到 `aria2c`，宿主会自动追加 `--downloader dash,m3u8,http:<aria2c>` 和 `--downloader-args aria2c:-x 16 -s 16 -k 1M` 走多连接下载。aria2c 是「运行环境」里的**可选工具**，装了就加速，没装就用 yt-dlp 自带的下载器，只是慢一些 —— 它不是下载功能的前置条件。外部下载器不开放给用户插件，否则等于在沙箱后面多放一个独立配置的网络客户端。
+`--downloader aria2c` 只是向宿主提出的请求，不会原样交给 yt-dlp：宿主把它换成 `--downloader dash,m3u8,http:<aria2c>` 和 `--downloader-args aria2c:-x 16 -s 16 -k 1M`，可执行文件路径始终由宿主解析。aria2c 是「运行环境」里的**可选工具**；请求了但没装、或者系统代理是 aria2c 不支持的 SOCKS 代理时，宿主在下载日志里写一条 `WARNING` 并退回 yt-dlp 自带的下载器。外部下载器不开放给用户插件，否则等于在沙箱后面多放一个独立配置的网络客户端。
+
+Windows 上如果开了系统代理（且没有设置 `ALL_PROXY` / `HTTPS_PROXY` / `HTTP_PROXY` 环境变量），宿主会把它作为 `--proxy` 传给 yt-dlp，yt-dlp 再转交给 aria2c，保证解析和下载走同一个出口。
 
 ### YouTube 的四道门禁
 

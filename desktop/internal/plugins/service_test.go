@@ -424,6 +424,62 @@ func TestDownloadFailureExplainsTheForbiddenCase(t *testing.T) {
 	}
 }
 
+func TestAria2cIsAnOptInRequestFromBuiltInPlugins(t *testing.T) {
+	request := []string{"-N", "16", "--downloader", "aria2c"}
+	if err := validateYTDLPArguments(request, true); err != nil {
+		t.Fatalf("built-in plugin could not ask for aria2c: %v", err)
+	}
+	if err := validateYTDLPArguments(request, false); err == nil {
+		t.Fatal("a UI plugin was allowed to ask for an external downloader")
+	}
+	for _, named := range [][]string{{"--downloader", "C:\\evil.exe"}, {"--downloader", "ffmpeg"}, {"--downloader"}} {
+		if err := validateYTDLPArguments(named, true); err == nil {
+			t.Fatalf("downloader other than the aria2c request was accepted: %#v", named)
+		}
+	}
+	kept, requested := takeAria2cRequest(request)
+	if !requested || strings.Join(kept, " ") != "-N 16" {
+		t.Fatalf("request was not taken out: %#v %v", kept, requested)
+	}
+	if _, requested := takeAria2cRequest([]string{"-N", "16"}); requested {
+		t.Fatal("aria2c was used without being asked for")
+	}
+}
+
+func TestDownloadFailureExplainsTheUnreachableCase(t *testing.T) {
+	// aria2c's own report of the timeout, as it reaches us when the media
+	// transfer bypassed the proxy that the extraction went through.
+	output := "09/29 23:56:38 [ERROR] CUID#7 - Download aborted. URI=https://rr3---sn-i3belnls.googlevideo.com/videoplayback?expire=1" +
+		newlineForTest + "Exception: [AbstractCommand.cc:312] errorCode=1 Network problem has occurred. cause:A connection attempt failed" +
+		newlineForTest + "ERROR: aria2c exited with code 1"
+	if explained := explainDownloadFailure(output); explained != unreachableDownloadHelp {
+		t.Fatalf("timeout was not explained: %q", explained)
+	}
+}
+
+func TestSystemProxyParsing(t *testing.T) {
+	cases := map[string]string{
+		"":                      "",
+		"127.0.0.1:7890":        "http://127.0.0.1:7890",
+		"http://127.0.0.1:7890": "http://127.0.0.1:7890",
+		"http=127.0.0.1:8080;https=127.0.0.1:8443": "http://127.0.0.1:8443",
+		"http=127.0.0.1:8080;socks=127.0.0.1:1080": "http://127.0.0.1:8080",
+		"socks=127.0.0.1:1080":                     "socks5://127.0.0.1:1080",
+		"ftp=127.0.0.1:21":                         "",
+	}
+	for server, want := range cases {
+		if got := parseSystemProxy(server); got != want {
+			t.Fatalf("parseSystemProxy(%q) = %q, want %q", server, got, want)
+		}
+	}
+	if !aria2cSupportsProxy("") || !aria2cSupportsProxy("http://127.0.0.1:7890") {
+		t.Fatal("aria2c was refused a direct or HTTP-proxied transfer")
+	}
+	if aria2cSupportsProxy("socks5://127.0.0.1:1080") {
+		t.Fatal("aria2c was handed a SOCKS proxy it cannot speak")
+	}
+}
+
 func TestDownloadFailureKeepsActionableDetailBounded(t *testing.T) {
 	// A real failed run is mostly progress redraws and very long signed URLs;
 	// only the ERROR lines are worth putting in front of a user.

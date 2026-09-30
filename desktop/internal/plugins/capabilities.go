@@ -180,6 +180,7 @@ func (s *Service) RunYTDLP(pluginID, rawURL string, pluginArgs []string) (Downlo
 	if err := validateYTDLPArguments(pluginArgs, system); err != nil {
 		return DownloadedMedia{}, err
 	}
+	pluginArgs, wantAria2c := takeAria2cRequest(pluginArgs)
 	if !s.mediaJobMu.TryLock() {
 		return DownloadedMedia{}, errors.New("another plugin media job is already running")
 	}
@@ -273,14 +274,27 @@ func (s *Service) RunYTDLP(pluginID, rawURL string, pluginArgs []string) (Downlo
 		// android_vr fallback at least lists some.
 		args = append(args, "--extractor-args", "youtube:player_client=mweb")
 	}
+	proxy := downloadProxy()
+	if proxy != "" {
+		args = append(args, "--proxy", proxy)
+	}
 	// Multi-connection fetching, as the reference downloader does it: aria2c
-	// pulls a long VOD far faster than yt-dlp's own HTTP downloader. Nonoka X does
-	// not manage the binary, so this stays optional — without it the built-in
-	// downloader still completes, just more slowly. Only built-in plugins get
-	// it, because handing an external downloader to sideloaded pages would put
-	// a second, separately configured network client behind the sandbox.
-	if system {
-		if aria2c, lookupErr := managedtools.Find(s.dataDirectory, "aria2c"); lookupErr == nil {
+	// pulls a long VOD far faster than yt-dlp's own HTTP downloader. It is opt-in
+	// because it is a second network client with its own failure modes -- a
+	// proxy it cannot use times every connection out -- so the page asks for it
+	// and the host resolves the binary. When it cannot be honoured the download
+	// still runs on the built-in downloader, just more slowly. Only built-in
+	// plugins may ask, since validateYTDLPArguments refuses the request from
+	// sideloaded pages.
+	var aria2cNotice string
+	if wantAria2c {
+		aria2c, lookupErr := managedtools.Find(s.dataDirectory, "aria2c")
+		switch {
+		case lookupErr != nil:
+			aria2cNotice = "aria2c is not installed; using yt-dlp's built-in downloader. Install it from 运行环境 to enable acceleration."
+		case !aria2cSupportsProxy(proxy):
+			aria2cNotice = "aria2c cannot use a SOCKS proxy; using yt-dlp's built-in downloader."
+		default:
 			args = append(args,
 				"--downloader", "dash,m3u8,http:"+aria2c,
 				"--downloader-args", "aria2c:-x 16 -s 16 -k 1M",
@@ -296,6 +310,10 @@ func (s *Service) RunYTDLP(pluginID, rawURL string, pluginArgs []string) (Downlo
 	// later cancel cannot fire at a process that has already gone.
 	s.downloadCancelled.Store(false)
 	s.resetDownloadLog()
+	if aria2cNotice != "" {
+		// Otherwise the only sign of the fallback is a slower bar.
+		s.emitDownloadLog("WARNING: " + aria2cNotice)
+	}
 	s.downloadCancelMu.Lock()
 	s.downloadCancel = cancelDownload
 	s.downloadCancelMu.Unlock()
@@ -463,8 +481,21 @@ func explainDownloadFailure(output string) string {
 	if strings.Contains(trimmed, "HTTP Error 403") || strings.Contains(trimmed, "status=403") {
 		return forbiddenDownloadHelp
 	}
+	if strings.Contains(trimmed, "aria2c exited") && strings.Contains(trimmed, "Network problem has occurred") {
+		return unreachableDownloadHelp
+	}
 	return "yt-dlp download failed: " + downloadFailureDetail(trimmed)
 }
+
+// unreachableDownloadHelp explains aria2c timing out against googlevideo. By the
+// time aria2c runs, yt-dlp has already fetched the video page, so YouTube itself
+// was reachable; the transfer was not, which almost always means the proxy that
+// carried the first request did not carry the second.
+const unreachableDownloadHelp = "aria2c could not connect to the video server (the connection timed out). " +
+	"The video information was fetched, so YouTube is reachable, but the media transfer did not go through your proxy. " +
+	"Nonoka X forwards the Windows system proxy; if your proxy client does not set one (or only sets a PAC script), " +
+	"set HTTPS_PROXY to its HTTP port before starting Nonoka X, turn on the client's TUN mode, " +
+	"or switch the downloader back to the built-in one."
 
 // downloadFailureDetail keeps the actionable part of the log: the ERROR lines
 // when yt-dlp emitted any, otherwise the tail, always bounded so a wall of
@@ -715,6 +746,17 @@ func validateYTDLPArguments(arguments []string, system bool) error {
 				return fmt.Errorf("yt-dlp argument %q is only allowed for built-in plugins", argument)
 			}
 			continue
+		case "--downloader":
+			// Only ever the request `--downloader aria2c`: the host swaps it for the
+			// resolved binary, so a page can never name an executable of its own.
+			if !system {
+				return fmt.Errorf("yt-dlp argument %q is only allowed for built-in plugins", argument)
+			}
+			if index+1 >= len(arguments) || arguments[index+1] != "aria2c" {
+				return errors.New("yt-dlp --downloader only accepts aria2c")
+			}
+			index++
+			continue
 		case "-f", "--format", "--merge-output-format", "--remux-video", "-N", "--concurrent-fragments":
 			if index+1 >= len(arguments) {
 				return fmt.Errorf("yt-dlp argument %s requires a value", argument)
@@ -740,6 +782,23 @@ func validateYTDLPArguments(arguments []string, system bool) error {
 		}
 	}
 	return nil
+}
+
+// takeAria2cRequest removes the validated `--downloader aria2c` pair, reporting
+// whether it was there. The pair is a request to the host, not an argument
+// yt-dlp should see as written.
+func takeAria2cRequest(arguments []string) ([]string, bool) {
+	kept := make([]string, 0, len(arguments))
+	requested := false
+	for index := 0; index < len(arguments); index++ {
+		if arguments[index] == "--downloader" && index+1 < len(arguments) && arguments[index+1] == "aria2c" {
+			requested = true
+			index++
+			continue
+		}
+		kept = append(kept, arguments[index])
+	}
+	return kept, requested
 }
 
 func summarizeMedia(entry library.Entry) MediaSummary {

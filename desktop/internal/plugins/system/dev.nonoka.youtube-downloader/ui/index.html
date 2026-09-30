@@ -86,14 +86,14 @@
       font-size: 11px;
     }
 
-    /* 地址是主输入，独占一行；两个下拉是次要选项，缩到固定宽度并排 */
+    /* 地址是主输入，独占一行；下拉是次要选项，缩到固定宽度并排 */
     .address {
       margin-bottom: 14px;
     }
 
     .options {
       display: grid;
-      grid-template-columns: 160px 160px;
+      grid-template-columns: repeat(3, 160px);
       gap: 12px;
     }
 
@@ -393,6 +393,10 @@
             <option value="1080" selected>1080p</option>
             <option value="720">720p</option>
           </select></label>
+        <label>下载器<select id="downloader">
+            <option value="aria2c" selected>aria2c 加速</option>
+            <option value="builtin">yt-dlp 内置</option>
+          </select></label>
         <label>并发分片<select id="fragments">
             <option value="16">16（最快）</option>
             <option value="8">8</option>
@@ -448,6 +452,7 @@
     const url = document.querySelector("#url");
     const quality = document.querySelector("#quality");
     const fragments = document.querySelector("#fragments");
+    const downloader = document.querySelector("#downloader");
     const download = document.querySelector("#download");
     const status = document.querySelector("#status");
     const meter = document.querySelector("#meter");
@@ -575,6 +580,8 @@
         "--no-part",
         "-N", fragments.value
       ];
+      // 只是向宿主提出请求：aria2c 的路径由宿主解析，没装或用不了代理时自动退回内置下载器。
+      if (downloader.value === "aria2c") args.push("--downloader", "aria2c");
       window.nonoka.post("tools.runYtDLP", { url: value, args: args }, requestId);
     });
 
