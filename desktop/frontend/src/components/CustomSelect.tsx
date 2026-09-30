@@ -17,6 +17,7 @@ interface CustomSelectProps<T extends string | number> {
   className?: string;
   disabled?: boolean;
   compact?: boolean;
+  menuMaxHeight?: number;
 }
 
 interface MenuPosition {
@@ -35,6 +36,7 @@ export function CustomSelect<T extends string | number>({
   className = "",
   disabled = false,
   compact = false,
+  menuMaxHeight = 240,
 }: CustomSelectProps<T>) {
   const [open, setOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
@@ -85,11 +87,11 @@ export function CustomSelect<T extends string | number>({
       const gutter = 8;
       const gap = 6;
       const width = Math.min(Math.max(rect.width, 168), window.innerWidth - gutter * 2);
-      const estimatedHeight = Math.min(options.length * 36 + 10, 240);
+      const estimatedHeight = Math.min(options.length * 36 + 10, menuMaxHeight);
       const roomBelow = window.innerHeight - rect.bottom - gutter;
       const roomAbove = rect.top - gutter;
-      const side = roomBelow < Math.min(estimatedHeight, 180) && roomAbove > roomBelow ? "top" : "bottom";
-      const maxHeight = Math.max(92, Math.min(240, (side === "bottom" ? roomBelow : roomAbove) - gap));
+      const side = roomBelow < estimatedHeight && roomAbove > roomBelow ? "top" : "bottom";
+      const maxHeight = Math.max(92, Math.min(menuMaxHeight, (side === "bottom" ? roomBelow : roomAbove) - gap));
       const left = Math.min(Math.max(gutter, rect.left), window.innerWidth - width - gutter);
       const top = side === "bottom"
         ? rect.bottom + gap
@@ -110,7 +112,7 @@ export function CustomSelect<T extends string | number>({
       document.removeEventListener("scroll", updatePosition, true);
       window.removeEventListener("resize", updatePosition);
     };
-  }, [open, options.length]);
+  }, [open, options.length, menuMaxHeight]);
 
   useEffect(() => {
     if (!open) return;

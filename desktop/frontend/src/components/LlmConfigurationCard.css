@@ -20,8 +20,9 @@
 .llm-route-controls { display: grid; grid-template-columns: minmax(150px, .65fr) minmax(260px, 1fr); gap: 9px; width: min(100%, 650px); }
 /* 档位选择器挤进来的那一行。模型那一格仍然最宽——它装的是最长的字符串。 */
 .llm-route-controls.tiered { grid-template-columns: minmax(120px, .5fr) minmax(96px, .32fr) minmax(210px, 1fr); }
-.llm-route-controls select, .llm-route-controls input { width: 100%; min-width: 0; border: 1px solid var(--line); border-radius: 9px; padding: 9px 10px; background: color-mix(in srgb, var(--bg) 72%, var(--panel)); color: var(--text); font-size: 11px; outline: none; }
-.llm-route-controls select:focus, .llm-route-controls input:focus { border-color: var(--accent-border); box-shadow: 0 0 0 3px var(--accent-dim); }
+.llm-route-controls input { width: 100%; min-width: 0; border: 1px solid var(--line); border-radius: 9px; padding: 9px 10px; background: color-mix(in srgb, var(--bg) 72%, var(--panel)); color: var(--text); font-size: 11px; outline: none; }
+.llm-route-controls input:focus { border-color: var(--accent-border); box-shadow: 0 0 0 3px var(--accent-dim); }
+.llm-config-card .custom-select-trigger { font-size: 11px; }
 .llm-route-controls input:disabled { color: var(--faint); opacity: .72; }
 
 /* 选中提供商后才出现的凭据区：Key，以及带自定义端点的提供商的 Base URL。 */
@@ -31,8 +32,8 @@
 .llm-credential-row > span { display: grid; gap: 3px; min-width: 0; }
 .llm-credential-row strong { font-size: 11px; }
 .llm-credential-row small { overflow: hidden; color: var(--faint); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
-.llm-credential-row input, .llm-credential-row select { width: 100%; min-width: 0; border: 1px solid var(--line); border-radius: 9px; padding: 9px 10px; background: color-mix(in srgb, var(--bg) 72%, var(--panel)); color: var(--text); font-size: 11px; outline: none; }
-.llm-credential-row input:focus, .llm-credential-row select:focus { border-color: var(--accent-border); box-shadow: 0 0 0 3px var(--accent-dim); }
+.llm-credential-row input { width: 100%; min-width: 0; border: 1px solid var(--line); border-radius: 9px; padding: 9px 10px; background: color-mix(in srgb, var(--bg) 72%, var(--panel)); color: var(--text); font-size: 11px; outline: none; }
+.llm-credential-row input:focus { border-color: var(--accent-border); box-shadow: 0 0 0 3px var(--accent-dim); }
 .llm-credential-row .danger-link { min-width: 56px; }
 
 .llm-task-routing { border-top: 1px solid var(--line-soft); }

@@ -4,6 +4,7 @@ import type { FineSubBaseUrlState, FineSubKeyState, FineSubModelProvider, FineSu
 import type { ProviderChoice } from "./llmRouting.ts";
 import { choiceIdOf, effectiveRoute, hasDraft, loadModelMemory, pickModelForProvider, preferredMember, providerChoices, routeSettingName, saveModelMemory } from "./llmRouting.ts";
 import { Mark } from "./Mark.tsx";
+import { CustomSelect } from "./CustomSelect.tsx";
 import "./LlmConfigurationCard.css";
 
 interface LlmConfigurationCardProps {
@@ -106,9 +107,12 @@ export function LlmConfigurationCard({ keys, baseUrls, modelRouting, drafts, bus
     };
     if (provider.mode === "select") {
       return (
-        <select aria-label={`${routeID} 模型`} value={model} onChange={(event) => editModel(event.target.value)}>
-          {provider.models.map((item) => <option key={item.id} value={item.id}>{item.label} · {item.id}</option>)}
-        </select>
+        <CustomSelect
+          ariaLabel={`${routeID} 模型`}
+          value={model}
+          options={provider.models.map((item) => ({ value: item.id, label: `${item.label} · ${item.id}` }))}
+          onChange={editModel}
+        />
       );
     }
     return <input aria-label={`${routeID} 模型 ID`} autoComplete="off" autoCapitalize="none" autoCorrect="off" spellCheck={false} placeholder={`填写 ${provider.label} 模型 ID`} value={model} onChange={(event) => editModel(event.target.value)} />;
@@ -131,7 +135,7 @@ export function LlmConfigurationCard({ keys, baseUrls, modelRouting, drafts, bus
   const choiceSuffix = (choice: ProviderChoice) => {
     const single = choice.members.length === 1 ? choice.members[0] : undefined;
     if (single && !single.requiresKey) return single.available ? "（本地 CLI）" : "（未检测到 CLI）";
-    return choice.members.some(isConfigured) ? "" : "（未配置凭据）";
+    return choice.members.some(isConfigured) ? "" : "（未配置）";
   };
 
   const tierLabelOf = (provider: FineSubModelProvider) =>
@@ -145,9 +149,12 @@ export function LlmConfigurationCard({ keys, baseUrls, modelRouting, drafts, bus
   const renderTierControl = (routeID: string, choice: ProviderChoice | undefined, current: string, members: FineSubModelProvider[]) => {
     if (!choice || members.length < 2) return null;
     return (
-      <select aria-label={`${routeID} ${choice.label} 档位`} value={current} onChange={(event) => selectProvider(routeID, event.target.value)}>
-        {members.map((item) => <option key={item.id} value={item.id}>{tierLabelOf(item)}</option>)}
-      </select>
+      <CustomSelect
+        ariaLabel={`${routeID} ${choice.label} 档位`}
+        value={current}
+        options={members.map((item) => ({ value: item.id, label: tierLabelOf(item) }))}
+        onChange={(value) => selectProvider(routeID, value)}
+      />
     );
   };
 
@@ -179,12 +186,19 @@ export function LlmConfigurationCard({ keys, baseUrls, modelRouting, drafts, bus
     const tier = choice && provider ? renderTierControl(routeID, choice, provider.id, offered(choice)) : null;
     return (
       <div className={tier ? "llm-route-controls tiered" : "llm-route-controls"}>
-        <select aria-label={`${routeID} 提供商`} value={choiceIdOf(provider)} onChange={(event) => selectChoice(routeID, event.target.value)}>
-          <option value="">跟随全局模型</option>
-          {options.map((item) => (
-            <option key={item.id} value={item.id}>{item.label}{item.members.length === 1 && item.members[0].requiresKey === false && !item.members[0].available ? "（未检测到 CLI）" : ""}</option>
-          ))}
-        </select>
+        <CustomSelect
+          ariaLabel={`${routeID} 提供商`}
+          menuMaxHeight={480}
+          value={choiceIdOf(provider)}
+          options={[
+            { value: "", label: "跟随全局模型" },
+            ...options.map((item) => ({
+              value: item.id,
+              label: `${item.label}${item.members.length === 1 && item.members[0].requiresKey === false && !item.members[0].available ? "（未检测到 CLI）" : ""}`,
+            })),
+          ]}
+          onChange={(value) => selectChoice(routeID, value)}
+        />
         {tier}
         {renderModelControl(routeID, provider, route.model, "使用全局模型")}
       </div>
@@ -208,12 +222,16 @@ export function LlmConfigurationCard({ keys, baseUrls, modelRouting, drafts, bus
         </div>
         <div className="llm-default-route">
           <div className="llm-route-controls">
-            <select aria-label="全局提供商" value={choiceIdOf(selected)} onChange={(event) => selectChoice("default", event.target.value)}>
-              <option value="">选择提供商</option>
-              {choices.map((item) => (
-                <option key={item.id} value={item.id}>{item.label}{choiceSuffix(item)}</option>
-              ))}
-            </select>
+            <CustomSelect
+              ariaLabel="全局提供商"
+              menuMaxHeight={480}
+              value={choiceIdOf(selected)}
+              options={[
+                { value: "", label: "选择提供商" },
+                ...choices.map((item) => ({ value: item.id, label: `${item.label}${choiceSuffix(item)}` })),
+              ]}
+              onChange={(value) => selectChoice("default", value)}
+            />
             {renderModelControl("default", selected, defaultRoute.model, "先选择提供商")}
           </div>
         </div>
@@ -237,9 +255,12 @@ export function LlmConfigurationCard({ keys, baseUrls, modelRouting, drafts, bus
                       <strong>{selectedChoice.label} 档位</strong>
                       <small>各有自己的 Key 与模型清单，同时只启用一个</small>
                     </span>
-                    <select aria-label={`${selectedChoice.label} 档位`} value={selected.id} onChange={(event) => selectProvider("default", event.target.value)}>
-                      {selectedChoice.members.map((item) => <option key={item.id} value={item.id}>{tierLabelOf(item)}</option>)}
-                    </select>
+                    <CustomSelect
+                      ariaLabel={`${selectedChoice.label} 档位`}
+                      value={selected.id}
+                      options={selectedChoice.members.map((item) => ({ value: item.id, label: tierLabelOf(item) }))}
+                      onChange={(value) => selectProvider("default", value)}
+                    />
                   </label>
                 )}
                 <label className="llm-credential-row">
