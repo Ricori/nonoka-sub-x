@@ -613,6 +613,9 @@ class LocalProvider:
         self._issues = runtime_issues() if issues is None else issues
         self._settings = settings
         self._provisioner = provisioner
+        from .telemetry import Telemetry
+
+        self.telemetry = Telemetry(self.root.parent)
         self.documents = DocumentStore(self.root.parent / "documents")
         self._worker_command = worker_command or self._default_worker_command
         self._llm_worker_command = llm_worker_command or self._default_llm_worker_command
@@ -773,6 +776,16 @@ class LocalProvider:
             raise ProviderError("invalid_settings", str(exc)) from exc
 
     def start(self, request: Mapping[str, Any]) -> dict[str, Any]:
+        try:
+            return self._start(request)
+        except ProviderError as exc:
+            from .telemetry import safe_error
+
+            self.telemetry.emit(self.telemetry.context(self._settings, dict(request)), "task_error",
+                                error=safe_error(exc.code, "start"))
+            raise
+
+    def _start(self, request: Mapping[str, Any]) -> dict[str, Any]:
         validated = validate_request(request)
         if self._issues_override and self._issues:
             issue = self._issues[0]
@@ -1193,6 +1206,12 @@ class LocalProvider:
         return self.status(task_id)
 
     def _spawn(self, task_id: str) -> None:
+        try:
+            request = _read_json_when_free(self._task_dir(task_id) / "request.json")
+            context = self.telemetry.context(self._settings, request)
+            _atomic_json(self._task_dir(task_id) / "telemetry-run.json", context)
+        except Exception:
+            pass
         thread = threading.Thread(target=self._run_worker, args=(task_id,), daemon=True, name=f"nonoka-{task_id[:8]}")
         with self._lock:
             self._threads[task_id] = thread
@@ -1374,6 +1393,29 @@ class LocalProvider:
             snapshot["error"] = error
         snapshot["updated_at"] = utc_now()
         _atomic_json(self._task_dir(task_id) / "snapshot.json", snapshot)
+        self._telemetry_state(task_id, snapshot)
+
+    def _telemetry_state(self, task_id: str, snapshot: dict) -> None:
+        from .telemetry import safe_error, classify_error
+
+        try:
+            path = self._task_dir(task_id) / "telemetry-run.json"
+            context = _read_json_when_free(path)
+            if not context:
+                return
+            kind = {"running": "task_model_config", "failed": "task_error"}.get(snapshot["state"])
+            if not kind or context.get(kind):
+                return
+            clean = {k: context[k] for k in ("sample_id", "models", "execution_provider")}
+            failure = snapshot.get("error") or {}
+            code = classify_error(failure.get("code", "unknown"), failure.get("message", ""))
+            error = safe_error(code, "execution", snapshot.get("stage", "unknown")) if kind == "task_error" else None
+            if not self.telemetry.emit(clean, kind, error=error, at=snapshot["updated_at"]):
+                return
+            context[kind] = True
+            _atomic_json(path, context)
+        except Exception:
+            pass
 
     def _update_progress(self, task_id: str, event_type: str, payload: Mapping[str, Any]) -> None:
         snapshot = self.status(task_id)
@@ -1406,6 +1448,8 @@ class LocalProvider:
             try:
                 snapshot = _read_json_when_free(snapshot_path)
                 task_id = str(snapshot["task_id"])
+                if snapshot.get("state") in {"failed", "running"}:
+                    self._telemetry_state(task_id, snapshot)
                 if snapshot.get("state") in {"queued", "running"}:
                     snapshot["state"] = "interrupted"
                     snapshot["updated_at"] = utc_now()

@@ -503,6 +503,12 @@ class FineSubSettings:
 
         self._sync_model_routing(_secrets_module().read_env_file(self.env_file))
 
+    def telemetry_models(self, request: dict) -> dict | None:
+        from .telemetry import model_snapshot
+
+        config = _read_toml(self.config_file).get("nonoka_models", {})
+        return model_snapshot(config if isinstance(config, dict) else {}, request)
+
     def snapshot(self) -> dict[str, Any]:
         secrets = _secrets_module()
         values = secrets.read_env_file(self.env_file)

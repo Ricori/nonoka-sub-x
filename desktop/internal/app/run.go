@@ -19,6 +19,7 @@ import (
 	"github.com/Ricori/nonoka-x/desktop/internal/selfupdate"
 	"github.com/Ricori/nonoka-x/desktop/internal/sidecar"
 	"github.com/Ricori/nonoka-x/desktop/internal/taskhistory"
+	"github.com/Ricori/nonoka-x/desktop/internal/telemetry"
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/events"
 )
@@ -113,6 +114,11 @@ func Run(assets fs.FS) error {
 	if err != nil {
 		return err
 	}
+	// Diagnostic failures must never prevent opening the desktop.
+	diagnosticService, diagnosticErr := telemetry.New(dataDirectory, selfupdate.Version, manager)
+	if diagnosticErr == nil {
+		provider.SetTelemetry(providerService, diagnosticService)
+	}
 	// Plugins reach subtitle documents through the same provider the editor
 	// uses, so a plugin write goes through the sidecar's revision check rather
 	// than touching document.json behind the editor's back.
@@ -124,6 +130,11 @@ func Run(assets fs.FS) error {
 	cloudService, err := cloud.New(dataDirectory, manager, libraryService)
 	if err != nil {
 		return err
+	}
+	if diagnosticErr == nil {
+		cloud.SetTelemetry(cloudService, diagnosticService)
+		diagnosticService.Start()
+		defer diagnosticService.Close()
 	}
 	windowService := NewWindowService(preferencesService, libraryService)
 	storageService := NewStorageService(dataDirectory, manager, libraryService)

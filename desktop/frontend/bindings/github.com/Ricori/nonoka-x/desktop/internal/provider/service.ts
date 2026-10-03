@@ -89,6 +89,13 @@ export function RemoveRuntimeGroup(target: string): $CancellablePromise<{ [_ in 
     return $Call.ByID(3789074711, target);
 }
 
+/**
+ * ReportStartFailure accepts only fixed preflight codes, never frontend error text.
+ */
+export function ReportStartFailure(executionProvider: string, code: string): $CancellablePromise<void> {
+    return $Call.ByID(2626829112, executionProvider, code);
+}
+
 export function ResumeTask(taskID: string): $CancellablePromise<{ [_ in string]?: any } | null> {
     return $Call.ByID(2307289594, taskID);
 }

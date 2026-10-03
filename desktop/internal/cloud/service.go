@@ -26,6 +26,7 @@ import (
 
 	"github.com/Ricori/nonoka-x/desktop/internal/library"
 	"github.com/Ricori/nonoka-x/desktop/internal/managedtools"
+	"github.com/Ricori/nonoka-x/desktop/internal/telemetry"
 )
 
 const (
@@ -189,6 +190,7 @@ type taskLink struct {
 }
 
 type Service struct {
+	telemetry            *telemetry.Service
 	mu                   sync.RWMutex
 	syncMu               sync.Mutex
 	configPath           string
@@ -246,7 +248,32 @@ func (s *Service) Capabilities() (map[string]any, error) {
 	return result, err
 }
 
-func (s *Service) StartTask(localID string, options map[string]any) (map[string]any, error) {
+func SetTelemetry(s *Service, t *telemetry.Service) {
+	s.telemetry = t
+	t.SetCloudStatus(func(ctx context.Context, id string) (map[string]any, error) {
+		var result map[string]any
+		err := s.authenticatedDo(ctx, http.MethodGet, "/v1/tasks/"+id, nil, &result)
+		return result, err
+	})
+}
+
+func (s *Service) StartTask(localID string, options map[string]any) (result map[string]any, err error) {
+	submitted := false
+	defer func() {
+		if s.telemetry == nil {
+			return
+		}
+		if err == nil {
+			if id, ok := result["task_id"].(string); ok {
+				s.telemetry.TrackCloud(id)
+			}
+			return
+		}
+		var status *httpStatusError
+		if !submitted || (errors.As(err, &status) && status.Status >= 400 && status.Status < 500) {
+			s.telemetry.StartFailure("cloud", "invalid_request")
+		}
+	}()
 	if s.media == nil {
 		return nil, errors.New("media library is unavailable")
 	}
@@ -343,6 +370,7 @@ func (s *Service) StartTask(localID string, options map[string]any) (map[string]
 		}
 	}
 	var snapshot map[string]any
+	submitted = true
 	if err := s.authenticatedDo(context.Background(), http.MethodPost, "/v1/tasks", request, &snapshot); err != nil {
 		// Only a refusal proves no task holds the upload. A timeout, a dropped
 		// connection or a 5xx can arrive after the backend already reserved and
@@ -422,11 +450,26 @@ func (s *Service) CancelTask(taskID string) (map[string]any, error) {
 }
 
 func (s *Service) RetryTask(taskID string) (map[string]any, error) {
-	return s.taskAction(taskID, "retry")
+	return s.restartWithTelemetry(taskID, "retry")
 }
 
 func (s *Service) ResumeTask(taskID string) (map[string]any, error) {
-	return s.taskAction(taskID, "resume")
+	return s.restartWithTelemetry(taskID, "resume")
+}
+
+func (s *Service) restartWithTelemetry(taskID, action string) (map[string]any, error) {
+	result, err := s.taskAction(taskID, action)
+	if s.telemetry != nil {
+		if err == nil {
+			s.telemetry.TrackCloud(taskID)
+		} else {
+			var status *httpStatusError
+			if errors.As(err, &status) && status.Status >= 400 && status.Status < 500 {
+				s.telemetry.StartFailure("cloud", "invalid_request")
+			}
+		}
+	}
+	return result, err
 }
 
 func (s *Service) TaskArtifacts(taskID string) (map[string]any, error) {

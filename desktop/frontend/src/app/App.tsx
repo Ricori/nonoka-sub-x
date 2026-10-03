@@ -1,3 +1,4 @@
+import { reportStartFailure } from "../bridge/wails.ts";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Events } from "@wailsio/runtime";
 import type { Snapshot as SidecarSnapshot } from "../../bindings/github.com/Ricori/nonoka-x/desktop/internal/sidecar/models.js";
@@ -82,8 +83,8 @@ export default function App() {
   const [executionMode, setExecutionMode] = useState<ExecutionMode>("local");
   const localProvider = useMemo(() => new LocalExecutionProvider(localProviderBridge), []);
   const cloudProvider = useMemo(() => new CloudExecutionProvider(cloudAccount), []);
-  const localController = useMemo(() => new PipelineController(localProvider), [localProvider]);
-  const cloudController = useMemo(() => new PipelineController(cloudProvider), [cloudProvider]);
+  const localController = useMemo(() => new PipelineController(localProvider, reportStartFailure), [localProvider]);
+  const cloudController = useMemo(() => new PipelineController(cloudProvider, reportStartFailure), [cloudProvider]);
   const controller = executionMode === "local" ? localController : cloudController;
   const [section, setSection] = useState<Section>("library");
   const [plugins, setPlugins] = useState<InstalledPlugin[]>([]);

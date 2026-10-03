@@ -29,8 +29,11 @@ export class PipelineController {
 
   private readonly provider: ExecutionProvider;
 
-  constructor(provider: ExecutionProvider) {
+  private readonly reportStartFailure?: (provider: string, code: string) => void;
+
+  constructor(provider: ExecutionProvider, reportStartFailure?: (provider: string, code: string) => void) {
     this.provider = provider;
+    this.reportStartFailure = reportStartFailure;
   }
 
   subscribe(listener: Listener): () => void {
@@ -46,10 +49,12 @@ export class PipelineController {
   async start(request: TaskRequest): Promise<TaskSnapshot> {
     const capabilities = await this.provider.capabilities();
     if (!capabilities.runtime?.ready) {
+      this.reportStartFailure?.(request.provider, "runtime_not_ready");
       const issue = capabilities.runtime?.issues[0];
       throw new Error(issue?.message ?? "Selected provider runtime is not ready");
     }
     if (request.correction.media === "video" && !capabilities.features.video_multimodal) {
+      this.reportStartFailure?.(request.provider, "invalid_request");
       throw new Error("Selected provider does not support video multimodal correction");
     }
     const rawSnapshot = await this.provider.start(request);

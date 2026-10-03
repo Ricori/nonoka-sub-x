@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/Ricori/nonoka-x/desktop/internal/sidecar"
+	"github.com/Ricori/nonoka-x/desktop/internal/telemetry"
 )
 
 var validTaskID = regexp.MustCompile(`^[0-9a-f]{32}$`)
@@ -37,6 +38,7 @@ type pythonBootstrap interface {
 }
 
 type Service struct {
+	telemetry       *telemetry.Service
 	provider        caller
 	pythonBootstrap pythonBootstrap
 }
@@ -50,6 +52,15 @@ func New(local caller, bootstrap ...pythonBootstrap) (*Service, error) {
 		service.pythonBootstrap = bootstrap[0]
 	}
 	return service, nil
+}
+
+func SetTelemetry(s *Service, t *telemetry.Service) { s.telemetry = t }
+
+// ReportStartFailure accepts only fixed preflight codes, never frontend error text.
+func (s *Service) ReportStartFailure(executionProvider, code string) {
+	if s.telemetry != nil && (executionProvider == "local" || executionProvider == "cloud") {
+		s.telemetry.StartFailure(executionProvider, code)
+	}
 }
 
 func (s *Service) SidecarStatus() sidecar.Snapshot {
@@ -229,6 +240,10 @@ func (s *Service) ImportDocument(payload map[string]any) (map[string]any, error)
 }
 
 func (s *Service) StartTask(request map[string]any) (map[string]any, error) {
+	if s.telemetry != nil && !s.provider.Snapshot().Running {
+		s.telemetry.StartFailure("local", "sidecar_unavailable")
+	}
+
 	if request == nil {
 		return nil, errors.New("task request is required")
 	}

@@ -66,7 +66,12 @@ class SidecarHandler(BaseHTTPRequestHandler):
         parsed = urlsplit(self.path)
         parts = [part for part in parsed.path.split("/") if part]
         provider = self.server.provider
-        if self.command == "GET" and parts == ["v1", "capabilities"]:
+        if self.command == "GET" and parts == ["v1", "telemetry"]:
+            self._json(200, {"events": provider.telemetry.pending()})
+        elif self.command == "POST" and parts == ["v1", "telemetry", "ack"]:
+            provider.telemetry.ack(self._body().get("ids", []))
+            self._json(200, {})
+        elif self.command == "GET" and parts == ["v1", "capabilities"]:
             self._json(200, provider.get_capabilities())
         elif self.command == "GET" and parts == ["v1", "runtime", "provision"]:
             self._json(200, provider.runtime_provision_status())

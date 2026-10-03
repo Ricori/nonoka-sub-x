@@ -282,3 +282,14 @@ test("default local request contains a trusted path and no upload transport", ()
   assert.equal(JSON.stringify(value).includes("upload"), false);
   assert.equal(JSON.stringify(value).includes("backend"), false);
 });
+
+
+test("preflight telemetry reports only a fixed code before refusing a start", async () => {
+  const reported = [];
+  const controller = new PipelineController({
+    async capabilities() { return capabilities({runtime: {ready: false, issues: [{message: "private file path"}]}}); },
+    async start() { throw new Error("must not start"); },
+  }, (provider, code) => reported.push({provider, code}));
+  await assert.rejects(() => controller.start({provider: "local", correction: {media: "text"}}), /private file path/);
+  assert.deepEqual(reported, [{provider: "local", code: "runtime_not_ready"}]);
+});

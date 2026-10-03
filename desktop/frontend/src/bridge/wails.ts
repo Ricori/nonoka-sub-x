@@ -17,3 +17,7 @@ export const localProviderBridge: LocalProviderBridge = {
 };
 
 export const sidecarStatus = (): Promise<SidecarSnapshot> => ProviderService.SidecarStatus();
+
+export const reportStartFailure = (provider: string, code: string): void => {
+  void ProviderService.ReportStartFailure(provider, code).catch(() => undefined);
+};

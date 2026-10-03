@@ -5,8 +5,31 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"strings"
 	"testing"
 )
+
+func TestLegacyDiagnosticsPreferenceIsDiscarded(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "preferences.json")
+	if err := os.WriteFile(path, []byte(`{"shareDiagnostics":false,"diagnosticsEpoch":1,"homeTheme":"dark"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	service, err := New(root)
+	if err != nil || service.Get().HomeTheme != "dark" {
+		t.Fatalf("legacy preferences = %v", err)
+	}
+	if _, err := service.Save(map[string]any{"shareDiagnostics": false, "libraryView": "list"}); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil || strings.Contains(string(data), "shareDiagnostics") || strings.Contains(string(data), "diagnosticsEpoch") {
+		t.Fatalf("obsolete diagnostics preference retained: %s, %v", data, err)
+	}
+	if service.Get().LibraryView != "list" {
+		t.Fatal("regular preference update lost")
+	}
+}
 
 func TestPreferencesPersistValidatedPartialUpdates(t *testing.T) {
 	root := t.TempDir()
