@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -253,6 +254,14 @@ func SetTelemetry(s *Service, t *telemetry.Service) {
 	t.SetCloudStatus(func(ctx context.Context, id string) (map[string]any, error) {
 		var result map[string]any
 		err := s.authenticatedDo(ctx, http.MethodGet, "/v1/tasks/"+id, nil, &result)
+		if err == nil && result["state"] == "failed" {
+			// Existing deployments replace the terminal stage; recover it from recent events.
+			cursor, _ := result["last_cursor"].(float64)
+			var page map[string]any
+			if s.authenticatedDo(ctx, http.MethodGet, fmt.Sprintf("/v1/tasks/%s/events?after=%d", id, max(0, int(cursor)-500)), nil, &page) == nil {
+				result["events"] = page["events"]
+			}
+		}
 		return result, err
 	})
 }
@@ -271,7 +280,7 @@ func (s *Service) StartTask(localID string, options map[string]any) (result map[
 		}
 		var status *httpStatusError
 		if !submitted || (errors.As(err, &status) && status.Status >= 400 && status.Status < 500) {
-			s.telemetry.StartFailure("cloud", "invalid_request")
+			s.telemetry.StartFailure("cloud", startFailureCode(err))
 		}
 	}()
 	if s.media == nil {
@@ -458,6 +467,9 @@ func (s *Service) ResumeTask(taskID string) (map[string]any, error) {
 }
 
 func (s *Service) restartWithTelemetry(taskID, action string) (map[string]any, error) {
+	if s.telemetry != nil {
+		s.telemetry.CollectCloud(taskID)
+	}
 	result, err := s.taskAction(taskID, action)
 	if s.telemetry != nil {
 		if err == nil {
@@ -465,11 +477,49 @@ func (s *Service) restartWithTelemetry(taskID, action string) (map[string]any, e
 		} else {
 			var status *httpStatusError
 			if errors.As(err, &status) && status.Status >= 400 && status.Status < 500 {
-				s.telemetry.StartFailure("cloud", "invalid_request")
+				s.telemetry.StartFailure("cloud", startFailureCode(err))
 			}
 		}
 	}
 	return result, err
+}
+
+// Classify locally; neither backend response text nor transport errors leave the device.
+func startFailureCode(err error) string {
+	var status *httpStatusError
+	if errors.As(err, &status) {
+		switch status.Status {
+		case 402:
+			return "quota_exceeded"
+		case 403:
+			// Older Modal deployments expose this fixed quota message without a code.
+			if status.Detail == "转写任务余量不足" {
+				return "quota_exceeded"
+			}
+			return "auth_failed"
+		case 401:
+			return "auth_failed"
+		case 429:
+			return "rate_limited"
+		case 408, 504:
+			return "timeout"
+		case 409:
+			return "invalid_state"
+		case 400, 404, 422:
+			return "invalid_request"
+		}
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return "timeout"
+	}
+	var network net.Error
+	if errors.As(err, &network) {
+		if network.Timeout() {
+			return "timeout"
+		}
+		return "network_error"
+	}
+	return "unknown"
 }
 
 func (s *Service) TaskArtifacts(taskID string) (map[string]any, error) {

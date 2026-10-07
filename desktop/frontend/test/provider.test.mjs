@@ -293,3 +293,16 @@ test("preflight telemetry reports only a fixed code before refusing a start", as
   await assert.rejects(() => controller.start({provider: "local", correction: {media: "text"}}), /private file path/);
   assert.deepEqual(reported, [{provider: "local", code: "runtime_not_ready"}]);
 });
+
+test("capability failures report once without starting a task or leaking error text", async () => {
+  for (const provider of ["local", "cloud"]) {
+    const reported = [];
+    const failure = new Error("private key and path");
+    const controller = new PipelineController({
+      async capabilities() { throw failure; },
+      async start() { assert.fail("must not start after capability failure"); },
+    }, (...event) => reported.push(event));
+    await assert.rejects(controller.start({provider, correction: {media: "text"}}), error => error === failure);
+    assert.deepEqual(reported, [[provider, provider === "local" ? "sidecar_unavailable" : "unknown"]]);
+  }
+});

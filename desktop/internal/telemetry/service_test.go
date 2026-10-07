@@ -6,10 +6,91 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 )
+
+func TestCollectBeforeRetryPreservesFailureAndRejectsStalePoll(t *testing.T) {
+	s, err := New(t.TempDir(), "0.4.2", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.cancel()
+	s.TrackCloud("task")
+	old := s.state.CloudRuns["task"]
+	failed := map[string]any{"state": "failed", "stage": "failed", "error": map[string]any{"code": "engine_failed", "stage": "asr"}}
+	s.SetCloudStatus(func(context.Context, string) (map[string]any, error) { return failed, nil })
+	s.CollectCloud("task")
+	s.TrackCloud("task")
+	s.recordCloud("task", old, failed)
+	s.recordCloud("task", s.state.CloudRuns["task"], map[string]any{"state": "completed"})
+	if len(s.state.Pending) != 1 || s.state.Pending[0].SampleID != old.SampleID || s.state.Pending[0].Error.Stage != "asr" {
+		t.Fatalf("lost, duplicated or misclassified failure: %+v", s.state.Pending)
+	}
+	recovered, err := New(filepath.Dir(s.path), "0.4.2", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer recovered.cancel()
+	if len(recovered.state.Pending) != 1 || len(recovered.state.CloudRuns) != 0 {
+		t.Fatal("outcomes not durable")
+	}
+}
+
+func TestStartFailureAllowsSafeCategoriesOnly(t *testing.T) {
+	s, err := New(t.TempDir(), "0.4.2", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.cancel()
+	for _, code := range []string{"quota_exceeded", "auth_failed", "network_error", "timeout", "rate_limited", "private error text"} {
+		s.StartFailure("cloud", code)
+		e := s.state.Pending[len(s.state.Pending)-1]
+		want := code
+		if code == "private error text" {
+			want = "unknown"
+		}
+		if e.Error.Code != want || e.Error.Message != "Task failed: "+want {
+			t.Fatalf("unsafe or lost category: %+v", e.Error)
+		}
+	}
+}
+
+func TestCloudStageRecoveryStaysWithinTheFailedRun(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		events []any
+		want   string
+	}{
+		{"last valid stage", []any{
+			map[string]any{"type": "started", "payload": map[string]any{"stage": "queued"}},
+			map[string]any{"type": "stage", "payload": map[string]any{"stage": "asr"}},
+			map[string]any{"type": "progress", "payload": map[string]any{"stage": "correction"}},
+			map[string]any{"type": "failed", "payload": map[string]any{"stage": "private path"}},
+		}, "correction"},
+		{"do not inherit previous attempt", []any{
+			map[string]any{"type": "stage", "payload": map[string]any{"stage": "asr"}},
+			map[string]any{"type": "started", "payload": map[string]any{"stage": "queued"}},
+			map[string]any{"type": "failed", "payload": map[string]any{"stage": "failed"}},
+		}, "unknown"},
+		{"event history unavailable", nil, "unknown"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			s, err := New(t.TempDir(), "0.4.2", nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer s.cancel()
+			s.TrackCloud("task")
+			s.recordCloud("task", s.state.CloudRuns["task"], map[string]any{"state": "failed", "stage": "failed", "events": test.events, "error": map[string]any{"code": "engine_failed"}})
+			if len(s.state.Pending) != 1 || s.state.Pending[0].Error.Stage != test.want {
+				t.Fatalf("wrong failure stage: %+v", s.state.Pending)
+			}
+		})
+	}
+}
 
 func TestRetryPersistenceAndPrivacy(t *testing.T) {
 	root := t.TempDir()

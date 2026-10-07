@@ -47,7 +47,10 @@ export class PipelineController {
   }
 
   async start(request: TaskRequest): Promise<TaskSnapshot> {
-    const capabilities = await this.provider.capabilities();
+    const capabilities = await this.provider.capabilities().catch((error: unknown) => {
+      this.reportStartFailure?.(request.provider, request.provider === "local" ? "sidecar_unavailable" : "unknown");
+      throw error;
+    });
     if (!capabilities.runtime?.ready) {
       this.reportStartFailure?.(request.provider, "runtime_not_ready");
       const issue = capabilities.runtime?.issues[0];

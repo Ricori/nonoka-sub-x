@@ -269,9 +269,7 @@ func (s *Service) sendOne() {
 
 // StartFailure is only for definite refusal, never an ambiguous task POST timeout.
 func (s *Service) StartFailure(provider, code string) {
-	if code != "sidecar_unavailable" && code != "invalid_request" && code != "runtime_not_ready" {
-		code = "unknown"
-	}
+	code = safeCode(code)
 	_ = s.Enqueue(Event{Type: "task_error", ExecutionProvider: provider, Error: &Failure{Phase: "start", Stage: "unknown", Code: code}})
 }
 
@@ -326,6 +324,22 @@ func (s *Service) pollCloud() {
 	}
 }
 
+// CollectCloud captures the previous outcome before a retry replaces it remotely.
+func (s *Service) CollectCloud(id string) {
+	s.mu.Lock()
+	run, exists := s.state.CloudRuns[id]
+	fn := s.cloudStatus
+	s.mu.Unlock()
+	if !exists || fn == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(s.ctx, 5*time.Second)
+	defer cancel()
+	if snapshot, err := fn(ctx, id); err == nil {
+		s.recordCloud(id, run, snapshot)
+	}
+}
+
 func (s *Service) recordCloud(id string, run cloudRun, snapshot map[string]any) {
 	state, _ := snapshot["state"].(string)
 	switch state {
@@ -344,6 +358,24 @@ func (s *Service) recordCloud(id string, run cloudRun, snapshot map[string]any) 
 		failure, _ := snapshot["error"].(map[string]any)
 		code, _ := failure["code"].(string)
 		stage, _ := snapshot["stage"].(string)
+		if failureStage, ok := failure["stage"].(string); ok && safeStage(failureStage) != "unknown" {
+			stage = failureStage
+		}
+		if safeStage(stage) == "unknown" {
+			events, _ := snapshot["events"].([]any)
+			for i := len(events) - 1; i >= 0; i-- {
+				event, _ := events[i].(map[string]any)
+				if event["type"] == "started" {
+					break
+				}
+				payload, _ := event["payload"].(map[string]any)
+				candidate, _ := payload["stage"].(string)
+				if safeStage(candidate) != "unknown" {
+					stage = candidate
+					break
+				}
+			}
+		}
 		at, _ := snapshot["updated_at"].(string)
 		if _, err := time.Parse(time.RFC3339Nano, at); err != nil {
 			at = ""

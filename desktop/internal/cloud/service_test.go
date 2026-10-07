@@ -7,7 +7,9 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -18,7 +20,82 @@ import (
 	"time"
 
 	"github.com/Ricori/nonoka-x/desktop/internal/library"
+	"github.com/Ricori/nonoka-x/desktop/internal/telemetry"
 )
+
+func TestStartFailureCategories(t *testing.T) {
+	for _, test := range []struct {
+		err  error
+		want string
+	}{
+		{&httpStatusError{Status: 403, Detail: "转写任务余量不足"}, "quota_exceeded"},
+		{&httpStatusError{Status: 403, Detail: "private detail"}, "auth_failed"},
+		{&httpStatusError{Status: 401}, "auth_failed"},
+		{&httpStatusError{Status: 429}, "rate_limited"},
+		{&httpStatusError{Status: 409}, "invalid_state"},
+		{&httpStatusError{Status: 400}, "invalid_request"},
+		{context.DeadlineExceeded, "timeout"},
+		{&net.DNSError{Err: "private host", Name: "private"}, "network_error"},
+		{fmt.Errorf("private file path"), "unknown"},
+	} {
+		if got := startFailureCode(fmt.Errorf("wrapped: %w", test.err)); got != test.want {
+			t.Errorf("%T: got %s, want %s", test.err, got, test.want)
+		}
+	}
+}
+
+func TestRetryCollectsFailureBeforeRemoteStateChanges(t *testing.T) {
+	root := t.TempDir()
+	id := "vid_0123456789abcdef01234567"
+	gets := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.Method == http.MethodGet {
+			gets++
+			if strings.HasSuffix(r.URL.Path, "/events") {
+				if r.URL.Query().Get("after") != "100" {
+					t.Error("event tail cursor missing")
+				}
+				fmt.Fprint(w, `{"events":[{"type":"started","payload":{"stage":"queued"}},{"type":"stage","payload":{"stage":"asr"}},{"type":"failed","payload":{"stage":"failed"}}]}`)
+			} else {
+				fmt.Fprint(w, `{"state":"failed","stage":"failed","last_cursor":600,"error":{"code":"engine_failed"}}`)
+			}
+		} else {
+			if gets != 2 {
+				t.Error("retry replaced failure before collection")
+			}
+			fmt.Fprint(w, `{"state":"queued"}`)
+		}
+	}))
+	defer server.Close()
+	s, err := New(root, fakeProvider{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.session = storedSession{Backend: server.URL, Key: "fixture"}
+	diagnostic, err := telemetry.New(root, "0.4.2", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	SetTelemetry(s, diagnostic)
+	diagnostic.TrackCloud(id)
+	if _, err := s.RetryTask(id); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(root, "telemetry-desktop.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var state struct {
+		Pending []telemetry.Event `json:"pending"`
+	}
+	if err := json.Unmarshal(data, &state); err != nil {
+		t.Fatal(err)
+	}
+	if len(state.Pending) != 1 || state.Pending[0].Error.Stage != "asr" {
+		t.Fatalf("failure not preserved: %s", data)
+	}
+}
 
 type fakeProvider struct {
 	manifest artifactManifest
