@@ -56,6 +56,21 @@ const noNotice: PageNotice = { text: "", tone: "warn" };
 const warnNotice = (text: string): PageNotice => ({ text, tone: "warn" });
 const okNotice = (text: string): PageNotice => ({ text, tone: "success" });
 
+const samePath = (left: string, right: string) =>
+  left.replace(/[\\/]+$/, "").toLowerCase() === right.replace(/[\\/]+$/, "").toLowerCase();
+
+function withRelocatedDirectory(status: StorageStatus | null, progress: RelocationProgress): StorageStatus | null {
+  if (!status?.locations || !progress.destination) return status;
+  return {
+    ...status,
+    locations: status.locations.map((location) =>
+      location.target === progress.target
+        ? { ...location, directory: progress.destination, custom: !samePath(progress.destination, location.default), missing: false }
+        : location,
+    ),
+  };
+}
+
 function NavIcon({ kind }: { kind: NavigationSection }) {
   const paths = {
     knowledge: "M12 5v15M3 4h5a4 4 0 0 1 4 2 4 4 0 0 1 4-2h5v15h-5a4 4 0 0 0-4 2 4 4 0 0 0-4-2H3Z",
@@ -117,6 +132,9 @@ export default function App() {
   const [storageProgress, setStorageProgress] = useState<RelocationProgress | null>(null);
   const [storageBusy, setStorageBusy] = useState(false);
   const [storageMessage, setStorageMessage] = useState("");
+  // 迁移进度以 storage:progress 事件为准；这两个序号用来丢弃晚到的旧结果。
+  const storageEventSeq = useRef(0);
+  const storageStatusSeq = useRef(0);
   const [pipeline, setPipeline] = useState<PipelineState>(controller.current() as PipelineState);
   const [taskHistory, setTaskHistory] = useState<TaskHistoryEntry[]>([]);
   const [taskHistoryBusy, setTaskHistoryBusy] = useState(false);
@@ -468,13 +486,24 @@ export default function App() {
   }, []);
 
   const loadStorageStatus = useCallback(async (remeasure = false) => {
+    const request = ++storageStatusSeq.current;
     try {
       const status = remeasure ? await storageLocations.refresh() : await storageLocations.status();
+      // 重新测量要把整棵目录走一遍，可能几秒以上；迁移前发出的请求晚回来时，
+      // 不能用旧路径把迁移后的结果盖回去。
+      if (request !== storageStatusSeq.current) return;
       setStorageStatus(status);
       setStorageProgress(status.progress);
     } catch {
-      setStorageStatus(null);
+      if (request === storageStatusSeq.current) setStorageStatus(null);
     }
+  }, []);
+
+  /** 动作的返回值只是发起那一刻的快照；期间已经收到事件就以事件为准，免得把「已完成」退回「准备中」。 */
+  const applyStorageAction = useCallback(async (action: () => Promise<RelocationProgress>) => {
+    const seen = storageEventSeq.current;
+    const progress = await action();
+    if (storageEventSeq.current === seen) setStorageProgress(progress);
   }, []);
 
   const chooseStorage = useCallback(async (target: StorageTarget): Promise<StorageDestination | null> => {
@@ -491,33 +520,33 @@ export default function App() {
     setStorageBusy(true);
     setStorageMessage("");
     try {
-      setStorageProgress(await storageLocations.relocate(target, destination));
+      await applyStorageAction(() => storageLocations.relocate(target, destination));
     } catch (value) {
       setStorageMessage(value instanceof Error ? value.message : String(value));
     } finally {
       setStorageBusy(false);
     }
-  }, []);
+  }, [applyStorageAction]);
 
   const resetStorage = useCallback(async (target: StorageTarget) => {
     setStorageBusy(true);
     setStorageMessage("");
     try {
-      setStorageProgress(await storageLocations.reset(target));
+      await applyStorageAction(() => storageLocations.reset(target));
     } catch (value) {
       setStorageMessage(value instanceof Error ? value.message : String(value));
     } finally {
       setStorageBusy(false);
     }
-  }, []);
+  }, [applyStorageAction]);
 
   const cancelStorage = useCallback(async () => {
     try {
-      setStorageProgress(await storageLocations.cancel());
+      await applyStorageAction(() => storageLocations.cancel());
     } catch (value) {
       setStorageMessage(value instanceof Error ? value.message : String(value));
     }
-  }, []);
+  }, [applyStorageAction]);
 
   const loadCloud = useCallback(async () => {
     setCloudLoading(true);
@@ -624,7 +653,11 @@ export default function App() {
     return Events.On("storage:progress", (event) => {
       const progress = event.data as RelocationProgress | undefined;
       if (!progress) return;
+      storageEventSeq.current += 1;
       setStorageProgress(progress);
+      // 位置记录在 completed 之前已经写好。路径先按事件换掉，占用和剩余空间等
+      // 下面的重新测量回来再更新——那一步要遍历十几 GB，不能让路径跟着干等。
+      if (progress.stage === "completed") setStorageStatus((current) => withRelocatedDirectory(current, progress));
       if (!progress.active) {
         void loadStorageStatus(true);
         void loadCacheStatus();
