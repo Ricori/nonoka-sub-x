@@ -76,7 +76,10 @@ export interface TaskAxis {
 export const GPU_TIERS = ["auto", "cpu", "entry", "standard", "standard_large_vram", "high"] as const;
 export type GpuTier = (typeof GPU_TIERS)[number];
 
-export interface KnowledgeContext {
+/** 任务指定的知识主体：词条常驻每个纠错窗口，`knowledge=update` 时也是写回目标。 */
+export interface KnowledgeSubject {
+  /** 知识库里已有主体的 id；新建的主体没有，由 worker 在任务开始前建好（仅 `update`）。 */
+  id?: string;
   kind: "streamer" | "work" | "topic";
   /** 源语言或官方名称；自动更新时用它把本次发现归到正确主体。 */
   subject: string;
@@ -116,8 +119,8 @@ export interface TaskRequest {
     extra_style: string;
   };
   knowledge: "none" | "collect" | "update";
-  /** `knowledge=update` 时的建库主体；旧版调用方可省略。 */
-  knowledge_context?: KnowledgeContext;
+  /** 最多 8 个。`collect` 可不选（由模型按内容挑选条目），`update` 至少一个。 */
+  knowledge_subjects?: KnowledgeSubject[];
   cleanup_intermediate: boolean;
   /** 只在日文轴上出现：worker 据它跳过识别，直接补译文。其余轴型不进任务请求 */
   axis?: TaskAxis;

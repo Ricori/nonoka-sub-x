@@ -61,6 +61,14 @@ class ProviderFixture(unittest.TestCase):
         self.source = self.root / "video.mp4"
         self.source.write_bytes(b"fixture")
         self.providers: list[LocalProvider] = []
+        # Every worker spawn asks this machine for its MSVC environment, which
+        # runs vswhere and vcvars64.bat wherever Visual Studio is installed:
+        # ~1.7s per task, more under load, against `wait_state`'s 5s. The
+        # fixture workers never compile anything, and the activation itself is
+        # covered with an injected runner, so the probe is kept out of here.
+        msvc = patch("nonoka_x.local_provider._prepare_msvc_environment")
+        msvc.start()
+        self.addCleanup(msvc.stop)
 
     def tearDown(self) -> None:
         # A test that fails part way never reaches its own `provider.shutdown()`,
@@ -263,21 +271,74 @@ class LocalProviderTests(ProviderFixture):
         self.assertNotIn("gpu_tier", legacy)
         self.assertEqual(legacy["gpu_budget_gb"], 8)
 
-    def test_explicit_knowledge_context_requires_a_subject_for_update(self) -> None:
+    def test_knowledge_subjects_are_validated_for_reading_and_writing(self) -> None:
+        from nonoka_x.local_provider import MAX_KNOWLEDGE_SUBJECTS, validate_request
+
+        def subject(name: str, **extra: str) -> dict:
+            return {"kind": "streamer", "subject": name, "aliases": "", "description": "", **extra}
+
+        request = self.request()
+        request["target"] = "final-srt"
+        request["knowledge"] = "update"
+        request["knowledge_subjects"] = [subject("   ")]
+        with self.assertRaisesRegex(ProviderError, r"knowledge_subjects\[0\]\.subject is required"):
+            validate_request(request)
+
+        # Several subjects, existing and new mixed; a repeat collapses.
+        request["knowledge_subjects"] = [
+            subject("猫又おかゆ", id="s1"),
+            subject(" 戌神ころね ", id="s2"),
+            subject("猫又おかゆ", id="s1"),
+            {**subject("新番组"), "kind": "work"},
+        ]
+        normalized = validate_request(request)
+        self.assertEqual(
+            [(item.get("id"), item["subject"]) for item in normalized["knowledge_subjects"]],
+            [("s1", "猫又おかゆ"), ("s2", "戌神ころね"), (None, "新番组")],
+        )
+
+        # Writing back needs at least one target.
+        request["knowledge_subjects"] = []
+        with self.assertRaisesRegex(ProviderError, "at least one subject"):
+            validate_request(request)
+
+        # Reading may name several, or none at all, but cannot create one.
+        request["knowledge"] = "collect"
+        self.assertNotIn("knowledge_subjects", validate_request(request))
+        request["knowledge_subjects"] = [subject("猫又おかゆ", id="s1"), subject("新番组")]
+        with self.assertRaisesRegex(ProviderError, "only be created when knowledge=update"):
+            validate_request(request)
+
+        request["knowledge_subjects"] = [
+            subject(f"主体{index}", id=f"s{index}") for index in range(MAX_KNOWLEDGE_SUBJECTS + 1)
+        ]
+        with self.assertRaisesRegex(ProviderError, "at most"):
+            validate_request(request)
+
+        # `none` reads nothing, so whatever was picked is dropped.
+        request["knowledge"] = "none"
+        self.assertNotIn("knowledge_subjects", validate_request(request))
+
+    def test_legacy_knowledge_context_becomes_a_one_subject_list(self) -> None:
         from nonoka_x.local_provider import validate_request
 
         request = self.request()
         request["target"] = "final-srt"
         request["knowledge"] = "update"
         request["knowledge_context"] = {
-            "kind": "streamer", "subject": "   ", "aliases": "", "description": ""
+            "kind": "streamer", "subject": "猫又おかゆ", "aliases": "", "description": ""
         }
-        with self.assertRaisesRegex(ProviderError, "knowledge_context.subject is required"):
-            validate_request(request)
-
-        request["knowledge_context"]["subject"] = "猫又おかゆ"
         normalized = validate_request(request)
-        self.assertEqual(normalized["knowledge_context"]["subject"], "猫又おかゆ")
+        self.assertNotIn("knowledge_context", normalized)
+        self.assertEqual(
+            normalized["knowledge_subjects"],
+            [{"kind": "streamer", "subject": "猫又おかゆ", "aliases": "", "description": ""}],
+        )
+
+        request["knowledge"] = "collect"
+        normalized = validate_request(request)
+        self.assertNotIn("knowledge_context", normalized)
+        self.assertNotIn("knowledge_subjects", normalized)
 
     def test_pre_field_update_request_remains_retryable(self) -> None:
         from nonoka_x.local_provider import validate_request
@@ -285,7 +346,9 @@ class LocalProviderTests(ProviderFixture):
         request = self.request()
         request["target"] = "final-srt"
         request["knowledge"] = "update"
-        self.assertNotIn("knowledge_context", validate_request(request))
+        normalized = validate_request(request)
+        self.assertNotIn("knowledge_context", normalized)
+        self.assertNotIn("knowledge_subjects", normalized)
 
     def test_old_separator_unicode_probe_is_retried_once(self) -> None:
         accel = self.root / "models" / "audio-separator" / "accel"

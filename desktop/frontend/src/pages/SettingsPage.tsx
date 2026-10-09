@@ -69,17 +69,12 @@ export function SettingsPage(props: SettingsPageProps) {
       <article className="panel keys-intro">
         <span className="eyebrow">LLM & service credentials</span>
         <h2>模型与服务密钥</h2>
-        <p>先在下方选定提供商与全局模型，并为它填写 API Key。检索服务和下载凭据均为可选高级配置。</p>
-      </article>
-
-      <article className="cloud-key-note panel">
-        <span aria-hidden="true">☁</span>
-        <div><strong>使用云端服务时无需配置</strong><p>登录 Nonoka Cloud 后，模型与检索凭据由云端运行环境管理；以下 Key 仅用于本地处理。</p></div>
+        <p><span className="keys-intro-cloud" aria-hidden="true">☁</span>使用 Nonoka Cloud 时无需配置，以下仅用于本地处理</p>
       </article>
 
       {modelRouting && <LlmConfigurationCard keys={keys} baseUrls={baseUrls} modelRouting={modelRouting} drafts={drafts} busy={busy} setDrafts={setDrafts} onSave={onSaveKey} />}
 
-      {advancedKeys.length > 0 && <details className="advanced-keys panel"><summary><span><strong>高级配置</strong><small>联网检索与模型下载凭据</small></span><i>展开 {advancedKeys.length} 项</i></summary><div className="key-grid">{advancedKeys.map((key) => <KeyConfigurationCard key={key.name} item={key} value={drafts[key.name] ?? ""} busy={busy} setDrafts={setDrafts} onSave={onSaveKey} />)}</div></details>}
+      {advancedKeys.length > 0 && <details className="advanced-keys panel"><summary><span><strong>高级配置</strong><small>联网检索等可选凭据</small></span><i>{advancedKeys.length} 项</i></summary><div className="key-grid">{advancedKeys.map((key) => <KeyConfigurationCard key={key.name} item={key} value={drafts[key.name] ?? ""} busy={busy} setDrafts={setDrafts} onSave={onSaveKey} />)}</div></details>}
 
       <StorageLocationsCard
         status={storage}
@@ -99,7 +94,7 @@ export function SettingsPage(props: SettingsPageProps) {
         onDismissCacheMessage={onDismissCacheMessage}
       />
 
-      {!settings && <article className="panel unavailable-card"><strong>密钥服务尚未连接</strong><p>启动 Wails 桌面应用后可读取和保存 LLM 等密钥；浏览器预览不会接触本机密钥。</p></article>}
+      {!settings && <article className="panel unavailable-card"><strong>密钥服务尚未连接</strong><p>请在桌面应用中配置密钥。</p></article>}
       <Notice className="keys-message" message={message} onDismiss={onDismissMessage} />
     </section>
   );

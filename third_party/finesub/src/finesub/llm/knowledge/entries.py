@@ -13,7 +13,7 @@ binds each handle to ``(id, expected_valid_from_rev)`` for the CAS apply.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Callable, Iterable, Sequence
 
@@ -127,6 +127,30 @@ def pin_style_entries(
         for key in style_keys
     ]
     return pinned + [s for s in selections if s.category != STYLE_CATEGORY]
+
+
+def pin_subject_entries(
+    selections: Sequence[EntrySelection], subject_keys: Sequence[tuple[str, str]]
+) -> list[EntrySelection]:
+    """Put the subjects the task named at the head of the selection.
+
+    Same reasoning as `pin_style_entries`: the user stated these are the
+    subjects the material belongs to, so the update must be able to write into
+    them whatever the window hints scored. A pinned subject that also arrived
+    through ranking keeps its `applied` marker and is not listed twice.
+    """
+
+    ranked = {(s.category, s.key): s for s in selections}
+    pinned = [
+        replace(
+            ranked.get(pair) or EntrySelection(category=pair[0], key=pair[1], score=0.0, exists=True),
+            score=float("inf"),
+            exists=True,
+        )
+        for pair in subject_keys
+    ]
+    keys = set(subject_keys)
+    return pinned + [s for s in selections if (s.category, s.key) not in keys]
 
 
 def _entry_section_text(

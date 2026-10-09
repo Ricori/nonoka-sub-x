@@ -29,12 +29,7 @@ export function localTaskRequest(entry: MediaEntry): TaskRequest {
       extra_style: "",
     },
     knowledge: "none",
-    knowledge_context: {
-      kind: "streamer",
-      subject: "",
-      aliases: "",
-      description: "",
-    },
+    knowledge_subjects: [],
     cleanup_intermediate: false,
   };
 }

@@ -1,59 +1,59 @@
 .llm-config-card { overflow: hidden; border-color: var(--accent-line); background: color-mix(in srgb, var(--panel) 93%, var(--accent-dim)); }
-.llm-config-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; padding: 23px 25px 19px; }
+.llm-config-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; padding: 21px 25px 17px; }
 .llm-config-heading > div { min-width: 0; }
 .llm-config-heading h2 { margin: 6px 0 0; font-size: 17px; }
-.llm-config-heading p { max-width: 620px; margin: 8px 0 0; color: var(--mut); font-size: 12px; line-height: 1.6; }
+.llm-config-heading p { margin: 6px 0 0; color: var(--mut); font-size: 12px; line-height: 1.6; }
 .llm-config-heading .mark { flex: 0 0 auto; white-space: nowrap; }
 .llm-model-routing { border-top: 1px solid var(--line-soft); border-bottom: 1px solid var(--line-soft); background: color-mix(in srgb, var(--panel) 94%, var(--accent-dim)); }
-.llm-routing-heading, .llm-default-route, .llm-task-routing summary, .llm-task-routing-locked, .llm-task-route-row { display: flex; align-items: center; justify-content: space-between; gap: 18px; }
-.llm-routing-heading { padding: 17px 25px 11px; }
-.llm-routing-heading > span, .llm-default-route > span, .llm-task-routing summary > span, .llm-task-routing-locked > span, .llm-task-route-row > span { display: grid; gap: 3px; min-width: 0; }
-.llm-routing-heading strong { font-size: 12px; }
-.llm-routing-heading small, .llm-routing-heading i, .llm-default-route small, .llm-task-routing summary small, .llm-task-routing summary i, .llm-task-routing-locked small, .llm-task-routing-locked i, .llm-task-route-row small { color: var(--faint); font-size: 10px; font-style: normal; }
-.llm-routing-note { margin: 0; padding: 11px 25px 13px; color: var(--faint); font-size: 10px; line-height: 1.6; }
-.llm-default-route { padding: 8px 25px 17px; }
-/* 提供商自陈的注意事项。比 .llm-routing-note 显眼一档：它讲的是会花钱的行为，
-   不是背景说明。 */
-.llm-provider-note { margin: 0 25px 13px; border-left: 2px solid color-mix(in srgb, var(--warn) 60%, transparent); padding: 2px 0 2px 10px; color: var(--mut); font-size: 10px; line-height: 1.6; }
-.llm-default-route > span, .llm-task-route-row > span { flex: 0 0 180px; }
-.llm-default-route strong, .llm-task-route-row strong, .llm-task-routing summary strong, .llm-task-routing-locked strong { font-size: 11px; }
-.llm-route-controls { display: grid; grid-template-columns: minmax(150px, .65fr) minmax(260px, 1fr); gap: 9px; width: min(100%, 650px); }
-/* 档位选择器挤进来的那一行。模型那一格仍然最宽——它装的是最长的字符串。 */
-.llm-route-controls.tiered { grid-template-columns: minmax(120px, .5fr) minmax(96px, .32fr) minmax(210px, 1fr); }
-.llm-route-controls input { width: 100%; min-width: 0; border: 1px solid var(--line); border-radius: 9px; padding: 9px 10px; background: color-mix(in srgb, var(--bg) 72%, var(--panel)); color: var(--text); font-size: 11px; outline: none; }
-.llm-route-controls input:focus { border-color: var(--accent-border); box-shadow: 0 0 0 3px var(--accent-dim); }
-.llm-config-card .custom-select-trigger { font-size: 11px; }
-.llm-route-controls input:disabled { color: var(--faint); opacity: .72; }
 
-/* 选中提供商后才出现的凭据区：Key，以及带自定义端点的提供商的 Base URL。 */
-.llm-provider-setup { display: grid; border-top: 1px solid var(--line-soft); background: color-mix(in srgb, var(--panel) 92%, transparent); }
-.llm-credential-row { display: grid; grid-template-columns: minmax(180px, .45fr) minmax(250px, 1fr) auto; align-items: center; gap: 14px; padding: 12px 25px; }
-.llm-credential-row + .llm-credential-row { border-top: 1px solid var(--line-soft); }
-.llm-credential-row > span { display: grid; gap: 3px; min-width: 0; }
-.llm-credential-row strong { font-size: 11px; }
-.llm-credential-row small { overflow: hidden; color: var(--faint); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
-.llm-credential-row input { width: 100%; min-width: 0; border: 1px solid var(--line); border-radius: 9px; padding: 9px 10px; background: color-mix(in srgb, var(--bg) 72%, var(--panel)); color: var(--text); font-size: 11px; outline: none; }
-.llm-credential-row input:focus { border-color: var(--accent-border); box-shadow: 0 0 0 3px var(--accent-dim); }
-.llm-credential-row .danger-link { min-width: 56px; }
+/* 卡片里所有可编辑的行共用这一套列：标签 | 控件 | 操作。操作列固定占位，
+   没有按钮的行也留着它，输入框才不会因为有无「清除」而左右错开。 */
+.llm-row { display: grid; grid-template-columns: 128px minmax(0, 1fr) 48px; align-items: center; gap: 14px; padding: 12px 25px; }
+.llm-row + .llm-row { border-top: 1px solid var(--line-soft); }
+.llm-row > :nth-child(2) { grid-column: 2; min-width: 0; }
+.llm-row-label { display: grid; gap: 3px; min-width: 0; }
+.llm-row-label strong { overflow: hidden; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.llm-row-label small { overflow: hidden; color: var(--faint); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.llm-row-text { margin: 0; color: var(--mut); font-size: 11px; line-height: 1.6; }
+.llm-row .danger-link { justify-self: end; }
+.llm-row input, .llm-route-controls input { width: 100%; min-width: 0; height: 36px; border: 1px solid var(--line); border-radius: 9px; padding: 0 10px; background: color-mix(in srgb, var(--bg) 72%, var(--panel)); color: var(--text); font-size: 11px; outline: none; }
+.llm-row input:focus, .llm-route-controls input:focus { border-color: var(--accent-border); box-shadow: 0 0 0 3px var(--accent-dim); }
+.llm-route-controls input:disabled { color: var(--faint); opacity: .72; }
+/* 下拉框自带 38px 的最小高度，会把同一行的输入框一起撑高；卡片内统一成 36px。 */
+.llm-config-card .custom-select-trigger { min-height: 36px; height: 36px; padding-top: 0; padding-bottom: 0; font-size: 11px; }
+
+.llm-route-controls { display: grid; grid-template-columns: minmax(0, .8fr) minmax(0, 1fr); gap: 9px; }
+/* 档位选择器挤进来的那一行。模型那一格仍然最宽——它装的是最长的字符串。 */
+.llm-route-controls.tiered { grid-template-columns: minmax(0, .6fr) minmax(0, .4fr) minmax(0, 1fr); }
+
+/* 提供商自陈的注意事项。比普通说明显眼一档：它讲的是会花钱的行为，
+   不是背景说明。缩进到控件列，和上面的输入框对齐。 */
+.llm-provider-note { margin: 0 87px 12px 167px; border-left: 2px solid color-mix(in srgb, var(--warn) 60%, transparent); padding: 2px 0 2px 10px; color: var(--mut); font-size: 10px; line-height: 1.6; }
 
 .llm-task-routing { border-top: 1px solid var(--line-soft); }
-.llm-task-routing summary { padding: 13px 25px; cursor: pointer; list-style: none; }
+.llm-task-routing summary, .llm-task-routing-locked { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 13px 25px; }
+.llm-task-routing summary { cursor: pointer; list-style: none; }
 .llm-task-routing summary::-webkit-details-marker { display: none; }
+.llm-task-routing summary > span, .llm-task-routing-locked > span { display: grid; gap: 3px; min-width: 0; }
+.llm-task-routing summary strong, .llm-task-routing-locked strong { font-size: 11px; }
+.llm-task-routing summary small, .llm-task-routing summary i, .llm-task-routing-locked small { color: var(--faint); font-size: 10px; font-style: normal; }
+.llm-task-routing summary i::after { content: " ›"; display: inline-block; margin-left: 2px; transition: transform .15s; }
+.llm-task-routing[open] summary i::after { transform: rotate(90deg); }
 .llm-task-routing[open] summary { border-bottom: 1px solid var(--line-soft); }
-.llm-task-routing-locked { padding: 13px 25px; opacity: .58; }
-.llm-task-route-list { padding: 3px 25px 10px; }
-.llm-task-route-row { padding: 10px 0; }
-.llm-task-route-row + .llm-task-route-row { border-top: 1px solid var(--line-soft); }
-.llm-config-footer { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 15px 25px; }
+.llm-task-routing-locked { opacity: .58; }
+.llm-task-route-list { padding: 3px 0 6px; }
+.llm-task-route-list .llm-row { padding-top: 9px; padding-bottom: 9px; }
+
+.llm-config-footer { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 13px 25px; }
 .llm-config-footer span { color: var(--mut); font-size: 11px; }
-.llm-config-footer button { border: 0; border-radius: 8px; padding: 8px 12px; font-size: 11px; cursor: pointer; }
+.llm-config-footer button { border: 0; border-radius: 8px; padding: 8px 16px; font-size: 11px; cursor: pointer; }
 .llm-config-footer button:disabled { opacity: .42; cursor: not-allowed; }
 
 @media (max-width: 900px) {
-  .llm-credential-row { grid-template-columns: 1fr; gap: 10px; }
-  .llm-credential-row .danger-link { justify-self: start; }
-  .llm-routing-heading, .llm-default-route, .llm-task-routing-locked, .llm-task-route-row { align-items: stretch; flex-direction: column; }
-  .llm-default-route > span, .llm-task-route-row > span { flex-basis: auto; }
-  .llm-route-controls, .llm-route-controls.tiered { grid-template-columns: 1fr; width: 100%; }
+  .llm-row { grid-template-columns: minmax(0, 1fr) auto; gap: 8px 10px; }
+  .llm-row-label { grid-column: 1 / -1; }
+  .llm-row > :nth-child(2) { grid-column: 1; }
+  .llm-provider-note { margin: 0 25px 12px; }
+  .llm-route-controls, .llm-route-controls.tiered { grid-template-columns: 1fr; }
   .llm-config-footer { align-items: stretch; flex-direction: column; }
 }

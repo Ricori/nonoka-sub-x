@@ -205,22 +205,26 @@ export function LlmConfigurationCard({ keys, baseUrls, modelRouting, drafts, bus
     );
   };
 
+  const maskedKey = selectedKey?.masked.length
+    ? selectedKey.masked.map((entry) => `${entry.name ? `${entry.name} · ` : ""}${entry.value}`).join("，")
+    : (selectedKey?.configured ? `${selectedKey.count} 个已配置` : "未配置");
+
   return (
     <article className="panel llm-config-card">
       <div className="llm-config-heading">
         <div>
           <span className="eyebrow">Model configuration</span>
           <h2>模型配置</h2>
-          <p>LLM 模型用于纠错、规划、研究与知识处理。先选择提供商与全局模型，再为它填写 api key。</p>
+          <p>用于纠错、规划、研究与知识处理</p>
         </div>
-        <Mark>{globalReady ? (selected?.label ?? "已配置") : "待配置"}</Mark>
+        <Mark>{globalReady ? "已就绪" : "待配置"}</Mark>
       </div>
 
+      {/* 每一行都是「标签 | 控件 | 操作」三列，操作列即使空着也占位，
+          这样有没有「清除」按钮，输入框的左右边都对得齐。 */}
       <section className="llm-model-routing">
-        <div className="llm-routing-heading">
-          <span><strong>提供商与全局模型</strong></span>
-        </div>
-        <div className="llm-default-route">
+        <div className="llm-row">
+          <span className="llm-row-label"><strong>全局模型</strong></span>
           <div className="llm-route-controls">
             <CustomSelect
               ariaLabel="全局提供商"
@@ -236,62 +240,55 @@ export function LlmConfigurationCard({ keys, baseUrls, modelRouting, drafts, bus
           </div>
         </div>
 
-        {selected && (
-          <div className="llm-provider-setup">
-            {!selected.requiresKey ? (
-              <>
-                <p className="llm-routing-note">
-                  {selected.label}用你自己登录的 CLI 订阅运行，无需 API Key。检测结果：{selected.available ? "已检测到该 CLI。" : "尚未检测到该 CLI，安装后会自动识别。"}
-                </p>
-                {/* 提供商自己声明的注意事项，后端给什么就显示什么——没有针对某一家
-                    写死的分支，下次再有一条只需改后端。 */}
-                {selected.note ? <p className="llm-provider-note">{selected.note}</p> : null}
-              </>
-            ) : (
-              <>
-                {selectedChoice && selectedChoice.members.length > 1 && (
-                  <label className="llm-credential-row">
-                    <span>
-                      <strong>{selectedChoice.label} 档位</strong>
-                      <small>各有自己的 Key 与模型清单，同时只启用一个</small>
-                    </span>
-                    <CustomSelect
-                      ariaLabel={`${selectedChoice.label} 档位`}
-                      value={selected.id}
-                      options={selectedChoice.members.map((item) => ({ value: item.id, label: tierLabelOf(item) }))}
-                      onChange={(value) => selectProvider("default", value)}
-                    />
-                  </label>
-                )}
-                <label className="llm-credential-row">
-                  <span>
-                    <strong>{selected.label} API Key</strong>
-                    <small>{selectedKey?.masked.length ? selectedKey.masked.map((entry) => `${entry.name ? `${entry.name} · ` : ""}${entry.value}`).join("，") : (selectedKey?.configured ? `${selectedKey.count} 个已配置` : "未配置，保存后该提供商才可用")}</small>
-                  </span>
-                  <input aria-label={`${selected.label} API Key`} type="password" autoComplete="off" autoCapitalize="none" autoCorrect="off" spellCheck={false} placeholder={selectedKey?.configured ? "输入新值以替换" : `粘贴 ${selected.label} API Key`} value={drafts[selected.keyName] ?? ""} onChange={(event) => setDrafts((current) => ({ ...current, [selected.keyName]: event.target.value }))} />
-                  {selectedKey?.configured && <button type="button" className="danger-link" disabled={busy} onClick={() => void onSave({ [selected.keyName]: null }, `${selected.label} API Key`)}>清除</button>}
-                </label>
-                {selectedUrl && (
-                  <label className="llm-credential-row">
-                    <span>
-                      <strong>{selected.label} Base URL</strong>
-                      <small>兼容端点必填，例如 https://vendor.example/v1</small>
-                    </span>
-                    <input aria-label={`${selected.label} Base URL`} type="url" autoComplete="off" autoCapitalize="none" autoCorrect="off" spellCheck={false} placeholder="https://vendor.example/v1" value={urlValue(selected)} onChange={(event) => setDrafts((current) => ({ ...current, [selectedUrl.name]: event.target.value }))} />
-                  </label>
-                )}
-              </>
+        {selected && !selected.requiresKey && (
+          <>
+            <div className="llm-row">
+              <span className="llm-row-label"><strong>运行方式</strong></span>
+              <p className="llm-row-text">本机 CLI 订阅，无需 API Key · {selected.available ? "已检测到" : "未检测到，安装后自动识别"}</p>
+            </div>
+            {/* 提供商自己声明的注意事项，后端给什么就显示什么——没有针对某一家
+                写死的分支，下次再有一条只需改后端。 */}
+            {selected.note ? <p className="llm-provider-note">{selected.note}</p> : null}
+          </>
+        )}
+
+        {selected?.requiresKey && (
+          <>
+            {selectedChoice && selectedChoice.members.length > 1 && (
+              <label className="llm-row">
+                <span className="llm-row-label"><strong>档位</strong></span>
+                <CustomSelect
+                  ariaLabel={`${selectedChoice.label} 档位`}
+                  value={selected.id}
+                  options={selectedChoice.members.map((item) => ({ value: item.id, label: tierLabelOf(item) }))}
+                  onChange={(value) => selectProvider("default", value)}
+                />
+              </label>
             )}
-          </div>
+            <label className="llm-row">
+              <span className="llm-row-label">
+                <strong>API Key</strong>
+                <small title={maskedKey}>{maskedKey}</small>
+              </span>
+              <input aria-label={`${selected.label} API Key`} type="password" autoComplete="off" autoCapitalize="none" autoCorrect="off" spellCheck={false} placeholder={selectedKey?.configured ? "输入新值以替换" : `粘贴 ${selected.label} API Key`} value={drafts[selected.keyName] ?? ""} onChange={(event) => setDrafts((current) => ({ ...current, [selected.keyName]: event.target.value }))} />
+              {selectedKey?.configured && <button type="button" className="danger-link" disabled={busy} onClick={() => void onSave({ [selected.keyName]: null }, `${selected.label} API Key`)}>清除</button>}
+            </label>
+            {selectedUrl && (
+              <label className="llm-row">
+                <span className="llm-row-label"><strong>Base URL</strong></span>
+                <input aria-label={`${selected.label} Base URL`} type="url" autoComplete="off" autoCapitalize="none" autoCorrect="off" spellCheck={false} placeholder="https://vendor.example/v1" value={urlValue(selected)} onChange={(event) => setDrafts((current) => ({ ...current, [selectedUrl.name]: event.target.value }))} />
+              </label>
+            )}
+          </>
         )}
 
         {globalReady ? (
           <details className="llm-task-routing">
-            <summary><span><strong>自定义任务模型</strong><small>覆盖指定环节，其余跟随全局模型</small></span><i>配置 {modelRouting.taskRoutes.length} 个环节</i></summary>
+            <summary><span><strong>按环节指定模型</strong><small>未指定的环节跟随全局模型</small></span><i>{modelRouting.taskRoutes.length} 个环节</i></summary>
             <div className="llm-task-route-list">
               {modelRouting.taskRoutes.map((item) => (
-                <div className="llm-task-route-row" key={item.id}>
-                  <span><strong>{item.label}</strong><small>{item.id}</small></span>
+                <div className="llm-row" key={item.id}>
+                  <span className="llm-row-label"><strong title={item.id}>{item.label}</strong></span>
                   {renderTaskRoute(item.id, item.route)}
                 </div>
               ))}
@@ -299,15 +296,14 @@ export function LlmConfigurationCard({ keys, baseUrls, modelRouting, drafts, bus
           </details>
         ) : (
           <div className="llm-task-routing llm-task-routing-locked">
-            <span><strong>自定义任务模型</strong><small>完成提供商与全局模型配置后可用</small></span>
-            <i>{blocker}</i>
+            <span><strong>按环节指定模型</strong><small>{blocker}</small></span>
           </div>
         )}
       </section>
 
       <div className="llm-config-footer">
-        <span>{blocker || (Object.keys(updates).length ? "配置已就绪，保存后生效" : "配置已保存")}</span>
-        <button className="primary-button" disabled={busy || !globalReady || Object.keys(updates).length === 0} onClick={() => void onSave(updates, "模型配置")}>{busy ? "正在保存…" : "保存模型配置"}</button>
+        <span>{blocker || (Object.keys(updates).length ? "有未保存的更改" : "已保存")}</span>
+        <button className="primary-button" disabled={busy || !globalReady || Object.keys(updates).length === 0} onClick={() => void onSave(updates, "模型配置")}>{busy ? "正在保存…" : "保存"}</button>
       </div>
     </article>
   );

@@ -171,12 +171,10 @@ interface ExecutionProvider {
     "extra_style": ""
   },
   "knowledge": "update",
-  "knowledge_context": {
-    "kind": "streamer",
-    "subject": "主播的官方或源语言名称",
-    "aliases": "常用译名、旧名",
-    "description": "用于消歧的主体背景"
-  },
+  "knowledge_subjects": [
+    { "id": "已有主体的 id", "kind": "streamer", "subject": "主播的官方或源语言名称", "aliases": "", "description": "" },
+    { "kind": "work", "subject": "新建主体的名称", "aliases": "常用译名、旧名", "description": "用于消歧的主体背景" }
+  ],
   "cleanup_intermediate": false
 }
 ```

@@ -145,6 +145,7 @@ def translate_axis(
     knowledge: str = "none",
     source_path: str | Path | None = None,
     knowledge_root: str | Path | None = None,
+    knowledge_subjects: Sequence[str] | None = None,
     on_notice: Callable[[str], None] | None = None,
 ) -> AxisTranslation:
     """Run only the LLM stage, over subtitles the user already wrote.
@@ -192,7 +193,9 @@ def translate_axis(
         str(correction.get("difficulty") or "quality"),
         "serial",
     )
-    extra = {} if knowledge_root is None else {"knowledge_root": knowledge_root}
+    extra: dict[str, Any] = {} if knowledge_root is None else {"knowledge_root": knowledge_root}
+    if knowledge_subjects:
+        extra["knowledge_subjects"] = list(knowledge_subjects)
     final_srt = Path(run_full_correction(
         stable_json=stable_json,
         output_path=output,

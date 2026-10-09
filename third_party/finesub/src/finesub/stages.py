@@ -327,6 +327,8 @@ def _validate_llm_configuration(
     style: str | None,
     style_mode: str | None,
     llm_difficulty: str,
+    knowledge: str = "none",
+    knowledge_subjects: str | Sequence[str] | None = None,
 ) -> None:
     """Everything about the LLM stage that is knowable before ASR runs.
 
@@ -348,6 +350,10 @@ def _validate_llm_configuration(
     ).names
     if names:
         resolve_style_keys(root, names)
+    if knowledge != "none" and knowledge_subjects:
+        from finesub.llm.knowledge.subjects import resolve_subject_keys
+
+        resolve_subject_keys(root, knowledge_subjects)
 
 
 def _run_vocal_stage(
@@ -547,6 +553,8 @@ def run_pipeline(
     #: none / read / update — see `knowledge/style.py`. `None` reads
     #: `[llm] style_mode`, then defaults to `read`.
     style_mode: str | None = None,
+    #: Knowledge subjects the task names (`llm/knowledge/subjects.py`).
+    knowledge_subjects: str | Sequence[str] | None = None,
     download_video_source: bool = True,
     knowledge: str | None = None,
     refined_srt: str | Path | None = None,
@@ -591,6 +599,8 @@ def run_pipeline(
             style=style,
             style_mode=style_mode,
             llm_difficulty=llm_difficulty,
+            knowledge=knowledge,
+            knowledge_subjects=knowledge_subjects,
         )
     # Normalize "auto" to None: whisper uses None for auto-detection;
     # the string "auto" is not a valid language code and would raise.
@@ -878,6 +888,7 @@ def run_pipeline(
             extra_style=extra_style,
             style=style,
             style_mode=style_mode,
+            knowledge_subjects=knowledge_subjects,
             knowledge=knowledge,
             refined_srt=refined_srt,
             knowledge_root=knowledge_root,
@@ -1217,6 +1228,7 @@ def _run_llm_stage(
     style: str | None,
     style_mode: str | None,
     knowledge: str,
+    knowledge_subjects: str | Sequence[str] | None = None,
     refined_srt: str | Path | None,
     knowledge_root: str | Path | None,
     task_artifact_dir: str | Path | None,
@@ -1268,6 +1280,7 @@ def _run_llm_stage(
             extra_style=extra_style,
             style=style,
             style_mode=style_mode,
+            knowledge_subjects=knowledge_subjects,
             task_id=task_id,
             task_summary=task_summary,
             task_artifact_dir=artifact_dir,
@@ -1335,6 +1348,7 @@ def _run_llm_stage(
         extra_style=extra_style,
         style=style,
         style_mode=style_mode,
+        knowledge_subjects=knowledge_subjects,
         task_id=task_id,
         task_summary=task_summary,
         task_artifact_dir=artifact_dir,

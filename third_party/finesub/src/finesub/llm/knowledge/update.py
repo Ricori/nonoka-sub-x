@@ -54,10 +54,12 @@ from .base import (
 from .entries import (
     EntrySelection,
     pin_style_entries,
+    pin_subject_entries,
     render_kb_entry_excerpt,
     select_kb_entries,
 )
 from .style import resolve_style_keys
+from .subjects import resolve_subject_keys
 from .node.proposals import apply_model_proposals
 from .node.repo import KnowledgeRepo
 from .materials import (
@@ -633,6 +635,10 @@ def _run_knowledge_update(
     #: into them. Empty means the run named no style, and the prompt's style
     #: section then has nothing to act on.
     style_names: Sequence[str] = (),
+    #: The knowledge subjects the task named (`subjects.py`): pinned into
+    #: every chunk's `<kb_entries>` so the model can propose into them
+    #: whatever the window hints scored.
+    subject_names: Sequence[str] = (),
 ) -> Dict[str, Any]:
     """Run the unified knowledge update for one finished correction task.
 
@@ -768,6 +774,7 @@ def _run_knowledge_update(
                 impact="其余几套照常注入纠错提示词，但不会收录本次的新约定",
                 action="想更新另一套就单独跑一次，或把 --style 的第一位换成它",
             )
+    subject_keys = resolve_subject_keys(knowledge_root, subject_names) if subject_names else []
     ledger_path = artifact_path / CHUNK_LEDGER_FILENAME
     ledger = _load_chunk_ledger(ledger_path) if resume else {}
     pending_intents = (
@@ -895,7 +902,9 @@ def _run_knowledge_update(
                 applied_entries=applied_entries,
                 rev=working_rev,
             )
-            selections = pin_style_entries(selections, writable_style_keys)
+            selections = pin_style_entries(
+                pin_subject_entries(selections, subject_keys), writable_style_keys
+            )
             kb_entries_block, kb_handles = render_kb_entry_excerpt(
                 selections, knowledge_root, count_tokens=counter.count_text, rev=working_rev
             )

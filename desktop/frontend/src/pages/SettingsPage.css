@@ -6,8 +6,7 @@
 .advanced-keys summary small, .advanced-keys summary i { color: var(--faint); font-size: 11px; font-style: normal; }
 .advanced-keys[open] summary { border-bottom: 1px solid var(--line-soft); }
 .advanced-keys .key-grid { padding: 16px; }
-.cloud-key-note { display: flex; align-items: center; gap: 13px; padding: 15px 18px; border-color: color-mix(in srgb, var(--info) 35%, var(--line-soft)); background: color-mix(in srgb, var(--panel) 92%, var(--info)); }
-.cloud-key-note > span { display: grid; place-items: center; flex: 0 0 auto; width: 31px; height: 31px; border-radius: 10px; background: color-mix(in srgb, var(--info) 13%, transparent); color: var(--info); font-size: 13px; }
-.cloud-key-note > div { display: grid; gap: 3px; }
-.cloud-key-note strong { font-size: 12px; }
-.cloud-key-note p { margin: 0; color: var(--mut); font-size: 11px; line-height: 1.5; }
+.keys-intro p { display: flex; align-items: center; gap: 8px; margin-top: 8px; font-size: 12px; }
+.keys-intro-cloud { display: grid; place-items: center; flex: 0 0 auto; width: 22px; height: 22px; border-radius: 7px; background: color-mix(in srgb, var(--info) 13%, transparent); color: var(--info); font-size: 11px; }
+.advanced-keys summary i::after { content: " ›"; display: inline-block; margin-left: 2px; transition: transform .15s; }
+.advanced-keys[open] summary i::after { transform: rotate(90deg); }

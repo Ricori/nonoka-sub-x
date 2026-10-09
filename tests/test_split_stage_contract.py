@@ -57,13 +57,23 @@ def _top_level_names(module: ast.Module) -> set[str]:
 
 
 def _touched_paths(patch: Path) -> list[str]:
-    """The vendor-relative files a patch writes to, sorted."""
+    """The vendor-relative files a patch writes to, sorted.
 
-    return sorted(
-        line.split(" b/", 1)[1].strip()
-        for line in patch.read_text(encoding="utf-8", errors="replace").splitlines()
-        if line.startswith("diff --git ")
-    )
+    Read from the `---`/`+++` file headers rather than `diff --git` lines: a
+    plain unified diff has no `diff --git` line at all, and keying on it let
+    such a patch report touching nothing and pass every check below.
+    """
+
+    paths: set[str] = set()
+    previous = ""
+    for line in patch.read_text(encoding="utf-8", errors="replace").splitlines():
+        if line.startswith("+++ ") and previous.startswith("--- "):
+            new, old = line[4:].strip(), previous[4:].strip()
+            # A deleted file's new side is /dev/null; its path is the old side.
+            path = new if new != "/dev/null" else old
+            paths.add(path.split("/", 1)[1] if path[:2] in ("a/", "b/") else path)
+        previous = line
+    return sorted(paths)
 
 
 def _is_installer_plumbing(path: str) -> bool:
@@ -188,6 +198,31 @@ class PurelyAdditiveTests(unittest.TestCase):
             # is whether AOTI compiles, never what the separator outputs.
             "0006-aoti-posix-compiler.patch": [
                 "src/finesub/speech/preprocessing/separator/separator_aoti.py",
+            ],
+            # Loader, not model: libtorch opens a path with the narrow `fopen`,
+            # so a runtime under a non-ASCII directory could not load Silero on
+            # Windows. Reading the bytes in Python yields the module upstream's
+            # own `load_silero_vad()` returns, so VAD output is unchanged.
+            "0008-silero-non-ascii-path.patch": [
+                "src/finesub/speech/preprocessing/silero_ghost.py",
+            ],
+            # Catalog rows and route targets only: four Codex models a user can
+            # pin by name. Upstream's default groups are untouched, so a run
+            # that pins none of them routes exactly as upstream does.
+            "0009-codex-gpt6-models.patch": [
+                "src/finesub/llm/routing/model_catalog.psv",
+                "src/finesub/llm/routing/model_routes.toml",
+            ],
+            # Additive and opt-in: user-picked knowledge subjects pinned into
+            # the windows and the post-task update. Without
+            # `knowledge_subjects=` every path is upstream's, and the cloud
+            # never sends one (its runs read no local knowledge base).
+            "0010-pinned-knowledge-subjects.patch": [
+                "src/finesub/llm/correction_translation.py",
+                "src/finesub/llm/knowledge/entries.py",
+                "src/finesub/llm/knowledge/subjects.py",
+                "src/finesub/llm/knowledge/update.py",
+                "src/finesub/stages.py",
             ],
         }
         for name in names:

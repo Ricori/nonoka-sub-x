@@ -30,8 +30,8 @@ interface StorageLocationsCardProps {
 }
 
 const targetDetails: Record<StorageTarget, string> = {
-  runtime: "Python 运行时、人声分离与转写模型、下载缓存。本地转写占用的绝大部分空间都在这里。",
-  video: "使用过的视频会复制到 Nonoka X 数据目录，达到上限后按最近使用时间自动回收。",
+  runtime: "Python 运行时、转写模型与下载缓存，占用最大。",
+  video: "处理过的视频副本，超出上限按最近使用自动回收。",
 };
 
 export function StorageLocationsCard(props: StorageLocationsCardProps) {
@@ -80,9 +80,7 @@ export function StorageLocationsCard(props: StorageLocationsCardProps) {
         <div>
           <span className="eyebrow">Storage locations</span>
           <h2>磁盘占用</h2>
-          <p>
-            默认情况下数据都放在系统盘。可以把它们整体搬到别的盘，Nonoka Sub X 会记住新位置。
-          </p>
+          <p>默认在系统盘，可整体迁移到其他磁盘。</p>
         </div>
       </div>
 

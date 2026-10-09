@@ -29,6 +29,7 @@ from finesub_bootstrap.artifacts import ARTIFACT_DIR_SUFFIX
 from .agent.agent_session_host import agent_session_scope, set_run_evidence_destination
 from .client import write_agent_session_usage
 from .knowledge.style import render_style_block, resolve_style_selection
+from .knowledge.subjects import parse_subject_names, render_subject_block
 from .routing.api_keys import read_config
 from .routing.config import (
     DEFAULT_RESEARCH_SEARCH_ROUNDS,
@@ -160,6 +161,7 @@ def run_post_correction_knowledge_update(
     counter: TokenCounter | None = None,
     difficulty: str = "quality",
     style_names: Sequence[str] = (),
+    subject_names: Sequence[str] = (),
 ) -> Dict[str, Any]:
     """Run the unified knowledge update right after a correction task.
 
@@ -195,6 +197,7 @@ def run_post_correction_knowledge_update(
         token_counter=counter,
         difficulty=difficulty,
         style_names=style_names,
+        subject_names=subject_names,
     )
     write_task_report(
         artifact_path,
@@ -280,6 +283,10 @@ def _run_full_correction_impl(
     #: `[llm] style_mode`, then defaults to `read` — injecting is what a style
     #: is for; writing back is asked for.
     style_mode: str | None = None,
+    #: Knowledge subjects the task names (`knowledge/subjects.py`): their
+    #: entries ride in every window's system prompt and are pinned into the
+    #: post-task update. Ignored under `knowledge="none"`.
+    knowledge_subjects: str | Sequence[str] | None = None,
     task_id: str = "",
     task_summary: str = "",
     task_artifact_dir: str | Path | None = None,
@@ -342,6 +349,7 @@ def _run_full_correction_impl(
             "--difficulty intermediate for a cheap run that still reads the base."
         )
     collect_feedback = knowledge_collects(knowledge)
+    subject_names = parse_subject_names(knowledge_subjects) if collect_feedback else ()
     if max_window_subtitle_tokens is None:
         max_window_subtitle_tokens = resolve_chunking_subtitle_cap()
     out = Path(output_path).expanduser().resolve()
@@ -369,6 +377,7 @@ def _run_full_correction_impl(
             test_profile=test_profile,
             difficulty=profile.difficulty,
             style_names=style_selection.writable,
+            subject_names=subject_names,
         )
 
     if postprocess_profile is None and translated_path.exists():
@@ -534,7 +543,10 @@ def _run_full_correction_impl(
         parallel_window_limit=parallel_windows,
         postprocess_profile=postprocess_profile,
         extra_style=extra_style,
-        style_block=render_style_block(knowledge_root, style_names),
+        style_block=render_style_block(knowledge_root, style_names)
+        + render_subject_block(
+            knowledge_root, subject_names, count_tokens=token_counter.count_text
+        ),
         knowledge_enabled=collect_feedback,
         task_artifact_dir=artifact_dir,
         task_id=task_id,

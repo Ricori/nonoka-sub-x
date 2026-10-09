@@ -18,63 +18,112 @@ from nonoka_x import worker
 
 
 class WorkerAdapterTests(unittest.TestCase):
-    def test_knowledge_subject_is_added_to_engine_extra_info(self) -> None:
-        text = worker.compose_knowledge_context(
+    def test_knowledge_subjects_are_added_to_engine_extra_info(self) -> None:
+        subjects = [
             {
-                "knowledge": "update",
-                "knowledge_context": {
-                    "kind": "streamer",
-                    "subject": "猫又おかゆ",
-                    "aliases": "Okayu、猫",
-                    "description": "Hololive 所属 VTuber",
-                },
+                "id": "s1",
+                "kind": "streamer",
+                "subject": "猫又おかゆ",
+                "aliases": "Okayu、猫",
+                "description": "Hololive 所属 VTuber",
             },
+            {"kind": "work", "subject": "Minecraft", "aliases": "", "description": ""},
+        ]
+        text = worker.compose_knowledge_context(
+            {"knowledge": "update", "knowledge_subjects": subjects},
             "这期嘉宾是戌神ころね。",
         )
 
-        self.assertIn("知识主体官方或源语言名称：猫又おかゆ", text)
-        self.assertIn("别名 / 常用译名：Okayu、猫", text)
-        self.assertIn("主体说明：Hololive 所属 VTuber", text)
+        self.assertIn("- 主播 / 频道：猫又おかゆ（别名 / 常用译名：Okayu、猫）；Hololive 所属 VTuber", text)
+        self.assertIn("- 作品 / 节目：Minecraft", text)
+        self.assertIn("归入上述主体中最贴切的一个", text)
         self.assertIn("【其他背景信息】\n这期嘉宾是戌神ころね。", text)
+
+        # Reading names the subjects too, but asks for no write-back.
+        collect = worker.compose_knowledge_context(
+            {"knowledge": "collect", "knowledge_subjects": subjects[:1]}, "原始背景"
+        )
+        self.assertIn("猫又おかゆ", collect)
+        self.assertNotIn("归入", collect)
         self.assertEqual(
             worker.compose_knowledge_context(
-                {"knowledge": "collect", "knowledge_context": {"subject": "ignored"}},
-                "原始背景",
+                {"knowledge": "none", "knowledge_subjects": subjects}, "原始背景"
             ),
             "原始背景",
         )
+        # A request queued before the list existed still carries its subject.
+        legacy = worker.compose_knowledge_context(
+            {"knowledge": "update", "knowledge_context": subjects[1]}
+        )
+        self.assertIn("Minecraft", legacy)
 
-    def test_knowledge_subject_bootstraps_an_empty_repository(self) -> None:
+    def test_knowledge_subjects_resolve_existing_and_create_new(self) -> None:
         from finesub.llm.knowledge.node.repo import KnowledgeRepo
 
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp) / "knowledge"
-            request = {
+            first = {
                 "knowledge": "update",
-                "knowledge_context": {
-                    "kind": "streamer",
-                    "subject": "柊優花",
-                    "aliases": "柊优花, 优花、yuka",
-                    "description": "以游戏直播为主的主播",
-                },
+                "knowledge_subjects": [
+                    {
+                        "kind": "streamer",
+                        "subject": "柊優花",
+                        "aliases": "柊优花, 优花、yuka",
+                        "description": "以游戏直播为主的主播",
+                    },
+                    {"kind": "work", "subject": "星之海", "aliases": "", "description": ""},
+                ],
             }
             try:
-                result = worker.bootstrap_knowledge_subject(
-                    request, "task-1", knowledge_root=root
-                )
-                self.assertTrue(result["created"])
+                result = worker.prepare_knowledge_subjects(first, "task-1", knowledge_root=root)
+                self.assertEqual(result["created"], ["柊優花", "星之海"])
+                self.assertEqual(result["names"], ["streamer/柊優花", "common/星之海"])
                 repo = KnowledgeRepo.open(root)
                 resolved = repo.resolve("柊优花")
-                self.assertIsNotNone(resolved)
                 assert resolved is not None
                 self.assertEqual(resolved.key, "柊優花")
                 self.assertIn("以游戏直播为主的主播", repo.index_text("streamer"))
 
-                again = worker.bootstrap_knowledge_subject(
-                    request, "task-2", knowledge_root=root
-                )
-                self.assertFalse(again["created"])
+                # A repeat creates nothing, and an existing subject travels by id.
+                again = worker.prepare_knowledge_subjects(first, "task-2", knowledge_root=root)
+                self.assertEqual(again["created"], [])
                 self.assertEqual(again["rev"], result["rev"])
+                ident = next(s.local_id for s in repo.subjects() if s.payload["surface"] == "星之海")
+                read = worker.prepare_knowledge_subjects(
+                    {
+                        "knowledge": "collect",
+                        "knowledge_subjects": [
+                            {"id": ident, "kind": "topic", "subject": "星之海", "aliases": "", "description": ""}
+                        ],
+                    },
+                    "task-3",
+                    knowledge_root=root,
+                )
+                self.assertEqual(read["names"], ["common/星之海"])
+
+                # Reading never creates.
+                with self.assertRaisesRegex(RuntimeError, "只有自动更新模式可以新建主体"):
+                    worker.prepare_knowledge_subjects(
+                        {
+                            "knowledge": "collect",
+                            "knowledge_subjects": [
+                                {"kind": "topic", "subject": "不存在", "aliases": "", "description": ""}
+                            ],
+                        },
+                        "task-4",
+                        knowledge_root=root,
+                    )
+                with self.assertRaisesRegex(RuntimeError, "已不在知识库中"):
+                    worker.prepare_knowledge_subjects(
+                        {
+                            "knowledge": "collect",
+                            "knowledge_subjects": [
+                                {"id": "gone", "kind": "topic", "subject": "旧主体", "aliases": "", "description": ""}
+                            ],
+                        },
+                        "task-5",
+                        knowledge_root=root,
+                    )
             finally:
                 KnowledgeRepo.forget(root)
 
@@ -82,17 +131,16 @@ class WorkerAdapterTests(unittest.TestCase):
         summary = worker.knowledge_task_summary(
             {
                 "knowledge": "update",
-                "knowledge_context": {
-                    "kind": "streamer",
-                    "subject": "柊優花",
-                    "aliases": "优花",
-                    "description": "",
-                },
+                "knowledge_subjects": [
+                    {"kind": "streamer", "subject": "柊優花", "aliases": "优花", "description": ""},
+                    {"kind": "topic", "subject": "Hololive", "aliases": "", "description": ""},
+                ],
             },
             "测试视频",
         )
         self.assertIn("字幕任务：测试视频", summary)
-        self.assertIn("知识主体官方或源语言名称：柊優花", summary)
+        self.assertIn("- 主播 / 频道：柊優花", summary)
+        self.assertIn("- 其他知识主题：Hololive", summary)
 
     def test_task_request_maps_to_pipeline_and_returns_hashed_manifest(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

@@ -4,7 +4,7 @@ import type { MediaEntry } from "../bridge/library.ts";
 import { cloudTaskRequest, localTaskRequest } from "../home/defaultRequest.ts";
 import { cloudAcceptsDuration } from "../home/executionAvailability.ts";
 import { GPU_TIERS } from "../providers/types.ts";
-import type { Capabilities, GpuTier, KnowledgeContext, TaskAxis, TaskRequest } from "../providers/types.ts";
+import type { Capabilities, GpuTier, KnowledgeSubject, TaskAxis, TaskRequest } from "../providers/types.ts";
 import type { FineSubSettingsState } from "../bridge/settings.ts";
 import type { ExecutionMode } from "../app/types.ts";
 import { CustomSelect } from "./CustomSelect.tsx";
@@ -42,13 +42,13 @@ const languageOptions = [
   ["auto", "自动检测"],
 ] as const;
 
-const knowledgeKindOptions: Array<{ value: KnowledgeContext["kind"]; label: string }> = [
+const knowledgeKindOptions: Array<{ value: KnowledgeSubject["kind"]; label: string }> = [
   { value: "streamer", label: "主播 / 频道" },
   { value: "work", label: "作品 / 节目" },
   { value: "topic", label: "其他知识主题" },
 ];
 
-const emptyKnowledgeContext = (): KnowledgeContext => ({
+const emptyKnowledgeSubject = (): KnowledgeSubject => ({
   kind: "streamer",
   subject: "",
   aliases: "",
@@ -62,7 +62,29 @@ interface KnowledgeEntry {
   intro?: string;
 }
 
+/** 已选主体；`key` 只给 React 用：已有主体取 id，新建的草稿取本地序号。 */
+interface PickedSubject {
+  key: string;
+  subject: KnowledgeSubject;
+}
+
+const pickEntry = (entry: KnowledgeEntry): PickedSubject => ({
+  key: entry.id,
+  subject: {
+    id: entry.id,
+    kind: entry.category === "streamer" ? "streamer" : "topic",
+    subject: entry.name,
+    aliases: "",
+    description: entry.intro ?? "",
+  },
+});
+
+const entryLabel = (entry: Pick<KnowledgeEntry, "category" | "name">) => `${entry.category === "streamer" ? "主播" : "通用"} · ${entry.name}`;
+
+const ADD_KNOWLEDGE_SUBJECT = "";
 const NEW_KNOWLEDGE_SUBJECT = "__new_knowledge_subject__";
+// 与引擎 `MAX_KNOWLEDGE_SUBJECTS` 一致：每个纠错窗口都带着全部已选主体，所以这也是提示词体积的上限。
+const MAX_KNOWLEDGE_SUBJECTS = 8;
 
 const LLM_KEY_HINT = "尚未配置模型提供商：请到设置里选择提供商与全局模型并保存，否则无法进行 LLM 纠错、翻译与知识处理。";
 const RETRIEVAL_KEY_HINT = "需要 Exa、Tavily 或 Gemini 免费池 Key 才能进行本地联网检索。";
@@ -186,7 +208,8 @@ export function TranscriptionDialog(props: TranscriptionDialogProps) {
   const [mode, setMode] = useState<ExecutionMode>(preferredMode);
   const [request, setRequest] = useState<TaskRequest>(() => requestFor(preferredMode, entry, localCapabilities));
   const [knowledgeEntries, setKnowledgeEntries] = useState<KnowledgeEntry[]>([]);
-  const [knowledgeChoice, setKnowledgeChoice] = useState("");
+  const [pickedSubjects, setPickedSubjects] = useState<PickedSubject[]>([]);
+  const draftCounter = useRef(0);
   const [knowledgeLoading, setKnowledgeLoading] = useState(false);
   const [knowledgeLoaded, setKnowledgeLoaded] = useState(false);
   const [knowledgeLoadError, setKnowledgeLoadError] = useState("");
@@ -195,7 +218,9 @@ export function TranscriptionDialog(props: TranscriptionDialogProps) {
   const supportsVideo = selectedCapabilities?.features.video_multimodal === true;
   const supportsKnowledge = selectedCapabilities?.features.knowledge === true;
   const finalOutput = request.target === "final-srt";
-  const knowledgeContext = request.knowledge_context ?? emptyKnowledgeContext();
+  // 主体只在本地读得到（列表来自本机知识库），云端不出现这一块。
+  const knowledgeActive = mode === "local" && supportsKnowledge && finalOutput && request.knowledge !== "none";
+  const knowledgeWrites = knowledgeActive && request.knowledge === "update";
   const devices = localCapabilities?.devices ?? [];
   const cpuOnly = (localCapabilities?.runtime?.warnings ?? []).some((warning) => warning.code === "missing_gpu");
   const speakers = axisParse && axisParse.speakers.length >= 2 ? axisParse.speakers : [];
@@ -296,31 +321,35 @@ export function TranscriptionDialog(props: TranscriptionDialogProps) {
     setRequest((current) => withinLimits(current, limits));
   }, [limits]);
 
+  // 读取与写回共用一份列表：在两者间切换不重新拉取，也就不会冲掉已选的主体和草稿。
   useEffect(() => {
-    if (mode !== "local" || !supportsKnowledge || request.knowledge !== "update") return;
+    if (!knowledgeActive) return;
     let cancelled = false;
-    const initialSubject = request.knowledge_context?.subject.trim() ?? "";
     setKnowledgeLoading(true);
     setKnowledgeLoaded(false);
     setKnowledgeLoadError("");
     void (Service.Knowledge({ action: "list" }) as unknown as Promise<{ entries: KnowledgeEntry[] }>).then((data) => {
       if (cancelled) return;
       const entries = data.entries.filter((item) => item.category === "streamer" || item.category === "common");
-      const matching = entries.find((item) => item.name.toLocaleLowerCase() === initialSubject.toLocaleLowerCase());
       setKnowledgeEntries(entries);
-      setKnowledgeChoice(matching?.id ?? (initialSubject || entries.length === 0 ? NEW_KNOWLEDGE_SUBJECT : ""));
+      // 已选的主体可能在这期间被删掉了：留着只会让任务一开跑就失败。
+      setPickedSubjects((current) => current.filter((item) => !item.subject.id || entries.some((entry) => entry.id === item.subject.id)));
       setKnowledgeLoaded(true);
     }).catch((value) => {
       if (cancelled) return;
       setKnowledgeEntries([]);
-      setKnowledgeChoice(NEW_KNOWLEDGE_SUBJECT);
       setKnowledgeLoadError(value instanceof Error ? value.message : String(value));
       setKnowledgeLoaded(true);
     }).finally(() => { if (!cancelled) setKnowledgeLoading(false); });
     return () => { cancelled = true; };
-    // The subject is intentionally captured only when entering update mode.
-    // Editing a new subject must not refetch the list and erase the draft.
-  }, [mode, request.knowledge, supportsKnowledge]);
+  }, [knowledgeActive]);
+
+  // 知识库还是空的、又要写回：没有可选的，直接给出第一条主体的草稿。
+  useEffect(() => {
+    if (knowledgeWrites && knowledgeLoaded && knowledgeEntries.length === 0) {
+      setPickedSubjects((current) => current.length > 0 ? current : [{ key: `draft-${++draftCounter.current}`, subject: emptyKnowledgeSubject() }]);
+    }
+  }, [knowledgeEntries.length, knowledgeLoaded, knowledgeWrites]);
 
   /** 换运行环境就换一整份默认请求：两边的 source 形态、目标和显存项都不一样。 */
   const applyMode = useCallback((nextMode: ExecutionMode) => {
@@ -395,38 +424,47 @@ export function TranscriptionDialog(props: TranscriptionDialogProps) {
     }));
   };
 
-  const updateKnowledgeContext = (patch: Partial<KnowledgeContext>) => {
-    setRequest((current) => ({
-      ...current,
-      knowledge_context: { ...(current.knowledge_context ?? emptyKnowledgeContext()), ...patch },
-    }));
+  const setKnowledge = (knowledge: TaskRequest["knowledge"]) => {
+    setRequest((current) => ({ ...current, knowledge }));
+    // 只读时建不了新主体：草稿留着也发不出去，干脆收起。
+    if (knowledge !== "update") setPickedSubjects((current) => current.filter((item) => item.subject.id));
   };
 
-  const chooseKnowledgeSubject = (choice: string) => {
-    setKnowledgeChoice(choice);
+  const addKnowledgeSubject = (choice: string) => {
+    if (choice === ADD_KNOWLEDGE_SUBJECT) return;
     if (choice === NEW_KNOWLEDGE_SUBJECT) {
-      setRequest((current) => ({ ...current, knowledge_context: emptyKnowledgeContext() }));
+      setPickedSubjects((current) => [...current, { key: `draft-${++draftCounter.current}`, subject: emptyKnowledgeSubject() }]);
       return;
     }
-    const selected = knowledgeEntries.find((item) => item.id === choice);
-    if (!selected) return;
-    setRequest((current) => ({
-      ...current,
-      knowledge_context: {
-        kind: selected.category === "streamer" ? "streamer" : "topic",
-        subject: selected.name,
-        aliases: "",
-        description: selected.intro ?? "",
-      },
-    }));
+    const entry = knowledgeEntries.find((item) => item.id === choice);
+    if (entry) setPickedSubjects((current) => current.some((item) => item.key === entry.id) ? current : [...current, pickEntry(entry)]);
   };
+
+  const removeKnowledgeSubject = (key: string) => {
+    setPickedSubjects((current) => current.filter((item) => item.key !== key));
+  };
+
+  const updateDraftSubject = (key: string, patch: Partial<KnowledgeSubject>) => {
+    setPickedSubjects((current) => current.map((item) => item.key === key ? { ...item, subject: { ...item.subject, ...patch } } : item));
+  };
+
+  // 只有写回时才可能有草稿；只读模式下发出去的只有已有主体。
+  const knowledgeSubjects = knowledgeActive
+    ? pickedSubjects.filter((item) => knowledgeWrites || item.subject.id).map((item) => item.subject)
+    : [];
+  const pickedExisting = pickedSubjects.filter((item) => item.subject.id);
+  const pickedDrafts = knowledgeWrites ? pickedSubjects.filter((item) => !item.subject.id) : [];
+  const subjectsFull = knowledgeSubjects.length >= MAX_KNOWLEDGE_SUBJECTS;
+  const subjectOptions = knowledgeEntries.filter((entry) => !pickedSubjects.some((item) => item.key === entry.id));
 
   // 日文轴不跑识别，target 已经被钉死；本地缺 LLM 时它整条路都走不通（云端的模型
   // 由 Nonoka Cloud 提供，limits.llm 在那一侧恒为 true）。
-  const knowledgeSubjectMissing = request.knowledge === "update" && (
-    !knowledgeLoaded || !knowledgeChoice || !knowledgeContext.subject.trim()
+  // 写回必须有目标：至少一个主体，且每条新建草稿都填了名称。
+  const knowledgeSubjectMissing = knowledgeWrites && (
+    !knowledgeLoaded || knowledgeSubjects.length === 0 || knowledgeSubjects.some((item) => !item.subject.trim())
   );
   const startBlocked = busy || !selectedReady || (translateOnly && !limits.llm) || knowledgeSubjectMissing;
+  const startRequest: TaskRequest = { ...request, knowledge_subjects: knowledgeSubjects };
   const uploadingCloudAudio = busy && mode === "cloud" && !translateOnly;
   const coverage = axisParse ? clock(Math.max(...axisParse.rows.map((row) => row.t1))) : "";
   const notes = axisParse && axisParse.skipped > 0 ? `跳过 ${axisParse.skipped} 条注释或无效行` : "";
@@ -571,45 +609,58 @@ export function TranscriptionDialog(props: TranscriptionDialogProps) {
                 <label>处理质量<CustomSelect value={request.correction.difficulty} options={[{ value: "efficiency", label: "效率优先" }, { value: "intermediate", label: "均衡" }, { value: "quality", label: "质量优先" }]} onChange={(difficulty) => setRequest((current) => ({ ...current, correction: { ...current.correction, difficulty } }))} /></label>
                 <label>快速模式<CustomSelect value={request.correction.fast} options={[{ value: "auto", label: "自动", hint: "字幕放得进单个窗口时一次完成，放不下时自动改走正常流程" }, { value: "off", label: "关闭" }]} onChange={(fast) => setRequest((current) => ({ ...current, correction: { ...current.correction, fast } }))} /></label>
                 {mode === "local" && <label>资料检索<CustomSelect value={request.correction.retrieval} options={[{ value: "none", label: "不检索" }, { value: "local", label: "本地检索", disabled: !limits.retrieval, hint: limits.retrieval ? undefined : RETRIEVAL_KEY_HINT }, { value: "native", label: "模型原生检索", disabled: !limits.nativeSearch, hint: limits.nativeSearch ? undefined : NATIVE_SEARCH_HINT }]} onChange={(retrieval) => setRequest((current) => ({ ...current, correction: { ...current.correction, retrieval } }))} /></label>}
-                {supportsKnowledge && <label>知识库<CustomSelect value={request.knowledge} options={[{ value: "none", label: "不使用" }, { value: "collect", label: "读取知识库" }, { value: "update", label: "读取知识库并自动更新", disabled: mode === "cloud" }]} onChange={(knowledge) => setRequest((current) => ({ ...current, knowledge }))} /></label>}
+                {supportsKnowledge && <label>知识库<CustomSelect value={request.knowledge} options={[{ value: "none", label: "不使用" }, { value: "collect", label: "读取知识库" }, { value: "update", label: "读取知识库并自动更新", disabled: mode === "cloud" }]} onChange={setKnowledge} /></label>}
               </section>
 
-              {supportsKnowledge && request.knowledge === "update" && <section className="transcription-section knowledge-subject-section">
+              {knowledgeActive && <section className="transcription-section knowledge-subject-section">
                 <div className="knowledge-subject-picker">
                   <label>知识主体<CustomSelect
-                    value={knowledgeChoice}
-                    disabled={knowledgeLoading}
-                    options={knowledgeLoading
-                      ? [{ value: "", label: "正在读取知识库…", disabled: true }]
-                      : [
-                        ...(!knowledgeChoice ? [{ value: "", label: "请选择知识主体", disabled: true }] : []),
-                        ...knowledgeEntries.map((item) => ({ value: item.id, label: `${item.category === "streamer" ? "主播" : "通用"} · ${item.name}` })),
-                        { value: NEW_KNOWLEDGE_SUBJECT, label: "＋ 新建知识主体" },
-                      ]}
-                    onChange={chooseKnowledgeSubject}
+                    value={ADD_KNOWLEDGE_SUBJECT}
+                    disabled={knowledgeLoading || subjectsFull}
+                    options={[
+                      { value: ADD_KNOWLEDGE_SUBJECT, label: knowledgeLoading ? "正在读取知识库…" : subjectsFull ? `最多选择 ${MAX_KNOWLEDGE_SUBJECTS} 个` : "添加知识主体…", disabled: true },
+                      ...subjectOptions.map((entry) => ({ value: entry.id, label: entryLabel(entry), hint: entry.intro || undefined })),
+                      ...(knowledgeWrites ? [{ value: NEW_KNOWLEDGE_SUBJECT, label: "＋ 新建知识主体" }] : []),
+                    ]}
+                    onChange={addKnowledgeSubject}
                   /></label>
-                  <p>{knowledgeEntries.length > 0 ? "将自动读取与积累相关知识" : knowledgeLoading ? "正在检查本机已有知识…" : "当前没有可选主体，请先建立第一条知识。"}</p>
+
                 </div>
-                {knowledgeLoadError && <p className="knowledge-load-warning">知识库列表读取失败，仍可新建主体：{knowledgeLoadError}</p>}
+                {pickedExisting.length > 0 && <ul className="knowledge-subject-chips" aria-label="已选知识主体">
+                  {pickedExisting.map((item) => (
+                    <li key={item.key} title={item.subject.description || undefined}>
+                      <span>{entryLabel({ category: item.subject.kind === "streamer" ? "streamer" : "common", name: item.subject.subject })}</span>
+                      <button type="button" aria-label={`移除 ${item.subject.subject}`} onClick={() => removeKnowledgeSubject(item.key)}>×</button>
+                    </li>
+                  ))}
+                </ul>}
+                {knowledgeLoadError && <p className="knowledge-load-warning">{knowledgeWrites ? `知识库列表读取失败，仍可新建主体：${knowledgeLoadError}` : `知识库列表读取失败：${knowledgeLoadError}`}</p>}
+                {knowledgeWrites && knowledgeLoaded && knowledgeSubjects.length === 0 && <p className="knowledge-required-hint">请至少选择或新建一个知识主体，作为新知识的写回目标。</p>}
               </section>}
 
-              {supportsKnowledge && request.knowledge === "update" && knowledgeChoice === NEW_KNOWLEDGE_SUBJECT && <section className="transcription-section knowledge-context-card">
-                <div className="knowledge-context-head">
-                  <span className="knowledge-context-icon" aria-hidden="true">⌁</span>
-                  <span>
-                    <strong>知识库建库信息</strong>
-                    <small>确定视频内容属于谁，引导模型把新发现归到正确主体</small>
-                  </span>
-                  <em>名称必填</em>
-                </div>
-                <div className="knowledge-context-grid">
-                  <label>主体类型<CustomSelect value={knowledgeContext.kind} options={knowledgeKindOptions} onChange={(kind) => updateKnowledgeContext({ kind })} /></label>
-                  <label>知识主体名称<input required maxLength={120} aria-invalid={knowledgeSubjectMissing || undefined} placeholder={knowledgeContext.kind === "streamer" ? "例如：主播或频道的官方名称" : knowledgeContext.kind === "work" ? "例如：作品、系列或节目名" : "例如：组织、游戏或专题名称"} value={knowledgeContext.subject} onChange={(event) => updateKnowledgeContext({ subject: event.target.value })} /></label>
-                  <label>别名 / 常用译名<input maxLength={300} placeholder="多个名称可用顿号或逗号分隔（可选）" value={knowledgeContext.aliases} onChange={(event) => updateKnowledgeContext({ aliases: event.target.value })} /></label>
-                  <label className="knowledge-context-description">主体说明<textarea rows={2} maxLength={1200} placeholder="频道定位、所属团体、作品背景等（可选）" value={knowledgeContext.description} onChange={(event) => updateKnowledgeContext({ description: event.target.value })} /></label>
-                </div>
-                {!knowledgeContext.subject.trim() && <p className="knowledge-required-hint">填写知识主体名称后才能开始任务。</p>}
-              </section>}
+              {pickedDrafts.map((item) => {
+                const draft = item.subject;
+                return <section key={item.key} className="transcription-section knowledge-context-card">
+                  <div className="knowledge-context-head">
+                    <span className="knowledge-context-icon" aria-hidden="true">⌁</span>
+                    <span>
+                      <strong>新建知识主体</strong>
+                      <small>任务开始前建好词条，引导模型把新发现归到正确主体</small>
+                    </span>
+                    <span className="knowledge-context-actions">
+                      <em>名称必填</em>
+                      <button type="button" className="knowledge-context-remove" aria-label="移除这个新建主体" onClick={() => removeKnowledgeSubject(item.key)}>×</button>
+                    </span>
+                  </div>
+                  <div className="knowledge-context-grid">
+                    <label>主体类型<CustomSelect value={draft.kind} options={knowledgeKindOptions} onChange={(kind) => updateDraftSubject(item.key, { kind })} /></label>
+                    <label>知识主体名称<input required maxLength={120} aria-invalid={!draft.subject.trim() || undefined} placeholder={draft.kind === "streamer" ? "例如：主播或频道的官方名称" : draft.kind === "work" ? "例如：作品、系列或节目名" : "例如：组织、游戏或专题名称"} value={draft.subject} onChange={(event) => updateDraftSubject(item.key, { subject: event.target.value })} /></label>
+                    <label>别名 / 常用译名<input maxLength={300} placeholder="多个名称可用顿号或逗号分隔（可选）" value={draft.aliases} onChange={(event) => updateDraftSubject(item.key, { aliases: event.target.value })} /></label>
+                    <label className="knowledge-context-description">主体说明<textarea rows={2} maxLength={1200} placeholder="频道定位、所属团体、作品背景等（可选）" value={draft.description} onChange={(event) => updateDraftSubject(item.key, { description: event.target.value })} /></label>
+                  </div>
+                  {!draft.subject.trim() && <p className="knowledge-required-hint">填写知识主体名称后才能开始任务。</p>}
+                </section>;
+              })}
 
               <section className="transcription-section prompt-grid">
                 <label>背景信息<textarea rows={3} maxLength={4000} placeholder="人物、节目、专有名词等（可选）" value={request.correction.extra_info} onChange={(event) => setRequest((current) => ({ ...current, correction: { ...current.correction, extra_info: event.target.value } }))} /></label>
@@ -639,7 +690,7 @@ export function TranscriptionDialog(props: TranscriptionDialogProps) {
             ? <button ref={primaryAction} className="primary-button" disabled={busy} onClick={() => void onImport(axis)}>{busy ? "正在导入…" : "导入"}</button>
             : <button ref={primaryAction} className="primary-button" disabled={busy || axisBlocked} onClick={() => setStep("mode")}>下一步</button>)}
           {step === "mode" && <button ref={primaryAction} className="primary-button" disabled={busy || !selectedReady} onClick={() => setStep("settings")}>下一步</button>}
-          {step === "settings" && <button ref={primaryAction} className="primary-button" disabled={startBlocked} onClick={() => void onStart(mode, translateOnly && axis ? { ...request, axis } : request, axis)}>{busy ? uploadingCloudAudio ? "上传中…" : "正在启动…" : "开始任务"}</button>}
+          {step === "settings" && <button ref={primaryAction} className="primary-button" disabled={startBlocked} onClick={() => void onStart(mode, translateOnly && axis ? { ...startRequest, axis } : startRequest, axis)}>{busy ? uploadingCloudAudio ? "上传中…" : "正在启动…" : "开始任务"}</button>}
         </footer>
       </section>
     </div>

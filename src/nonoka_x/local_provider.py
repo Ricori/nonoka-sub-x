@@ -360,6 +360,79 @@ def capabilities(
     }
 
 
+#: Mirrors the engine's `MAX_KNOWLEDGE_SUBJECTS`: every correction window
+#: carries all of them, so the cap bounds prompt size, not only the picker.
+MAX_KNOWLEDGE_SUBJECTS = 8
+_KNOWLEDGE_SUBJECT_FIELDS = (("subject", 120), ("aliases", 300), ("description", 1200))
+
+
+def _normalize_knowledge_subjects(request: Mapping[str, Any], knowledge: str) -> list[dict[str, str]]:
+    """The subjects a task reads from and, under `update`, writes into.
+
+    An item with an `id` names an existing entry; one without is a new subject
+    the worker creates before the run, which only `update` may do. A request
+    queued before the list existed carries a single `knowledge_context`, which
+    only ever meant anything under `update`, so it is lifted into a one-item
+    list there and dropped otherwise.
+    """
+
+    if knowledge == "none":
+        return []
+    raw = request.get("knowledge_subjects")
+    if raw is None:
+        legacy = request.get("knowledge_context")
+        raw = [legacy] if knowledge == "update" and legacy is not None else []
+    if not isinstance(raw, list):
+        raise ProviderError("invalid_request", "knowledge_subjects must be a list")
+    if len(raw) > MAX_KNOWLEDGE_SUBJECTS:
+        raise ProviderError(
+            "invalid_request", f"knowledge_subjects allows at most {MAX_KNOWLEDGE_SUBJECTS} items"
+        )
+    subjects: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for index, item in enumerate(raw):
+        label = f"knowledge_subjects[{index}]"
+        if not isinstance(item, dict):
+            raise ProviderError("invalid_request", f"{label} must be an object")
+        kind = str(item.get("kind") or "").strip()
+        if kind not in {"streamer", "work", "topic"}:
+            raise ProviderError("invalid_request", f"{label}.kind must be streamer, work, or topic")
+        subject: dict[str, str] = {"kind": kind}
+        ident = item.get("id")
+        if ident is not None:
+            if not isinstance(ident, str) or not ident.strip():
+                raise ProviderError("invalid_request", f"{label}.id must be a non-empty string")
+            subject["id"] = ident.strip()
+        for field, limit in _KNOWLEDGE_SUBJECT_FIELDS:
+            value = item.get(field, "")
+            if not isinstance(value, str):
+                raise ProviderError("invalid_request", f"{label}.{field} must be a string")
+            value = value.strip()
+            if len(value) > limit:
+                raise ProviderError("invalid_request", f"{label}.{field} exceeds {limit} characters")
+            subject[field] = value
+        if not subject["subject"]:
+            raise ProviderError("invalid_request", f"{label}.subject is required")
+        if "id" not in subject and knowledge != "update":
+            raise ProviderError(
+                "invalid_request", f"{label}: a new subject can only be created when knowledge=update"
+            )
+        identity = subject.get("id") or f"new:{subject['subject'].casefold()}"
+        if identity in seen:
+            continue
+        seen.add(identity)
+        subjects.append(subject)
+    # Writing back needs somewhere to write. Absence of both fields stays
+    # accepted so an already queued pre-field request can still be retried.
+    if knowledge == "update" and not subjects and (
+        "knowledge_subjects" in request or "knowledge_context" in request
+    ):
+        raise ProviderError(
+            "invalid_request", "knowledge_subjects needs at least one subject when knowledge=update"
+        )
+    return subjects
+
+
 def validate_request(value: Mapping[str, Any]) -> dict[str, Any]:
     request = json.loads(json.dumps(value))
     if request.get("schema") != 1:
@@ -439,36 +512,12 @@ def validate_request(value: Mapping[str, Any]) -> dict[str, Any]:
     knowledge = request.setdefault("knowledge", "update")
     if knowledge not in {"none", "collect", "update"}:
         raise ProviderError("invalid_request", "knowledge must be none, collect, or update")
-    knowledge_context = request.get("knowledge_context")
-    if knowledge_context is not None:
-        if not isinstance(knowledge_context, dict):
-            raise ProviderError("invalid_request", "knowledge_context must be an object")
-        kind = str(knowledge_context.get("kind") or "").strip()
-        if kind not in {"streamer", "work", "topic"}:
-            raise ProviderError(
-                "invalid_request", "knowledge_context.kind must be streamer, work, or topic"
-            )
-        normalized_context: dict[str, str] = {"kind": kind}
-        for field, limit in (("subject", 120), ("aliases", 300), ("description", 1200)):
-            value = knowledge_context.get(field, "")
-            if not isinstance(value, str):
-                raise ProviderError(
-                    "invalid_request", f"knowledge_context.{field} must be a string"
-                )
-            value = value.strip()
-            if len(value) > limit:
-                raise ProviderError(
-                    "invalid_request", f"knowledge_context.{field} exceeds {limit} characters"
-                )
-            normalized_context[field] = value
-        # The desktop always sends this object. Absence stays accepted so an
-        # already queued pre-field request can still be retried after upgrade.
-        if knowledge == "update" and not normalized_context["subject"]:
-            raise ProviderError(
-                "invalid_request",
-                "knowledge_context.subject is required when knowledge=update",
-            )
-        request["knowledge_context"] = normalized_context
+    subjects = _normalize_knowledge_subjects(request, knowledge)
+    request.pop("knowledge_context", None)
+    if subjects:
+        request["knowledge_subjects"] = subjects
+    else:
+        request.pop("knowledge_subjects", None)
     request.setdefault("cleanup_intermediate", False)
     # An imported axis reaches the worker only when it carries source text: the
     # `ja` shape replaces recognition outright. An empty axis is applied after

@@ -1,10 +1,10 @@
 {
   "archive_sha256": "5f96a9c6ab0a08ce8370ee577b69f160210259d797f23bb3ea58bce338fa15a6",
   "commit": "b9b2f10c80abd58ddff739b60461624f51c0789c",
-  "content_sha256": "0dd959c32e6ec6f828e695916e0222bcbf655da582828aeb22a4a3c66e1e4d7f",
+  "content_sha256": "46a074fda0d3ce49b5b4ac7b1177bedca09dfb7b9a1cfda585f9a2a5a504a42c",
   "engine_bundle_id": "finesub-0.5.1+b9b2f10c80ab",
   "engine_version": "0.5.1",
-  "files_manifest_sha256": "7b90e68fc30968c4df288ed159e9376561648008e4db715cfec4ff66667de0d7",
+  "files_manifest_sha256": "af38ce3ca593ccab8a1ae726839ccb3787df5d019770681ccdca70d99c0740d8",
   "patches": [
     {
       "path": "0001-qwen-tail-entry-point.patch",
@@ -41,6 +41,10 @@
     {
       "path": "0009-codex-gpt6-models.patch",
       "sha256": "ee07fb87375507ab9026da574b042bd9cf0c8447850a319c934df3e8df0f4641"
+    },
+    {
+      "path": "0010-pinned-knowledge-subjects.patch",
+      "sha256": "c55ba2e54b5394cc3cc8d1db13ecd21a6f83d9f07b77c805a2e6559a81bbff11"
     }
   ],
   "ref": "v0.5.1",

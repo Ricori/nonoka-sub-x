@@ -143,38 +143,66 @@ def artifact(path: Path) -> dict[str, Any]:
     return {"uri": path.resolve().as_uri(), "sha256": digest, "bytes": path.stat().st_size}
 
 
+_KIND_LABELS = {
+    "streamer": "主播 / 频道",
+    "work": "作品 / 节目",
+    "topic": "其他知识主题",
+}
+
+
+def knowledge_subjects(request: Mapping[str, Any]) -> list[Mapping[str, Any]]:
+    """The subjects the user picked, as the provider normalized them.
+
+    Empty whenever the base is not read at all. A request queued before the
+    list existed carries one `knowledge_context`, which only ever applied
+    under `update`.
+    """
+
+    knowledge = request.get("knowledge")
+    if knowledge not in ("collect", "update"):
+        return []
+    subjects = request.get("knowledge_subjects")
+    if subjects is None and knowledge == "update":
+        legacy = request.get("knowledge_context")
+        subjects = [legacy] if isinstance(legacy, Mapping) else []
+    return [
+        item
+        for item in (subjects or [])
+        if isinstance(item, Mapping) and str(item.get("subject") or "").strip()
+    ]
+
+
 def compose_knowledge_context(request: Mapping[str, Any], extra_info: str = "") -> str:
     """Turn the desktop's structured subject fields into engine prompt context.
 
     FineSub's correction/research prompts collect the structured feedback that
-    later becomes knowledge proposals. Feeding the identity through their
-    existing ``extra_info`` inlet lets every route see it without creating a
-    second, desktop-only knowledge implementation.
+    later becomes knowledge proposals. Feeding the identities through their
+    existing ``extra_info`` inlet lets every route see them -- and, because the
+    names are written out, research round 1's keyword pre-injection finds
+    their entries too -- without a second, desktop-only knowledge
+    implementation. The entries themselves reach every window through the
+    engine's pinned-subject block (`knowledge_subjects=`).
     """
 
-    context = request.get("knowledge_context")
-    if request.get("knowledge") != "update" or not isinstance(context, Mapping):
+    subjects = knowledge_subjects(request)
+    if not subjects:
         return str(extra_info or "")
-    subject = str(context.get("subject") or "").strip()
-    if not subject:
-        return str(extra_info or "")
-    kind_label = {
-        "streamer": "主播 / 频道",
-        "work": "作品 / 节目",
-        "topic": "其他知识主题",
-    }.get(str(context.get("kind") or ""), "其他知识主题")
-    lines = [
-        "【知识库建库信息（用户明确提供）】",
-        f"知识主体类型：{kind_label}",
-        f"知识主体官方或源语言名称：{subject}",
-    ]
-    aliases = str(context.get("aliases") or "").strip()
-    description = str(context.get("description") or "").strip()
-    if aliases:
-        lines.append(f"别名 / 常用译名：{aliases}")
-    if description:
-        lines.append(f"主体说明：{description}")
-    lines.append("请将本次确认的新名称、关系和事实归入上述主体；不要与同名主体混淆。")
+    lines = ["【本任务指定的知识主体（用户明确选择）】"]
+    for item in subjects:
+        kind_label = _KIND_LABELS.get(str(item.get("kind") or ""), _KIND_LABELS["topic"])
+        line = f"- {kind_label}：{str(item.get('subject') or '').strip()}"
+        aliases = str(item.get("aliases") or "").strip()
+        description = " ".join(str(item.get("description") or "").split())
+        if aliases:
+            line += f"（别名 / 常用译名：{aliases}）"
+        if description:
+            line += f"；{description}"
+        lines.append(line)
+    if request.get("knowledge") == "update":
+        lines.append(
+            "请将本次确认的新名称、关系和事实归入上述主体中最贴切的一个；"
+            "不属于任何一个时再按常规新建条目，不要与同名主体混淆。"
+        )
     original = str(extra_info or "").strip()
     return "\n".join(lines) + (f"\n\n【其他背景信息】\n{original}" if original else "")
 
@@ -186,10 +214,17 @@ def knowledge_task_summary(request: Mapping[str, Any], title: str) -> str:
     return f"字幕任务：{title}" + (f"\n\n{identity}" if identity else "")
 
 
-def bootstrap_knowledge_subject(
-    request: Mapping[str, Any], task_id: str, *, knowledge_root: str | Path | None = None
-) -> dict[str, Any]:
-    """Create the user-selected subject before the pipeline reads the KB.
+def _split_aliases(value: Any, subject: str) -> list[str]:
+    aliases: list[str] = []
+    for alias in re.split(r"[、,，;；\n]+", str(value or "")):
+        alias = alias.strip()
+        if alias and alias != subject and alias not in aliases:
+            aliases.append(alias)
+    return aliases
+
+
+def _create_knowledge_subject(repo: Any, item: Mapping[str, Any], task_id: str) -> Any:
+    """Create one user-described subject; returns its resolved entry.
 
     The subject fields are explicit user input, not a guess extracted from a
     transcript. Persisting that small scaffold makes an empty repository
@@ -197,49 +232,21 @@ def bootstrap_knowledge_subject(
     facts are reliable enough to append.
     """
 
-    context = request.get("knowledge_context")
-    if request.get("knowledge") != "update" or not isinstance(context, Mapping):
-        return {"created": False}
-    subject = str(context.get("subject") or "").strip()
-    if not subject:
-        return {"created": False}
-
-    from finesub.llm.knowledge.base import knowledge_root_path
     from finesub.llm.knowledge.node.proposals import apply_model_proposals
-    from finesub.llm.knowledge.node.repo import KnowledgeRepo
 
-    root = knowledge_root_path(knowledge_root)
-    repo = KnowledgeRepo.open(root)
-    existing = repo.resolve(subject)
-    if existing is not None:
-        return {
-            "created": False,
-            "entry": existing.key,
-            "category": existing.category,
-            "rev": repo.rev,
-        }
-
-    kind = str(context.get("kind") or "streamer")
+    subject = str(item.get("subject") or "").strip()
+    kind = str(item.get("kind") or "streamer")
     category = "streamer" if kind == "streamer" else "common"
-    kind_label = {
-        "streamer": "主播 / 频道",
-        "work": "作品 / 节目",
-        "topic": "其他知识主题",
-    }.get(kind, "其他知识主题")
-    description = " ".join(str(context.get("description") or "").split())
+    kind_label = _KIND_LABELS.get(kind, _KIND_LABELS["topic"])
+    description = " ".join(str(item.get("description") or "").split())
     intro = (description or f"用户在字幕任务中指定的{kind_label}知识主体。")[:240]
-    aliases = []
-    for alias in re.split(r"[、,，;；\n]+", str(context.get("aliases") or "")):
-        alias = alias.strip()
-        if alias and alias != subject and alias not in aliases:
-            aliases.append(alias)
     proposal = {
         "op": "create_entry",
         "category": category,
         "entry": subject,
         "intro": intro,
         "entry_type": "其他" if category == "common" else "",
-        "aliases": aliases,
+        "aliases": _split_aliases(item.get("aliases"), subject),
         "reason": "用户在任务设置中明确指定此主体；初始化词条以承接本次及后续任务知识。",
     }
     proposal_text = (
@@ -253,23 +260,67 @@ def bootstrap_knowledge_subject(
         task_id=f"{task_id}:subject-bootstrap",
         knowledge_read_rev=repo.rev,
     )
-    created = any(record.op == "create_entry" for record in report.applied)
-    if not created:
-        # A concurrent task may have created it after the first resolve.
-        existing = repo.resolve(subject)
-        if existing is None:
-            reasons = "; ".join(record.reason for record in report.skipped) or "unknown reason"
-            raise RuntimeError(f"知识主体初始化失败：{reasons}")
-        return {
-            "created": False,
-            "entry": existing.key,
-            "category": existing.category,
-            "rev": repo.rev,
-        }
-    return {"created": True, "entry": subject, "category": category, "rev": report.rev}
+    # A concurrent task may have created it after our first resolve; either
+    # way the entry must exist now.
+    resolved = repo.resolve(subject)
+    if resolved is None:
+        reasons = "; ".join(record.reason for record in report.skipped) or "unknown reason"
+        raise RuntimeError(f"知识主体「{subject}」初始化失败：{reasons}")
+    return resolved
 
 
-def translate_axis(request: Mapping[str, Any], axis: Mapping[str, Any], output: Path, task_id: str, task_artifact_dir: Path) -> AxisTranslation:
+def prepare_knowledge_subjects(
+    request: Mapping[str, Any], task_id: str, *, knowledge_root: str | Path | None = None
+) -> dict[str, Any]:
+    """Resolve the picked subjects to engine names, creating new ones first.
+
+    Existing subjects travel by store id, which survives a rename; the engine
+    is handed `category/key`, the qualified form its human lookup accepts
+    without ambiguity. A subject without an id is created here -- the provider
+    only lets that through under `update` -- unless an entry of that name
+    already exists, which is then reused rather than duplicated.
+    """
+
+    subjects = knowledge_subjects(request)
+    if not subjects:
+        return {"names": [], "created": []}
+
+    from finesub.llm.knowledge.base import knowledge_root_path
+    from finesub.llm.knowledge.node.repo import KnowledgeRepo
+
+    repo = KnowledgeRepo.open(knowledge_root_path(knowledge_root))
+    names: list[str] = []
+    created: list[str] = []
+    for item in subjects:
+        subject = str(item.get("subject") or "").strip()
+        ident = str(item.get("id") or "").strip()
+        if ident:
+            node = next((s for s in repo.subjects() if s.local_id == ident), None)
+            if node is None:
+                raise RuntimeError(f"知识主体「{subject}」已不在知识库中，请重新选择")
+            category, key = str(node.payload["category"]), str(node.payload["surface"])
+        else:
+            resolved = repo.resolve(subject)
+            if resolved is None:
+                if request.get("knowledge") != "update":
+                    raise RuntimeError(f"知识库里没有「{subject}」，只有自动更新模式可以新建主体")
+                resolved = _create_knowledge_subject(repo, item, task_id)
+                created.append(resolved.key)
+            category, key = resolved.category, resolved.key
+        name = f"{category}/{key}"
+        if name not in names:
+            names.append(name)
+    return {"names": names, "created": created, "rev": repo.rev}
+
+
+def translate_axis(
+    request: Mapping[str, Any],
+    axis: Mapping[str, Any],
+    output: Path,
+    task_id: str,
+    task_artifact_dir: Path,
+    subject_names: list[str] | None = None,
+) -> AxisTranslation:
     """Local entry to the shared source-text-axis run.
 
     The run itself lives in `nonoka_x.axis` because the cloud's LLM container
@@ -289,6 +340,7 @@ def translate_axis(request: Mapping[str, Any], axis: Mapping[str, Any], output: 
         correction=request.get("correction") or {},
         knowledge=request.get("knowledge", "none"),
         source_path=Path(request["source"]["path"]),
+        knowledge_subjects=subject_names or None,
         on_notice=lambda notice: emit("log", {"message": notice}),
     )
 
@@ -423,15 +475,20 @@ def main(argv: list[str] | None = None) -> int:
 
         axis = request.get("axis") if isinstance(request.get("axis"), dict) else None
         artifact_dir = args.task_dir / "workspace" / "llm-artifacts"
-        bootstrap = bootstrap_knowledge_subject(request, args.task_id)
-        if bootstrap.get("created"):
+        subjects = prepare_knowledge_subjects(request, args.task_id)
+        for entry in subjects["created"]:
             emit("log", {
                 "message": "knowledge subject initialized",
-                "fields": {key: bootstrap[key] for key in ("entry", "category", "rev")},
+                "fields": {"entry": entry, "rev": subjects["rev"]},
             })
+        # Passed only when there is something to pin, so a run without
+        # subjects calls the engine with exactly upstream's arguments.
+        subject_kwargs = {"knowledge_subjects": subjects["names"]} if subjects["names"] else {}
         if axis is not None and axis.get("kind") == "ja":
             with reporting_to(NonokaXReporter()), quieted_libraries("normal"):
-                translated = translate_axis(request, axis, output, args.task_id, artifact_dir)
+                translated = translate_axis(
+                    request, axis, output, args.task_id, artifact_dir, subjects["names"]
+                )
             candidates = {
                 "stable_json": translated.stable_json,
                 "annotated_csv": translated.annotated_csv,
@@ -467,6 +524,7 @@ def main(argv: list[str] | None = None) -> int:
                     task_id=args.task_id,
                     task_artifact_dir=artifact_dir,
                     resume=True,
+                    **subject_kwargs,
                 )
             # Every artifact the pipeline names, not only the four the editor
             # projects from: a caller that asked for one stage wants that

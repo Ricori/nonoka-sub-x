@@ -1,5 +1,5 @@
 {
-  "content_sha256": "0dd959c32e6ec6f828e695916e0222bcbf655da582828aeb22a4a3c66e1e4d7f",
+  "content_sha256": "46a074fda0d3ce49b5b4ac7b1177bedca09dfb7b9a1cfda585f9a2a5a504a42c",
   "files": [
     {
       "bytes": 35149,
@@ -147,9 +147,9 @@
       "sha256": "5715a4bf5ef6cceef50a11b7d419774b97dcb0eb4d0591028bc4c63d4afdbb1b"
     },
     {
-      "bytes": 59529,
+      "bytes": 60199,
       "path": "src/finesub/llm/correction_translation.py",
-      "sha256": "2365805c5d6427b46fc476a13ff00a2e67be4e0d381bc232362019399a110dab"
+      "sha256": "80e2ef0a8afe96e122b24e09ee0c9169d15e6b76a7f1d8c8571e7d7b30623c3c"
     },
     {
       "bytes": 27057,
@@ -192,9 +192,9 @@
       "sha256": "817d9bf3958bbfbd579396f4da8903bdce929e381104e1ca4b91aa6784de8c8a"
     },
     {
-      "bytes": 7257,
+      "bytes": 8190,
       "path": "src/finesub/llm/knowledge/entries.py",
-      "sha256": "f34c206690e66146d9e84f455b3c3727cfb3960aa6f1439ac989e5dd325b333c"
+      "sha256": "3eba779b481381a079068d188bb0b1d4b94d60f5b56236d55cfb3d7fd6e36a6a"
     },
     {
       "bytes": 15103,
@@ -412,9 +412,14 @@
       "sha256": "24fe956efb17f6ca7bb5b222adb04cef1095bd43e3b376c8fc6a0c6e4a373002"
     },
     {
-      "bytes": 59261,
+      "bytes": 5307,
+      "path": "src/finesub/llm/knowledge/subjects.py",
+      "sha256": "958197883c57b39ad413125de6c0152d8bf411cc43132b8774ac712f43b440f8"
+    },
+    {
+      "bytes": 59715,
       "path": "src/finesub/llm/knowledge/update.py",
-      "sha256": "2441a6c491bafc420665f15ed92f42d506bd15e3edb2df12b3f24c8e2a40b816"
+      "sha256": "67567943135c0c0a0c9c69ac2eec971b4af5ab97c565c19efc1653f9fd4fe5a5"
     },
     {
       "bytes": 8454,
@@ -1387,9 +1392,9 @@
       "sha256": "a6347d27313465a4be3ea3378312bdabb4fbee4ec0b6a7e6da3823da4b815c2f"
     },
     {
-      "bytes": 53497,
+      "bytes": 54187,
       "path": "src/finesub/stages.py",
-      "sha256": "c5b7dbc528083a832b7d646b82c0010f7f531dfc18616c5b3fd2d7d026f06f08"
+      "sha256": "aa17b15986746608df22bd4cab3a5fb9dd343b614f70e152ec7fcaeb6bffc393"
     },
     {
       "bytes": 4323,
