@@ -1,59 +1,273 @@
-.llm-config-card { overflow: hidden; border-color: var(--accent-line); background: color-mix(in srgb, var(--panel) 93%, var(--accent-dim)); }
-.llm-config-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; padding: 21px 25px 17px; }
-.llm-config-heading > div { min-width: 0; }
-.llm-config-heading h2 { margin: 6px 0 0; font-size: 17px; }
-.llm-config-heading p { margin: 6px 0 0; color: var(--mut); font-size: 12px; line-height: 1.6; }
-.llm-config-heading .mark { flex: 0 0 auto; white-space: nowrap; }
-.llm-model-routing { border-top: 1px solid var(--line-soft); border-bottom: 1px solid var(--line-soft); background: color-mix(in srgb, var(--panel) 94%, var(--accent-dim)); }
+.llm-config-card {
+   overflow: hidden;
+   border-color: var(--accent-line);
+   background: color-mix(in srgb, var(--panel) 93%, var(--accent-dim));
+}
+
+.llm-config-heading {
+   display: flex;
+   align-items: flex-start;
+   justify-content: space-between;
+   gap: 24px;
+   padding: 21px 25px 17px;
+}
+
+.llm-config-heading>div {
+   min-width: 0;
+}
+
+.llm-config-heading h2 {
+   margin: 6px 0 0;
+   font-size: 17px;
+}
+
+.llm-config-heading p {
+   margin: 6px 0 0;
+   color: var(--mut);
+   font-size: 12px;
+   line-height: 1.6;
+}
+
+.llm-config-heading .mark {
+   flex: 0 0 auto;
+   white-space: nowrap;
+}
+
+.llm-model-routing {
+   border-top: 1px solid var(--line-soft);
+   border-bottom: 1px solid var(--line-soft);
+   background: color-mix(in srgb, var(--panel) 94%, var(--accent-dim));
+}
 
 /* 卡片里所有可编辑的行共用这一套列：标签 | 控件 | 操作。操作列固定占位，
    没有按钮的行也留着它，输入框才不会因为有无「清除」而左右错开。 */
-.llm-row { display: grid; grid-template-columns: 128px minmax(0, 1fr) 48px; align-items: center; gap: 14px; padding: 12px 25px; }
-.llm-row + .llm-row { border-top: 1px solid var(--line-soft); }
-.llm-row > :nth-child(2) { grid-column: 2; min-width: 0; }
-.llm-row-label { display: grid; gap: 3px; min-width: 0; }
-.llm-row-label strong { overflow: hidden; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
-.llm-row-label small { overflow: hidden; color: var(--faint); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
-.llm-row-text { margin: 0; color: var(--mut); font-size: 11px; line-height: 1.6; }
-.llm-row .danger-link { justify-self: end; }
-.llm-row input, .llm-route-controls input { width: 100%; min-width: 0; height: 36px; border: 1px solid var(--line); border-radius: 9px; padding: 0 10px; background: color-mix(in srgb, var(--bg) 72%, var(--panel)); color: var(--text); font-size: 11px; outline: none; }
-.llm-row input:focus, .llm-route-controls input:focus { border-color: var(--accent-border); box-shadow: 0 0 0 3px var(--accent-dim); }
-.llm-route-controls input:disabled { color: var(--faint); opacity: .72; }
-/* 下拉框自带 38px 的最小高度，会把同一行的输入框一起撑高；卡片内统一成 36px。 */
-.llm-config-card .custom-select-trigger { min-height: 36px; height: 36px; padding-top: 0; padding-bottom: 0; font-size: 11px; }
+.llm-row {
+   display: grid;
+   grid-template-columns: 128px minmax(0, 1fr) 48px;
+   align-items: center;
+   gap: 14px;
+   padding: 12px 25px;
+   min-height: 58px;
+}
 
-.llm-route-controls { display: grid; grid-template-columns: minmax(0, .8fr) minmax(0, 1fr); gap: 9px; }
+.llm-row+.llm-row {
+   border-top: 1px solid var(--line-soft);
+}
+
+.llm-row> :nth-child(2) {
+   grid-column: 2;
+   min-width: 0;
+}
+
+.llm-row-label {
+   display: grid;
+   gap: 3px;
+   min-width: 0;
+}
+
+.llm-row-label strong {
+   overflow: hidden;
+   font-size: 11px;
+   text-overflow: ellipsis;
+   white-space: nowrap;
+}
+
+.llm-row-label small {
+   overflow: hidden;
+   color: var(--faint);
+   font-size: 10px;
+   text-overflow: ellipsis;
+   white-space: nowrap;
+}
+
+.llm-row-text {
+   margin: 0;
+   color: var(--mut);
+   font-size: 11px;
+   line-height: 1.6;
+}
+
+.llm-row .danger-link {
+   justify-self: end;
+}
+
+.llm-row input,
+.llm-route-controls input {
+   width: 100%;
+   min-width: 0;
+   height: 36px;
+   border: 1px solid var(--line);
+   border-radius: 9px;
+   padding: 0 10px;
+   background: color-mix(in srgb, var(--bg) 72%, var(--panel));
+   color: var(--text);
+   font-size: 11px;
+   outline: none;
+}
+
+.llm-row input:focus,
+.llm-route-controls input:focus {
+   border-color: var(--accent-border);
+   box-shadow: 0 0 0 3px var(--accent-dim);
+}
+
+.llm-route-controls input:disabled {
+   color: var(--faint);
+   opacity: .72;
+}
+
+/* 下拉框自带 38px 的最小高度，会把同一行的输入框一起撑高；卡片内统一成 36px。 */
+.llm-config-card .custom-select-trigger {
+   min-height: 36px;
+   height: 36px;
+   padding-top: 0;
+   padding-bottom: 0;
+   font-size: 11px;
+}
+
+.llm-route-controls {
+   display: grid;
+   grid-template-columns: minmax(0, .8fr) minmax(0, 1fr);
+   gap: 9px;
+}
+
 /* 档位选择器挤进来的那一行。模型那一格仍然最宽——它装的是最长的字符串。 */
-.llm-route-controls.tiered { grid-template-columns: minmax(0, .6fr) minmax(0, .4fr) minmax(0, 1fr); }
+.llm-route-controls.tiered {
+   grid-template-columns: minmax(0, .6fr) minmax(0, .4fr) minmax(0, 1fr);
+}
 
 /* 提供商自陈的注意事项。比普通说明显眼一档：它讲的是会花钱的行为，
    不是背景说明。缩进到控件列，和上面的输入框对齐。 */
-.llm-provider-note { margin: 0 87px 12px 167px; border-left: 2px solid color-mix(in srgb, var(--warn) 60%, transparent); padding: 2px 0 2px 10px; color: var(--mut); font-size: 10px; line-height: 1.6; }
+.llm-provider-note {
+   margin: 0 87px 12px 167px;
+   border-left: 2px solid color-mix(in srgb, var(--warn) 60%, transparent);
+   padding: 2px 0 2px 10px;
+   color: var(--mut);
+   font-size: 10px;
+   line-height: 1.6;
+}
 
-.llm-task-routing { border-top: 1px solid var(--line-soft); }
-.llm-task-routing summary, .llm-task-routing-locked { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 13px 25px; }
-.llm-task-routing summary { cursor: pointer; list-style: none; }
-.llm-task-routing summary::-webkit-details-marker { display: none; }
-.llm-task-routing summary > span, .llm-task-routing-locked > span { display: grid; gap: 3px; min-width: 0; }
-.llm-task-routing summary strong, .llm-task-routing-locked strong { font-size: 11px; }
-.llm-task-routing summary small, .llm-task-routing summary i, .llm-task-routing-locked small { color: var(--faint); font-size: 10px; font-style: normal; }
-.llm-task-routing summary i::after { content: " ›"; display: inline-block; margin-left: 2px; transition: transform .15s; }
-.llm-task-routing[open] summary i::after { transform: rotate(90deg); }
-.llm-task-routing[open] summary { border-bottom: 1px solid var(--line-soft); }
-.llm-task-routing-locked { opacity: .58; }
-.llm-task-route-list { padding: 3px 0 6px; }
-.llm-task-route-list .llm-row { padding-top: 9px; padding-bottom: 9px; }
+.llm-task-routing {
+   border-top: 1px solid var(--line-soft);
+}
 
-.llm-config-footer { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 13px 25px; }
-.llm-config-footer span { color: var(--mut); font-size: 11px; }
-.llm-config-footer button { border: 0; border-radius: 8px; padding: 8px 16px; font-size: 11px; cursor: pointer; }
-.llm-config-footer button:disabled { opacity: .42; cursor: not-allowed; }
+.llm-task-routing summary,
+.llm-task-routing-locked {
+   display: flex;
+   align-items: center;
+   justify-content: space-between;
+   gap: 18px;
+   padding: 13px 25px;
+}
+
+.llm-task-routing summary {
+   cursor: pointer;
+   list-style: none;
+}
+
+.llm-task-routing summary::-webkit-details-marker {
+   display: none;
+}
+
+.llm-task-routing summary>span,
+.llm-task-routing-locked>span {
+   display: grid;
+   gap: 3px;
+   min-width: 0;
+}
+
+.llm-task-routing summary strong,
+.llm-task-routing-locked strong {
+   font-size: 11px;
+}
+
+.llm-task-routing summary small,
+.llm-task-routing summary i,
+.llm-task-routing-locked small {
+   color: var(--faint);
+   font-size: 10px;
+   font-style: normal;
+}
+
+.llm-task-routing summary i::after {
+   content: " ›";
+   display: inline-block;
+   margin-left: 2px;
+   transition: transform .15s;
+}
+
+.llm-task-routing[open] summary i::after {
+   transform: rotate(90deg);
+}
+
+.llm-task-routing[open] summary {
+   border-bottom: 1px solid var(--line-soft);
+}
+
+.llm-task-routing-locked {
+   opacity: .58;
+}
+
+.llm-task-route-list {
+   padding: 3px 0 6px;
+}
+
+.llm-task-route-list .llm-row {
+   padding-top: 9px;
+   padding-bottom: 9px;
+}
+
+.llm-config-footer {
+   display: flex;
+   align-items: center;
+   justify-content: space-between;
+   gap: 18px;
+   padding: 13px 25px;
+}
+
+.llm-config-footer span {
+   color: var(--mut);
+   font-size: 11px;
+}
+
+.llm-config-footer button {
+   border: 0;
+   border-radius: 8px;
+   padding: 8px 16px;
+   font-size: 11px;
+   cursor: pointer;
+}
+
+.llm-config-footer button:disabled {
+   opacity: .42;
+   cursor: not-allowed;
+}
 
 @media (max-width: 900px) {
-  .llm-row { grid-template-columns: minmax(0, 1fr) auto; gap: 8px 10px; }
-  .llm-row-label { grid-column: 1 / -1; }
-  .llm-row > :nth-child(2) { grid-column: 1; }
-  .llm-provider-note { margin: 0 25px 12px; }
-  .llm-route-controls, .llm-route-controls.tiered { grid-template-columns: 1fr; }
-  .llm-config-footer { align-items: stretch; flex-direction: column; }
+   .llm-row {
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 8px 10px;
+   }
+
+   .llm-row-label {
+      grid-column: 1 / -1;
+   }
+
+   .llm-row> :nth-child(2) {
+      grid-column: 1;
+   }
+
+   .llm-provider-note {
+      margin: 0 25px 12px;
+   }
+
+   .llm-route-controls,
+   .llm-route-controls.tiered {
+      grid-template-columns: 1fr;
+   }
+
+   .llm-config-footer {
+      align-items: stretch;
+      flex-direction: column;
+   }
 }

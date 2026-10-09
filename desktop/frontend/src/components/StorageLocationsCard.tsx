@@ -77,11 +77,9 @@ export function StorageLocationsCard(props: StorageLocationsCardProps) {
   return (
     <article className="panel storage-locations-card">
       <div className="storage-heading">
-        <div>
-          <span className="eyebrow">Storage locations</span>
-          <h2>磁盘占用</h2>
-          <p>默认在系统盘，可整体迁移到其他磁盘。</p>
-        </div>
+        <span className="eyebrow">Storage locations</span>
+        <h2>磁盘占用</h2>
+        <p>默认在系统盘，可整体迁移到其他磁盘。</p>
       </div>
 
       <div className="storage-rows">
@@ -94,26 +92,33 @@ export function StorageLocationsCard(props: StorageLocationsCardProps) {
           const fileCount = isVideo && cache ? cache.files : location.files;
           const bytes = isVideo && cache ? cache.bytes : location.bytes;
 
+          const hasLimit = isVideo && cache != null && cache.limitBytes > 0;
+
           return (
             <section className="storage-row" key={location.target}>
               <div className="storage-row-heading">
                 <div>
-                  <strong>{title}</strong>
+                  <strong>
+                    {title}
+                    {location.custom && <span className="storage-badge">已迁移</span>}
+                  </strong>
                   <p>{targetDetails[target]}</p>
                 </div>
-                <b>{location.missing ? "—" : formatStorageBytes(bytes)}</b>
+                <b>
+                  {location.missing ? "—" : formatStorageBytes(bytes)}
+                  {hasLimit && <small> / {formatStorageBytes(cache.limitBytes)}</small>}
+                </b>
               </div>
 
-              {isVideo && cache && cache.limitBytes > 0 && (
-                <div className="storage-meter" aria-label={`缓存使用率 ${usage.toFixed(0)}%`}>
-                  <span style={{ width: `${usage}%` }} />
-                </div>
-              )}
-
               {isVideo && (
-                <div className="storage-cache-limit-row">
+                <div className="storage-cache-limit">
+                  {hasLimit && (
+                    <div className="storage-meter" aria-label={`缓存使用率 ${usage.toFixed(0)}%`}>
+                      <span style={{ width: `${usage}%` }} />
+                    </div>
+                  )}
                   <label>
-                    缓存上限（GB）
+                    上限
                     <input
                       type="number"
                       min="1"
@@ -122,6 +127,7 @@ export function StorageLocationsCard(props: StorageLocationsCardProps) {
                       value={limit}
                       onChange={(event) => setLimit(event.target.value)}
                     />
+                    GB
                   </label>
                   {onSaveCacheLimit && (
                     <button
@@ -129,56 +135,48 @@ export function StorageLocationsCard(props: StorageLocationsCardProps) {
                       onClick={() => void onSaveCacheLimit(limitValue)}
                       type="button"
                     >
-                      保存上限
+                      保存
                     </button>
                   )}
-                  {onClearCache && (
+                </div>
+              )}
+
+              <code className="storage-path" title={location.directory}>{location.directory}</code>
+
+              <div className="storage-row-footer">
+                <div className="storage-row-stats">
+                  <span>
+                    {location.volume} 剩余 <b>{formatStorageBytes(location.freeBytes)}</b>
+                  </span>
+                  {!location.missing && fileCount > 0 && (
+                    <span>
+                      <b>{fileCount}</b> {isVideo ? "个视频副本" : "个文件"}
+                    </span>
+                  )}
+                  {location.empty && !location.missing && <span>尚未安装</span>}
+                  {location.missing && <span className="storage-warn">目录当前不可访问，请重新连接该磁盘或改回默认位置</span>}
+                </div>
+                <div className="storage-row-actions">
+                  {movingThis && <span className="storage-inline-progress">正在迁移…</span>}
+                  {isVideo && onClearCache && (
                     <button
                       className="danger-link"
                       disabled={cacheBusy || busy || !fileCount}
                       onClick={() => void onClearCache()}
                       type="button"
                     >
-                      清理视频缓存
+                      清理缓存
                     </button>
                   )}
-                </div>
-              )}
-
-              <div className="storage-path" title={location.directory}>
-                <span>当前位置</span>
-                <code>{location.directory}</code>
-              </div>
-
-              <div className="storage-row-stats">
-                {location.custom ? <span className="storage-badge">已迁移</span> : <span className="storage-badge muted">默认位置</span>}
-                <span>
-                  {location.volume} 剩余 <b>{formatStorageBytes(location.freeBytes)}</b>
-                </span>
-                {!location.missing && fileCount > 0 && (
-                  <span>
-                    <b>{fileCount}</b> {isVideo ? "个视频副本" : "个文件"}
-                  </span>
-                )}
-                {isVideo && cache && cache.limitBytes > 0 && (
-                  <span>
-                    <b>{formatStorageBytes(cache.limitBytes)}</b> 容量上限
-                  </span>
-                )}
-                {location.empty && !location.missing && <span>尚未安装</span>}
-                {location.missing && <span className="storage-warn">目录当前不可访问，请重新连接该磁盘或改回默认位置</span>}
-              </div>
-
-              <div className="storage-row-actions">
-                <button disabled={busy || active || choosing !== ""} onClick={() => void choose(target)} type="button">
-                  {choosing === target ? "正在选择…" : "更改位置…"}
-                </button>
-                {location.custom && (
-                  <button className="ghost" disabled={busy || active} onClick={() => void onReset(target)} type="button">
-                    移回默认位置
+                  {location.custom && (
+                    <button className="ghost" disabled={busy || active} onClick={() => void onReset(target)} type="button">
+                      移回默认
+                    </button>
+                  )}
+                  <button disabled={busy || active || choosing !== ""} onClick={() => void choose(target)} type="button">
+                    {choosing === target ? "正在选择…" : "更改位置…"}
                   </button>
-                )}
-                {movingThis && <span className="storage-inline-progress">正在迁移…</span>}
+                </div>
               </div>
 
               {isVideo && cacheMessage && onDismissCacheMessage && (
