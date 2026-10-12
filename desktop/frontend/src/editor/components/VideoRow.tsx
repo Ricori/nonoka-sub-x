@@ -66,7 +66,7 @@ function tilePlan(start: number, step: number, mediaDur: number) {
 }
 
 function Filmstrip({ height, left, w, pps }: { height: number; left: number; w: number; pps: number }) {
-  const src = videoStore.use(s => s.src);
+  const { src, audioOnly } = videoStore.use(s => ({ src: s.src, audioOnly: s.audioOnly }), shallowEqual);
   const { duration, t0, pieces, focus } = viewStore.use(
     s => ({ duration: s.duration, t0: s.t0, pieces: s.pieces, focus: s.focus }), shallowEqual);
   const [tiles, setTiles] = useState<FilmTile[]>([]);
@@ -83,6 +83,7 @@ function Filmstrip({ height, left, w, pps }: { height: number; left: number; w: 
     let disposed = false;
     const timer = window.setTimeout(async () => {
       if (!src) { setMessage(""); return; }
+      if (audioOnly) { setTiles([]); setMessage("纯音频素材，没有画面"); return; }
       const span = TILE_FRAMES * step;
       const a = Math.max(0, tOf(left - w * .25));
       const b = Math.min(duration, tOf(left + w * 1.25));
@@ -113,7 +114,7 @@ function Filmstrip({ height, left, w, pps }: { height: number; left: number; w: 
       if (!disposed) setMessage(failure ? "缩略图生成失败：" + errText(failure) : "");
     }, 120);
     return () => { disposed = true; clearTimeout(timer); };
-  }, [left, w, step, src, duration, t0, pieces, focus]);
+  }, [left, w, step, src, audioOnly, duration, t0, pieces, focus]);
 
   // 每帧占它那一格在时间轴上的实际宽度（聚焦成片时落在删掉部分里的帧宽度为 0，不画）。
   // 格子比一帧窄就居中裁：左右各露掉一点，画面主体还在；只有放大到顶时格子才可能比一帧宽，

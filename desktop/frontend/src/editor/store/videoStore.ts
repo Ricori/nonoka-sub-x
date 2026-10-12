@@ -28,10 +28,12 @@ interface VideoState {
   badge: string | null;
   /** 字幕预览渲染器的忙碌/失败提示 */
   subBusy: string | null;
+  /** 纯音频素材：舞台只有字幕没有画面，缩略图条和内嵌字幕导出都不可用 */
+  audioOnly: boolean;
 }
 
 export const videoStore = createStore<VideoState>({
   src: "", fallbackOpen: false, collapsed: false, retrieving: false, retrievePct: "",
   transcoding: false, transcodePct: "", canTranscode: false,
-  fbMsg: "", warn: "", usePath: null, badge: null, subBusy: null,
+  fbMsg: "", warn: "", usePath: null, badge: null, subBusy: null, audioOnly: false,
 });

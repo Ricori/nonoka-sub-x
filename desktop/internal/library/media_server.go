@@ -13,6 +13,14 @@ import (
 	"time"
 )
 
+// audioContentTypes is consulted before the platform table: Windows answers
+// mime.TypeByExtension from the registry, which often has nothing for FLAC or
+// Opus, and the fallback below would then label an audio file as MP4 video.
+var audioContentTypes = map[string]string{
+	".mp3": "audio/mpeg", ".m4a": "audio/mp4", ".aac": "audio/aac", ".flac": "audio/flac",
+	".wav": "audio/wav", ".ogg": "audio/ogg", ".oga": "audio/ogg", ".opus": "audio/ogg",
+}
+
 type loopbackMediaServer struct {
 	listener net.Listener
 	server   *http.Server
@@ -68,7 +76,11 @@ func (s *loopbackMediaServer) handler() http.Handler {
 			http.NotFound(writer, request)
 			return
 		}
-		contentType := mime.TypeByExtension(strings.ToLower(filepath.Ext(path)))
+		extension := strings.ToLower(filepath.Ext(path))
+		contentType := audioContentTypes[extension]
+		if contentType == "" {
+			contentType = mime.TypeByExtension(extension)
+		}
 		if contentType == "" {
 			contentType = "video/mp4"
 		}

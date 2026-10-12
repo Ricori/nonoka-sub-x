@@ -254,9 +254,10 @@ export function TranscriptionDialog(props: TranscriptionDialogProps) {
       nativeSearch: !keys || ["correction", "research"].every((routeID) => routeServesNativeSearch(keys.modelRouting, routeID)),
       retrieval: !keys || keys.retrievalKeyConfigured,
       audio: target === "local" && serves("supportsAudio"),
-      video: video && serves("supportsVideo"),
+      // 纯音频素材没有画面可看；引擎遇到也会自己降级成音频，这里提前拦住免得白选。
+      video: video && serves("supportsVideo") && !entry.audioOnly,
     };
-  }, [cloudCapabilities, localCapabilities, settings]);
+  }, [cloudCapabilities, entry.audioOnly, localCapabilities, settings]);
   const limits = useMemo(
     () => limitsFor(mode),
     [limitsFor, mode],
@@ -642,7 +643,7 @@ export function TranscriptionDialog(props: TranscriptionDialogProps) {
 
             {finalOutput && <>
               <section className="transcription-section form-grid">
-                <label>纠错参考<CustomSelect value={request.correction.media} options={[{ value: "text", label: "仅识别文本" }, ...(mode === "local" ? [{ value: "audio" as const, label: "音频", disabled: !limits.audio, hint: limits.audio ? undefined : mediaHint("supportsAudio") }] : []), ...(supportsVideo ? [{ value: "video" as const, label: "视频多模态", disabled: !limits.video, hint: limits.video ? undefined : mediaHint("supportsVideo") }] : [])]} onChange={(media) => setRequest((current) => ({ ...current, correction: { ...current.correction, media } }))} /></label>
+                <label>纠错参考<CustomSelect value={request.correction.media} options={[{ value: "text", label: "仅识别文本" }, ...(mode === "local" ? [{ value: "audio" as const, label: "音频", disabled: !limits.audio, hint: limits.audio ? undefined : mediaHint("supportsAudio") }] : []), ...(supportsVideo ? [{ value: "video" as const, label: "视频多模态", disabled: !limits.video, hint: limits.video ? undefined : entry.audioOnly ? "纯音频素材没有画面" : mediaHint("supportsVideo") }] : [])]} onChange={(media) => setRequest((current) => ({ ...current, correction: { ...current.correction, media } }))} /></label>
                 <label>处理质量<CustomSelect value={request.correction.difficulty} options={[{ value: "efficiency", label: "效率优先" }, { value: "intermediate", label: "均衡" }, { value: "quality", label: "质量优先" }]} onChange={(difficulty) => setRequest((current) => ({ ...current, correction: { ...current.correction, difficulty } }))} /></label>
                 <label>快速模式<CustomSelect value={request.correction.fast} options={[{ value: "auto", label: "自动", hint: "字幕放得进单个窗口时一次完成，放不下时自动改走正常流程" }, { value: "off", label: "关闭" }]} onChange={(fast) => setRequest((current) => ({ ...current, correction: { ...current.correction, fast } }))} /></label>
                 {mode === "local" && <label>资料检索<CustomSelect value={request.correction.retrieval} options={[{ value: "none", label: "不检索" }, { value: "local", label: "本地检索", disabled: !limits.retrieval, hint: limits.retrieval ? undefined : RETRIEVAL_KEY_HINT }, { value: "native", label: "模型原生检索", disabled: !limits.nativeSearch, hint: limits.nativeSearch ? undefined : NATIVE_SEARCH_HINT }]} onChange={(retrieval) => setRequest((current) => ({ ...current, correction: { ...current.correction, retrieval } }))} /></label>}

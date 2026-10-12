@@ -79,7 +79,7 @@ export function LibraryPage(props: LibraryPageProps) {
           <strong>正在同步媒体库…</strong>
         </div>
       ) : items.length === 0 ? (
-        <button className="empty-state library-empty" onClick={() => void onImport()} disabled={busy}><Mascot pose="welcome" /><h3>把本地视频拖进来</h3><p>支持 MP4 / MOV / MKV / WebM。登录云端后，字幕记录会按媒体指纹自动合并到同一个媒体库。</p></button>
+        <button className="empty-state library-empty" onClick={() => void onImport()} disabled={busy}><Mascot pose="welcome" /><h3>把本地视频或音频拖进来</h3><p>支持 MP4 / MOV / MKV / WebM 视频，以及 MP3 / M4A / FLAC / WAV / Opus 等纯音频。登录云端后，字幕记录会按媒体指纹自动合并到同一个媒体库。</p></button>
       ) : visibleItems.length === 0 ? (
         <div className="filtered-empty"><Mascot pose="idle" /><strong>没有匹配的媒体</strong><span>尝试清除搜索词或切换筛选条件。</span><button onClick={() => { onClearQuery(); setFilter("all"); }}>查看全部媒体</button></div>
       ) : (

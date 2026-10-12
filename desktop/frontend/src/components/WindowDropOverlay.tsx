@@ -2,7 +2,11 @@ import { useEffect, useRef, useState } from "react";
 import { Events } from "@wailsio/runtime";
 import "./WindowDropOverlay.css";
 
-const videoExtensions = new Set(["mp4", "m4v", "mov", "mkv", "webm"]);
+// Mirrors supportedExtensions in desktop/internal/library/service.go.
+const mediaExtensions = new Set([
+  "mp4", "m4v", "mov", "mkv", "webm",
+  "mp3", "m4a", "aac", "flac", "wav", "ogg", "oga", "opus",
+]);
 
 function isFileDrag(event: DragEvent): boolean {
   return Array.from(event.dataTransfer?.types ?? []).includes("Files");
@@ -16,8 +20,8 @@ function payloadPaths(payload: unknown): string[] {
   return Array.isArray(paths) ? paths.filter((item): item is string => typeof item === "string") : [];
 }
 
-function acceptedVideos(paths: string[]): { accepted: string[]; ignored: number } {
-  const accepted = paths.filter((path) => videoExtensions.has(path.split(".").pop()?.toLocaleLowerCase() ?? ""));
+function acceptedMedia(paths: string[]): { accepted: string[]; ignored: number } {
+  const accepted = paths.filter((path) => mediaExtensions.has(path.split(".").pop()?.toLocaleLowerCase() ?? ""));
   return { accepted, ignored: paths.length - accepted.length };
 }
 
@@ -77,14 +81,14 @@ export function WindowDropOverlay({ onFilesDropped }: WindowDropOverlayProps) {
   useEffect(() => Events.On("files:dropped", (event) => {
     const paths = payloadPaths(event.data);
     if (!paths.length) return;
-    const result = acceptedVideos(paths);
+    const result = acceptedMedia(paths);
     if (result.accepted.length || result.ignored) onFilesDropped(result.accepted, result.ignored);
     setActive(false);
   }), [onFilesDropped]);
 
   return (
     <div className={`drop-overlay ${active ? "active" : ""}`} data-file-drop-target aria-hidden={!active}>
-      <div className="drop-overlay-card"><span>＋</span><strong>松手即可导入视频</strong><small>MP4 / M4V / MOV / MKV / WebM</small></div>
+      <div className="drop-overlay-card"><span>＋</span><strong>松手即可导入视频或音频</strong><small>MP4 / MOV / MKV / WebM · MP3 / M4A / FLAC / WAV / Opus</small></div>
     </div>
   );
 }

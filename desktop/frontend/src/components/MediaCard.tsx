@@ -92,7 +92,7 @@ export function LocalMediaCard(props: LocalMediaCardProps) {
   return (
     <article className={`media-card local-card ${!entry.available ? "missing-media" : ""}`}>
       <div className="media-thumb">
-        {thumbnail ? <img src={thumbnail} alt="" /> : <span className="media-placeholder">▶</span>}
+        {thumbnail ? <img src={thumbnail} alt="" /> : <span className="media-placeholder">{entry.audioOnly ? "♪" : "▶"}</span>}
         <small className="duration-badge">{formatDuration(entry.duration)}</small>
         <strong className={`state-badge ${running || adopting ? "running" : subtitleOnly ? "cloud" : !entry.available ? "missing" : entry.documentAvailable ? "ready" : "idle"}`}>{running ? "处理中" : adopting ? "取回字幕中" : subtitleOnly ? "仅字幕" : !entry.available ? "文件丢失" : entry.documentAvailable ? "字幕可编辑" : "等待处理"}</strong>
         {running && <span className="card-progress" style={{ width: `${runningProgress}%` }} />}
@@ -102,7 +102,7 @@ export function LocalMediaCard(props: LocalMediaCardProps) {
           <strong title={entry.sourcePath}>{entry.title}</strong>
           <CardMenu actions={menuActions} />
         </div>
-        <span className="media-meta">{entry.width > 0 ? `${entry.width}×${entry.height} · ${formatSize(entry.size)} · ` : ""}{formatDate(entry.lastAccess || entry.addedAt)}</span>
+        <span className="media-meta">{entry.width > 0 ? `${entry.width}×${entry.height} · ${formatSize(entry.size)} · ` : entry.audioOnly ? `纯音频 · ${formatSize(entry.size)} · ` : ""}{formatDate(entry.lastAccess || entry.addedAt)}</span>
         <div className="media-chips"><small>{entry.available ? "本机文件" : subtitleOnly ? "尚未关联视频" : "源文件离线"}</small>{cloudEntry && <small className="cloud-badge">☁ 字幕已同步</small>}</div>
         <div className="media-card-actions">
           {entry.documentAvailable && <button className="secondary-card-action" onClick={() => onOpen(entry)}>编辑字幕</button>}

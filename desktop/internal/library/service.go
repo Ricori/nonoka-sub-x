@@ -30,7 +30,15 @@ const (
 
 var supportedExtensions = map[string]struct{}{
 	".mp4": {}, ".m4v": {}, ".mov": {}, ".mkv": {}, ".webm": {},
+	// Audio-only sources. Limited to what Chromium plays natively, since the
+	// editor mounts the file (or its cache copy) straight into <video>.
+	".mp3": {}, ".m4a": {}, ".aac": {}, ".flac": {}, ".wav": {}, ".ogg": {}, ".oga": {}, ".opus": {},
 }
+
+// mediaDialogPattern is the native picker filter for every supported format.
+const mediaDialogPattern = "*.mp4;*.m4v;*.mov;*.mkv;*.webm;*.mp3;*.m4a;*.aac;*.flac;*.wav;*.ogg;*.oga;*.opus"
+
+var errAudioOnlyExport = errors.New("纯音频素材没有画面，无法导出内嵌字幕视频；请改为导出 SRT/ASS 字幕")
 
 type Entry struct {
 	ID                 string  `json:"id"`
@@ -48,6 +56,9 @@ type Entry struct {
 	DocumentAvailable  bool    `json:"documentAvailable"`
 	DocumentRemoved    bool    `json:"documentRemoved,omitempty"`
 	Cached             bool    `json:"cached"`
+	// AudioOnly marks a source with no picture: transcription runs as usual,
+	// but nothing that needs frames (filmstrip, burned-in export) can.
+	AudioOnly bool `json:"audioOnly,omitempty"`
 	// Clips is the retired named-range list. Nothing reads it any more, but it
 	// is kept so an older library.json survives a round trip untouched.
 	Clips     []Clip     `json:"clips,omitempty"`
@@ -77,8 +88,26 @@ type Metadata struct {
 	Duration float64
 	Width    int
 	Height   int
+	// HasVideo counts real picture streams only; embedded cover art (an
+	// attached picture in MP3/FLAC/M4A) is reported by HasCover instead.
 	HasVideo bool
 	HasAudio bool
+	HasCover bool
+}
+
+// usableMetadata reports whether a probed file can become a library entry:
+// it needs a duration and at least one stream transcription or playback reads.
+func usableMetadata(metadata Metadata) bool {
+	return metadata.Duration > 0 && (metadata.HasVideo || metadata.HasAudio)
+}
+
+// thumbnailDuration is what the thumbnailer is told about the media. Zero asks
+// for the first picture without seeking, which is where cover art lives.
+func thumbnailDuration(metadata Metadata) float64 {
+	if !metadata.HasVideo {
+		return 0
+	}
+	return metadata.Duration
 }
 
 type prober interface {
@@ -308,7 +337,7 @@ func (s *Service) PickAndImport() (ImportResult, error) {
 	paths, err := app.Dialog.OpenFile().
 		SetTitle("选择本地媒体").
 		AttachToWindow(window).
-		AddFilter("视频文件", "*.mp4;*.m4v;*.mov;*.mkv;*.webm").
+		AddFilter("视频或音频文件", mediaDialogPattern).
 		PromptForMultipleSelection()
 	if dialogCancelled(err) {
 		err = nil
@@ -482,8 +511,8 @@ func (s *Service) importOne(path string) (Entry, bool, error) {
 	if err != nil {
 		return Entry{}, false, err
 	}
-	if !metadata.HasVideo || metadata.Duration <= 0 {
-		return Entry{}, false, errors.New("media source does not contain a readable video track")
+	if !usableMetadata(metadata) {
+		return Entry{}, false, errors.New("media source does not contain a readable video or audio track")
 	}
 	fingerprint, err := fileFingerprint(absolute, stat.Size())
 	if err != nil {
@@ -505,6 +534,7 @@ func (s *Service) importOne(path string) (Entry, bool, error) {
 			s.entries[index].Size = stat.Size()
 			s.entries[index].Duration = metadata.Duration
 			s.entries[index].Width, s.entries[index].Height = metadata.Width, metadata.Height
+			s.entries[index].AudioOnly = !metadata.HasVideo
 			s.entries[index].LastAccess = time.Now().UnixMilli()
 			if err := s.saveLocked(); err != nil {
 				s.entries[index] = previous
@@ -513,7 +543,7 @@ func (s *Service) importOne(path string) (Entry, bool, error) {
 			}
 			attached := s.entries[index]
 			s.mu.Unlock()
-			if err := s.thumbnailer.Generate(context.Background(), absolute, s.thumbnailPath(attached.ID), metadata.Duration); err == nil {
+			if err := s.thumbnailer.Generate(context.Background(), absolute, s.thumbnailPath(attached.ID), thumbnailDuration(metadata)); err == nil {
 				attached.ThumbnailAvailable = true
 			}
 			attached.Available = true
@@ -532,7 +562,7 @@ func (s *Service) importOne(path string) (Entry, bool, error) {
 		ID: id, SourcePath: absolute, Title: stat.Name(), Size: stat.Size(),
 		Duration: metadata.Duration, Width: metadata.Width, Height: metadata.Height,
 		Fingerprint: fingerprint, AddedAt: now, LastAccess: now,
-		Available: true,
+		Available: true, AudioOnly: !metadata.HasVideo,
 	}
 	s.entries = append([]Entry{entry}, s.entries...)
 	if err := s.saveLocked(); err != nil {
@@ -542,7 +572,7 @@ func (s *Service) importOne(path string) (Entry, bool, error) {
 	}
 	s.mu.Unlock()
 
-	if err := s.thumbnailer.Generate(context.Background(), absolute, s.thumbnailPath(id), metadata.Duration); err == nil {
+	if err := s.thumbnailer.Generate(context.Background(), absolute, s.thumbnailPath(id), thumbnailDuration(metadata)); err == nil {
 		entry.ThumbnailAvailable = true
 	}
 	return entry, true, nil

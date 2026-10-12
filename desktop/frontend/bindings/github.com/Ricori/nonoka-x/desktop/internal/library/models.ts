@@ -35,6 +35,12 @@ export interface Entry {
     "cached": boolean;
 
     /**
+     * AudioOnly marks a source with no picture: transcription runs as usual,
+     * but nothing that needs frames (filmstrip, burned-in export) can.
+     */
+    "audioOnly"?: boolean;
+
+    /**
      * Clips is the retired named-range list. Nothing reads it any more, but it
      * is kept so an older library.json survives a round trip untouched.
      */

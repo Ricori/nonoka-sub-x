@@ -86,6 +86,11 @@ export function VideoStage() {
     };
     const onError = () => {
       if (!v.src) return;   // 还没挂视频，占位卡已经在管了
+      // 纯音频转 H.264 无从谈起，只给改选文件
+      if (videoStore.get().audioOnly) {
+        showVideoFallback(false, "音频无法播放，文件可能已损坏或编码不受支持。可以改选其它文件：");
+        return;
+      }
       // 本机文件播不出来多半不是文件缺失而是编码问题：Chromium 的 HEVC/H.265 依赖系统
       // 解码器，Win11 要装 HEVC 视频扩展才行。此时缩略图正常（ffmpeg 截的）但 video 报错。
       showPlaybackError("视频无法播放——若是 HEVC/H.265 编码，需要系统解码器支持"

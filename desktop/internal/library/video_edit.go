@@ -201,6 +201,9 @@ func (s *Service) FilmstripTile(id string, start, duration float64, frames int) 
 	if err != nil {
 		return FilmstripTileResult{}, err
 	}
+	if entry.AudioOnly {
+		return FilmstripTileResult{}, errors.New("纯音频素材没有画面")
+	}
 	source := s.cachedPath(id)
 	if source == "" {
 		source = entry.SourcePath

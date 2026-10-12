@@ -156,9 +156,9 @@ func (s *Service) PickRelink(id string) (Entry, error) {
 		return Entry{}, errors.New("application window is not ready")
 	}
 	path, err := app.Dialog.OpenFile().
-		SetTitle("重新定位本地视频").
+		SetTitle("重新定位本地媒体").
 		AttachToWindow(window).
-		AddFilter("视频文件", "*.mp4;*.m4v;*.mov;*.mkv;*.webm").
+		AddFilter("视频或音频文件", mediaDialogPattern).
 		PromptForSingleSelection()
 	if dialogCancelled(err) {
 		err = nil
@@ -185,8 +185,8 @@ func (s *Service) Relink(id, path string) (Entry, error) {
 		return Entry{}, errors.New("selected media is not a readable file")
 	}
 	metadata, err := s.prober.Probe(context.Background(), absolute)
-	if err != nil || !metadata.HasVideo || metadata.Duration <= 0 {
-		return Entry{}, errors.New("selected file has no readable video track")
+	if err != nil || !usableMetadata(metadata) {
+		return Entry{}, errors.New("selected file has no readable video or audio track")
 	}
 	fingerprint, err := fileFingerprint(absolute, stat.Size())
 	if err != nil {
@@ -203,6 +203,7 @@ func (s *Service) Relink(id, path string) (Entry, error) {
 		s.entries[index].Duration = metadata.Duration
 		s.entries[index].Width = metadata.Width
 		s.entries[index].Height = metadata.Height
+		s.entries[index].AudioOnly = !metadata.HasVideo
 		// Once subtitles exist, the fingerprint identifies that subtitle record
 		// locally and in the cloud. An arbitrarily associated video is only its
 		// playback source; replacing the identity here makes the original cloud
@@ -221,7 +222,7 @@ func (s *Service) Relink(id, path string) (Entry, error) {
 		}
 		entry := s.entries[index]
 		s.mu.Unlock()
-		_ = s.thumbnailer.Generate(context.Background(), absolute, s.thumbnailPath(id), metadata.Duration)
+		_ = s.thumbnailer.Generate(context.Background(), absolute, s.thumbnailPath(id), thumbnailDuration(metadata))
 		s.emitChanged()
 		return entry, nil
 	}
@@ -320,7 +321,10 @@ func (s *Service) ExportVideo(id, ass string) (string, error) {
 	if app == nil || window == nil || entry == nil || !fileExists(entry.SourcePath) {
 		return "", errors.New("local media is unavailable")
 	}
-	name := strings.TrimSuffix(entry.Title, filepath.Ext(entry.Title)) + " - 字幕.mp4"
+	if entry.AudioOnly {
+		return "", errAudioOnlyExport
+	}
+	name :=strings.TrimSuffix(entry.Title, filepath.Ext(entry.Title)) + " - 字幕.mp4"
 	output, err := app.Dialog.SaveFile().SetFilename(name).AddFilter("MP4 视频", "*.mp4").AttachToWindow(window).PromptForSingleSelection()
 	if dialogCancelled(err) {
 		err = nil

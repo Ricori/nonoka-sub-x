@@ -685,7 +685,7 @@ export default function App() {
 
   const handleDroppedFiles = useCallback((paths: string[], ignored: number) => {
     setSection("library");
-    const warning = ignored > 0 ? `已忽略 ${ignored} 个非视频文件；支持 MP4 / M4V / MOV / MKV / WebM。` : "";
+    const warning = ignored > 0 ? `已忽略 ${ignored} 个不支持的文件；支持视频 MP4 / M4V / MOV / MKV / WebM 与音频 MP3 / M4A / AAC / FLAC / WAV / OGG / Opus。` : "";
     if (paths.length > 0) {
       void importMedia(paths).then(() => {
         if (warning) setLibraryMessage((current) => warnNotice(current.text ? `${current.text}；${warning}` : warning));

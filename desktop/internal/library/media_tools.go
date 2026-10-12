@@ -26,7 +26,7 @@ func (tools commandMediaTools) Probe(ctx context.Context, path string) (Metadata
 	probeContext, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	command := exec.CommandContext(probeContext, executable,
-		"-v", "error", "-show_entries", "format=duration:stream=codec_type,width,height",
+		"-v", "error", "-show_entries", "format=duration:stream=codec_type,width,height:stream_disposition=attached_pic",
 		"-of", "json", path,
 	)
 	configureMediaCommand(command)
@@ -39,9 +39,12 @@ func (tools commandMediaTools) Probe(ctx context.Context, path string) (Metadata
 			Duration string `json:"duration"`
 		} `json:"format"`
 		Streams []struct {
-			CodecType string `json:"codec_type"`
-			Width     int    `json:"width"`
-			Height    int    `json:"height"`
+			CodecType   string `json:"codec_type"`
+			Width       int    `json:"width"`
+			Height      int    `json:"height"`
+			Disposition struct {
+				AttachedPic int `json:"attached_pic"`
+			} `json:"disposition"`
 		} `json:"streams"`
 	}
 	if err := json.Unmarshal(output, &value); err != nil {
@@ -52,6 +55,10 @@ func (tools commandMediaTools) Probe(ctx context.Context, path string) (Metadata
 	for _, stream := range value.Streams {
 		switch strings.ToLower(stream.CodecType) {
 		case "video":
+			if stream.Disposition.AttachedPic != 0 {
+				metadata.HasCover = true
+				continue
+			}
 			metadata.HasVideo = true
 			if metadata.Width == 0 {
 				metadata.Width, metadata.Height = stream.Width, stream.Height
@@ -68,16 +75,20 @@ func (tools commandMediaTools) Generate(ctx context.Context, input, output strin
 	if err != nil {
 		return errors.New("ffmpeg is required to generate thumbnails")
 	}
-	at := 1.0
-	if duration > 10 {
-		at = min(duration*0.1, 60)
-	}
 	thumbnailContext, cancel := context.WithTimeout(ctx, time.Minute)
 	defer cancel()
-	command := exec.CommandContext(thumbnailContext, executable,
-		"-v", "error", "-ss", strconv.FormatFloat(at, 'f', -1, 64), "-i", input,
-		"-frames:v", "1", "-vf", "scale=480:-2", "-q:v", "4", "-y", output,
-	)
+	args := []string{"-v", "error"}
+	// A zero duration means an audio source: its only picture, if any, is the
+	// cover art, which sits at the start and is not reachable by seeking.
+	if duration > 0 {
+		at := 1.0
+		if duration > 10 {
+			at = min(duration*0.1, 60)
+		}
+		args = append(args, "-ss", strconv.FormatFloat(at, 'f', -1, 64))
+	}
+	args = append(args, "-i", input, "-frames:v", "1", "-vf", "scale=480:-2", "-q:v", "4", "-y", output)
+	command := exec.CommandContext(thumbnailContext, executable, args...)
 	configureMediaCommand(command)
 	if data, err := command.CombinedOutput(); err != nil {
 		return fmt.Errorf("generate thumbnail: %s", strings.TrimSpace(string(data)))

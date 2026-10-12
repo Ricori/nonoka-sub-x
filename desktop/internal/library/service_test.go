@@ -214,6 +214,61 @@ func TestImportAcceptsOverlongLocalMediaAndRejectsInvalidSources(t *testing.T) {
 	}
 }
 
+// An audio file is a first-class source: it imports, caches for task runs and
+// relinks like a video, but anything that needs a picture says so up front
+// instead of failing inside ffmpeg.
+func TestImportAcceptsAudioOnlyMediaAndRefusesFrameFeatures(t *testing.T) {
+	root := t.TempDir()
+	audioPath := filepath.Join(root, "talk.flac")
+	silentPath := filepath.Join(root, "empty.m4a")
+	for _, path := range []string{audioPath, silentPath} {
+		if err := os.WriteFile(path, []byte(filepath.Base(path)), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	audio := fixtureTools{metadata: Metadata{Duration: 90, HasAudio: true}}
+	service, err := newServiceWithTools(filepath.Join(root, "data"), audio, audio)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := service.Import([]string{audioPath})
+	if len(result.Added) != 1 || len(result.Failed) != 0 {
+		t.Fatalf("audio import result: %#v", result)
+	}
+	entry := result.Added[0]
+	if !entry.AudioOnly || entry.Width != 0 || entry.Duration != 90 {
+		t.Fatalf("audio entry: %#v", entry)
+	}
+	cached, err := service.CacheMedia(entry.ID)
+	if err != nil || filepath.Ext(cached) != ".flac" {
+		t.Fatalf("cache audio = %q, %v", cached, err)
+	}
+	if listed := service.List(); len(listed) != 1 || !listed[0].Cached || !listed[0].AudioOnly {
+		t.Fatalf("library = %#v", listed)
+	}
+	if _, err := service.FilmstripTile(entry.ID, 0, 1, 1); err == nil {
+		t.Fatal("filmstrip was offered for audio-only media")
+	}
+	if _, err := service.ExportVideoPieces(entry.ID, "", "[Events]\n", []Range{{T0: 0, T1: 10}}, 21, "medium", 0, ""); err != errAudioOnlyExport {
+		t.Fatalf("export audio-only = %v", err)
+	}
+
+	service.prober = fixtureTools{metadata: Metadata{Duration: 90, HasCover: true}}
+	if failed := service.Import([]string{silentPath}).Failed; len(failed) != 1 {
+		t.Fatalf("a file with only cover art was imported: %#v", failed)
+	}
+
+	videoPath := filepath.Join(root, "talk.mp4")
+	if err := os.WriteFile(videoPath, []byte("video"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	service.prober = fixtureTools{metadata: Metadata{Duration: 90, Width: 1280, Height: 720, HasVideo: true, HasAudio: true}}
+	relinked, err := service.Relink(entry.ID, videoPath)
+	if err != nil || relinked.AudioOnly || relinked.Width != 1280 {
+		t.Fatalf("relink to video = %#v, %v", relinked, err)
+	}
+}
+
 func TestRenameRelinkAndRemoveManageOnlyIndexedData(t *testing.T) {
 	root := t.TempDir()
 	first := filepath.Join(root, "first.mp4")

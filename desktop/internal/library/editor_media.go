@@ -67,6 +67,9 @@ func (s *Service) ExportVideoPieces(id, defaultName, ass string, pieces []Range,
 	if err != nil {
 		return ExportResult{}, err
 	}
+	if entry.AudioOnly {
+		return ExportResult{}, errAudioOnlyExport
+	}
 	source := s.cachedPath(id)
 	if source == "" {
 		source = entry.SourcePath

@@ -8,6 +8,7 @@ import { docStore } from '../store/docStore';
 import { openExport } from '../lib/openExport';
 import { manualSave, saveStore } from '../store/saveStore';
 import { showCtx } from '../store/uiStore';
+import { videoStore } from '../store/videoStore';
 
 /**
  * 沉浸式标题栏：这一条同时是窗口标题栏（可拖动/双击最大化），右上角那三个
@@ -18,6 +19,7 @@ export function TopBar() {
   const title = docStore.use(s => s.title);
   const { stateText, stateCls } = saveStore.use(
     s => ({ stateText: s.stateText, stateCls: s.stateCls }), shallowEqual);
+  const audioOnly = videoStore.use(s => s.audioOnly);
   const [expBusy, setExpBusy] = useState(false);
 
   // 导出期间按钮置灰，别让人连点出两次保存对话框
@@ -48,8 +50,8 @@ export function TopBar() {
               srtItem("导出 SRT（双语）", "both"),
               srtItem("导出 SRT（仅译文）", "zh"),
               srtItem("导出 SRT（仅原文）", "ja"),
-              "-",
-              { label: "导出 MP4（内嵌字幕）", onClick: () => void openExport() },
+              // 纯音频没有画面可以压字幕
+              ...(audioOnly ? [] : ["-" as const, { label: "导出 MP4（内嵌字幕）", onClick: () => void openExport() }]),
             ], e.currentTarget)}>导出 ▾</button>
           <button className="btn primary" id="btn-save" title="保存 (Ctrl+S)"
             onClick={() => void manualSave()}>保存</button>

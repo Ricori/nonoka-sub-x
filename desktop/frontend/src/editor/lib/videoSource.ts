@@ -37,6 +37,7 @@ export async function pickVideoFile() {
     // player as it was rather than claiming a relink that never happened.
     const relinked = await mediaLibrary.relink(getVid());
     if (!relinked?.id) return;
+    videoStore.set({ audioOnly: !!relinked.audioOnly });
     mountVideo(await mediaLibrary.mediaURL(getVid()));
     toast("已重新关联本地视频");
   } catch (error) {
