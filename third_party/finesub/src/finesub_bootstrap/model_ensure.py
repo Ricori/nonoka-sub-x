@@ -31,6 +31,7 @@ import sys
 from typing import Callable, Mapping
 
 from . import model_fetch
+from .processes import no_window
 from .hf_verify import (
     MISMATCH_MARKER,
     VerificationMismatch,
@@ -207,6 +208,28 @@ def pinned_snapshot_loadable(model_id: str) -> bool:
     )
 
 
+def pinned_snapshot_dir(model_id: str, *, models_root: Path | None = None) -> Path | None:
+    """The pinned snapshot holding every file the manifest lists, for a consumer that opens them.
+
+    `pinned_snapshot_loadable` answers a Hugging Face loader, which reads only the loader's own
+    root. A consumer that is handed a directory -- the diarization backends open their TorchScript
+    by path -- can use either root, so both are asked: where a download lands (`_hub_dir`) first,
+    then the loader's. A root whose last verification failed is skipped, for the reason
+    `pinned_snapshot_loadable` gives. Stats only; `ensure_hf_model` did the hashing.
+    """
+
+    entry = entry_for(model_id)
+    cache_dir = _ENSURABLE_HF_CACHE_DIRS.get(model_id)
+    if entry is None or cache_dir is None or not entry.revision:
+        return None
+    for hub in dict.fromkeys((_hub_dir(models_root), _loader_hub_dir())):
+        if marker_state(hub, cache_dir, entry) == "failed":
+            continue
+        if files_present(hub, cache_dir, entry):
+            return hub / cache_dir / "snapshots" / entry.revision
+    return None
+
+
 def _download(model_id: str, environment: Mapping[str, str]) -> None:
     """Run one download attempt in its own interpreter."""
 
@@ -223,6 +246,7 @@ def _download(model_id: str, environment: Mapping[str, str]) -> None:
         text=True,
         encoding="utf-8",
         errors="replace",
+        creationflags=no_window(),
     )
     if process.returncode != 0:
         raise RuntimeError(
@@ -259,9 +283,16 @@ def ensure_hf_model(
     # routing this exists to provide. A marker saying "stale" or "failed" also
     # voids the fast path; "absent" does not, because a cache that predates the
     # mechanism is not evidence of damage.
+    # ⚠ And every file the manifest lists, at its size. A snapshot interrupted
+    # between two files is non-empty with nothing `.incomplete`, which the
+    # checks above call done; a `from_pretrained` loader would quietly fetch the
+    # rest, but a consumer that opens the files by path (the diarization
+    # backends) has no such fallback and would skip itself on every run until
+    # the cache was cleared by hand (Codex review 2026-09-21). Stats only.
     if (
         _hf_repo_complete(hub, cache_dir)
         and pinned_snapshot_present(hub, cache_dir, entry)
+        and files_present(hub, cache_dir, entry)
         and marker_state(hub, cache_dir, entry) in ("absent", "current")
     ):
         return
@@ -307,7 +338,11 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     from huggingface_hub import snapshot_download
 
-    snapshot_download(entry.repo, revision=entry.revision or None)
+    snapshot_download(
+        entry.repo,
+        revision=entry.revision or None,
+        allow_patterns=[file.name for file in entry.files] if entry.listed_only else None,
+    )
     return 0
 
 

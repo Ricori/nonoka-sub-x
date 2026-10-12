@@ -2,8 +2,6 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from finesub_bootstrap.models import DownloadProgress
-from finesub_bootstrap.environment import RuntimeEnvironment
-from finesub_bootstrap.paths import AppPaths
 import nonoka_x.runtime_install as runtime_install
 from nonoka_x.runtime_install import (
     KNOWN_WHEEL_SIZES,
@@ -16,33 +14,6 @@ VENDOR = Path(__file__).resolve().parents[1] / "third_party" / "finesub"
 #: The runtime locks are package data since upstream 0.5.0; the snapshot no
 #: longer carries the `runtime/` copy the desktop split used to publish.
 RUNTIME = VENDOR / "src" / "finesub_bootstrap"
-
-
-def test_runtime_accepts_markers_from_the_packaged_042_lock(tmp_path: Path) -> None:
-    """The 0.5 header move must not rebuild an unchanged multi-GB runtime."""
-
-    runtime = RuntimeEnvironment(
-        paths=AppPaths.for_root(
-            tmp_path / "install",
-            data_root=tmp_path / "data",
-            big_data=tmp_path / "install",
-        ),
-        app_source=VENDOR,
-        runtime_lock=RUNTIME / "pylock.win-py312.toml",
-        uv_executable=lambda: tmp_path / "uv.exe",
-    )
-
-    for legacy_hash in (
-        "86e22beb2c6d2f603547a1147f3cecad2c388e1b43ca37aadf13bd7c6d6280ce",
-        "fb58922d3725f64e505849877657bec8c96611287da6e4e36795596a17231b4d",
-    ):
-        assert runtime._marker_is_current(
-            {
-                "schemaVersion": 2,
-                "pythonVersion": "3.12",
-                "runtimeLockHash": legacy_hash,
-            }
-        )
 
 
 def test_runtime_locks_expose_torch_as_an_observable_large_download() -> None:

@@ -174,21 +174,18 @@ class PurelyAdditiveTests(unittest.TestCase):
         # Three engine patches left this table when upstream 0.5.1 took the
         # work over: the referee's offline load and failure containment, the
         # live-VRAM placement veto with the verification progress it reports,
-        # and the escaped-tool-argument repair. Nothing replaced them here --
-        # the cloud reaches upstream's implementations now.
+        # and the escaped-tool-argument repair. Upstream 0.6.0 took three more:
+        # agy's workspace read grant (`AGY_READ_PERMISSION_RULES`), the Silero
+        # non-ASCII path load (`native_paths.load_torchscript`) and the GPT-6
+        # Codex rows, which Nonoka X now follows rather than extends. Nothing
+        # replaced them here -- the cloud reaches upstream's implementations.
         engine_patches = {
             TAIL_PATCH: [
                 "src/finesub/speech/recognition/vad_asr_stage.py",
             ],
-            # Local-only ground: the driver that launches a CLI on the
-            # user's machine. No container ever spawns one, so the two
-            # sides still run the same code on every path the cloud takes.
-            "0003-agy-workspace-read-grant.patch": [
-                "src/finesub/llm/agent/local_agent.py",
-            ],
             # Toolchain compatibility on Windows MSVC with C11: Triton's
             # launcher generator uses empty struct initializers `{}`.
-            "0005-triton-msvc-c11-empty-struct.patch": [
+            "0003-triton-msvc-c11-empty-struct.patch": [
                 "src/finesub/speech/preprocessing/separator/separator_aoti.py",
             ],
             # Build reachability, not transcription: upstream's toolchain
@@ -196,28 +193,15 @@ class PurelyAdditiveTests(unittest.TestCase):
             # containers need it to answer for a POSIX compiler before the
             # accelerated separator can be compiled at all. What it decides
             # is whether AOTI compiles, never what the separator outputs.
-            "0006-aoti-posix-compiler.patch": [
+            "0004-aoti-posix-compiler.patch": [
                 "src/finesub/speech/preprocessing/separator/separator_aoti.py",
-            ],
-            # Loader, not model: libtorch opens a path with the narrow `fopen`,
-            # so a runtime under a non-ASCII directory could not load Silero on
-            # Windows. Reading the bytes in Python yields the module upstream's
-            # own `load_silero_vad()` returns, so VAD output is unchanged.
-            "0008-silero-non-ascii-path.patch": [
-                "src/finesub/speech/preprocessing/silero_ghost.py",
-            ],
-            # Catalog rows and route targets only: four Codex models a user can
-            # pin by name. Upstream's default groups are untouched, so a run
-            # that pins none of them routes exactly as upstream does.
-            "0009-codex-gpt6-models.patch": [
-                "src/finesub/llm/routing/model_catalog.psv",
-                "src/finesub/llm/routing/model_routes.toml",
             ],
             # Additive and opt-in: user-picked knowledge subjects pinned into
             # the windows and the post-task update. Without
             # `knowledge_subjects=` every path is upstream's, and the cloud
             # never sends one (its runs read no local knowledge base).
-            "0010-pinned-knowledge-subjects.patch": [
+            "0006-pinned-knowledge-subjects.patch": [
+                "src/finesub/llm/correction_request.py",
                 "src/finesub/llm/correction_translation.py",
                 "src/finesub/llm/knowledge/entries.py",
                 "src/finesub/llm/knowledge/subjects.py",

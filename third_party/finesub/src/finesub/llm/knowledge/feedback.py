@@ -1,6 +1,6 @@
 """Task-update feedback (schema v3): parsing and cross-stage aggregation.
 
-Correction windows and the research final round (fast round 1 included) emit a
+Correction windows and the preparation task's delivery emit a
 ``<task_update_feedback>`` JSON block when feedback collection is enabled. The
 harness persists each block as a task artifact (``correction_window_task_feedback``
 / ``research_task_feedback``); this module reads those artifacts back and
@@ -77,7 +77,7 @@ class TaskFeedback:
     uncertainties: tuple[str, ...] = ()
     warnings: tuple[str, ...] = ()
     #: URLs the HARNESS's own retrieval ledger recorded for the call that
-    #: produced this feedback (kb-followups / report 2026-08-28 §2.3) —
+    #: produced this feedback (docs/knowledge.md 任务反馈采集) —
     #: call-level evidence backfilled at persist time, never parsed from the
     #: model's output: the model asked to copy its own URLs simply drops them.
     retrieval_urls: tuple[str, ...] = ()

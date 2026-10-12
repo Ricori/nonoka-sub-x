@@ -27,7 +27,9 @@ dependencies = []
 
 [project.optional-dependencies]
 # Through *-stable.json: vocal separation, VAD, Whisper ASR, JSON/SRT tools.
-# Needs NVIDIA GPU (>=8GB VRAM recommended), >=8GB free system RAM, ffmpeg on PATH.
+# Wants a GPU (>=8GB VRAM recommended) but runs without one; AMD goes through
+# `asr-win-rocm` on Windows and through this extra on Linux (torch from the ROCm
+# index). >=8GB free system RAM, ffmpeg on PATH.
 asr = [
   # Exact versions, and they move together or not at all. Four things are keyed
   # to the torch build: torchaudio and torchvision by their own pins, triton by
@@ -83,9 +85,45 @@ asr = [
   # weights; parity verified.)
   "transformers>=5.13,<6",
 ]
+# `[asr]` with AMD's Windows torch line instead of the CUDA one. AMD publishes
+# Windows ROCm wheels only at repo.radeon.com, and that line stops at 2.9.1
+# (rocm-rel-7.2.1, checked 2026-09-17) -- so `[asr]` would replace the user's
+# ROCm torch with the CUDA-less PyPI 2.11.0, silently, and the card would go
+# unused. None of the four bindings above holds here: the HIP CTranslate2 never
+# loads cuBLAS, triton is not used (Windows ROCm runs the separator eager), and
+# AMD ships the matching torchaudio/torchvision itself. 2.9 is also the line the
+# benchmark corpus was taken on (README_DEV.md "torch 版本范围").
+#
+# ⚠ This extra is temporary by construction: when AMD's Windows line reaches
+# 2.11.0, delete it and send Windows + AMD back to `[asr]` (owner 2026-09-17).
+#
+# ⚠ Everything except the torch line must stay identical to `[asr]` --
+# `test_the_amd_windows_extra_differs_from_asr_only_in_the_torch_line` fails
+# otherwise. It is a copy rather than `finesub[...]` on purpose: this project
+# and the published CLI share the name `finesub`, so a self-referencing extra
+# invites a resolver to fetch the CLI from PyPI instead of the checkout.
+asr-win-rocm = [
+  "torch==2.9.1",
+  "torchaudio==2.9.1",
+  "torchvision==0.24.1",
+  "numpy",
+  "soundfile",
+  "faster-whisper==1.2.1",
+  "ctranslate2==4.8.1",
+  "scipy",
+  "onnxruntime",
+  "audio-separator",
+  "numba",
+  "silero-vad",
+  "transformers>=5.13,<6",
+]
 # From stable.json onward: LLM correction/translation harness only.
 # No GPU / torch required; >=4GB system RAM; ffmpeg + ffprobe on PATH; API keys in .env.
 harness = [
+  # Ed25519 for knowledge-share snapshot signatures (share/signing.py): a
+  # pull must be able to tell the maintainer's snapshot from one anybody with
+  # the mailbox token published.
+  "cryptography>=42",
   "httpx",
   "opencc-python-reimplemented",  # 繁→简归一 for knowledge-entry key matching
   # finesub/llm/rate_limit.py resolves America/Los_Angeles at import time to align the
@@ -112,7 +150,7 @@ runtime = [
   # managed runtime is win_amd64 / cp312 / cu128 and nothing else. Without it
   # the lock resolves stock 4.8.1 -- installs cleanly, then fails at ASR start,
   # since only the patched build emits the WT refine trace.
-  "ctranslate2 @ https://github.com/caca2331/finesub/releases/download/ct2-4.8.1%2Bfinesub0.4.0/ctranslate2-4.8.1+finesub0.4.0.cu128-cp312-cp312-win_amd64.whl",
+  "ctranslate2 @ https://github.com/caca2331/finesub/releases/download/ct2-4.8.1%2Bfinesub0.6.0/ctranslate2-4.8.1+finesub0.6.0.cu128-cp312-cp312-win_amd64.whl",
 ]
 # Offline probes under `tools/bench/` (today: P18's SBD model and its gate).
 # No runtime path imports these -- `tools/` is maintained on demand -- but the

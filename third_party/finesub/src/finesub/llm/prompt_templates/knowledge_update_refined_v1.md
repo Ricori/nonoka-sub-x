@@ -12,7 +12,7 @@ $knowledge_inputs
 2. `<feedback_slice>` 与 `<research_feedback>` 的 hint 指明方向；与精修差异或调查材料相互印证后写入。调查材料中带 `[unresolved]` 标记的结论是未经证实的猜测，不得作为任何提案的依据。
 3. raw 与 final 的差异反映机器自己的修正，可信度次之，用作旁证。
 4. `<kb_entries>` 中标注"（本任务前序块已更新）"的条目，只在出现新增证据时才再次更新；标注"（库中暂无）"的条目如证据充分可新建。
-5. hint 带 `sub` 字段的（主词条-子词条定位），一律作为母词条的行级更新（append_lines / update）处理，禁止为 `sub` 新建独立词条。
+5. hint 带 `sub` 字段的（指向条目里的某一行），一律作为该条目的行级更新（append_lines / update）处理——这一行若已在它的子条目里，就改子条目里的那一行——禁止为 `sub` 新建独立词条。
 
 $knowledge_structure
 
@@ -35,7 +35,7 @@ $knowledge_structure
 5. **只动本次注入的那个 style 条目里的行。** 没出现在预览里的条目和行，你没有依据判断
    它们该不该留。
 6. 不必每次都产出：这套风格里已经写清楚的做法不要换个说法再提一遍，没有新东西就输出空的
-   `<knowledge_proposals>`。
+   `<knowledge_proposals>`。$style_marks_contract
 
 收录边界示例（人造，展示判定，不要照抄内容）：
 - ✅ 约定：`[自称转换] 说话者用自己名字自指时译文改用「我」`——同一段素材里反复出现，

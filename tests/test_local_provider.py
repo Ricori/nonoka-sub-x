@@ -303,7 +303,7 @@ class LocalProviderTests(ProviderFixture):
             validate_request(request)
 
         # Reading may name several, or none at all, but cannot create one.
-        request["knowledge"] = "collect"
+        request["knowledge"] = "read"
         self.assertNotIn("knowledge_subjects", validate_request(request))
         request["knowledge_subjects"] = [subject("猫又おかゆ", id="s1"), subject("新番组")]
         with self.assertRaisesRegex(ProviderError, "only be created when knowledge=update"):
@@ -335,10 +335,58 @@ class LocalProviderTests(ProviderFixture):
             [{"kind": "streamer", "subject": "猫又おかゆ", "aliases": "", "description": ""}],
         )
 
-        request["knowledge"] = "collect"
+        request["knowledge"] = "read"
         normalized = validate_request(request)
         self.assertNotIn("knowledge_context", normalized)
         self.assertNotIn("knowledge_subjects", normalized)
+
+    def test_legacy_collect_mode_is_read_now(self) -> None:
+        from nonoka_x.local_provider import ProviderError, validate_request
+
+        request = self.request()
+        request["target"] = "final-srt"
+        request["knowledge"] = "collect"
+        normalized = validate_request(request)
+        self.assertEqual(normalized["knowledge"], "read")
+        self.assertEqual(normalized["legacy_knowledge"], "collect")
+
+        request["knowledge"] = "sometimes"
+        with self.assertRaisesRegex(ProviderError, "none, read, or update"):
+            validate_request(request)
+
+    def test_diarization_block_is_checked_and_normalized(self) -> None:
+        from nonoka_x.local_provider import ProviderError, validate_request
+
+        request = self.request()
+        request["target"] = "final-srt"
+        self.assertNotIn("diarization", validate_request(request))
+        request["diarization"] = {"level": "off"}
+        self.assertNotIn("diarization", validate_request(request))
+
+        request["diarization"] = {"level": "judge-text", "max_speakers": None}
+        self.assertEqual(
+            validate_request(request)["diarization"],
+            {"level": "judge-text", "max_speakers": None},
+        )
+
+        # The judge runs inside the LLM correction; a raw run keeps the acoustics.
+        request["target"] = "raw-srt"
+        self.assertEqual(
+            validate_request(request)["diarization"],
+            {"level": "acoustics", "max_speakers": None, "requested_level": "judge-text"},
+        )
+
+        request["target"] = "aligned"
+        request["diarization"] = {"level": "acoustics"}
+        with self.assertRaisesRegex(ProviderError, "target stable or later"):
+            validate_request(request)
+
+        request["target"] = "final-srt"
+        for bad in ({"level": "loud"}, {"level": "acoustics", "max_speakers": 0},
+                    {"level": "acoustics", "max_speakers": True}, "acoustics"):
+            request["diarization"] = bad
+            with self.assertRaises(ProviderError):
+                validate_request(request)
 
     def test_pre_field_update_request_remains_retryable(self) -> None:
         from nonoka_x.local_provider import validate_request
@@ -775,3 +823,22 @@ class LLMCallTests(ProviderFixture):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RuntimeOutdatedReportTests(unittest.TestCase):
+    def test_an_outdated_runtime_asks_for_an_update_instead_of_listing_modules(self) -> None:
+        from nonoka_x import local_provider
+
+        class Provisioner:
+            def status(self) -> dict:
+                return {"runtime": {"state": "outdated", "detail": "x"}, "models": [], "optional_models": []}
+
+            def tool_path(self, name: str):
+                return Path("ffmpeg.exe")
+
+        report = local_provider.runtime_report(None, Provisioner())
+        codes = [issue["code"] for issue in report["issues"]]
+        self.assertIn("runtime_outdated", codes)
+        self.assertNotIn("missing_runtime", codes)
+        message = next(issue["message"] for issue in report["issues"] if issue["code"] == "runtime_outdated")
+        self.assertIn("需要更新", message)

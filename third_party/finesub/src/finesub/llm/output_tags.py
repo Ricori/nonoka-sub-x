@@ -210,13 +210,14 @@ def parse_json_object(text: str) -> Dict[str, Any]:
 def parse_json_tag_block(text: str, tag: str) -> Dict[str, Any]:
     """Parse the JSON object inside the unique ``<tag>`` block.
 
-    Falls back to scanning the whole output for a JSON object when the tag is
-    missing, so a model that forgets the wrapper doesn't hard-fail the round.
+    The tag is required. Scanning the whole reply for a JSON object instead
+    would accept any stray object -- a draft inside leaked reasoning, an
+    example the model quoted -- as the product, silently; none of the stored
+    replies ever needed it (owner 2026-10-01). A missing tag is a parse failure
+    and takes the caller's retry.
     """
 
     blocks = find_tag_blocks(text, tag)
-    if len(blocks) > 1:
+    if len(blocks) != 1:
         raise ValueError(f"Output must contain exactly one <{tag}> block, found {len(blocks)}.")
-    if blocks:
-        return parse_json_object(blocks[0])
-    return parse_json_object(text)
+    return parse_json_object(blocks[0])

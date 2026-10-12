@@ -69,10 +69,27 @@ class CorrectionVariant:
         "；**`<singles>` 禁止 `insert`**（漏识别没有源序号，无法进一一对应表）"
     )
     granule_record_clause: str = "singles 一律如实记录，取舍只发生在 translation。"
+    # Where the reason for a hard-threshold exception is written, said in the
+    # prompt as such: the model never learns which variant it runs under.
+    approval_reason_slot: str = "写在该行 note 里"
     # BasicA mirrors the input timeline by keeping ``start`` between position
     # and duration.
     output_has_start: bool = False
 # --- Fully specified variants ---
+
+def _hard_threshold_merge_rule(approval_reason_slot: str) -> str:
+    return (
+        f"合并后 `char_count` >{HARD_MERGE_CHARS} 或跨度 >{HARD_MERGE_SECONDS} "
+        "秒即越过**硬门槛**，原则上必须"
+        "拒绝合并、拆开输出；唯一可特批的是同一个词或不可拆固定短语被源切断，"
+        f"且须把理由{approval_reason_slot}。即使特批，`char_count` "
+        f">{ABSOLUTE_MERGE_CHARS} 或跨度 >{ABSOLUTE_MERGE_SECONDS} "
+        "秒也触发**绝对门槛**，任何情况都必须拒绝。绝不能仅因相邻、"
+        f"连贯、同一句或话题相关就并。filler 三明治三源行更严：合计 "
+        f"≤{SANDWICH_MAX_SECONDS} 秒且合并后 ≤{SANDWICH_MAX_CHARS} 字，"
+        "不适用任何特批。"
+    )
+
 
 _CAPABLE_B = CorrectionVariant(
     name="capableB",
@@ -85,17 +102,7 @@ _CAPABLE_B = CorrectionVariant(
         f"碎片夹一个 ≤{FILLER_MAX_CHARS} 字纯语气词/口吃碎片"
         "（如 `70,71,72` 中间为「えっと」）；其余三源及以上禁止"
     ),
-    translated_merge_rule=(
-        f"合并后 `char_count` >{HARD_MERGE_CHARS} 或跨度 >{HARD_MERGE_SECONDS} "
-        "秒即越过**硬门槛**，原则上必须"
-        "拒绝合并、拆开输出；唯一可特批的是同一个词或不可拆固定短语被源切断，"
-        f"且须在该变体规定的局部理由位置写明。即使特批，`char_count` "
-        f">{ABSOLUTE_MERGE_CHARS} 或跨度 >{ABSOLUTE_MERGE_SECONDS} "
-        "秒也触发**绝对门槛**，任何情况都必须拒绝。绝不能仅因相邻、"
-        f"连贯、同一句或话题相关就并。filler 三明治三源行更严：合计 "
-        f"≤{SANDWICH_MAX_SECONDS} 秒且合并后 ≤{SANDWICH_MAX_CHARS} 字，"
-        "不适用任何特批。"
-    ),
+    translated_merge_rule=_hard_threshold_merge_rule("写在该行 note 里"),
     pacing_merge_clause=(
         f"1. 拟合并时先估算合并后的字数和跨度。字数 >{HARD_MERGE_CHARS} 或跨度 "
         f">{HARD_MERGE_SECONDS} 秒即越过"
@@ -175,11 +182,14 @@ _BASIC_A = CorrectionVariant(
 # governs, giving "think before you write" without the full singles pass.
 # Gate: reasoning REQUIRED when merge ≥2 sources / discard / conf=low / exceeds
 # the hard threshold; FORBIDDEN for pure single-source in-bounds high-conf rows.
+_CAPABLE_C_SLOT = "写在该行正上方的 `#` 注释里"
 _CAPABLE_C = replace(
     _CAPABLE_B,
     name="capableC",
     output_contract_fragment="fragment_output_contract_nosingles_reasoning_v1.md",
     user_template="correction_user_nosingles_reasoning_v1.md",
+    approval_reason_slot=_CAPABLE_C_SLOT,
+    translated_merge_rule=_hard_threshold_merge_rule(_CAPABLE_C_SLOT),
 )
 
 # BasicB freezes the v59 cross-tier experiment: capableB's no-singles merge

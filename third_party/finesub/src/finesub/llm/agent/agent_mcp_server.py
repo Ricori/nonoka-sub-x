@@ -32,6 +32,12 @@ in the environment:
                               `read_context` serves them page by page. agy
                               replaces a larger reply with a file path the
                               worker may not read (measured 2026-08-22).
+    FINESUB_MCP_HOLD_ACCEPTED_SECONDS
+                              optional: sit this long on the `accepted` reply
+                              that completes the assignment before sending it.
+                              Exit-on-accept sets it, so the driver ends the
+                              CLI before the reply can buy one more model
+                              request (docs/llm_agent_tool_protocol.md §4).
 
 Run with ``python -m finesub.llm.agent.agent_mcp_server``.
 """
@@ -52,11 +58,15 @@ from .agent_task_runtime import (
     StaleControlGenerationError,
 )
 from .agent_validators import VALIDATOR_BUILDERS, runtime_validators
+
 from finesub.text import (
     decodable_escape_count,
     looks_escaped,
     unescape_codepoints,
 )
+
+#: The environment key behind ``accepted_reply_hold_seconds``.
+ACCEPTED_REPLY_HOLD_ENV = "FINESUB_MCP_HOLD_ACCEPTED_SECONDS"
 
 SERVER_NAME = "finesub"
 PROTOCOL_VERSION = "2025-06-18"
@@ -211,7 +221,7 @@ WEB_TOOL_DEFINITIONS: tuple[dict[str, Any], ...] = (
 )
 WEB_TOOL_NAMES: tuple[str, ...] = tuple(tool["name"] for tool in WEB_TOOL_DEFINITIONS)
 
-# Read-only knowledge-store tools (docs/plans/knowledge-node-plan.md §4.3, step 4a).
+# Read-only knowledge-store tools (docs/archive/knowledge-node-plan.md §4.3, step 4a).
 # Exposed only when the spawning harness hands the server a knowledge root
 # (FINESUB_MCP_KNOWLEDGE_ROOT); each call is then admitted against the current
 # task's manifest, which must carry ``metadata.knowledge_identity`` ("rev:N") —
@@ -299,6 +309,22 @@ KB_TOOL_DEFINITIONS: tuple[dict[str, Any], ...] = (
     },
 )
 KB_TOOL_NAMES: tuple[str, ...] = tuple(tool["name"] for tool in KB_TOOL_DEFINITIONS)
+KB_READ_PROPOSE_NOTE = (
+    " With a propose grant, the [别名] row carries an @a handle for "
+    "<knowledge_proposals>; pre-check proposals with kb_validate."
+)
+#: Which kb tools each ``kb_tools`` entitlement may use (knowledge-node plan
+#: §4.3 matrix). ``style`` is the narrow grant of a fast `--style auto` window
+#: on a run that does not read the base (auto-style-gaps plan A): only
+#: ``kb_read``, and only of ``style/<名字>`` -- turning on a style picker must
+#: not hand out ordinary knowledge-base reads. ``kb_validate`` prechecks
+#: proposals, so only ``propose`` (the knowledge update) gets it: a reading
+#: task listing it is a tool it can never use.
+KB_ENTITLEMENT_TOOLS: dict[str, tuple[str, ...]] = {
+    "read": tuple(name for name in KB_TOOL_NAMES if name != "kb_validate"),
+    "propose": KB_TOOL_NAMES,
+    "style": ("kb_read",),
+}
 
 
 def _utf8_len(text: str) -> int:
@@ -469,7 +495,13 @@ class HarnessToolServer:
         next_task_wait_seconds: float = DEFAULT_NEXT_TASK_WAIT_SECONDS,
         page_chars: int = 0,
         block_files: bool = False,
+        accepted_reply_hold_seconds: float = 0.0,
     ) -> None:
+        # Exit-on-accept: the reply that completes the assignment is held
+        # this long by `serve` (after it is logged), so the driver can end the
+        # CLI before the CLI spends a request answering it. 0 sends it at once.
+        self.accepted_reply_hold_seconds = max(0.0, float(accepted_reply_hold_seconds))
+        self._reply_hold = 0.0
         # Blocks as files (docs/llm_local_agent_agy.md §5): every required
         # block carries its absolute `path` and `read: "file"`; the CLI's own
         # file tool reads it, and the ledger books it as handed over.
@@ -503,13 +535,15 @@ class HarnessToolServer:
         # entitlement, identity, root — happens in `_kb_context` against the
         # current task's manifest. Handles are per-task, the index per-rev.
         self._kb_env_root = os.environ.get("FINESUB_MCP_KNOWLEDGE_ROOT", "")
-        self._kb_tools = (
-            any(name in KB_TOOL_NAMES for name in tools)
+        # Per tool, not all-or-nothing: a task spawned with the narrow
+        # `style` grant is offered `kb_read` alone.
+        self._kb_tool_names = (
+            tuple(name for name in KB_TOOL_NAMES if name in tools)
             if tools is not None
-            else bool(self._kb_env_root)
+            else (KB_TOOL_NAMES if self._kb_env_root else ())
         )
         self._kb_root = ""  # resolved per task in _kb_context
-        self._kb_entitlement = ""  # "read" / "propose", set by _kb_context
+        self._kb_entitlement = ""  # "read" / "propose" / "style", set by _kb_context
         self._kb_handles: Any = None
         self._kb_task_id = ""
         self._kb_search_cache: tuple[int, Any] | None = None
@@ -530,8 +564,16 @@ class HarnessToolServer:
         tools = [dict(tool) for tool in TOOL_DEFINITIONS]
         if self._web_tools:
             tools.extend(dict(tool) for tool in WEB_TOOL_DEFINITIONS)
-        if self._kb_tools:
-            tools.extend(dict(tool) for tool in KB_TOOL_DEFINITIONS)
+        for tool in KB_TOOL_DEFINITIONS:
+            if tool["name"] not in self._kb_tool_names:
+                continue
+            tool = dict(tool)
+            if tool["name"] == "kb_read" and "kb_validate" in self._kb_tool_names:
+                # Only a propose grant writes proposals: told of the @a row and
+                # kb_validate, a reading session would read of a tool and an
+                # output block it does not have (cold read round 2, P178).
+                tool["description"] += KB_READ_PROPOSE_NOTE
+            tools.append(tool)
         return tools
 
     # -- JSON-RPC -------------------------------------------------------
@@ -583,12 +625,16 @@ class HarnessToolServer:
         if self._web_tools:
             handlers["web_search"] = self._web_search
             handlers["web_fetch"] = self._web_fetch
-        if self._kb_tools:
-            handlers["kb_index"] = self._kb_index
-            handlers["kb_search"] = self._kb_search
-            handlers["kb_read"] = self._kb_read
-            handlers["kb_read_node"] = self._kb_read_node
-            handlers["kb_validate"] = self._kb_validate
+        kb_handlers = {
+            "kb_index": self._kb_index,
+            "kb_search": self._kb_search,
+            "kb_read": self._kb_read,
+            "kb_read_node": self._kb_read_node,
+            "kb_validate": self._kb_validate,
+        }
+        handlers.update(
+            {name: kb_handlers[name] for name in self._kb_tool_names}
+        )
         handler = handlers.get(name)
         if handler is None:
             return self._tool_error(f"Unknown tool {name!r}")
@@ -924,24 +970,35 @@ class HarnessToolServer:
         "message": "the repair budget for this session is spent; stop",
     }
 
-    # -- knowledge tools (read-only; docs/plans/knowledge-node-plan.md §4.3) ----
+    # -- knowledge tools (read-only; docs/archive/knowledge-node-plan.md §4.3) ----
 
-    def _kb_context(self):  # type: ignore[no-untyped-def]
+    def _kb_context(self, tool: str = ""):  # type: ignore[no-untyped-def]
         """(repo, rev) for the current task, or a tool error.
 
         Admission is the manifest's decision, never the server's: the task
         must carry a ``kb_tools`` entitlement (§4.3 matrix — a pin alone
-        grants nothing), a ``knowledge_identity`` ("rev:N") naming the
-        revision every reply reads, and a root (``kb_root``, falling back to
-        the spawn env for same-run tasks).
+        grants nothing) that admits ``tool`` (`KB_ENTITLEMENT_TOOLS`), a
+        ``knowledge_identity`` ("rev:N") naming the revision every reply
+        reads, and a root (``kb_root``, falling back to the spawn env for
+        same-run tasks). A pseudo-conversational session exposes every tool
+        at launch, so the per-tool check has to live here, per call.
         """
 
         _task, manifest = self._require_task()
         metadata = manifest.get("metadata") or {}
         entitlement = str(metadata.get("kb_tools") or "")
-        if entitlement not in ("read", "propose"):
+        if entitlement not in KB_ENTITLEMENT_TOOLS:
             raise _ToolError(
                 "this task carries no kb entitlement; knowledge tools are not admitted for it"
+            )
+        if tool and tool not in KB_ENTITLEMENT_TOOLS[entitlement]:
+            raise _ToolError(
+                f"this task's kb entitlement ({entitlement}) does not admit {tool}; "
+                + (
+                    "it may only read style entries with kb_read (entry: style/<名字>)"
+                    if entitlement == "style"
+                    else "it admits " + ", ".join(KB_ENTITLEMENT_TOOLS[entitlement])
+                )
             )
         self._kb_entitlement = entitlement
         root = str(metadata.get("kb_root") or "") or self._kb_env_root
@@ -984,7 +1041,7 @@ class HarnessToolServer:
         return payload
 
     def _kb_index(self, _arguments: Mapping[str, Any], *, request_id: str) -> dict[str, Any]:
-        repo, rev = self._kb_context()
+        repo, rev = self._kb_context("kb_index")
         from ..knowledge.base import kb_index_block_text
 
         text = kb_index_block_text(self._kb_root, rev)
@@ -1015,7 +1072,7 @@ class HarnessToolServer:
         return payload
 
     def _kb_search(self, arguments: Mapping[str, Any], *, request_id: str) -> dict[str, Any]:
-        repo, rev = self._kb_context()
+        repo, rev = self._kb_context("kb_search")
         query = str(arguments.get("query") or "").strip()
         if not query:
             raise _ToolError("query is required")
@@ -1051,11 +1108,36 @@ class HarnessToolServer:
         return self._kb_finish({"knowledge_read_rev": rev, "matches": rows})
 
     def _kb_read(self, arguments: Mapping[str, Any], *, request_id: str) -> dict[str, Any]:
-        repo, rev = self._kb_context()
+        repo, rev = self._kb_context("kb_read")
         entry = str(arguments.get("entry") or "").strip()
-        resolved = repo.resolve(entry, rev)
+        # `style/<名字>` and the like: a standalone category is only reachable
+        # by its qualified name (`--style auto` lets the agent read a candidate
+        # in full); a bare name keeps the matchable-categories lookup.
+        from ..knowledge.node.repo import CATEGORY_SEPARATOR, AmbiguousName
+        from ..knowledge.style import STYLE_CATEGORY
+
+        style_only = self._kb_entitlement == "style"
+        if style_only and not entry.startswith(f"{STYLE_CATEGORY}{CATEGORY_SEPARATOR}"):
+            raise _ToolError(
+                "this task may only read style entries; write the entry as style/<名字>"
+            )
+        from ..knowledge.node.presets import CATEGORIES
+
+        # Qualified only when the prefix is a category: entry names may
+        # contain `/` (`Fate/stay night`) and stay in the matchable lookup.
+        prefix, separator, _rest = entry.partition(CATEGORY_SEPARATOR)
+        try:
+            resolved = (
+                repo.resolve_qualified(entry, rev)
+                if separator and prefix in CATEGORIES
+                else repo.resolve(entry, rev)
+            )
+        except AmbiguousName as exc:
+            raise _ToolError(str(exc)) from exc
         if resolved is None:
             raise _ToolError(f"unknown entry {entry!r}")
+        if style_only and resolved.category != STYLE_CATEGORY:
+            raise _ToolError("this task may only read style entries")
         raw_sections = arguments.get("sections")
         sections = (
             [str(name) for name in raw_sections]
@@ -1079,13 +1161,42 @@ class HarnessToolServer:
             sections=sections,
             preview="full" if self._kb_entitlement == "propose" else "partial",
         )
+        _task, manifest = self._require_task()
+        asks_to_compress = str((manifest.get("metadata") or {}).get("kb_size_notice") or "") != "off"
+        if self._kb_entitlement == "propose" and sections is None and asks_to_compress:
+            # A writer reading the whole entry gets the same compression
+            # notice the update prefetch hangs on it (plan kb-entry-size) --
+            # unless the task may only re-decide what its input names
+            # (`kb_size_notice: off`, the conflict repair; owner 2026-10-03).
+            from ..knowledge.entry_size import size_notice
+
+            notice = size_notice(repo.store, resolved.subject_id, rev, with_contract=True)
+            if notice:
+                text = f"{notice}\n{text}"
         payload = self._kb_finish({"knowledge_read_rev": rev, "entry": resolved.key, "text": text})
+        # The context's read ledger (auto-style-gaps plan A1 step 3): booked only
+        # after the size cap passed, so a reply the model never received never
+        # counts as "read". Not fail-soft, unlike the telemetry below -- the
+        # `--style auto` read-check stands on it, and an unbooked read would
+        # fail a window whose model did read; erroring here lets it read again.
+        task, _manifest = self._require_task()
+        self.runtime.record_kb_read(
+            assignment_id=self.assignment_id,
+            task_id=str(task["task_id"]),
+            worker_id=self.worker_id,
+            lease_generation=int(task["lease_generation"]),
+            entry=resolved.key,
+            category=resolved.category,
+            sections=sections is not None,
+        )
         # Agent-side ``exposed`` (plan §4.2 item 5: what the tool actually
         # returned). After the cap check so an errored reply books nothing;
         # fail-soft because telemetry never outranks the reply.
         try:
             from ..knowledge.node.signals import log_exposed_nodes, subject_pack_node_ids
 
+            if not self._kb_signals_booked():
+                return payload
             signal_task, signal_window = self._kb_signal_identity()
             log_exposed_nodes(
                 repo.store,
@@ -1103,6 +1214,17 @@ class HarnessToolServer:
             pass
         return payload
 
+    def _kb_signals_booked(self) -> bool:
+        """Whether this task's ``exposed`` events may be booked. The harness
+        decides (``kb_signals: "off"`` when its knowledge-write gate is shut,
+        e.g. a worktree reading the main checkout's base); this process does
+        not re-derive it from its own cwd, which need not be the harness's.
+        Absent means on, so a task built without the key never loses
+        telemetry silently."""
+
+        _task, manifest = self._require_task()
+        return str((manifest.get("metadata") or {}).get("kb_signals") or "") != "off"
+
     def _kb_signal_identity(self) -> tuple[str, str]:
         """(task, window) the exposure ledger books under (plan §5.1).
 
@@ -1119,7 +1241,7 @@ class HarnessToolServer:
         return signal_task, str(metadata.get("kb_signal_window") or "")
 
     def _kb_read_node(self, arguments: Mapping[str, Any], *, request_id: str) -> dict[str, Any]:
-        repo, rev = self._kb_context()
+        repo, rev = self._kb_context("kb_read_node")
         handle = str(arguments.get("handle") or "").strip()
         bound = self._kb_handles.nodes.get(handle) if self._kb_handles is not None else None
         if bound is None:
@@ -1142,6 +1264,8 @@ class HarnessToolServer:
         try:
             from ..knowledge.node.signals import log_exposed_nodes
 
+            if not self._kb_signals_booked():
+                return payload
             # The event schema groups by owning subject: walk the membership
             # edges up to the top (bounded — the tree is a few levels deep).
             subject_id, seen = node.local_id, {node.local_id}
@@ -1164,10 +1288,7 @@ class HarnessToolServer:
         return payload
 
     def _kb_validate(self, arguments: Mapping[str, Any], *, request_id: str) -> dict[str, Any]:
-        repo, rev = self._kb_context()
-        _task, manifest = self._require_task()
-        if str((manifest.get("metadata") or {}).get("kb_tools") or "") != "propose":
-            raise _ToolError("kb_validate is not admitted for this task (knowledge-update only)")
+        repo, rev = self._kb_context("kb_validate")
         text = str(arguments.get("proposals") or "")
         if not text.strip():
             raise _ToolError("proposals is required (the <knowledge_proposals> block or raw JSONL)")
@@ -1212,6 +1333,12 @@ class HarnessToolServer:
             }
         )
 
+    def take_reply_hold(self) -> float:
+        """How long `serve` holds the reply it is about to send; asked once."""
+
+        hold, self._reply_hold = self._reply_hold, 0.0
+        return hold
+
     def _stop_reply(self, record: Mapping[str, Any]) -> dict[str, Any] | None:
         """What a session that may no longer submit is told, from durable state.
 
@@ -1252,6 +1379,7 @@ class HarnessToolServer:
         if response.get("accepted_task_id"):
             self._task, self._manifest = None, None
             if status == "assignment_complete":
+                self._reply_hold = self.accepted_reply_hold_seconds
                 return {"status": "accepted", "message": "accepted; reply `submitted` and stop"}
             # An unsealed assignment (pseudo-conversational) has more coming:
             # the session goes back for the next task instead of leaving.
@@ -1308,6 +1436,11 @@ def serve(stream_in, stream_out, server: HarnessToolServer, *, log_path: str = "
             if log is not None:
                 log.write(json.dumps({"dir": "out", "frame": encoded.rstrip("\n")}, ensure_ascii=False) + "\n")
                 log.flush()
+            # Logged first: the audit has the accept even when the driver
+            # ends this process during the hold, which is the point of it.
+            hold = server.take_reply_hold()
+            if hold:
+                time.sleep(hold)
             stream_out.write(encoded)
             stream_out.flush()
     finally:
@@ -1340,6 +1473,10 @@ def main() -> int:
         page_chars = int(os.environ.get("FINESUB_MCP_PAGE_CHARS", "") or 0)
     except ValueError:
         page_chars = 0
+    try:
+        reply_hold = float(os.environ.get(ACCEPTED_REPLY_HOLD_ENV, "") or 0.0)
+    except ValueError:
+        reply_hold = 0.0
     server = HarnessToolServer(
         runtime,
         assignment_id=assignment_id,
@@ -1350,6 +1487,7 @@ def main() -> int:
         next_task_wait_seconds=wait_seconds,
         page_chars=page_chars,
         block_files=os.environ.get("FINESUB_MCP_BLOCK_FILES", "") == "1",
+        accepted_reply_hold_seconds=reply_hold,
     )
     # The frames carry subtitle text; MCP stdio is UTF-8 regardless of the
     # console code page this process inherited (cp936/cp1252 on Windows would

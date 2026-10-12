@@ -4,10 +4,19 @@
 
 version = 2
 name = "common"
+blurb = "主播之外的一切"          # 结构表里这个类别的一句话说明
+matchable = true                # 进匹配面：按名字/别名从字幕文本里命中，有索引
+# rendered/common/index.md 的抬头。仅 matchable 类别有（索引就是拿来被匹配的）。
+index_header = "# Common 索引\n\n格式：`- key [类型] | 其他语言本名 | 别名 | 一句简介`（key = 源语言本名；类型如 [游戏]、[动画]、[社区]、[其他]）"
 allow_custom_labels = true
 unknown_label_share = "local"   # 未登记的标记 fail-closed，不随节默认继承共享
 unknown_label_verify = "none"   # 也不发给外部检索核查
 strict_sections = false
+# 整条的注入上限（owner 2026-10-02，三个类别一样）：注入时超过就按行截断，不是写入规则。
+max_entry_tokens = 6000
+# 超过软阈值时，可写的面（知识更新、修复会话）提示先压缩；这个类别可以按节拆子条目。
+soft_entry_tokens = 5000
+splittable = true
 
 [[sections]]
 name = "档案"
@@ -17,17 +26,21 @@ purpose = "作品身份与本条目的收录边界。"
 exclude = "剧情梗概与攻略。"
 labels = [
   { name = "本名", core = true, role = "identity", note = "源语言全名 / 中文定名 / 英文定名（源语言定名已是英文则留空），斜杠分隔；条目的 index 行由它派生" },
-  { name = "别名", core = true, role = "aliases", note = "顿号分隔：昵称、简称、全称、俗称，以及源语言的特殊读音。覆盖社区常用写法（崩坏星穹铁道 → 崩铁、星铁），至少 2 字符；误听变体不算别名。这一行渲染自 items，删掉整行不等于清空别名" },
+  { name = "别名", core = true, role = "aliases", note = "顿号分隔：昵称、简称、全称、俗称，以及源语言的特殊读音。覆盖社区常用写法（崩坏星穹铁道 → 崩铁、星铁），至少 2 字符；误听变体不算别名。行体留空即清空" },
   { name = "收录范围", core = true, share = "local", note = "这个条目只收哪一部分——写清楚，它是 agent 的收录纪律；本地口径，不随条目外发" },
   # 登记但非 core：不占槽、不提醒，登记只为带上 share 策略
   { name = "当前版本", core = false, share = "local", note = "易腐信息；只在「收录范围」需要它界定时才写" },
 ]
 
 [default_section]
-body_kinds = ["term"]
+# 两种行体（owner 2026-09-07）：术语行装「需要独立匹配/定名/别名的专名」，
+# 自由句装「帮助理解与翻译、但不值得独立成词的简短事实」（称呼之间的区别、
+# 阵营关系、影响语义的背景）。强行四列会诱导编造并不存在的「术语名」。
+# ⚠ 放宽只是多一种行体：三列的畸形术语行照旧整条拒绝，绝不降级成自由句。
+body_kinds = ["term", "note"]
 verify = "external"
-purpose = "作品内的固定名词：ASR 易错、且有官方或约定中文定名的表层。节名自取（如「角色」「地区」「组织」）。"
-exclude = "基础战斗名词与常驻通用词；不收版本性叙事（写进描述会很快过期，应改写成不随版本变化的一句话身份）。"
+purpose = "作品内的固定名词（术语行：ASR 易错、且有官方或约定中文定名的表层），以及帮助理解与翻译、但不值得独立成词的简短事实（自由句）。节名自取（如「角色」「地区」「组织」）。"
+exclude = "基础战斗名词与常驻通用词；剧情流水账、攻略与无关百科；译文风格指令（那归 style 条目，别写成全库唯一答案）；不收版本性叙事（写进描述会很快过期，应改写成不随版本变化的一句话身份）。"
 labels = []
 
 [[sections]]

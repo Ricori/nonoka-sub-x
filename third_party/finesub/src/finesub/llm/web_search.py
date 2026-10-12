@@ -28,7 +28,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
 import hashlib
-import html as html_module
 import json
 from pathlib import Path
 import re
@@ -36,7 +35,7 @@ import sys
 import threading
 import time
 from typing import TYPE_CHECKING, Any, Callable, List, Mapping, Optional, Sequence
-from urllib.parse import unquote, urlsplit
+from urllib.parse import unquote
 
 from finesub import state as state_store
 from finesub.reporting import current_reporter, redact_credentials
@@ -89,6 +88,23 @@ GEMMA4_MAX_OUTPUT_TOKENS = 32_768
 GEMMA4_THINKING_PREFIX = "<|think|>"
 GEMMA4_SEARCH_BATCH_QUERY_LIMIT = 8
 
+#: HTTP timeout for the keyed search/extract providers (Exa, Tavily). Gemma4
+#: has its own above -- it is a generation call and an order of magnitude
+#: slower.
+#:
+#: Was 30s, which sat inside the providers' own spread rather than outside it:
+#: measured 2026-09-16 over one research-heavy task, six of fifteen Exa queries
+#: read-timed out and every one of them succeeded on the retry in 24.5-30.0s --
+#: the ceiling was cutting off calls that were about to return. A timeout that
+#: fires on healthy-but-slow calls costs the wait twice (the abandoned call,
+#: then the retry) and buys nothing, so it belongs above the spread.
+#:
+#: The price is paid by a provider that hangs instead: a read timeout goes
+#: through the generic `max_retries`, so the worst wait before the next provider
+#: is taken grew from ~304s to ~544s per query. If a hanging provider shows up,
+#: cut the retries a timeout gets rather than this ceiling.
+DEFAULT_SEARCH_TIMEOUT_SECONDS = 60.0
+
 # Provider order lives in one place so fallback-position experiments are a
 # constant edit instead of a search/extract control-flow rewrite.
 SEARCH_PROVIDER_ORDER = (
@@ -121,28 +137,6 @@ def extract_urls_from_text(text: str, *, limit: int = EXTRA_INFO_URL_EXTRACT_LIM
     return urls
 
 
-# RFC 3986 unreserved: percent-escaping these carries no meaning, so decoding
-# them is the one percent-decode that cannot change how a server reads the URL.
-_UNRESERVED = frozenset(
-    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~"
-)
-_PERCENT_TRIPLET = re.compile(r"%[0-9A-Fa-f]{2}")
-
-
-def _normalize_percent(text: str) -> str:
-    """Decode unreserved escapes, uppercase the rest (RFC 3986 §6.2.2.2).
-
-    Deliberately *not* a full unquote: turning ``%2F`` into ``/`` would change
-    the path structure, i.e. two different resources would compare equal.
-    """
-
-    def _replace(match: re.Match[str]) -> str:
-        decoded = unquote(match.group(0))
-        return decoded if decoded in _UNRESERVED else match.group(0).upper()
-
-    return _PERCENT_TRIPLET.sub(_replace, text)
-
-
 def guided_query_key(guided: str) -> str:
     """Dedup key for a guided query: strict on purpose.
 
@@ -167,51 +161,6 @@ def request_label(text: str, guided: str = "") -> str:
     guided = (guided or "").strip()
     return f"{text}{GUIDED_QUERY_SEPARATOR}{guided}" if guided else text
 
-
-def normalize_url_key(url: str) -> str:
-    """A comparison key for "is this the URL I already saw?".
-
-    Only used to *look one up*; the request is then made against the stored
-    original, so this can afford to be forgiving. Folding http/https, decoding
-    HTML entities and normalizing IDN/percent forms all mean "the model wrote
-    the same link a bit differently", never "fetch something new".
-
-    Returns ``""`` for anything that is not an absolute http(s) URL.
-    """
-
-    text = html_module.unescape((url or "").strip()).strip("<>\"'")
-    if not text:
-        return ""
-    try:
-        parts = urlsplit(text)
-    except ValueError:
-        return ""
-    # http and https fold together: the same page over either scheme is the
-    # same page, and a model copying a link often normalizes the scheme itself.
-    if parts.scheme.lower() not in ("http", "https") or not parts.hostname:
-        return ""
-    host = parts.hostname.rstrip(".").lower()
-    try:
-        # IDN both ways: 例え.jp and xn--r8jz45g.jp are one host.
-        host = host.encode("idna").decode("ascii")
-    except (UnicodeError, UnicodeDecodeError):
-        pass
-    try:
-        parsed_port = parts.port
-    except ValueError:
-        return ""
-    port = "" if parsed_port in (None, 80, 443) else f":{parsed_port}"
-    if ":" in host:
-        host = f"[{host}]"
-    path = _normalize_percent(parts.path) or "/"
-    # The fragment never reaches the server, so it cannot distinguish two
-    # fetches. The query does reach it, so it is kept: parameter order and
-    # every reserved escape (``%2F``, ``%3D``, ``%26`` ...) survive, and only
-    # unreserved escapes are folded -- ``?a=%7Ex`` and ``?a=~x`` address the
-    # same resource. Percent-encoding a signature is therefore preserved too,
-    # and either way the fetch goes to the stored original, not to this key.
-    query = f"?{_normalize_percent(parts.query)}" if parts.query else ""
-    return f"{host}{port}{path}{query}"
 
 # Tavily statuses that mean "this key is unusable" (bad key, plan/quota limits).
 _TAVILY_KEY_ERROR_STATUSES = {401, 403, 429, 432, 433}
@@ -545,7 +494,7 @@ class WebSearchClient:
         state_path: str | Path | None = None,
         now_func: Callable[[], float] = time.time,
         max_results: int = DEFAULT_SEARCH_MAX_RESULTS,
-        timeout_seconds: float = 30.0,
+        timeout_seconds: float = DEFAULT_SEARCH_TIMEOUT_SECONDS,
         query_interval_seconds: float = 1.5,
         client_factory: Callable[..., Any] = llm_http_client,
         sleep_func: Callable[[float], None] = time.sleep,

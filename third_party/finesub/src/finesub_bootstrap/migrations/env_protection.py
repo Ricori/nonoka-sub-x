@@ -1,4 +1,4 @@
-"""Bind the API keys in the shared `.env` to the current Windows account.
+"""Protect the API keys in the shared `.env` (Windows account binding, or obfuscation elsewhere).
 
 Runs after the location migrations on purpose: personal data first settles
 where it belongs, then its content is protected. The work itself lives in
@@ -21,9 +21,9 @@ MIGRATION_ID = "0004-protect-env-keys"
 def protect(paths: AppPaths, log: Callable[[str], None]) -> bool:
     env_path = paths.user_data / ".env"
     if not secrets.available():
-        # Not this machine's feature (no DPAPI): retrying every start would
-        # never change the answer, so record the migration as done.
-        log("本机不支持密钥保护（无 DPAPI），.env 保持明文。")
+        # Windows whose crypt32 is unusable: retrying every start would never
+        # change the answer, so record the migration as done.
+        log("本机 DPAPI 不可用，.env 保持明文。")
         return True
     for sibling in sorted(env_path.parent.glob(".env.*")):
         if sibling.suffix in {".lock", ".tmp"} or sibling == env_path:

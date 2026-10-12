@@ -41,7 +41,7 @@ from .routing.config import (
 )
 from .routing.capabilities import endpoint_supports
 from .routing.execution_policy import normalized_tier
-from .routing.model_catalog import thinking_value_for
+from .routing.model_catalog import dispatched_thinking
 from .routing.model_routes import CONVERSATIONAL_BACKEND
 from .routing.profiles import VIDEO_SAMPLE_FPS
 from .exchange_metadata import AGENT_SESSION_USAGE_FILENAME
@@ -213,6 +213,7 @@ def _agent_task_inputs(
             "knowledge_identity",
             "kb_signal_task",
             "kb_signal_window",
+            "kb_size_notice",
         }
     }
     # An argument of its own, never a driver kwarg: `driver.run` has an
@@ -244,6 +245,12 @@ def _agent_task_inputs(
         metadata["knowledge_identity"] = knowledge_binding["identity"]
         metadata["kb_root"] = knowledge_binding["root"]
         metadata["kb_tools"] = knowledge_binding["entitlement"]
+        # The MCP server books `exposed` from its own process; the gate is
+        # decided here, where the knowledge root was chosen.
+        from .knowledge.base import knowledge_signals_enabled
+
+        if not knowledge_signals_enabled(knowledge_binding["root"]):
+            metadata["kb_signals"] = "off"
         # Signal identity for the exposure ledger (plan §5.1): the runtime's
         # own task_id is a constant ("call") on per-call assignments, so the
         # caller names the run task and window its events should join with.
@@ -251,6 +258,10 @@ def _agent_task_inputs(
             value = str(call_kwargs.get(key) or "")
             if value:
                 metadata[key] = value
+        # A writer that may only re-decide what its input names (the conflict
+        # repair) holds `propose` without the compression ask on `kb_read`.
+        if call_kwargs.get("kb_size_notice") is False:
+            metadata["kb_size_notice"] = "off"
     else:
         explicit_identity = str(call_kwargs.get("knowledge_identity") or "")
         if explicit_identity:
@@ -283,9 +294,11 @@ def _agent_task_inputs(
 def _agent_knowledge_binding(call_kwargs: Mapping[str, Any]) -> Dict[str, Any] | None:
     """Tool-session knowledge binding (knowledge-node plan §4.3, 4b/4c).
 
-    Authorization is the caller's explicit grant — ``kb_tools`` = ``read`` or
-    ``propose`` (the §4.3 matrix, stamped into the manifest for the server to
-    check). The generation pin only supplies the *default* root/revision for
+    Authorization is the caller's explicit grant — ``kb_tools`` = ``read``,
+    ``propose`` or the narrow ``style`` (the §4.3 matrix, stamped into the
+    manifest for the server to check; ``style`` is a fast `--style auto`
+    window on a run that does not read the base: `kb_read` of `style/<名字>`
+    only, and no `kb_index` block to owe). The generation pin only supplies the *default* root/revision for
     grants that name neither; a pin alone must never hand an unrelated task
     (a search judge) the tools and the gate. A standalone knowledge update
     (no pin: the module CLI's own runs are pinned, but reference_ingest and
@@ -302,8 +315,10 @@ def _agent_knowledge_binding(call_kwargs: Mapping[str, Any]) -> Dict[str, Any] |
         knowledge_root_path,
     )
 
+    from .agent.agent_mcp_server import KB_ENTITLEMENT_TOOLS
+
     entitlement = str(call_kwargs.get("kb_tools") or "")
-    if entitlement not in ("read", "propose"):
+    if entitlement not in KB_ENTITLEMENT_TOOLS:
         return None
     root = str(call_kwargs.get("knowledge_root") or "")
     identity = str(call_kwargs.get("knowledge_identity") or "")
@@ -319,14 +334,41 @@ def _agent_knowledge_binding(call_kwargs: Mapping[str, Any]) -> Dict[str, Any] |
         if not identity.startswith("rev:"):
             identity = f"rev:{pin_rev}"
     rev = int(identity.split(":")[1])
-    text = kb_index_block_text(root, rev)
-    digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
+    tools = KB_ENTITLEMENT_TOOLS[entitlement]
+    block = None
+    if "kb_index" in tools:
+        # Required only where the tool that reads it is offered: the narrow
+        # grant has no `kb_index`, and owing a block nobody can fetch would
+        # fail every submit.
+        text = kb_index_block_text(root, rev)
+        digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
+        block = {"kind": "kb_index", "ref": "kb_index", "digest": digest}
     return {
         "root": root,
         "identity": f"rev:{rev}",
         "entitlement": entitlement,
-        "block": {"kind": "kb_index", "ref": "kb_index", "digest": digest},
+        "tools": tools,
+        "block": block,
     }
+
+
+#: Usage sources whose ``input_tokens`` leaves the cache out, so the prompt is
+#: input + cache read (+ cache write). Claude Code follows Anthropic's split
+#: (a cold call reported 3.6k input beside 11-17k cache read,
+#: docs/llm_local_agent_experiments.md §3); agy reports its cache read beside
+#: an input that excludes it (its own per-request ledger, §3.8). Everyone else
+#: counts the cache inside ``input_tokens``: Codex (OpenAI's shape) and
+#: CodeBuddy, whose input is exactly cache write + cache read (§3.8). The
+#: per-request sums a call ended on accept carries (``*_message_events``,
+#: ``agy_step_events``) are in the same units as that vendor's result.
+_INPUT_EXCLUDES_CACHE = frozenset(
+    {
+        "claude_code_result_event",
+        "claude_code_message_events",
+        "agy_result_event",
+        "agy_step_events",
+    }
+)
 
 
 def agent_usage_payload(usage: Mapping[str, Any] | None) -> Dict[str, Any]:
@@ -334,7 +376,11 @@ def agent_usage_payload(usage: Mapping[str, Any] | None) -> Dict[str, Any]:
 
     One conversion for both books: the per-call `raw_response` a window
     writes, and the per-session totals a pseudo-conversational run reports
-    once its CLI has left (`write_agent_session_usage`).
+    once its CLI has left (`write_agent_session_usage`). The vendors disagree
+    on whether ``input_tokens`` includes the cache and on what the cache read
+    is called; the prompt here always includes it, and the cached share is
+    the cache read, so uncached = prompt - cached is what was paid in full
+    (a cache write counts there).
     """
 
     local = dict(usage or {})
@@ -348,14 +394,21 @@ def agent_usage_payload(usage: Mapping[str, Any] | None) -> Dict[str, Any]:
 
     input_tokens = _int("input_tokens")
     output_tokens = _int("output_tokens")
+    cache_read = _int("cached_input_tokens", "cache_read_input_tokens")
+    if local.get("source") in _INPUT_EXCLUDES_CACHE:
+        prompt_tokens = input_tokens + cache_read + _int("cache_creation_input_tokens")
+        total_tokens = prompt_tokens + output_tokens
+    else:
+        prompt_tokens = input_tokens
+        total_tokens = _int("total_tokens") or input_tokens + output_tokens
     return {
-        "prompt_tokens": input_tokens,
-        "prompt_tokens_details": {"cached_tokens": _int("cached_input_tokens")},
+        "prompt_tokens": prompt_tokens,
+        "prompt_tokens_details": {"cached_tokens": cache_read},
         "completion_tokens": output_tokens,
         "completion_tokens_details": {
             "reasoning_tokens": _int("reasoning_output_tokens", "reasoning_tokens")
         },
-        "total_tokens": _int("total_tokens") or input_tokens + output_tokens,
+        "total_tokens": total_tokens,
     }
 
 
@@ -842,6 +895,21 @@ def _api_rows_as_execution_attempts(
     return rows
 
 
+def _last_attempt_row(rows: Any) -> Mapping[str, Any] | None:
+    """The last attempt a failed call recorded, or None.
+
+    Read from the exception rather than the route, because the two disagree in
+    exactly the case that matters: a CLI that handed the session to a paid
+    twin. The whole row travels rather than one field, since deciding what a
+    call spent needs both who answered *and* whether anyone was named at all.
+    """
+
+    for row in reversed(list(rows or ())):
+        if isinstance(row, Mapping) and str(row.get("reported_model") or "").strip():
+            return row
+    return None
+
+
 class RoleClient:
     def __init__(
         self,
@@ -1098,25 +1166,104 @@ class RoleClient:
         self._remote_media_refs[key] = remote
         return remote
 
-    def _agent_failure(
+    def _quota_attribution(
         self,
-        exc: BaseException,
+        candidate: Any,
+        attempt: Mapping[str, Any] | None,
         *,
-        endpoint: Any,
-        plan: Any,
-        quota_pool: str,
-        target_id: str = "",
-        attempts: List[Mapping[str, Any]] | None = None,
+        may_abstain: bool = False,
     ):
-        """Ask whether a failed agent call means the subscription is spent.
+        """Which allowance a local-agent call spent, and who would probe it.
 
-        The probe runs through the same driver the call used, so it is the
-        subscription's own answer rather than a guess from the error text --
-        which matters because none of the three CLIs can be asked how much
-        quota is left.
+        The router decides; this only unpacks the attempt and wires the warning
+        to this client's reporter, so both call sites reach the same rule.
+
+        `may_abstain` is the failure path, and only the failure path. "Nobody
+        named a model" means two different things depending on how the call
+        ended. A *successful* call necessarily produced a final assistant
+        message -- the driver raises `_empty_answer_error` otherwise -- and a
+        session the CLI handed to the paid twin names that twin on exactly such
+        a message, which is the whole reason `_answering_model` exists. So on
+        success, an unnamed answerer is evidence that no switch happened. On
+        failure it is evidence of nothing: the call may have died on the twin
+        before speaking at all, and then the two allowances are indistinguishable
+        -- which is when an empty pool comes back meaning "book nothing".
         """
 
-        tier = endpoint.provider_tier
+        from .routing.model_router import candidate_quota_attribution
+
+        row = attempt if isinstance(attempt, Mapping) else {}
+        known = bool(row.get("answering_model_known", True)) or not may_abstain
+        # Certainty comes back from the match itself and is passed through
+        # untouched. Deriving it here from proxies -- "a model was named", "the
+        # row has one pool" -- has been wrong once already: an alias nobody can
+        # place is *named* and still unplaced, and letting that count as
+        # certain lets a vendor quota verdict freeze the wrong line unprobed.
+        return candidate_quota_attribution(
+            candidate,
+            str(row.get("reported_model") or ""),
+            answerer_known=known,
+            warn=lambda message: current_reporter().warning("agent-quota", message),
+        )
+
+    def _note_agent_success(
+        self,
+        candidate: Any,
+        agent_result: Any,
+        plan: Any,
+        attempts: List[Mapping[str, Any]] | None = None,
+    ) -> None:
+        """Credit the allowance that answered -- and charge the one that did not.
+
+        A CLI that handed the session to a paid twin proves the twin's balance
+        is alive and says nothing good about the free line it gave up on, so
+        crediting the free pool here would erase the only evidence that switch
+        produces. It is also the only evidence there is: the harness sees a
+        plain success, and routing the next task to the same row switches
+        again, draining credits while the ledger believes the free line is
+        healthy. So the switch is reported as what it is -- two failures on
+        that line, which the usual probe then adjudicates.
+        """
+
+        from .routing.model_router import candidate_quota_pool
+
+        answered_pool, _probe, _certain = self._quota_attribution(
+            candidate, agent_result.execution_attempt
+        )
+        if not answered_pool:
+            return
+        agent_quota.default_ledger().note_success(answered_pool)
+        replaced_pool = candidate_quota_pool(candidate)
+        if answered_pool == replaced_pool:
+            return
+        agent_quota.evaluate_fallback_switch(
+            pool=replaced_pool,
+            ping=self._quota_ping(
+                model=candidate.endpoint.api_model_id,
+                tier=candidate.endpoint.provider_tier,
+                policy_id=plan.policy_id,
+                target_id=candidate.target_id,
+                attempts=attempts,
+            ),
+            warn=lambda message: current_reporter().warning("agent-quota", message),
+        )
+
+    def _quota_ping(
+        self,
+        *,
+        model: str,
+        tier: str,
+        policy_id: str,
+        target_id: str,
+        attempts: List[Mapping[str, Any]] | None,
+    ) -> Any:
+        """A callable that asks one allowance whether it still answers.
+
+        The model is the one that draws on the allowance being judged, and the
+        driver cannot answer from anywhere else: a probe that may hand itself
+        to a paid twin comes back "alive" off a different balance, bills for
+        it, and clears the freeze the evidence was about to earn.
+        """
 
         def record(row: Mapping[str, Any]) -> None:
             if attempts is None:
@@ -1133,12 +1280,14 @@ class RoleClient:
             )
 
         def ping() -> None:
-            driver = self._local_driver_for_model(endpoint.api_model_id, tier)
+            from .agent.local_agent import probing_driver
+
+            driver = probing_driver(self._local_driver_for_model(model, tier))
             try:
                 probe_result = driver.run(
                     agent_quota.QUOTA_PING_MESSAGES,
                     task="quota-probe",
-                    profile_id=f"policy={plan.policy_id};probe=quota",
+                    profile_id=f"policy={policy_id};probe=quota",
                     reasoning_effort="low",
                 )
             except BaseException as probe_failure:
@@ -1150,11 +1299,52 @@ class RoleClient:
                 raise
             record(probe_result.execution_attempt)
 
+        return ping
+
+    def _agent_failure(
+        self,
+        exc: BaseException,
+        *,
+        endpoint: Any,
+        plan: Any,
+        candidate: Any,
+        attempts: List[Mapping[str, Any]] | None = None,
+    ):
+        """Ask whether a failed agent call means the subscription is spent.
+
+        The probe runs through the same driver the call used, so it is the
+        subscription's own answer rather than a guess from the error text --
+        which matters because none of the three CLIs can be asked how much
+        quota is left.
+        """
+
+        # Who was answering when it failed, not who was asked: the two differ
+        # exactly when a paid twin took the session over, and that is the case
+        # where booking against the model on the route would charge an
+        # allowance the call never touched -- and probe the wrong one.
+        quota_pool, probe_model, attribution_certain = self._quota_attribution(
+            candidate,
+            _last_attempt_row(getattr(exc, "_harness_execution_attempts", None)),
+            may_abstain=True,
+        )
+        if not quota_pool:
+            # The attempt could not say which of this row's two allowances the
+            # call spent, so there is nothing to diagnose and nothing to freeze.
+            return exc
+        ping = self._quota_ping(
+            model=probe_model or endpoint.api_model_id,
+            tier=endpoint.provider_tier,
+            policy_id=plan.policy_id,
+            target_id=candidate.target_id,
+            attempts=attempts,
+        )
+
         try:
             return agent_quota.evaluate_agent_failure(
                 pool=quota_pool,
                 exc=exc,
                 ping=ping,
+                attribution_certain=attribution_certain,
                 warn=lambda message: current_reporter().warning(
                     "agent-quota", message
                 ),
@@ -1401,7 +1591,11 @@ class RoleClient:
         required_blocks = (
             {"kind": "protocol", "digest": "@protocol"},
             {"kind": "payload", "digest": "@context"},
-            *((dict(knowledge_binding["block"]),) if knowledge_binding else ()),
+            *(
+                (dict(knowledge_binding["block"]),)
+                if knowledge_binding and knowledge_binding["block"]
+                else ()
+            ),
         )
         root = self._agent_runtime_root(driver) / assignment_id
         runtime = AgentTaskRuntime.start_assignment(
@@ -1436,7 +1630,7 @@ class RoleClient:
                 or self.execution_settings.local_agent_timeout_seconds
             ),
         )
-        from .agent.agent_mcp_server import KB_TOOL_NAMES, TOOL_NAMES, WEB_TOOL_NAMES
+        from .agent.agent_mcp_server import TOOL_NAMES, WEB_TOOL_NAMES
 
         return self._run_agent_tool_session(
             runtime,
@@ -1451,7 +1645,7 @@ class RoleClient:
             tools=[
                 *TOOL_NAMES,
                 *(WEB_TOOL_NAMES if retrieval_mode == "local" else ()),
-                *(KB_TOOL_NAMES if knowledge_binding else ()),
+                *(knowledge_binding["tools"] if knowledge_binding else ()),
             ],
             knowledge_root=knowledge_binding["root"] if knowledge_binding else "",
         )
@@ -1560,7 +1754,9 @@ class RoleClient:
             max_repairs=inputs["max_repairs"],
             fresh_session=fresh_session,
             extra_required_blocks=(
-                (inputs["knowledge"]["block"],) if inputs["knowledge"] else ()
+                (inputs["knowledge"]["block"],)
+                if inputs["knowledge"] and inputs["knowledge"]["block"]
+                else ()
             ),
         )
 
@@ -1683,18 +1879,23 @@ class RoleClient:
 
         from types import SimpleNamespace
 
-        from .agent.agent_mcp_server import TOOL_NAMES
+        from .agent.agent_mcp_server import ACCEPTED_REPLY_HOLD_ENV, TOOL_NAMES
         from .agent.agent_session_host import (
             capsule_retained,
-            fold_proxied_retrieval,
+            fold_task_ledgers,
+            no_submit_attempt,
             write_audit_bundle,
         )
         from .agent.agent_transports import AgentRuntimeCallError
-        from .agent.local_agent import LocalAgentError
+        from .agent.local_agent import ACCEPTED_REPLY_HOLD_SECONDS, LocalAgentError
         from .prompts import agent_tool_worker_bootstrap
 
         worker_id = "worker-1"
         tool_names = list(tools) or list(TOOL_NAMES)
+        # `[llm] local_agent_exit_on_accept` (docs/llm_agent_tool_protocol.md
+        # §4): the server holds its `accepted` reply and the driver ends the
+        # CLI on the accept, so no request is spent on saying "submitted".
+        exit_on_accept = bool(getattr(getattr(driver, "config", None), "exit_on_accept", False))
         bootstrap = [
             {
                 "role": "user",
@@ -1719,6 +1920,11 @@ class RoleClient:
             }
             if knowledge_root:
                 env["FINESUB_MCP_KNOWLEDGE_ROOT"] = knowledge_root
+            # What this server exposes is what the CLI is told it may call:
+            # without the list the server falls back to "every kb tool when a
+            # root is set", which would show `kb_index` / `kb_search` to a task
+            # holding the narrow `style` grant.
+            env["FINESUB_MCP_TOOLS"] = ",".join(tool_names)
             # The server is a Python process: it must find this package the
             # way the harness did. A packaged install has it on the
             # interpreter's path; a checkout carries it in PYTHONPATH -- made
@@ -1738,6 +1944,8 @@ class RoleClient:
             block_files = mcp_block_files(driver)
             if block_files:
                 env["FINESUB_MCP_BLOCK_FILES"] = "1"
+            if exit_on_accept:
+                env[ACCEPTED_REPLY_HOLD_ENV] = f"{ACCEPTED_REPLY_HOLD_SECONDS:g}"
             mcp_server = {
                 "command": sys.executable,
                 "args": ["-m", "finesub.llm.agent.agent_mcp_server"],
@@ -1759,6 +1967,7 @@ class RoleClient:
                     session_scope="task",
                     mcp_server=mcp_server,
                     completion=task_accepted,
+                    exit_on_completion=exit_on_accept,
                     **run_kwargs,
                 )
             except LocalAgentError as exc:
@@ -1825,7 +2034,7 @@ class RoleClient:
             )
             record = runtime.task_record(assignment_id=assignment_id, task_id="call")
             attempts.append(
-                {**dict(result.execution_attempt), "premature_stop": True}
+                no_submit_attempt(result.execution_attempt, getattr(result, "content", ""))
             )
             current_reporter().warning(
                 "agent-premature-stop",
@@ -1853,8 +2062,9 @@ class RoleClient:
         # own proxy, so their URLs are in the runtime ledger and not in the
         # driver's events -- which is the only place downstream looks. Fold
         # them in before the result leaves, so a proxied round carries the same
-        # evidence a native one does.
-        result = fold_proxied_retrieval(
+        # evidence a native one does; the `kb_read` rows ride along for the
+        # harness's half of the `--style auto` read-check.
+        result = fold_task_ledgers(
             runtime, result, assignment_id=assignment_id, task_id="call"
         )
 
@@ -1902,7 +2112,17 @@ class RoleClient:
             f"(task status {record['status']!r}; "
             f"{'; '.join(record['validation_errors']) or 'no submit seen'})"
         )
-        setattr(error, "_harness_execution_attempts", [*attempts, dict(result.execution_attempt)])
+        # The last attempt is a premature stop like the ones before it -- that
+        # is what reaching here means -- so it is recorded as one, with the
+        # text the CLI left behind instead of an artifact.
+        setattr(
+            error,
+            "_harness_execution_attempts",
+            [
+                *attempts,
+                no_submit_attempt(result.execution_attempt, getattr(result, "content", "")),
+            ],
+        )
         raise error
 
     def _assert_pseudo_session_possible(self, plan: Any) -> None:
@@ -2153,8 +2373,8 @@ class RoleClient:
         # repair can resume the conversation that produced the output it is
         # repairing. Empty keeps the full-replay behaviour.
         repair_session_key: str = "",
-        # Tier 2 of the two-tier retry budget (docs/llm_followups.md
-        # "两档重试"): the caller declares this call a *replacement* -- the
+        # Tier 2 of the two-tier retry budget (docs/llm_harness_behavior.md
+        # 「重试与拼接」): the caller declares this call a *replacement* -- the
         # previous session chain is presumed degenerate, so every cached
         # conversation for this call's key is retired before routing, whichever
         # candidate holds it.
@@ -2289,7 +2509,6 @@ class RoleClient:
         accumulated_api_attempts: List[Mapping[str, Any]] = []
         accumulated_execution_attempts: List[Mapping[str, Any]] = []
         from .routing.model_router import (
-            candidate_quota_pool,
             classify_failure,
             provider_enabled,
         )
@@ -2526,13 +2745,8 @@ class RoleClient:
                 mapped_thinking = call_thinking_level
                 mapped_budget = call_thinking_budget
             else:
-                mapped_thinking = thinking_value_for(
-                    catalog_entry, call_thinking_level
-                )
-                mapped_budget = (
-                    0
-                    if catalog_entry.thinking_levels is None
-                    else call_thinking_budget
+                mapped_thinking, mapped_budget = dispatched_thinking(
+                    catalog_entry, call_thinking_level, call_thinking_budget
                 )
             try:
                 dispatch_messages = call_messages_base
@@ -2552,10 +2766,10 @@ class RoleClient:
                     if endpoint.backend == "local_agent":
                         # A model that declares `thinking = false` takes no such
                         # parameter at all, and the global override must not force
-                        # one on it: agy rejects `--effort` for its Claude models
-                        # *before* the call, and that hard failure classifies as
-                        # transient -- two of them and the probe freezes the whole
-                        # allowance for two hours over a flag.
+                        # one on it: a CLI that rejects the flag does so *before*
+                        # the call (agy 1.1.x's Claude model did), and that hard
+                        # failure classifies as transient -- two of them and the
+                        # probe freezes the whole allowance for two hours over a flag.
                         takes_thinking = (
                             candidate.fact is None
                             or candidate.fact.thinking_levels is not None
@@ -2688,11 +2902,12 @@ class RoleClient:
                                 f"route={plan.routing_identity_digest}"
                             ),
                         )
-                    # A call that worked is the cheapest possible proof the
-                    # subscription is alive, and it clears any freeze.
                     if endpoint.backend == "local_agent":
-                        agent_quota.default_ledger().note_success(
-                            candidate_quota_pool(candidate)
+                        self._note_agent_success(
+                            candidate,
+                            agent_result,
+                            plan,
+                            accumulated_execution_attempts,
                         )
                     # The driver already extracted the search rows from its own
                     # event dialect; recomputing them here would be a second
@@ -2859,7 +3074,7 @@ class RoleClient:
                     # identity-mapped model; a model that remaps (or declares
                     # ``false``) would otherwise be misreported in artifacts.
                     thinking_level=mapped_thinking or "",
-                    thinking_budget=int(call_thinking_budget or 0),
+                    thinking_budget=int(mapped_budget or 0),
                     requested_output_tokens=int(request_max_tokens),
                     api_attempts=all_api_attempts,
                     execution_attempts=all_execution_attempts,
@@ -2873,8 +3088,7 @@ class RoleClient:
                         exc,
                         endpoint=endpoint,
                         plan=plan,
-                        quota_pool=candidate_quota_pool(candidate),
-                        target_id=candidate.target_id,
+                        candidate=candidate,
                         attempts=accumulated_execution_attempts,
                     )
                 last_exc = exc
@@ -3110,9 +3324,11 @@ def extract_token_distribution(response: Any) -> Dict[str, int]:
     dist["prompt_tokens"] = _int("promptTokenCount", "prompt_token_count", "prompt_tokens")
     dist["total_tokens"] = _int("totalTokenCount", "total_token_count", "total_tokens")
     candidates = _get("candidatesTokenCount", "candidates_token_count")
-    if isinstance(candidates, (int, float)):
-        # Gemini REST shape: thoughts are reported separately from candidates.
-        dist["output_tokens"] = int(candidates)
+    thoughts = _get("thoughtsTokenCount", "thoughts_token_count")
+    if isinstance(candidates, (int, float)) or isinstance(thoughts, (int, float)):
+        # Gemini REST shape: thoughts are reported separately from candidates -- and a reply whose thinking ran
+        # into the output ceiling may report thoughts with no candidates count at all.
+        dist["output_tokens"] = int(candidates) if isinstance(candidates, (int, float)) else 0
         dist["thinking_tokens"] = _int("thoughtsTokenCount", "thoughts_token_count")
     else:
         # OpenAI/litellm shape: completion_tokens includes reasoning tokens.
@@ -3194,7 +3410,7 @@ def _agent_fallback_used(
 
     Two ways to get there and the audit needs both. `idx > 0` is the harness
     walking its own candidate chain. `configured_model` on an attempt is a CLI
-    that swapped the model *inside* one session -- WorkBuddy's paid fallback --
+    that swapped the model *inside* one session -- CodeBuddy's paid fallback --
     which never moves `idx`; counting only the index printed "No fallback was
     recorded in retained artifacts" for a call that had just been billed to a
     paid line, which is the one summary someone checks after a surprise bill.
@@ -3280,7 +3496,7 @@ def is_likely_output_limited(
     agy both report it that way), not this turn's output — comparing it
     against a per-turn cap flags healthy calls as truncated and triggers a
     needless split-in-half rerun (observed 61,446/65,536 on a run where no
-    turn was cut; docs/report 2026-08-28 §2.2). Truncation on that path is
+    turn was cut, 2026-08-28; docs/llm_harness_behavior.md 重试与拼接). Truncation on that path is
     detected by explicit signals (error results, output validation), never by
     this proximity heuristic.
     """

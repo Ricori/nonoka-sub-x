@@ -21,6 +21,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from ..base import join_names
 from .importer import (
     STAGING_SECTION,
     extract_misheard,
@@ -289,7 +290,7 @@ def _convert_child(
         storable, aliases = storable_term_payload(dict(payload))
         preview = "|".join((
             storable.get("surface", ""), storable.get("zh", ""),
-            "、".join(dict.fromkeys(aliases)), storable.get("desc", ""),
+            join_names(dict.fromkeys(aliases)), storable.get("desc", ""),
         ))
         record(preview, "convert", "reading/alias/误听 → items")
         return

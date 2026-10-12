@@ -4,7 +4,7 @@ import type { MediaEntry } from "../bridge/library.ts";
 import { cloudTaskRequest, localTaskRequest } from "../home/defaultRequest.ts";
 import { cloudAcceptsDuration } from "../home/executionAvailability.ts";
 import { GPU_TIERS } from "../providers/types.ts";
-import type { Capabilities, GpuTier, KnowledgeSubject, TaskAxis, TaskRequest } from "../providers/types.ts";
+import type { Capabilities, DiarizationLevel, GpuTier, KnowledgeSubject, TaskAxis, TaskRequest } from "../providers/types.ts";
 import type { FineSubSettingsState } from "../bridge/settings.ts";
 import type { ExecutionMode } from "../app/types.ts";
 import { CustomSelect } from "./CustomSelect.tsx";
@@ -88,7 +88,29 @@ const MAX_KNOWLEDGE_SUBJECTS = 8;
 
 const LLM_KEY_HINT = "尚未配置模型提供商：请到设置里选择提供商与全局模型并保存，否则无法进行 LLM 纠错、翻译与知识处理。";
 const RETRIEVAL_KEY_HINT = "需要 Exa、Tavily 或 Gemini 免费池 Key 才能进行本地联网检索。";
-const NATIVE_SEARCH_HINT = "请在设置里将「纠错与翻译」和「资料研究」设为支持原生检索的模型，并配置对应 Key 或本地 CLI；可使用本地 Codex、WorkBuddy、Antigravity 的 Gemini 模型或支持搜索的 Gemini API 模型。";
+const NATIVE_SEARCH_HINT = "请在设置里将「纠错与翻译」和「背景准备与资料研究」设为支持原生检索的模型，并配置对应 Key 或本地 CLI；可使用本地 Codex、CodeBuddy、Antigravity 的 Gemini 模型或支持搜索的 Gemini API 模型。";
+
+// 说话人分离（FineSub 0.6.0）。上次的选择记在本机，下次打开对话框沿用；读写失败就当没记过。
+const DIARIZATION_STORAGE_KEY = "nonoka:diarization-level";
+const DIARIZATION_LEVELS: DiarizationLevel[] = ["off", "acoustics", "judge-text", "judge-audio"];
+const DIARIZATION_JUDGE_HINT = "实验功能：在 LLM 纠错阶段按窗口复核说话人，会额外调用模型；只在生成最终字幕时可用";
+
+function rememberedDiarization(): DiarizationLevel {
+  try {
+    const value = localStorage.getItem(DIARIZATION_STORAGE_KEY) as DiarizationLevel | null;
+    return value && DIARIZATION_LEVELS.includes(value) ? value : "off";
+  } catch {
+    return "off";
+  }
+}
+
+function rememberDiarization(level: DiarizationLevel) {
+  try {
+    localStorage.setItem(DIARIZATION_STORAGE_KEY, level);
+  } catch {
+    // 只是个便利项，存不下不影响本次任务
+  }
+}
 
 type Step = "axis" | "mode" | "settings";
 
@@ -224,21 +246,17 @@ export function TranscriptionDialog(props: TranscriptionDialogProps) {
   const devices = localCapabilities?.devices ?? [];
   const cpuOnly = (localCapabilities?.runtime?.warnings ?? []).some((warning) => warning.code === "missing_gpu");
   const speakers = axisParse && axisParse.speakers.length >= 2 ? axisParse.speakers : [];
+  const [diarizationChoice, setDiarizationChoice] = useState<DiarizationLevel>(rememberedDiarization);
 
-  const limitsFor = useCallback((target: ExecutionMode, retrieval: TaskRequest["correction"]["retrieval"]): KeyLimits => {
+  const limitsFor = useCallback((target: ExecutionMode): KeyLimits => {
     // 云端运行的凭据由 Nonoka Cloud 管理；读不到本地设置时也不做限制，避免误锁死。
     const keys = target === "local" ? settings : null;
     const video = (target === "local" ? localCapabilities : cloudCapabilities)?.features.video_multimodal === true;
     // 音视频窗看的是「谁来答」，而自引擎 0.5.0 起答的人只有一个：钉住的模型组
     // 替换整条链，后面不再挂任何兜底。所以这里问的是选中的那个模型自己收不收，
-    // 与有没有 Gemini Key 无关。开着本地检索时每窗还有一个查询轮，它跟着纠错
-    // 参考走却用「窗口规划」那一格的模型，所以两格都得能收——否则引擎会在开跑前
-    // 的能力校验里直接拒掉整个任务。
-    const serves = (capability: MediaCapability) => {
-      if (!keys) return true;
-      if (!routeServesMedia(keys.modelRouting, "correction", capability)) return false;
-      return retrieval !== "local" || routeServesMedia(keys.modelRouting, "planning", capability);
-    };
+    // 与有没有 Gemini Key 无关。引擎 0.6.0 起只剩纠错窗读媒体：本地检索的请求轮
+    // 与交付在同一条对话里、由同一个模型完成，所以只看「纠错与翻译」这一格。
+    const serves = (capability: MediaCapability) => !keys || routeServesMedia(keys.modelRouting, "correction", capability);
     return {
       // 只认已保存的全局模型：装了 codex CLI、或在设置里选了却没保存，都不算配置好。
       llm: !keys || keys.llmReady,
@@ -249,9 +267,33 @@ export function TranscriptionDialog(props: TranscriptionDialogProps) {
     };
   }, [cloudCapabilities, localCapabilities, settings]);
   const limits = useMemo(
-    () => limitsFor(mode, request.correction.retrieval),
-    [limitsFor, mode, request.correction.retrieval],
+    () => limitsFor(mode),
+    [limitsFor, mode],
   );
+
+  // 说话人分离：轴里已经标了说话人时以轴为准，不再分离；日文轴不跑识别，也就无从分离。
+  const diarizationAvailable = !translateOnly && speakers.length === 0 && selectedCapabilities?.features.diarization === true;
+  // 裁判在 LLM 纠错阶段运行；音频裁判还要「纠错与翻译」那一格的模型能听音频，云端的纠错只走文本。
+  const judgeTextAllowed = finalOutput;
+  const judgeAudioAllowed = finalOutput && mode === "local" && limits.audio;
+  const diarization: DiarizationLevel = !diarizationAvailable ? "off"
+    : diarizationChoice === "judge-audio" && !judgeAudioAllowed ? (judgeTextAllowed ? "judge-text" : "acoustics")
+      : diarizationChoice === "judge-text" && !judgeTextAllowed ? "acoustics"
+        : diarizationChoice;
+  const diarizationOnCpu = mode === "local" && (cpuOnly || request.device === "cpu");
+  // 本地模型没下载也能开跑（引擎会在分离阶段自己下载），这里只是让人知道要等，并给出提前下载的入口。
+  const diarizationModels = localCapabilities?.runtime?.managed?.optional_models ?? [];
+  const diarizationModelsMissing = mode === "local" && diarizationModels.some((item) => item.state !== "ready");
+  const diarizationNote = diarization === "off" ? ""
+    : [
+      "按说话人把字幕拆成不同轨道，不改变字幕文本与时间",
+      diarizationModelsMissing ? "说话人分离模型尚未下载（约 450MB），开始后会在分离阶段自动下载，也可先到运行环境页的「可选模型」下载" : "",
+      diarizationOnCpu ? "本次在 CPU 上运行，约为音频时长的五分之一" : "",
+    ].filter(Boolean).join("；");
+  const chooseDiarization = (level: DiarizationLevel) => {
+    setDiarizationChoice(level);
+    rememberDiarization(level);
+  };
 
   /** 音视频不可用时，说清是哪一格挡住的——两格用的可能不是同一个模型。 */
   const mediaHint = useCallback((capability: MediaCapability): string => {
@@ -269,19 +311,16 @@ export function TranscriptionDialog(props: TranscriptionDialogProps) {
     if (!serves("correction")) {
       return `「纠错与翻译」当前使用的模型不支持${label}：引擎 0.5.0 起，钉住的模型做不了的调用会直接失败而不是改走别人，所以请到设置里把这一格改指到支持${label}的模型（例如本地 Antigravity 的 Gemini 3.7 Flash，或付费池的 Gemini）。`;
     }
-    if (request.correction.retrieval === "local" && freePool("planning")) {
-      return `Gemini 免费池不承担${label}窗：开启资料检索后每窗的查询轮使用「窗口规划」模型，请把这一格改指到付费池的 Gemini 模型或自带${label}能力的本地 CLI 模型，或把资料检索设为「不检索」。`;
-    }
-    return `开启资料检索后每窗还有一个查询轮，它使用「窗口规划」的模型，而该模型不支持${label}：请把这一格也指到支持的模型，或把资料检索设为「不检索」。`;
-  }, [request.correction.retrieval, settings]);
+    return `当前模型不支持${label}。`;
+  }, [settings]);
 
   const summary = useMemo(() => {
     if (axis && importOnly) return `直接导入 ${axis.rows.length} 条字幕，不做任何处理`;
     if (axis && translateOnly) return `按你的轴补中文译文，不做识别（${axis.rows.length} 条）`;
     const output = finalOutput ? "AI 纠错与翻译后的最终字幕" : "识别与断句后的原始字幕";
     const source = request.language === "auto" ? "自动检测语言" : languageOptions.find(([id]) => id === request.language)?.[1] ?? request.language;
-    return `${source} · ${output}${axis ? " · 按导入的轴重排" : ""}`;
-  }, [axis, finalOutput, importOnly, request.language, translateOnly]);
+    return `${source} · ${output}${axis ? " · 按导入的轴重排" : ""}${diarization !== "off" ? " · 区分说话人" : ""}`;
+  }, [axis, diarization, finalOutput, importOnly, request.language, translateOnly]);
 
   const back = useCallback(() => {
     if (step === "settings") setStep("mode");
@@ -355,7 +394,7 @@ export function TranscriptionDialog(props: TranscriptionDialogProps) {
   const applyMode = useCallback((nextMode: ExecutionMode) => {
     setMode(nextMode);
     const next = requestFor(nextMode, entry, localCapabilities);
-    setRequest(withinLimits(next, limitsFor(nextMode, next.correction.retrieval)));
+    setRequest(withinLimits(next, limitsFor(nextMode)));
   }, [entry, limitsFor, localCapabilities]);
 
   // 日文轴只有翻译这一件事可做。钉在这里而不是选运行环境时，是因为轴型可以在第 1
@@ -420,7 +459,7 @@ export function TranscriptionDialog(props: TranscriptionDialogProps) {
       correction: { ...current.correction, enabled: target === "final-srt" },
       knowledge: target === "raw-srt" || mode === "cloud"
         ? "none"
-        : current.knowledge === "none" ? "collect" : current.knowledge,
+        : current.knowledge === "none" ? "read" : current.knowledge,
     }));
   };
 
@@ -464,7 +503,11 @@ export function TranscriptionDialog(props: TranscriptionDialogProps) {
     !knowledgeLoaded || knowledgeSubjects.length === 0 || knowledgeSubjects.some((item) => !item.subject.trim())
   );
   const startBlocked = busy || !selectedReady || (translateOnly && !limits.llm) || knowledgeSubjectMissing;
-  const startRequest: TaskRequest = { ...request, knowledge_subjects: knowledgeSubjects };
+  const startRequest: TaskRequest = {
+    ...request,
+    knowledge_subjects: knowledgeSubjects,
+    ...(diarization !== "off" ? { diarization: { level: diarization } } : {}),
+  };
   const uploadingCloudAudio = busy && mode === "cloud" && !translateOnly;
   const coverage = axisParse ? clock(Math.max(...axisParse.rows.map((row) => row.t1))) : "";
   const notes = axisParse && axisParse.skipped > 0 ? `跳过 ${axisParse.skipped} 条注释或无效行` : "";
@@ -601,7 +644,14 @@ export function TranscriptionDialog(props: TranscriptionDialogProps) {
               {mode === "local" && <label>计算设备<CustomSelect value={request.device} options={deviceOptions(devices)} onChange={(device) => setRequest((current) => ({ ...current, device, gpu_tier: device === "cpu" ? "cpu" : current.gpu_tier === "cpu" ? "auto" : current.gpu_tier }))} /></label>}
               {mode === "local" && <label>显卡档位<CustomSelect value={request.gpu_tier} options={GPU_TIER_OPTIONS} onChange={(gpu_tier) => setRequest((current) => ({ ...current, gpu_tier }))} /></label>}
               {mode === "local" && <label>人声分离<CustomSelect value={request.separate ? "on" : "off"} options={[{ value: "on", label: "开启" }, { value: "off", label: "关闭（输入已是纯人声）", hint: SKIP_SEPARATION_HINT }]} onChange={(value) => setRequest((current) => ({ ...current, separate: value === "on" }))} /></label>}
+              {diarizationAvailable && <label>说话人分离<CustomSelect value={diarization} options={[
+                { value: "off" as const, label: "关闭" },
+                { value: "acoustics" as const, label: "按声音区分说话人" },
+                { value: "judge-text" as const, label: "声音 + 文本复核（实验）", disabled: !judgeTextAllowed, hint: DIARIZATION_JUDGE_HINT },
+                { value: "judge-audio" as const, label: "声音 + 音频复核（实验）", disabled: !judgeAudioAllowed, hint: mode === "cloud" ? "云端的纠错只读文本，无法边听边复核" : DIARIZATION_JUDGE_HINT },
+              ]} onChange={chooseDiarization} /></label>}
             </section>}
+            {diarizationNote && <p className="transcription-note">{diarizationNote}{diarizationModelsMissing && <button type="button" className="inline-link" onClick={onOpenRuntime}>前往下载</button>}</p>}
 
             {finalOutput && <>
               <section className="transcription-section form-grid">
@@ -609,7 +659,7 @@ export function TranscriptionDialog(props: TranscriptionDialogProps) {
                 <label>处理质量<CustomSelect value={request.correction.difficulty} options={[{ value: "efficiency", label: "效率优先" }, { value: "intermediate", label: "均衡" }, { value: "quality", label: "质量优先" }]} onChange={(difficulty) => setRequest((current) => ({ ...current, correction: { ...current.correction, difficulty } }))} /></label>
                 <label>快速模式<CustomSelect value={request.correction.fast} options={[{ value: "auto", label: "自动", hint: "字幕放得进单个窗口时一次完成，放不下时自动改走正常流程" }, { value: "off", label: "关闭" }]} onChange={(fast) => setRequest((current) => ({ ...current, correction: { ...current.correction, fast } }))} /></label>
                 {mode === "local" && <label>资料检索<CustomSelect value={request.correction.retrieval} options={[{ value: "none", label: "不检索" }, { value: "local", label: "本地检索", disabled: !limits.retrieval, hint: limits.retrieval ? undefined : RETRIEVAL_KEY_HINT }, { value: "native", label: "模型原生检索", disabled: !limits.nativeSearch, hint: limits.nativeSearch ? undefined : NATIVE_SEARCH_HINT }]} onChange={(retrieval) => setRequest((current) => ({ ...current, correction: { ...current.correction, retrieval } }))} /></label>}
-                {supportsKnowledge && <label>知识库<CustomSelect value={request.knowledge} options={[{ value: "none", label: "不使用" }, { value: "collect", label: "读取知识库" }, { value: "update", label: "读取知识库并自动更新", disabled: mode === "cloud" }]} onChange={setKnowledge} /></label>}
+                {supportsKnowledge && <label>知识库<CustomSelect value={request.knowledge} options={[{ value: "none", label: "不使用" }, { value: "read", label: "读取知识库" }, { value: "update", label: "读取知识库并自动更新", disabled: mode === "cloud" }]} onChange={setKnowledge} /></label>}
               </section>
 
               {knowledgeActive && <section className="transcription-section knowledge-subject-section">

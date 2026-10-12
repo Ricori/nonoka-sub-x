@@ -112,16 +112,77 @@ def _confidence(value: str) -> str | None:
     return "high" if legacy >= 7 else "median" if legacy >= 4 else "low"
 
 
+#: FineSub 0.6.0 writes a header naming the columns and adds `spk` (the
+#: speaker tracks of the line's source segments) just before `note` -- `note`
+#: stays last because it is the one cell allowed to hold a raw `|`. Files from
+#: older engines, and cloud results fetched from them, have no header and the
+#: nine columns below `spk`'s.
+_LEGACY_ANNOTATED_COLUMNS = (
+    "type", "position", "duration", "gap", "corrected", "translation", "conf", "char_count", "note",
+)
+
+
+def _annotated_columns(text: str) -> tuple[str, ...]:
+    for raw_line in (text or "").splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        if line.startswith("#"):
+            columns = tuple(cell.strip() for cell in line.lstrip("#").split("|"))
+            if "position" in columns and columns[-1] == "note":
+                return columns
+            continue
+        break
+    return _LEGACY_ANNOTATED_COLUMNS
+
+
+def speaker_id(value: Any) -> str:
+    """The main speaker a `spk` cell or a stable `speaker` object names, or "".
+
+    The editor files a line under one speaker, so only the lead is kept: the
+    first of a `+` list (FineSub orders it by coverage), the judge's track of a
+    moved line (`s7<s3` -- left is the verdict), without the review marks
+    (`s3?`, `s3?(s5)`, `s4*`). A name a person wrote is kept as it is.
+    """
+
+    if isinstance(value, Mapping):
+        names = [
+            str(label.get("name")).strip()
+            for label in value.get("labels") or []
+            if isinstance(label, Mapping) and str(label.get("name") or "").strip()
+        ]
+        if names:
+            return names[0]
+        tracks = value.get("tracks")
+        track = tracks[0] if isinstance(tracks, list) and tracks else value.get("track")
+        if track is None:
+            mark = value.get("mark")
+            if isinstance(mark, Mapping) and mark.get("tier") == "filled":
+                track = mark.get("track")
+        try:
+            return f"s{int(track)}" if track is not None else ""
+        except (TypeError, ValueError):
+            return ""
+    lead = str(value or "").strip().split("+", 1)[0]
+    lead = lead.split("<", 1)[0].split("(", 1)[0].strip()
+    return lead.rstrip("?*").strip()
+
+
 def parse_annotated(text: str) -> list[dict[str, Any]]:
+    columns = _annotated_columns(text)
     rows: list[dict[str, Any]] = []
     for line_number, raw_line in enumerate((text or "").splitlines(), start=1):
         line = raw_line.strip()
         if not line or line.startswith("#"):
             continue
-        fields = line.split("|", 8)
-        if len(fields) != 9:
-            raise ProjectionError(f"annotated.csv line {line_number} does not have 9 columns")
-        kind, position, duration, _gap, corrected, translation, conf, _chars, _note = fields
+        fields = line.split("|", len(columns) - 1)
+        if len(fields) != len(columns):
+            raise ProjectionError(
+                f"annotated.csv line {line_number} does not have {len(columns)} columns"
+            )
+        cells = dict(zip(columns, fields))
+        kind, position, duration = cells["type"], cells["position"], cells["duration"]
+        corrected, translation, conf = cells["corrected"], cells["translation"], cells["conf"]
         try:
             float(duration)
         except ValueError as exc:
@@ -142,6 +203,7 @@ def parse_annotated(text: str) -> list[dict[str, Any]]:
                 "corrected": _decode_cell(corrected),
                 "translation": _decode_cell(translation),
                 "conf": _confidence(conf),
+                "spk": speaker_id(cells.get("spk", "")),
             }
         )
     return rows
@@ -179,6 +241,7 @@ def _load_stable(path: Path) -> tuple[list[dict[str, Any]], dict[str, dict[str, 
                 or value.get("low_confidence")
                 or str(value.get("confidence_label") or "").lower() == "low"
             ),
+            "spk": speaker_id(value.get("speaker")) if isinstance(value.get("speaker"), Mapping) else "",
         }
         normalized.append(segment)
         by_id[source_id] = segment
@@ -230,6 +293,8 @@ def project_edit_document(
                 item["words"] = segment["words"]
             if segment["low_conf"]:
                 item["low_conf"] = True
+            if segment["spk"]:
+                item["spk"] = segment["spk"]
             projected.append(item)
     else:
         annotated = parse_annotated(Path(annotated_csv).read_text(encoding="utf-8"))
@@ -285,6 +350,15 @@ def project_edit_document(
             source_low = any(stable_by_id[source_id]["low_conf"] for source_id in row["source_ids"])
             if row["conf"] == "low" or source_low:
                 item["low_conf"] = True
+            # The `spk` cell already carries the speaker judge's verdicts; the
+            # stable labels are the fallback for a file written without it.
+            speaker = row["spk"] or next(
+                (stable_by_id[source_id]["spk"] for source_id in row["source_ids"]
+                 if stable_by_id[source_id]["spk"]),
+                "",
+            )
+            if speaker:
+                item["spk"] = speaker
             projected.append(item)
             previous_end = end
     return {

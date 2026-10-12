@@ -16,8 +16,10 @@ tail2   | 307.3 | 1.5 | 違う気がするんだよね
 </input>
 
 <output>
+# {ref:filler}「えっと」是 ≤{thr:filler_max_chars} 字纯语气词，两侧是同一句的两段，合计 {calc:span:head,tail}s，三明治成立
 sub | head,filler,tail | AUTO | AUTO | うちらが知ってるのは、えっと、少年期だけなんだよね | 我们知道的，那个，就只有少年期 | median | AUTO | filler三明治：中间源为{thr:filler_max_chars}字纯语气词，合计{calc:span:head,tail}秒
 sub | lead2 | AUTO | AUTO | それは | 那是…… | median | AUTO | 与后两源全并需吸收「ちょっと」——4字修饰词不是纯语气词，拒绝三源
+# 「ちょっと」修饰后句，与 {ref:tail2} 同一句，两源合并在界内
 sub | modifier,tail2 | AUTO | AUTO | ちょっと違う気がするんだよね | 总觉得有点不对呢 | high | AUTO | 两源合并，同一句
 </output>
 

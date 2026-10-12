@@ -47,7 +47,7 @@ const geminiPaid = {
 
 test("route setting names", () => {
   assert.equal(routeSettingName("default", "model"), "LLM_DEFAULT_MODEL");
-  assert.equal(routeSettingName("search_judge", "provider"), "LLM_ROUTE_SEARCH_JUDGE_PROVIDER");
+  assert.equal(routeSettingName("research", "provider"), "LLM_ROUTE_RESEARCH_PROVIDER");
 });
 
 test("drafts win over the saved route", () => {
@@ -110,7 +110,7 @@ const agy = {
   mode: "select",
   models: [
     { id: "gemini-3.7-flash", label: "Gemini 3.7 Flash via agy", supportsAudio: true, supportsVideo: true },
-    { id: "claude-opus-4-6-thinking", label: "Opus 4.6 via agy", supportsAudio: false, supportsVideo: false },
+    { id: "claude-sonnet-5-5", label: "Sonnet 5.5 via agy", supportsAudio: false, supportsVideo: false },
   ],
   defaultModel: "gemini-3.7-flash",
   requiresKey: false,
@@ -124,15 +124,15 @@ const codex = {
   ...agy,
   id: "local-codex",
   label: "本地 Codex",
-  models: [{ id: "gpt-5.6-terra", label: "GPT-5.6 Terra via Codex", supportsAudio: false, supportsVideo: false }],
-  defaultModel: "gpt-5.6-terra",
+  models: [{ id: "gpt-6-luna", label: "GPT-6 Luna via Codex", supportsAudio: false, supportsVideo: false }],
+  defaultModel: "gpt-6-luna",
 };
 
 function routing(defaultRoute, taskRoutes = {}) {
   return {
     providers: [compat, gemini, geminiPaid, agy, codex],
     defaultRoute,
-    taskRoutes: ["correction", "planning", "research", "search_judge", "knowledge"].map((id) => ({
+    taskRoutes: ["correction", "research", "knowledge"].map((id) => ({
       id,
       label: id,
       route: taskRoutes[id] ?? { provider: "", model: "" },
@@ -149,10 +149,10 @@ test("a local CLI is judged on its own declared capabilities, with no Gemini key
 test("a model that declares no media stays unavailable, whoever serves it", () => {
   // 引擎 0.5.0 起，钉住的模型组替换整条链，后面不再挂任何梯队——所以这里没有
   // 兜底可言，本地 CLI 与 API 提供商同一条判断。
-  const state = routing({ provider: "local-codex", model: "gpt-5.6-terra" });
+  const state = routing({ provider: "local-codex", model: "gpt-6-luna" });
   assert.equal(routeServesMedia(state, "correction", "supportsAudio"), false);
-  const opus = routing({ provider: "local-agy", model: "claude-opus-4-6-thinking" });
-  assert.equal(routeServesMedia(opus, "correction", "supportsAudio"), false);
+  const sonnet = routing({ provider: "local-agy", model: "claude-sonnet-5-5" });
+  assert.equal(routeServesMedia(sonnet, "correction", "supportsAudio"), false);
 });
 
 test("an API provider no longer rides on a packaged Gemini tail", () => {
@@ -165,12 +165,12 @@ test("an API provider no longer rides on a packaged Gemini tail", () => {
 
 test("the task override decides its own cell, the global default the rest", () => {
   const state = routing(
-    { provider: "local-codex", model: "gpt-5.6-terra" },
+    { provider: "local-codex", model: "gpt-6-luna" },
     { correction: { provider: "local-agy", model: "gemini-3.7-flash" } },
   );
   assert.equal(routeServesMedia(state, "correction", "supportsAudio"), true);
-  // 每窗查询轮走这一格：没单独指定就落回全局默认的 codex，音频窗因此仍然不可行。
-  assert.equal(routeServesMedia(state, "planning", "supportsAudio"), false);
+  // 没单独指定的格落回全局默认的 codex。
+  assert.equal(routeServesMedia(state, "research", "supportsAudio"), false);
 });
 
 test("a half-filled override falls back to the global default", () => {
@@ -210,7 +210,7 @@ test("a local CLI keeps its media windows with no Gemini key of any tier", () =>
 });
 
 test("native search uses the selected CLI without Gemini or retrieval keys", () => {
-  for (const id of ["local-codex", "local-agy", "local-workbuddy"]) {
+  for (const id of ["local-codex", "local-agy", "local-codebuddy"]) {
     const provider = { ...codex, id, models: [{ id: "search-model", supportsNativeSearch: true }] };
     const state = { ...routing({ provider: id, model: "search-model" }), providers: [provider] };
     assert.equal(routeServesNativeSearch(state, "correction"), true);

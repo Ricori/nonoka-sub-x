@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import uuid
 from dataclasses import dataclass, field
 from typing import Any, Mapping
@@ -16,21 +17,19 @@ KINDS: tuple[str, ...] = ("subject", "term", "note")
 #: Kinds only the frozen version-1 archive import produces (plan §8 Phase A);
 #: Phase B converts them and nothing on the write path may create them.
 LEGACY_KINDS: tuple[str, ...] = ("fact", "event", "relation")
+#: What to call a body kind when telling somebody their line does not fit.
+BODY_KIND_LABELS: dict[str, str] = {
+    "term": "术语行", "note": "自由句",
+    "fact": "字段行", "event": "事件行", "relation": "关系行",
+}
 ITEM_FIELDS: tuple[str, ...] = ("aliases", "misheard")
-#: Categories whose entries are reached by MATCHING a name or alias found in
-#: free text: `repo.resolve()` sweeps them, the index and the keyword
-#: pre-injection are built from them, and `create_entry` checks new keys
-#: against all of them at once (keys are globally unique across the two).
-MATCHABLE_CATEGORIES: tuple[str, ...] = ("streamer", "common")
-#: Categories addressed ONLY by explicit name (`--style <名字>`) and never
-#: matched against text. Keeping `style` out of the matchable set is a
-#: decision, not an omission (`presets/style.toml` header): matching would buy
-#: it nothing and would make the global key check reject two subtitle groups
-#: owning a same-named style. The cost is that name uniqueness inside such a
-#: category is nobody else's job — `repo.resolve_in()` is where it happens.
-STANDALONE_CATEGORIES: tuple[str, ...] = ("style",)
-CATEGORIES: tuple[str, ...] = MATCHABLE_CATEGORIES + STANDALONE_CATEGORIES
-LINK_RELS: tuple[str, ...] = ("see_also", "supersedes")
+#: The category tuples used to live here. They moved to `presets.py` on
+#: 2026-09-07 so that a category is defined in exactly one place -- its own
+#: preset file -- rather than half here and half there. This module cannot
+#: import them back: `presets` imports `METADATA_SECTION` from here, and the
+#: dependency has to point one way.
+# `part_of`: a sub-entry -> the entry it was split off from (`subentries.py`).
+LINK_RELS: tuple[str, ...] = ("see_also", "supersedes", "part_of")
 VISIBILITIES: tuple[str, ...] = ("local", "shareable")
 MATURITIES: tuple[str, ...] = ("normal", "tentative")  # plan §11.5 distribution lifecycle
 REVISION_KINDS: tuple[str, ...] = (
@@ -46,6 +45,12 @@ REVISION_KINDS: tuple[str, ...] = (
 METADATA_SECTION = "元数据"
 PROFILE_SECTION = "档案"
 UPDATED_DATE_LABEL = "最近更新日期"
+#: Why an entry was moved to the category it is in now, and the metadata line
+#: that shows it. Written only by `recategorize`, which refuses without one:
+#: a move that leaves no reason is indistinguishable from a mistake the next
+#: reader has to re-litigate.
+RECATEGORIZED_REASON_FIELD = "recategorized_reason"
+RECATEGORIZED_LABEL = "重分类理由"
 
 # Deterministic ids for the migration (plan §7.1): UUIDv5 under this namespace.
 MIGRATION_NAMESPACE = uuid.UUID("6f2b3e1a-5c2d-4a7e-9f7b-2d1e8c4b9a10")
@@ -198,6 +203,47 @@ class MigrationAux:
     layout: dict[str, Any] = field(default_factory=dict)
 
 
+#: What an entry name (a subject's ``surface``) may not carry: ``|`` splits the
+#: columns of an index line, and a control character breaks every line it is
+#: in. Path-hostile characters (``Re:ゼロ``, ``Fate/stay night``) are fine
+#: since 2026-10-05: the rendered file name is derived from the name
+#: (`repo.rendered_file_name`), not equal to it.
+INVALID_ENTRY_CHARS_RE = re.compile(r"[|\x00-\x1f\x7f\x85\u2028\u2029]")
+#: Keeps an index line and a heading readable, and the derived file name
+#: inside the Windows path limit for any plausible knowledge root.
+ENTRY_NAME_MAX_CHARS = 100
+
+
+def _category_names() -> tuple[str, ...]:
+    from .presets import CATEGORIES
+
+    return tuple(CATEGORIES)
+
+
+def entry_name_problem(name: str) -> str | None:
+    """Why ``name`` cannot be an entry name, or None when it can.
+
+    Every write that sets a subject's ``surface`` passes through
+    ``validate_payload(strict=True)``, which asks this; the renderer asks it
+    again before it turns a name into a path, for rows written before the rule.
+    """
+
+    if not name.strip():
+        return "entry name is empty"
+    if name != name.strip():
+        return "entry name has leading or trailing whitespace"
+    if INVALID_ENTRY_CHARS_RE.search(name):
+        return "entry name contains | or a control character"
+    prefix, separator, _rest = name.partition("/")
+    if separator and prefix in _category_names():
+        # `style/xx` addresses the style entry `xx` (`resolve_qualified`); an
+        # entry literally named so could never be looked up by its name.
+        return "entry name starts with <category>/"
+    if len(name) > ENTRY_NAME_MAX_CHARS:
+        return f"entry name is longer than {ENTRY_NAME_MAX_CHARS} characters"
+    return None
+
+
 def validate_payload(kind: str, payload: Mapping[str, Any], *, strict: bool = True) -> None:
     """Structural check of the discriminated union (plan §2.1). ``strict``
     additionally enforces content rules for NEW writes (proposal/edit/share
@@ -225,3 +271,7 @@ def validate_payload(kind: str, payload: Mapping[str, Any], *, strict: bool = Tr
         raise ValueError("note text must be non-empty (an empty slot is not a node)")
     if strict and kind == "term" and not str(payload.get("surface") or "").strip():
         raise ValueError("term surface must be non-empty")
+    if strict and kind == "subject":
+        problem = entry_name_problem(str(payload.get("surface") or ""))
+        if problem:
+            raise ValueError(f"{problem}: {str(payload.get('surface'))[:60]!r}")

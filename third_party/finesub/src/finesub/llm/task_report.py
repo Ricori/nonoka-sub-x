@@ -52,6 +52,29 @@ def write_task_report(
     return path
 
 
+def _speaker_judge_section(records: Sequence[Mapping[str, Any]]) -> list[str]:
+    """The last judge report (a resumed run reports the sidecar as it stands now), or nothing."""
+    reports = [record.get("payload") or {} for record in records if record.get("kind") == "speaker_judge_report"]
+    return ["", "## Speaker Judge", _speaker_judge_line(reports[-1])] if reports else []
+
+
+def _speaker_judge_line(payload: Mapping[str, Any]) -> str:
+    if payload.get("skipped"):
+        return _bullet(f"skipped: {payload['skipped']}")
+    tracks = ", ".join(payload.get("new_tracks") or []) or "none"
+    text = (f"{payload.get('windows', 0)} window(s): judged {payload.get('judged', 0)}, reused "
+            f"{payload.get('reused', 0)}, failed {payload.get('failed', 0)} and pending {payload.get('pending', 0)} "
+            f"(those keep the acoustic labels); {payload.get('moved', 0)} line(s) moved; new tracks: {tracks}")
+    if payload.get("cut"):
+        text += f"; {payload['cut']} window(s) halved (the answer or the prompt did not fit)"
+    usage = payload.get("usage") or {}
+    if usage:
+        text += "; usage " + ", ".join(f"{key} {value}" for key, value in usage.items())
+    if payload.get("stopped"):
+        text += f"; stopped early: {payload['stopped']}"
+    return _bullet(text)
+
+
 def render_task_report(
     records: list[dict[str, Any]],
     *,
@@ -63,6 +86,7 @@ def render_task_report(
     outputs = dict(outputs or {})
     run_metadata = dict(run_metadata or {})
     fallback_lines: list[str] = []
+    call_error_lines: list[str] = []
     ip_warning_lines: list[str] = []
     file_access_lines: list[str] = []
     provider_counts: Counter[str] = Counter()
@@ -100,6 +124,7 @@ def render_task_report(
         if kind.endswith("_call_error") or "error_type" in payload:
             error_type = str(payload.get("error_type", ""))
             error_text = str(payload.get("error", ""))
+            call_error_lines.append(_failed_call_line(kind, payload, error_type, error_text))
             if "LLMIPRiskError" in error_type or "IP risk warning" in error_text:
                 ip_warning_lines.append(
                     _bullet(
@@ -128,7 +153,7 @@ def render_task_report(
                         provider = str(item.get("provider") or "error")
                         provider_counts[f"extract:{provider}"] += 1
 
-        if kind in {"research_search_results", "correction_search_results", "search_loop_round"}:
+        if kind in {"research_search_results", "correction_search_results"}:
             for item in payload.get("executed", []) or []:
                 if not isinstance(item, Mapping):
                     continue
@@ -154,18 +179,15 @@ def render_task_report(
             if isinstance(extract_urls, list):
                 api_call_counts["web_extract"] += len(extract_urls)
 
-        if kind == "research_round1_response":
-            api_call_counts["llm_research_round1"] += 1
-        elif kind == "fast_round1_response":
-            api_call_counts["llm_fast_round1"] += 1
-        elif kind == "research_round2_response":
-            api_call_counts["llm_research_round2"] += 1
-        elif kind == "search_loop_round" and is_session_response_record(
-            kind, payload
-        ):
-            api_call_counts["llm_search_loop"] += 1
+        if kind == "prepare_task_request":
+            api_call_counts["llm_prepare_request"] += 1
+        elif kind == "prepare_task_response":
+            api_call_counts["llm_prepare_delivery"] += 1
         elif kind == "correction_query_response":
-            api_call_counts["llm_correction_query"] += 1
+            # A request turn that delivered at once IS the window call counted
+            # below -- one request, counted once (`is_session_response_record`).
+            if is_session_response_record(kind, payload):
+                api_call_counts["llm_correction_query"] += 1
         elif kind == "correction_window_response":
             api_call_counts["llm_correction"] += 1
         elif kind == "knowledge_update_response":
@@ -203,17 +225,7 @@ def render_task_report(
                 row = normalize_session_usage(usage)
                 row["session"] = infer_session_name(kind, payload)
                 session_rows.append(row)
-                # Read from `usage` rather than the normalized row: cost needs
-                # cached input separated from uncached, and normalizing folds
-                # them into one total.
-                counters = provider_usage.setdefault(
-                    _answering_target(payload), Counter()
-                )
-                counters["calls"] += 1
-                for key in _TOKEN_REPORT_KEYS:
-                    value = usage.get(key)
-                    if isinstance(value, (int, float)):
-                        counters[key] += int(value)
+                _book_provider_call(provider_usage, payload, usage)
 
         if kind == "final_srt":
             outputs.setdefault("final_srt", str(payload.get("path", "")))
@@ -420,6 +432,9 @@ def render_task_report(
         lines.extend(fallback_lines)
     else:
         lines.append("- No fallback was recorded in retained artifacts.")
+    if call_error_lines:
+        lines.append("- Calls failed during this task:")
+        lines.extend(call_error_lines)
     if ip_warning_lines:
         lines.append("- LLM IP/proxy risk-control warning was detected separately from quota/provider errors.")
         lines.extend(ip_warning_lines)
@@ -454,7 +469,7 @@ def render_task_report(
             "- If Gemini File 403 errors appear, delete downstream artifacts and rerun, or use resume after the prefetch upload completes.",
         ]
     )
-    return "\n".join(lines).rstrip() + "\n"
+    return "\n".join([*lines, *_speaker_judge_section(records)]).rstrip() + "\n"
 
 
 def _format_token_totals(label: str, totals: Mapping[str, Any]) -> str:
@@ -541,6 +556,46 @@ def _answering_target(payload: Mapping[str, Any]) -> tuple[str, str]:
             str(entry.get("model") or model or "unknown"),
         )
     return ("unknown", model or "unknown")
+
+
+def _book_provider_call(
+    usage_by_target: dict[tuple[str, str], Counter[str]],
+    payload: Mapping[str, Any],
+    usage: Mapping[str, Any],
+) -> None:
+    """Book one response session as a line of the per-provider bill.
+
+    Except when it names nobody and spent nothing. The session table keeps that
+    session either way -- "it ran and reported nothing" is true and worth
+    reading -- but a *provider* row is a bill line, and one with no answering
+    target and no tokens bills nobody for nothing. It only ever rendered as
+    `unknown / unknown` with a call and zeros, which reads as a provider the run
+    could not identify rather than a call that failed before any provider
+    reported usage. An *identified* provider with no usage is still booked: that
+    is a real call on a real tier whose CLI never said what it cost, and
+    dropping it would under-count calls to hide a reporting gap.
+
+    "Spent nothing" means no token this table counts is non-zero, not an empty
+    mapping: a response record's usage comes from `extract_token_distribution`,
+    which always returns every key, zero-filled.
+
+    Tokens are read from `usage` rather than the normalized session row: cost
+    needs cached input separated from uncached, and normalizing folds them into
+    one total.
+    """
+
+    target = _answering_target(payload)
+    if target == ("unknown", "unknown") and not any(
+        isinstance(usage.get(key), (int, float)) and usage.get(key)
+        for key in _TOKEN_REPORT_KEYS
+    ):
+        return
+    counters = usage_by_target.setdefault(target, Counter())
+    counters["calls"] += 1
+    for key in _TOKEN_REPORT_KEYS:
+        value = usage.get(key)
+        if isinstance(value, (int, float)):
+            counters[key] += int(value)
 
 
 def _add_agent_session_usage(
@@ -712,6 +767,33 @@ def _read_json(path: Path) -> dict[str, Any]:
 
 def _bullet(text: str, indent: int = 0) -> str:
     return f"{'  ' * indent}- {text}"
+
+
+def _clip(text: str, limit: int) -> str:
+    """One line of at most `limit` characters, for quoting an error in a bullet."""
+
+    flat = " ".join(str(text).split())
+    return flat if len(flat) <= limit else flat[: limit - 1] + "…"
+
+
+def _failed_call_line(
+    kind: str, payload: Mapping[str, Any], error_type: str, error_text: str
+) -> str:
+    """One bullet naming a failed call, for "Fallbacks And Warnings".
+
+    Every failed call gets one -- not just the IP-risk and File-403 classes,
+    which also have sections of their own. Those used to be the only failures
+    this report named, so a run whose call failed any other way (an agent that
+    left without a submit, say) read "No fallback was recorded" and nothing
+    else: accurate about fallbacks, silent about the failure the reader came
+    here to find.
+    """
+
+    return _bullet(
+        f"`{kind}` failed: {error_type or 'error'}"
+        + (f": {_clip(error_text, 200)}" if error_text else "")
+        + _context_suffix(payload, ("chunk_id", "attempt"))
+    )
 
 
 def _context_suffix(payload: Mapping[str, Any], keys: tuple[str, ...]) -> str:

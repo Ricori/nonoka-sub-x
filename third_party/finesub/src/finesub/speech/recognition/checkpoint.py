@@ -12,7 +12,9 @@ from ...reporting import current_reporter
 
 
 # Old checkpoint formats are intentionally invalidated rather than migrated.
-SCHEMA_VERSION = 2
+# 3: the per-group coverage ledger (`asr_coverage`) became part of the payload;
+#    a partial without it would resume into a ledger missing its first half.
+SCHEMA_VERSION = 3
 
 
 def path_for_output(aligned_output: str | Path) -> Path:

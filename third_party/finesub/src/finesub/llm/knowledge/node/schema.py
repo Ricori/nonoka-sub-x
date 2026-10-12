@@ -11,7 +11,7 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 # Older stores are upgraded in place: each entry maps a stored version to the
 # statements that bring it one step forward. Version 2 (plan §5.5) adds
@@ -27,7 +27,9 @@ SCHEMA_VERSION = 5
 # candidate as booked — the key alone is an opaque hash) and ``missing`` (what
 # evidence the session said it lacked); a store already stamped 4 gets the
 # ALTERs, a fresh one gets them from the DDL and the ladder tolerates the
-# duplicate-column no-op.
+# duplicate-column no-op. Version 6 adds ``line_acks`` (a human's endorsement
+# of one line's current value, see ``human_marks.py``); like version 4 the
+# table comes from the DDL, so the step only advances the version.
 MIGRATIONS: dict[int, tuple[str, ...]] = {
     1: ("ALTER TABLE evidence ADD COLUMN created_at TEXT NOT NULL DEFAULT ''",),
     2: (
@@ -39,6 +41,7 @@ MIGRATIONS: dict[int, tuple[str, ...]] = {
         "ALTER TABLE candidate_decisions ADD COLUMN candidate TEXT NOT NULL DEFAULT ''",
         "ALTER TABLE candidate_decisions ADD COLUMN missing TEXT NOT NULL DEFAULT ''",
     ),
+    5: (),
 }
 
 DDL: tuple[str, ...] = (
@@ -185,6 +188,23 @@ DDL: tuple[str, ...] = (
     )""",
     """CREATE INDEX IF NOT EXISTS idx_candidate_decisions_key
         ON candidate_decisions(candidate_key)""",
+    # A human endorsing a line's current value without editing it
+    # (`knowledge ack`). Not a revision -- nothing in the versioned tables
+    # changes -- and not evidence: evidence is per-claim provenance that the
+    # share bundle exports and the report aggregates, while an ack is local
+    # bookkeeping for the human projection. ``rev`` orders it against the
+    # revisions and IS what it endorses: the line's value as of that rev,
+    # recomputed from the version tables (`human_marks._endorsed`). ``value``
+    # only records what that was when the ack was written (NULL for "gone");
+    # nothing reads it back, so its format may change freely.
+    """CREATE TABLE IF NOT EXISTS line_acks (
+        ack_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        node_id TEXT NOT NULL REFERENCES nodes(local_id),
+        rev INTEGER NOT NULL,
+        value TEXT,
+        created_at TEXT NOT NULL
+    )""",
+    """CREATE INDEX IF NOT EXISTS idx_line_acks_node ON line_acks(node_id)""",
     """CREATE TABLE IF NOT EXISTS migration_aux (
         local_id TEXT PRIMARY KEY REFERENCES nodes(local_id),
         legacy_raw TEXT NOT NULL,

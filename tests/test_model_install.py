@@ -60,6 +60,39 @@ def test_huggingface_download_reports_dry_run_total(monkeypatch, tmp_path) -> No
     assert progress[-1]["total"] == 100
 
 
+def test_listed_only_entry_fetches_only_its_manifest_files(monkeypatch, tmp_path) -> None:
+    module = ModuleType("huggingface_hub")
+    calls: list[dict] = []
+
+    def snapshot_download(**kwargs):
+        calls.append(kwargs)
+        return [] if kwargs.get("dry_run") else str(tmp_path / "snapshot")
+
+    module.snapshot_download = snapshot_download
+    monkeypatch.setitem(sys.modules, "huggingface_hub", module)
+    entry = SimpleNamespace(
+        repo="nvidia/model",
+        revision="abc123",
+        listed_only=True,
+        files=(SimpleNamespace(name="model.safetensors"), SimpleNamespace(name="config.json")),
+    )
+
+    _install_huggingface(entry, "nemotron3", tmp_path, lambda _event: None)
+    _install_huggingface(SimpleNamespace(repo="o/m", revision="r", listed_only=False, files=()), "whisper", tmp_path, lambda _event: None)
+
+    assert calls[0]["allow_patterns"] == ["model.safetensors", "config.json"]
+    assert calls[1]["allow_patterns"] == ["model.safetensors", "config.json"]
+    assert calls[2]["allow_patterns"] is None
+
+
+def test_diarization_models_are_in_the_engine_manifest() -> None:
+    from finesub_bootstrap.model_manifest import entry_for
+    from nonoka_x.model_install import DIARIZATION_MODEL_IDS
+
+    for model_id in DIARIZATION_MODEL_IDS:
+        assert entry_for(model_id) is not None, model_id
+
+
 def test_managed_model_status_ignores_orphan_incomplete_files(monkeypatch, tmp_path) -> None:
     def wanted(name: str, size: int):
         return SimpleNamespace(name=name, size=size, sha256="a" * 64, is_verifiable=True)

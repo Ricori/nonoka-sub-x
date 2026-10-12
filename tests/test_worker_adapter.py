@@ -41,7 +41,7 @@ class WorkerAdapterTests(unittest.TestCase):
 
         # Reading names the subjects too, but asks for no write-back.
         collect = worker.compose_knowledge_context(
-            {"knowledge": "collect", "knowledge_subjects": subjects[:1]}, "原始背景"
+            {"knowledge": "read", "knowledge_subjects": subjects[:1]}, "原始背景"
         )
         self.assertIn("猫又おかゆ", collect)
         self.assertNotIn("归入", collect)
@@ -91,7 +91,7 @@ class WorkerAdapterTests(unittest.TestCase):
                 ident = next(s.local_id for s in repo.subjects() if s.payload["surface"] == "星之海")
                 read = worker.prepare_knowledge_subjects(
                     {
-                        "knowledge": "collect",
+                        "knowledge": "read",
                         "knowledge_subjects": [
                             {"id": ident, "kind": "topic", "subject": "星之海", "aliases": "", "description": ""}
                         ],
@@ -105,7 +105,7 @@ class WorkerAdapterTests(unittest.TestCase):
                 with self.assertRaisesRegex(RuntimeError, "只有自动更新模式可以新建主体"):
                     worker.prepare_knowledge_subjects(
                         {
-                            "knowledge": "collect",
+                            "knowledge": "read",
                             "knowledge_subjects": [
                                 {"kind": "topic", "subject": "不存在", "aliases": "", "description": ""}
                             ],
@@ -116,7 +116,7 @@ class WorkerAdapterTests(unittest.TestCase):
                 with self.assertRaisesRegex(RuntimeError, "已不在知识库中"):
                     worker.prepare_knowledge_subjects(
                         {
-                            "knowledge": "collect",
+                            "knowledge": "read",
                             "knowledge_subjects": [
                                 {"id": "gone", "kind": "topic", "subject": "旧主体", "aliases": "", "description": ""}
                             ],
@@ -171,6 +171,8 @@ class WorkerAdapterTests(unittest.TestCase):
                     vad_energy_npz=output.with_name(f"{output.stem}-vad-energy.npz"),
                     aligned_json=output.with_name(f"{output.stem}-aligned.json"),
                     stable_json=stable,
+                    diar_json=output.with_name(f"{output.stem}-diar.json"),
+                    speaker_judge_json=output.with_name(f"{output.stem}-speaker-judge.json"),
                     raw_srt=raw,
                     translated_srt=output.with_name(f"{output.stem}-translated.srt"),
                     final_srt=output,
@@ -264,12 +266,12 @@ class WorkerAdapterTests(unittest.TestCase):
             source.write_bytes(b"media")
             captured: dict = {}
 
-            def run_full_correction(**kwargs):
-                captured.update(kwargs)
-                output = Path(kwargs["output_path"])
+            def run_correction_task(task):
+                captured.update(vars(task))
+                output = Path(task.output_path)
                 output.write_text("1\n00:00:00,000 --> 00:00:01,000\n你好\n", encoding="utf-8")
                 output.with_name(f"{output.stem}-annotated.csv").write_text("# header\n", encoding="utf-8")
-                return output
+                return SimpleNamespace(result=output)
 
             @contextlib.contextmanager
             def passthrough(_value):
@@ -282,7 +284,9 @@ class WorkerAdapterTests(unittest.TestCase):
             routing = types.ModuleType("finesub.llm.routing")
             routing.__path__ = []
             correction = types.ModuleType("finesub.llm.correction_translation")
-            correction.run_full_correction = run_full_correction
+            correction.run_correction_task = run_correction_task
+            correction_request = types.ModuleType("finesub.llm.correction_request")
+            correction_request.CorrectionRequest = lambda **kwargs: SimpleNamespace(**kwargs)
             profiles = types.ModuleType("finesub.llm.routing.profiles")
             profiles.resolve_profile = lambda *args: SimpleNamespace(id="-".join(args))
             stages = types.ModuleType("finesub.stages")
@@ -293,7 +297,8 @@ class WorkerAdapterTests(unittest.TestCase):
             reporting.quieted_libraries = passthrough
             names = (
                 "finesub", "finesub.llm", "finesub.llm.routing", "finesub.llm.correction_translation",
-                "finesub.llm.routing.profiles", "finesub.stages", "finesub.reporting",
+                "finesub.llm.correction_request", "finesub.llm.routing.profiles", "finesub.stages",
+                "finesub.reporting",
             )
             previous = {name: sys.modules.get(name) for name in names}
             sys.modules.update({
@@ -301,6 +306,7 @@ class WorkerAdapterTests(unittest.TestCase):
                 "finesub.llm": llm,
                 "finesub.llm.routing": routing,
                 "finesub.llm.correction_translation": correction,
+                "finesub.llm.correction_request": correction_request,
                 "finesub.llm.routing.profiles": profiles,
                 "finesub.stages": stages,
                 "finesub.reporting": reporting,
@@ -352,33 +358,23 @@ class WorkerAdapterTests(unittest.TestCase):
             manifest = next(event for event in events if event["type"] == "completed")["payload"]["artifacts"]
             self.assertEqual(set(manifest["artifacts"]), {"stable_json", "annotated_csv", "final_srt"})
 
-    def test_uncalibrated_vector_notice_is_dropped_but_siblings_still_speak(self) -> None:
-        # Driven through the engine's own `profile_warnings` rather than a
-        # hand-written string: the suppression matches on wording, so an
-        # upstream rewording has to fail here instead of quietly letting the
-        # line back into every task log.
-        from finesub.llm.routing.capabilities import profile_warnings
-        from finesub.llm.routing.profiles import parse_profile_id
-
-        vector = (
-            "correction_media=video,planning_media=video,"
-            "retrieval=none,difficulty=quality,continuity="
+    def test_diarization_request_maps_to_pipeline_keys(self) -> None:
+        self.assertEqual(worker.diarization_kwargs({}), {})
+        self.assertEqual(worker.diarization_kwargs({"diarization": {"level": "off"}}), {})
+        self.assertEqual(
+            worker.diarization_kwargs({"diarization": {"level": "acoustics", "max_speakers": None}}),
+            {"diarize": "acoustics"},
+        )
+        self.assertEqual(
+            worker.diarization_kwargs({"diarization": {"level": "judge-text", "max_speakers": 3}}),
+            {"diarize": "judge-text", "diarize_max_speakers": 3},
         )
 
-        def emitted(profile_id: str) -> list[dict]:
-            messages = profile_warnings(parse_profile_id(profile_id))
-            self.assertTrue(messages, f"engine said nothing for {profile_id}")
-            output = io.StringIO()
-            reporter = worker.NonokaXReporter()
-            with contextlib.redirect_stdout(output):
-                for message in messages:
-                    reporter.warning("routing-profile", message)
-            return [json.loads(line) for line in output.getvalue().splitlines()]
+    def test_diarization_evidence_path_matches_the_engine(self) -> None:
+        from finesub.speech.diarization.evidence import evidence_path
 
-        self.assertEqual(emitted(vector + "serial"), [])
-        parallel = emitted(vector + "parallel")
-        self.assertEqual([event["type"] for event in parallel], ["warning"])
-        self.assertIn("continuity=parallel", parallel[0]["payload"]["message"])
+        timeline = Path("/runs/节目-diar.json")
+        self.assertEqual(worker.diarization_evidence_path(timeline), evidence_path(timeline))
 
     def test_normalize_engine_device(self) -> None:
         self.assertEqual(worker._normalize_engine_device("cuda:0"), ("cuda", "0"))
@@ -416,7 +412,7 @@ class WorkerAdapterTests(unittest.TestCase):
                 {
                     "llm_model": {
                         "correction": "local-agy-media-gemini-3_7-flash",
-                        "correction-mm": "local-agy-opus-4_6",
+                        "correction-mm": "local-agy-sonnet-5_5",
                     }
                 }
             )

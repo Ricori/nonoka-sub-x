@@ -387,3 +387,19 @@ def resolve_knowledge_root(
             "--knowledge-root or set FINESUB_KNOWLEDGE_ROOT."
         )
     return None
+
+
+def shared_knowledge_roots() -> set[Path]:
+    """Knowledge bases that are not this checkout's alone: the main checkout's
+    (where a linked worktree's data resolves to) and the installation's user
+    data. A throwaway worktree may read them but must not write them by
+    accident (``llm.knowledge.base.worktree_blocks_knowledge_write``)."""
+
+    roots: set[Path] = set()
+    checkout = resolve_checkout_root()
+    if checkout is not None:
+        roots.add((checkout / "knowledge").resolve())
+    for user_data in (_packaged_user_data(), _managed_user_data()):
+        if user_data is not None:
+            roots.add((user_data / "knowledge").resolve())
+    return roots

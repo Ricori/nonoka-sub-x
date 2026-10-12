@@ -45,8 +45,9 @@ Nonoka Sub X 是为外语视频翻译与字幕制作打造的桌面应用。项�
   - **精准对齐与 VAD**：结合 energy VAD 与补丁版 CTranslate2 / Whisper 引擎，实现毫秒级词级时间戳定位。
   - **智能纠错与翻译**：LLM 上下文感知纠错与高质量中日双语翻译，告别生硬机翻。
   - **知识库系统**：自动收集翻译中所学到的知识，用于改善下次翻译。
+  - **说话人分离**：按声音区分说话人，自动把字幕拆成每人一条轨道；可选让 LLM 在纠错时复核（实验）。
 - ⚡ **本地与云端同源双执行模式**
-  - **本地模式**：NVIDIA GPU 本地直接推理，私密数据不出机，支持配置用户自持的 LLM API Key，也可直接把 LLM 环节路由到本机已登录的 Codex CLI / Antigravity CLI / WorkBuddy （无需 API Key）。
+  - **本地模式**：NVIDIA GPU 本地直接推理，私密数据不出机，支持配置用户自持的 LLM API Key，也可直接把 LLM 环节路由到本机已登录的 Codex CLI / Antigravity CLI / CodeBuddy CLI（无需 API Key）。
   - **云端模式**：一键调度云端 GPU 算力，桌面端仅提取上传无损纯音频（零损失、保护原片隐私），断点自动保存与续跑。
   - **完全同源**：本地与云端运行完全一致的引擎与校验规则，保证产物质量一致。
 - 🎬 **专业级轨道编辑与所见即所得**
@@ -193,7 +194,7 @@ Rename-Item .\hello-tool.zip hello-tool.nonoka-plugin
 
 | 权限 | 能做什么 |
 | :--- | :--- |
-| `llm.complete` | 插件写 prompt，宿主用用户已配置的模型（API Key 或本机 Codex / Antigravity / WorkBuddy CLI）跑一次，返回文本。插件不需要拿到密钥。 |
+| `llm.complete` | 插件写 prompt，宿主用用户已配置的模型（API Key 或本机 Codex / Antigravity / CodeBuddy CLI）跑一次，返回文本。插件不需要拿到密钥。 |
 | `engine.run` | 只把流水线跑到指定阶段（`vocal` / `aligned` / `stable` / `raw-srt` / `translated-srt` / `final-srt`），复用宿主的任务队列、事件与取消。 |
 | `engine.artifacts` | 取回那次运行的中间产物：文本直接读内容，音频等二进制只能经保存对话框落盘。 |
 
@@ -251,7 +252,16 @@ nonoka-x/
 ## 📄 开源协议
 
 本项目采用 **[GPL-3.0](./LICENSE)** 开源许可证。
-底层的 FineSub 算法代码采用 **MIT** 许可证，Prompt 模板遵循 **CC BY-SA 4.0** 许可。
+底层的 FineSub 算法代码采用 **GPL-3.0-or-later** 许可证（0.5.0 起，此前为 MIT），Prompt 模板遵循 **CC BY-SA 4.0** 许可。
+
+说话人分离首次使用时自动下载的模型（均可商用）：
+
+| 组成部分 | 来源 | 许可 |
+| :--- | :--- | :--- |
+| 说话人活动模型 Nemotron-3-Diarization | [nvidia/Nemotron-3-Diarization](https://huggingface.co/nvidia/Nemotron-3-Diarization) | OpenMDW-1.1 |
+| 声纹模型 WeSpeaker ResNet34 | [pyannote/wespeaker-voxceleb-resnet34-LM](https://huggingface.co/pyannote/wespeaker-voxceleb-resnet34-LM)（Wang 等，ICASSP 2023） | CC BY 4.0 |
+| PLDA 参数 | [pyannote/speaker-diarization-community-1](https://huggingface.co/pyannote/speaker-diarization-community-1) | CC BY 4.0 |
+| 后两者的转换版 | [spurtcarl/finesub-speaker-embedding](https://huggingface.co/spurtcarl/finesub-speaker-embedding)（格式转换，未重新训练） | CC BY 4.0 |
 
 <div align="center">
   <br>

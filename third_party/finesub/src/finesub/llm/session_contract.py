@@ -4,13 +4,12 @@ Every text-block session's reply is a sequence of top-level sibling blocks. A
 contract declares the mandatory blocks, split into two kinds:
 
 - ``nonempty``: content-bearing blocks that must be present *and* non-empty
-  (``reasoning``, ``analysis_notes``, ``context_pack``, ``evidence_pack`` …).
+  (``reasoning``, ``analysis_notes``, ``context_pack`` …).
 - ``present``: list-style blocks that must be present but may be an empty block
   (``search_queries``, ``keep_entries``, ``requested_entries``, ``window_notes`` …).
 
-Blocks not listed are optional and unvalidated (e.g. ``requested_entries`` in the
-query round, which may be omitted entirely; the search-loop's ``search_queries``,
-whose absence is the terminate signal).
+Blocks not listed are optional and unvalidated (e.g. ``requested_entries`` in a
+request turn, which may be omitted entirely).
 
 Only *top-level* siblings are declared here. Blocks that legitimately live one
 level deeper — e.g. ``<void>`` inside ``<translated>`` — are the owning block's
@@ -52,71 +51,36 @@ class SessionContract:
         return errors
 
 
-def query_round_contract(*, knowledge_enabled: bool) -> SessionContract:
-    """The per-window query round's contract.
-
-    ``keep_entries`` is only demanded where the prompt asks for it: with no
-    readable index the entry-request rules leave the prompt entirely, and a
-    round must never be retried for omitting a block it was never told about.
-    """
-
-    present = ["window_notes"]
-    if knowledge_enabled:
-        present.append("keep_entries")
-    present.append("search_queries")
-    return SessionContract(nonempty=("reasoning",), present=tuple(present))
-
-
-def fast_round1_contract(*, knowledge_enabled: bool) -> SessionContract:
-    """Fast round 1's contract: the fused research+query round.
-
-    The entry blocks are demanded only where the prompt shipped their rules --
-    with no readable index (or ``--knowledge none``) they leave the prompt, so
-    a correct reply legitimately omits them.
-    """
-
-    present = ["requested_entries", "keep_entries"] if knowledge_enabled else []
-    present.append("search_queries")
-    return SessionContract(
-        nonempty=("reasoning", "analysis_notes"), present=tuple(present)
-    )
-
-
-def research_round1_contract(
-    *, emits_queries: bool, emits_entries: bool, emits_notes: bool
+def prepare_task_contract(
+    *, delivered: bool, emits_queries: bool = True, emits_entries: bool = True
 ) -> SessionContract:
-    """R1's contract for one switch vector (docs/llm_harness_behavior.md).
+    """The preparation task's two reply shapes (stage B, plan §2.1).
 
-    R1 is the "ask" half of the skeleton *r1 asks -> harness fetches -> r2
-    digests*, and each half it asks for is owned by a different axis:
-    ``search_queries`` by ``retrieval=local``, ``requested_entries`` /
-    ``keep_entries`` by knowledge. ``analysis_notes`` is written *for r2*, so a
-    run that skips r2 (``retrieval=none``) must not demand it -- nothing would
-    read it. A round asked for neither half is not run at all.
+    One conversation, two possible replies: a *request* turn (analysis notes
+    plus the request blocks the grant allows) or a *delivery* turn (the
+    context pack). Which one a given reply is gets decided by the presence of
+    ``context_pack``; each shape is then validated on its own.
     """
 
-    nonempty = ["reasoning"]
-    if emits_notes:
-        nonempty.append("analysis_notes")
+    if delivered:
+        return SessionContract(nonempty=("reasoning", "context_pack"))
     present: List[str] = []
     if emits_entries:
         present.extend(("requested_entries", "keep_entries"))
     if emits_queries:
         present.append("search_queries")
-    return SessionContract(nonempty=tuple(nonempty), present=tuple(present))
+    return SessionContract(nonempty=("reasoning", "analysis_notes"), present=tuple(present))
 
 
-def research_round2_contract(*, emits_keep: bool) -> SessionContract:
-    """R2's contract: always a context pack, ``keep_entries`` only with entries.
-
-    R2 never emits ``search_queries`` in any vector -- under ``local`` the
-    harness already fetched, and under ``native`` the model searched inside
-    this very call.
-    """
+def correction_request_contract(*, search: bool) -> SessionContract:
+    """The correction window's request turn: notes plus the block that marks a
+    request under this grant -- the search block where harness search runs,
+    else the entry request (the request turn's own shape gate,
+    `stages.correction.request_turn.request_tags`, accepts either entry block)."""
 
     return SessionContract(
-        nonempty=("reasoning", "context_pack"),
-        present=("keep_entries",) if emits_keep else (),
+        nonempty=("reasoning",),
+        present=("window_notes", "search_queries" if search else "requested_entries"),
     )
 
 
@@ -124,18 +88,14 @@ def research_round2_contract(*, emits_keep: bool) -> SessionContract:
 # The correction (R2) round is intentionally absent: its reply is CSV, validated
 # by output_protocol (schema, singles, void handling), not by tag presence.
 #
-# The research entries are the ``retrieval=local`` shapes, derived from the same
-# functions production uses so the two can never drift. Replay fixtures are all
-# frozen at ``local`` + ``continuity=serial``; the none/native and parallel
+# The preparation entries are the ``retrieval=local`` shapes, derived from the
+# same function production uses so the two can never drift. Replay fixtures are
+# all frozen at ``local`` + ``continuity=serial``; the none/native and parallel
 # shapes have no fixture yet (docs/llm_harness_behavior.md).
 SESSION_CONTRACTS: Dict[str, SessionContract] = {
-    "query": query_round_contract(knowledge_enabled=True),
-    "fast_round1": fast_round1_contract(knowledge_enabled=True),
-    "research_round1": research_round1_contract(
-        emits_queries=True, emits_entries=True, emits_notes=True
-    ),
-    "research_round2": research_round2_contract(emits_keep=True),
-    "search_loop": SessionContract(
-        nonempty=("reasoning", "evidence_pack"),
-    ),
+    "prepare_task_request": prepare_task_contract(delivered=False),
+    "prepare_task_delivery": prepare_task_contract(delivered=True),
+    # The correction window's request turn (task flow); its delivery shape is
+    # the CSV round, validated by output_protocol like every correction reply.
+    "correction_request": correction_request_contract(search=True),
 }

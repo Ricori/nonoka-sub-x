@@ -71,8 +71,8 @@ def _render_api_attempts(attempts: Any) -> List[str]:
     lines = [
         "## API Calls",
         "",
-        "| api provider&tier | model | api key name | call # for this api key and model | return code | time when call made | time when response returned | time elapsed |",
-        "|---|---|---:|---:|---|---|---|---:|",
+        "| api provider&tier | model | api key name | call # for this api key and model | return code | time when call made | time when response returned | time elapsed | over soft timeout |",
+        "|---|---|---:|---:|---|---|---|---:|---:|",
     ]
     for row in rows:
         lines.append(
@@ -88,6 +88,7 @@ def _render_api_attempts(attempts: Any) -> List[str]:
                     "started_at",
                     "returned_at",
                     "elapsed_sec",
+                    "soft_timeout_overrun_sec",
                 )
             )
             + " |"

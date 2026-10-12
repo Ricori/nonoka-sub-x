@@ -1,22 +1,95 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 import os
 import re
+import threading
 import time
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Mapping, Optional, Tuple
 
+from finesub import settings
 from finesub.paths import resolve_env_file
 from finesub.reporting import current_reporter, redact_credentials
 from finesub_bootstrap import secrets
-from .http import llm_http_client
+from .http import post_within_deadline
 from .routing import api_keys
 
 
 
 DEFAULT_MODEL = "gemini/gemini-2.5-flash"
-LLM_API_TIMEOUT_SECONDS = 15 * 60
 CONSECUTIVE_TIMEOUT_ABORT_COUNT = 2
+
+# How long one generation call may take is sized from how much it is allowed to
+# produce, not fixed. A non-streaming call sends nothing until the answer is
+# complete, so the wait is the whole generation -- 64k tokens at 35 tok/s is
+# ~30 minutes on its own, which the old flat 15-minute timeout cut off while the
+# provider was still working (and, presumably, billing).
+#
+# Two deadlines, because "slower than it should be" and "dead" are different
+# findings. Past the SOFT one the call is still held open and a warning says so;
+# an answer that arrives afterwards is used as usual and its attempt records by
+# how much it overran. Only the HARD one closes the connection -- after that
+# nothing can arrive, so there would be nothing left to record. Waiting is nearly
+# free; a retry starts the generation over from zero. The hard one is a deadline
+# on the whole call (`http.post_within_deadline`), not an httpx timeout: those
+# bound each read, and a trickling server never trips them.
+#
+# The budget is the call's *allowed* output (`maxOutputTokens` as sent, thinking
+# included -- it counts against the same cap), never the planner's output
+# estimate: an answer is allowed to exceed that estimate, and sizing the timeout
+# from it would cut exactly those answers off mid-generation.
+#
+# The three numbers (overhead, floor rate, hard factor) are `[llm]
+# api_timeout_*` / `api_hard_timeout_factor` in `finesub.settings`.
+#: The budget when a call names no cap and the provider applies its own.
+API_TIMEOUT_DEFAULT_OUTPUT_TOKENS = 65_536
+
+
+@dataclass(frozen=True)
+class ApiTimeouts:
+    soft: float
+    hard: float
+
+
+def api_timeouts(max_tokens: Optional[int]) -> ApiTimeouts:
+    config = settings.read()
+    overhead = settings.API_TIMEOUT_OVERHEAD_SECONDS.resolve(config=config)
+    floor_rate = settings.API_TIMEOUT_FLOOR_TOKENS_PER_SECOND.resolve(config=config)
+    factor = settings.API_HARD_TIMEOUT_FACTOR.resolve(config=config)
+    budget = max_tokens if max_tokens and max_tokens > 0 else API_TIMEOUT_DEFAULT_OUTPUT_TOKENS
+    soft = overhead + budget / floor_rate
+    return ApiTimeouts(soft=soft, hard=soft * factor)
+
+
+class _SoftDeadline:
+    """Say so once a call outlives its soft deadline, without touching the call.
+
+    The warning fires from a timer thread, which has no reporter of its own
+    (`current_reporter` is thread-local), so the caller's reporter is captured
+    here, on the calling thread.
+    """
+
+    def __init__(self, seconds: float, *, model: str, hard: float) -> None:
+        self.seconds = seconds
+        self._reporter = current_reporter()
+        self._timer = threading.Timer(seconds, self._fire, kwargs={"model": model, "hard": hard})
+        self._timer.daemon = True
+
+    def _fire(self, *, model: str, hard: float) -> None:
+        self._reporter.warning(
+            "llm-api-soft-timeout",
+            f"{model} has not answered after {self.seconds:.0f}s (soft timeout); "
+            f"still waiting, up to {hard:.0f}s.",
+        )
+
+    def __enter__(self) -> "_SoftDeadline":
+        self._timer.start()
+        return self
+
+    def __exit__(self, *_exc: object) -> None:
+        self._timer.cancel()
+
 
 # Default safety thresholds false-positive on ordinary subtitle material (a
 # crying VTuber reading in-game farewell dialogue was prompt-blocked with
@@ -228,23 +301,42 @@ def _record_api_attempt(
     started_monotonic: float,
     return_code: str,
     reason: str = "",
+    soft_timeout: Optional[float] = None,
 ) -> None:
     key = (api_key_label, model_name)
     call_counts[key] = call_counts.get(key, 0) + 1
     returned_at = _iso_now()
     elapsed = round(max(0.0, time.monotonic() - started_monotonic), 3)
-    attempts.append(
-        {
-            "provider_tier": provider_tier,
-            "model": model_name,
-            "api_key_name": api_key_label,
-            "call_number_for_api_key_and_model": call_counts[key],
-            "return_code": return_code,
-            "started_at": started_at,
-            "returned_at": returned_at,
-            "elapsed_sec": elapsed,
-        }
+    attempt: Dict[str, Any] = {
+        "provider_tier": provider_tier,
+        "model": model_name,
+        "api_key_name": api_key_label,
+        "call_number_for_api_key_and_model": call_counts[key],
+        "return_code": return_code,
+        "started_at": started_at,
+        "returned_at": returned_at,
+        "elapsed_sec": elapsed,
+    }
+    overrun = (
+        round(elapsed - soft_timeout, 3)
+        if soft_timeout is not None and elapsed > soft_timeout
+        else None
     )
+    if overrun is not None:
+        # Only on attempts that outlived the soft deadline, so the key's mere
+        # presence is the finding.
+        attempt["soft_timeout_sec"] = round(soft_timeout, 3)
+        attempt["soft_timeout_overrun_sec"] = overrun
+    attempts.append(attempt)
+    if overrun is not None and return_code != "NO_RESPONSE_TIMEOUT":
+        # The other half of the soft-timeout warning: the call did come back.
+        # Said at warning level because the first half was -- a reader who saw
+        # "still waiting" must be able to find out how it ended.
+        current_reporter().warning(
+            "llm-api-late-response",
+            f"{model_name} answered {overrun:.0f}s after its soft timeout "
+            f"({elapsed:.0f}s in total, code {return_code}).",
+        )
     # The same fact, said out loud. The ledger above travels with the artifacts
     # and is read afterwards; the run log is what a user sends when something
     # went wrong, and until now it recorded not one word about the API calls
@@ -265,6 +357,8 @@ def _record_api_attempt(
         "sec": f"{elapsed:.3f}",
         "n": call_counts[key],
     }
+    if overrun is not None:
+        fields["over_soft"] = f"{overrun:.3f}"
     if reason:
         # What the *endpoint* said, not a sentence of ours: a bare `429` does
         # not distinguish "this key is spent today" from "slow down", and that
@@ -391,7 +485,7 @@ def _gemini_generate_content(
 
     Returns the raw JSON response dict (Gemini REST shape: candidates,
     usageMetadata, promptFeedback). Downstream consumers already handle
-    this shape natively.
+    this shape natively. `timeout` is a deadline on the whole call.
     """
     model_id = model.split("/", 1)[-1] if "/" in model else model
     url = f"{api_base.rstrip('/')}/models/{model_id}:generateContent"
@@ -417,8 +511,7 @@ def _gemini_generate_content(
         body["tools"] = tools
 
     headers = {"x-goog-api-key": api_key, "Content-Type": "application/json"}
-    with llm_http_client(timeout=timeout) as client:
-        resp = client.post(url, headers=headers, json=body)
+    resp = post_within_deadline(url, headers=headers, json=body, deadline_seconds=timeout)
 
     if resp.status_code != 200:
         error_text = resp.text
@@ -471,6 +564,64 @@ def describe_skipped_keys(
         )
     detail = "; ".join(reasons) if reasons else "none is configured"
     return f"No API key for {env_name} could be tried: {detail}."
+
+
+def _generate_once(
+    *,
+    custom_kind: str,
+    custom_base_url: str,
+    api_key: str,
+    model_name: str,
+    messages: List[Dict[str, Any]],
+    max_tokens: Optional[int],
+    temperature: float,
+    thinking_level: Optional[str],
+    thinking_cfg: Dict[str, Any],
+    native_search_tool: Optional[str],
+    env_map: Mapping[str, str],
+    timeouts: ApiTimeouts,
+) -> Dict[str, Any]:
+    """One HTTP generation call on the chosen transport, held open past the
+    soft deadline and closed only at the hard one."""
+
+    with _SoftDeadline(timeouts.soft, model=model_name, hard=timeouts.hard):
+        if custom_kind:
+            # D18: no sampling parameters for non-Gemini providers -- the
+            # re-roll perturbation is already the prompt-tail seed text
+            # `chat_complete` appends, which is provider-agnostic.
+            from . import provider_transports
+
+            transport = (
+                provider_transports.openai_compat_generate
+                if custom_kind == "openai_compat"
+                else provider_transports.anthropic_generate
+            )
+            return transport(
+                base_url=custom_base_url,
+                api_key=api_key,
+                model=model_name,
+                messages=messages,
+                max_tokens=max_tokens,
+                thinking_level=thinking_level,
+                timeout=timeouts.hard,
+            )
+        return _gemini_generate_content(
+            model=model_name,
+            messages=messages,
+            api_key=api_key,
+            temperature=temperature,
+            safety_settings=(
+                GEMINI_SAFETY_SETTINGS if "gemini" in model_name.lower() else None
+            ),
+            thinking_config=thinking_cfg,
+            max_tokens=max_tokens,
+            tools=_native_search_tools(native_search_tool) if native_search_tool else None,
+            timeout=timeouts.hard,
+            api_base=(
+                (env_map.get(GEMINI_BASE_URL_VARIABLE) or "").strip()
+                or GEMINI_API_BASE
+            ),
+        )
 
 
 def chat_complete(
@@ -569,11 +720,11 @@ def chat_complete(
     env_name = tier_name
 
     last_exc: Optional[Exception] = None
-    is_gemini_model = "gemini" in model_name.lower()
     thinking_cfg = _thinking_config(model_name, thinking_budget, thinking_level)
     api_attempts: List[Dict[str, Any]] = []
     call_counts: Dict[Tuple[str, str], int] = {}
     consecutive_timeouts = 0
+    timeouts = api_timeouts(max_tokens)
     # v17: every prompt template mandates an opening <reasoning> block, so the
     # old runtime-side injection for non-reasoning models is gone.
     base_messages = messages
@@ -703,42 +854,20 @@ def chat_complete(
             try:
                 started_at = _iso_now()
                 started_monotonic = time.monotonic()
-                if custom_kind:
-                    # D18: no sampling parameters for non-Gemini providers --
-                    # the re-roll perturbation is already the prompt-tail seed
-                    # text appended above, which is provider-agnostic.
-                    from . import provider_transports
-
-                    transport = (
-                        provider_transports.openai_compat_generate
-                        if custom_kind == "openai_compat"
-                        else provider_transports.anthropic_generate
-                    )
-                    response = transport(
-                        base_url=custom_base_url,
-                        api_key=key,
-                        model=model_name,
-                        messages=base_messages,
-                        max_tokens=max_tokens,
-                        thinking_level=thinking_level,
-                        timeout=LLM_API_TIMEOUT_SECONDS,
-                    )
-                else:
-                    response = _gemini_generate_content(
-                        model=model_name,
-                        messages=base_messages,
-                        api_key=key,
-                        temperature=temperature,
-                        safety_settings=GEMINI_SAFETY_SETTINGS if is_gemini_model else None,
-                        thinking_config=thinking_cfg,
-                        max_tokens=max_tokens,
-                        tools=_native_search_tools(native_search_tool) if native_search_tool else None,
-                        timeout=LLM_API_TIMEOUT_SECONDS,
-                        api_base=(
-                            (env_map.get(GEMINI_BASE_URL_VARIABLE) or "").strip()
-                            or GEMINI_API_BASE
-                        ),
-                    )
+                response = _generate_once(
+                    custom_kind=custom_kind,
+                    custom_base_url=custom_base_url,
+                    api_key=key,
+                    model_name=model_name,
+                    messages=base_messages,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                    thinking_level=thinking_level,
+                    thinking_cfg=thinking_cfg,
+                    native_search_tool=native_search_tool,
+                    env_map=env_map,
+                    timeouts=timeouts,
+                )
                 _record_api_attempt(
                     api_attempts,
                     call_counts,
@@ -748,6 +877,7 @@ def chat_complete(
                     started_at=started_at,
                     started_monotonic=started_monotonic,
                     return_code="200",
+                    soft_timeout=timeouts.soft,
                 )
                 # A success clears the per-key strike streak and combo cooldown.
                 if _rl_endpoint is not None:
@@ -778,6 +908,7 @@ def chat_complete(
                         started_monotonic=started_monotonic,
                         return_code=return_code,
                         reason=str(exc),
+                        soft_timeout=timeouts.soft,
                     )
                 if consecutive_timeouts >= CONSECUTIVE_TIMEOUT_ABORT_COUNT:
                     _attach_attempts_to_exception(exc, api_attempts)

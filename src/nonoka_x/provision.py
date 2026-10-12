@@ -30,8 +30,18 @@ TOOL_GROUPS = {
     "optional-tools": ("tokcount",),
 }
 REMOVABLE_TOOL_GROUPS = frozenset(TOOL_GROUPS)
-TARGETS = {"media", "runtime", "models", "all", *OPTIONAL_TOOLS, *TOOL_GROUPS}
+#: Models only some runs need: speaker diarization's default backend
+#: (`model_install.DIARIZATION_MODEL_IDS`). Listed and installable on their own,
+#: never part of `models` / `all`, and never a reason a transcription is blocked.
+OPTIONAL_MODELS = ("nemotron3", "speaker-embedding")
+OPTIONAL_MODELS_TARGET = "optional-models"
+TARGETS = {"media", "runtime", "models", "all", OPTIONAL_MODELS_TARGET, *OPTIONAL_TOOLS, *TOOL_GROUPS}
 PIPELINE_MODELS = ("separator", "whisper", "qwen-referee")
+
+#: What an installed runtime whose dependency lock moved on is told: an engine
+#: sync changed the pinned packages, so the environment is rebuilt from the new
+#: lock -- with unchanged wheels reused from the local cache.
+RUNTIME_OUTDATED_DETAIL = "引擎依赖有变化，需要更新 Python 运行环境（只下载有变化的部分）"
 
 # The two runtime buttons differ only in how far they go, so each target says so
 # in its own words: a shared "已准备就绪" told the user models were ready after a
@@ -42,6 +52,7 @@ START_MESSAGES = {
     "runtime": "正在准备安装运行时（不含模型）",
     "models": "正在准备下载缺失的模型",
     "all": "正在准备安装运行时并下载缺失的模型",
+    OPTIONAL_MODELS_TARGET: "正在准备下载说话人分离模型",
     "yt-dlp": "正在准备安装可选工具 yt-dlp",
     "tokcount": "正在准备安装可选工具 tokcount",
     "aria2c": "正在准备安装可选工具 aria2c",
@@ -55,6 +66,7 @@ DONE_MESSAGES = {
     "runtime": "运行时已就绪；模型仍需单独下载",
     "models": "缺失的模型已全部下载并校验完成",
     "all": "运行时与所需模型已全部准备就绪",
+    OPTIONAL_MODELS_TARGET: "说话人分离模型已下载并校验完成",
     "yt-dlp": "可选工具 yt-dlp 已安装并校验完成",
     "tokcount": "可选工具 tokcount 已安装并校验完成",
     "aria2c": "可选工具 aria2c 已安装并校验完成",
@@ -264,6 +276,7 @@ class RuntimeProvisioner:
                 "runtime": {"id": "python", "version": "3.12", "state": "missing", "detail": f"FineSub bootstrap 依赖缺失：{self._bootstrap_error}"},
                 "resources": [],
                 "models": [{"id": model_id, "state": "missing"} for model_id in PIPELINE_MODELS],
+                "optional_models": [{"id": model_id, "state": "missing"} for model_id in OPTIONAL_MODELS],
                 "job": job,
             }
         assert self.resources is not None and self.paths is not None
@@ -283,6 +296,11 @@ class RuntimeProvisioner:
                 )
         if self.runtime is not None:
             runtime_status = self.runtime.status().model_dump(mode="json")
+            if runtime_status.get("state") == "missing" and self._runtime_outdated():
+                # Installed, but for an older dependency lock: say "update",
+                # not "missing" -- the environment is there and most of it is
+                # reused, which is a very different thing to be told.
+                runtime_status.update(state="outdated", detail=RUNTIME_OUTDATED_DETAIL)
         else:
             runtime_status = {
                 "id": "python",
@@ -291,6 +309,7 @@ class RuntimeProvisioner:
                 "detail": "本地 GPU 运行时当前仅支持 Windows x64/NVIDIA",
             }
         missing = list(missing_managed_models(self.paths.models))
+        missing_optional = set(missing_managed_models(self.paths.models, OPTIONAL_MODELS))
         with self._lock:
             job = json.loads(json.dumps(self._job))
         return {
@@ -308,13 +327,37 @@ class RuntimeProvisioner:
                 {"id": model_id, "state": "missing" if model_id in missing else "ready"}
                 for model_id in PIPELINE_MODELS
             ],
+            "optional_models": [
+                {"id": model_id, "state": "missing" if model_id in missing_optional else "ready"}
+                for model_id in OPTIONAL_MODELS
+            ],
             "job": job,
         }
+
+    def _runtime_outdated(self) -> bool:
+        """Whether the runtime is installed but was built from an older lock.
+
+        `RuntimeEnvironment.status` reports both that and a runtime that was
+        never installed as `missing`; only the marker tells them apart. A
+        marker that matches the lock means the runtime is damaged instead, and
+        that stays `missing` with the engine's own explanation.
+        """
+
+        runtime = self.runtime
+        if runtime is None or getattr(runtime, "development_python", None) is not None:
+            return False
+        try:
+            if not runtime.python_executable.is_file() or not runtime.marker_path.is_file():
+                return False
+            marker = json.loads(runtime.marker_path.read_text(encoding="utf-8"))
+            return not runtime._marker_is_current(marker)
+        except (OSError, ValueError, AttributeError):
+            return False
 
     def start(self, target: str) -> dict[str, Any]:
         if target not in TARGETS:
             raise RuntimeProvisionError(
-                "target must be one of: media, runtime, models, all, "
+                f"target must be one of: media, runtime, models, all, {OPTIONAL_MODELS_TARGET}, "
                 + ", ".join((*OPTIONAL_TOOLS, *TOOL_GROUPS))
             )
         if target == "media" and not self._media_supported:
@@ -415,6 +458,19 @@ class RuntimeProvisioner:
                     self._stop_if_cancelled()
                     self._install_model(model_id)
                 remaining = missing_managed_models(self.paths.models)
+                if remaining:
+                    raise RuntimeProvisionError(
+                        "模型安装进程已结束，但完整性复核仍未通过：" + "、".join(remaining)
+                    )
+            if target == OPTIONAL_MODELS_TARGET:
+                assert self.runtime is not None
+                self._stop_if_cancelled()
+                if self.runtime.status().state != "ready":
+                    raise RuntimeProvisionError("请先安装或更新 FineSub Python 运行时")
+                for model_id in missing_managed_models(self.paths.models, OPTIONAL_MODELS):
+                    self._stop_if_cancelled()
+                    self._install_model(model_id)
+                remaining = missing_managed_models(self.paths.models, OPTIONAL_MODELS)
                 if remaining:
                     raise RuntimeProvisionError(
                         "模型安装进程已结束，但完整性复核仍未通过：" + "、".join(remaining)

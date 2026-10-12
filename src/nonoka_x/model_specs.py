@@ -156,6 +156,11 @@ _MODEL_SPECS: tuple[tuple[str, ModelSpec], ...] = (
     # chain of thought from eating the answer; the engine clamps it to its own
     # 65,536 ceiling anyway.
     ("deepseek-v4-pro", ModelSpec("DeepSeek-V4-Pro", 1_000_000, 384_000, "max,high,low", 1.15, 85)),
+    # `deepseek-flash` is the official API's unversioned name for V4.1 Flash;
+    # it stopped accepting `deepseek-v4-flash` (FineSub 0.6.0, measured
+    # 2026-09-12). Gateways may still serve the versioned spellings below.
+    ("deepseek-flash", ModelSpec("DeepSeek-V4.1-Flash", 1_000_000, 384_000, "max,high,low", 1.15, 70)),
+    ("deepseek-v4.1-flash", ModelSpec("DeepSeek-V4.1-Flash", 1_000_000, 384_000, "max,high,low", 1.15, 70)),
     ("deepseek-v4-flash", ModelSpec("DeepSeek-V4-Flash", 1_000_000, 384_000, "max,high,low", 1.15, 70)),
     ("deepseek-v4", ModelSpec("DeepSeek-V4", 1_000_000, 384_000, "max,high,low", 1.15, 75)),
     # Retired on the official API (2026-07-24) but still served under these

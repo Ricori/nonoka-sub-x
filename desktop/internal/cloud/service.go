@@ -370,6 +370,22 @@ func (s *Service) StartTask(localID string, options map[string]any) (result map[
 	if axis != nil {
 		request["axis"] = axis
 	}
+	// FineSub 0.6.0 renamed the read-only knowledge mode; a request built
+	// before the upgrade may still carry the old name.
+	if request["knowledge"] == "collect" {
+		request["knowledge"] = "read"
+	}
+	// Speaker diarization: only the level and an optional cap cross over, and
+	// only when the run asks for something; the backend validates both.
+	if diarization, ok := options["diarization"].(map[string]any); ok {
+		if level, ok := diarization["level"].(string); ok && level != "" && level != "off" {
+			cleaned := map[string]any{"level": level}
+			if limit, exists := diarization["max_speakers"]; exists && limit != nil {
+				cleaned["max_speakers"] = limit
+			}
+			request["diarization"] = cleaned
+		}
+	}
 	if correction, ok := options["correction"].(map[string]any); ok {
 		cleaned := request["correction"].(map[string]any)
 		for _, key := range []string{"difficulty", "fast", "extra_info", "extra_style"} {

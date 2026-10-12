@@ -18,12 +18,12 @@ class WorkerLogOptimizationTests(unittest.TestCase):
         output = io.StringIO()
 
         warnings = [
-            "correction-mm/quality: 组内没有成员支持音频（local-codex-gpt-5_6-terra），带媒体的调用会在能力过滤后无候选可用",
-            "correction-mm/intermediate: 组内没有成员支持音频（local-codex-gpt-5_6-terra），带媒体的调用会在能力过滤后无候选可用",
-            "correction-mm/efficiency: 组内没有成员支持音频（local-codex-gpt-5_6-terra），带媒体的调用会在能力过滤后无候选可用",
-            "planning-mm/quality: 组内没有成员支持音频（local-codex-gpt-5_6-terra），带媒体的调用会在能力过滤后无候选可用",
-            "planning-mm/intermediate: 组内没有成员支持音频（local-codex-gpt-5_6-terra），带媒体的调用会在能力过滤后无候选可用",
-            "planning-mm/efficiency: 组内没有成员支持音频（local-codex-gpt-5_6-terra），带媒体的调用会在能力过滤后无候选可用",
+            "correction-mm/quality: 组内没有成员支持音频（local-codex-gpt-6-luna），带媒体的调用会在能力过滤后无候选可用",
+            "correction-mm/intermediate: 组内没有成员支持音频（local-codex-gpt-6-luna），带媒体的调用会在能力过滤后无候选可用",
+            "correction-mm/efficiency: 组内没有成员支持音频（local-codex-gpt-6-luna），带媒体的调用会在能力过滤后无候选可用",
+            "correction-text/quality: 组内没有成员支持音频（local-codex-gpt-6-luna），带媒体的调用会在能力过滤后无候选可用",
+            "correction-text/intermediate: 组内没有成员支持音频（local-codex-gpt-6-luna），带媒体的调用会在能力过滤后无候选可用",
+            "correction-text/efficiency: 组内没有成员支持音频（local-codex-gpt-6-luna），带媒体的调用会在能力过滤后无候选可用",
         ]
 
         with contextlib.redirect_stdout(output):

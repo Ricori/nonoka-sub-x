@@ -1,9 +1,12 @@
-"""Two-round background research session feeding correction windows.
+"""The preparation stage's entry point and product.
 
-Round 1 has no web access: it picks knowledge entries and emits search queries.
-The harness runs those queries through the local search agent (Exa, Gemma4,
-Tavily) and round 2 gets the rendered results injected; no further querying
-is allowed.
+``run_research_stage`` plans the correction windows, splits over-long material
+into chunks, decides whether a persisted ``research-context.json`` is still
+reusable and otherwise runs the preparation task (``stages.prepare_task``:
+one logical conversation -- a request batch the harness fills once, then the
+``<context_pack>`` delivery) and persists its payload. The request-block
+parsers, the entry caps and the context-pack binding live here because they
+predate the task and did not change with it.
 """
 
 from __future__ import annotations
@@ -15,7 +18,6 @@ import hashlib
 import json
 from pathlib import Path
 import shutil
-import sys
 import time
 from typing import Any, Callable, Dict, List, Mapping, Sequence
 
@@ -29,19 +31,11 @@ from .client import (
     sum_token_distributions,
     validation_retry_sampling_kwargs,
 )
-from .content_filter import (
-    report_ladder_outcome,
-    load_content_filter_blacklist,
-    run_injection_ladder,
-    split_rendered_search_block,
-)
 from .exchange_metadata import infer_session_name, llm_exchange_metadata, research_input_components
 from .routing.config import (
+    DEFAULT_RESEARCH_SEARCH_QUERIES,
     ANALYSIS_NOTES_MAX_TOKENS,
     DEFAULT_LIMITS,
-    DEFAULT_RESEARCH_SEARCH_QUERIES,
-    DEFAULT_RESEARCH_SEARCH_ROUNDS,
-    INJECTION_SECTION_MAX_TOKENS,
     KB_PREINJECT_MAX_ENTRIES,
     KB_TRANSFER_MAX_ENTRIES,
     KB_WINDOW_NEW_REQUEST_MAX_ENTRIES,
@@ -52,10 +46,10 @@ from .routing.config import (
     effective_window_subtitle_cap,
     TASK_FEEDBACK_MAX_TOKENS,
     WINDOW_PLANNING_CONTEXT_RESERVE_TOKENS,
-    followup_search_query_limit,
     injection_block_token_limit,
     research_search_query_limit,
 )
+from finesub import settings
 from finesub.media.clips import probe_audio_duration
 from finesub.reporting import current_reporter
 from .chunking import (
@@ -71,14 +65,15 @@ from .knowledge.base import (
     append_task_artifact,
     load_entry_texts,
     load_index_entries,
-    load_index_text,
+    index_texts_present,
+    load_index_texts,
     load_preinjected_entries,
     match_terms,
     render_term_matches,
 )
+from .knowledge.node.presets import MATCHABLE_CATEGORIES
 from .output_tags import (
     extract_single_tag_block,
-    parse_guided_line_items,
     parse_json_tag_block,
     parse_line_items,
 )
@@ -86,11 +81,8 @@ from .routing.profiles import DEFAULT_PROFILE, TranslationProfile
 from .prompts import (
     PROMPT_VERSION,
     ContextPack,
-    build_research_round1_messages,
-    build_research_round2_messages,
-    r1_request_cap,
+    general_for_correction,
 )
-from .search_loop import run_search_loop
 from .session_checkpoint import SessionCheckpointStore, session_input_hash
 from .token_budget import default_token_counter, TokenCounter
 from .token_truncate import cap_tokens
@@ -98,14 +90,9 @@ from .web_search import (
     EXTRA_INFO_URL_EXTRACT_LIMIT,
     ExtractRequest,
     QueryExtractResult,
-    QuerySearchResult,
-    SearchRequest,
     WebSearchClient,
-    extract_results_metadata,
     extract_urls_from_text,
     render_extract_results,
-    render_search_results,
-    search_results_metadata,
 )
 
 
@@ -115,9 +102,7 @@ class ResearchRound1Result:
     keep_entries: tuple[str, ...] = ()
     search_queries: tuple[str, ...] = ()
     analysis_notes: str = ""
-    # Raw <research_contract> JSON body (multi-round search only; "" otherwise).
-    research_contract: str = ""
-    # Raw <task_update_feedback> body (fast round 1 with collection only).
+    # Raw <task_update_feedback> body (with collection only).
     task_update_feedback: str = ""
 
 
@@ -166,21 +151,20 @@ def _extract_optional_block(
 def parse_round1_output(
     text: str,
     *,
-    expect_contract: bool = False,
     expect_queries: bool = True,
     expect_entries: bool = True,
     count_tokens: Callable[[str], int] | None = None,
 ) -> ResearchRound1Result:
-    """Parse R1's reply, requiring only the blocks this vector asked for.
+    """Parse a request turn, requiring only the blocks this vector asked for.
 
     ``expect_queries`` / ``expect_entries`` mirror the prompt's own halves
     (docs/llm_harness_behavior.md) -- a block the prompt never described must not be demanded
     back, or every ``retrieval=none`` run would burn its parse retries.
     """
 
-    # Not routed through ``research_round1_contract``: that contract also
+    # Not routed through ``prepare_task_contract``: that contract also
     # demands ``<reasoning>``, which is a *soft* requirement in production (a
-    # missing block never fails a round). The contract's job is the replay
+    # missing block never fails a turn). The contract's job is the replay
     # validators; the parser only enforces the blocks it has to read.
     entries_body = extract_single_tag_block(
         text, "requested_entries", required=expect_entries
@@ -189,11 +173,6 @@ def parse_round1_output(
     queries_body = extract_single_tag_block(
         text, "search_queries", required=expect_queries
     )
-    contract = ""
-    if expect_contract:
-        # Required in multi-round mode: a missing contract triggers the normal
-        # parse retry; the loop degrades gracefully later if it stays absent.
-        contract = extract_single_tag_block(text, "research_contract").strip()
     return ResearchRound1Result(
         requested_entries=tuple(parse_line_items(entries_body)),
         keep_entries=tuple(parse_line_items(keep_body)),
@@ -204,7 +183,6 @@ def parse_round1_output(
             max_tokens=ANALYSIS_NOTES_MAX_TOKENS,
             count_tokens=count_tokens,
         ),
-        research_contract=contract,
     )
 
 
@@ -282,7 +260,7 @@ def extract_round_task_feedback(
     """Best-effort ``<task_update_feedback>`` body (capped); '' on any issue.
 
     Feedback is advisory: a missing or malformed block never retries the
-    round — the context pack (or fast round-1 products) stays the hard output.
+    turn — the context pack stays the hard output.
     """
 
     return _extract_optional_block(
@@ -341,8 +319,7 @@ def render_preinjected_entries(
 ) -> tuple[str, Dict[str, Any]]:
     """Budget-rendered knowledge entries matched from note keywords, + report.
 
-    Used by research round 1, fast round 1, and (on the text route, which runs
-    no research) the correction windows' ``entry_details`` injection.
+    Used by the preparation task's opening message.
     """
 
     entries, matches = load_preinjected_entries(
@@ -368,7 +345,6 @@ def render_preinjected_entries(
     block = render_knowledge_entries_block(
         entries,
         count_tokens=count_tokens,
-        entry_limit=INJECTION_SECTION_MAX_TOKENS,
         block_limit=injection_block_token_limit(max_entries),
     )
     report.update(block.report())
@@ -376,7 +352,7 @@ def render_preinjected_entries(
     return text_out, report
 
 
-def _dump_research_round_input(
+def _dump_research_input(
     task_artifact_dir: str | Path,
     round_name: str,
     payload: Mapping[str, Any],
@@ -389,565 +365,6 @@ def _dump_research_round_input(
         json.dumps(dict(payload), ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
-
-
-def run_research(
-    *,
-    transcript: str,
-    extra_info: str = "",
-    knowledge_root: str | Path = DEFAULT_KNOWLEDGE_ROOT,
-    client: RoleClient | None = None,
-    search_client: WebSearchClient | None = None,
-    profile: TranslationProfile = DEFAULT_PROFILE,
-    knowledge_enabled: bool = True,
-    test_profile: bool = False,
-    task_artifact_dir: str | Path | None = None,
-    task_id: str = "",
-    max_parse_retries: int = 5,
-    max_search_queries: int = DEFAULT_RESEARCH_SEARCH_QUERIES,
-    search_rounds: int = DEFAULT_RESEARCH_SEARCH_ROUNDS,
-    token_counter: TokenCounter | None = None,
-    collect_task_feedback: bool = False,
-    resume: bool = True,
-    chunk_label: str = "",
-    exchange_logger: "ExchangeLogger | None" = None,
-    checkpoint_store: "SessionCheckpointStore | None" = None,
-) -> Dict[str, Any]:
-    """Run the research rounds this switch vector calls for (docs/llm_harness_behavior.md).
-
-    ``chunk_label`` names this call's slice of a chunked ultra-long-material
-    run (plan W7/P8): it keys the r1/r2 checkpoints, the round-input dumps and
-    the search-loop's exchange prefix so chunks never overwrite each other's
-    resume state. Empty = the whole-transcript run, whose identities are
-    unchanged. Concurrent chunks must share ONE ``exchange_logger`` and ONE
-    ``checkpoint_store`` (both internally locked): separate instances race the
-    exchange numbering and interleave the checkpoint JSONL's appends.
-
-    The skeleton is always *r1 asks -> harness fetches -> r2 digests*, but each
-    half belongs to a different axis, so the vector decides which rounds run at
-    all:
-
-    - ``retrieval=local``  -- r1 emits queries + entry requests, the search loop
-      runs, r2 digests the evidence pack and the entry texts.
-    - ``retrieval=native`` -- r1 only picks entries (skipped without a readable
-      knowledge base); r2 runs with the model's own search tool.
-    - ``retrieval=none``   -- r1 only picks entries, and **r2 is skipped**: with
-      no external input its context pack would be pure self-reasoning presented
-      downstream as evidence, and what it could offer the correction window
-      already has (full window text, preceding context, advice ledger).
-
-    With ``search_rounds > 1`` under ``local``, round 1 emits a Research
-    Contract plus round-0 queries, the multi-round search loop runs up to
-    ``search_rounds`` total search rounds, and round 2 receives the resulting
-    Evidence Pack instead of raw search results. ``search_rounds=1`` keeps the
-    single-round behavior.
-
-    ``collect_task_feedback`` asks round 2 for a trailing
-    ``<task_update_feedback>`` block (schema v2) and persists it as a
-    ``research_task_feedback`` artifact for the unified knowledge update.
-
-    The payload contains the parsed ``context_pack`` plus round outputs and is
-    what gets persisted as ``research-context.json``.
-    """
-
-    client = client or RoleClient(test_profile=test_profile)
-    token_counter = token_counter or default_token_counter(
-        execution_settings=getattr(client, "execution_settings", None)
-    )
-    checkpoint_key = chunk_label or "main"
-    dump_suffix = f"-{chunk_label}" if chunk_label else ""
-    streamer_index = load_index_text(knowledge_root, "streamer") if knowledge_enabled else ""
-    common_index = load_index_text(knowledge_root, "common") if knowledge_enabled else ""
-    token_rows: List[Dict[str, Any]] = []
-    if exchange_logger is None:
-        exchange_logger = ExchangeLogger.for_task_artifact_dir(task_artifact_dir)
-    if checkpoint_store is None:
-        checkpoint_store = SessionCheckpointStore(task_artifact_dir, enabled=resume)
-
-    # --- Round structure for this vector ---
-    local_search = profile.external_injection
-    # Entries are only worth asking for when there is an index to read them off.
-    entries_available = bool(streamer_index.strip() or common_index.strip())
-    run_round2 = profile.retrieval != "none"
-    # r1's only job under none/native is picking entries, so no index means no r1.
-    run_round1 = local_search or entries_available
-    multi_round = local_search and int(search_rounds) > 1
-
-    note_url_extracts = ""
-    note_extract_urls: list[str] = []
-    if extra_info.strip() and local_search:
-        search_client = search_client or WebSearchClient(
-            execution_settings=getattr(client, "execution_settings", None)
-        )
-        note_url_extracts, note_extract_urls, note_extract_results = _render_note_url_extracts(
-            extra_info, search_client, count_tokens=token_counter.count_text
-        )
-        if task_artifact_dir and note_extract_urls:
-            append_task_artifact(
-                task_artifact_dir,
-                kind="api_call",
-                task_id=task_id,
-                payload={
-                    "category": "web_extract",
-                    "source": "extra_info_urls",
-                    "urls": note_extract_urls,
-                    "executed": extract_results_metadata(note_extract_results),
-                    "rendered_tokens": token_counter.count_text(note_url_extracts),
-                },
-            )
-
-    preinjected_entries_text = ""
-    preinjection_report: Dict[str, Any] = {"matches": []}
-    if extra_info.strip() and knowledge_enabled:
-        preinjected_entries_text, preinjection_report = render_preinjected_entries(
-            knowledge_root, extra_info, count_tokens=token_counter.count_text
-        )
-        # Either kind of hit counts: a window can be reached by a sub-entry
-        # (term) match with no entry-level match at all -- measured, that is
-        # 87% of term hits -- and gating the record on `matches` alone means
-        # the prompt carried knowledge the report says nothing about.
-        if task_artifact_dir and (
-            preinjection_report["matches"] or preinjection_report.get("term_matches")
-        ):
-            append_task_artifact(
-                task_artifact_dir,
-                kind="knowledge_preinjection",
-                task_id=task_id,
-                payload={"source": "research_round1", **preinjection_report},
-            )
-
-    content_filter_blacklist = load_content_filter_blacklist(task_artifact_dir)
-    # No per-window query round downstream means R1 is the session's only pick.
-    round1_request_cap = r1_request_cap(downstream_can_request=local_search)
-
-    def _round1_call(extracts_text: str):
-        messages = build_research_round1_messages(
-            transcript=transcript,
-            extra_info=extra_info,
-            note_url_extracts=extracts_text,
-            streamer_index=streamer_index,
-            common_index=common_index,
-            preinjected_entries=preinjected_entries_text,
-            max_search_queries=max_search_queries,
-            use_search_contract=multi_round,
-            emits_queries=local_search,
-            emits_entries=entries_available,
-            emits_notes=run_round2,
-            max_requested_entries=round1_request_cap,
-        )
-        check_research_input_limit(messages, round_name="round 1", counter=token_counter)
-        if task_artifact_dir:
-            _dump_research_round_input(
-                task_artifact_dir,
-                f"round1{dump_suffix}",
-                {
-                    "transcript": transcript,
-                    "extra_info": extra_info,
-                    "note_url_extracts": extracts_text,
-                    "streamer_index": streamer_index,
-                    "common_index": common_index,
-                    "preinjected_entries": preinjected_entries_text,
-                    "max_search_queries": max_search_queries,
-                    "use_search_contract": multi_round,
-                    "emits_queries": local_search,
-                    "emits_entries": entries_available,
-                    "emits_notes": run_round2,
-                    "max_requested_entries": round1_request_cap,
-                },
-            )
-        return _call_and_parse(
-            client,
-            messages,
-            output_scale=profile.output_scale,
-            parser=lambda text: parse_round1_output(
-                text,
-                expect_contract=multi_round,
-                expect_queries=local_search,
-                expect_entries=entries_available,
-                count_tokens=token_counter.count_text,
-            ),
-            round_name="round 1",
-            task_artifact_dir=task_artifact_dir,
-            task_id=task_id,
-            artifact_kind="research_round1_response",
-            max_parse_retries=max_parse_retries,
-            token_rows=token_rows,
-            exchange_logger=exchange_logger,
-            token_counter=token_counter,
-            input_components_kwargs={
-                "transcript": transcript,
-                "note_url_extracts": extracts_text,
-            },
-            checkpoint_store=checkpoint_store,
-            checkpoint_session="research-r1",
-            checkpoint_key=checkpoint_key,
-            kb_read=entries_available,
-        )
-
-    if run_round1:
-        note_extract_block = split_rendered_search_block(note_url_extracts)
-        round1_outcome = run_injection_ladder(
-            block=note_extract_block,
-            call=_round1_call,
-            stage="research_round1",
-            blocked_exception=GeminiPromptBlockedError,
-            blacklist=content_filter_blacklist,
-            task_artifact_dir=task_artifact_dir,
-            task_id=task_id,
-            # No units → one same-prompt retry is still worth trying (filter
-            # can be flaky); with units the ladder skips it (deterministic).
-            plain_retry=not note_extract_block.units,
-        )
-        report_ladder_outcome(round1_outcome, what="research round 1")
-        round1_result = round1_outcome.result
-    else:
-        # Neither half applies: no local search agent to serve queries and no
-        # index to pick entries off. The round would have nothing to ask for.
-        round1_result = ResearchRound1Result()
-
-    # R1 has two distinct channels: request new indexed entries, or keep an
-    # entry that was actually visible in <preinjected_entries>. Each channel
-    # has an independent cap; together they share a 12-entry/token budget, with
-    # keep winning after canonical key resolution. Loop rounds see the selected
-    # entries read-only; round 2 receives the same set.
-    visible_preinjected_keys = [
-        *preinjection_report.get("included", []),
-        *preinjection_report.get("truncated", []),
-    ]
-    (
-        entry_details,
-        missing_entries,
-        ignored_keep_entries,
-        dropped_entry_keys,
-    ) = resolve_round1_entries(
-        knowledge_root,
-        requested_names=round1_result.requested_entries,
-        keep_names=round1_result.keep_entries,
-        visible_keep_keys=visible_preinjected_keys,
-        max_requested_entries=round1_request_cap,
-        max_keep_entries=KB_TRANSFER_MAX_ENTRIES,
-        max_total_entries=KB_WINDOW_TOTAL_ENTRIES,
-    )
-    entry_details_text = ""
-    entry_render_report: Dict[str, Any] = {}
-    if entry_details:
-        entry_block = render_knowledge_entries_block(
-            entry_details,
-            count_tokens=token_counter.count_text,
-            entry_limit=INJECTION_SECTION_MAX_TOKENS,
-            block_limit=injection_block_token_limit(KB_WINDOW_TOTAL_ENTRIES),
-        )
-        entry_details_text = entry_block.text
-        entry_render_report = entry_block.report()
-
-    search_results: List[QuerySearchResult] = []
-    search_loop_metadata: Dict[str, Any] = {}
-    search_results_text = ""
-    search_render_report: Dict[str, Any] = {}
-    source_results_text = ""
-    if multi_round and (round1_result.search_queries or round1_result.research_contract):
-        search_client = search_client or WebSearchClient(
-            execution_settings=getattr(client, "execution_settings", None)
-        )
-        background_parts = [part for part in (extra_info.strip(), round1_result.analysis_notes) if part]
-        loop_result = run_search_loop(
-            contract_body=round1_result.research_contract,
-            round0_queries=round1_result.search_queries,
-            client=client,
-            search_client=search_client,
-            background="\n\n".join(background_parts),
-            max_rounds=int(search_rounds),
-            difficulty=profile.difficulty,
-            round0_query_cap=max_search_queries,
-            followup_query_cap=followup_search_query_limit(max_search_queries),
-            max_parse_retries=max_parse_retries,
-            task_artifact_dir=task_artifact_dir,
-            task_id=task_id,
-            artifact_kind="search_loop_round",
-            exchange_prefix=f"research-search-loop{dump_suffix}",
-            token_rows=token_rows,
-            exchange_logger=exchange_logger,
-            token_counter=token_counter,
-            # None is the loop's own "no entry channel" signal; handing it a
-            # root would let it load the indices the run is meant to ignore.
-            knowledge_root=knowledge_root if knowledge_enabled else None,
-            persistent_entries_text=entry_details_text,
-            persistent_entry_keys=list(entry_details),
-            persistent_requested_entry_names=round1_result.requested_entries,
-            persistent_kept_entry_names=round1_result.keep_entries,
-            content_filter_blacklist=content_filter_blacklist,
-            resume=resume,
-            checkpoint_store=checkpoint_store,
-        )
-        search_results_text = loop_result.evidence_pack
-        source_results_text = loop_result.source_results_text
-        search_loop_metadata = loop_result.to_metadata()
-    elif local_search and round1_result.search_queries:
-        search_client = search_client or WebSearchClient(
-            execution_settings=getattr(client, "execution_settings", None)
-        )
-        search_requests = [
-            SearchRequest(query=query, guided_query=guided)
-            for query, guided in parse_guided_line_items(
-                "\n".join(round1_result.search_queries)
-            )
-        ]
-        search_results = search_client.search_many(
-            search_requests, max_queries=max_search_queries
-        )
-        single_round_block = render_search_results(
-            search_results,
-            max_total_tokens=injection_block_token_limit(max_search_queries),
-            count_tokens=token_counter.count_text,
-        )
-        search_results_text = single_round_block.text
-        source_results_text = single_round_block.text
-        search_render_report = single_round_block.report()
-    if task_artifact_dir and local_search:
-        # Per-query executed metadata for multi-round runs lives in the
-        # per-round ``search_loop_round`` artifacts; this summary must not
-        # duplicate it (the task report counts providers per artifact kind).
-        append_task_artifact(
-            task_artifact_dir,
-            kind="research_search_results",
-            task_id=task_id,
-            payload={
-                "queries": list(round1_result.search_queries),
-                "multi_round": multi_round,
-                "executed": [] if multi_round else search_results_metadata(search_results),
-                "search_loop": (
-                    {
-                        "degraded": search_loop_metadata.get("degraded"),
-                        "search_rounds_executed": search_loop_metadata.get(
-                            "search_rounds_executed"
-                        ),
-                        "executed_queries": search_loop_metadata.get(
-                            "executed_queries", []
-                        ),
-                    }
-                    if multi_round
-                    else {}
-                ),
-                "rendered_tokens": token_counter.count_text(search_results_text),
-                "render_report": search_render_report,
-            },
-        )
-
-    # Pruning is only safe when something downstream can ask an entry back.
-    # Without a per-window query round, a dropped entry is gone for the whole
-    # run, so the harness transfers the full set instead of asking (docs/llm_harness_behavior.md).
-    round2_emits_keep = local_search
-
-    # The parsed tuple loses the call result; the sink keeps the last raw
-    # response so the feedback artifact can carry the harness retrieval
-    # ledger's URLs (report 2026-08-28 §2.3).
-    round2_raw_responses: list[Any] = []
-
-    def _round2_call(search_text: str):
-        # Contaminated Evidence Pack is never re-injected; a rebuilt/reduced
-        # injection is framed as raw search results.
-        use_pack = (
-            multi_round
-            and bool(search_text.strip())
-            and search_text.strip() == search_results_text.strip()
-        )
-        round2_messages = build_research_round2_messages(
-            transcript=transcript,
-            extra_info=extra_info,
-            round1_notes=round1_result.analysis_notes,
-            entry_details_text=entry_details_text,
-            search_results=search_text,
-            use_evidence_pack=use_pack,
-            collect_task_feedback=collect_task_feedback,
-            native_search=profile.native_search,
-            emits_keep=round2_emits_keep,
-        )
-        check_research_input_limit(
-            round2_messages, round_name="round 2", counter=token_counter
-        )
-        if task_artifact_dir:
-            _dump_research_round_input(
-                task_artifact_dir,
-                f"round2{dump_suffix}",
-                {
-                    "transcript": transcript,
-                    "extra_info": extra_info,
-                    "round1_notes": round1_result.analysis_notes,
-                    "entry_details_text": entry_details_text,
-                    "search_results": search_text,
-                    "use_evidence_pack": use_pack,
-                    "collect_task_feedback": collect_task_feedback,
-                    "native_search": profile.native_search,
-                    "emits_keep": round2_emits_keep,
-                },
-            )
-        return _call_and_parse(
-            client,
-            round2_messages,
-            output_scale=profile.output_scale,
-            parser=lambda text: (
-                parse_round2_output(text),
-                extract_round_task_feedback(
-                    text, count_tokens=token_counter.count_text
-                )
-                if collect_task_feedback
-                else "",
-                parse_line_items(
-                    extract_single_tag_block(text, "keep_entries", required=False)
-                ),
-            ),
-            round_name="round 2",
-            task_artifact_dir=task_artifact_dir,
-            task_id=task_id,
-            artifact_kind="research_round2_response",
-            max_parse_retries=max_parse_retries,
-            token_rows=token_rows,
-            exchange_logger=exchange_logger,
-            token_counter=token_counter,
-            input_components_kwargs={
-                "transcript": transcript,
-                "search_results": search_text,
-            },
-            checkpoint_store=checkpoint_store,
-            checkpoint_session="research-r2",
-            checkpoint_key=checkpoint_key,
-            retrieval=profile.retrieval,
-            kb_read=entries_available,
-            raw_response_sink=round2_raw_responses,
-        )
-
-    # Evidence Pack is opaque (no per-URL surgery). On block, rebuild from the
-    # persisted source units — never re-inject the contaminated pack text.
-    if not run_round2:
-        # retrieval=none: nothing was fetched, so R2 would be pure
-        # self-reasoning served downstream as evidence. Entries still flow.
-        context_pack = ContextPack()
-        round2_task_feedback = ""
-        round2_keep_raw: list[str] = []
-    elif multi_round and search_results_text.strip():
-        try:
-            context_pack, round2_task_feedback, round2_keep_raw = _round2_call(
-                search_results_text
-            )
-        except GeminiPromptBlockedError:
-            current_reporter().warning(
-                "content-filter-pack-discarded",
-                "research round 2 prompt was blocked by the content filter "
-                "with the Evidence Pack; rebuilding from source search units",
-                impact="被污染的证据包整个丢弃",
-            )
-            source_block = split_rendered_search_block(source_results_text)
-            round2_outcome = run_injection_ladder(
-                block=source_block,
-                call=_round2_call,
-                stage="research_round2",
-                blocked_exception=GeminiPromptBlockedError,
-                blacklist=content_filter_blacklist,
-                task_artifact_dir=task_artifact_dir,
-                task_id=task_id,
-            )
-            report_ladder_outcome(round2_outcome, what="research round 2")
-            context_pack, round2_task_feedback, round2_keep_raw = round2_outcome.result
-    else:
-        search_block = split_rendered_search_block(search_results_text)
-        round2_outcome = run_injection_ladder(
-            block=search_block,
-            call=_round2_call,
-            stage="research_round2",
-            blocked_exception=GeminiPromptBlockedError,
-            blacklist=content_filter_blacklist,
-            task_artifact_dir=task_artifact_dir,
-            task_id=task_id,
-            plain_retry=not search_block.units,
-        )
-        report_ladder_outcome(round2_outcome, what="research round 2")
-        context_pack, round2_task_feedback, round2_keep_raw = round2_outcome.result
-
-    if collect_task_feedback and round2_task_feedback and task_artifact_dir:
-        from .knowledge.feedback import retrieval_urls_from_response
-
-        append_task_artifact(
-            task_artifact_dir,
-            kind="research_task_feedback",
-            task_id=task_id,
-            payload={
-                "source": "research_round2",
-                "feedback": round2_task_feedback,
-                "retrieval_urls": list(
-                    retrieval_urls_from_response(
-                        round2_raw_responses[-1] if round2_raw_responses else None
-                    )
-                ),
-            },
-        )
-
-    token_report = {
-        "phase": "research",
-        "rows": token_rows,
-        "totals": sum_token_distributions(row["tokens"] for row in token_rows),
-    }
-    if task_artifact_dir:
-        append_task_artifact(
-            task_artifact_dir,
-            kind="token_distribution_report",
-            task_id=task_id,
-            payload=token_report,
-        )
-
-    # v17 pass-through: the entries seeding the first correction window's
-    # transfer chain. With a query round downstream, R2 prunes to at most
-    # KB_TRANSFER_MAX_ENTRIES of what it was shown (canonicalized against the
-    # actually-injected set); without one, pruning would be permanent, so the
-    # harness transfers everything under the shared window total (docs/llm_harness_behavior.md).
-    if round2_emits_keep:
-        keep_found, _keep_missing = load_entry_texts(knowledge_root, round2_keep_raw)
-        keep_entries = [key for key in keep_found if key in entry_details][
-            :KB_TRANSFER_MAX_ENTRIES
-        ]
-    else:
-        keep_entries = sorted(entry_details)[:KB_WINDOW_TOTAL_ENTRIES]
-
-    return {
-        "context_pack": context_pack.to_dict(),
-        "keep_entries": keep_entries,
-        "rounds": {
-            "round1": run_round1,
-            "round2": run_round2,
-            "local_search": local_search,
-            "native_search": profile.native_search,
-            "entries_available": entries_available,
-        },
-        "task_update_feedback": round2_task_feedback,
-        "round1": {
-            "requested_entries": list(round1_result.requested_entries),
-            "keep_entries": list(round1_result.keep_entries),
-            "search_queries": list(round1_result.search_queries),
-            "analysis_notes": round1_result.analysis_notes,
-            "research_contract": round1_result.research_contract,
-        },
-        "search_results": search_results_metadata(search_results),
-        "search_loop": search_loop_metadata,
-        "injected_entries": sorted(entry_details),
-        "missing_entries": missing_entries,
-        "ignored_keep_entries": ignored_keep_entries,
-        "dropped_entry_keys": dropped_entry_keys,
-        # Whether R1's ceiling actually bound, recorded next to the ceiling that
-        # was in force. The §9 recall question ("does a session-level pick miss
-        # what per-window rounds would have caught") is only answerable on runs
-        # where it did not bind -- otherwise the measurement reads the cap, not
-        # R1's judgment -- and the cap has changed once already.
-        "entry_selection": {
-            "request_cap": round1_request_cap,
-            "requested_count": len(round1_result.requested_entries),
-            "hit_cap": len(round1_result.requested_entries) >= round1_request_cap,
-            "dropped_by_cap": len(dropped_entry_keys),
-            "indexed_entry_count": (
-                count_indexed_entries(knowledge_root) if knowledge_enabled else 0
-            ),
-        },
-        "entry_render_report": entry_render_report,
-        "token_report": token_report,
-    }
 
 
 # Backends whose event stream carries no result URLs at all, so an unmarked
@@ -979,7 +396,16 @@ def _mark_unverified_sources(parsed: Any, execution_attempts: Any) -> Any:
     """
 
     if not isinstance(parsed, ContextPack):
-        return parsed
+        # The preparation task's parser wraps the pack in its own reply type
+        # (delivery or request batch); mark inside and hand the wrapper back,
+        # or a native run would ship the model's self-reported `verified=true`
+        # untouched. Anything else -- a request turn, another session's parse
+        # result -- has no pack and passes through.
+        inner = getattr(parsed, "context_pack", None)
+        if not isinstance(inner, ContextPack):
+            return parsed
+        marked = _mark_unverified_sources(inner, execution_attempts)
+        return parsed if marked is inner else dataclass_replace(parsed, context_pack=marked)
     general = dict(parsed.general_context or {})
     sources = general.get("sources")
     if not isinstance(sources, list) or not sources:
@@ -1034,17 +460,19 @@ def _call_and_parse(
     # here cannot truncate anything -- it only decides which candidates are
     # judged to fit (owner 2026-09-04).
     output_scale: float = 1.0,
-    # v2 cell routing (plan §6): research rounds default to their own task
-    # group; the fast fusion round passes correction-mm/-text (or research
-    # when text-only) explicitly.
+    # v2 cell routing (plan §6): the preparation task runs on its own task
+    # group.
     task_group: str = "research",
     difficulty: str = "",
-    # §4.3 authorization matrix: the research/fast rounds that read the
-    # knowledge base grant the read-only kb tools; judges and other sessions
-    # leave it off and the tools never attach. ``kb_signal_window`` names the
-    # window this call serves in the exposure ledger (fast is a per-window
-    # consumer; research rounds are task-wide and leave it empty).
-    kb_read: bool = False,
+    # §4.3 authorization matrix: a preparation turn that reads the knowledge
+    # base grants the read-only kb tools (``kb_tools="read"``); one that only
+    # has `--style auto` candidates to look at gets the narrow ``"style"``
+    # grant, whose root and revision ride in ``kb_binding`` (no generation
+    # pin to borrow them from); other sessions leave it off and the tools
+    # never attach. ``kb_signal_window`` names the window this call serves in
+    # the exposure ledger (the task-wide preparation leaves it empty).
+    kb_tools: str = "",
+    kb_binding: Mapping[str, str] | None = None,
     kb_signal_window: str = "",
     # The parsed return value drops the LLMCallResult; a caller that needs the
     # raw response afterwards (retrieval-ledger URL backfill) passes a list to
@@ -1119,11 +547,12 @@ def _call_and_parse(
                 difficulty=difficulty,
                 agent_task_extras=(
                     {
-                        "kb_tools": "read",
+                        "kb_tools": kb_tools,
+                        **dict(kb_binding or {}),
                         "kb_signal_task": task_id,
                         **({"kb_signal_window": kb_signal_window} if kb_signal_window else {}),
                     }
-                    if kb_read
+                    if kb_tools
                     else None
                 ),
                 **validation_retry_sampling_kwargs(attempt),
@@ -1375,7 +804,7 @@ def count_indexed_entries(knowledge_root: str | Path) -> int:
 
     return sum(
         len(load_index_entries(knowledge_root, category))
-        for category in ("streamer", "common")
+        for category in MATCHABLE_CATEGORIES
     )
 
 
@@ -1386,30 +815,7 @@ def knowledge_index_available(
 
     if not knowledge_enabled:
         return False
-    return bool(
-        load_index_text(knowledge_root, "streamer").strip()
-        or load_index_text(knowledge_root, "common").strip()
-    )
-
-
-def research_stage_runs(
-    profile: TranslationProfile,
-    *,
-    knowledge_root: str | Path = DEFAULT_KNOWLEDGE_ROOT,
-    knowledge_enabled: bool = True,
-) -> bool:
-    """Whether the research stage has any round to run for this vector.
-
-    ``local``/``native`` always run r2 (evidence pack / native search). Under
-    ``none`` only r1 can run, and only to pick entries -- with no index to read,
-    the whole stage is skipped and the correction windows start cold.
-    """
-
-    if profile.retrieval != "none":
-        return True
-    return knowledge_index_available(
-        knowledge_root, knowledge_enabled=knowledge_enabled
-    )
+    return index_texts_present(load_index_texts(knowledge_root))
 
 
 def research_knowledge_inputs_hash(
@@ -1430,8 +836,7 @@ def research_knowledge_inputs_hash(
         knowledge_root, extra_info, exclude_subjects=[match.key for match in matches]
     )
     payload = {
-        "streamer_index": load_index_text(knowledge_root, "streamer"),
-        "common_index": load_index_text(knowledge_root, "common"),
+        "knowledge_indexes": load_index_texts(knowledge_root),
         "preinjected_entries": preinjected,
         "preinjected_terms": [match.to_dict() for match in terms],
     }
@@ -1447,7 +852,6 @@ def planning_metadata(
     extra_info: str = "",
     knowledge_root: str | Path = DEFAULT_KNOWLEDGE_ROOT,
     knowledge_enabled: bool = True,
-    search_rounds: int = DEFAULT_RESEARCH_SEARCH_ROUNDS,
     collect_task_feedback: bool = False,
     audio_duration: float | None = None,
     max_window_subtitle_tokens: int | None = None,
@@ -1470,7 +874,6 @@ def planning_metadata(
     from .routing.execution_policy import execution_identity
 
     source_path = Path(stable_json).expanduser()
-    effective_rounds = int(search_rounds) if profile.external_injection else 0
     return {
         **plan_geometry_metadata(
             profile,
@@ -1488,9 +891,8 @@ def planning_metadata(
         # to stop burning.
         #
         # ``planning_profile_id`` is audit-only too: it still carries
-        # ``correction_media`` (geometry) and ``planning_media`` (the *query*
-        # round's clip), neither of which the research rounds read. The narrower
-        # ``research_semantics_id`` is the gate.
+        # ``correction_media`` (geometry), which the preparation task does
+        # not read. The narrower ``research_semantics_id`` is the gate.
         "profile_id": profile.profile_id,
         "planning_profile_id": dataclass_replace(
             profile, continuity="serial", difficulty="quality"
@@ -1505,7 +907,6 @@ def planning_metadata(
         if knowledge_enabled
         else "",
         "knowledge_enabled": bool(knowledge_enabled),
-        "search_rounds": effective_rounds,
         "collect_task_feedback": bool(collect_task_feedback),
         # A gate at both L2 and L3: a smoke run and a real run must not mix
         # their artifacts in either direction. (Absent here until 2026-08-12,
@@ -1519,18 +920,16 @@ def planning_metadata(
 
 # What a persisted research context is compared on (L3). Window geometry is
 # deliberately absent: interval-addressed notes remap onto any later correction
-# plan. What remains is the source, the output contract, and the three knobs a
+# plan. What remains is the source, the output contract, and the two knobs a
 # user turns *at this artifact* -- reusing it past those would ignore a request.
 #
-#   research_semantics_id  = retrieval. The only thing separating a context that
-#                            never searched from a run asking for `native`:
-#                            ``external_injection`` is true for `local` alone,
-#                            so both leave ``search_rounds`` at 0.
+#   research_semantics_id  = retrieval: what the preparation task was allowed
+#                            to fetch (nothing / the local agent / its own
+#                            search), which its product depends on.
 RESEARCH_REUSE_GATES = (
     "stable_json_hash",
     "prompt_version",
     "extra_info_hash",
-    "search_rounds",
     "test_profile",
     "research_semantics_id",
 )
@@ -1565,12 +964,11 @@ def research_reuse_key(planning: Mapping[str, Any]) -> dict:
 
 # --- chunked research for ultra-long material (task-parallelism plan W7 / P8) ---
 
-#: Transcript size past which the research phase splits into chunks, each
-#: running the full r1 + search loop + r2. Owner decision 2026-08-30: default
-#: ON at 100k tokens; ``[chunking] research_transcript_max_tokens`` overrides,
-#: 0 disables (single-shot regardless of size). Below the gate the current
-#: single-call path runs unchanged.
-DEFAULT_RESEARCH_TRANSCRIPT_MAX_TOKENS = 100_000
+# Transcript size past which the research phase splits into chunks, each
+# running the full r1 + search loop + r2: `settings.RESEARCH_TRANSCRIPT_MAX_TOKENS`
+# (`[chunking] research_transcript_max_tokens`). Owner decision 2026-08-30:
+# default ON at 100k tokens; 0 disables (single-shot regardless of size).
+# Below the gate the current single-call path runs unchanged.
 
 #: The merged general block's own ceiling. Deliberately NOT
 #: ``injection_block_token_limit`` -- that budget is sized for knowledge entry
@@ -1584,27 +982,6 @@ MERGED_RESEARCH_GENERAL_NOTE = (
     "若不同段对同一专名/称呼给出不同写法，优先采用证据更充分（有来源、出现次数多）的一段的结论，"
     "并在该行的 note 中标注存在分歧。"
 )
-
-
-def resolve_research_transcript_cap() -> int:
-    """``[chunking] research_transcript_max_tokens`` (0 disables chunking)."""
-
-    from .routing.api_keys import read_config
-
-    data = read_config()
-    section = data.get("chunking") if isinstance(data, Mapping) else None
-    raw = section.get("research_transcript_max_tokens") if isinstance(section, Mapping) else None
-    if raw is None:
-        return DEFAULT_RESEARCH_TRANSCRIPT_MAX_TOKENS
-    try:
-        value = int(raw)
-    except (TypeError, ValueError):
-        raise ValueError(
-            "[chunking] research_transcript_max_tokens must be an integer"
-        ) from None
-    if value < 0:
-        raise ValueError("[chunking] research_transcript_max_tokens must be >= 0")
-    return value
 
 
 def plan_research_chunks(
@@ -1668,7 +1045,9 @@ def merge_research_general_contexts(
     dropped: list[str] = []
     while (
         len([key for key in merged if key != "合并说明"]) > 1
-        and count_tokens(json.dumps(merged, ensure_ascii=False)) > max_tokens
+        # Counted as the correction reads it (`ContextPack.general_prompt_text` leaves the judge's
+        # `speakers` out), so turning the judge on never drops a chunk the correction would have kept.
+        and count_tokens(json.dumps(general_for_correction(merged), ensure_ascii=False)) > max_tokens
     ):
         last = sorted(key for key in merged if key != "合并说明")[-1]
         merged.pop(last)
@@ -1683,6 +1062,26 @@ def merge_research_general_contexts(
     return merged
 
 
+def _windows_keep_cap(
+    profile: TranslationProfile,
+    knowledge_root: str | Path,
+    *,
+    knowledge_enabled: bool,
+) -> int:
+    """How many kept keys the assembled pack hands the windows: the windows'
+    answer, not the preparation task's -- a pruned reserve only where a later
+    window can ask for a dropped entry back (`task_graph.window_flow`)."""
+
+    from .stages.task_graph import window_requests
+
+    readable = knowledge_index_available(knowledge_root, knowledge_enabled=knowledge_enabled)
+    return (
+        KB_TRANSFER_MAX_ENTRIES
+        if window_requests(profile, knowledge_readable=readable)
+        else KB_WINDOW_TOTAL_ENTRIES
+    )
+
+
 def _run_chunked_research(
     chunk_plan: Sequence[Sequence[SubtitleWindow]],
     *,
@@ -1695,17 +1094,18 @@ def _run_chunked_research(
     test_profile: bool,
     task_artifact_dir: str | Path | None,
     task_id: str,
-    search_rounds: int,
     token_counter: TokenCounter,
     collect_task_feedback: bool,
     resume: bool,
     client: RoleClient,
     transcript_cap: int,
     parallel_windows: int = 1,
+    research_runner: Callable[..., Dict[str, Any]],
+    research_runner_kwargs: Mapping[str, Any] | None = None,
 ) -> Dict[str, Any]:
     """Run research per chunk and assemble one payload (plan W7 / P8).
 
-    Every chunk runs the complete r1 + search loop + r2 over its own slice of
+    Every chunk runs the complete preparation task over its own slice of
     the transcript and lands in its own ``<context>-<chunk>.json`` (the resume
     unit: a rerun replays finished chunks off their input hash). Only after
     every chunk is done is the final pack assembled -- correction never starts
@@ -1715,8 +1115,8 @@ def _run_chunked_research(
     2026-08-12, so this is comparability, not cache identity).
 
     Chunks are independent, so under ``continuity=parallel`` they fan out --
-    each chunk rides ONE worker (= one lane: its r1, judge rounds and r2 share
-    that lane's conversation and prefix cache), chunks spread across workers,
+    each chunk rides ONE worker (= one lane: its turns share that lane's
+    conversation and prefix cache), chunks spread across workers,
     and the fan-out is bounded by ``parallel_windows`` and the task's
     ``claim_cap`` like any other intra-task parallel face (plan W4). The
     per-artifact-dir writers are shared single instances -- the exchange
@@ -1727,6 +1127,14 @@ def _run_chunked_research(
     """
 
     from .run_context import current_task_account
+
+    # `--style auto` on an over-long material (auto-style-gaps plan B, owner
+    # 2026-10-01: votes, overturning auto-style §5's "no majority vote"): every
+    # chunk's preparation task sees the catalog and picks under the forced-pick
+    # contract; each pick is that chunk's vote, tallied below.
+    chunk_runner_kwargs = dict(research_runner_kwargs or {})
+    style_catalog = chunk_runner_kwargs.get("style_catalog")
+    auto_style = bool(style_catalog)
 
     def _research_routes_to_conversational(role_client: RoleClient) -> bool:
         """Does the research cell land on a person's own agent?
@@ -1799,7 +1207,6 @@ def _run_chunked_research(
                     "prompt_version": PROMPT_VERSION,
                     "test_profile": bool(test_profile),
                     "research_semantics_id": profile.retrieval,
-                    "search_rounds": int(search_rounds) if profile.external_injection else 0,
                 },
                 ensure_ascii=False,
                 sort_keys=True,
@@ -1816,9 +1223,18 @@ def _run_chunked_research(
                 saved = None
             if isinstance(saved, dict) and saved.get("chunk_input_hash") == chunk_input_hash:
                 payload = saved
+            if payload is not None and auto_style and not isinstance(
+                payload.get("style_selection"), Mapping
+            ):
+                # A chunk finished before it carried a vote (or under a run
+                # without `--style auto`): replaying it would drop its vote, so
+                # this one chunk runs again -- the shape change that loses data
+                # (README_DEV 复用的依据是任务身份).
+                payload = None
         replayed = payload is not None
         if payload is None:
-            payload = run_research(
+            payload = research_runner(
+                **chunk_runner_kwargs,
                 transcript=chunk_transcript,
                 extra_info=extra_info,
                 knowledge_root=knowledge_root,
@@ -1829,7 +1245,6 @@ def _run_chunked_research(
                 task_artifact_dir=task_artifact_dir,
                 task_id=task_id,
                 max_search_queries=research_search_query_limit(chunk_segment_count),
-                search_rounds=search_rounds,
                 token_counter=token_counter,
                 collect_task_feedback=collect_task_feedback,
                 resume=resume,
@@ -1922,9 +1337,21 @@ def _run_chunked_research(
         ),
         window_contexts=tuple(merged_notes),
     )
-    keep_cap = (
-        KB_TRANSFER_MAX_ENTRIES if profile.external_injection else KB_WINDOW_TOTAL_ENTRIES
-    )
+    keep_cap = _windows_keep_cap(profile, knowledge_root, knowledge_enabled=knowledge_enabled)
+    style_choice = None
+    if auto_style:
+        from .knowledge.style import StyleChoice, style_vote_facts, tally_style_votes
+
+        # Each chunk's pick already passed that chunk's own delivery check
+        # (the forced-pick contract), so there is no invalid name to handle.
+        style_choice = tally_style_votes(
+            [
+                (outcome["record"]["chunk_id"], StyleChoice.from_dict(outcome["payload"]["style_selection"]))
+                for outcome in outcomes
+            ],
+            style_catalog,
+            style_vote_facts(knowledge_root, style_catalog),
+        )
     if task_artifact_dir:
         append_task_artifact(
             task_artifact_dir,
@@ -1940,6 +1367,9 @@ def _run_chunked_research(
         "context_pack": merged_pack.to_dict(),
         "keep_entries": list(dict.fromkeys(keep_union))[:keep_cap],
         "rounds": dict(rounds_meta),
+        # `--style auto` on chunked material: the tallied votes, persisted in
+        # the same place a single preparation task puts its pick.
+        **({"style_selection": style_choice.to_dict()} if style_choice is not None else {}),
         "research_chunks": chunk_records,
         "chunking": {"research_transcript_max_tokens": transcript_cap},
         "injected_entries": sorted(set(injected_union)),
@@ -1959,7 +1389,6 @@ def run_research_stage(
     extra_info: str = "",
     knowledge_root: str | Path = DEFAULT_KNOWLEDGE_ROOT,
     knowledge_enabled: bool = True,
-    search_rounds: int,
     test_profile: bool = False,
     task_artifact_dir: str | Path | None = None,
     task_id: str = "",
@@ -1969,10 +1398,13 @@ def run_research_stage(
     resume: bool = True,
     max_window_subtitle_tokens: int | None = None,
     parallel_windows: int = 1,
+    # Extra inputs of the preparation task (`--style auto`'s catalog and the
+    # user's own style requirements).
+    runner_kwargs: Mapping[str, Any] | None = None,
 ) -> ContextPack:
-    """Plan the correction windows, run both research rounds, persist the
+    """Plan the correction windows, run the preparation task, persist the
     research context JSON next to the output, and return the ContextPack.
-    Both the CLI and run_full_correction go through here.
+    ``correction_translation.run_correction_task`` is the caller.
 
     ``parallel_windows`` is the task's intra-task willingness knob
     (``--llm-parallel-windows``); under ``continuity=parallel`` it also bounds
@@ -2008,17 +1440,23 @@ def run_research_stage(
         )
     context_file = Path(context_path)
     # Ultra-long material splits into transcript chunks of whole windows, each
-    # running the full r1 + search-loop + r2 (plan W7 / P8) -- chunking only
-    # r2 would leave an equally oversized r1 blind on retrieval topics.
+    # running the whole preparation task (plan W7 / P8).
     # ``retrieval=native`` never enters this path.
     transcript_cap = (
-        resolve_research_transcript_cap() if profile.retrieval != "native" else 0
+        settings.RESEARCH_TRANSCRIPT_MAX_TOKENS.resolve() if profile.retrieval != "native" else 0
     )
     chunk_plan = plan_research_chunks(
         windows, count_tokens=token_counter.count_text, max_tokens=transcript_cap
     )
+    # The preparation task (docs/llm_harness_research.md, 「准备任务」) runs
+    # as one logical conversation; local import: stages imports this module.
+    from .stages.prepare_task import run_prepare_task
+
+    research_runner = run_prepare_task
+    research_runner_kwargs: Dict[str, Any] = dict(runner_kwargs or {})
     if len(chunk_plan) <= 1:
-        research_payload = run_research(
+        research_payload = research_runner(
+            **research_runner_kwargs,
             transcript=render_research_transcript(segments, windows),
             extra_info=extra_info,
             knowledge_root=knowledge_root,
@@ -2028,7 +1466,6 @@ def run_research_stage(
             task_artifact_dir=task_artifact_dir,
             task_id=task_id,
             max_search_queries=research_search_query_limit(len(segments)),
-            search_rounds=search_rounds,
             token_counter=token_counter,
             collect_task_feedback=collect_task_feedback,
             resume=resume,
@@ -2046,13 +1483,14 @@ def run_research_stage(
             test_profile=test_profile,
             task_artifact_dir=task_artifact_dir,
             task_id=task_id,
-            search_rounds=search_rounds,
             token_counter=token_counter,
             collect_task_feedback=collect_task_feedback,
             resume=resume,
             client=stage_client,
             transcript_cap=transcript_cap,
             parallel_windows=parallel_windows,
+            research_runner=research_runner,
+            research_runner_kwargs=research_runner_kwargs,
         )
     # The model names the research windows, while the harness owns their exact
     # source-id coverage. Persist both so later correction geometry changes do
@@ -2069,11 +1507,10 @@ def run_research_stage(
         research_payload["window_context_bind_report"] = bind_report
         current_reporter().warning(
             "research-notes-unplaceable",
-            "research round 2 named "
+            "the preparation task named "
             f"{len(bind_report['unplaceable_window_ids'])} window(s) that are "
             f"not in the plan ({', '.join(bind_report['unplaceable_window_ids'])})",
             impact=f"这些笔记被丢弃，剩余 {bind_report['bound']} 条",
-            file=sys.stderr,
         )
     research_payload["planning"] = planning_metadata(
         profile,
@@ -2081,7 +1518,6 @@ def run_research_stage(
         extra_info=extra_info,
         knowledge_root=knowledge_root,
         knowledge_enabled=knowledge_enabled,
-        search_rounds=search_rounds,
         collect_task_feedback=collect_task_feedback,
         audio_duration=audio_duration,
         max_window_subtitle_tokens=max_window_subtitle_tokens,

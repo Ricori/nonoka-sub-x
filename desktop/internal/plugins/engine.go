@@ -662,6 +662,13 @@ func correctionPayload(correction EngineCorrection) (map[string]any, error) {
 	if fast == "on" {
 		fast = "auto"
 	}
+	// The engine's three tiers. "speed" was accepted here but is no value the
+	// engine knows, so a plugin that sent it failed at run time; it now means
+	// the cheapest tier, which is what it asked for.
+	difficulty := correction.Difficulty
+	if difficulty == "speed" {
+		difficulty = "efficiency"
+	}
 	for _, field := range []struct {
 		name    string
 		value   string
@@ -669,7 +676,7 @@ func correctionPayload(correction EngineCorrection) (map[string]any, error) {
 	}{
 		{"media", correction.Media, []string{"text", "audio", "video"}},
 		{"retrieval", correction.Retrieval, []string{"none", "local", "native"}},
-		{"difficulty", correction.Difficulty, []string{"quality", "speed"}},
+		{"difficulty", difficulty, []string{"quality", "intermediate", "efficiency"}},
 		{"fast", fast, []string{"auto", "off"}},
 	} {
 		if field.value == "" {

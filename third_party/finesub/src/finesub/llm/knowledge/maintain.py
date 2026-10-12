@@ -23,10 +23,10 @@ from .base import knowledge_root_path, knowledge_write_lock
 from .node.edit import EditError, edit_subject
 from .node.envelope import Envelope
 from .node.history import RevertError, restore_node, revert_revision
-from .node.model import CATEGORIES
+from .node.presets import CATEGORIES
 from .node.proposals import translate_model_proposals
 from .node.apply import apply_envelope
-from .node.repo import AmbiguousName, KnowledgeRepo
+from .node.repo import AmbiguousName, KnowledgeRepo, rendered_file_name
 from .node.store import NotFoundError
 
 _Lines = list[str]
@@ -133,7 +133,8 @@ def _cmd_edit(args: argparse.Namespace) -> _Lines:
     else:
         current = repo.entry_text(resolved.subject_id)
         with tempfile.TemporaryDirectory(prefix="finesub-kb-edit-") as tmp:
-            scratch = Path(tmp) / f"{resolved.key}.md"
+            # The same file name `rendered/` gives the entry, and for the same reasons.
+            scratch = Path(tmp) / rendered_file_name(subject)
             scratch.write_text(current, encoding="utf-8")
             _spawn_editor(scratch)
             new_text = scratch.read_text(encoding="utf-8")
@@ -181,6 +182,45 @@ def _cmd_retire(args: argparse.Namespace) -> _Lines:
             )
         proposal["merged_into"] = target.key
     return _apply_user_proposal(repo, proposal, f"cli:retire:{resolved.key}")
+
+
+def _cmd_split(args: argparse.Namespace) -> _Lines:
+    """One section of an entry into a sub-entry `母·节` -- the same engine
+    operation the knowledge update proposes (`split_entry`). Across files in
+    `rendered/` a move can only be written as delete-and-recreate, which
+    would mint new lines; this keeps them."""
+
+    repo = _repo(args)
+    resolved = _resolve_subject(repo, args.entry)
+    proposal = {
+        "op": "split_entry", "entry": resolved.key, "section": args.section,
+        "intro": args.intro, "reason": args.reason or "cli",
+    }
+    return _apply_user_proposal(repo, proposal, f"cli:split:{resolved.key}/{args.section}")
+
+
+def _cmd_ack(args: argparse.Namespace) -> _Lines:
+    """Accept what the model made of human-edited lines: the current value of
+    one marked line (or of every marked line of the entry) becomes the
+    human-endorsed one, and its mark goes away (owner 2026-10-01)."""
+
+    from .node.human_marks import AckError, ack_lines, describe
+
+    repo = _repo(args)
+    resolved = _resolve_subject(repo, args.entry)
+    try:
+        acked = ack_lines(repo.store, resolved.subject_id, args.line)
+    except AckError as exc:
+        raise SystemExit(f"error: {exc}") from exc
+    if not acked:
+        return [f"{resolved.key}: no marked lines"]
+    repo.refresh_rendered()
+    lines = [f"{resolved.key}: acked {len(acked)} line(s)"]
+    lines.extend(
+        f"  {mark.line_id}  " + ("（已删除）" if mark.gone else describe(mark, mark.current))
+        for mark in acked
+    )
+    return lines
 
 
 def _cmd_revert(args: argparse.Namespace) -> _Lines:
@@ -419,11 +459,13 @@ def _cmd_ingest(args: argparse.Namespace) -> _Lines:
 # ``verify`` is deliberately NOT here: it only inserts evidence rows, which
 # are lock-free telemetry by design (busy_timeout), and holding the write
 # lock through a web-search session would block real writers for minutes.
-_MUTATING = {"edit", "new", "retire", "revert", "restore", "phase-b", "repair",
+_MUTATING = {"edit", "new", "retire", "split", "ack", "revert", "restore", "phase-b", "repair",
              "candidates", "ingest"}
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    from ..routing.model_routes import add_routing_arguments
+
     parser = argparse.ArgumentParser(
         prog="python -m finesub.llm.knowledge",
         description="Human maintenance for the knowledge store (SQLite truth, rendered/ cache).",
@@ -459,6 +501,26 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     retire.add_argument("--reason")
     retire.set_defaults(func=_cmd_retire)
 
+    split = sub.add_parser(
+        "split", help="split one section of an entry off into a sub-entry 「条目·节名」",
+    )
+    split.add_argument("entry")
+    split.add_argument("section")
+    split.add_argument("--intro", required=True, help="the sub-entry's one-line intro")
+    split.add_argument("--reason")
+    split.set_defaults(func=_cmd_split)
+
+    ack = sub.add_parser(
+        "ack",
+        help="accept the current value of human-edited lines the model changed (clears their marks)",
+    )
+    ack.add_argument("entry")
+    ack.add_argument(
+        "line", nargs="?", default=None,
+        help="the id a mark shows (行 … / 条目头 …); omit to ack every mark of the entry",
+    )
+    ack.set_defaults(func=_cmd_ack)
+
     revert = sub.add_parser("revert", help="compensating transaction undoing one revision")
     revert.add_argument("rev", type=int)
     revert.set_defaults(func=_cmd_revert)
@@ -493,8 +555,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     verify.add_argument("--limit", type=int, default=20)
     verify.add_argument("--execute", action="store_true", help="run the native-search session (spends quota)")
-    verify.add_argument("--llm-model", dest="llm_model", action="append", metavar="[TASKGROUP=]VALUE",
-                        help="runtime routing override（可重复；值=模型组或 route target，整体换绑无回退；裸值=default）；仅本进程，config.toml 不动")
+    add_routing_arguments(verify)
     verify.add_argument("--apply", action="store_true", help="book the session's evidence rows")
     verify.add_argument("--task-id", default="kb-verify")
     verify.set_defaults(func=_cmd_verify)
@@ -505,8 +566,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     repair.add_argument("--subject", help="restrict to one entry")
     repair.add_argument("--execute", action="store_true", help="run the repair session (spends quota)")
-    repair.add_argument("--llm-model", dest="llm_model", action="append", metavar="[TASKGROUP=]VALUE",
-                        help="runtime routing override（可重复；值=模型组或 route target，整体换绑无回退；裸值=default）；仅本进程，config.toml 不动")
+    add_routing_arguments(repair)
     repair.add_argument("--apply", action="store_true", help="apply the proposals through validate→apply")
     repair.set_defaults(func=_cmd_repair)
 
@@ -523,8 +583,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="what you want out of it; steers WHAT is picked up, never the recording standard",
     )
     ingest.add_argument("--execute", action="store_true", help="run the session (spends quota)")
-    ingest.add_argument("--llm-model", dest="llm_model", action="append", metavar="[TASKGROUP=]VALUE",
-                        help="runtime routing override（可重复；值=模型组或 route target，整体换绑无回退；裸值=default）；仅本进程，config.toml 不动")
+    add_routing_arguments(ingest)
     ingest.add_argument("--apply", action="store_true", help="apply the proposals through validate→apply")
     ingest.set_defaults(func=_cmd_ingest)
 
@@ -554,9 +613,9 @@ def _main(argv: list[str] | None) -> int:
     # commands without --llm-model pass an empty table, which CLEARS any
     # override a previous in-interpreter invocation installed — the lifecycle
     # rule every entry point follows.
-    from ..routing.model_routes import install_runtime_preferred, parse_llm_model_args
+    from ..routing.model_routes import install_runtime_routing
 
-    install_runtime_preferred(parse_llm_model_args(getattr(args, "llm_model", None)))
+    install_runtime_routing(args)
     handler: Callable[[argparse.Namespace], _Lines] = args.func
     try:
         if args.command in _MUTATING:

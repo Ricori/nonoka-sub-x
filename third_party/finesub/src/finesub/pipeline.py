@@ -67,6 +67,7 @@ from .scheduler import (
 from .speech.postprocessing import stabilization as asr_stabilize
 from .speech.preprocessing.separator import separation as vocal_separation
 from .speech.recognition import transcribe as asr_align
+from .speech.runtime.native_paths import use_utf8_crt_locale
 from .speech.runtime.resources import (
     check_tier_device_agreement,
     gpu_tier_cli_choices,
@@ -74,10 +75,13 @@ from .speech.runtime.resources import (
 )
 from .stages import (
     ASR_CONTEXT_LEVELS,
+    DIARIZE_LEVELS,
+    warn_if_the_judge_cannot_run,
     PIPELINE_STAGE_ORDER,
     compose_url_extra_info,
     default_pipeline_paths,
     prepare_url_input,
+    resolve_llm_switches,
     profile_asr_workers,
     run_pipeline,
 )
@@ -136,18 +140,9 @@ def build_parser() -> argparse.ArgumentParser:
         help="Convenience switch equivalent to --stage final-srt when --stage is not set.",
     )
     parser.add_argument("--model", default=None, help="Whisper model name.")
-    parser.add_argument(
-        "--llm-model",
-        dest="llm_model",
-        action="append",
-        metavar="[TASKGROUP=]VALUE",
-        help=(
-            "Runtime LLM routing override for the opt-in LLM stages "
-            "(repeatable; value = model group or route target, rebinding the "
-            "cell with NO fallback; bare value = default). Process-local — "
-            "config.toml is never touched."
-        ),
-    )
+    from finesub.llm.routing.model_routes import add_routing_arguments
+
+    add_routing_arguments(parser)
     parser.add_argument("--device", default=None, help="Device override (cpu/cuda).")
     parser.add_argument(
         "--gpu-tier",
@@ -208,6 +203,56 @@ def build_parser() -> argparse.ArgumentParser:
             "the pipeline separates first and this exists for that kind of "
             "noisy vocal. --no-vad-silero-assist opts out for clean source "
             "audio; see docs/vad-asr.md."
+        ),
+    )
+    parser.add_argument(
+        "--diarize",
+        choices=DIARIZE_LEVELS,
+        default=None,
+        help=(
+            "Speaker diarization after stabilization. acoustics: a *-diar.json timeline plus "
+            "a speaker field per segment, with confidence marks. judge-text / judge-audio: "
+            "that, plus an LLM speaker judge in the LLM stage (--stage translated-srt or "
+            "final-srt) that re-checks which track each line belongs to, one correction window "
+            "at a time, reading the lines or also hearing them; its verdicts go to "
+            "<stem>-speaker-judge.json, the -annotated.csv spk column and --speaker-tracks, "
+            "and the single-track SRT is unchanged. Off by default; when diarization cannot "
+            "run it warns and the subtitles are produced without labels."
+        ),
+    )
+    parser.add_argument(
+        "--diarize-backend",
+        choices=("nemotron3", "diarizen", "sortformer"),
+        default=None,
+        help=(
+            "Which diarization model produces the timeline. Default nemotron3, downloaded "
+            "on first use (about 450 MB). diarizen and sortformer are kept for research; "
+            "see docs/manual/diarization.md before choosing them. "
+            "A cached *-diar.json is reused whatever this says -- delete it to recompute."
+        ),
+    )
+    parser.add_argument(
+        "--diarize-max-speakers",
+        type=int,
+        default=None,
+        help=(
+            "Cap how many speakers the clustering may find. Off by default, and "
+            "deliberately: over-splitting costs one merge to fix while a cap that "
+            "is too tight costs a per-line relocation, and any voice it squeezes "
+            "out -- a guest, a game character, background speech -- lands in a real "
+            "person's track rather than disappearing. Measured on 24 files with a "
+            "perfect headcount plus one: 23 of them got worse, median +530. Set it "
+            "only if you know something the measurement did not. Not for sortformer."
+        ),
+    )
+    parser.add_argument(
+        "--speaker-tracks",
+        choices=("off", "srt", "ass", "both"),
+        default=None,
+        help=(
+            "Lossless speaker exports beside the single-track SRT (which is "
+            "unaffected): one SRT per speaker, an ASS carrying all of them, or "
+            "both. Needs speaker labels (--diarize acoustics or a judge level)."
         ),
     )
     parser.add_argument(
@@ -288,24 +333,6 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
-        "--llm-correction-media",
-        choices=["text", "audio", "video"],
-        default=None,
-        help=(
-            "What the LLM correction window sees; overrides --llm-media for "
-            "that task only."
-        ),
-    )
-    parser.add_argument(
-        "--llm-planning-media",
-        choices=["text", "audio", "video"],
-        default=None,
-        help=(
-            "What the per-window LLM query round sees; overrides --llm-media "
-            "for that task only."
-        ),
-    )
-    parser.add_argument(
         "--llm-retrieval",
         choices=["none", "local", "native"],
         default=None,
@@ -334,7 +361,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--llm-parallel-windows",
         type=int,
         default=None,
-        help="Concurrency cap for --llm-continuity parallel (default: 1).",
+        help="Concurrency cap for --llm-continuity parallel (default: the active preset's parallel_windows, else 1).",
     )
     parser.add_argument(
         "--llm-fast",
@@ -357,7 +384,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--extra-style", default=None, help="Extra translation style for LLM correction.")
     parser.add_argument(
         "--style", default=None,
-        help="Named style entries for LLM correction (comma separated; `style/<name>` when a proper-noun entry shares the name). Unset reads [llm] style.",
+        help="Named style entries for LLM correction (comma separated; `style/<name>` when a proper-noun entry shares the name), or auto to let the model pick one. Unset reads [llm] style, then auto (default_style under difficulty=efficiency).",
     )
     parser.add_argument(
         "--style-mode", dest="style_mode", default=None, choices=("none", "read", "update"),
@@ -377,15 +404,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--knowledge",
-        choices=["none", "collect", "update"],
+        choices=["none", "read", "update"],
         default=None,
         help=(
-            "Knowledge switch for LLM stages. Default collect: read/inject the "
-            "base and emit task_update_feedback, without writing to it (the "
-            "default resolves to none at --llm-difficulty efficiency, which "
-            "disables knowledge by construction). none: the knowledge base is "
-            "not read or injected at all; update: collect plus the unified "
-            "knowledge update after correction."
+            "Knowledge switch for LLM stages. Default read: read/inject the "
+            "base, collect nothing, write nothing back (efficiency too; there "
+            "update is refused). none: the knowledge base is not read or injected at "
+            "all; update: read, collect task_update_feedback, and run the "
+            "unified knowledge update after correction."
         ),
     )
     parser.add_argument(
@@ -775,6 +801,11 @@ def merge_item_options(
     """
 
     unknown = set(row) - ALLOWED_ITEM_KEYS
+    if "llm_preset" in unknown:
+        raise ValueError(
+            "manifest rows cannot choose an LLM preset: it is one per run (the "
+            f"route table is per process); pass --llm-preset on the command line instead: {row!r}"
+        )
     if unknown:
         raise ValueError(f"unknown manifest keys {sorted(unknown)} in row {row!r}")
     if not str(row.get("source", "") or "").strip():
@@ -1083,6 +1114,10 @@ def _build_item(opts: Mapping[str, Any], *, claims: "OutputClaims | None" = None
     asr_stage = target_stage if order[target_stage] <= order["raw-srt"] else "raw-srt"
     needs_llm = order[target_stage] > order["raw-srt"]
     shared = _pipeline_kwargs(opts)
+    diarize = str(shared.get("diarize") or "off")
+    if diarize not in DIARIZE_LEVELS:  # before the expensive half: a batch saved before the rename says `on`
+        raise ValueError(f"--diarize takes {'/'.join(DIARIZE_LEVELS)}, got {diarize!r} for {source}")
+    warn_if_the_judge_cannot_run(diarize, target_stage)
 
     def _run(payload: dict[str, Any], stage: str) -> None:
         # The reporter is bound by `run_batch` around every stage, so that
@@ -1121,15 +1156,20 @@ def _build_item(opts: Mapping[str, Any], *, claims: "OutputClaims | None" = None
 
         def _download(payload: Any) -> dict:
             download_started = time.perf_counter()
+            # Fails a conflicting switch vector before the download, as
+            # `run_pipeline` does; an unset switch is the resolver's to fill.
+            resolve_llm_switches(
+                str(opt(opts, "stage")),
+                llm_media=opts.get("llm_media"),
+                llm_retrieval=opts.get("llm_retrieval"),
+                llm_difficulty=opts.get("llm_difficulty"),
+                llm_continuity=opts.get("llm_continuity"),
+                knowledge=opts.get("knowledge"),
+                llm_output_scale=float(opt(opts, "llm_output_scale")),
+            )
             audio, paths, llm_video, source_info = prepare_url_input(
                 source,
                 output_path=opts.get("output"),
-                llm_media=str(opt(opts, "llm_media")),
-                llm_correction_media=str(opt(opts, "llm_correction_media")),
-                llm_planning_media=str(opt(opts, "llm_planning_media")),
-                llm_retrieval=str(opt(opts, "llm_retrieval")),
-                llm_difficulty=str(opt(opts, "llm_difficulty")),
-                llm_output_scale=float(opt(opts, "llm_output_scale")),
                 llm_video=opts.get("llm_video"),
                 download_video_source=bool(opt(opts, "download_video_source")),
             )
@@ -1287,15 +1327,20 @@ def _settled(results: Sequence[ItemResult]) -> bool:
 
 
 def main() -> int:
+    # Before any stage opens a model file: native loaders otherwise misread a
+    # non-ASCII install path on a non-UTF-8 Windows code page.
+    locale_problem = use_utf8_crt_locale()
+    if locale_problem:
+        print(f"Warning: {locale_problem}", file=sys.stderr)
     args = parse_args()
     # Installed unconditionally (empty → clears) BEFORE any routing consumer
     # runs: planning envelopes, preflight and the LLM stages' own clients all
     # read the memoized route loader. Unconditional install is the lifecycle
     # guarantee — a second main() in one interpreter never inherits the
     # previous run's override.
-    from finesub.llm.routing.model_routes import install_runtime_preferred, parse_llm_model_args
+    from finesub.llm.routing.model_routes import install_runtime_routing
 
-    install_runtime_preferred(parse_llm_model_args(args.llm_model))
+    install_runtime_routing(args)
     # Set when this run CONTINUES a batch rather than starting one. Resuming
     # keeps the batch's identity -- same directory, same queue view, same
     # control channel, same registry row, same lock -- because a resume that

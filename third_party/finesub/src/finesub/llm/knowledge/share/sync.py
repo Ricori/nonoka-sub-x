@@ -12,7 +12,9 @@ local, mark for merge).
 
 Anti-rollback (hardening 2026-08-26): the client anchors on the last accepted
 ``(server_rev, chain_hash)`` per remote (store ``meta``); a snapshot whose
-history does not extend that anchor is refused before any write.
+history does not extend that anchor is refused before any write. Authorship:
+a snapshot signed by the library's key (``signing.py``) pins that key the same
+way, and a pinned library's unsigned or differently signed snapshot is refused.
 """
 
 from __future__ import annotations
@@ -92,6 +94,8 @@ class PullReport:
     created_items: int = 0
     retired_items: int = 0
     created_memberships: int = 0
+    moved_memberships: int = 0
+    diverged_moves: int = 0
     retired_memberships: int = 0
     created_links: int = 0
     conflicts: list[FieldConflict] = field(default_factory=list)
@@ -112,12 +116,12 @@ class PullReport:
         return data
 
 
-def _anchor_keys(remote: str) -> tuple[str, str]:
+def anchor_keys(remote: str) -> tuple[str, str]:
     return (f"share:{remote}:server_rev", f"share:{remote}:chain_hash")
 
 
 def check_anchor(store: KnowledgeStore, remote: str, snapshot: Mapping[str, Any]) -> None:
-    rev_key, hash_key = _anchor_keys(remote)
+    rev_key, hash_key = anchor_keys(remote)
     stored_rev = store.meta(rev_key)
     if stored_rev is None:
         return  # first pull from this remote: trust on first use
@@ -131,6 +135,52 @@ def check_anchor(store: KnowledgeStore, remote: str, snapshot: Mapping[str, Any]
         )
     if int(snapshot.get("server_rev") or 0) < anchor_rev:
         raise ExchangeError("server_rev went backwards — refusing rollback")
+
+
+def signing_key_meta(remote: str) -> str:
+    return f"share:{remote}:signing_key"
+
+
+def check_signature(
+    store: KnowledgeStore,
+    remote: str,
+    snapshot: Mapping[str, Any],
+    *,
+    trusted_key: str = "",
+    accept_new_key: bool = False,
+) -> str:
+    """Check who published this snapshot; return the key to remember ("" for
+    a library that has never signed).
+
+    ``trusted_key`` is a key the client was told in advance (``[share]
+    signing_key``, or the one built in for the packaged mailbox): the snapshot
+    must carry a valid signature by it, full stop. Without one, the first
+    signed snapshot pins its key (trust on first use, like the anchor), and
+    from then on an unsigned snapshot or a different key is refused -- the
+    second unless the user says the maintainer really rotated
+    (``accept_new_key``). A library that never signed stays pullable: that is
+    a self-hosted server whose owner did not set a key.
+    """
+
+    from .signing import verify_signature
+
+    if trusted_key:
+        verify_signature(snapshot, trusted_key)
+        return trusted_key
+    pinned = store.meta(signing_key_meta(remote)) or ""
+    signature = snapshot.get("signature")
+    if not isinstance(signature, Mapping):
+        if pinned:
+            raise ExchangeError("this library signs its snapshots, and this one is unsigned — refusing")
+        return ""
+    key = str(signature.get("public_key") or "")
+    if pinned and key != pinned and not accept_new_key:
+        raise ExchangeError(
+            "this snapshot is signed by a different key than the library used before — refusing."
+            " If its maintainer really changed keys, re-run with --accept-new-key"
+        )
+    verify_signature(snapshot, key)
+    return key
 
 
 def _base_payload(store: KnowledgeStore, local_id: str, base_hash: str) -> dict[str, Any] | None:
@@ -213,13 +263,26 @@ def apply_snapshot(
     *,
     remote: str,
     task_id: str = "share-pull",
+    label: str = "",
+    trusted_key: str = "",
+    accept_new_key: bool = False,
 ) -> PullReport:
-    """Verify, then fold one snapshot into the local store in one revision."""
+    """Verify, then fold one snapshot into the local store in one revision.
+
+    ``remote`` is the corpus identity (``cli._remote_id``), which is what every
+    keyed row must carry; ``label`` is the address it came from this time, used
+    only where a human reads it (the revision note). ``trusted_key`` and
+    ``accept_new_key`` are ``check_signature``'s.
+    """
 
     verify_snapshot(snapshot)
-    # The chain proves authorship, not safety (round 13): a self-consistent
-    # malicious snapshot passes verification, so its CONTENT faces the same
-    # admission boundary a pushed bundle does before anything is written.
+    # The chain proves only that the server said this, and the signature that
+    # the key holder did -- neither proves the content is safe (round 13): a
+    # self-consistent malicious snapshot passes both, so its CONTENT faces the
+    # same admission boundary a pushed bundle does before anything is written.
+    signing_key = check_signature(
+        store, remote, snapshot, trusted_key=trusted_key, accept_new_key=accept_new_key
+    )
     problems = snapshot_content_problems(snapshot["content"])
     if problems:
         raise ExchangeError("snapshot content refused: " + "; ".join(problems[:5]))
@@ -242,22 +305,26 @@ def apply_snapshot(
     # this hash next time — the conflict is re-reported (never silently
     # resolved toward the remote) until a human converges the two.
     remote_hash: dict[str, str] = {}
-    with store.begin("pull", task_id=task_id, note=f"pull from {remote}") as txn:
+    with store.begin("pull", task_id=task_id, note=f"pull from {label or remote}") as txn:
         # canonical -> local mapping, built INSIDE the transaction: BEGIN
         # IMMEDIATE serializes concurrent pulls, so the second one sees the
         # first one's rows instead of creating a duplicate local node for the
         # same canonical id (review 2026-08-27).
         local_of: dict[str, str] = {}
+        # ONLY this remote's rows. canonical ids are per corpus and public —
+        # they ride in every snapshot — so resolving them against the whole
+        # store would let any library address another library's nodes by
+        # naming their ids (reviewer, 2026-09-09; a freshly met corpus could
+        # retire entries that came from a different server, and a first pull
+        # is trust-on-first-use by design). `sync_state` is the only place that
+        # records which corpus a canonical id belongs to; a push's backfill
+        # writes its row there too (`cli._cmd_status`), so nodes this client
+        # contributed are reachable without a store-wide fallback.
         for row in store.conn.execute(
             "SELECT canonical_id, local_id FROM sync_state WHERE remote=?", (remote,)
         ):
             local_of[row["canonical_id"]] = row["local_id"]
-        for row in store.conn.execute(
-            "SELECT canonical_id, local_id FROM node_versions"
-            " WHERE canonical_id IS NOT NULL AND valid_to_rev IS NULL"
-        ):
-            local_of.setdefault(row["canonical_id"], row["local_id"])
-        _apply_redirects(store, txn, redirects, report)
+        _apply_redirects(store, txn, redirects, remote, report)
         for old, new in redirects.items():
             if old in local_of:
                 local_of.setdefault(follow(old), local_of[old])
@@ -268,8 +335,9 @@ def apply_snapshot(
             _apply_node(store, txn, entry, follow, local_of, remote, report)
         for entry in content.get("items") or []:
             _apply_item(store, txn, entry, local_of, report)
+        ours = set(local_of.values())
         for entry in content.get("memberships") or []:
-            _apply_membership(store, txn, entry, local_of, report)
+            _apply_membership(store, txn, entry, local_of, ours, report)
         for entry in content.get("links") or []:
             _apply_link(store, txn, entry, local_of, report)
         for canonical_id, local_id in sorted(local_of.items()):
@@ -286,7 +354,7 @@ def apply_snapshot(
                 " last_server_rev, last_pulled_payload_hash) VALUES (?, ?, ?, ?, ?)",
                 (remote, canonical_id, local_id, report.server_rev, payload_hash),
             )
-        rev_key, hash_key = _anchor_keys(remote)
+        rev_key, hash_key = anchor_keys(remote)
         txn.conn.execute(
             "INSERT OR REPLACE INTO meta(key, value) VALUES (?, ?)",
             (rev_key, str(report.server_rev)),
@@ -295,6 +363,11 @@ def apply_snapshot(
             "INSERT OR REPLACE INTO meta(key, value) VALUES (?, ?)",
             (hash_key, str(snapshot.get("chain_hash") or "")),
         )
+        if signing_key:
+            txn.conn.execute(
+                "INSERT OR REPLACE INTO meta(key, value) VALUES (?, ?)",
+                (signing_key_meta(remote), signing_key),
+            )
         report.rev = txn.rev
     # Stamped after the fact rather than at the call site: the revision this
     # pull got is only known once the transaction closes, and a conflict that
@@ -307,9 +380,19 @@ def apply_snapshot(
 
 
 def _apply_redirects(
-    store: KnowledgeStore, txn: Transaction, redirects: Mapping[str, str], report: PullReport
+    store: KnowledgeStore,
+    txn: Transaction,
+    redirects: Mapping[str, str],
+    remote: str,
+    report: PullReport,
 ) -> None:
     for old, new in sorted(redirects.items()):
+        # ⚠ This table is keyed on the canonical id alone, so it is the one
+        # cross-corpus writable surface left after the isolation pass: library
+        # B can overwrite a row library A wrote. It is harmless *because
+        # nothing reads it back* — `follow()` uses only the redirects carried
+        # by the snapshot being applied. Anything that starts reading this
+        # table has to key it by remote first (reviewer, 2026-09-09).
         txn.conn.execute(
             "INSERT OR REPLACE INTO redirects(old_canonical_id, new_canonical_id, learned_rev)"
             " VALUES (?, ?, ?)",
@@ -318,9 +401,17 @@ def _apply_redirects(
         # In-place: canonical_id is server-issued addressing metadata, not
         # user content, and a version row here would collide with the same
         # node's field merge later in this transaction.
+        #
+        # Restricted to nodes this remote owns. A redirect is a rename of an
+        # id, so without the restriction a corpus could rename ANOTHER
+        # corpus's node onto an id of its own choosing and take it over on the
+        # next pull — the same public-id problem as the lookups, in its most
+        # direct form (reviewer, 2026-09-09).
         txn.conn.execute(
-            "UPDATE node_versions SET canonical_id=? WHERE canonical_id=? AND valid_to_rev IS NULL",
-            (new, old),
+            "UPDATE node_versions SET canonical_id=?"
+            " WHERE canonical_id=? AND valid_to_rev IS NULL"
+            " AND local_id IN (SELECT local_id FROM sync_state WHERE remote=?)",
+            (new, old, remote),
         )
 
 
@@ -402,11 +493,17 @@ def _apply_item(
     owner = local_of.get(str(entry.get("node") or ""))
     if not canonical_item_id or owner is None:
         return
+    # Scoped to the owning node, which `local_of` already resolved within this
+    # remote — canonical item ids are per corpus and public, so a store-wide
+    # lookup would let one library retire another's aliases by naming their ids
+    # (reviewer, 2026-09-09). Two corpora may legitimately mint the same id;
+    # each then lands on its own local row.
     existing = store.conn.execute(
         "SELECT v.item_id, v.valid_to_rev IS NULL AS live, v.maturity AS maturity"
-        " FROM item_versions v"
-        " WHERE v.canonical_item_id=? ORDER BY v.valid_from_rev DESC LIMIT 1",
-        (canonical_item_id,),
+        " FROM item_versions v JOIN items i ON i.item_id = v.item_id"
+        " WHERE v.canonical_item_id=? AND i.local_id=?"
+        " ORDER BY v.valid_from_rev DESC LIMIT 1",
+        (canonical_item_id, owner),
     ).fetchone()
     if entry.get("retired"):
         if existing is not None and existing["live"]:
@@ -454,6 +551,7 @@ def _apply_membership(
     txn: Transaction,
     entry: Mapping[str, Any],
     local_of: dict[str, str],
+    ours: set[str],
     report: PullReport,
 ) -> None:
     canonical = str(entry.get("canonical_membership_id") or "")
@@ -461,18 +559,62 @@ def _apply_membership(
     child = local_of.get(str(entry.get("child") or ""))
     if not canonical or parent is None or child is None:
         return
+    # Scoped to the parent this remote resolved (see `_apply_item`): without it
+    # a second corpus could retire the first one's memberships by id.
     existing = store.conn.execute(
         "SELECT membership_id, valid_to_rev IS NULL AS live FROM membership_versions"
-        " WHERE canonical_membership_id=? ORDER BY valid_from_rev DESC LIMIT 1",
-        (canonical,),
+        " WHERE canonical_membership_id=? AND parent_id=?"
+        " ORDER BY valid_from_rev DESC LIMIT 1",
+        (canonical, parent),
     ).fetchone()
     if entry.get("retired"):
         if existing is not None and existing["live"]:
             txn.tombstone_membership(existing["membership_id"])
             report.retired_memberships += 1
         return
-    if existing is not None:
+    if store.node(parent, txn.rev) is None:
+        # Our counterpart of this entry is retired (a locally retired node
+        # stays retired, see `_apply_node`), e.g. by a merge we made: a line
+        # placed or moved under it would vanish from every projection.
         return
+    if existing is not None and existing["live"]:
+        return
+    elsewhere = _live_elsewhere(store, canonical, child, ours)
+    if elsewhere is None and child in ours and store.conn.execute(
+        "SELECT 1 FROM membership_versions WHERE canonical_membership_id=? AND child_id=?"
+        " AND valid_to_rev IS NULL LIMIT 1",
+        (canonical, child),
+    ).fetchone():
+        # Alive under an entry of the user's own: they moved it out of this
+        # library's tree. Changing nothing is safe without the remote scoping
+        # a move needs; creating it here would put the line in both places.
+        return
+    if elsewhere is not None:
+        # The line lives under another of this remote's entries (a move keeps
+        # the canonical id and changes the parent, so the lookup above misses
+        # it). Creating it here would put the line under both entries.
+        membership_id, current, library = elsewhere
+        if current == library:
+            # The library moved it on -- possibly back to an entry it once
+            # left, whose closed version is what `existing` found. Follow.
+            txn.move_membership(
+                membership_id,
+                parent_id=parent,
+                section=sanitize_text(str(entry.get("section") or ""), max_chars=100),
+                order_key=int(entry.get("order_key") or 0),
+            )
+            report.moved_memberships += 1
+        else:
+            # Moved locally since -- by hand, or by a knowledge update merging
+            # or splitting entries: local kept (owner 2026-10-02). Counted
+            # only when the library ALSO moved it (three-way: incoming differs
+            # from where it last put the line); a library that merely still
+            # has the old place -- the push is add-only -- is no disagreement.
+            if parent != library:
+                report.diverged_moves += 1
+        return
+    if existing is not None:
+        return  # removed here locally: local kept
     for membership in store.children(parent):
         if membership.child_id == child and membership.section == entry.get("section"):
             txn.conn.execute(
@@ -493,6 +635,45 @@ def _apply_membership(
         (canonical, membership_id),
     )
     report.created_memberships += 1
+
+
+def _live_elsewhere(
+    store: KnowledgeStore, canonical: str, child: str, ours: set[str]
+) -> tuple[str, str, str] | None:
+    """Our live membership carrying ``canonical`` for ``child`` under another
+    of this remote's entries: ``(membership_id, its parent, the parent the
+    library last gave it)``. The two parents differ when it was moved locally.
+
+    Both ends must come from this remote, for the reason `_apply_item` scopes
+    its lookup: canonical ids are per corpus and public, so a store-wide match
+    would let another library re-parent our lines by naming their ids.
+    """
+
+    if child not in ours:
+        return None
+    for row in store.conn.execute(
+        "SELECT membership_id, parent_id FROM membership_versions"
+        " WHERE canonical_membership_id=? AND child_id=? AND valid_to_rev IS NULL",
+        (canonical, child),
+    ).fetchall():
+        if row["parent_id"] in ours:
+            membership_id = str(row["membership_id"])
+            return membership_id, str(row["parent_id"]), _library_parent(store, membership_id)
+    return None
+
+
+def _library_parent(store: KnowledgeStore, membership_id: str) -> str:
+    """The parent of the latest version a pull wrote -- or, for a local row a
+    pull only claimed in place, of its first version."""
+
+    rows = store.conn.execute(
+        "SELECT v.parent_id, r.kind FROM membership_versions v"
+        " JOIN revisions r ON r.rev = v.valid_from_rev"
+        " WHERE v.membership_id=? ORDER BY v.valid_from_rev",
+        (membership_id,),
+    ).fetchall()
+    pulled = [row["parent_id"] for row in rows if row["kind"] == "pull"]
+    return pulled[-1] if pulled else rows[0]["parent_id"]
 
 
 def _apply_link(

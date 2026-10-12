@@ -87,9 +87,18 @@ sdist = { url = "https://pypi.tuna.tsinghua.edu.cn/packages/d8/53/6f443c9a4a8358
 wheels = [{ url = "https://pypi.tuna.tsinghua.edu.cn/packages/d1/d6/3965ed04c63042e047cb6a3e6ed1a63a35087b6a609aa3a15ed8ac56c221/colorama-0.4.6-py2.py3-none-any.whl", upload-time = 2022-10-25T02:36:20Z, size = 25335, hashes = { sha256 = "4f1d9991f5acc0ca119f9d443620b77f9d6b33703e51011c16baf57afb285fc6" } }]
 
 [[packages]]
+name = "cryptography"
+version = "50.0.1"
+sdist = { url = "https://pypi.tuna.tsinghua.edu.cn/packages/bb/ad/5d6702db60b1e40b41ef513b6967ff5848f307d50f8449baf1634f5908f1/cryptography-50.0.1.tar.gz", upload-time = 2026-08-25T19:45:45Z, size = 880381, hashes = { sha256 = "5dd9bda1c12b4162f6ff568eeb5e0ff956c28d14406e875cfe8a63a2d414ff20" } }
+wheels = [
+    { url = "https://pypi.tuna.tsinghua.edu.cn/packages/42/8b/cb12b1b60c91b074ca6bf0fdd59aa8f10d8bc5f73af8faece86ef0421b37/cryptography-50.0.1-cp311-abi3-win_amd64.whl", upload-time = 2026-08-25T19:44:28Z, size = 3842826, hashes = { sha256 = "aed8db4f6d71c51efb89530e12d9464e7bf2923d46c3205dc794a2a93f8c0648" } },
+    { url = "https://pypi.tuna.tsinghua.edu.cn/packages/99/89/87ef49ffe383ef4e147d27b7bf2088fb0b54ea409dd87b5a89442e5828a5/cryptography-50.0.1-cp39-abi3-win_amd64.whl", upload-time = 2026-08-25T19:45:24Z, size = 3875429, hashes = { sha256 = "55d16b1ef3ee0958d893a977b19777887e546c9954ea81b200c3301a864013f2" } },
+]
+
+[[packages]]
 name = "ctranslate2"
-version = "4.8.1+finesub0.4.0.cu128"
-archive = { url = "https://github.com/caca2331/finesub/releases/download/ct2-4.8.1%2Bfinesub0.4.0/ctranslate2-4.8.1+finesub0.4.0.cu128-cp312-cp312-win_amd64.whl", hashes = { sha256 = "636d69f33f55f1b63291f0ca38cb9c1b4a3729a93ede54c8e25f3bb1438af902" } }
+version = "4.8.1+finesub0.6.0.cu128"
+archive = { url = "https://github.com/caca2331/finesub/releases/download/ct2-4.8.1%2Bfinesub0.6.0/ctranslate2-4.8.1+finesub0.6.0.cu128-cp312-cp312-win_amd64.whl", hashes = { sha256 = "7567ef160cccea178c4b0accdb18ff35812b7a198b60419208ce8567b392c63b" } }
 
 [[packages]]
 name = "cython"

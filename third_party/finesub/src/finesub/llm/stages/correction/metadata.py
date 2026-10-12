@@ -194,10 +194,9 @@ def _output_budget_row(
 
     The window plan sizes itself on ``k x c x csv_tokens``; this records what
     that prediction was next to what actually came back, so a truncation or a
-    split-retry can be read against the budget that allowed it. Accumulating
-    ``observed_coefficient`` across runs is also what makes the c calibration
-    (docs/llm_followups.md) a matter of reading artifacts rather than running
-    experiments.
+    split-retry can be read against the budget that allowed it. On agent paths
+    ``observed_coefficient`` is not usable: those CLIs report session-cumulative
+    output tokens (docs/llm_design_notes.md, 「输出预算公式的推导」).
     """
 
     csv_tokens = max(0, int(budget.subtitle_input_tokens))
@@ -223,7 +222,7 @@ def _output_limit_check(
 
     Agent-transport responses never trip this check: their usage is the CLI
     result event's session-cumulative total, a different quantity from a
-    single turn's output (docs/report 2026-08-28 §2.2 — a healthy run came
+    single turn's output (2026-08-28, docs/llm_harness_behavior.md 重试与拼接 — a healthy run came
     within 4,090 tokens of a needless split-in-half). The artifact still
     records the numbers, with the basis saying why they were not compared."""
 

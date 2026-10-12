@@ -2,23 +2,20 @@
 
 The switch axes live here; ``knowledge`` stays an independent CLI argument
 because it is threaded through the ``finesub.llm.knowledge`` modules, which have no
-business knowing about profiles. Canonical behavior is documented in
+business knowing about profiles -- only its value set sits beside the others,
+so a preset's ``defaults`` table is checked against one vocabulary. Canonical behavior is documented in
 ``docs/llm_harness_behavior.md``.
 
-- ``correction_media`` / ``planning_media``  text / audio / video, each a
-  ladder (video implies audio). The run-level ``media`` axis was retired
-  (model-routing v2 media split): it answered two questions at once -- "what
-  media does this run have" (decided by which files are passed) and "which
-  task consumes it". The correction window follows ``correction_media``; the
-  per-window query round follows ``planning_media``. A switch above what the
-  input files provide is a configuration error at the entrypoints, not a
-  silent downgrade.
+- ``correction_media``  text / audio / video, a ladder (video implies
+  audio): what the correction window -- the one task that reads media --
+  is given. The CLI knob is ``--media``; the field keeps the task's name
+  because the prompt layer reads it as "the correction window's media". A
+  switch above what the input files provide is a configuration error at the
+  entrypoints, not a silent downgrade.
 - ``retrieval`` none / local / native. ``local`` is the whole harness-side
-  injection machinery (background research, the per-window query round, the
-  local search agent); ``native`` is the model's own search tool and never
-  coexists with harness search; ``none`` is neither. ``planning_media`` only
-  matters under ``local`` (the only vector with a query round); elsewhere it
-  is carried but unused.
+  injection machinery (the preparation task's fill, the window request
+  turn, the local search agent); ``native`` is the model's own search tool
+  and never coexists with harness search; ``none`` is neither.
 - ``difficulty`` quality / intermediate / efficiency -- it does exactly two
   things: pick the task-group cell's prompt variant and that cell's thinking
   level. It no longer reads a capability tier off the answering endpoint (that
@@ -52,18 +49,50 @@ DIFFICULTY = ("quality", "intermediate", "efficiency")
 # CLI argument owned by ``finesub.llm.knowledge``; continuity has no second source of
 # truth.
 CONTINUITY = ("serial", "parallel")
+# Tri-state knowledge switch (docs/knowledge.md; renamed 2026-10-01):
+# none = the base is not read; read = read and inject it, nothing collected;
+# update = read + correction/research emit task_update_feedback + run the
+# unified knowledge update after the task.
+KNOWLEDGE_MODES = ("none", "read", "update")
+#: The switches a preset may default (`[llm.presets.<id>.defaults]`) and the
+#: values each takes -- the same sets as the command-line switches. A preset
+#: may also default `parallel_windows` (PRESET_PARALLEL_WINDOWS_KEY), the one
+#: integer among them.
+PRESET_SWITCH_VALUES = {
+    "media": MEDIA,
+    "retrieval": RETRIEVAL,
+    "difficulty": DIFFICULTY,
+    "continuity": CONTINUITY,
+    "knowledge": KNOWLEDGE_MODES,
+}
+#: The integer a preset may default besides the switches (owner 2026-10-01):
+#: how many correction windows run at once under continuity=parallel. It is
+#: backend-specific -- what agy carries, a free API may not -- so it lives on
+#: the preset, not in a global setting.
+PRESET_PARALLEL_WINDOWS_KEY = "parallel_windows"
+
+#: What difficulty=efficiency pins (owner decision 2026-08-12). A switch the
+#: command line left unset takes the pinned value (owner 2026-09-30); one it
+#: set to something else is a conflict.
+EFFICIENCY_PINS = {"media": "text", "retrieval": "none"}
+#: Knowledge under efficiency is capped, not pinned (owner 2026-10-01): unset
+#: means the usual `read`, because names are what a rough pass most needs
+#: right, and `none` stays available. Writing (`update`) is refused when asked
+#: for and capped to `read` when it only came from a preset: low-thinking
+#: output should not feed the base. The style mode follows the same cap
+#: (`knowledge/style.py`).
+EFFICIENCY_KNOWLEDGE_ALLOWED = ("none", "read")
+EFFICIENCY_KNOWLEDGE_CAP = "read"
 
 # Rank for the media ladder: "media >= audio" is a real comparison.
 _MEDIA_RANK = {name: index for index, name in enumerate(MEDIA)}
 
-# Additive output-budget coefficient, decomposed onto the switches. Reproducing
-# the six retired presets is a compatibility check, not a new calibration;
-# docs/llm_followups.md owns the remaining calibration work.
+# Additive output-budget coefficient. It is not calibrated per switch vector:
+# measured output length moves with the model and its reasoning effort far more
+# than with any switch (owner 2026-09-30).
 BASE_COEFF = 2.0            # correction + translation proper
 THINKING_COEFF = 1.5        # unconditional since model-routing v2 (efficiency incl.)
 RETRIEVAL_COEFF = 1.0       # native search or local injection
-AUDIO_COEFF = 0.5
-VIDEO_COEFF = 1.0
 
 # Normal windows: expected output must fit 0.9 x output_limit - 5k.
 WINDOW_OUTPUT_FILL_RATIO = 0.9
@@ -71,11 +100,10 @@ WINDOW_OUTPUT_SLACK_TOKENS = 5_000
 # Fast mode treats the whole input as one window under a stricter budget.
 FAST_OUTPUT_FILL_RATIO = 0.8
 FAST_OUTPUT_SLACK_TOKENS = 10_000
-# Fast round 1 must leave input headroom for round-2 injections: the entry
-# block (<=28k) + evidence pack / search results (<=20k) + round-1 notes (2k)
-# + scaffolding/static-prompt delta.
-FAST_ROUND2_INPUT_RESERVE_TOKENS = 56_000
-DEFAULT_FAST_SEARCH_ROUNDS = 2
+# The fast window's opening message must leave input headroom for the fill
+# turn of its request channel: the entry block (<=28k) + search results
+# (<=20k) + the model's own request turn + scaffolding/static-prompt delta.
+FAST_FILL_INPUT_RESERVE_TOKENS = 56_000
 
 # Gemini video tokens: tokens/frame x sample fps (low resolution default).
 VIDEO_TOKENS_PER_FRAME_LOW = 71
@@ -83,30 +111,24 @@ VIDEO_TOKENS_PER_FRAME_HIGH = 269
 VIDEO_SAMPLE_FPS = 0.25
 
 
-def output_coefficient(correction_media: str, retrieval: str) -> float:
-    # The AUDIO/VIDEO terms follow ``correction_media`` (model-routing v2): what is
-    # being budgeted is the correction window's output, and only its clip
-    # rides along. The query round has its own fixed output cap.
+def output_coefficient(retrieval: str) -> float:
+    # Media no longer appears (owner 2026-09-30): the clip costs input, not
+    # output, and the measured output length moves with the model and its
+    # reasoning effort far more than with any switch.
     #
-    # difficulty no longer appears: it only picks the prompt variant and the
+    # difficulty no longer appears either: it only picks the prompt variant and the
     # thinking level, so ``efficiency`` lost its discount and the
     # +1.5 thinking term is unconditional. That moves text/none/efficiency from
-    # the measured c=2.0 to 3.5 (window capacity 57%) -- recorded as a stale
-    # calibration in ``capabilities.RECALIBRATION_PENDING``.
+    # the measured c=2.0 to 3.5 (window capacity 57%).
     coefficient = BASE_COEFF + THINKING_COEFF
     if retrieval != "none":
         coefficient += RETRIEVAL_COEFF
-    if _MEDIA_RANK[correction_media] >= _MEDIA_RANK["audio"]:
-        coefficient += AUDIO_COEFF
-    if correction_media == "video":
-        coefficient += VIDEO_COEFF
     return coefficient
 
 
 @dataclass(frozen=True)
 class TranslationProfile:
     correction_media: str
-    planning_media: str
     retrieval: str
     difficulty: str
     output_coefficient: float
@@ -120,7 +142,6 @@ class TranslationProfile:
 
         return (
             f"correction_media={self.correction_media},"
-            f"planning_media={self.planning_media},"
             f"retrieval={self.retrieval},"
             f"difficulty={self.difficulty},continuity={self.continuity}"
         )
@@ -133,8 +154,8 @@ class TranslationProfile:
         ``estimate_window_budget`` adds the clip's tokens for
         ``correction_media``, and ``max_window_csv_tokens`` divides by
         ``output_scale * output_coefficient`` (``retrieval`` folds into the
-        coefficient). ``planning_media``, ``continuity`` and ``difficulty``
-        never reach the planner, so they cannot shift a chunk id.
+        coefficient). ``continuity`` and ``difficulty`` never reach the
+        planner, so they cannot shift a chunk id.
 
         This is **audit metadata, not a reuse gate**: a persisted plan owns
         boundary identity and refits its pending leaves against the current
@@ -149,9 +170,8 @@ class TranslationProfile:
             f"output_scale={self.output_scale}"
         )
 
-    # No plain ``use_audio``/``use_video``: every call site must say which
-    # task's media it means (plan v2 D20). ``uses_media`` is the clip/upload
-    # gate -- extraction runs iff *either* switch wants media (plan §8-2).
+    # Named for the task that reads the media (plan v2 D20); ``uses_media``
+    # is the clip/upload gate.
     @property
     def correction_use_audio(self) -> bool:
         return _MEDIA_RANK[self.correction_media] >= _MEDIA_RANK["audio"]
@@ -161,20 +181,12 @@ class TranslationProfile:
         return self.correction_media == "video"
 
     @property
-    def planning_use_audio(self) -> bool:
-        return _MEDIA_RANK[self.planning_media] >= _MEDIA_RANK["audio"]
-
-    @property
-    def planning_use_video(self) -> bool:
-        return self.planning_media == "video"
-
-    @property
     def uses_media(self) -> bool:
-        return self.correction_media != "text" or self.planning_media != "text"
+        return self.correction_media != "text"
 
     @property
     def uses_video(self) -> bool:
-        return self.correction_media == "video" or self.planning_media == "video"
+        return self.correction_media == "video"
 
     @property
     def native_search(self) -> bool:
@@ -182,7 +194,7 @@ class TranslationProfile:
 
     @property
     def external_injection(self) -> bool:
-        """Whether the harness runs its own retrieval (research, query round)."""
+        """Whether the harness runs its own retrieval (preparation fill, request turn)."""
 
         return self.retrieval == "local"
 
@@ -196,28 +208,24 @@ class SwitchConflictError(ValueError):
 
 def resolve_profile(
     # Defaults are the harness's own default run shape (the retired "mm-med").
-    # ``pipeline.py`` happens to ask for the same media default; the desktop
-    # front end is the one that asks for video explicitly. Nothing here is
-    # authoritative for either -- read the flag, not this comment.
+    # Front ends do not lean on them: they resolve every switch first
+    # (`correction_request.resolve_switches`) and pass all four.
     media: str = "audio",
     retrieval: str = "local",
     difficulty: str = "quality",
     continuity: str = "serial",
     *,
     correction_media: str = "",
-    planning_media: str = "",
     output_scale: float = 1.0,
 ) -> TranslationProfile:
     """Build the switch vector.
 
-    ``media`` is the convenience knob that sets both per-task switches at
-    once (the common case is still one dial); ``correction_media`` /
-    ``planning_media`` override it individually (plan v2 D20).
+    ``media`` is the CLI knob; ``correction_media`` is the same switch under
+    the field's name (an artifact form parses back through it).
     """
 
     media = (media or "").strip().lower()
     correction_media = (correction_media or "").strip().lower() or media
-    planning_media = (planning_media or "").strip().lower() or media
     retrieval = (retrieval or "").strip().lower()
     difficulty = (difficulty or "").strip().lower()
     continuity = (continuity or "").strip().lower()
@@ -225,14 +233,8 @@ def resolve_profile(
         raise ValueError(
             f"Unknown continuity {continuity!r}; expected one of {CONTINUITY}"
         )
-    for label, value in (
-        ("correction_media", correction_media),
-        ("planning_media", planning_media),
-    ):
-        if value not in MEDIA:
-            raise ValueError(
-                f"Unknown {label} {value!r}; expected one of {MEDIA}"
-            )
+    if correction_media not in MEDIA:
+        raise ValueError(f"Unknown media {correction_media!r}; expected one of {MEDIA}")
     if retrieval not in RETRIEVAL:
         raise ValueError(f"Unknown retrieval {retrieval!r}; expected one of {RETRIEVAL}")
     if difficulty not in DIFFICULTY:
@@ -243,22 +245,18 @@ def resolve_profile(
         raise ValueError("output_scale must be positive")
     # Constraint matrix: efficiency pins the other axes, and a conflicting
     # value is an error rather than a silent downgrade.
-    if difficulty == "efficiency" and (
-        correction_media != "text" or planning_media != "text" or retrieval != "none"
-    ):
+    if difficulty == "efficiency" and (correction_media != "text" or retrieval != "none"):
         raise SwitchConflictError(
-            "difficulty=efficiency pins correction_media=text, planning_media=text "
-            f"and retrieval=none; got correction_media={correction_media}, "
-            f"planning_media={planning_media}, retrieval={retrieval}. Drop the "
+            "difficulty=efficiency pins media=text and retrieval=none; got "
+            f"media={correction_media}, retrieval={retrieval}. Drop the "
             "conflicting switch or use difficulty=intermediate for a basic-capped prompt "
             "with other axes free."
         )
     return TranslationProfile(
         correction_media=correction_media,
-        planning_media=planning_media,
         retrieval=retrieval,
         difficulty=difficulty,
-        output_coefficient=output_coefficient(correction_media, retrieval),
+        output_coefficient=output_coefficient(retrieval),
         output_scale=output_scale,
         continuity=continuity,
     )
@@ -298,11 +296,11 @@ def parse_profile_id(profile_id: str) -> TranslationProfile:
         key = key.strip()
         if key:
             values[key] = value.strip()
-    # A pre-D20 vector carries the single ``media`` axis; it meant "both
-    # tasks" by construction, so it maps onto both switches.
-    has_media = "media" in values or (
-        "correction_media" in values and "planning_media" in values
-    )
+    # Two spellings of the one media switch: the artifact form
+    # ``correction_media=`` and the bare ``media=``. A vector frozen while the
+    # planning-media axis existed (2026-08 to 2026-09-09) still carries
+    # ``planning_media=``; it is ignored -- that task is gone.
+    has_media = "media" in values or "correction_media" in values
     missing = {"retrieval", "difficulty"} - values.keys()
     if missing or not has_media:
         wanted = sorted(missing) + ([] if has_media else ["media"])
@@ -315,7 +313,6 @@ def parse_profile_id(profile_id: str) -> TranslationProfile:
         values["difficulty"],
         values.get("continuity", "serial"),
         correction_media=values.get("correction_media", ""),
-        planning_media=values.get("planning_media", ""),
     )
 
 

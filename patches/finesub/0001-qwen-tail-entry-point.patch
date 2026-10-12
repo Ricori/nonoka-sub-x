@@ -39,10 +39,11 @@ existing aligned artifact, or once Nonoka X stops splitting the stage across
 containers.
 
 diff --git a/src/finesub/speech/recognition/vad_asr_stage.py b/src/finesub/speech/recognition/vad_asr_stage.py
+index 10f872a..96dabea 100644
 --- a/src/finesub/speech/recognition/vad_asr_stage.py
 +++ b/src/finesub/speech/recognition/vad_asr_stage.py
-@@ -536,6 +536,139 @@ def write_aligned_json(
-     )
+@@ -692,6 +692,139 @@ def _finish_segment_timeline(
+     return energy_segments
  
  
 +def finalize_qwen_verification(

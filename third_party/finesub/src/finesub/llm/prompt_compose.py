@@ -22,7 +22,7 @@ from .prompt_constants import threshold_params
 from .prompt_variants import resolve_variant
 from .routing.profiles import DEFAULT_PROFILE, TranslationProfile
 
-PROMPT_VERSION = "zh-subtitle-correction-csv-v82"
+PROMPT_VERSION = "zh-subtitle-correction-csv-v93"
 
 # v17: every session must OPEN with a visible <reasoning> block (soft
 # requirement: a missing block never fails validation or retries; parsers
@@ -75,6 +75,77 @@ def reasoning_clause(*, bounded: bool = False) -> str:
 
 
 PROMPT_TEMPLATE_DIR = Path(__file__).resolve().parent / "prompt_templates"
+
+
+def render_knowledge_indexes(indexes: Mapping[str, str] | None) -> str:
+    """The ``<{category}_index>`` blocks every knowledge-bearing prompt carries.
+
+    One rendered block instead of the ``streamer_index`` / ``common_index``
+    pair the templates used to name. Four templates spelled that pair out by
+    hand, so adding a category meant editing prompt TEXT -- which is why a
+    category could never be added from data alone
+    (2026-09-07; the wiring now: `docs/knowledge.md`, 「加一个类别就是两步」).
+
+    The tag names stay ``<{category}_index>``: `exchange_metadata` counts each
+    block's tokens by extracting it from the rendered user text, and that keeps
+    working per category.
+
+    Empty means ``（空）``, decided here rather than at each call site. Five
+    sites wrote ``or "（空）"`` and one (fast round 1) passed the empty string
+    through -- a divergence nobody chose.
+    """
+
+    from .knowledge.node.presets import MATCHABLE_CATEGORIES
+
+    supplied = indexes or {}
+    blocks = []
+    for category in MATCHABLE_CATEGORIES:
+        body = str(supplied.get(category) or "").strip() or "（空）"
+        blocks.append(f"<{category}_index>\n{body}\n</{category}_index>")
+    return "\n".join(blocks)
+
+
+def render_knowledge_ops_contract(allow_categories: Sequence[str], *, split: bool = False) -> str:
+    """The proposal grammar, with its ``category`` enum bound to the grant.
+
+    Every caller of ``fragment_knowledge_output_v1`` also hands an
+    ``allow_categories`` to ``translate_model_proposals``; rendering the enum
+    from that same tuple is what stops the prompt and the gate from
+    disagreeing. They did: the template named `streamer|common` outright, so a
+    new category reached the store, the index and the structure table and was
+    still declared illegal three lines later -- and the two repair sessions,
+    which have always applied with every category, were reading an enum that
+    named two of them (review 2026-09-07, second round).
+    """
+
+    from .knowledge.node.render import render_writable_categories
+
+    names = tuple(allow_categories)
+    # `split_entry` is offered only when an entry in front of the model is
+    # asked to compress and may split (plan kb-entry-size): the op is one
+    # line of JSON and compressing is many, so a standing offer would win
+    # over the compression the notice asks for first.
+    return load_prompt_template(
+        "fragment_knowledge_output_v1.md",
+        strict=True,
+        split_op_row=load_prompt_template("fragment_knowledge_split_op_row_v1.md") if split else "",
+        split_op_note=load_prompt_template("fragment_knowledge_split_op_note_v1.md") if split else "",
+        reasoning_clause=reasoning_clause(),
+        term_line_rules=render_term_line_rules(),
+        writable_categories=render_writable_categories(names),
+        # The "do not concatenate two enums" counter-example has to name a real
+        # category to land, and a hand-written one is the same stale copy in
+        # miniature.
+        concat_counterexample=f"{names[0] if names else 'common'}|游戏",
+    ).strip()
+
+
+def render_term_line_rules() -> str:
+    """The four-column term-line rules, shared by the full proposal grammar
+    and the share conflict repair's own short op section (cold read Q7: that
+    session may only rewrite existing lines, so it does not get the grammar)."""
+
+    return load_prompt_template("fragment_knowledge_term_lines_v1.md").strip()
 
 
 def load_prompt_template(name: str, *, strict: bool = False, **values: object) -> str:
@@ -201,8 +272,7 @@ def _verify_basis(profile: TranslationProfile) -> str:
     retrieval must not be told to cross-check against search results it will
     never see (injection reality, plan §5.2). These helpers phrase the
     *correction window's* prompt, so the media layer reads
-    ``correction_media`` (model-routing v2); the query round has its own wording in
-    :func:`compose_correction_query_system`.
+    ``correction_media`` (model-routing v2).
     """
 
     return _join_cn(
@@ -295,7 +365,14 @@ class PromptContext:
 
     profile: TranslationProfile
     knowledge_enabled: bool = True
-    evidence_pack_mode: bool = False
+
+    @property
+    def can_request(self) -> bool:
+        """A dropped entry can be asked for again in a later window
+        (`task_graph.window_requests`): harness search, or a readable base --
+        ``knowledge_enabled`` here already means the index is readable."""
+
+        return self.profile.external_injection or self.knowledge_enabled
 
     @property
     def injected_blocks(self) -> frozenset[str]:
@@ -311,7 +388,9 @@ class PromptContext:
         if self.profile.correction_use_video:
             blocks.add("video")
         if self.profile.external_injection:
-            blocks.update({"search_results", "query_round_notes"})
+            blocks.add("search_results")
+        if self.can_request:
+            blocks.add("window_notes")
         if self.profile.retrieval != "none":
             blocks.add("context_pack")
         if self.knowledge_enabled:
@@ -389,7 +468,7 @@ CORRECTION_SLOTS = SlotRegistry(
         "keep_entries": (
             SlotRule(
                 when=lambda c: c.knowledge_enabled
-                and c.profile.external_injection
+                and c.can_request
                 and c.profile.continuity == "serial",
                 fragment="fragment_keep_entries_v1.md",
                 requires=("entry_details",),
@@ -530,13 +609,8 @@ def ensure_csv_block_headers(
     return rendered
 
 
-def _search_results_usage(*, evidence_pack_mode: bool) -> str:
-    name = (
-        "fragment_evidence_pack_usage_v1.md"
-        if evidence_pack_mode
-        else "fragment_search_results_usage_v1.md"
-    )
-    return load_prompt_template(name).strip()
+def _search_results_usage() -> str:
+    return load_prompt_template("fragment_search_results_usage_v1.md").strip()
 
 
 def compose_correction_system(
@@ -544,15 +618,11 @@ def compose_correction_system(
     *,
     tier: CapabilityTier = CapabilityTier.CAPABLE,
     variant: str | None = None,
-    evidence_pack_mode: bool = False,
     extra_style: str = "",
     style_block: str = "",
     knowledge_enabled: bool = True,
 ) -> str:
     """Assemble the correction system prompt for a profile.
-
-    ``evidence_pack_mode`` swaps the injected-search usage fragment for the
-    evidence-pack variant (fast mode with a completed search loop).
 
     The ``<keep_entries>`` block only appears when the window's pruning
     decision is actually honoured: with no knowledge base there is nothing to
@@ -574,7 +644,6 @@ def compose_correction_system(
     context = PromptContext(
         profile=profile,
         knowledge_enabled=knowledge_enabled,
-        evidence_pack_mode=evidence_pack_mode,
     )
     role_block = render_slot(
         "role",
@@ -593,8 +662,7 @@ def compose_correction_system(
                 profile, knowledge_enabled=knowledge_enabled
             ),
             knowledge_convention_clause=(
-                "注意可推翻的是「听成了什么」；知识库词条沉淀的固定译名与设定是翻译约定，"
-                "不由听觉裁决，仍以词条为准。"
+                load_prompt_template("fragment_background_knowledge_convention_v1.md").strip()
                 if knowledge_enabled
                 else ""
             ),
@@ -603,9 +671,7 @@ def compose_correction_system(
     retrieval_block = render_slot(
         "retrieval",
         context,
-        search_results_usage=_search_results_usage(
-            evidence_pack_mode=evidence_pack_mode
-        ),
+        search_results_usage=_search_results_usage(),
     )
     effort_block = render_slot("effort", context)
 
@@ -650,6 +716,7 @@ def compose_correction_system(
             v.merge_rules_fragment,
             speaker_basis=params["speaker_basis"],
             merge_connect_basis=params["merge_connect_basis"],
+            approval_reason_slot=v.approval_reason_slot,
             # The merge thresholds live in prompt_constants only; fragments
             # reference them as ${thr_*} so a changed constant propagates.
             **threshold_params(),
@@ -735,7 +802,13 @@ def compose_correction_user(
     tier: CapabilityTier = CapabilityTier.CAPABLE,
     variant: str | None = None,
     knowledge_enabled: bool = True,
+    overlap_candidates_block: str = "",
+    style_pick_reminder: str = "",
 ) -> str:
+    """``style_pick_reminder`` leads the first reminder item and the closing
+    reminder when the window carries a style pick: the reminders otherwise
+    describe a direct delivery, which a request-turn pick forbids."""
+
     v = resolve_variant(variant, tier)
     params = dict(_modal_params(profile))
     serial = profile.continuity == "serial"
@@ -761,7 +834,8 @@ def compose_correction_user(
             "fragment_trailing_blocks_serial_v1.md",
             keep_entries_reminder=(
                 "、`<keep_entries>`"
-                if knowledge_enabled and profile.external_injection
+                if knowledge_enabled
+                and PromptContext(profile=profile, knowledge_enabled=knowledge_enabled).can_request
                 else ""
             ),
         ).strip()
@@ -781,17 +855,28 @@ def compose_correction_user(
             if serial
             else ""
         ),
-        verify_basis=params["verify_basis"],
-        pre_round_notes=pre_round_notes,
+        # Only session replay still fills the slot (the task flow's request
+        # turn keeps its notes in its own reply): an empty slot is not shown.
+        pre_round_notes_block=(
+            load_prompt_template(
+                "fragment_pre_round_notes_input_v1.md",
+                verify_basis=params["verify_basis"],
+                pre_round_notes=pre_round_notes.strip(),
+            ).strip() + "\n\n"
+            if pre_round_notes.strip()
+            else ""
+        ),
         search_results=search_results,
         reminder_tail=reminders_block,
         preceding_context_csv=preceding_context_csv,
         current_asr_csv=current_asr_csv,
         current_asr_row_count=current_asr_row_count,
+        overlap_candidates_block=overlap_candidates_block,
         merge_reminder=v.merge_reminder,
         mid_reminder_merge_rule=v.mid_reminder_merge_rule,
         singles_note_reminder=v.singles_note_reminder,
         trailing_blocks_reminder=trailing_blocks_reminder,
+        style_pick_reminder=style_pick_reminder,
         output_csv_header=output_header,
         output_column_count=len(output_header.split("|")),
     )
@@ -800,247 +885,3 @@ def compose_correction_user(
         output_header=output_header,
         include_output_blocks=True,
     )
-
-
-def compose_correction_query_system(
-    profile: TranslationProfile = DEFAULT_PROFILE,
-    *,
-    search_queries_rules: str,
-    max_entries: int = 8,
-    total_entries: int = 12,
-    knowledge_enabled: bool = True,
-) -> str:
-    """Query-round system prompt.
-
-    ``knowledge_enabled`` is the same predicate that decides whether the dual
-    index is injected (docs/llm_prompts.md, "索引/请求同谓词"): with the knowledge base
-    off, the round has no index to read, so the ``<requested_entries>`` rules
-    -- which are written entirely in terms of that index -- come out too.
-    Without this, ``--knowledge none`` (or an empty knowledge root) shipped the
-    request rules against a "（空）" index.
-    """
-
-    # The query round's media wording follows ``planning_media`` (model-routing v2):
-    # its clip is the planning clip, independent of what the correction window
-    # gets. ``=video`` reads the video clip directly (D20 -- the old forced
-    # ``.aac`` cut assumed a lite model that is now the user's choice).
-    csv_time_col_name = (
-        _MEDIA_PARAMS if profile.planning_use_audio else _TEXT_MEDIA_PARAMS
-    )["csv_time_col_name"]
-    if profile.planning_use_video:
-        modal_slots = {
-            "query_input_desc": (
-                "本窗口对应的原始音频及同区间低采样率视频画面的剪辑"
-                "（前后含少量 padding，同一剪辑文件）、当前窗口的 ASR 类 CSV、"
-                "背景调查资料和此前窗口的累积建议"
-            ),
-            "query_suspect_desc": "结合音频与画面定位可疑的 ASR 误听点并推断正确候选",
-            "query_point_1": (
-                "结合音频听清可疑专名的实际发音，必要时借助画面（屏幕文字、场景）验证；"
-                "对背景资料对不上的生僻假名串，考虑常用词连读/吞音变形的还原候选；"
-                "query 中写出你推断的正确候选（可并列 2-3 个候选写法），"
-                "不要照抄明显错误的 ASR 文本。"
-            ),
-            "query_time_note": "开始时间以剪辑的 0 秒为基准",
-        }
-    elif profile.planning_use_audio:
-        modal_slots = {
-            "query_input_desc": (
-                "本窗口对应的原始音频剪辑（前后含少量 padding）、当前窗口的 ASR 类 CSV、"
-                "背景调查资料和此前窗口的累积建议"
-            ),
-            "query_suspect_desc": "结合音频定位可疑的 ASR 误听点并推断正确候选",
-            "query_point_1": (
-                "结合音频听清可疑专名的实际发音；对背景资料对不上的生僻假名串，"
-                "考虑常用词连读/吞音变形的还原候选；query 中写出你推断的正确候选"
-                "（可并列 2-3 个候选写法），不要照抄明显错误的 ASR 文本。"
-            ),
-            "query_time_note": "开始时间以剪辑音频的 0 秒为基准",
-        }
-    else:
-        modal_slots = {
-            "query_input_desc": (
-                "当前窗口的 ASR 类 CSV、背景调查资料和此前窗口的累积建议"
-                "（本次任务没有音频）"
-            ),
-            "query_suspect_desc": "结合上下文与发音相似度推断可疑的 ASR 误听点及正确候选",
-            "query_point_1": (
-                "结合上下文与发音相似度推断可疑专名的正确候选（含常用词连读/吞音变形的"
-                "还原候选——此类候选未经音频验证，只能作为待定候选写进 query，不得据此断言）；"
-                "query 中写出你推断的候选（可并列 2-3 个），不要照抄明显错误的 ASR 文本。"
-            ),
-            "query_time_note": "开始时间以本窗口第一条字幕为 0 秒基准",
-        }
-    knowledge_request_block = (
-        load_prompt_template(
-            "fragment_knowledge_request_v1.md",
-            max_entries=max_entries,
-            total_entries=total_entries,
-        ).strip()
-        if knowledge_enabled
-        else ""
-    )
-    return assert_fully_substituted(
-        _collapse_blank_lines(
-            load_prompt_template(
-                "correction_query_v2.md",
-                search_queries_rules=search_queries_rules,
-                reasoning_clause=reasoning_clause(),
-                knowledge_request_block=knowledge_request_block,
-                csv_time_col_name=csv_time_col_name,
-                **modal_slots,
-            )
-        ),
-        what="correction query system prompt",
-    )
-
-
-def _numbered_items(items: Sequence[str]) -> str:
-    """Ordered list whose numbering follows the items actually kept.
-
-    The fast round-1 background/duty lists are assembled per axis (the
-    knowledge-owned entries leave with the knowledge switch), so the numbers
-    cannot live in the template -- a disabled half would leave a hole.
-    """
-
-    return "\n".join(f"{index}. {item}" for index, item in enumerate(items, start=1))
-
-
-def compose_fast_round1_system(
-    profile: TranslationProfile = DEFAULT_PROFILE,
-    *,
-    search_queries_rules: str,
-    task_update_feedback_block: str = "",
-    max_requested_entries: int = 8,
-    max_keep_entries: int = 8,
-    max_total_entries: int = 12,
-    knowledge_enabled: bool = True,
-) -> str:
-    """Fast round 1 system prompt.
-
-    ``knowledge_enabled`` is the same predicate that decides whether the dual
-    index and preinjected entries are injected: with no knowledge base to read,
-    every knowledge-owned piece -- the input inventory clause, the background
-    note, the entry duties and the ``<requested_entries>``/``<keep_entries>``
-    output blocks -- leaves the prompt together (docs/llm_prompts.md).
-    """
-
-    # Fast round 1 rides the correction window's clip (model-routing v2), so its
-    # media wording follows ``correction_media`` like the correction prompt.
-    params = _modal_params(profile)
-    if profile.correction_use_video:
-        media_desc = "整段原始音频及同区间低采样率视频画面的剪辑（首尾含少量 padding，同一剪辑文件）、"
-        suspect_desc = "结合音频与画面定位可疑的 ASR 误听点并推断正确候选，判断哪些疑点需要联网查证。"
-    elif profile.correction_use_audio:
-        media_desc = "整段原始音频的剪辑（首尾含少量 padding）、"
-        suspect_desc = "结合音频定位可疑的 ASR 误听点并推断正确候选，判断哪些疑点需要联网查证。"
-    else:
-        media_desc = ""
-        suspect_desc = "结合上下文与发音相似度推断可疑的 ASR 误听点及正确候选，判断哪些疑点需要联网查证。"
-    background = [
-        "ASR 文本来自 Whisper 识别，可能存在误听：专有名词可能被识别成音似的假名、汉字、英文或另一种语言。",
-        "`<asr_result>` 第一行是 header `local_id|start|duration|gap|text`；其后每行格式为 "
-        f"`本窗口局部序号|{params['csv_time_col_name']}|片段时长|片段尾部离下一段话的gap|文本`，"
-        f"局部序号从 1 开始，时间单位秒；{params['csv_time_note']}。header 不计入字幕条数。",
-        *(
-            (
-                "本地知识库收集的是公开网络中很少存在、难以进入 LLM 语料的知识；"
-                "索引里的条目可能正是理解本段内容的关键。",
-            )
-            if knowledge_enabled
-            else ()
-        ),
-        "你自己没有联网搜索能力；你提出的搜索 query 会由本地搜索代理执行，结果注入随后的纠错调用。"
-        "纠错模型没有搜索机会，遗漏会直接影响纠错质量。",
-    ]
-    duties = [
-        "中度总结：快速把握整段内容——主题/游戏/主播的初步判断、剧情或事件线索、说话状态；"
-        f"{suspect_desc}把对纠错调用有用的要点写入 <analysis_notes> 块（2000 token 以内）。"
-        "边界要求：这些要点写于搜索结果返回之前，未经证实的判断和候选必须标注“待定”，不要写成确定事实。"
-        "对 ASR 严重失真的区间（循环复读、乱码），要点里写「该区间需从源头重新核对（有音频时逐句重听转写）」，"
-        "不要给出「按上下文推测修正」这类会诱导编造的建议。",
-        *(
-            (
-                "对照两份索引，找出与本段内容相关、尚未预注入且需要完整详情的条目"
-                "（主播本人、提到的其他主播、游戏、梗、事件等），列入 <requested_entries>。"
-                "词条 key = index 行首主 key = 条目 Markdown 文件的一级标题（`# 源语言本名`）；"
-                "每行写主 key 或别名，按重要性从高到低排列。只请求强相关条目，不要用边缘请求挤占共享额度。",
-                "检查 `<preinjected_entries>`，把搜索 loop 与纠错时仍需使用的已注入条目列入 `<keep_entries>`；"
-                "只能引用本轮实际可见的预注入词条。",
-            )
-            if knowledge_enabled
-            else ()
-        ),
-        "提出联网搜索 query，同时覆盖两类需求：理解内容所需的背景（游戏剧情/系统/角色、近期事件、社区语境、"
-        "直播来源信息），以及纠错翻译可能拿不准的专有名词与术语。对可疑专名，query 中写出你推断的正确候选"
-        "（可并列 2-3 个候选写法），不要照抄明显错误的 ASR 文本；你有把握或明显次要的内容不要浪费 query。",
-    ]
-    return load_prompt_template(
-        "fast_round1_v1.md",
-        search_queries_rules=search_queries_rules,
-        task_update_feedback_block=task_update_feedback_block,
-        reasoning_clause=reasoning_clause(),
-        fast_media_desc=media_desc,
-        fast_knowledge_input_desc=(
-            "，外加本地知识库的两份索引（主播 index 和 common index）和 harness "
-            "根据用户备注关键词预注入的知识库条目全文（可能为空）"
-            if knowledge_enabled
-            else ""
-        ),
-        fast_preinjected_note=(
-            "预注入条目已经可见，不要重复 request；若搜索 loop 与纠错时仍需其内容，"
-            "把对应 key 写入 `<keep_entries>`。"
-            if knowledge_enabled
-            else ""
-        ),
-        fast_background_items=_numbered_items(background),
-        fast_duty_items=_numbered_items(duties),
-        fast_entry_blocks=(
-            load_prompt_template(
-                "fragment_fast_entry_blocks_v1.md",
-                max_requested_entries=max_requested_entries,
-                max_keep_entries=max_keep_entries,
-                max_total_entries=max_total_entries,
-            ).strip()
-            + "\n\n"
-            if knowledge_enabled
-            else ""
-        ),
-    )
-
-
-def compose_fast_round1_user(
-    *,
-    extra_info: str,
-    note_url_extracts: str,
-    streamer_index: str,
-    common_index: str,
-    current_asr_csv: str,
-    preinjected_entries: str = "",
-    task_feedback_reminder: str = "",
-    knowledge_enabled: bool = True,
-) -> str:
-    return ensure_csv_block_headers(load_prompt_template(
-        "fast_round1_user_v1.md",
-        extra_info=extra_info,
-        note_url_extracts=note_url_extracts,
-        fast_knowledge_inputs=(
-            load_prompt_template(
-                "fragment_fast_knowledge_inputs_v1.md",
-                streamer_index=streamer_index,
-                common_index=common_index,
-                preinjected_entries=preinjected_entries.strip() or "（无）",
-            ).strip()
-            + "\n\n"
-            if knowledge_enabled
-            else ""
-        ),
-        fast_entry_block_list=(
-            "、<requested_entries>、<keep_entries>" if knowledge_enabled else ""
-        ),
-        fast_entry_reminder=(
-            "、`<requested_entries>`、`<keep_entries>`" if knowledge_enabled else ""
-        ),
-        current_asr_csv=current_asr_csv,
-        task_feedback_reminder=task_feedback_reminder,
-    ))

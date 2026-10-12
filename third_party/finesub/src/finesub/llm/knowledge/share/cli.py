@@ -16,11 +16,19 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from finesub.reporting import current_reporter
+
 from ..base import knowledge_root_path
 from ..node.repo import AmbiguousName, KnowledgeRepo
 from . import client, conflicts as conflict_ledger
-from .exchange import build_push_bundle, bundle_content_digest, strip_local_maps
-from .sync import apply_snapshot
+from .exchange import (
+    CORPUS_ID_RE,
+    build_push_bundle,
+    bundle_content_digest,
+    strip_local_maps,
+)
+from .mailbox import default_remote, trusted_signing_key
+from .sync import anchor_keys, apply_snapshot
 
 _Lines = list[str]
 
@@ -44,22 +52,132 @@ def _repo(args: argparse.Namespace) -> KnowledgeRepo:
     return KnowledgeRepo.open(knowledge_root_path(args.root))
 
 
-def _remote_id(url: str) -> str:
+def _remote_url(url: str) -> str:
     return url.rstrip("/")
+
+
+def _url_key(url: str) -> str:
+    return f"share:url:{url}"
 
 
 def _token_key(remote: str) -> str:
     return f"share:{remote}:token"
 
 
+def _corpus_is_known(store: Any, corpus: str) -> bool:
+    """Does this store already hold something that belongs to that corpus —
+    a contributor token, an anti-rollback anchor, or merge state?"""
+
+    rev_key, _ = anchor_keys(corpus)
+    if store.meta(_token_key(corpus)) or store.meta(rev_key):
+        return True
+    row = store.conn.execute(
+        "SELECT 1 AS hit FROM sync_state WHERE remote=? LIMIT 1", (corpus,)
+    ).fetchone()
+    return row is not None
+
+
+def _remote_id(store: Any, url: str, *, accept_move: bool = False) -> str:
+    """Address → corpus identity, asked once per URL and then remembered.
+
+    Every piece of local state is keyed on the CORPUS, never on the address:
+    the token, the anti-rollback anchor, ``sync_state``'s three-way merge base,
+    and the two JSONL ledgers. So the library can move — workers.dev to a VPS,
+    main site to a mirror — without all of that silently falling on the floor
+    (a lost base is the expensive one: it does not error, it just turns the
+    next pull into a screenful of phantom conflicts).
+
+    **A corpus id is public** — it rides in every snapshot — so knowing one
+    proves nothing about who is answering. Identity therefore says *which*
+    library this is; it never says *this address may act for it*. That second
+    question is what the address→corpus mapping in ``meta`` answers, and it is
+    only ever written for an address the user pointed at deliberately:
+
+    The gate is therefore one question — *am I about to hand this address a
+    corpus whose state is already here?* — and it does not care whether the
+    address is new or merely changed its answer:
+
+    - a corpus this store holds nothing for is a new relationship: trust on
+      first use, the same as the very first pull ever. A changed answer is said
+      out loud, because it is worth knowing, but it costs nothing;
+    - a corpus this store *does* hold a token, anchor or merge state for is
+      refused unless the user passes ``--accept-move``. Otherwise a mirror that
+      copied a public corpus id would be handed the contributor token minted
+      for the real server (reviewer, 2026-09-09) and could merge into the
+      entries the real server's snapshots created.
+    """
+
+    url = _remote_url(url)
+    cached = store.meta(_url_key(url))
+    try:
+        reported = str(client.fetch_identity(url).get("corpus_id") or "")
+    except client.RemoteError:
+        if cached:
+            return cached  # offline with a known address: local state is enough
+        raise
+    if not CORPUS_ID_RE.fullmatch(reported):
+        raise SystemExit(f"error: {url} reported an unusable corpus id {reported[:40]!r}")
+    if cached != reported and not accept_move:
+        if _corpus_is_known(store, reported):
+            seen = "an address this store has never used" if not cached else (
+                f"known here as corpus {cached[:12]}…, and now"
+            )
+            raise SystemExit(
+                f"error: {url} is {seen} claiming to be corpus {reported[:12]}… — one you already"
+                " hold a token, an anchor or merge state for. A corpus id is public, so claiming"
+                " one does not entitle an address to that library's credentials. If this really is"
+                " the same library at a new address, re-run with --accept-move; otherwise it is an"
+                " impostor and your token stays here"
+            )
+        if cached:
+            # Not a credential risk — there is nothing here for that corpus —
+            # but the user did not ask for this: the address they trusted
+            # changed underneath them, and going along with it silently would
+            # merge a stranger's library into their store on the next pull.
+            raise SystemExit(
+                f"error: {url} now answers as corpus {reported[:12]}…, not the {cached[:12]}…"
+                " this store has been using — that is a different library, not a moved one."
+                " Re-run with --accept-move if the address really did change hands"
+            )
+    if cached and cached != reported:
+        current_reporter().warning(
+            "share-address-changed-corpus",
+            f"{url} now answers as corpus {reported[:12]}…, not the {cached[:12]}… this store"
+            " saw before, so it is treated as a different library",
+            action="check the address is the one you meant before pulling from it again",
+        )
+    if cached != reported:
+        store.conn.execute(
+            "INSERT OR REPLACE INTO meta(key, value) VALUES (?, ?)", (_url_key(url), reported)
+        )
+    return reported
+
+
+def _known_remote_id(store: Any, value: str) -> str:
+    """Offline resolution for the local-only commands: a URL this store has
+    already talked to, or a corpus id typed directly."""
+
+    cached = store.meta(_url_key(_remote_url(value)))
+    if cached:
+        return cached
+    if CORPUS_ID_RE.fullmatch(value):
+        return value
+    raise SystemExit(
+        f"error: this store has never talked to {value} — pass a corpus id, or run"
+        " `share register`/`share pull` against that address first"
+    )
+
+
 def _cmd_register(args: argparse.Namespace) -> _Lines:
     repo = _repo(args)
-    token = client.register(args.remote)
+    url = _remote_url(args.remote or default_remote())
+    remote = _remote_id(repo.store, url, accept_move=args.accept_move)
+    token = client.register(url)
     repo.store.conn.execute(
         "INSERT OR REPLACE INTO meta(key, value) VALUES (?, ?)",
-        (_token_key(_remote_id(args.remote)), token),
+        (_token_key(remote), token),
     )
-    return ["registered; token stored in the knowledge store"]
+    return [f"registered with corpus {remote[:12]}…; token stored in the knowledge store"]
 
 
 def _visibility_targets(repo: KnowledgeRepo, args: argparse.Namespace, wanted: str) -> tuple[str, list[str]]:
@@ -158,10 +276,11 @@ def _append_push_record(root: Path, record: dict[str, Any]) -> None:
 def _cmd_push(args: argparse.Namespace) -> _Lines:
     repo = _repo(args)
     store = repo.store
-    remote = _remote_id(args.remote)
+    url = _remote_url(args.remote or default_remote())
+    remote = _remote_id(store, url, accept_move=args.accept_move)
     token = store.meta(_token_key(remote))
     if not token:
-        raise SystemExit(f"error: not registered with {remote} — run `share register` first")
+        raise SystemExit(f"error: not registered with {url} — run `share register` first")
     subject_ids = []
     for name in args.subjects:
         resolved = _resolve(repo, name)
@@ -175,6 +294,15 @@ def _cmd_push(args: argparse.Namespace) -> _Lines:
     # response because the intent — key + content digest — is on disk BEFORE
     # the request leaves. A retry of the same content reuses the recorded key,
     # so the server dedupes instead of queueing a fork.
+    #
+    # Only a retry by the SAME contributor: the server binds a key to whoever
+    # first pushed it. A token that was reclaimed (registered long ago, only
+    # expired or rejected pushes) and replaced by `share register` is a new
+    # contributor, and reusing the old key would be refused with 409 for good
+    # instead of reviving the expired push under the new identity.
+    from .server import contributor_id
+
+    pusher = contributor_id(token)
     prior = None
     log_path = repo.root / PUSH_LOG_FILENAME
     if log_path.is_file():
@@ -182,7 +310,11 @@ def _cmd_push(args: argparse.Namespace) -> _Lines:
             if not line.strip():
                 continue
             record = json.loads(line)
-            if record.get("remote") == remote and record.get("bundle_digest") == wire_digest:
+            if (
+                record.get("remote") == remote
+                and record.get("bundle_digest") == wire_digest
+                and record.get("pusher") == pusher
+            ):
                 prior = record
     if prior is not None:
         bundle["idempotency_key"] = wire["idempotency_key"] = prior["idempotency_key"]
@@ -191,6 +323,8 @@ def _cmd_push(args: argparse.Namespace) -> _Lines:
             repo.root,
             {
                 "remote": remote,
+                "remote_url": url,  # display only; identity is the corpus id
+                "pusher": pusher,
                 "status": "intent",
                 "idempotency_key": bundle["idempotency_key"],
                 "bundle_digest": wire_digest,
@@ -198,11 +332,13 @@ def _cmd_push(args: argparse.Namespace) -> _Lines:
                 "item_handle_map": bundle["item_handle_map"],
             },
         )
-    reply = client.push_bundle(remote, wire, token=token)
+    reply = client.push_bundle(url, wire, token=token)
     _append_push_record(
         repo.root,
         {
             "remote": remote,
+            "remote_url": url,
+            "pusher": pusher,
             "status": reply.get("status", "pending"),
             "queue_id": reply["queue_id"],
             "idempotency_key": bundle["idempotency_key"],
@@ -213,7 +349,7 @@ def _cmd_push(args: argparse.Namespace) -> _Lines:
     )
     return [
         f"queued as item {reply['queue_id']} ({'duplicate retry' if reply.get('duplicate') else 'new'});"
-        f" check with: share status --remote {remote} --queue-id {reply['queue_id']}"
+        f" check with: share status --remote {url} --queue-id {reply['queue_id']}"
     ]
 
 
@@ -233,11 +369,12 @@ def _push_record(root: Path, remote: str, queue_id: int) -> dict[str, Any] | Non
 
 def _cmd_status(args: argparse.Namespace) -> _Lines:
     repo = _repo(args)
-    remote = _remote_id(args.remote)
+    url = _remote_url(args.remote or default_remote())
+    remote = _remote_id(repo.store, url, accept_move=args.accept_move)
     token = repo.store.meta(_token_key(remote))
     if not token:
-        raise SystemExit(f"error: not registered with {remote} — run `share register` first")
-    reply = client.push_status(remote, args.queue_id, token=token)
+        raise SystemExit(f"error: not registered with {url} — run `share register` first")
+    reply = client.push_status(url, args.queue_id, token=token)
     lines = [f"queue item {args.queue_id}: {reply['status']}"]
     if reply.get("verdict"):
         lines.append(f"verdict note: {reply['verdict']}")
@@ -286,18 +423,48 @@ def _cmd_status(args: argparse.Namespace) -> _Lines:
 
 def _cmd_pull(args: argparse.Namespace) -> _Lines:
     repo = _repo(args)
-    remote = _remote_id(args.remote)
-    snapshot = client.fetch_snapshot(remote)
-    report = apply_snapshot(repo.store, snapshot, remote=remote)
+    url = _remote_url(args.remote or default_remote())
+    remote = _remote_id(repo.store, url, accept_move=args.accept_move)
+    # The anti-rollback anchor doubles as the conditional-request tag: if the
+    # server's chain head still matches it, there is provably nothing new, and
+    # neither side pays for the corpus.
+    _, hash_key = anchor_keys(remote)
+    snapshot = client.fetch_snapshot(url, known_chain_hash=repo.store.meta(hash_key) or "")
+    if snapshot is client.UNCHANGED:
+        # Returns before `refresh_rendered()`, deliberately: nothing changed, so
+        # there is nothing to project. The one behaviour this drops is that an
+        # empty pull used to restore `rendered/` files deleted by hand — that
+        # was a side effect of a no-op, not a promise, and `knowledge repair`
+        # is where rebuilding the projection belongs.
+        return [f"already at the server's current revision ({url})"]
+    if str(snapshot.get("corpus_id") or "") != remote:
+        # /identity is unauthenticated; the snapshot's id is the one the chain
+        # commits to. Disagreement means the two answers came from different
+        # corpora — refuse rather than key this merge on the wrong one.
+        raise SystemExit(f"error: {url} served a snapshot from a different corpus than it announced")
+    report = apply_snapshot(
+        repo.store, snapshot, remote=remote, label=url,
+        trusted_key=trusted_signing_key(url), accept_new_key=args.accept_new_key,
+    )
     repo.refresh_rendered()
-    lines = [
+    lines = [] if snapshot.get("signature") else [
+        f"warning: {url} does not sign its snapshots — this pull proves only that the server"
+        " sent it, not that its maintainer published it"
+    ]
+    lines += [
         f"pulled server rev {report.server_rev} → local rev {report.rev}:"
         f" +{report.created_nodes} nodes, ~{report.updated_nodes} updated,"
         f" -{report.retired_nodes} retired; +{report.created_items} items,"
-        f" +{report.created_memberships} memberships, +{report.created_links} links"
+        f" +{report.created_memberships} memberships, {report.moved_memberships} moved,"
+        f" +{report.created_links} links"
     ]
     for conflict in report.conflicts:
         lines.append(f"conflict (local kept): {conflict.describe()}")
+    if report.diverged_moves:
+        lines.append(
+            f"local kept: {report.diverged_moves} line(s) currently moved both here and in the library,"
+            " to different entries"
+        )
     for pending in report.pending_prose:
         lines.append(f"prose pending manual merge: {pending.describe()}")
     # The conflicts outlive this terminal. Written AFTER the merge committed:
@@ -308,7 +475,7 @@ def _cmd_pull(args: argparse.Namespace) -> _Lines:
         lines.append(
             f"recorded in {conflict_ledger.CONFLICT_LOG_FILENAME}:"
             f" {len(opened)} new, {still_open} already open —"
-            f" list them with: share conflicts --remote {remote}"
+            f" list them with: share conflicts --remote {url}"
         )
     return lines
 
@@ -360,13 +527,19 @@ def _cmd_conflicts(args: argparse.Namespace) -> _Lines:
     repo = _repo(args)
     if args.dismiss or args.resolve:
         return _record_manual_verdict(repo, args)
-    remote = _remote_id(args.remote) if args.remote else ""
+    remote = _known_remote_id(repo.store, args.remote) if args.remote else ""
     rows = conflict_ledger.open_conflicts(repo.root, remote=remote)
     if not rows:
-        return ["no open conflicts" + (f" for {remote}" if remote else "")]
+        return ["no open conflicts" + (f" for {args.remote}" if remote else "")]
     from .conflict_repair import human_only
 
-    lines = [f"{len(rows)} open conflict(s):"]
+    # Pending hand edits in rendered/ go in BEFORE the session reads the
+    # entry (owner 2026-10-02): an unharvested file is a whole-entry diff that
+    # the next harvest would apply on top of the session's answer, putting the
+    # old H1 or intro straight back. Same entry point as the correction run's
+    # start-of-run harvest (worktree gate, write lock, per-file isolation).
+    lines = _harvest_before_repair(repo, execute=args.execute) if args.repair else []
+    lines.append(f"{len(rows)} open conflict(s):")
     for row in rows:
         line = f"  {conflict_ledger.describe(row)}"
         reason = human_only(repo, row)
@@ -439,6 +612,33 @@ def _cmd_conflicts(args: argparse.Namespace) -> _Lines:
     return lines
 
 
+def _harvest_before_repair(repo: KnowledgeRepo, *, execute: bool) -> _Lines:
+    """Absorb pending `rendered/` edits before a conflict-repair session.
+
+    Dry-run (no ``--execute``) only says which files are waiting; it writes
+    nothing. A file that fails to parse stays as it is and is reported by the
+    harvest itself -- the session still runs."""
+
+    dirty = repo.rendered_dirty_files()
+    if not dirty:
+        return []
+    names = "、".join(rel for rel, _path, _subject in dirty)
+    if not execute:
+        return [f"rendered/ 里有 {len(dirty)} 个文件的手工改动还没收进库（{names}）；--execute 时会先收进来再开会话"]
+    from ..node.edit import harvest_rendered_edits_at_run_start
+
+    try:
+        results = harvest_rendered_edits_at_run_start(repo.root)
+    except Exception as exc:  # the harvest must never sink the repair
+        current_reporter().warning("knowledge-rendered-harvest-failed", str(exc))
+        return [f"rendered/ 的手工改动收割失败，照原样保留：{exc}"]
+    return [
+        f"rendered/{row['file']}: {row['status']}"
+        + (f" (rev {row['rev']})" if row.get("rev") is not None else "")
+        for row in results
+    ]
+
+
 def _cmd_review(args: argparse.Namespace) -> _Lines:
     """Maintainer review (plan §6.3). Dry-run by default and **read-only**:
     it peeks the queue without leasing (looking must not lock, round 7) and
@@ -449,11 +649,19 @@ def _cmd_review(args: argparse.Namespace) -> _Lines:
     lets the maintainer approve past the §6.3 gate, with the reason recorded
     server-side."""
 
-    from .review import render_review_prompt, run_review_session, threshold_report
+    from .review import UnusableReviewReply, render_review_prompt, run_review_session, threshold_report
 
-    remote = _remote_id(args.remote)
+    if (args.post or args.override_thresholds) and args.queue_id is None:
+        # A verdict is one decision about one item. Posting a whole peek in
+        # one go let a session's conclusions -- which contributed text can
+        # steer -- land in the public library unread, and an override written
+        # for one item applied to every item in the batch.
+        raise SystemExit("error: --post and --override-thresholds need --queue-id (one item at a time)")
+    # Maintainer side: the address is all it needs — the review CLI keeps no
+    # per-corpus local state, so it never asks who is answering.
+    remote = _remote_url(args.remote)
     peeked = client.peek_queue(
-        remote, maintainer_token=args.maintainer_token, queue_id=args.queue_id
+        remote, maintainer_token=_secret_arg(args, "maintainer_token"), queue_id=args.queue_id
     )
     items = peeked.get("items") or []
     if not items:
@@ -471,6 +679,7 @@ def _cmd_review(args: argparse.Namespace) -> _Lines:
             + (", leased elsewhere" if peek_item.get("leased") else "")
             + ") —"
         )
+        lines.extend(_bundle_identity_lines(peek_item.get("bundle") or {}))
         for row in threshold_report(peek_item.get("bundle") or {}):
             state = "OK" if row["satisfied"] else ("需外部印证" if row["needs_external"] else "人工")
             lines.append(f"  claim {row['node']} {row['field_path']} [{row['slot']}]: {state}")
@@ -479,7 +688,7 @@ def _cmd_review(args: argparse.Namespace) -> _Lines:
             lines.append(f"  dry-run: review prompt rendered ({len(prompt)} chars); --execute 跑审核会话")
             continue
         leased = client.lease_queue(
-            remote, maintainer_token=args.maintainer_token,
+            remote, maintainer_token=_secret_arg(args, "maintainer_token"),
             seconds=args.lease_seconds, limit=1, queue_id=queue_id,
         ).get("items") or []
         if not leased:
@@ -492,7 +701,14 @@ def _cmd_review(args: argparse.Namespace) -> _Lines:
         # full duration). A successful verdict clears the lease server-side.
         consumed = False
         try:
-            review = run_review_session(item, client=llm_client)
+            try:
+                review = run_review_session(item, client=llm_client)
+            except UnusableReviewReply as exc:
+                # One unusable reply (no <review_verdict> block, broken JSON,
+                # an unknown verdict) is this item's failure, not the batch's:
+                # say so and go on; the lease is released below.
+                lines.append(f"  session reply unusable ({exc}); lease released")
+                continue
             lines.append(
                 f"  session verdict: {review['verdict']}"
                 + (f" merge={review['merge']}" if review["merge"] else "")
@@ -500,10 +716,16 @@ def _cmd_review(args: argparse.Namespace) -> _Lines:
             )
             for row in review["external_evidence"]:
                 lines.append(f"  evidence {row['node']} {row['field_path']}: {row['url']}")
-            if args.post:
+            if review["unknown_claims"]:
+                lines.append(
+                    "  evidence dropped, unknown claim handle: " + ", ".join(review["unknown_claims"])
+                )
+            if args.post and not _confirmed_post(args, queue_id, review, lines):
+                lines.append("  not posted (not confirmed); lease released")
+            elif args.post:
                 reply = client.post_verdict(
                     remote,
-                    maintainer_token=args.maintainer_token,
+                    maintainer_token=_secret_arg(args, "maintainer_token"),
                     queue_id=queue_id,
                     lease_token=item["lease_token"],
                     expected_version=item["verdict_version"],
@@ -521,12 +743,122 @@ def _cmd_review(args: argparse.Namespace) -> _Lines:
             if not consumed:
                 try:
                     client.release_item(
-                        remote, maintainer_token=args.maintainer_token,
+                        remote, maintainer_token=_secret_arg(args, "maintainer_token"),
                         queue_id=queue_id, lease_token=item["lease_token"],
                     )
                 except Exception:
                     pass  # a lost release just lets the lease time out
     return lines
+
+
+#: Payload fields that say WHAT a node is. The threshold rows name claims by
+#: handle and field path only, so without these a strange entry name -- the
+#: very thing that once became a file path -- never reached the reviewer's eyes.
+_IDENTITY_FIELDS = ("surface", "zh", "category", "label", "field", "value", "target")
+
+
+def _bundle_identity_lines(bundle: dict) -> _Lines:
+    lines: _Lines = []
+    for node in bundle.get("nodes") or []:
+        payload = node.get("payload") or {}
+        shown = ", ".join(
+            f"{name}={json.dumps(str(payload[name]), ensure_ascii=False)}"
+            for name in _IDENTITY_FIELDS
+            if payload.get(name)
+        )
+        anchor = f" (updates {node['canonical_id']})" if node.get("canonical_id") else " (new)"
+        lines.append(f"  node {node.get('handle')} [{node.get('kind')}]{anchor}: {shown}")
+    return lines
+
+
+def _confirmed_post(args: argparse.Namespace, queue_id: int, review: dict, lines: _Lines) -> bool:
+    """The maintainer's own yes before a verdict goes public. The session's
+    evidence URLs count toward the §6.3 gate once posted, so confirming here
+    is the maintainer vouching for them, not the model."""
+
+    if args.yes:
+        return True
+    if not sys.stdin.isatty():
+        lines.append("  refusing to post without a terminal to confirm on (--yes to post anyway)")
+        return False
+    # What was gathered so far is the context of the question, so it goes out
+    # with it rather than after the answer.
+    shown = "\n".join(lines)
+    lines.clear()
+    answer = input(
+        f"{shown}\npost verdict {review['verdict']!r} for queue item {queue_id}"
+        f" (I checked the evidence URLs above)? [y/N] "
+    )
+    return answer.strip().lower() in {"y", "yes"}
+
+
+def _secret_arg(args: argparse.Namespace, name: str) -> str:
+    """A secret from `--<name>` or from `--<name>-file`.
+
+    A long-lived secret on a command line ends up in shell history and, for a
+    moment, in the process table — the file form exists so the maintainer's
+    routine does not have to.
+    """
+
+    path = getattr(args, f"{name}_file", None)
+    if path:
+        return Path(path).expanduser().read_text(encoding="utf-8").strip()
+    return str(getattr(args, name) or "")
+
+
+def _cmd_relay(args: argparse.Namespace) -> _Lines:
+    """Maintainer: shuttle between the public mailbox and the local queue.
+
+    The mailbox (``deploy/share-worker/``) judges nothing, so this is where the
+    contributed bundles meet the admission boundary — through the very same
+    ``ShareService.push`` the self-hosted server uses. The maintainer token this
+    asks for is the **mailbox's**; the local service's own token never leaves
+    this process, because the relay calls it in-process rather than over HTTP.
+    """
+
+    import secrets
+
+    from .relay import run_relay
+    from .server import ShareService
+    from .signing import load_private_key
+
+    if args.publish and not args.signing_key_file:
+        # The signature is what makes a snapshot the maintainer's rather than
+        # whatever the mailbox's token holder published; pulls from a library
+        # that signed before refuse an unsigned one.
+        raise SystemExit(
+            "error: publishing needs --signing-key-file (create one with `share keygen`),"
+            " or pass --no-publish to only move queue items"
+        )
+    signing_key = load_private_key(args.signing_key_file) if args.signing_key_file else None
+    service = ShareService(
+        args.server_root, maintainer_token=secrets.token_urlsafe(16), signing_key=signing_key
+    )
+    try:
+        report = run_relay(
+            service,
+            _remote_url(args.remote or default_remote()),
+            maintainer_token=_secret_arg(args, "mailbox_token"),
+            limit=args.limit,
+            publish=args.publish,
+            purge_days=args.purge_days,
+        )
+    finally:
+        service.close()
+    return report.lines()
+
+
+def _cmd_keygen(args: argparse.Namespace) -> _Lines:
+    from .signing import generate_key_file
+
+    public_key = generate_key_file(args.out)
+    return [
+        f"private key written to {args.out} — keep it on this machine and back it up;"
+        " losing it means clients must be told a new key",
+        f"public key: {public_key}",
+        "give clients the public key: `[share] signing_key` in config.toml, or"
+        " `BUILTIN_SIGNING_KEY` in share/mailbox.py for the built-in mailbox",
+    ]
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -538,7 +870,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     sub = parser.add_subparsers(dest="command", required=True)
 
     register = sub.add_parser("register", help="obtain an anonymous contributor token")
-    register.add_argument("--remote", required=True)
+    register.add_argument(
+        "--remote", default=None, help="mailbox address (default: the packaged one)"
+    )
+    register.add_argument("--accept-move", action="store_true", help="this address is my known library at a new address — authorize it to receive that corpus's token and merge state")
     register.set_defaults(func=_cmd_register)
 
     for name, handler, help_text in (
@@ -561,16 +896,29 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
     push = sub.add_parser("push", help="push marked subjects to the review queue")
     push.add_argument("subjects", nargs="+")
-    push.add_argument("--remote", required=True)
+    push.add_argument(
+        "--remote", default=None, help="mailbox address (default: the packaged one)"
+    )
+    push.add_argument("--accept-move", action="store_true", help="this address is my known library at a new address — authorize it to receive that corpus's token and merge state")
     push.set_defaults(func=_cmd_push)
 
     status = sub.add_parser("status", help="check a queued push; backfill canonical ids on approval")
-    status.add_argument("--remote", required=True)
+    status.add_argument(
+        "--remote", default=None, help="mailbox address (default: the packaged one)"
+    )
+    status.add_argument("--accept-move", action="store_true", help="this address is my known library at a new address — authorize it to receive that corpus's token and merge state")
     status.add_argument("--queue-id", type=int, required=True)
     status.set_defaults(func=_cmd_status)
 
     pull = sub.add_parser("pull", help="fetch, verify and merge the server snapshot")
-    pull.add_argument("--remote", required=True)
+    pull.add_argument(
+        "--remote", default=None, help="mailbox address (default: the packaged one)"
+    )
+    pull.add_argument("--accept-move", action="store_true", help="this address is my known library at a new address — authorize it to receive that corpus's token and merge state")
+    pull.add_argument(
+        "--accept-new-key", action="store_true",
+        help="the library's maintainer changed signing keys: trust the key this snapshot is signed by",
+    )
     pull.set_defaults(func=_cmd_pull)
 
     conflicts = sub.add_parser(
@@ -606,7 +954,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="maintainer: lease queue items and run the LLM review (dry-run by default)",
     )
     review.add_argument("--remote", required=True)
-    review.add_argument("--maintainer-token", required=True)
+    review_token = review.add_mutually_exclusive_group(required=True)
+    review_token.add_argument("--maintainer-token")
+    review_token.add_argument(
+        "--maintainer-token-file",
+        help="read it from a file instead, so the secret stays out of shell history",
+    )
     review.add_argument("--queue-id", type=int, default=None, help="review one specific item")
     review.add_argument("--lease-seconds", type=int, default=900)
     review.add_argument(
@@ -615,7 +968,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     review.add_argument(
         "--post", action="store_true",
-        help="post the session's verdict (+external evidence) back to the server",
+        help="post the session's verdict (+external evidence) back to the server;"
+        " needs --queue-id and asks before sending",
+    )
+    review.add_argument(
+        "--yes", action="store_true",
+        help="with --post: do not ask (you have read this item's session result)",
     )
     review.add_argument(
         "--override-thresholds",
@@ -624,6 +982,48 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="approve past the §6.3 gate; the reason is recorded in the verdict note",
     )
     review.set_defaults(func=_cmd_review)
+
+    relay = sub.add_parser(
+        "relay",
+        help="maintainer: shuttle the public mailbox's queue into the local one, publish the snapshot",
+    )
+    relay.add_argument(
+        "--remote", default=None, help="the mailbox Worker's URL (default: the packaged one)"
+    )
+    relay.add_argument("--server-root", required=True, help="the local share-server data directory")
+    mailbox_token = relay.add_mutually_exclusive_group(required=True)
+    mailbox_token.add_argument(
+        "--mailbox-token", help="the mailbox's maintainer token (a Worker secret)"
+    )
+    mailbox_token.add_argument(
+        "--mailbox-token-file",
+        help="read it from a file instead, so the secret stays out of shell history",
+    )
+    relay.add_argument("--limit", type=int, default=20, help="queued items per batch")
+    relay.add_argument(
+        "--purge-days",
+        type=int,
+        default=None,
+        help="retire queue items decided more than this many days ago (0 disables)",
+    )
+    relay.add_argument(
+        "--publish",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="hand the mailbox the current snapshot when done",
+    )
+    relay.add_argument(
+        "--signing-key-file",
+        default=None,
+        help="the maintainer's snapshot signing key (`share keygen`); required to publish",
+    )
+    relay.set_defaults(func=_cmd_relay)
+
+    keygen = sub.add_parser(
+        "keygen", help="maintainer: create the key that signs published snapshots"
+    )
+    keygen.add_argument("--out", required=True, help="where to write the private key (never overwritten)")
+    keygen.set_defaults(func=_cmd_keygen)
 
     return parser.parse_args(argv)
 
@@ -638,6 +1038,33 @@ _MUTATING = {"register", "mark", "unmark", "status", "pull", "push", "conflicts"
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Bind a terminal reporter for the whole command, like the sibling
+    maintenance CLI does.
+
+    Without it ``current_reporter()`` hands back the null reporter, whose
+    ``warning()`` returns without doing anything — so every warning this CLI
+    raises is dead code in production, and only visible to tests that bind a
+    reporter of their own (reviewer, 2026-09-09).
+
+    Only when nobody is already listening, though: an embedder that wrapped
+    this call in its own ``reporting_to`` meant it, and taking the microphone
+    away from them would be the same bug pointing the other way.
+    """
+
+    from finesub.reporting import (
+        current_reporter,
+        reporter_delivers,
+        reporting_to,
+        terminal_reporter,
+    )
+
+    if reporter_delivers(current_reporter()):
+        return _main(argv)
+    with reporting_to(terminal_reporter()):
+        return _main(argv)
+
+
+def _main(argv: list[str] | None = None) -> int:
     from ..base import knowledge_write_lock
 
     args = parse_args(argv)

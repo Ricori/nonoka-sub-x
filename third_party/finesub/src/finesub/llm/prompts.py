@@ -7,14 +7,13 @@ import json
 from typing import Any, Dict, List, Mapping, Sequence
 
 from .chunking import (
-    SubtitleSegment,
     SubtitleWindow,
     render_window_preceding_as_csv,
     render_window_segments_as_csv,
 )
 from .routing.config import (
-    CapabilityTier,
     DEFAULT_RESEARCH_SEARCH_QUERIES,
+    CapabilityTier,
     KB_TRANSFER_MAX_ENTRIES,
     KB_WINDOW_NEW_REQUEST_MAX_ENTRIES,
     KB_WINDOW_TOTAL_ENTRIES,
@@ -27,15 +26,27 @@ from .token_truncate import truncate_to_token_window
 from .prompt_compose import (
     PROMPT_TEMPLATE_DIR,
     PROMPT_VERSION,
-    compose_correction_query_system,
     compose_correction_system,
     compose_correction_user,
-    compose_fast_round1_system,
-    compose_fast_round1_user,
     ensure_csv_block_headers,
     load_prompt_template as _load_prompt_template,
     reasoning_clause,
+    render_knowledge_indexes,
+    render_knowledge_ops_contract,
 )
+
+
+def _any_index(indexes: Mapping[str, str] | None) -> bool:
+    """Is there any index to read at all?
+
+    "No index" is a real state with prompt consequences: with nothing to pick
+    entries off, the request rules come out of the system prompt entirely
+    (`docs/llm_prompts.md`). It used to be spelled `streamer_index.strip() or
+    common_index.strip()` at each site, which is the two-category assumption in
+    miniature -- a third matchable category would simply not have counted.
+    """
+
+    return any(str(text).strip() for text in (indexes or {}).values())
 
 
 def _query_style_rules() -> str:
@@ -64,33 +75,8 @@ def _search_queries_rules(max_queries: int, *, knowledge_enabled: bool = True) -
     ).strip()
 
 
-def _search_contract_rules(max_queries: int, *, knowledge_enabled: bool = True) -> str:
-    """Multi-round variant of the search emission rules (contract + round 0)."""
-
-    return _load_prompt_template(
-        "fragment_search_contract_output_v1.md",
-        max_queries=max_queries,
-        query_style=_query_style_rules(),
-        knowledge_query_note=(
-            "已注入的知识库条目足以回答的主题也不要花 query（尤其主播本人相关），"
-            "只为其增量动态、时效信息或条目标注「待定」的点立 fact/发 query。"
-            "index 中有但尚未注入的条目：请求词条与发 query **并行**，"
-            "不要等词条注入再决定；若 index 简介已表明词条大概率覆盖该主题，"
-            "可调低对应 fact 的 priority。"
-            if knowledge_enabled
-            else ""
-        ),
-    ).strip()
-
-
 def _search_results_usage() -> str:
     return _load_prompt_template("fragment_search_results_usage_v1.md").strip()
-
-
-def _evidence_pack_usage() -> str:
-    """Multi-round variant of the search results usage rules."""
-
-    return _load_prompt_template("fragment_evidence_pack_usage_v1.md").strip()
 
 
 def _feedback_schema(*, local_source_ids: bool) -> str:
@@ -108,7 +94,7 @@ def _feedback_schema(*, local_source_ids: bool) -> str:
 
 
 def _research_task_feedback_block(*, local_source_ids: bool) -> str:
-    """Feedback-collection addendum for the research final round / fast round 1."""
+    """Feedback-collection addendum for the preparation task's delivery."""
 
     return "\n" + _load_prompt_template(
         "research_task_feedback_v1.md",
@@ -134,6 +120,13 @@ class WindowContextNote:
             "last_source_id": self.last_source_id,
             "context": self.context,
         }
+
+
+def general_for_correction(general: Mapping[str, Any]) -> dict[str, Any]:
+    """The general context without the speaker judge's `speakers` (top level, and inside a chunked
+    run's per-chunk blocks): what the correction reads, and what its size is counted on."""
+    return {key: ({k: v for k, v in value.items() if k != "speakers"} if isinstance(value, Mapping) else value)
+            for key, value in general.items() if key != "speakers"}
 
 
 @dataclass(frozen=True)
@@ -166,9 +159,12 @@ class ContextPack:
             )
 
     def general_prompt_text(self) -> str:
+        """The general context as the correction windows read it. `speakers` (asked only for the
+        speaker judge) stays out, also inside a chunked run's per-chunk blocks: the correction's
+        prompt is the same whether the judge runs or not."""
         if not self.general_context:
             return "{}"
-        return json.dumps(dict(self.general_context), ensure_ascii=False, indent=2)
+        return json.dumps(general_for_correction(self.general_context), ensure_ascii=False, indent=2)
 
     @property
     def has_unbound_window_contexts(self) -> bool:
@@ -343,7 +339,7 @@ class ContextPack:
         general = data.get("general_context") or {}
         if not isinstance(general, Mapping):
             general = {"global_summary": str(general)}
-        # The model emits ``[{window_id, context}]`` (research_round2_v2.md); the
+        # The model emits ``[{window_id, context}]`` (prepare_task_v1.md); the
         # harness adds the source range before persisting. Anything without a
         # range therefore lands unbound and is never injected.
         raw_windows = data.get("window_contexts") or []
@@ -400,17 +396,18 @@ def render_advice_ledger(entries: Sequence[tuple[str, str]]) -> str:
 def _numbered(items: Sequence[str]) -> str:
     """Render an ordered list whose numbering follows the items actually kept.
 
-    R1's background/duty lists are assembled per axis (docs/llm_harness_behavior.md), so the
-    numbers cannot live in the template -- a disabled half would leave a hole.
+    The preparation task's background list is assembled per axis
+    (docs/llm_harness_behavior.md), so the numbers cannot live in the template
+    -- a disabled half would leave a hole.
     """
 
     return "\n".join(f"{index}. {item}" for index, item in enumerate(items, start=1))
 
 
-# --- R1 axis fragments -------------------------------------------------------
+# --- preparation-task axis fragments ----------------------------------------
 # Each entry is owned by exactly one axis, so a disabled half removes its own
-# background line, its own duty, its own output block and its own input section
-# together -- the injection-reality principle (docs/llm_prompts.md) applied to a round.
+# background line together with its input section -- the injection-reality
+# principle (docs/llm_prompts.md) applied to a task (``prepare_prompts``).
 
 _R1_BACKGROUND_COMMON = (
     "ASR 文本来自 Whisper 识别，可能存在误听：专有名词可能被识别成音似的假名、汉字、"
@@ -423,33 +420,14 @@ _R1_BACKGROUND_KNOWLEDGE = (
     "本地知识库收集的是公开网络中很少存在、难以进入 LLM 语料的知识；"
     "索引里的条目可能正是理解本段内容的关键。",
 )
-_R1_BACKGROUND_SEARCH = (
-    "你自己没有联网搜索能力。你提出的搜索 query 会由本地搜索代理执行，"
-    "结果供第二轮调查使用。",
-)
-
-_R1_DUTY_ENTRIES = (
-    "对照两份索引，找出与本段内容相关、尚未预注入且需要完整详情的条目"
-    "（主播本人、提到的其他主播、游戏、梗、事件等），列入 `<requested_entries>`。"
-    "词条 key = index 行首主 key = 条目 Markdown 文件的一级标题（`# 源语言本名`）；"
-    "每行写主 key 或别名，按重要性从高到低排列。只请求强相关条目，"
-    "不要用边缘请求挤占共享额度。",
-    "检查 `<preinjected_entries>`，把后续仍需使用的已注入条目列入 `<keep_entries>`；"
-    "只能引用本轮实际可见的预注入词条，不要把未注入词条写进 keep。",
-)
-_R1_DUTY_SEARCH = (
-    "提出联网搜索 query，覆盖所有你「感兴趣」、值得查证的内容：游戏剧情/系统/角色名、"
-    "近期事件、社区语境、直播来源信息等。优先覆盖理解内容所必需、"
-    "且你自身知识可能不足或过时的主题。",
-)
-
 def r1_request_cap(*, downstream_can_request: bool) -> int:
     """How many entries R1 may request.
 
     ``KB_WINDOW_NEW_REQUEST_MAX_ENTRIES`` was sized for a *per-window increment*
-    -- it leaves room for the next window to ask for more. When no later round
-    can request (no per-window query round; docs/llm_harness_behavior.md), R1 is the session's only
-    pick and that reserve is pure loss, so it gets the whole shared budget.
+    -- it leaves room for the next window to ask for more. When no window can
+    request (no request channel; docs/llm_harness_behavior.md), the preparation
+    task is the session's only pick and that reserve is pure loss, so it gets
+    the whole shared budget.
     """
 
     return (
@@ -459,488 +437,18 @@ def r1_request_cap(*, downstream_can_request: bool) -> int:
     )
 
 
-def _r1_notes_block() -> str:
-    return _load_prompt_template("fragment_research_analysis_notes_v1.md").strip()
+def _r1_entry_blocks(max_requested_entries: int, *, keep_source_block: str) -> str:
+    """The request blocks; ``keep_source_block`` is the block the reader sees
+    the entries it may keep in -- `<preinjected_entries>` in a preparation
+    task, `<entry_details>` in a correction window."""
 
-
-def _r1_entry_blocks(max_requested_entries: int) -> str:
     return _load_prompt_template(
         "fragment_research_entry_blocks_v1.md",
+        keep_source_block=keep_source_block,
         max_requested_entries=max_requested_entries,
         max_keep_entries=KB_TRANSFER_MAX_ENTRIES,
         max_total_entries=KB_WINDOW_TOTAL_ENTRIES,
     ).strip()
-
-
-def build_research_round1_messages(
-    *,
-    transcript: str,
-    extra_info: str = "",
-    note_url_extracts: str = "",
-    streamer_index: str = "",
-    common_index: str = "",
-    preinjected_entries: str = "",
-    max_search_queries: int = DEFAULT_RESEARCH_SEARCH_QUERIES,
-    use_search_contract: bool = False,
-    emits_queries: bool = True,
-    emits_entries: bool = True,
-    emits_notes: bool = True,
-    max_requested_entries: int = KB_WINDOW_NEW_REQUEST_MAX_ENTRIES,
-) -> List[Dict[str, str]]:
-    """Round 1 research prompt, assembled from the axis halves it actually runs.
-
-    ``emits_queries`` is ``retrieval=local`` (the local search agent executes
-    what this round asks for), ``emits_entries`` is a readable knowledge base,
-    and ``emits_notes`` is "round 2 will run and read them". A caller that
-    passes all three ``False`` should not be running R1 at all.
-
-    ``use_search_contract`` swaps the single-round query emission fragment for
-    the multi-round variant (Research Contract + round-0 queries); everything
-    else stays identical, which is the pluggable-prompt seam.
-    ``preinjected_entries`` carries the budget-rendered knowledge entries the
-    harness matched against the user note's keys/aliases.
-    """
-
-    input_sources = []
-    if emits_entries:
-        input_sources.append(
-            "本地知识库的两份索引（主播 index 和 common index）"
-            "，以及 harness 根据用户备注关键词预注入的知识库条目全文（可能为空）"
-        )
-    background = [
-        *_R1_BACKGROUND_COMMON,
-        *(_R1_BACKGROUND_KNOWLEDGE if emits_entries else ()),
-        *(_R1_BACKGROUND_SEARCH if emits_queries else ()),
-    ]
-    analysis_purpose = "、".join(
-        part
-        for part, on in (("条目挑选", emits_entries), ("搜索 query", emits_queries))
-        if on
-    )
-    duties = [
-        "中轻量分析：先快速把握整段内容——主题/游戏/主播的初步判断、剧情或事件线索、"
-        "关键疑点和可能的 ASR 误听风险。"
-        + (
-            f"分析是为了提高后续{analysis_purpose}的质量，不要逐句展开。"
-            if analysis_purpose
-            else "不要逐句展开。"
-        )
-        + (
-            "把对第二轮调查有用的要点写入 `<analysis_notes>` 块。"
-            if emits_notes
-            else "分析只写在 `<reasoning>` 里，本轮没有下游调查轮会读它。"
-        ),
-        *(_R1_DUTY_ENTRIES if emits_entries else ()),
-        *(_R1_DUTY_SEARCH if emits_queries else ()),
-    ]
-    output_blocks = [
-        *((_r1_notes_block(),) if emits_notes else ()),
-        *((_r1_entry_blocks(max_requested_entries),) if emits_entries else ()),
-        *(
-            (
-                _search_contract_rules(
-                    max_search_queries, knowledge_enabled=emits_entries
-                )
-                if use_search_contract
-                else _search_queries_rules(
-                    max_search_queries, knowledge_enabled=emits_entries
-                ),
-            )
-            if emits_queries
-            else ()
-        ),
-    ]
-    system = _load_prompt_template(
-        "research_round1_v2.md",
-        input_sources=("、" + "".join(input_sources)) if input_sources else "",
-        background_items=_numbered(background),
-        duty_items=_numbered(duties),
-        reasoning_clause=reasoning_clause(),
-        output_blocks="\n".join(output_blocks),
-    )
-
-    block_names = [
-        *(("`<analysis_notes>`",) if emits_notes else ()),
-        *(("`<requested_entries>`", "`<keep_entries>`") if emits_entries else ()),
-        *(("搜索相关标签块",) if emits_queries else ()),
-    ]
-    task_summary = "、".join(
-        part
-        for part, on in (
-            ("先做中轻量分析", True),
-            ("request 尚未注入的词条、keep 仍需使用的预注入词条", emits_entries),
-            ("提出值得联网查证的搜索 query", emits_queries),
-        )
-        if on
-    )
-    knowledge_inputs = (
-        _load_prompt_template(
-            "fragment_research_knowledge_inputs_v1.md",
-            streamer_index=streamer_index or "（空）",
-            common_index=common_index or "（空）",
-            preinjected_entries=preinjected_entries.strip() or "（无）",
-        )
-        if emits_entries
-        else "\n"
-    )
-    user = _load_prompt_template(
-        "research_round1_user_v2.md",
-        task_summary=task_summary,
-        output_block_list="、".join(block_names),
-        # Only worth saying where something downstream reads the notes and can
-        # act on the hedge -- with no round 2 there is no such reader.
-        unverified_clause=(
-            "本轮没有联网结果，未经证实的判断必须标注「待定」；" if emits_notes else ""
-        ),
-        extra_info=extra_info or "（无）",
-        note_url_extracts=note_url_extracts.strip() or "（无）",
-        knowledge_inputs=knowledge_inputs,
-        transcript=transcript,
-    )
-    return [{"role": "system", "content": system}, {"role": "user", "content": user}]
-
-
-def build_research_round2_messages(
-    *,
-    transcript: str,
-    extra_info: str = "",
-    round1_notes: str = "",
-    entry_details_text: str = "",
-    search_results: str = "",
-    use_evidence_pack: bool = False,
-    collect_task_feedback: bool = False,
-    native_search: bool = False,
-    emits_keep: bool = True,
-) -> List[Dict[str, str]]:
-    """Round 2 research prompt.
-
-    ``use_evidence_pack`` swaps the raw-search-results usage fragment for the
-    evidence-pack variant; ``search_results`` then carries the rendered
-    evidence pack text in the same prompt slot. ``entry_details_text`` is the
-    budget-rendered knowledge-entry block from round 1's requests.
-    ``collect_task_feedback`` additionally asks for a trailing
-    ``<task_update_feedback>`` block (schema v3).
-
-    ``native_search`` is ``retrieval=native``: nothing was fetched for this
-    round, the model searches inside the call, and the ``<search_results>``
-    input section disappears along with its usage rules. ``emits_keep`` is off
-    whenever no later round can request entries -- pruning there would lose
-    entries permanently, so the harness transfers the full set instead of
-    asking (docs/llm_harness_behavior.md).
-    """
-
-    has_entries = bool(entry_details_text.strip())
-    system = _load_prompt_template(
-        "research_round2_v2.md",
-        input_sources="".join(
-            part
-            for part, on in (
-                ("、第一轮调查索取的知识库条目详情", has_entries),
-                ("、本地搜索代理对第一轮提出的 query 返回的搜索结果", not native_search),
-            )
-            if on
-        ),
-        reasoning_clause=reasoning_clause(),
-        retrieval_usage=(
-            _load_prompt_template("fragment_native_search_research_v1.md").strip()
-            if native_search
-            else (_evidence_pack_usage() if use_evidence_pack else _search_results_usage())
-        ),
-        uncertainty_sources=(
-            "、".join(
-                part
-                for part, on in (("知识库", has_entries), ("检索结果", True))
-                if on
-            )
-        ),
-        keep_entries_block=(
-            _load_prompt_template(
-                "fragment_research_keep_entries_v1.md",
-                max_keep_entries=KB_TRANSFER_MAX_ENTRIES,
-            ).rstrip()
-            + "\n"
-            if emits_keep
-            else ""
-        ),
-        task_update_feedback_block=(
-            _research_task_feedback_block(local_source_ids=False)
-            if collect_task_feedback
-            else ""
-        ),
-    )
-    if isinstance(search_results, list):
-        search_results = "\n".join(search_results)
-    user = _load_prompt_template(
-        "research_round2_user_v2.md",
-        extra_info=extra_info or "（无）",
-        round1_cross_check=(
-            "、".join(
-                part
-                for part, on in (
-                    ("知识库", has_entries),
-                    ("你自己检索到的资料", native_search),
-                    ("搜索结果", not native_search),
-                )
-                if on
-            )
-        ),
-        round1_notes=round1_notes.strip() or "（无）",
-        knowledge_entries_input=(
-            "\n第一轮索取的知识库条目详情：\n"
-            f"<knowledge_entries>\n{entry_details_text.strip()}\n</knowledge_entries>\n"
-            if has_entries
-            else ""
-        ),
-        search_results_input=(
-            ""
-            if native_search
-            else (
-                "\n本地搜索代理返回的搜索结果（按第一轮提出的 query 分组，可能为空）：\n"
-                f"<search_results>\n{search_results.strip() or '（无）'}\n</search_results>\n"
-            )
-        ),
-        transcript=transcript,
-        keep_entries_reminder=(
-            "，再输出 `<keep_entries>` 块（可为空）" if emits_keep else ""
-        ),
-        search_closing=(
-            "检索完成后不要再发起新的搜索"
-            if native_search
-            else "不能再发起搜索"
-        ),
-        task_feedback_reminder=(
-            TASK_FEEDBACK_REMINDER if collect_task_feedback else ""
-        ),
-    )
-    return [{"role": "system", "content": system}, {"role": "user", "content": user}]
-
-
-def build_search_loop_messages(
-    *,
-    round_index: int,
-    max_rounds: int,
-    is_final_round: bool,
-    background: str = "",
-    contract_json: str = "",
-    executed_queries: Sequence[str] = (),
-    progress_log: str = "",
-    search_results: str = "",
-    streamer_index: str = "",
-    common_index: str = "",
-    knowledge_entries: str = "",
-    previous_requested_entries: Sequence[str] = (),
-    previous_kept_entries: Sequence[str] = (),
-    previous_contract_json: str = "",
-    previous_search_queries: Sequence[str] = (),
-    previous_extract_urls: Sequence[str] = (),
-    followup_query_cap: int = 4,
-) -> List[Dict[str, str]]:
-    """Prompt for one lightweight search-loop call (after each search round).
-
-    ``streamer_index``/``common_index`` expose the local knowledge indices on
-    non-final rounds (the harness passes "" on the final round, where entry
-    requests are forbidden); ``knowledge_entries`` carries the budget-rendered
-    bodies requested in the previous round. The ``previous_*`` fields preserve
-    the exact entry selection and executed search request that produced the
-    immediately following raw results block.
-    """
-
-    system = _load_prompt_template(
-        "search_loop_v1.md",
-        followup_cap=followup_query_cap,
-        reasoning_clause=reasoning_clause(),
-    )
-    # The round notice text lives in template fragments (prompt text never
-    # hardcoded in Python); Python only selects which one and fills the
-    # remaining-round count.
-    if is_final_round:
-        round_notice = _load_prompt_template(
-            "fragment_search_loop_final_notice_v1.md"
-        ).strip()
-    else:
-        round_notice = _load_prompt_template(
-            "fragment_search_loop_continue_notice_v1.md",
-            remaining_rounds=max(0, max_rounds - round_index - 1),
-        ).strip()
-    user = _load_prompt_template(
-        "search_loop_user_v1.md",
-        round_index=round_index,
-        max_rounds=max_rounds,
-        round_notice=round_notice,
-        background=background.strip() or "（无）",
-        contract_json=contract_json.strip() or "（无）",
-        executed_queries="\n".join(executed_queries) or "（无）",
-        progress_log=progress_log.strip() or "（无）",
-        streamer_index=streamer_index.strip() or "（空）",
-        common_index=common_index.strip() or "（空）",
-        previous_requested_entries=(
-            "\n".join(previous_requested_entries) or "（无）"
-        ),
-        previous_kept_entries="\n".join(previous_kept_entries) or "（无）",
-        knowledge_entries=knowledge_entries.strip() or "（无）",
-        previous_contract_json=previous_contract_json.strip() or "（无）",
-        previous_search_queries="\n".join(previous_search_queries) or "（无）",
-        previous_extract_urls="\n".join(previous_extract_urls) or "（无）",
-        search_results=search_results.strip() or "（无）",
-    )
-    return [{"role": "system", "content": system}, {"role": "user", "content": user}]
-
-
-def build_search_loop_v2_messages(
-    *,
-    round_index: int,
-    max_rounds: int,
-    is_final_round: bool,
-    background: str = "",
-    contract_json: str = "",
-    executed_queries: Sequence[str] = (),
-    previous_evidence_pack: str = "",
-    search_results: str = "",
-    streamer_index: str = "",
-    common_index: str = "",
-    knowledge_entries: str = "",
-    previous_requested_entries: Sequence[str] = (),
-    previous_kept_entries: Sequence[str] = (),
-    previous_contract_json: str = "",
-    previous_search_queries: Sequence[str] = (),
-    previous_extract_urls: Sequence[str] = (),
-    followup_query_cap: int = 4,
-) -> List[Dict[str, str]]:
-    """V2 search-loop prompt: every round emits a full Evidence Pack.
-
-    Replaces the v1 binary "continue OR pack" with "always pack, optionally
-    queries". ``previous_evidence_pack`` carries the prior round's pack for
-    incremental update (empty on round 0). No progress_update block.
-    """
-
-    system = _load_prompt_template(
-        "search_loop_v2.md",
-        followup_cap=followup_query_cap,
-        reasoning_clause=reasoning_clause(),
-    )
-    if is_final_round:
-        round_notice = _load_prompt_template(
-            "fragment_search_loop_final_notice_v1.md"
-        ).strip()
-    else:
-        round_notice = _load_prompt_template(
-            "fragment_search_loop_continue_notice_v1.md",
-            remaining_rounds=max(0, max_rounds - round_index - 1),
-        ).strip()
-    user = _load_prompt_template(
-        "search_loop_user_v2.md",
-        round_index=round_index,
-        max_rounds=max_rounds,
-        round_notice=round_notice,
-        background=background.strip() or "（无）",
-        contract_json=contract_json.strip() or "（无）",
-        executed_queries="\n".join(executed_queries) or "（无）",
-        previous_evidence_pack=previous_evidence_pack.strip() or "（无）",
-        streamer_index=streamer_index.strip() or "（空）",
-        common_index=common_index.strip() or "（空）",
-        previous_requested_entries=(
-            "\n".join(previous_requested_entries) or "（无）"
-        ),
-        previous_kept_entries="\n".join(previous_kept_entries) or "（无）",
-        knowledge_entries=knowledge_entries.strip() or "（无）",
-        previous_contract_json=previous_contract_json.strip() or "（无）",
-        previous_search_queries="\n".join(previous_search_queries) or "（无）",
-        previous_extract_urls="\n".join(previous_extract_urls) or "（无）",
-        search_results=search_results.strip() or "（无）",
-    )
-    return [{"role": "system", "content": system}, {"role": "user", "content": user}]
-
-
-def build_correction_query_messages(
-    *,
-    window: SubtitleWindow,
-    context_pack: ContextPack | None = None,
-    audio_file_label: str = "",
-    previous_advice: str = "",
-    streamer_index: str = "",
-    common_index: str = "",
-    carried_entries: str = "",
-    carried_entry_count: int = 0,
-    max_search_queries: int = MAX_WINDOW_SEARCH_QUERIES,
-    profile: TranslationProfile = DEFAULT_PROFILE,
-) -> List[Dict[str, Any]]:
-    """Query-round messages.
-
-    ``carried_entries`` is the budget-rendered full text of entries kept by
-    the previous window's correction round (v17 pass-through); its count
-    shrinks the new-request allowance shown to the model
-    (min(KB_WINDOW_NEW_REQUEST_MAX_ENTRIES, KB_WINDOW_TOTAL_ENTRIES - carried)).
-
-    Index injection and the ``<requested_entries>`` rules share one predicate
-    (docs/llm_prompts.md): with no index to read, asking the model to pick entries off it
-    is asking for nothing. Passing both indices empty therefore also drops the
-    request rules from the system prompt.
-    """
-
-    pack = context_pack or ContextPack()
-    knowledge_enabled = bool(streamer_index.strip() or common_index.strip())
-    remaining_entries = max(
-        0,
-        min(
-            KB_WINDOW_NEW_REQUEST_MAX_ENTRIES,
-            KB_WINDOW_TOTAL_ENTRIES - max(0, int(carried_entry_count)),
-        ),
-    )
-    system = compose_correction_query_system(
-        profile,
-        search_queries_rules=_search_queries_rules(
-            max_search_queries, knowledge_enabled=knowledge_enabled
-        ),
-        max_entries=remaining_entries,
-        total_entries=KB_WINDOW_TOTAL_ENTRIES,
-        knowledge_enabled=knowledge_enabled,
-    )
-    user = ensure_csv_block_headers(_load_prompt_template(
-        "correction_query_user_v1.md",
-        general_context_json=pack.general_prompt_text(),
-        window_context=pack.window_context_for(window) or "（无）",
-        previous_advice=previous_advice.strip() or "（无）",
-        # The knowledge-owned *input sections* follow the same predicate as the
-        # request rules: with the base off, the round must not be shown empty
-        # index/carried blocks it was given no rules for (injection reality).
-        knowledge_index_block=(
-            _load_prompt_template(
-                "fragment_query_index_input_v1.md",
-                streamer_index=streamer_index or "（空）",
-                common_index=common_index or "（空）",
-            ).strip()
-            + "\n\n"
-            if knowledge_enabled
-            else ""
-        ),
-        knowledge_carried_block=(
-            _load_prompt_template(
-                "fragment_query_carried_input_v1.md",
-                carried_entries=carried_entries.strip() or "（无）",
-                remaining_entries=remaining_entries,
-            ).strip()
-            + "\n\n"
-            if knowledge_enabled
-            else ""
-        ),
-        # The block enumerations name entry blocks only where the rules for
-        # them ship (same predicate as $knowledge_request_block); otherwise the
-        # round is told to emit a block it was given no rules for and whose
-        # absence its contract no longer checks.
-        entry_block_list=(
-            "、可选的 `<requested_entries>` 块、一个 `<keep_entries>` 块"
-            if knowledge_enabled
-            else ""
-        ),
-        entry_block_reminder=(
-            "、可选的 `<requested_entries>`（勿重复请求已透传词条）、"
-            "`<keep_entries>`（每行一个已透传词条 key；没有需保留的条目时输出空块）"
-            if knowledge_enabled
-            else ""
-        ),
-        current_asr_csv=render_window_segments_as_csv(window).strip(),
-    ))
-    return [{"role": "system", "content": system}, {"role": "user", "content": user}]
 
 
 def build_correction_csv_messages(
@@ -949,24 +457,23 @@ def build_correction_csv_messages(
     context_pack: ContextPack | None = None,
     audio_file_label: str = "",
     previous_advice: str = "",
-    query_round_notes: str = "",
+    window_notes: str = "",
     search_results: str = "",
     entry_details: str = "",
     extra_style: str = "",
     style_block: str = "",
     task_update_feedback: bool = False,
-    evidence_pack_mode: bool = False,
     profile: TranslationProfile = DEFAULT_PROFILE,
     tier: CapabilityTier = CapabilityTier.CAPABLE,
     variant: str | None = None,
     knowledge_enabled: bool = True,
+    style_pick_reminder: str = "",
 ) -> List[Dict[str, Any]]:
     """Correction-round messages.
 
-    ``query_round_notes`` fills the generic ``<pre_round_notes>`` slot (the
-    query round's window notes in normal mode, fast round 1's analysis notes
-    in fast mode); ``entry_details`` and ``evidence_pack_mode`` are only
-    non-default in fast mode. Production passes ``variant`` from the resolved
+    ``window_notes`` fills the generic ``<pre_round_notes>`` slot (the
+    request turn's window notes); ``entry_details`` carries the window's
+    knowledge entries. Production passes ``variant`` from the resolved
     task-group cell. ``tier`` only supplies the compatibility default when a
     caller (notably old session-replay fixtures) omits that explicit variant.
     """
@@ -980,7 +487,6 @@ def build_correction_csv_messages(
         profile,
         tier=tier,
         variant=variant,
-        evidence_pack_mode=evidence_pack_mode,
         extra_style=extra_style,
         style_block=style_block,
         knowledge_enabled=knowledge_enabled,
@@ -1000,6 +506,15 @@ def build_correction_csv_messages(
                 ),
             )
         )
+    # Plan 5r B2 (experiment): empty unless FINESUB_OVERLAP_CANDIDATES is set.
+    from .overlap_candidates import candidate_rows
+
+    overlap_rows = candidate_rows(window)
+    overlap_candidates_block = (
+        _load_prompt_template("fragment_overlap_candidates_v1.md", candidate_rows=overlap_rows).strip() + "\n\n"
+        if overlap_rows
+        else ""
+    )
     user = compose_correction_user(
         profile,
         knowledge_enabled=knowledge_enabled,
@@ -1007,84 +522,26 @@ def build_correction_csv_messages(
         window_context=pack.window_context_for(window) or "（无）",
         entry_details=entry_details.strip() or "（无）",
         previous_advice=previous_advice.strip() or "（无）",
-        pre_round_notes=query_round_notes.strip() or "（无）",
+        pre_round_notes=window_notes.strip(),
         search_results=search_results.strip() or "（无）",
         preceding_context_csv=preceding_csv,
         current_asr_csv=current_csv,
         current_asr_row_count=len(window.segments),
+        overlap_candidates_block=overlap_candidates_block,
         tier=tier,
         variant=variant,
+        style_pick_reminder=style_pick_reminder,
     )
     return [{"role": "system", "content": system}, {"role": "user", "content": user}]
 
 
-def build_fast_round1_messages(
+def _knowledge_update_system(
+    refined: bool,
     *,
-    window: SubtitleWindow,
-    audio_file_label: str = "",
-    extra_info: str = "",
-    note_url_extracts: str = "",
-    streamer_index: str = "",
-    common_index: str = "",
-    preinjected_entries: str = "",
-    max_search_queries: int = DEFAULT_RESEARCH_SEARCH_QUERIES,
-    use_search_contract: bool = False,
-    collect_task_feedback: bool = False,
-    profile: TranslationProfile = DEFAULT_PROFILE,
-) -> List[Dict[str, Any]]:
-    """Fast-mode round 1: fused research round 1 + per-window query round.
-
-    ``window`` is the single fast window covering the whole input; the CSV is
-    rendered clip-relative exactly like a correction window. Fast round 1 is
-    the research final round's equivalent feedback collection point, so
-    ``collect_task_feedback`` adds the same trailing block request.
-
-    Index injection and the entry blocks share one predicate (docs/llm_prompts.md):
-    empty indices and no preinjected entries -- ``--knowledge none`` or an
-    empty base -- drop every knowledge-owned piece of both prompts, so the
-    round is never told to pick entries off an index it does not have.
-    """
-
-    knowledge_enabled = bool(
-        streamer_index.strip()
-        or common_index.strip()
-        or preinjected_entries.strip()
-    )
-    search_rules = (
-        _search_contract_rules(max_search_queries, knowledge_enabled=knowledge_enabled)
-        if use_search_contract
-        else _search_queries_rules(max_search_queries, knowledge_enabled=knowledge_enabled)
-    )
-    # Request and keep have independent caps; keep wins their shared cap.
-    system = compose_fast_round1_system(
-        profile,
-        search_queries_rules=search_rules,
-        task_update_feedback_block=(
-            _research_task_feedback_block(local_source_ids=True)
-            if collect_task_feedback
-            else ""
-        ),
-        max_requested_entries=KB_WINDOW_NEW_REQUEST_MAX_ENTRIES,
-        max_keep_entries=KB_TRANSFER_MAX_ENTRIES,
-        max_total_entries=KB_WINDOW_TOTAL_ENTRIES,
-        knowledge_enabled=knowledge_enabled,
-    )
-    user = compose_fast_round1_user(
-        extra_info=extra_info or "（无）",
-        note_url_extracts=note_url_extracts.strip() or "（无）",
-        streamer_index=streamer_index or "（空）",
-        common_index=common_index or "（空）",
-        preinjected_entries=preinjected_entries,
-        current_asr_csv=render_window_segments_as_csv(window).strip(),
-        task_feedback_reminder=(
-            TASK_FEEDBACK_REMINDER if collect_task_feedback else ""
-        ),
-        knowledge_enabled=knowledge_enabled,
-    )
-    return [{"role": "system", "content": system}, {"role": "user", "content": user}]
-
-
-def _knowledge_update_system(refined: bool, *, inputs_block: str) -> str:
+    inputs_block: str,
+    style_marks_section: str | None = None,
+    split: bool = False,
+) -> str:
     """The knowledge-update system message: structure spec + output contract.
 
     Shared with the conflict-repair round, which is the same task against a
@@ -1093,25 +550,61 @@ def _knowledge_update_system(refined: bool, *, inputs_block: str) -> str:
     description of both.
     """
 
-    from .knowledge.node.render import render_structure_spec
+    from .knowledge.node.presets import CATEGORIES, MATCHABLE_CATEGORIES
+    from .knowledge.node.render import render_category_line, render_structure_spec
 
+    # The refined-alignment marks (`knowledge/style_marks.py`) are asked for
+    # only when a style is pinned -- there is nothing to mark otherwise -- and
+    # never in the conflict-repair round, which re-decides proposals only.
+    style_marks_contract = (
+        "\n"
+        + _load_prompt_template(
+            "fragment_knowledge_style_marks_v1.md",
+            strict=True,
+            convention_section=style_marks_section,
+        ).strip()
+        if refined and style_marks_section
+        else ""
+    )
     return _load_prompt_template(
         "knowledge_update_refined_v1.md"
         if refined
         else "knowledge_update_artifacts_only_v1.md",
         strict=True,
         knowledge_inputs=inputs_block,
+        **({"style_marks_contract": style_marks_contract} if refined else {}),
         knowledge_structure=_load_prompt_template(
             "fragment_knowledge_structure_v1.md",
             strict=True,
-            sections_spec=render_structure_spec(),
+            # EVERY category, not just the matchable ones (plan §0 requirement 3).
+            # ⚠ Two different category sets meet in this file and they are not
+            # interchangeable: the INDEX面 is matchable-only (a standalone
+            # category has no index -- `repo.index_text` raises for one), while
+            # the TEMPLATE面 is all of them. Calling this with no argument
+            # defaulted to the matchable set, which is how `style`'s template
+            # went unseen by the maintenance session it was written for -- the
+            # refined one. Without refined subtitles (and in the conflict
+            # repair, which speaks this contract) there is no style evidence
+            # and no style to write: the templates are the writable ones only
+            # (owner 2026-10-03, cold read Q6); the roster line stays whole.
+            sections_spec=render_structure_spec(CATEGORIES if refined else MATCHABLE_CATEGORIES),
+            categories_line=render_category_line(CATEGORIES),
+            # Only where `split_entry` is in the op table below: the conflict
+            # repair round is never offered it, and a rule naming it there is
+            # a dead clause the gate rejects (cold read round 2, P181).
+            split_clause=(
+                _load_prompt_template("fragment_knowledge_split_clause_v1.md").strip()
+                if split
+                else ""
+            ),
         ).strip(),
-        knowledge_output=_load_prompt_template(
-            "fragment_knowledge_output_v1.md",
-            strict=True,
-            reasoning_clause=reasoning_clause(),
-        ).strip(),
+        # ...and a THIRD set, narrower than both: what this session may write.
+        # `apply_model_proposals` gates the round on `MATCHABLE_CATEGORIES`, so
+        # the contract has to name those and only those -- a template the model
+        # can read is not a category it may write into.
+        knowledge_output=render_knowledge_ops_contract(MATCHABLE_CATEGORIES, split=split),
     )
+
 
 
 def build_knowledge_conflict_repair_messages(
@@ -1126,8 +619,9 @@ def build_knowledge_conflict_repair_messages(
 
     Only the knowledge proposals are repairable this way, so the round always
     speaks the ``artifacts_only`` contract (one `<knowledge_proposals>` block)
-    even when the task itself is ``refined_aligned``: the mistake ledger is
-    append-only and never loses a row to a CAS conflict.
+    even when the task itself is ``refined_aligned``: since the translation
+    ledgers retired, every proposal is a knowledge proposal, so there is no
+    other block to repair.
 
     No fresh material is injected on purpose -- the model is asked to re-decide
     the dropped items against the CURRENT entries, not to think of new ones it
@@ -1150,8 +644,12 @@ def build_knowledge_conflict_repair_messages(
             " `<knowledge_proposals>` 块（可为空块）；除上述块外不要输出任何其他文字。"
         ),
     )
+    from .knowledge.entry_size import offers_split
+
     return [
-        {"role": "system", "content": _knowledge_update_system(False, inputs_block=inputs_block)},
+        {"role": "system", "content": _knowledge_update_system(
+            False, inputs_block=inputs_block, split=offers_split(kb_entries)
+        )},
         {"role": "user", "content": user},
     ]
 
@@ -1165,12 +663,11 @@ def build_knowledge_update_messages(
     research_feedback: str = "",
     aggregated_feedback: str = "",
     kb_entries: str = "",
-    streamer_index: str = "",
-    common_index: str = "",
+    knowledge_indexes: Mapping[str, str] | None = None,
     chunk_index: int = 1,
     multi_chunk: bool = False,
     window_range: str = "",
-    prompt_version: str = PROMPT_VERSION,
+    style_marks_section: str | None = None,
 ) -> List[Dict[str, str]]:
     """Unified knowledge-update prompt (docs/knowledge.md).
 
@@ -1182,6 +679,8 @@ def build_knowledge_update_messages(
     total, since over-limit chunks may split further at run time).
     The style entry, when the run named one, arrives through ``kb_entries``
     like every other entry — same handles, same apply path.
+    ``style_marks_section`` (refined variant with a pinned style) names that
+    style's convention section and asks for the ``<style_marks>`` block.
     """
 
     inputs_block = _load_prompt_template(
@@ -1196,7 +695,14 @@ def build_knowledge_update_messages(
             else ""
         ),
     ).strip()
-    system = _knowledge_update_system(refined, inputs_block=inputs_block)
+    marks = bool(refined and style_marks_section)
+    from .knowledge.entry_size import offers_split
+
+    system = _knowledge_update_system(
+        refined, inputs_block=inputs_block,
+        style_marks_section=style_marks_section if marks else None,
+        split=offers_split(kb_entries),
+    )
     if multi_chunk:
         chunk_notice = (
             f"\n材料分块说明：本任务材料按 token 预算分为多块，本次调用是第 "
@@ -1205,28 +711,28 @@ def build_knowledge_update_messages(
         )
     else:
         chunk_notice = ""
-    # One output block in both variants since the style entry took over from the
-    # mistake ledger (`docs/plans/translation-style-plan.md` §3 step 3): a style
-    # convention is an entry update like any other, so it travels in
-    # `<knowledge_proposals>` instead of a second block with its own schema.
-    final_reminder = (
-        "先以一个 `<reasoning>` 块开头；随后输出有且仅有一个"
-        " `<knowledge_proposals>` 块（可为空块）；除上述块外不要输出任何其他文字。"
-    )
+    # One proposal block in both variants since the style entry took over from
+    # the mistake ledger (`docs/knowledge.md`, 「两个翻译台账（已退役，2026-09-02）」): a
+    # style convention is an entry update like any other, so it travels in
+    # `<knowledge_proposals>`. The one extra block, `<style_marks>`, is not an
+    # update but a judgement on the pinned style's conventions, and is asked
+    # for only when there is one (`knowledge/style_marks.py`).
     user = _load_prompt_template(
         "knowledge_update_user_v1.md",
         strict=True,
         task_summary=task_summary.strip() or "（无）",
-        task_prompt_version=prompt_version,
         chunk_notice=chunk_notice,
         general_context=general_context.strip() or "（无）",
         research_feedback=research_feedback.strip() or "（无）",
         aggregated_feedback=aggregated_feedback.strip() or "（无）",
         kb_entries=kb_entries.strip() or "（无）",
-        streamer_index=streamer_index.strip() or "（空）",
-        common_index=common_index.strip() or "（空）",
+        knowledge_indexes=render_knowledge_indexes(knowledge_indexes),
         window_packs=window_packs.strip() or "（无）",
-        final_reminder=final_reminder,
+        style_marks_reminder=(
+            _load_prompt_template("fragment_knowledge_style_marks_reminder_v1.md").rstrip("\n")
+            if marks
+            else ""
+        ),
     )
     return [{"role": "system", "content": system}, {"role": "user", "content": user}]
 

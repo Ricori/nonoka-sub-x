@@ -22,17 +22,29 @@ from functools import lru_cache
 from importlib import resources
 from typing import Any, Mapping
 
-from .model import CATEGORIES, METADATA_SECTION
+from .model import METADATA_SECTION
 
 BODY_KINDS: tuple[str, ...] = ("note", "term")
 SHARE_VALUES: tuple[str, ...] = ("inherit", "local")
 VERIFY_VALUES: tuple[str, ...] = ("external", "none")
 LABEL_ROLES: tuple[str, ...] = ("identity", "aliases")
 
+#: Which categories exist, in the order the sweeps visit them. This tuple is the
+#: only ORDERED declaration; everything else about a category -- what it is, what
+#: it collects, its template, and whether it joins the matching surface -- lives
+#: in its own ``presets/<name>.toml``. `test_llm_knowledge_presets.py` ties the
+#: two together: the directory and this tuple must name the same set.
+#:
+#: Ordered here rather than globbed from the directory because a glob is
+#: alphabetical, while this order is the one `repo.resolve()` sweeps in and
+#: `repo` writes the index files in. Deriving it would have silently reordered
+#: both -- the kind of change that produces no error and no test failure.
+CATEGORIES: tuple[str, ...] = ("streamer", "common", "style")
+
 _PRESET_KEYS = frozenset({
     "name", "version", "strict_sections", "sections", "default_section", "share_inherit",
     "allow_custom_labels", "unknown_label_share", "unknown_label_verify",
-    "max_entry_tokens",
+    "max_entry_tokens", "soft_entry_tokens", "splittable", "blurb", "matchable", "index_header",
 })
 _SECTION_KEYS = frozenset({
     "name", "body_kinds", "purpose", "exclude", "staging", "verify", "labels",
@@ -65,7 +77,7 @@ class LabelSpec:
 
 @dataclass(frozen=True)
 class SectionSpec:
-    #: Write-side caps (`docs/plans/translation-style-plan.md` §2.3). They live on
+    #: Write-side caps (`docs/knowledge.md`, 「style 类别」). They live on
     #: the preset because that is where every other section rule lives: the
     #: prompt renders its guidance from here and the apply engine validates
     #: against the same object, so a cap cannot be stated twice and drift.
@@ -85,7 +97,7 @@ class SectionSpec:
     #: This section's labels are REFERENCES into another section: a non-empty
     #: label here must name a line there. That is how a style entry pairs a
     #: convention with its example without a container the model has no way to
-    #: express (`docs/plans/translation-style-plan.md` §2.2) — and it is what makes
+    #: express (`docs/knowledge.md`, 「style 类别」) — and it is what makes
     #: an orphan example (a label naming no convention) mechanically
     #: detectable rather than a rule only the prompt states.
     labels_from: str | None = None
@@ -117,15 +129,52 @@ class Preset:
     allow_custom_labels: bool = True
     unknown_label_share: str = "local"
     unknown_label_verify: str = "none"
-    #: Backstop on the WHOLE entry's injected projection, in tokens. The
-    #: per-section caps bound each line and each section; this bounds what the
-    #: entry costs a prompt when every section sits near its own limit. `None`
-    #: means uncapped, which is every category but `style`.
-    #:
-    #: It must NOT simply refuse writes when exceeded: the fix for an oversized
-    #: entry is itself a write, and refusing every write would lock the entry
-    #: at its worst. The rule is monotone instead (`_check_entry_budget`).
+    #: Injection cap on the WHOLE entry's prompt projection, in tokens: an
+    #: injected entry longer than this is cut line by line to fit
+    #: (`injection_budget.render_knowledge_entries_block`). It is NOT a write
+    #: rule -- nothing refuses a write for the entry's length (owner
+    #: 2026-10-02: a refusal drops new evidence until someone compresses; the
+    #: pressure to compress is a notice instead). `None` means uncapped.
     max_entry_tokens: int | None = None
+    #: Past this many tokens a WRITABLE surface asks the model to compress the
+    #: entry (`entry_size.size_notice`). `None`: never asked.
+    soft_entry_tokens: int | None = None
+    #: Whether an entry of this category may be split into sub-entries by
+    #: section. False keeps the split wording out of every prompt for it: a
+    #: streamer entry is injected whole by the streamer's name, so a split-off
+    #: section would leave the default injection (plan kb-entry-size).
+    splittable: bool = False
+    #: One line saying what this category is, for the structure table the
+    #: prompts carry. It lived in `render.py` as a hardcoded dict of three
+    #: entries until 2026-09-07 -- and that dict's own comment records the
+    #: 2026-09-02 incident where a hardcoded pair of categories made the table
+    #: silently stop covering the store. A category is defined by its preset,
+    #: so its one-line description belongs there too.
+    blurb: str = ""
+    #: Does this category join the MATCHING surface -- swept by
+    #: `repo.resolve()`, given an index, and pre-injected by keyword -- or is it
+    #: addressed only by explicit name?
+    #:
+    #: `style` is the latter, and that is a decision rather than an omission:
+    #: matching would buy it nothing, and the global key check would then reject
+    #: two subtitle groups owning a same-named style -- a style is usually named
+    #: after the group or streamer it serves. The cost is that name uniqueness
+    #: inside such a category is nobody else's job; `repo.resolve_in()` is where
+    #: it happens.
+    #:
+    #: The default is only ever taken by the frozen version-1 archive presets
+    #: (both matchable, and predating `style` entirely). Every version-2 preset
+    #: must state it -- `_parse_v2` requires the key.
+    matchable: bool = True
+    #: Header written at the top of this category's `rendered/<cat>/index.md`:
+    #: a markdown heading plus the line telling a human what the columns mean.
+    #: It lived in `repo.py` as a two-entry dict keyed on category, which is
+    #: the same shape -- and the same failure -- as the blurb dict did.
+    #:
+    #: Required exactly when `matchable` is true and meaningless otherwise: an
+    #: index exists to be matched against, so a standalone category has none
+    #: (`repo.index_text` raises for those on purpose).
+    index_header: str = ""
 
     def section(self, name: str) -> SectionSpec | None:
         wanted = _normalize(name)
@@ -367,6 +416,21 @@ def _parse_v2(data: Mapping[str, Any]) -> Preset:
     share_inherit = data.get("share_inherit", {})
     if not isinstance(share_inherit, dict):
         raise PresetError(f"{where}.share_inherit: expected a table")
+    # `index_header` is required exactly when the category joins the matching
+    # surface, and rejected otherwise -- a standalone category has no index, so
+    # a header for one would be a value nothing reads, sitting there looking
+    # authoritative.
+    matchable = _require_bool(data.get("matchable"), f"{where}.matchable")
+    if matchable:
+        index_header = _require_str(data.get("index_header"), f"{where}.index_header")
+        if not index_header.strip():
+            raise PresetError(f"{where}.index_header: must not be blank for a matchable category")
+    else:
+        if "index_header" in data:
+            raise PresetError(
+                f"{where}.index_header: only a matchable category has an index"
+            )
+        index_header = ""
     known = seen_sections | ({"*"} if default is not None else set())
     for key, value in share_inherit.items():
         _require_enum(value, SHARE_VALUES, f"{where}.share_inherit[{key!r}]")
@@ -391,7 +455,24 @@ def _parse_v2(data: Mapping[str, Any]) -> Preset:
         max_entry_tokens=_require_positive_int(
             data.get("max_entry_tokens"), f"{where}.max_entry_tokens"
         ),
+        soft_entry_tokens=_soft_entry_tokens(data, where),
+        splittable=_require_bool(data.get("splittable", False), f"{where}.splittable"),
+        # Both required, both without a fallback: a missing `blurb` would leave
+        # the structure table naming a category it cannot describe, and a
+        # missing `matchable` would silently default a new category ONTO the
+        # matching surface -- the expensive direction of that mistake.
+        blurb=_require_str(data.get("blurb"), f"{where}.blurb"),
+        matchable=matchable,
+        index_header=index_header,
     )
+
+
+def _soft_entry_tokens(data: Mapping[str, Any], where: str) -> int | None:
+    soft = _require_positive_int(data.get("soft_entry_tokens"), f"{where}.soft_entry_tokens")
+    cap = data.get("max_entry_tokens")
+    if soft is not None and isinstance(cap, int) and soft >= cap:
+        raise PresetError(f"{where}.soft_entry_tokens must be below max_entry_tokens")
+    return soft
 
 
 def _parse_v1(data: Mapping[str, Any]) -> Preset:
@@ -434,9 +515,24 @@ def parse_preset(data: Mapping[str, Any]) -> Preset:
     raise PresetError(f"unknown preset version {version!r}")
 
 
+def _preset_folder():  # type: ignore[no-untyped-def]
+    """Where the preset files live.
+
+    A function rather than an inlined expression so a test can point the loader
+    at a temporary directory and exercise a category that does not ship -- the
+    acceptance case in `docs/knowledge.md` (「加一个类别就是两步」) is exactly
+    that, and it must not be forced to become a real category to be testable.
+    A test that redirects this must also `load_preset.cache_clear()` and
+    re-derive `MATCHABLE_CATEGORIES` via `_split_by_matching()`; both are
+    computed once and would otherwise answer from before the redirect.
+    """
+
+    return resources.files(__package__) / "presets"
+
+
 @lru_cache(maxsize=None)
 def load_preset(name: str, *, legacy: bool = False) -> Preset:
-    folder = resources.files(__package__) / "presets"
+    folder = _preset_folder()
     package = (folder / "legacy" / f"{name}.toml") if legacy else (folder / f"{name}.toml")
     with package.open("rb") as handle:
         preset = parse_preset(tomllib.load(handle))
@@ -444,6 +540,19 @@ def load_preset(name: str, *, legacy: bool = False) -> Preset:
     if preset.version != expected:
         raise PresetError(f"preset {name!r}: expected version {expected}, got {preset.version}")
     return preset
+
+
+def head_section_names() -> frozenset[str]:
+    """Sections that belong to an entry's head: those whose preset carries the
+    identity or aliases label (`档案`). A cut entry always keeps them -- they
+    are what make it still that entry (plan kb-entry-size)."""
+
+    names = set()
+    for category in CATEGORIES:
+        for spec in preset_for_category(category).sections:
+            if any(label.role in ("identity", "aliases") for label in spec.labels):
+                names.add(spec.name)
+    return frozenset(names)
 
 
 def preset_for_category(category: str, *, legacy: bool = False) -> Preset:
@@ -454,3 +563,103 @@ def preset_for_category(category: str, *, legacy: bool = False) -> Preset:
     if category not in known:
         raise ValueError(f"no preset for category {category!r}")
     return load_preset(category, legacy=legacy)
+
+
+def preset_digest(preset: Preset) -> str:
+    """Fingerprint of what a preset MEANS, for the migration ledger.
+
+    Hashed from the parsed object rather than the file bytes, so rewording a
+    comment or re-indenting a table is not a "preset change" -- the ledger
+    would cry wolf and get regenerated without thought, which is how a ratchet
+    stops being read.
+
+    ⚠ The trigger for a migration is a CONTENT change, not a `version` bump:
+    dropping a section, renaming a label or tightening `max_lines` all leave
+    `version = 2` while existing entries stop conforming (review 2026-09-07).
+    So `version` is only one of the fields hashed here, not the thing watched.
+    """
+
+    import hashlib
+    import json
+
+    def _section(spec: SectionSpec) -> dict[str, Any]:
+        return {
+            "name": spec.name,
+            "body_kinds": list(spec.body_kinds),
+            "purpose": spec.purpose,
+            "exclude": spec.exclude,
+            "staging": spec.staging,
+            "verify": spec.verify,
+            "max_lines": spec.max_lines,
+            "max_body_chars": spec.max_body_chars,
+            "labels_from": spec.labels_from,
+            "labels": [
+                {
+                    "name": label.name,
+                    "core": label.core,
+                    "role": label.role,
+                    "share": label.share,
+                    "verify": label.verify,
+                }
+                for label in spec.labels
+            ],
+        }
+
+    shape = {
+        "name": preset.name,
+        "version": preset.version,
+        "strict_sections": preset.strict_sections,
+        "allow_custom_labels": preset.allow_custom_labels,
+        "unknown_label_share": preset.unknown_label_share,
+        "unknown_label_verify": preset.unknown_label_verify,
+        "max_entry_tokens": preset.max_entry_tokens,
+        "soft_entry_tokens": preset.soft_entry_tokens,
+        "splittable": preset.splittable,
+        "matchable": preset.matchable,
+        "index_header": preset.index_header,
+        "share_inherit": dict(sorted(preset.share_inherit.items())),
+        "sections": [_section(spec) for spec in preset.sections],
+        "default_section": (
+            _section(preset.default_section) if preset.default_section else None
+        ),
+    }
+    blob = json.dumps(shape, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(blob.encode("utf-8")).hexdigest()
+
+
+def _split_by_matching() -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """Partition `CATEGORIES` by each preset's own `matchable` declaration.
+
+    Loading three small TOMLs at import is the price of having `matchable`
+    stated once, in the file that defines the category, instead of twice. The
+    alternative -- a second tuple here, kept in step by a test -- is what this
+    replaced.
+
+    A declared category with no file behind it dies here, at import, with a
+    sentence naming the problem. It used to surface far downstream as a bare
+    `FileNotFoundError` out of `load_preset`, which reads like a packaging
+    fault rather than like the missing declaration it is.
+    """
+
+    for name in CATEGORIES:
+        try:
+            load_preset(name)
+        except FileNotFoundError as exc:
+            raise PresetError(
+                f"category {name!r} is declared in CATEGORIES but there is no "
+                f"presets/{name}.toml behind it"
+            ) from exc
+    matchable = tuple(name for name in CATEGORIES if load_preset(name).matchable)
+    return matchable, tuple(name for name in CATEGORIES if name not in matchable)
+
+
+#: Categories reached by MATCHING a name or alias found in free text:
+#: `repo.resolve()` sweeps them, the index and the keyword pre-injection are
+#: built from them, and `create_entry` checks new keys against all of them at
+#: once -- keys are globally unique across the whole matchable set, which is
+#: what lets `append_lines` find an entry afterwards and what
+#: `proposals.py`'s category-hint fallback depends on.
+#:
+#: `STANDALONE_CATEGORIES` is the rest: addressed only by explicit name, each
+#: its own namespace. See `Preset.matchable` for why `style` is one.
+MATCHABLE_CATEGORIES, STANDALONE_CATEGORIES = _split_by_matching()

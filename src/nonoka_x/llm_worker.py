@@ -21,10 +21,15 @@ import sys
 import traceback
 from typing import Any, Mapping
 
-# The text-only roles. `nonoka_x.local_provider.LLM_ROLES` states the same list
-# for callers that cannot import the engine; both are checked against
-# `finesub.llm.routing.config.LLMRole` in tests/test_vendor_contract.py.
+# The text-only roles plugins may ask for. `nonoka_x.local_provider.LLM_ROLES`
+# states the same list for callers that cannot import the engine.
 ROLES = ("lightweight", "general_capable")
+
+# The engine role each plugin role is routed through, checked against
+# `finesub.llm.routing.config.LLMRole` in tests/test_vendor_contract.py.
+# FineSub 0.6.0 dropped its own lightweight role (and the model group behind
+# it); the name stays in the plugin API so existing plugins keep working.
+ENGINE_ROLES = {"lightweight": "general_capable", "general_capable": "general_capable"}
 
 
 def reply(value: Mapping[str, Any]) -> None:
@@ -64,7 +69,7 @@ class Session:
             for item in request["messages"]
         ]
         result = self.client().complete(
-            LLMRole(role),
+            LLMRole(ENGINE_ROLES[role]),
             messages,
             max_tokens=int(request.get("max_tokens", 8192)),
             temperature=float(request.get("temperature", 1.0)),

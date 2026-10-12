@@ -19,7 +19,12 @@ import json
 import re
 from typing import Any, Mapping
 
-from ...prompt_compose import load_prompt_template, reasoning_clause
+from ...prompt_compose import (
+    load_prompt_template,
+    reasoning_clause,
+    render_knowledge_ops_contract,
+)
+from .presets import CATEGORIES
 from .render import HandleMap
 from .repo import KnowledgeRepo
 from .scan import scan_candidates
@@ -34,6 +39,11 @@ REPAIR_MAX_TOKENS = 8_192
 #: judgement call in the staging section instead of guessing.
 _REPAIRABLE = (
     "staging-line", "unnamed-term", "episodic-desc", "duplicate-term", "chapter-alias",
+    # A template change left this line in a section the preset dropped. The
+    # repair session can act on it with the ops it already has -- move it to a
+    # declared section, or retire it under that section's discipline -- which
+    # is why it joins the flow instead of getting a migration path of its own.
+    "orphan-section",
 )
 
 #: candidate verdict enum — single truth for the prompt text (rendered from
@@ -136,6 +146,9 @@ def render_repair_prompt(
     handles: HandleMap | None = None,
     candidate_handles: Mapping[str, Mapping[str, Any]] | None = None,
 ) -> str:
+    # No size notice here: a repair may only change what its input names, so
+    # "compress by X%" could only be ignored or overstep (owner 2026-10-03,
+    # cold read Q4 -- all five readers ignored it).
     handles = handles if handles is not None else HandleMap()
     entry_text = repo.entry_prompt_text(subject_id, handles)
     if material:
@@ -179,13 +192,13 @@ def render_repair_prompt(
         "kb_repair_v1.md",
         strict=True,
         judgment=load_prompt_template("fragment_kb_judgment_v1.md", strict=True),
+        writing=load_prompt_template("fragment_kb_writing_v1.md", strict=True),
         entry_text=entry_text,
         task_section=task,
-        ops_contract=load_prompt_template(
-            "fragment_knowledge_output_v1.md",
-            strict=True,
-            reasoning_clause=reasoning_clause(),
-        ),
+        # The same tuple this session applies with (`allow_categories=CATEGORIES`):
+        # a repair may land in any category, so the contract has to say so
+        # instead of naming the two it used to (review 2026-09-07).
+        ops_contract=render_knowledge_ops_contract(CATEGORIES),
     )
 
 
@@ -207,7 +220,7 @@ def run_repair_session(
     the decision ledger (plan A6)."""
 
     from ...routing.config import LLMRole
-    from .model import CATEGORIES
+    from .presets import CATEGORIES
     from .proposals import apply_model_proposals
 
     handles = HandleMap()

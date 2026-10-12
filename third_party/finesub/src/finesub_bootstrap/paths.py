@@ -27,6 +27,7 @@ from dataclasses import dataclass, replace
 import json
 import os
 from pathlib import Path
+import sys
 
 from finesub_bootstrap.fsops import write_atomic
 from finesub_bootstrap.locks import holding_lock
@@ -121,11 +122,17 @@ class AppPaths:
 
 
 def default_data_root() -> Path:
-    """The one place personal data lives, whichever front end is running."""
+    """The one place personal data lives, whichever front end is running.
+
+    Per platform convention: ``%LOCALAPPDATA%\\FineSub`` on Windows,
+    ``~/Library/Application Support/FineSub`` on macOS, ``~/.finesub`` elsewhere.
+    """
 
     local_app_data = os.environ.get("LOCALAPPDATA") if os.name == "nt" else None
     if local_app_data:
         return Path(local_app_data).expanduser().resolve() / "FineSub"
+    if sys.platform == "darwin":
+        return Path.home().resolve() / "Library" / "Application Support" / "FineSub"
     return Path.home().resolve() / ".finesub"
 
 

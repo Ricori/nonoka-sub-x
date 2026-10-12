@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 import os
 from pathlib import Path
 from typing import Sequence
 
+from .. import settings
 from ..reporting import current_reporter
 from ..text import t2s_converter
 from .model import (
@@ -57,10 +58,42 @@ _PROFILE_STEPS = {
     OVERLAP_POSTPROCESS_PROFILE: (OVERLAP_POSTPROCESS_PROFILE,),
 }
 
-# Push every cue end later by this amount first (never past the next start).
-END_EXTEND_SECONDS = 0.3
-# Then close leftover gaps shorter than this to the next start.
-FLASH_GAP_SECONDS = 0.3
+@dataclass(frozen=True)
+class TimelineParams:
+    """The two durations the timeline step works with.
+
+    `end_extend_seconds`: push every cue end later by this much first (never
+    past the next start or the audio end). `flash_gap_seconds`: then close
+    leftover gaps shorter than this to the next start. Both come from
+    `[postprocess]` in config.toml; defaults and bounds live in
+    `finesub.settings`.
+
+    Checked against those declarations however it is built: a caller passing
+    one explicitly skips the config read, not the rules -- a negative pad would
+    otherwise collapse cues to zero length without a word.
+    """
+
+    end_extend_seconds: float
+    flash_gap_seconds: float
+
+    def __post_init__(self) -> None:
+        origin = " (explicit TimelineParams)"
+        for name, setting in (
+            ("end_extend_seconds", settings.END_EXTEND),
+            ("flash_gap_seconds", settings.FLASH_GAP),
+        ):
+            # Frozen: the checked value (an int becomes a float) goes in this way.
+            object.__setattr__(self, name, setting.check(getattr(self, name), origin=origin))
+
+    @classmethod
+    def from_config(cls) -> "TimelineParams":
+        # One read, so the two values come from the same version of the file.
+        config = settings.read()
+        return cls(
+            end_extend_seconds=settings.END_EXTEND.resolve(config=config),
+            flash_gap_seconds=settings.FLASH_GAP.resolve(config=config),
+        )
+
 
 # If opencc t2s changes more than this fraction of characters, the text is
 # considered traditional Chinese and the simplified conversion is applied.
@@ -80,6 +113,9 @@ class SrtPostprocessReport:
     flash_extended: int = 0
     punctuation_replacements: int = 0
     trimmed_lines: int = 0
+    # What the timeline step ran with; None when the profile has no such step.
+    end_extend_seconds: float | None = None
+    flash_gap_seconds: float | None = None
 
     def to_dict(self) -> dict[str, object]:
         return asdict(self)
@@ -89,12 +125,16 @@ def postprocess_srt_text(
     text: str,
     *,
     profile: int = DEFAULT_POSTPROCESS_PROFILE,
+    audio_end: float | None = None,
+    timeline: TimelineParams | None = None,
 ) -> tuple[str, SrtPostprocessReport]:
     """Return post-processed SRT text plus a report.
 
     Profile ``-1`` is a semantic no-op re-render. Profile ``1`` adjusts the
     timeline, ``2`` normalizes punctuation, ``3`` converts 繁→简, ``4`` resolves
     overlapping cues, and ``0`` applies ``3``, ``4``, ``1``, ``2`` in that order.
+    `timeline` defaults to `[postprocess]` in config.toml, read only when the
+    profile has a timeline step; the report says which values it ran with.
     """
 
     if profile not in _PROFILE_STEPS:
@@ -102,6 +142,11 @@ def postprocess_srt_text(
         raise ValueError(
             f"Unsupported SRT postprocess profile: {profile}; expected one of {expected}"
         )
+    if DURATION_POSTPROCESS_PROFILE not in _PROFILE_STEPS[profile]:
+        # Nothing here uses it, so the report must not claim it ran with one.
+        timeline = None
+    elif timeline is None:
+        timeline = TimelineParams.from_config()
 
     segments = parse_srt(text)
     updated_segments = list(segments)
@@ -120,7 +165,7 @@ def postprocess_srt_text(
             overlaps_fixed += overlap_report["overlaps_fixed"]
         elif step == DURATION_POSTPROCESS_PROFILE:
             updated_segments, duration_report = _postprocess_duration(
-                updated_segments
+                updated_segments, timeline, audio_end=audio_end
             )
             duration_extended += duration_report["duration_extended"]
             flash_extended += duration_report["flash_extended"]
@@ -148,6 +193,8 @@ def postprocess_srt_text(
             flash_extended=flash_extended,
             punctuation_replacements=punctuation_replacements,
             trimmed_lines=trimmed_lines,
+            end_extend_seconds=timeline.end_extend_seconds if timeline else None,
+            flash_gap_seconds=timeline.flash_gap_seconds if timeline else None,
         ),
     )
 
@@ -158,6 +205,8 @@ def postprocess_srt_file(
     output_path: str | Path | None = None,
     profile: int = DEFAULT_POSTPROCESS_PROFILE,
     validate: bool = True,
+    audio_end: float | None = None,
+    timeline: TimelineParams | None = None,
 ) -> SrtPostprocessReport:
     """Rewrite one SRT in place (or to `output_path`) under `profile`.
 
@@ -173,9 +222,11 @@ def postprocess_srt_file(
     rendered, report = postprocess_srt_text(
         source.read_text(encoding="utf-8"),
         profile=profile,
+        audio_end=audio_end,
+        timeline=timeline,
     )
     if validate:
-        warn_on_invalid_srt(rendered, where=str(target))
+        warn_on_invalid_srt(rendered, where=str(target), budget_stage="final-srt")
     target.parent.mkdir(parents=True, exist_ok=True)
     temporary = target.with_name(f".{target.stem}.part{target.suffix}")
     temporary.write_text(rendered, encoding="utf-8")
@@ -280,20 +331,60 @@ def _postprocess_overlap(
     return updated, {"overlaps_fixed": overlaps_fixed}
 
 
+def _bound_cues_to_audio_end(
+    segments: Sequence[SrtSegment], audio_end: float
+) -> list[SrtSegment]:
+    """Keep tail text inside the media, reserving space backwards when needed."""
+
+    bounded = list(segments)
+    ceiling = audio_end
+    # One SRT millisecond per displaced cue; normal cue timing is untouched.
+    step = min(0.001, audio_end / max(len(bounded), 1))
+    for index in range(len(bounded) - 1, -1, -1):
+        cue = bounded[index]
+        end = min(cue.end, ceiling)
+        start = cue.start
+        if start >= ceiling:
+            start = max(0.0, end - step)
+            ceiling = start
+        else:
+            ceiling = audio_end
+        bounded[index] = replace(cue, start=start, end=end)
+    return bounded
+
+
 def _postprocess_duration(
     segments: Sequence[SrtSegment],
+    timeline: TimelineParams,
+    *,
+    audio_end: float | None = None,
 ) -> tuple[list[SrtSegment], dict[str, int]]:
-    updated = list(segments)
+    """Pad every cue end, then close flash gaps.
+
+    ``audio_end`` bounds the pad. The last cue has no next start, so it used
+    to be padded unconditionally -- which is how a stable JSON clamped exactly
+    to the audio end came back out 0.3 s past it. ⚠ The bound is a ceiling,
+    not a rule against padding the last cue: a last cue with room still gets
+    its full pad, which is the behaviour every normal subtitle relies on.
+    """
+
+    updated = (
+        _bound_cues_to_audio_end(segments, audio_end)
+        if audio_end is not None else list(segments)
+    )
     duration_extended = 0
     flash_extended = 0
 
-    # 1. Extend every cue end by a fixed pad; never overlap the next start.
+    # 1. Extend every cue end by a fixed pad; never overlap the next start,
+    # and never run past the audio.
     duration_fixed: list[SrtSegment] = []
     for idx, segment in enumerate(updated):
         next_start = updated[idx + 1].start if idx + 1 < len(updated) else None
-        new_end = segment.end + END_EXTEND_SECONDS
+        new_end = segment.end + timeline.end_extend_seconds
         if next_start is not None:
             new_end = min(new_end, next_start)
+        if audio_end is not None:
+            new_end = min(new_end, audio_end)
         if new_end > segment.end:
             duration_extended += 1
         duration_fixed.append(
@@ -314,8 +405,8 @@ def _postprocess_duration(
         if idx + 1 < len(updated):
             next_start = updated[idx + 1].start
             gap = next_start - segment.end
-            if 0.0 < gap < FLASH_GAP_SECONDS:
-                new_end = next_start
+            if 0.0 < gap < timeline.flash_gap_seconds:
+                new_end = min(next_start, audio_end) if audio_end is not None else next_start
                 flash_extended += 1
         flash_fixed.append(
             SrtSegment(

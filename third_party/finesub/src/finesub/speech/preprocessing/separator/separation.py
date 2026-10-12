@@ -6,6 +6,7 @@ import argparse
 import copy
 import concurrent.futures as cf
 import gc
+import logging
 import sys
 import tempfile
 import threading
@@ -24,7 +25,6 @@ import torch
 
 from finesub_bootstrap.model_caches import SEPARATOR_CHECKPOINT
 
-from .... import config as app_config
 from ....paths import resolve_separator_model_dir
 from ....run_metadata import record_scratch_file
 from ....reporting import (
@@ -38,6 +38,7 @@ from ....reporting import (
 )
 from ...runtime.device import cuda_unusable_reason, cuda_usable
 from ...runtime.gpu_stage_gate import GPU_STAGE_GATE, GpuStageLease
+from ...runtime.support_levels import note_accelerated_stage
 from ...runtime import stall_watchdog
 from ...runtime.resources import (
     DEFAULT_GPU_TIER,
@@ -192,30 +193,6 @@ LOSSLESS_MODE = "lossless"
 ASR_MODE = "asr"
 _MODE_BY_SUFFIX = {"flac": LOSSLESS_MODE, "ogg": ASR_MODE}
 
-#: Separation runs unless the caller says the input is already a vocal track.
-#: On by default because the pipeline's normal input is a mixed source, and
-#: separating one that needed it is a cost while *not* separating one that
-#: needed it is a quality collapse that reports no error.
-DEFAULT_SEPARATE = True
-
-
-def resolve_separate(explicit: bool | None = None) -> bool:
-    """Three layers, in order: the flag, `[separator] enabled`, the default.
-
-    The same shape as `resolve_vad_silero_assist` and `resolve_split_params`,
-    and for the same reason: one function owns the whole chain, so every front
-    end lands on the same answer and there is one place to read to find out
-    what "unset" means.
-    """
-
-    if explicit is not None:
-        return bool(explicit)
-    configured = app_config.config_bool("separator", "enabled")
-    if configured is not None:
-        return configured
-    return DEFAULT_SEPARATE
-
-
 #: libsndfile's scale, 0.0 keeps the most and 1.0 the least. The default (0.6)
 #: measured 24.0 dB against the lossless separation in the 16 kHz band; 0.2
 #: buys 4.6 dB and still halves the file, because the bits now go where the
@@ -344,6 +321,26 @@ def place_separator_files() -> None:
         )
 
 
+class _DropOnnxProviderNotice(logging.Filter):
+    """Drop audio-separator's "<X>ExecutionProvider not available" warning.
+
+    It is emitted from `Separator.__init__` whenever torch sees the accelerator
+    but onnxruntime has no matching provider, and it says "acceleration will NOT
+    be enabled". That is about ONNX models only. The checkpoint FineSub loads is
+    a BS-Roformer that runs on torch, so the notice is false here -- it appears
+    exactly when torch has found the GPU.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        return "ExecutionProvider not available in ONNXruntime" not in record.getMessage()
+
+
+def _mute_onnx_provider_notice() -> None:
+    logger = logging.getLogger("audio_separator.separator.separator")
+    if not any(isinstance(f, _DropOnnxProviderNotice) for f in logger.filters):
+        logger.addFilter(_DropOnnxProviderNotice())
+
+
 def _build_separator(
     output_dir: str, output_format: str, batch_size: int, *, use_cuda: bool
 ) -> Separator:
@@ -355,8 +352,8 @@ def _build_separator(
             "audio-separator is required for vocal separation. Install with `pip install -e .`."
         ) from exc
 
-    import logging
-
+    # Before construction: the notice is logged from inside `__init__`.
+    _mute_onnx_provider_notice()
     separator = Separator(
         output_dir=output_dir,
         output_format=output_format,
@@ -1080,7 +1077,7 @@ def run_vocal_separation(
     run_metadata_path: str | Path | None = None,
 ) -> Path:
     sample_rate = resolve_separator_sample_rate(separator_sample_rate)
-    resource_profile = get_resource_profile(gpu_tier)
+    resource_profile = get_resource_profile(gpu_tier, device=device)
     selected_batch_size = (
         resource_profile.vocal_separation_batch_size
         if batch_size is None
@@ -1097,7 +1094,7 @@ def run_vocal_separation(
     # one device, and the worker count follows from it.
     wants_cuda = str(device or "cuda").strip().lower().startswith("cuda")
     use_cuda = wants_cuda and bool(resource_profile.gpu) and cuda_usable()
-    device_for_usage: Optional[str] = "cuda" if use_cuda else None
+    device_for_usage = note_accelerated_stage("vocal separation", "cuda" if use_cuda else None)
     # After the device is settled, so a CPU run stays silent about VRAM. Same
     # rule and same place whether the tier came from `auto` or by name.
     warn_if_vram_is_short(

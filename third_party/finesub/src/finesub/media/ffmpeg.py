@@ -5,6 +5,9 @@ from __future__ import annotations
 import shutil
 import subprocess
 from pathlib import Path
+from typing import Sequence
+
+from finesub_bootstrap.processes import no_window
 
 FFMPEG_BIN = "ffmpeg"
 FFPROBE_BIN = "ffprobe"
@@ -66,6 +69,7 @@ def describe_ffmpeg() -> dict[str, str]:
             encoding="utf-8",
             errors="replace",
             timeout=10,
+            creationflags=no_window(),
         )
         banner = result.stdout.splitlines()[0].strip() if result.stdout else ""
     except (OSError, subprocess.SubprocessError, IndexError):
@@ -106,6 +110,7 @@ def run_capture(args: list[str]) -> subprocess.CompletedProcess[str]:
         text=True,
         encoding="utf-8",
         errors="replace",
+        creationflags=no_window(),
     )
 
 
@@ -444,3 +449,45 @@ def transcode_video_for_agy(
         ]
     )
     return out
+
+
+def build_spliced_audio_command(
+    ffmpeg: str,
+    input_path: Path,
+    pieces: Sequence[tuple[float, float]],
+    gap: float,
+    out_path: Path,
+) -> list[str]:
+    """One audio file of `pieces` of one source, in order, `gap` seconds of silence between them."""
+    if not pieces:
+        raise ValueError("pieces must not be empty")
+    sources = "".join(f"[s{index}]" for index in range(len(pieces)))
+    parts, labels = [f"[0:a]asplit={len(pieces)}{sources}" if len(pieces) > 1 else "[0:a]anull[s0]"], []
+    for index, (start, end) in enumerate(pieces):
+        _clip_duration(start, end)
+        parts.append(
+            f"[s{index}]atrim=start={_format_seconds(start)}:end={_format_seconds(end)},asetpts=PTS-STARTPTS,"
+            f"aformat=sample_rates=16000:channel_layouts=mono[p{index}]"
+        )
+        labels.append(f"[p{index}]")
+        if index < len(pieces) - 1:
+            parts.append(f"anullsrc=r=16000:cl=mono,atrim=duration={_format_seconds(gap)}[g{index}]")
+            labels.append(f"[g{index}]")
+    graph = ";".join(parts) + f";{''.join(labels)}concat=n={len(labels)}:v=0:a=1[out]"
+    return [ffmpeg, "-y", "-nostdin", "-i", str(input_path), "-filter_complex", graph,
+            "-map", "[out]", "-vn", *AUDIO_CODEC_ARGS, str(out_path)]
+
+
+def extract_spliced_audio(
+    input_path: str | Path,
+    pieces: Sequence[tuple[float, float]],
+    gap: float,
+    out_path: str | Path,
+    *,
+    ffmpeg: str | None = None,
+) -> Path:
+    """`build_spliced_audio_command`, run: raw AAC mono 16k, like the window clips."""
+    command = build_spliced_audio_command(ffmpeg or resolve_ffmpeg(), Path(input_path), pieces, gap, Path(out_path))
+    Path(out_path).parent.mkdir(parents=True, exist_ok=True)
+    _run_ffmpeg(command)
+    return Path(out_path)

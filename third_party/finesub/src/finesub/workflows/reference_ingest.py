@@ -57,9 +57,10 @@ from finesub.llm.agent.agent_session_host import (
     set_run_evidence_destination,
     within_agent_session_scope,
 )
-from finesub.llm.correction_translation import run_full_correction
+from finesub.llm.correction_request import CorrectionRequest
+from finesub.llm.correction_translation import run_correction_task, writable_styles_for_task
 from finesub.llm.knowledge.base import DEFAULT_KNOWLEDGE_ROOT
-from finesub.llm.knowledge.style import resolve_style_selection
+from finesub.llm.knowledge.style import AUTO_STYLE_NAME, resolve_style_selection
 from finesub.llm.knowledge.update import run_knowledge_update
 from finesub.paths import resolve_reference_data_root
 from finesub.media.source import (
@@ -427,9 +428,12 @@ def stage_llm(ctx: dict, task: ResolvedTask, args: argparse.Namespace) -> dict:
     # so the correction half was forced to `read` and injected a style the user
     # had switched off, while the second half read the config and honoured it
     # (review 2026-09-02).
+    # No `difficulty`: its only effect is efficiency's cap at `read`, which
+    # keeps a correction run's low-thinking output out of the base. Writing
+    # the base from the refined SRT is what this workflow is for, and its
+    # knowledge half updates at every difficulty, so the style half does too.
     style = resolve_style_selection(
-        args.style, args.style_mode,
-        knowledge_root=args.knowledge_root, difficulty=settings.difficulty,
+        args.style, args.style_mode, knowledge_root=args.knowledge_root,
     )
     final_srt = ctx["pair_dir"] / f"{video_id}.srt"
     artifact_dir = ctx["pair_dir"] / "llm-artifacts"
@@ -438,31 +442,47 @@ def stage_llm(ctx: dict, task: ResolvedTask, args: argparse.Namespace) -> dict:
     else:
         source_desc = f"视频来源 URL: {task.media}" if task.is_media_url else f"媒体文件: {task.media}"
         extra_info = f"{source_desc}\n{task.note}".strip() if task.note else source_desc
-        run_full_correction(
-            stable_json=ctx["stable_json"],
-            output_path=final_srt,
-            audio_path=ctx["audio_path"],
-            video_path=task.video_path or None,
-            extra_info=extra_info,
-            profile=task.profile,
-            fast=settings.fast,
-            knowledge_root=args.knowledge_root,
-            task_id=f"reference-ingest-{video_id}",
-            task_summary=f"参考素材导入 {video_id} 的纠错翻译",
-            task_artifact_dir=artifact_dir,
-            knowledge="collect",
-            # Already-resolved names, and READ whatever the user asked for:
-            # this call has `knowledge="collect"` and no refined SRT, so the
-            # generic entry point would (correctly) warn that `update` cannot
-            # write — a false alarm, because the write-back is this workflow's
-            # SECOND step, which gets the writable set below.
-            style=style.names,
-            style_mode="none" if style.mode == "none" else "read",
-            test_profile=settings.test_profile,
+        run_correction_task(
+            CorrectionRequest(
+                stable_json=Path(ctx["stable_json"]),
+                output_path=final_srt,
+                audio_path=Path(ctx["audio_path"]),
+                video_path=Path(task.video_path) if task.video_path else None,
+                extra_info=extra_info,
+                profile=task.profile,
+                fast=settings.fast,
+                knowledge_root=args.knowledge_root,
+                task_id=f"reference-ingest-{video_id}",
+                task_summary=f"参考素材导入 {video_id} 的纠错翻译",
+                task_artifact_dir=artifact_dir,
+                # Read the base and collect feedback, but no post-task update:
+                # the write-back is this workflow's SECOND step, and it is fed
+                # by exactly this feedback. `update` would run a second update
+                # (and warn that it has no refined SRT -- a false alarm).
+                knowledge="read",
+                collect_feedback=True,
+                # Already-resolved names (or the `auto` intent -- the task's
+                # own pick), and READ whatever the user asked for: the
+                # writable set goes to the second step below.
+                style=AUTO_STYLE_NAME if style.auto else style.names,
+                style_mode="none" if style.mode == "none" else "read",
+                # Resolved above without a difficulty; the correction half
+                # must not re-apply efficiency's "no auto" to that intent.
+                style_efficiency_cap=False,
+                test_profile=settings.test_profile,
+            )
         )
 
     run_reference_knowledge_update(
-        style_names=style.writable,
+        # Under `auto` the writable style is the one the correction task
+        # picked and recorded -- read back, since this step may follow a run
+        # that skipped the correction entirely.
+        style_names=writable_styles_for_task(
+            style,
+            knowledge_root=args.knowledge_root,
+            output_path=final_srt,
+            artifact_dir=artifact_dir,
+        ),
         refined_srt=task.srt_path,
         final_srt=final_srt,
         stable_json=Path(ctx["stable_json"]),
@@ -532,7 +552,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--style",
-        help="翻译风格条目名（逗号分隔；同名时 style/<名字>）。不给则读配置，再不给用 default_style。"
+        help="翻译风格条目名（逗号分隔；同名时 style/<名字>）；auto 让模型从库里选一套。不给则读配置，再不给就是 auto。"
              "⚠ 是整批的选择，不支持逐行覆盖：一次导入的素材属于同一套口味",
     )
     parser.add_argument(
@@ -593,6 +613,11 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Only print the per-task plan; no download, pipeline or LLM calls.",
     )
+    from finesub.llm.routing.model_routes import add_routing_arguments
+
+    # The routing preset only picks the models here: ingest's own workflow
+    # presets (index.csv's `preset` column) decide the switches (D5).
+    add_routing_arguments(parser)
     args = parser.parse_args()
     if not args.index and not args.task:
         parser.error("provide at least one of --index or --task")
@@ -616,6 +641,9 @@ def main() -> int:
 
 def _main() -> int:
     args = parse_args()
+    from finesub.llm.routing.model_routes import install_runtime_routing
+
+    install_runtime_routing(args)
     try:
         tasks = gather_tasks(args)
     except (ValueError, FileNotFoundError) as exc:

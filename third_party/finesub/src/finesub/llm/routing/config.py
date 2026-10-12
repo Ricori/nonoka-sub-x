@@ -27,15 +27,11 @@ GEMINI_PAID_TIER = "GEMINI_PAID"
 
 
 class LLMRole(str, Enum):
-    # Correction windows (and fast-mode correction after r1): 3.8 → 3.7 → 3.6 → 3.5.
+    # Correction windows (request turn and delivery): 3.8 → 3.7 → 3.6 → 3.5.
     AUDIO_MULTIMODAL = "audio_multimodal"
-    # Research r1/r2, fast round 1, post-task knowledge update, and other
+    # The preparation task, the post-task knowledge update and other
     # non-correction work: prefer 3.6 Flash, then 3.5, then 3.8 → 3.7.
     GENERAL_CAPABLE = "general_capable"
-    # Search-loop judge ("查询"): prefer 3.5 Flash Lite (text).
-    LIGHTWEIGHT = "lightweight"
-    # Correction query round ("纠错 r1"): same 3.5-lite chain, multimodal role.
-    LIGHTWEIGHT_MULTIMODAL = "lightweight_multimodal"
 
 
 # Prompt tier comes directly from the answering endpoint's catalog fact.
@@ -164,7 +160,9 @@ def effective_window_subtitle_cap(
 
 # Thinking budgets (token counts, for models controlled by budget rather than
 # thinkingLevel) derive from the level as a share of the API output limit:
-# low/medium/high = 20%/40%/60%. Not maintained as standalone numbers anymore.
+# low/medium/high = 20%/40%/60%. Not maintained as standalone numbers anymore --
+# except where a model's own ceiling is lower: its catalog row then maps the
+# levels to integer budgets (`model_catalog.dispatched_thinking`).
 THINKING_BUDGET_RATIO_BY_LEVEL = {"low": 0.2, "medium": 0.4, "high": 0.6}
 
 
@@ -203,11 +201,12 @@ KB_WINDOW_NEW_REQUEST_MAX_ENTRIES = 8
 KB_WINDOW_TOTAL_ENTRIES = 12
 
 # Unified token budgets for harness-injected blocks (search results, extract
-# results, knowledge entries). One rendered unit — a single query's results, a
-# single extracted URL, or a single knowledge entry — is capped at
-# INJECTION_SECTION_MAX_TOKENS; a whole injected block is capped by
-# injection_block_token_limit(unit_cap), where unit_cap is the round's query
-# (or entry) cap. Knowledge entries use the same numbers as queries by design.
+# results, knowledge entries). A whole injected block is capped by
+# injection_block_token_limit(unit_cap), where unit_cap is the round's query (or
+# entry) cap. Inside it, one search unit -- a single query's results or a
+# single extracted URL -- is capped at INJECTION_SECTION_MAX_TOKENS; a
+# knowledge entry is capped by its category's `max_entry_tokens` instead and
+# the block is shared out longest-first (`render_knowledge_entries_block`).
 INJECTION_SECTION_MAX_TOKENS = 4_000
 INJECTION_BLOCK_BASE_TOKENS = 4_000
 INJECTION_BLOCK_PER_UNIT_TOKENS = 2_000
@@ -228,16 +227,10 @@ KB_PREINJECT_MAX_ENTRIES = 8
 # front-truncated (oldest windows dropped) to this budget at injection time.
 ADVICE_LEDGER_MAX_TOKENS = 8_000
 
-# Multi-round search loop: total search rounds (round 0 emitted by the main
-# conversation plus follow-up rounds emitted by the lightweight loop model).
-# Follow-up rounds get half the round-0 query cap.
-DEFAULT_RESEARCH_SEARCH_ROUNDS = 3
-SEARCH_LOOP_FOLLOWUP_DIVISOR = 2
-
 # Window planning reserve for everything in a correction call that is not the
 # planned window payload (CSV + media): the static system prompt (~4k measured
 # + style headroom), user scaffolding, general context, the window's
-# research notes (<=8k), accumulated advice (<=8k), query-round notes, the search-results block
+# research notes (<=8k), accumulated advice (<=8k), request-turn notes, the search-results block
 # (<=injection_block_token_limit(8)=20k) and the knowledge-entry block (<=28k).
 # Worst case sums to ~69k; windows are output-formula-bound in practice, so
 # the extra reserve almost never changes the window count.
@@ -248,13 +241,8 @@ WINDOW_PLANNING_CONTEXT_RESERVE_TOKENS = 72_000
 # to default_token_counter); the numeric values carried over 1:1 from the old
 # char-based caps, which slightly relaxes them for CJK-heavy text.
 ANALYSIS_NOTES_MAX_TOKENS = 1_500
-# One <task_update_feedback> block (correction window or research final round).
+# One <task_update_feedback> block (correction window or preparation delivery).
 TASK_FEEDBACK_MAX_TOKENS = 4_000
-# Fast-mode round 1 doubles as the correction round's main background, so its
-# notes cap is wider than the research round-1 cap.
-FAST_ANALYSIS_NOTES_MAX_TOKENS = 2_000
-EVIDENCE_PACK_MAX_TOKENS = 20_000
-PROGRESS_UPDATE_MAX_TOKENS = 2_000
 WINDOW_NOTES_MAX_TOKENS = 800
 NEXT_ADVICE_MAX_TOKENS = 800
 # Research notes injected into one correction window. A re-shaped window can
@@ -274,10 +262,6 @@ WINDOW_CONTEXT_MAX_TOKENS = 8_000
 # columns that state vendor numbers, and a power of two only ever coincides
 # with one by accident.
 SESSION_OUTPUT_MAX_TOKENS = 32_000
-QUERY_ROUND_MAX_TOKENS = SESSION_OUTPUT_MAX_TOKENS
-SEARCH_LOOP_MAX_TOKENS = SESSION_OUTPUT_MAX_TOKENS
-# (The search-judge thinking level now comes from the preset knob like every
-# other session; the old per-call constants are gone.)
 
 
 def research_search_query_limit(raw_segment_count: int) -> int:
@@ -290,29 +274,18 @@ def research_search_query_limit(raw_segment_count: int) -> int:
     )
 
 
-def followup_search_query_limit(round0_limit: int) -> int:
-    """Per-round query cap for search-loop follow-up rounds (half of round 0)."""
-
-    return max(1, math.ceil(max(0, int(round0_limit)) / SEARCH_LOOP_FOLLOWUP_DIVISOR))
-
-
 # Each role's default task group, used when a call site passes only the role
 # (mostly tests and role-shaped helpers). Production call sites pass the task
-# group explicitly -- notably GENERAL_CAPABLE serves research, knowledge
-# update *and* the fast fusion round, which are different task groups now.
+# group explicitly -- notably GENERAL_CAPABLE serves research and knowledge
+# update, which are different task groups.
 ROLE_DEFAULT_TASK_GROUP: Dict[LLMRole, str] = {
     LLMRole.AUDIO_MULTIMODAL: "correction-mm",
     LLMRole.GENERAL_CAPABLE: "research",
-    LLMRole.LIGHTWEIGHT: "search_judge",
-    LLMRole.LIGHTWEIGHT_MULTIMODAL: "planning-mm",
 }
 _TASK_GROUP_DEFAULT_ROLE = {
     "correction-mm": LLMRole.AUDIO_MULTIMODAL,
     "correction-text": LLMRole.AUDIO_MULTIMODAL,
-    "planning-mm": LLMRole.LIGHTWEIGHT_MULTIMODAL,
-    "planning-text": LLMRole.LIGHTWEIGHT_MULTIMODAL,
     "research": LLMRole.GENERAL_CAPABLE,
-    "search_judge": LLMRole.LIGHTWEIGHT,
     "knowledge": LLMRole.GENERAL_CAPABLE,
 }
 

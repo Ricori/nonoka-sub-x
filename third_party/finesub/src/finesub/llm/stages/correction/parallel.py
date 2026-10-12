@@ -10,14 +10,13 @@ from __future__ import annotations
 
 import concurrent.futures as cf
 import threading
-from typing import Any, Callable, Dict, List, Tuple
+from typing import Any, Callable, Dict, List, Mapping, Tuple
 
 from finesub.reporting import current_reporter
 from ...chunking import SubtitleWindow
 from ...run_context import bind_llm_worker, current_task_account, llm_worker_context
 from ...routing.config import (
     CapabilityTier,
-    INJECTION_SECTION_MAX_TOKENS,
     KB_TRANSFER_MAX_ENTRIES,
     KB_WINDOW_TOTAL_ENTRIES,
     injection_block_token_limit,
@@ -29,8 +28,8 @@ from ...output_protocol import CsvValidationResult, validate_correction_window_o
 from ...prompt_variants import resolve_variant
 from .attempts import run_window_attempts
 from .commit import _entry_details_signature, _load_parallel_entry_set, _window_input_hash
-from .context import CorrectionRun
-from .query_round import QueryRoundProduct, run_window_query_round
+from .context import CorrectionRun, RequestTurnProduct
+from .request_turn import run_window_request_turn
 
 
 # Circuit breaker for parallel dispatch (plan A.4 (3)): serial execution is a
@@ -99,7 +98,8 @@ def _execute_parallel_unit(
     abort: threading.Event,
     fixed_details: str,
     fixed_sig: str,
-    fixed_keys: List[str],
+    injected_keys: List[str],
+    injected_extent: Mapping[str, Mapping[str, int]],
     exchange_block: ExchangeBlock | None,
     on_chain_exhausted: Callable[[], None],
 ) -> List[Tuple[SubtitleWindow, CsvValidationResult]]:
@@ -125,7 +125,8 @@ def _execute_parallel_unit(
             previous_advice="",
             window_entry_details=fixed_details,
             window_entry_sig=fixed_sig,
-            injected_keys=fixed_keys,
+            injected_keys=injected_keys,
+            injected_extent=injected_extent,
             chained=False,
             add_tail=lambda half: (
                 pending_units.insert(0, half),
@@ -232,14 +233,13 @@ def run_parallel_windows(run: CorrectionRun, windows: List[SubtitleWindow]) -> N
             if base_id not in window_blocks:
                 window_blocks[base_id] = run.exchange_logger.reserve_block()
 
-    # --- Phase 1: every pending window\'s query round, concurrently ---
+    # --- Phase 1: every pending window's request turn, concurrently ---
     seed_bodies = run.carried.entry_bodies()
     carried_text = ""
     if seed_bodies:
         carried_text = render_knowledge_entries_block(
             seed_bodies,
             count_tokens=run.token_counter.count_text,
-            entry_limit=INJECTION_SECTION_MAX_TOKENS,
             block_limit=injection_block_token_limit(KB_TRANSFER_MAX_ENTRIES),
         ).text
     worker_count = max(1, int(run.parallel_window_limit))
@@ -258,67 +258,43 @@ def run_parallel_windows(run: CorrectionRun, windows: List[SubtitleWindow]) -> N
             want = min(want, account.claim_cap())
         return max(1, want)
 
-    def _query_round_for(win: SubtitleWindow) -> None:
+    def _request_turn_for(win: SubtitleWindow) -> None:
         base_chunk_id = win.chunk_id.split("-", 1)[0]
-        if base_chunk_id in run.query_round_cache:
+        if base_chunk_id in run.request_turn_cache:
             return
-        if run.search_client is None:
-            run.query_round_cache[base_chunk_id] = QueryRoundProduct()
+        if not run.request_channel:
+            run.request_turn_cache[base_chunk_id] = RequestTurnProduct()
             return
-        query_file_ref = run.media.query_ref(win)
-        run.query_round_cache[base_chunk_id] = run_window_query_round(
-            knowledge_enabled=run.knowledge_enabled,
-            client=run.client,
-            window=win,
-            context_pack=run.context_pack,
-            audio_label=run.media.query_label(win),
-            previous_advice="",
-            file_ref=query_file_ref,
-            search_client=run.search_client,
-            knowledge_root=run.knowledge_root,
-            streamer_index=run.streamer_index_text,
-            common_index=run.common_index_text,
-            carried_entries_text=carried_text,
-            carried_key_count=len(seed_bodies),
-            max_queries=run.max_search_queries_per_window,
-            task_artifact_dir=run.task_artifact_dir,
-            task_id=run.task_id,
-            token_rows=run.token_rows,
-            exchange_logger=window_blocks.get(base_chunk_id),
-            token_counter=run.token_counter,
-            profile=run.profile,
-            resume=run.resume,
-            checkpoint_store=run.session_checkpoint_store,
-            checkpoint_extra_identity={
-                "task_fingerprint": run.task_fingerprint,
-            },
+        run.request_turn_cache[base_chunk_id] = run_window_request_turn(
+            run, win, previous_advice="", carried_entries_text=carried_text,
+            carried_key_count=len(seed_bodies), exchange_logger=window_blocks.get(base_chunk_id),
         )
 
-    if run.external_injection and pending:
-        # One query round per *base* chunk id: -a/-b leaves of one split
+    if run.request_channel and pending:
+        # One request turn per *base* chunk id: -a/-b leaves of one split
         # parent share the round, and mapping over the leaves would race
         # the same cache key from two workers (check-then-act) -- two
         # identical LLM calls, one overwriting the other.
-        query_targets: Dict[str, SubtitleWindow] = {}
+        request_targets: Dict[str, SubtitleWindow] = {}
         for slot in pending:
             base_id = slot["window"].chunk_id.split("-", 1)[0]
-            query_targets.setdefault(base_id, slot["window"])
+            request_targets.setdefault(base_id, slot["window"])
         # Worker threads start with an empty Context: no reporter, no
         # generation pin, no session registry, no lane. Everything a window
         # reads off the run rides in through the initializer, and the lane
         # ordinals go back to the run when the phase ends so the correction
         # pool leases the same set (`run_context`, task-parallelism plan W1).
-        query_ctx = llm_worker_context()
+        request_ctx = llm_worker_context()
         try:
             with cf.ThreadPoolExecutor(
-                max_workers=_phase_fan_out(len(query_targets)),
-                thread_name_prefix="llm-query",
+                max_workers=_phase_fan_out(len(request_targets)),
+                thread_name_prefix="llm-request",
                 initializer=bind_llm_worker,
-                initargs=(query_ctx,),
-            ) as query_pool:
-                list(query_pool.map(_query_round_for, query_targets.values()))
+                initargs=(request_ctx,),
+            ) as request_pool:
+                list(request_pool.map(_request_turn_for, request_targets.values()))
         finally:
-            query_ctx.release_lanes()
+            request_ctx.release_lanes()
 
     # --- Barrier: re-pin the knowledge snapshot for the correction phase
     # (task-parallelism plan W3). The entry set is fixed right below, so this
@@ -339,9 +315,11 @@ def run_parallel_windows(run: CorrectionRun, windows: List[SubtitleWindow]) -> N
                 )
 
     # --- Barrier: fix the session entry set once (plan A.3) ---
-    fixed_details = run.entry_details
+    fixed_details = ""
     fixed_keys: List[str] = []
-    if not fixed_details and run.knowledge_enabled:
+    fixed_injected: List[str] = []
+    fixed_extent: Dict[str, Dict[str, int]] = {}
+    if run.knowledge_enabled:
         # A resumed task reuses the first barrier's decision: recomputing
         # from the *pending* windows only shrank the set and split one
         # task's "fixed" set between cached and fresh windows (2026-08-10
@@ -363,7 +341,7 @@ def run_parallel_windows(run: CorrectionRun, windows: List[SubtitleWindow]) -> N
             for index, slot in enumerate(pending):
                 base_chunk_id = slot["window"].chunk_id.split("-", 1)[0]
                 product = (
-                    run.query_round_cache.get(base_chunk_id) or QueryRoundProduct()
+                    run.request_turn_cache.get(base_chunk_id) or RequestTurnProduct()
                 )
                 for key in product.requested_entry_keys:
                     if key in seed_bodies:
@@ -387,14 +365,16 @@ def run_parallel_windows(run: CorrectionRun, windows: List[SubtitleWindow]) -> N
         union = dict(list(union.items())[:KB_WINDOW_TOTAL_ENTRIES])
         fixed_keys = list(union)
         if union:
-            fixed_details = render_knowledge_entries_block(
+            fixed_block = render_knowledge_entries_block(
                 union,
                 count_tokens=run.token_counter.count_text,
-                entry_limit=INJECTION_SECTION_MAX_TOKENS,
-                block_limit=injection_block_token_limit(
-                    KB_WINDOW_TOTAL_ENTRIES
-                ),
-            ).text
+                block_limit=injection_block_token_limit(KB_WINDOW_TOTAL_ENTRIES),
+            )
+            fixed_details = fixed_block.text
+            # the entry SET stays `fixed_keys` (resume identity); what the
+            # windows were shown is what the budget let in
+            fixed_injected = list(fixed_block.injected)
+            fixed_extent = {key: dict(kept) for key, kept in fixed_block.kept.items()}
         if pending and persisted_keys is None:
             run.ledger.append_only(
                 {
@@ -446,7 +426,8 @@ def run_parallel_windows(run: CorrectionRun, windows: List[SubtitleWindow]) -> N
                 abort,
                 fixed_details,
                 fixed_sig,
-                fixed_keys,
+                fixed_injected,
+                fixed_extent,
                 window_blocks.get(base_id),
                 _note_breaker_signal,
             )

@@ -19,6 +19,7 @@ from typing import Any
 from .base import knowledge_root_path
 from .node.model import digest as value_digest
 from .node.repo import KnowledgeRepo
+from .node.signals import EVIDENCE_KIND_JUDGED, STYLE_INJECTED_OPPORTUNITY
 from .node.store import KnowledgeStore
 
 _Lines = list[str]
@@ -109,6 +110,10 @@ def build_report(
     for row in event_rows:
         if row["subject_id"] not in subject_ids:
             continue
+        if row["kind"] == "exposed" and row["opportunity"] == STYLE_INJECTED_OPPORTUNITY:
+            # a task's style choice, not a node shown in a window: it is the
+            # style section's usage count and nothing else (`_style_section`)
+            continue
         subjects_seen.add(row["subject_id"])
         node_id = row["node_id"] or row["subject_id"]
         window = _window_key(row)
@@ -145,9 +150,15 @@ def build_report(
             current = stack.pop()
             node_subject.setdefault(current, node_id)
             stack.extend(m.child_id for m in store.children(current, at))
+    # Judged rows (`style_marks.py`) are a model's opinion: counted on their
+    # own, per style convention line, and never folded into the claim cells.
+    judged: dict[tuple[str, str], dict[str, int]] = defaultdict(lambda: defaultdict(int))
     for row in evidence_rows:
         owner = node_subject.get(row["node_id"])
         if subject is not None and owner is None:
+            continue
+        if row["evidence_kind"] == EVIDENCE_KIND_JUDGED:
+            judged[(row["node_id"], row["value_hash"])][row["verdict"]] += 1
             continue
         cell = evidence[(row["node_id"], row["field_path"], row["value_hash"])]
         cell[row["verdict"]] = cell.get(row["verdict"], 0) + 1
@@ -236,6 +247,11 @@ def build_report(
             values = "、".join(item.value for item in never_matched)
             lines.append(f"  never matched: {values}")
 
+    lines.extend(
+        _style_section(store, at, subject_ids, subject_nodes, event_rows, judged)
+    )
+    lines.extend(_size_section(store, at, subject_ids, subject_nodes))
+
     # ---- high false-trigger admission (§5.2) --------------------------
     lines.append("")
     lines.append(f"## high false-trigger candidates (≥{min_exposures} correction exposures, 0 landed)")
@@ -303,6 +319,128 @@ def build_report(
         lines.append("")
         lines.append("(no events or evidence recorded yet)")
     return lines
+
+
+def _style_section(
+    store: KnowledgeStore,
+    at: int,
+    subject_ids: set[str],
+    subject_nodes: dict[str, Any],
+    event_rows: list[Any],
+    judged: dict[tuple[str, str], dict[str, int]],
+) -> _Lines:
+    """Per style: how many tasks used it, and per convention line how often
+    the refined subtitles kept or overturned it (model-judged). Report only:
+    nothing here retires or deletes anything (owner 2026-10-01)."""
+
+    from .style import STYLE_CATEGORY
+    from .style_marks import convention_section
+
+    styles = sorted(
+        (sid for sid in subject_ids if subject_nodes[sid].payload.get("category") == STYLE_CATEGORY),
+        key=lambda sid: subject_nodes[sid].payload.get("surface", ""),
+    )
+    lines: _Lines = ["", "## style 约定的精修对照（judged：模型判断，与上面的确定式证据分开计数）"]
+    if not styles:
+        lines.append("- none")
+        return lines
+    usage_booked = any(
+        row["kind"] == "exposed" and row["opportunity"] == STYLE_INJECTED_OPPORTUNITY for row in event_rows
+    )
+    section = convention_section(STYLE_CATEGORY)
+    for sid in styles:
+        tasks = {
+            row["task_id"]
+            for row in event_rows
+            if row["kind"] == "exposed"
+            and row["opportunity"] == STYLE_INJECTED_OPPORTUNITY
+            and sid in (row["subject_id"], row["node_id"])
+        }
+        usage = f"{len(tasks)} 个任务" if usage_booked else "未记"
+        lines.append(f"### {subject_nodes[sid].payload.get('surface', sid)}（使用率：{usage}）")
+        conventions = [m for m in store.children(sid, at) if m.section == section]
+        if not conventions:
+            lines.append(f"- 「{section}」节没有行")
+            continue
+        for membership in conventions:
+            node = store.node(membership.child_id, at)
+            if node is None:
+                continue
+            text = str(node.payload.get("text") or "")
+            current = value_digest(text)
+            now = judged.get((node.local_id, current), {})
+            older = {"confirmed": 0, "refuted": 0}
+            for (node_id, value_hash), cell in judged.items():
+                if node_id == node.local_id and value_hash != current:
+                    older["confirmed"] += cell.get("confirmed", 0)
+                    older["refuted"] += cell.get("refuted", 0)
+            label = str(node.payload.get("label") or "").strip()
+            shown = f"[{label}] {text}" if label else text
+            shown = shown if len(shown) <= 40 else shown[:40] + "…"
+            line = f"- {shown}: 遵守 {now.get('confirmed', 0)} · 推翻 {now.get('refuted', 0)}"
+            if older["confirmed"] or older["refuted"]:
+                line += f"（改写前的旧值上另有 遵守 {older['confirmed']} · 推翻 {older['refuted']}）"
+            lines.append(line)
+    return lines
+
+
+def _size_section(store: KnowledgeStore, at: int, subject_ids, subject_nodes) -> _Lines:  # type: ignore[no-untyped-def]
+    """Entries past their category's injection cap: nothing refuses the write
+    any more (plan kb-entry-size), so this is where a person sees an entry the
+    updates keep failing to compress."""
+
+    from ..injection_budget import NOTICE_RESERVE_TOKENS, render_knowledge_entries_block
+    from ..token_budget import HeuristicTokenCounter
+    from .node.model import METADATA_SECTION
+    from .node.presets import head_section_names, preset_for_category
+    from .node.render import entry_prompt_tokens, render_subject
+
+    count = HeuristicTokenCounter().count_text
+    always = head_section_names() | {METADATA_SECTION}
+    rows = []
+    for sid in subject_ids:
+        payload = subject_nodes[sid].payload
+        cap = preset_for_category(payload.get("category") or "common").max_entry_tokens
+        if cap is None:
+            continue
+        tokens = entry_prompt_tokens(store, sid, at)
+        if tokens <= cap:
+            continue
+        # what a correction injection leaves out: the same cut, replayed
+        text = render_subject(store, sid, rev=at, mode="prompt")
+        block = render_knowledge_entries_block(
+            {sid: text}, count_tokens=count, heuristic_count=count,
+            block_limit=cap + NOTICE_RESERVE_TOKENS, entry_limit=cap,
+        )
+        kept = block.kept.get(sid, {})
+        sections = [name[3:].strip() for name in text.split("\n") if name.startswith("## ")]
+        cut = [
+            name for name in sections
+            if name not in always and kept.get(name, 0) < _lines(text, name)
+        ]
+        rows.append((payload.get("surface", sid), payload.get("category") or "common", tokens, cap, cut))
+    lines: _Lines = ["", "## 超过注入上限的条目（注入时按行截断；写入不受限）"]
+    if not rows:
+        lines.append("- none")
+        return lines
+    for surface, category, tokens, cap, cut in sorted(rows, key=lambda row: -row[2]):
+        where = f"；纠错注入时少了：{'、'.join(cut)}" if cut else ""
+        lines.append(f"- {surface}（{category}）：约 {tokens} token，上限 {cap}{where}")
+    return lines
+
+
+def _lines(text: str, section: str) -> int:
+    """Content lines under ``## section`` in a prompt projection."""
+
+    out = 0
+    inside = False
+    for line in text.split("\n"):
+        if line.startswith("## "):
+            inside = line[3:].strip() == section
+            continue
+        if inside and line.strip():
+            out += 1
+    return out
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:

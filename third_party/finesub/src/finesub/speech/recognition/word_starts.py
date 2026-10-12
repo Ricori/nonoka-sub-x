@@ -446,8 +446,18 @@ def clamp_word_starts(
 
     for segment in out:
         words = segment.get("words") or []
-        if words:
-            start = _finite(words[0].get("start"))
-            if start is not None and (_finite(segment.get("start")) or 0.0) < start:
-                segment["start"] = start
+        starts = [
+            value
+            for value in (_finite(word.get("start")) for word in words)
+            if value is not None
+        ]
+        if not starts:
+            continue
+        # Both directions, and over ALL words rather than `words[0]`. Half of
+        # this loop (raise the start) was here from the beginning; the other
+        # half is what let the mismatch through: `_clamp_word` syncs the
+        # segment start off the OLD start of the one word it moves, so a word
+        # that merely tied at that coordinate -- a zero-length disfluency
+        # remnant, typically -- stays behind and ends up outside the segment.
+        segment["start"] = min(starts)
     return out, stats

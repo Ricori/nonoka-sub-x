@@ -18,7 +18,14 @@ from typing import Any, Callable, Mapping
 from urllib.parse import unquote, urlparse
 from urllib.request import url2pathname
 
-from .axis import AxisError, axis_projection, conform_to_axis, normalize_axis
+from .axis import (
+    GENERATED_TRACK_PREFIXES,
+    AxisError,
+    axis_projection,
+    conform_to_axis,
+    normalize_axis,
+    split_diarized_tracks,
+)
 from .document_store import (
     DocumentNotFound,
     DocumentStore,
@@ -61,11 +68,15 @@ TARGET_READINESS = {
     "translated-srt": "final-srt",
     "final-srt": "final-srt",
 }
-# The text-only roles of `finesub.llm.routing.config.LLMRole`. The two
-# multimodal roles are omitted deliberately: they exist to put a clip in front
-# of a model, and this entry point has no way to pass one, so asking for them
-# would only route text at a more expensive model.
+# The text-only roles plugins may ask for, mapped onto engine roles by
+# `nonoka_x.llm_worker.ENGINE_ROLES`. The multimodal role is omitted
+# deliberately: it exists to put a clip in front of a model, and this entry
+# point has no way to pass one, so asking for it would only route text at a
+# more expensive model.
 LLM_ROLES = ("lightweight", "general_capable")
+# FineSub's `routing.profiles.KNOWLEDGE_MODES` (0.6.0 renamed `collect` to
+# `read`), restated and checked against the engine in test_vendor_contract.py.
+KNOWLEDGE_MODES = ("none", "read", "update")
 # One call may take a while on a reasoning model behind a local agent CLI, but
 # not forever: the sidecar thread serving it is blocked for the duration.
 LLM_CALL_TIMEOUT_SEC = 300.0
@@ -216,12 +227,21 @@ def runtime_report(settings: FineSubSettings | None = None, provisioner: Runtime
         asr_issues.append(_issue("unsupported_platform", "本地 GPU 流水线当前仅支持 Windows x64/NVIDIA"))
     elif not shutil.which("nvidia-smi"):
         asr_warnings.append(_issue("missing_gpu", "未检测到 NVIDIA 驱动或 GPU，将以 CPU 模式运行，速度显著低于显卡"))
+    managed_runtime_state = str((managed or {}).get("runtime", {}).get("state") or "")
     missing_modules = [
         name for name in ("torch", "faster_whisper", "audio_separator")
         if importlib.util.find_spec(name) is None
     ]
-    if missing_modules and not managed_runtime_ready:
-        asr_issues.append(_issue("missing_runtime", "AI 运行时缺少：" + "、".join(missing_modules)))
+    if managed_runtime_state == "outdated":
+        # Installed for an older dependency lock (an engine upgrade changed the
+        # pinned packages). The sidecar's own interpreter never carries these
+        # modules, so listing them would read as "the runtime is gone".
+        asr_issues.append(_issue(
+            "runtime_outdated",
+            "运行环境需要更新：引擎依赖有变化，请到「运行环境」页点击「更新」（只下载有变化的部分，约几分钟）",
+        ))
+    elif missing_modules and not managed_runtime_ready:
+        asr_issues.append(_issue("missing_runtime", "AI 运行时缺失：" + "、".join(missing_modules)))
     if managed is not None:
         missing_models = [
             str(item.get("id"))
@@ -350,7 +370,7 @@ def capabilities(
             "video_multimodal": True,
             "knowledge": True,
             "resume": True,
-            "diarization": False,
+            "diarization": True,
         },
         "devices": detect_devices(),
         "runtime": runtime,
@@ -510,8 +530,14 @@ def validate_request(value: Mapping[str, Any]) -> dict[str, Any]:
             "invalid_request", "Local Provider only supports vocal_profile=quality"
         )
     knowledge = request.setdefault("knowledge", "update")
-    if knowledge not in {"none", "collect", "update"}:
-        raise ProviderError("invalid_request", "knowledge must be none, collect, or update")
+    if knowledge == "collect":
+        # FineSub 0.6.0 renamed it. A task saved or queued before the upgrade
+        # still carries the old name; `read` is what it now means (the base is
+        # read, no feedback is collected), and the worker says so once.
+        knowledge = request["knowledge"] = "read"
+        request["legacy_knowledge"] = "collect"
+    if knowledge not in KNOWLEDGE_MODES:
+        raise ProviderError("invalid_request", "knowledge must be none, read, or update")
     subjects = _normalize_knowledge_subjects(request, knowledge)
     request.pop("knowledge_context", None)
     if subjects:
@@ -538,7 +564,69 @@ def validate_request(value: Mapping[str, Any]) -> dict[str, Any]:
         raise ProviderError("invalid_axis", "a source-text axis only runs the final-srt target")
     else:
         request["axis"] = axis
+    diarization = normalize_diarization(
+        request.get("diarization"), target=request["target"], has_axis="axis" in request
+    )
+    if diarization is None:
+        request.pop("diarization", None)
+    else:
+        request["diarization"] = diarization
     return request
+
+
+# FineSub's `stages.DIARIZE_LEVELS`, restated for the same reason as
+# `PIPELINE_TARGETS` and checked against it in tests/test_vendor_contract.py.
+DIARIZE_LEVELS = ("off", "acoustics", "judge-text", "judge-audio")
+# Speaker labels are written onto stable.json, so a run has to get that far.
+_DIARIZE_MIN_TARGET = "stable"
+MAX_DIARIZE_SPEAKERS = 32
+
+
+def normalize_diarization(
+    value: Any, *, target: str, has_axis: bool
+) -> dict[str, Any] | None:
+    """The request's `diarization` block, checked; `None` when it asks for none.
+
+    The two judge levels run inside the LLM correction, so a run that stops
+    before it gets the acoustic labels only; `requested_level` keeps what was
+    asked so the worker can say why. A source-text axis replaces recognition
+    and brings its own speakers, so it cannot be combined with diarization.
+    """
+
+    if value is None:
+        return None
+    if not isinstance(value, dict):
+        raise ProviderError("invalid_request", "diarization must be an object")
+    level = value.get("level", "off")
+    if level not in DIARIZE_LEVELS:
+        raise ProviderError(
+            "invalid_request", "diarization.level must be one of: " + ", ".join(DIARIZE_LEVELS)
+        )
+    max_speakers = value.get("max_speakers")
+    if max_speakers is not None and (
+        isinstance(max_speakers, bool)
+        or not isinstance(max_speakers, int)
+        or not 1 <= max_speakers <= MAX_DIARIZE_SPEAKERS
+    ):
+        raise ProviderError(
+            "invalid_request",
+            f"diarization.max_speakers must be an integer from 1 to {MAX_DIARIZE_SPEAKERS}",
+        )
+    if level == "off":
+        return None
+    if PIPELINE_TARGETS.index(target) < PIPELINE_TARGETS.index(_DIARIZE_MIN_TARGET):
+        raise ProviderError(
+            "invalid_request", f"diarization needs target {_DIARIZE_MIN_TARGET} or later"
+        )
+    if has_axis:
+        raise ProviderError(
+            "invalid_request", "a source-text axis runs no recognition and cannot be diarized"
+        )
+    block: dict[str, Any] = {"level": level, "max_speakers": max_speakers}
+    if level.startswith("judge-") and target != "final-srt":
+        block["level"] = "acoustics"
+        block["requested_level"] = level
+    return block
 
 
 # Prompt bytes one call may carry. A window of the engine's own correction
@@ -1011,7 +1099,9 @@ class LocalProvider:
             )
         except AxisError as exc:
             raise ProviderError("invalid_axis", str(exc)) from exc
-        document = self.documents.create(video_id, projection, replace_default=True)
+        document = self.documents.create(
+            video_id, projection, replace_default=True, generated_track_prefixes=GENERATED_TRACK_PREFIXES
+        )
         # Nothing was decoded for this video, so no waveform exists yet. The
         # editor's timeline falls back to a synthetic envelope without one,
         # which is exactly the case an import lands in most often.
@@ -1411,7 +1501,17 @@ class LocalProvider:
                 projection = conform_to_axis(projection, axis["rows"])
             except AxisError as exc:
                 raise ProjectionError(f"cannot apply the imported axis: {exc}") from exc
-        return self.documents.create(video_id, projection, artifacts=manifest, replace_default=True)
+        else:
+            # No axis: the engine's speaker labels, when the run made any,
+            # are the only account of who says what.
+            projection = split_diarized_tracks(projection)
+        return self.documents.create(
+            video_id,
+            projection,
+            artifacts=manifest,
+            replace_default=True,
+            generated_track_prefixes=GENERATED_TRACK_PREFIXES,
+        )
 
     def _write_optional_peaks(self, video_id: str, source: str, duration: float) -> None:
         if not source or not Path(source).is_file():

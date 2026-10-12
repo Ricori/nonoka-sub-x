@@ -41,6 +41,7 @@ STAGE_LABELS = {
     "vocal": "人声分离",
     "aligned": "语音识别",
     "stable": "字幕稳定化",
+    "diarize": "说话人分离",
     "raw-srt": "原始字幕",
     "translated-srt": "纠错翻译",
     "final-srt": "最终字幕",
@@ -190,16 +191,13 @@ def reporting_to(reporter: Reporter | None) -> Iterator[Reporter]:
 #: version banners, the host's OS and CPU, every file it opened. Its warnings
 #: are worth keeping, so these are raised to WARNING rather than silenced, and
 #: `verbose` leaves them alone.
-#: audio-separator's loggers are named after the module's last component, not
-#: after the package -- `separator`, not `audio_separator.separator`. Guessing
-#: the package name left every one of those 25 lines in place while the unit
-#: test, which used the same guess, passed.
+#: audio-separator's own logger is `audio_separator.separator.separator`
+#: (`getLogger(__name__)`); the `separator` printed in its log lines is the
+#: formatter's `%(module)s`, not a logger name, and there are no loggers called
+#: `separator` or `common_separator`. It also sets its level in `__init__`, so
+#: raising it here does nothing for that one -- the adapter passes `log_level` to
+#: the constructor instead. The package name below covers the submodule loggers.
 NOISY_LIBRARY_LOGGERS = (
-    "separator",
-    "common_separator",
-    "mdxc_separator",
-    "mdx_separator",
-    "vr_separator",
     "audio_separator",
     "faster_whisper",
     "huggingface_hub",

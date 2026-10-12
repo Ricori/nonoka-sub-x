@@ -22,7 +22,7 @@ export interface FineSubSettingsState {
   protection: "empty" | "protected" | "plaintext" | "unreadable";
 }
 
-export type FineSubModelProviderID = "gemini-free" | "gemini-paid" | "openai" | "anthropic" | "deepseek" | "kimi" | "aliyun-bailian" | "openai-compat" | "anthropic-compat" | "local-codex" | "local-agy" | "local-workbuddy";
+export type FineSubModelProviderID = "gemini-free" | "gemini-paid" | "openai" | "anthropic" | "deepseek" | "kimi" | "aliyun-bailian" | "openai-compat" | "anthropic-compat" | "local-codex" | "local-agy" | "local-codebuddy";
 
 export interface FineSubModelOption {
   id: string;

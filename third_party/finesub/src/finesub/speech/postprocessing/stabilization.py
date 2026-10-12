@@ -13,11 +13,22 @@ import tempfile
 from typing import Iterable
 import unicodedata
 
-from ... import config as app_config
+from ... import settings
 from ...reporting import current_reporter, reporting_to, terminal_reporter
 from ...subtitles import time_order
 from ...subtitles.metrics import weighted_char_count
-from ...text import COMMON_HALLUCINATION_TEXT, normalized_compact
+from ...text import (
+    COMMON_HALLUCINATION_TEXT,
+    coerce_optional_float,
+    normalized_compact,
+)
+# The timeline contract lives with the passes that compose it. This is the
+# only edge from postprocessing back into recognition; `segments` is a leaf
+# (stdlib + `...text`), so it cannot close a cycle.
+from ..recognition.segments import (
+    normalize_segment_timeline,
+    speech_gap_summary,
+)
 
 
 DEFAULT_ASR_STABILIZE_PROFILE = 0
@@ -141,6 +152,7 @@ class AsrStabilizeReport:
         default_factory=lambda: {tag: 0 for tag in TAG_ORDER}
     )
     suspicious_segments_dropped: int = 0
+    segment_time_repairs: int = 0
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -153,6 +165,7 @@ class AsrStabilizeReport:
             "emptied_segments": self.emptied_segments,
             "tag_counts": dict(self.tag_counts),
             "suspicious_segments_dropped": self.suspicious_segments_dropped,
+            "segment_time_repairs": self.segment_time_repairs,
         }
 
 
@@ -447,54 +460,36 @@ def _is_lang_switch_hallucination(segment: dict[str, object]) -> bool:
 #: two spellings together so the copy cannot drift silently.
 SEGMENT_LEVEL_TIER_FIELD = "vad_level_tier"
 
-#: Whether an absolute-level tier on the span disables the second-model veto.
-#:
-#: Off by design, not by oversight. The veto is right far more often than it is
-#: wrong (41 of 49 archived rescues), and the one measured way to catch part of
-#: the remainder also deletes real content -- so which side to err on is the
-#: owner's call, not a default. See `resolve_veto_level_floor`.
-DEFAULT_VETO_LEVEL_FLOOR = False
-
-
-def resolve_veto_level_floor(explicit: bool | None = None) -> bool:
-    """Three layers, in order: the argument, `[stabilize] veto_level_floor`,
-    the default. Same shape as `resolve_vad_silero_assist`, same reason.
-
-    **What turning it on does**: a segment whose span carries an absolute-level
-    tier (`vad_level_tier`, true dBFS peak AND power mean under the thresholds
-    in `preprocessing/energy.py`) no longer gets its noise-leg drop withdrawn
-    by the second model. Loud spans are untouched.
-
-    **The measured trade** (49 adjudicated rescues, docs/crispasr-followups.md):
-    it removes **6 of the 8 wrong rescues** and also removes **4 of the 41 right
-    ones** -- three interjections (`あ、`, `はいはい`, `おぉ?`) and one real line
-    (`はい、どうぞ`, confirmed word-for-word as "Yes, please."). It fires on
-    0.75% of segments, and only ever on ones the veto rescued.
-
-    ⚠ Default off because the house rule points the other way: keeping a wrong
-    line is cheaper than deleting a real one -- a reviewer deletes the first by
-    reading and can only recover the second by re-listening. Turn it on for
-    material where a fabricated line costs more than a missing one.
-
-    ⚠ The threshold is **not** fitted to this: it is the referee's own suspect
-    tier, calibrated earlier for a different job. But the evaluation above is
-    still on the set that produced the rule, so it is an informed bet, not an
-    acceptance. `README_DEV.md` -> 开发原则.
-    """
-
-    if explicit is not None:
-        return bool(explicit)
-    configured = app_config.config_bool("stabilize", "veto_level_floor")
-    if configured is not None:
-        return configured
-    return DEFAULT_VETO_LEVEL_FLOOR
+# `settings.VETO_LEVEL_FLOOR` -- whether an absolute-level tier on the span
+# disables the second-model veto (`[stabilize] veto_level_floor`, dev-only).
+#
+# **What turning it on does**: a segment whose span carries an absolute-level
+# tier (`vad_level_tier`, true dBFS peak AND power mean under the thresholds in
+# `preprocessing/energy.py`) no longer gets its noise-leg drop withdrawn by the
+# second model. Loud spans are untouched.
+#
+# **The measured trade** (49 adjudicated rescues, docs/crispasr-followups.md):
+# it removes **6 of the 8 wrong rescues** and also removes **4 of the 41 right
+# ones** -- three interjections (`あ、`, `はいはい`, `おぉ?`) and one real line
+# (`はい、どうぞ`, confirmed word-for-word as "Yes, please."). It fires on 0.75%
+# of segments, and only ever on ones the veto rescued.
+#
+# ⚠ Off by design, not by oversight: keeping a wrong line is cheaper than
+# deleting a real one -- a reviewer deletes the first by reading and can only
+# recover the second by re-listening. Turn it on for material where a
+# fabricated line costs more than a missing one.
+#
+# ⚠ The threshold is **not** fitted to this: it is the referee's own suspect
+# tier, calibrated earlier for a different job. But the evaluation above is
+# still on the set that produced the rule, so it is an informed bet, not an
+# acceptance. `README_DEV.md` -> 开发原则.
 
 
 def _profile_2_tags(
     segment: dict[str, object],
     *,
     run_cjk_dominant: bool = False,
-    veto_level_floor: bool = DEFAULT_VETO_LEVEL_FLOOR,
+    veto_level_floor: bool = settings.VETO_LEVEL_FLOOR.default,
 ) -> list[str]:
     text = str(segment.get("text") or "")
     start = _coerce_finite_float(segment.get("start"))
@@ -586,7 +581,7 @@ def _apply_profile_2(
     segments: list[dict[str, object]],
     report: AsrStabilizeReport,
     *,
-    veto_level_floor: bool = DEFAULT_VETO_LEVEL_FLOOR,
+    veto_level_floor: bool = settings.VETO_LEVEL_FLOOR.default,
 ) -> list[dict[str, object]]:
     run_cjk_dominant = _run_is_cjk_dominant(segments)
     output: list[dict[str, object]] = []
@@ -640,6 +635,69 @@ def _drop_suspicious_segments(
     return output
 
 
+def payload_audio_end(payload: dict[str, object]) -> float | None:
+    """The aligned artifact's own audio duration, when it recorded one.
+
+    ⚠ Older artifacts have no such field -- measured on six delivered packs:
+    one carries nothing but `segments`, the other five carry `asr_align` but
+    predate this key. There the overrun dimension simply is not checked, and
+    `normalize_segment_timeline` records that it was not: repairing them would
+    need the audio, which this path does not have.
+    """
+
+    metadata = payload.get("metadata")
+    if not isinstance(metadata, dict):
+        return None
+    align_meta = metadata.get("asr_align")
+    if not isinstance(align_meta, dict):
+        return None
+    duration = coerce_optional_float(align_meta.get("audio_duration"))
+    return duration if duration is not None and duration > 0 else None
+
+
+def recorded_audio_end(stable_json: str | Path) -> float | None:
+    """``payload_audio_end`` of a stable JSON on disk.
+
+    What bounds a renderer's cue-end pad, read rather than probed: recognition
+    already measured it, and by render time the source may be gone (a URL
+    input whose download was cleaned up). None for an unreadable file or one
+    older than the field -- there the pad stays unbounded.
+    """
+
+    try:
+        payload = json.loads(Path(stable_json).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return payload_audio_end(payload) if isinstance(payload, dict) else None
+
+
+def _speech_gaps(
+    payload: dict[str, object], segments: list[dict[str, object]]
+) -> dict[str, object] | None:
+    """VAD speech the FINAL segment set leaves unclaimed, or None if unknowable.
+
+    ⚠ The decode stage measures coverage too (`asr_align.asr_coverage`), and
+    it is not this number: that one is taken per group before stabilize runs,
+    so a group can pass it and still lose a line here. This is the only
+    measurement taken after stabilization drops. It describes stable segment
+    timing, not semantic correctness or subsequent translation/rendering.
+
+    Needs `vad_timeline.intervals`, which the aligned artifact carries; a
+    payload without it (hand-written, or an older schema) gets nothing rather
+    than a zero, because "no gaps" and "no yardstick" are different answers.
+    """
+
+    timeline = payload.get("vad_timeline")
+    if not isinstance(timeline, dict):
+        return None
+    intervals = timeline.get("intervals")
+    if not isinstance(intervals, list) or not intervals:
+        return None
+    return speech_gap_summary(
+        [item for item in intervals if isinstance(item, dict)], segments
+    )
+
+
 def stabilize_payload(
     payload: dict[str, object],
     *,
@@ -671,10 +729,50 @@ def stabilize_payload(
         segments = _apply_profile_1(segments, report)
     if profile in (0, 2):
         segments = _apply_profile_2(
-            segments, report, veto_level_floor=resolve_veto_level_floor(veto_level_floor)
+            segments, report, veto_level_floor=settings.VETO_LEVEL_FLOOR.resolve(veto_level_floor)
         )
     if profile == 0:
         segments = _drop_suspicious_segments(segments, report)
+    # Artifact contract, applied on the way out for every profile that
+    # rewrites the payload. The recognition stage normalizes too, but a stable
+    # JSON can be rebuilt from an aligned artifact produced before that fix --
+    # or by hand -- and downstream cannot tell the difference: it just drops
+    # `end <= start` without saying so. Recorded, never warned about (owner
+    # 2026-09-06). ⚠ `profile == -1` never reaches here as a written artifact:
+    # `stabilize_json_file` copies the aligned bytes verbatim for it, which is
+    # what "no-op" means, so its output is exactly as well-formed as its input.
+    audio_end = payload_audio_end(payload)
+    segments, time_repairs = normalize_segment_timeline(
+        segments, audio_end=audio_end
+    )
+    if time_repairs or audio_end is None:
+        metadata = result.get("metadata")
+        if not isinstance(metadata, dict):
+            metadata = {}
+            result["metadata"] = metadata
+        stabilize_meta = metadata.get("asr_stabilize")
+        if not isinstance(stabilize_meta, dict):
+            stabilize_meta = {}
+            metadata["asr_stabilize"] = stabilize_meta
+        if time_repairs:
+            stabilize_meta["segment_time_repairs"] = time_repairs
+        if audio_end is None:
+            # "No segment overran the audio" and "nobody measured" must not
+            # look alike in the artifact. Only the second one is written --
+            # the aligned side records the duration when it has one.
+            stabilize_meta["audio_end_unchecked"] = True
+    gaps = _speech_gaps(payload, segments)
+    if gaps is not None:
+        metadata = result.get("metadata")
+        if not isinstance(metadata, dict):
+            metadata = {}
+            result["metadata"] = metadata
+        stabilize_meta = metadata.get("asr_stabilize")
+        if not isinstance(stabilize_meta, dict):
+            stabilize_meta = {}
+            metadata["asr_stabilize"] = stabilize_meta
+        stabilize_meta["speech_gaps"] = gaps
+    report.segment_time_repairs = len(time_repairs)
     result["segments"] = segments
     report.output_segments = len(segments)
     return result, report

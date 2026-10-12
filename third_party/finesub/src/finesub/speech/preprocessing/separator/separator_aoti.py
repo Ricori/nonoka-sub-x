@@ -23,6 +23,9 @@ from pathlib import Path
 from typing import Any
 
 import torch
+from finesub_bootstrap.processes import no_window
+
+from ...runtime.device import gpu_arch_tag, gpu_name, gpu_runtime_version
 
 
 AXES = {
@@ -106,6 +109,7 @@ def _find_vcvars() -> Path | None:
             encoding="utf-8",
             errors="replace",
             timeout=30,
+            creationflags=no_window(),
         )
     except (OSError, subprocess.SubprocessError):
         return None
@@ -251,6 +255,7 @@ def _activate_msvc() -> str:
         text=True,
         encoding="utf-8",
         errors="replace",
+        creationflags=no_window(),
     )
     for line in completed.stdout.splitlines():
         key, separator, value = line.partition("=")
@@ -645,8 +650,8 @@ def build_packages(
     manifest = {
         "format": "separator-regional-aoti-v2",
         "torch": torch.__version__,
-        "cuda": torch.version.cuda,
-        "gpu": torch.cuda.get_device_name(),
+        "cuda": gpu_runtime_version(),
+        "gpu": gpu_name(),
         "sm": _device_arch(),
         "compiler": compiler,
         "weights_serialized": False,
@@ -677,7 +682,7 @@ def load_packages(model_instance: Any, package_dir: Path) -> int:
         raise RuntimeError("AOTI manifest does not describe weightless packages")
     for field, actual in (
         ("torch", torch.__version__),
-        ("cuda", torch.version.cuda),
+        ("cuda", gpu_runtime_version()),
         ("sm", _device_arch()),
     ):
         recorded = manifest.get(field)
@@ -763,5 +768,4 @@ def _write_package_with_prefix(package_bytes: bytes, destination: Path) -> None:
 
 
 def _device_arch() -> str:
-    major, minor = torch.cuda.get_device_capability()
-    return f"sm{major}{minor}"
+    return gpu_arch_tag()

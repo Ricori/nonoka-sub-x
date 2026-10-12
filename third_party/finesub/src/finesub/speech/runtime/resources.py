@@ -369,19 +369,28 @@ def check_tier_device_agreement(gpu_tier: str, device: str | None) -> None:
         )
 
 
-def detect_gpu_tier() -> str:
+def detect_gpu_tier(*, announce_unused_card: bool = True) -> str:
     """The tier this machine's card sits in, or the default if none answers.
 
-    Deliberately silent about a missing GPU: `resolve_device` already warns once
-    per stage about the CPU fallback, and a second warning from here would only
-    say the same thing in different words.
+    Silent when the machine simply has no GPU: `resolve_device` already warns
+    once per stage about the CPU fallback, and a second warning would only say
+    the same thing in different words. **Not** silent when the OS can see a card
+    that torch cannot use -- there the CPU tier is the correct tier for an
+    environment that is broken, and nothing else on screen says so (owner
+    2026-09-17).
     """
 
-    from .device import cuda_device_present, total_vram_gib
+    from .device import (
+        cuda_device_present,
+        total_vram_gib,
+        warn_if_an_installed_card_is_unused,
+    )
 
     if not cuda_device_present():
-        # No card at all -- a GPU tier would be a claim about hardware that is
-        # not there. This is the policy branch, and it is the ONLY one.
+        # No card torch can reach -- a GPU tier would be a claim about hardware
+        # it cannot back. This is the policy branch, and it is the ONLY one.
+        if announce_unused_card:
+            warn_if_an_installed_card_is_unused()
         return CPU_TIER
     total = total_vram_gib()
     if total is None:
@@ -394,30 +403,39 @@ def detect_gpu_tier() -> str:
     return tier_for_vram(total)
 
 
-def resolve_gpu_tier(gpu_tier: str | None = None) -> str:
+def resolve_gpu_tier(gpu_tier: str | None = None, *, device: str | None = None) -> str:
     """Turn what a front end was given into a tier name.
 
     `None` and `"auto"` are the same request -- "ask the card" -- so an unset
     option and an explicit `auto` cannot drift apart.
+
+    `device` is the user's `--device`, and it is here for one reason: somebody
+    who asked for the CPU is not to be told their card is idle. They know
+    (owner 2026-09-17). It changes nothing else -- the tier is the same either
+    way, and `--device` is not a tier.
     """
 
     text = str(gpu_tier).strip().lower() if gpu_tier is not None else ""
     if not text or text == AUTO_GPU_TIER:
-        return detect_gpu_tier()
+        wants_cpu = str(device or "").strip().lower() == "cpu"
+        return detect_gpu_tier(announce_unused_card=not wants_cpu)
     if text not in RESOURCE_PROFILES:
         choices = ", ".join(gpu_tier_cli_choices())
         raise ValueError(f"Unsupported GPU tier: {gpu_tier}. Use one of: {choices}.")
     return text
 
 
-def get_resource_profile(gpu_tier: str | None = None) -> ResourceProfile:
-    return RESOURCE_PROFILES[resolve_gpu_tier(gpu_tier)]
+def get_resource_profile(
+    gpu_tier: str | None = None, *, device: str | None = None
+) -> ResourceProfile:
+    return RESOURCE_PROFILES[resolve_gpu_tier(gpu_tier, device=device)]
 
 
 def resolve_asr_decode_batch(
     explicit: int | str | None = None,
     *,
     gpu_tier: str | None = None,
+    profile: ResourceProfile | None = None,
 ) -> int:
     """How many windows the ASR decoder should decode per generate call.
 
@@ -434,6 +452,11 @@ def resolve_asr_decode_batch(
     Returning 1 rather than raising on a bad value: a batch size is a
     performance knob, and taking a transcription down over one is the wrong
     trade.
+
+    `profile` is for a caller that already resolved one -- the ASR stage does.
+    Resolving a second time from `gpu_tier` asks the driver again, and the
+    second answer arrives without knowing whether the user asked for the CPU,
+    which is how `--device cpu` still got told its card was idle.
     """
 
     if explicit is not None and str(explicit).strip().lower() not in ("", "auto"):
@@ -442,6 +465,8 @@ def resolve_asr_decode_batch(
         except (TypeError, ValueError):
             return 1
         return max(1, value)
+    if profile is not None:
+        return profile.asr_decode_batch
     return get_resource_profile(gpu_tier).asr_decode_batch
 
 

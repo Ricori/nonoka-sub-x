@@ -27,6 +27,24 @@ from pathlib import Path
 SEPARATOR_CHECKPOINT = "model_bs_roformer_ep_317_sdr_12.9755.ckpt"
 
 QWEN_REFEREE_CACHE_DIR = "models--Qwen--Qwen3-ASR-0.6B-hf"
+
+#: The DiariZen checkpoint and the speaker-embedding model it clusters with, as published.
+#: ⚠ A run never fetches these two: production loads TorchScript, not the checkpoint. They exist
+#: so `tools/diarizen_export/` can fetch the checkpoint once to trace it.
+DIARIZEN_CACHE_DIR = "models--BUT-FIT--diarizen-wavlm-large-s80-md-v2"
+WESPEAKER_CACHE_DIR = "models--pyannote--wespeaker-voxceleb-resnet34-LM"
+#: What `--diarize` DOES fetch (owner 2026-09-21): the DiariZen checkpoint above, exported to
+#: TorchScript by `tools/diarizen_export/` and hosted by us. Two repositories because a traced
+#: graph keeps the device it was traced on -- the CUDA build does not run on CPU and the CPU build
+#: does not run on CUDA -- and `snapshot_download` fetches a whole repository. ⚠ CC-BY-NC 4.0;
+#: the model cards and `docs/manual/diarization.md` say so.
+DIARIZEN_TS_CUDA_CACHE_DIR = "models--spurtcarl--finesub-diarizen-cuda"
+DIARIZEN_TS_CPU_CACHE_DIR = "models--spurtcarl--finesub-diarizen-cpu"
+#: What the default diarization backend fetches: Nemotron-3 straight from NVIDIA (only the two files
+#: the port opens, `listedOnly` in the manifest), and the voiceprint model plus PLDA from ours --
+#: both device builds in one repository, since together they are 54 MB. OpenMDW-1.1 and CC BY 4.0.
+NEMOTRON3_CACHE_DIR = "models--nvidia--Nemotron-3-Diarization"
+SPEAKER_EMBEDDING_CACHE_DIR = "models--spurtcarl--finesub-speaker-embedding"
 # Keep the repository id single-sourced with the prefetch worker. The managed
 # runtime pins faster-whisper 1.2.1, whose ``large-v3-turbo`` alias resolves to
 # this repository; checking the old deepdml cache name meant a successful
@@ -52,6 +70,12 @@ HF_REPO_DIRS = (
     WHISPER_CACHE_DIR,
     LEGACY_WHISPER_CACHE_DIR,
     WHISPER_JA_CACHE_DIR,
+    DIARIZEN_CACHE_DIR,
+    WESPEAKER_CACHE_DIR,
+    DIARIZEN_TS_CUDA_CACHE_DIR,
+    DIARIZEN_TS_CPU_CACHE_DIR,
+    NEMOTRON3_CACHE_DIR,
+    SPEAKER_EMBEDDING_CACHE_DIR,
 )
 
 #: Weights a default desktop run ends up downloading, in the order it reaches
@@ -73,6 +97,12 @@ _ENSURABLE_HF_CACHE_DIRS = {
     "whisper": WHISPER_CACHE_DIR,
     "whisper-ja": WHISPER_JA_CACHE_DIR,
     "qwen-referee": QWEN_REFEREE_CACHE_DIR,
+    "diarizen": DIARIZEN_CACHE_DIR,
+    "wespeaker": WESPEAKER_CACHE_DIR,
+    "diarizen-ts-cuda": DIARIZEN_TS_CUDA_CACHE_DIR,
+    "diarizen-ts-cpu": DIARIZEN_TS_CPU_CACHE_DIR,
+    "nemotron3": NEMOTRON3_CACHE_DIR,
+    "speaker-embedding": SPEAKER_EMBEDDING_CACHE_DIR,
 }
 
 

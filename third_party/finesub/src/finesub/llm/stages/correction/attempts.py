@@ -7,13 +7,15 @@ reads the advice ledger back and evolves the entry transfer chain).
 
 from __future__ import annotations
 
+from dataclasses import replace as dataclass_replace
+
 import re
 import threading
-from typing import Any, Callable, Dict, List
+from typing import Any, Callable, Dict, List, Mapping
 
 from finesub.reporting import current_reporter
 
-from ...agent.agent_validators import serialize_window
+from ...agent.agent_validators import judge_style_pick, serialize_window, style_pick_params
 from ...routing.capabilities import correction_task_group
 from ...chunking import SubtitleWindow, WindowIdMap
 from ...client import (
@@ -25,7 +27,6 @@ from ...client import (
 from ...routing.config import LLMRole, NEXT_ADVICE_MAX_TOKENS
 from ...content_filter import (
     ContentFilterExhaustedError,
-    evidence_pack_block,
     run_injection_ladder,
     split_rendered_search_block,
 )
@@ -37,6 +38,7 @@ from ...exchange_metadata import (
 )
 from ...knowledge.base import append_task_artifact, load_entry_texts
 from ...knowledge.feedback import remap_feedback_source_ids
+from ...knowledge.style import record_style_injected, render_style_block
 from ...output_protocol import (
     PACING_PASS_RATIO,
     PACING_PASS_RATIO_TEST_PROFILE,
@@ -47,10 +49,10 @@ from ...output_protocol import (
 from ...output_tags import extract_single_tag_block, parse_line_items
 from ...routing.profiles import TranslationProfile
 from ...prompt_variants import resolve_variant
-from ...prompts import ContextPack, build_correction_csv_messages
+from ...prompts import ContextPack
 from ...token_truncate import cap_tokens
 from .commit import _window_input_hash
-from .context import CorrectionRun, _WindowRunOutcome
+from .context import CorrectionRun, RequestTurnProduct, _WindowRunOutcome
 from .metadata import (
     _output_budget_row,
     _output_limit_check,
@@ -60,7 +62,7 @@ from .metadata import (
     _response_reference_metadata,
     window_to_metadata,
 )
-from .query_round import QueryRoundProduct
+from ...request_prompts import build_window_task_messages
 
 
 def correction_role_for_profile(profile: TranslationProfile) -> LLMRole:
@@ -108,21 +110,27 @@ def _extract_task_update_feedback(
 
 
 def _log_window_exposures(
-    run: CorrectionRun, current: SubtitleWindow, injected_keys: List[str]
+    run: CorrectionRun,
+    current: SubtitleWindow,
+    injected_keys: List[str],
+    injected_extent: Mapping[str, Mapping[str, int]] | None = None,
 ) -> None:
-    """Book ``exposed`` events for the entries this window's prompt carried
-    (plan §5.1/§5.2). Same discipline as the shadow scan: pure telemetry,
-    idempotent, never worth failing a window over."""
+    """Book ``exposed`` events for what this window's prompt carried (plan
+    §5.1/§5.2): the entries that went in, and of a cut one only its lines
+    that did (``injected_extent``, the budget's ``kept``). Same discipline as
+    the shadow scan: pure telemetry, idempotent, never worth failing a window
+    over."""
 
     if not (run.knowledge_enabled and injected_keys):
         return
     try:
-        from ...knowledge.base import knowledge_root_path
+        from ...knowledge.base import knowledge_root_path, knowledge_signals_enabled, version_rev
         from ...knowledge.node.repo import KnowledgeRepo
         from ...knowledge.node.signals import log_exposed_entries
 
-        version = run.knowledge_version
-        rev = int(version.rsplit(":", 1)[1]) if ":" in version else None
+        if not knowledge_signals_enabled(run.knowledge_root):
+            return
+        rev = version_rev(run.knowledge_version)
         log_exposed_entries(
             KnowledgeRepo.open(knowledge_root_path(run.knowledge_root)),
             injected_keys,
@@ -130,6 +138,7 @@ def _log_window_exposures(
             window_id=current.chunk_id,
             window_text=" ".join(segment.text for segment in current.segments),
             rev=rev,
+            kept=injected_extent,
         )
     except Exception as exc:  # telemetry must never sink the window
         current_reporter().debug(f"knowledge exposure log skipped: {exc}")
@@ -148,6 +157,197 @@ def _extract_next_advice(
     return cap_tokens(body, max_tokens, count_tokens)
 
 
+def window_task_kwargs(
+    run: CorrectionRun,
+    window: SubtitleWindow,
+    *,
+    audio_label: str,
+    previous_advice: str,
+    entry_details: str,
+    search_results: str,
+    window_notes: str = "",
+    variant: str | None = None,
+) -> Dict[str, Any]:
+    """``build_correction_csv_messages`` kwargs for one window of this run."""
+
+    return dict(
+        window=window,
+        context_pack=run.context_pack,
+        audio_file_label=audio_label,
+        previous_advice=previous_advice,
+        window_notes=window_notes,
+        search_results=search_results,
+        entry_details=entry_details,
+        extra_style=run.extra_style,
+        style_block=run.style_block,
+        task_update_feedback=run.task_update_feedback,
+        profile=run.profile,
+        variant=variant,
+        knowledge_enabled=run.knowledge_enabled,
+    )
+
+
+def _compose_window_messages(
+    run: CorrectionRun,
+    window: SubtitleWindow,
+    request_product: RequestTurnProduct,
+    *,
+    audio_label: str,
+    previous_advice: str,
+    search_text: str,
+    entry_details: str,
+    variant: str,
+    style_catalog: Any = None,
+) -> List[Dict[str, Any]]:
+    """The messages one correction attempt sends, in the run's flow shape.
+
+    Without a request channel the two-message correction prompt; with it
+    (``run.request_channel``) the same prompt plus
+    the request channel, and -- after a request turn -- the replayed assistant
+    turn and the fill turn (``request_prompts.build_window_task_messages``);
+    under ``run.agent_fetches`` the tool-session shape. The variant name comes
+    from the answering candidate (plan v2 D2/D3); "" is the registry default.
+    ``style_catalog`` is the attempt's own snapshot of ``run.style_catalog``:
+    an agentic window's pick can pin the style mid-run (`_pin_style_pick`),
+    and the messages an attempt is logged with must be the ones it was sent.
+    """
+
+    return build_window_task_messages(
+        request_channel=run.request_channel,
+        agentic=run.agent_fetches,
+        request_reply=request_product.request_reply,
+        knowledge_indexes=run.knowledge_index_texts if run.knowledge_enabled else None,
+        carried_entries=request_product.carried_entries_text,
+        requested_entries=request_product.requested_entries,
+        requested_search=request_product.requested_search,
+        max_search_queries=run.max_search_queries_per_window,
+        style_catalog=style_catalog.render() if style_catalog else "",
+        extra_style_hint=run.extra_style,
+        style_fill_block=request_product.style_fill_block,
+        **window_task_kwargs(
+            run,
+            window,
+            audio_label=audio_label,
+            previous_advice=previous_advice,
+            entry_details=entry_details,
+            search_results=search_text,
+            # The request turn's <window_notes> reach the delivery inside the
+            # replayed assistant message; the opening's notes slot stays empty.
+            variant=variant or None,
+        ),
+    )
+
+
+def _complete_window(
+    run: CorrectionRun,
+    window: SubtitleWindow,
+    compose_for_variant: Callable[[str], List[Dict[str, Any]]],
+    *,
+    attempt: int,
+    file_ref: Any,
+    repair_output: str,
+    repair_errors: List[str],
+    replacement_round: bool,
+    validator_spec: Mapping[str, Any],
+    predelivered: Any = None,
+    style_grant: Any = None,
+):
+    """One correction call -- or the request turn's own delivery.
+
+    ``predelivered`` is the ``LLMCallResult`` the task flow's request turn
+    came back with when the model delivered at once (plan §2.2: no empty
+    second call). It stands in for attempt 0; every later attempt calls.
+    ``style_grant`` is the catalog an agentic window picks from: on a run
+    that does not read the base it buys the narrow ``kb_tools: "style"``
+    grant (only `kb_read` of `style/<名字>`), pinned to the revision the
+    catalog was read at.
+    """
+
+    if predelivered is not None:
+        return predelivered
+    agent_task_extras: Dict[str, Any] | None = None
+    if run.knowledge_enabled:
+        # §4.3 authorization matrix: correction windows get the read-only kb
+        # tools; the pin supplies the revision. The signal identity joins
+        # agent-side exposures with this window's matched/landed events.
+        agent_task_extras = {
+            "kb_tools": "read",
+            "kb_signal_task": run.task_id,
+            "kb_signal_window": window.chunk_id,
+        }
+    elif style_grant is not None and style_grant.rev is not None:
+        # Only the style to read (auto-style-gaps plan A, 「读权限」): the
+        # narrow grant names its own root and revision -- a run that does not
+        # read the base has no generation pin to borrow them from.
+        agent_task_extras = {
+            "kb_tools": "style",
+            "knowledge_root": str(run.knowledge_root),
+            "knowledge_identity": f"rev:{style_grant.rev}",
+            "kb_signal_task": run.task_id,
+            "kb_signal_window": window.chunk_id,
+        }
+    return run.client.complete(
+        correction_role_for_profile(run.profile),
+        compose_for_variant,
+        max_tokens=run.planning_limits.output_limit,
+        file_ref=file_ref,
+        fallback_audio_ref=(
+            (lambda: run.media.ladder_audio_ref(window))
+            if file_ref is not None and file_ref.is_video
+            else None
+        ),
+        retrieval=run.profile.retrieval,
+        task_group=correction_task_group(run.profile),
+        difficulty=run.profile.difficulty,
+        previous_output=repair_output,
+        validation_errors=repair_errors,
+        # One chain per window: a repair resumes the conversation that
+        # wrote the output, and the next window starts a fresh one.
+        repair_session_key=f"correction-{window.chunk_id}",
+        fresh_session=replacement_round,
+        validator_spec=validator_spec,
+        max_repair_attempts=max(0, run.max_retries_per_window),
+        agent_task_extras=agent_task_extras,
+        **validation_retry_sampling_kwargs(attempt),
+    )
+
+
+def _call_kb_reads(result: Any) -> List[Mapping[str, Any]]:
+    """The answering task's booked ``kb_read`` rows (`fold_kb_reads` put them
+    on its execution attempt). Any other backend read nothing through the
+    harness, which is what an empty list says."""
+
+    attempts = list(getattr(result, "execution_attempts", None) or [])
+    last = attempts[-1] if attempts else {}
+    return [row for row in (last.get("kb_reads") or ()) if isinstance(row, Mapping)]
+
+
+def _pin_style_pick(run: CorrectionRun, window: SubtitleWindow, choice: Any) -> None:
+    """The first valid agentic pick fixes the style for the whole task.
+
+    auto-style-gaps plan A1 steps 4-5: recorded like the batched request
+    turn's (a `style_selection` artifact with ``chunk_id``, which
+    `_writable_style_names` and a resume read back); and any later half of a
+    split window no longer sees the catalog -- it gets the picked style's full
+    rules up front, so the two halves cannot pick differently.
+    """
+
+    with run._tally_lock:
+        if run.style_catalog is None:
+            # Another half already pinned it (parallel lanes).
+            return
+        run.style_catalog = None
+        run.style_block = render_style_block(run.knowledge_root, choice.names, rev=choice.rev)
+    record_style_injected(run.knowledge_root, choice.names, task_id=run.task_id, rev=choice.rev)
+    if run.task_artifact_dir:
+        append_task_artifact(
+            run.task_artifact_dir,
+            kind="style_selection",
+            task_id=run.task_id,
+            payload={"chunk_id": window.chunk_id, **choice.to_dict()},
+        )
+
+
 def run_window_attempts(
     run: CorrectionRun,
     current: SubtitleWindow,
@@ -158,6 +358,7 @@ def run_window_attempts(
     injected_keys: List[str],
     chained: bool,
     add_tail: Callable[[SubtitleWindow], None],
+    injected_extent: Mapping[str, Mapping[str, int]] | None = None,
     exchange_block: ExchangeBlock | None,
     abort: threading.Event | None = None,
     on_chain_exhausted: Callable[[], None] | None = None,
@@ -175,7 +376,7 @@ def run_window_attempts(
     as fresh units.
 
     The retry budget is two-tiered (owner decision 2026-08-19,
-    docs/llm_followups.md "两档重试"): ``max_retries_per_window`` repairs
+    docs/llm_harness_behavior.md 「重试与拼接」): ``max_retries_per_window`` repairs
     *within one session chain* -- each retry carries the previous output
     and the exact validation errors, and an agent backend resumes the
     conversation that wrote them -- and once that is spent the window is
@@ -189,7 +390,7 @@ def run_window_attempts(
     """
 
     base_chunk_id = current.chunk_id.split("-", 1)[0]
-    query_product = run.query_round_cache.get(base_chunk_id) or QueryRoundProduct()
+    request_product = run.request_turn_cache.get(base_chunk_id) or RequestTurnProduct()
     # Repair context for the next attempt, carried only across a retry that
     # sends the *same* window back. A split hands the next attempt a
     # different window, and then last round's output describes rows this
@@ -240,89 +441,55 @@ def run_window_attempts(
         # Content-filter ladder is independent of validation retries:
         # drop injected retrieval units until the prompt clears, then
         # validate. A contaminated search injection is rewritten into
-        # the query-round cache so -a/-b halves and later attempts see
+        # the request-turn cache so -a/-b halves and later attempts see
         # the cleaned text.
-        if run.evidence_pack_mode and query_product.search_results.strip():
-            search_block = evidence_pack_block(query_product.search_results)
-            window_evidence_mode = True
-        else:
-            search_block = split_rendered_search_block(
-                query_product.search_results
-            )
-            window_evidence_mode = False
+        search_block = split_rendered_search_block(request_product.search_results)
 
         # The same check the loop below applies, named for a backend that can
         # run the repair loop itself (the task runtime resolves the id in
         # whichever process serves `submit`), so the harness and the runtime
         # never disagree about what a valid window is.
+        #
+        # An agentic `--style auto` window picks in its delivery (A1), so the
+        # pick -- and "it really read the picked style" -- is part of that same
+        # check. The catalog is snapshotted per attempt: a pin by an earlier
+        # half changes the run, not an attempt already composed.
+        attempt_catalog = run.style_catalog
+        style_pick = (
+            style_pick_params(attempt_catalog)
+            if run.agent_fetches and attempt_catalog is not None
+            else None
+        )
         window_validator_spec = {
             "id": "correction-window",
-            "params": {"window": serialize_window(current)},
+            "params": {
+                "window": serialize_window(current),
+                **({"style_pick": style_pick} if style_pick is not None else {}),
+            },
         }
 
         def _correction_call(search_text: str):
-            use_pack = (
-                window_evidence_mode
-                and bool(search_text.strip())
-                and search_text.strip() == query_product.search_results.strip()
-            )
-
             def compose_for_variant(variant: str):
-                # The variant name arrives from the answering candidate's
-                # cell/entry (plan v2 D2/D3); "" falls back to the
-                # registry default.
-                return build_correction_csv_messages(
-                    window=current,
-                    context_pack=run.context_pack,
-                    audio_file_label=window_audio_label,
-                    previous_advice=previous_advice,
-                    query_round_notes=query_product.window_notes,
-                    search_results=search_text,
-                    entry_details=window_entry_details,
-                    extra_style=run.extra_style,
-                    style_block=run.style_block,
-                    task_update_feedback=run.task_update_feedback,
-                    evidence_pack_mode=use_pack,
-                    profile=run.profile,
-                    variant=variant or None,
-                    knowledge_enabled=run.knowledge_enabled,
+                return _compose_window_messages(
+                    run, current, request_product, audio_label=window_audio_label,
+                    previous_advice=previous_advice, search_text=search_text,
+                    entry_details=window_entry_details, variant=variant,
+                    style_catalog=attempt_catalog,
                 )
 
-            call_result = run.client.complete(
-                correction_role_for_profile(run.profile),
-                compose_for_variant,
-                max_tokens=run.planning_limits.output_limit,
-                file_ref=window_file_ref,
-                fallback_audio_ref=(
-                    (lambda: run.media.ladder_audio_ref(current))
-                    if window_file_ref is not None and window_file_ref.is_video
+            call_result = _complete_window(
+                run, current, compose_for_variant, attempt=attempt, file_ref=window_file_ref,
+                repair_output=repair_output, repair_errors=repair_errors,
+                replacement_round=replacement_round, validator_spec=window_validator_spec,
+                style_grant=attempt_catalog if style_pick is not None else None,
+                # The request turn's own delivery stands in for attempt 0 of
+                # the window it answered -- never of a split half, whose rows
+                # it could not have covered.
+                predelivered=(
+                    request_product.delivered
+                    if attempt == 0 and not sent_repair and current.split_depth == 0
                     else None
                 ),
-                retrieval=run.profile.retrieval,
-                task_group=correction_task_group(run.profile),
-                difficulty=run.profile.difficulty,
-                previous_output=repair_output,
-                validation_errors=repair_errors,
-                # One chain per window: a repair resumes the conversation that
-                # wrote the output, and the next window starts a fresh one.
-                repair_session_key=f"correction-{current.chunk_id}",
-                fresh_session=replacement_round,
-                validator_spec=window_validator_spec,
-                max_repair_attempts=max(0, run.max_retries_per_window),
-                # §4.3 authorization matrix: correction windows get the
-                # read-only kb tools; the pin supplies the revision. The
-                # signal identity joins agent-side exposures with this
-                # window's matched/landed events (plan §5.1).
-                agent_task_extras=(
-                    {
-                        "kb_tools": "read",
-                        "kb_signal_task": run.task_id,
-                        "kb_signal_window": current.chunk_id,
-                    }
-                    if run.knowledge_enabled
-                    else None
-                ),
-                **validation_retry_sampling_kwargs(attempt),
             )
             if is_prompt_blocked(call_result.content, call_result.raw_response):
                 raise GeminiPromptBlockedError(
@@ -353,20 +520,11 @@ def run_window_attempts(
                 # (never sent): complete() raised, so no LLMCallResult
                 # carries the answering tier — assemble at the default
                 # CAPABLE tier.
-                err_messages = build_correction_csv_messages(
-                    window=current,
-                    context_pack=run.context_pack,
-                    audio_file_label=window_audio_label,
-                    previous_advice=previous_advice,
-                    query_round_notes=query_product.window_notes,
-                    search_results=query_product.search_results,
-                    entry_details=window_entry_details,
-                    extra_style=run.extra_style,
-                    style_block=run.style_block,
-                    task_update_feedback=run.task_update_feedback,
-                    evidence_pack_mode=run.evidence_pack_mode,
-                    profile=run.profile,
-                    knowledge_enabled=run.knowledge_enabled,
+                err_messages = _compose_window_messages(
+                    run, current, request_product, audio_label=window_audio_label,
+                    previous_advice=previous_advice, search_text=request_product.search_results,
+                    entry_details=window_entry_details, variant="",
+                    style_catalog=attempt_catalog,
                 )
                 append_task_artifact(
                     run.task_artifact_dir,
@@ -409,13 +567,9 @@ def run_window_attempts(
                 if unit.content_hash not in run.content_filter_blacklist
             ]
         )
-        if cleaned_search != query_product.search_results:
-            query_product = QueryRoundProduct(
-                search_results=cleaned_search,
-                window_notes=query_product.window_notes,
-                requested_entry_keys=query_product.requested_entry_keys,
-            )
-            run.query_round_cache[base_chunk_id] = query_product
+        if cleaned_search != request_product.search_results:
+            request_product = dataclass_replace(request_product, search_results=cleaned_search)
+            run.request_turn_cache[base_chunk_id] = request_product
         request_reference = _request_reference_metadata(
             messages=messages,
             file_ref=window_file_ref,
@@ -432,6 +586,19 @@ def run_window_attempts(
             current,
             variant=response_variant,
         )
+        style_choice = None
+        if style_pick is not None:
+            # The harness's half of the window validator's style check: the
+            # same judge over the same ledger the runtime's submit read
+            # (`agent_validators.judge_style_pick`), so the two agree on what a
+            # valid window is -- including after the runtime gave up.
+            style_choice, style_errors, _read_missing = judge_style_pick(
+                result.content, style_pick, _call_kb_reads(result)
+            )
+            if style_errors:
+                validation = dataclass_replace(
+                    validation, ok=False, errors=[*validation.errors, *style_errors]
+                )
         finish_reason = _response_finish_reason(result.raw_response)
         output_limit_check = _output_limit_check(
             result.raw_response,
@@ -469,7 +636,7 @@ def run_window_attempts(
         window_input_components = correction_input_components(
             window=current,
             counter=run.token_counter,
-            search_results=query_product.search_results,
+            search_results=request_product.search_results,
             context_general=pack.general_prompt_text(),
             context_window=context_window,
             messages=messages,
@@ -566,25 +733,40 @@ def run_window_attempts(
                 )
             except ValueError:
                 keep_raw = []
-            if query_product.keep_entry_keys:
+            if request_product.keep_entry_keys:
                 keep_raw = list(
                     dict.fromkeys(
-                        keep_raw + list(query_product.keep_entry_keys)
+                        keep_raw + list(request_product.keep_entry_keys)
                     )
                 )
-            if not run.external_injection:
+            if not run.window_requests:
                 # No request capability anywhere downstream: pruning here
                 # would lose the entry for the rest of the run, so the
                 # harness passes the current set through untouched. The
                 # prompt does not ask for <keep_entries> in this shape.
                 next_transfer = list(run.carried.keys)
-            elif keep_raw and injected_keys:
+            elif run.knowledge_enabled and keep_raw and (injected_keys or run.agent_fetches):
                 keep_found, _keep_missing = load_entry_texts(
                     run.knowledge_root, keep_raw
                 )
+                # What this window could have read. Batched: what the harness
+                # injected. Agentic: the base itself -- the executor reads it
+                # with its own `kb_read`, so filtering against the injected set
+                # would stop the transfer chain at whatever the preparation
+                # task seeded (the same mistake the preparation task's own keep
+                # filter made; plan §10.12).
+                #
+                # ⚠ `run.knowledge_enabled` is the base gate and has to be
+                # explicit here: it used to be implied by `injected_keys` being
+                # empty with the base off, and adding `or run.agent_fetches`
+                # removed that implication -- an unsolicited `<keep_entries>`
+                # then read the store on a run told not to touch it (plan §8).
+                # It already folds in "the index is readable" (`run.py`).
                 injected_set = set(injected_keys)
                 next_transfer = [
-                    key for key in keep_found if key in injected_set
+                    key
+                    for key in keep_found
+                    if run.agent_fetches or key in injected_set
                 ][:run.transfer_cap]
         if run.task_artifact_dir:
             response_payload = {
@@ -651,7 +833,7 @@ def run_window_attempts(
                         "attempt": attempt,
                         "window": window_to_metadata(current),
                         "feedback": update_feedback,
-                        # Harness-side call evidence (report 2026-08-28 §2.3):
+                        # Harness-side call evidence (docs/knowledge.md 任务反馈采集):
                         # what this call's retrieval ledger actually returned,
                         # attached here because the model's self-reported
                         # sources are exactly what went missing.
@@ -661,7 +843,9 @@ def run_window_attempts(
                     },
                 )
         if validation.ok and not output_limited:
-            _log_window_exposures(run, current, injected_keys)
+            if style_choice is not None:
+                _pin_style_pick(run, current, style_choice)
+            _log_window_exposures(run, current, injected_keys, injected_extent)
             run.ledger.commit(
                 {
                     "chunk_id": current.chunk_id,

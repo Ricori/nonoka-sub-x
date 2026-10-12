@@ -80,7 +80,7 @@ class AgentQuotaLedger:
 
     The key is the catalog's ``quota_pool``, which defaults to the provider
     tier. It is a separate concept only because Antigravity meters its Gemini
-    and Opus models apart: booking them together would take a working model
+    and Claude models apart: booking them together would take a working model
     out of service for hours because its neighbour ran dry.
     """
 
@@ -290,6 +290,7 @@ def evaluate_agent_failure(
     ping: Callable[[], None] | None,
     ledger: AgentQuotaLedger | None = None,
     warn: Callable[[str], None] | None = None,
+    attribution_certain: bool = True,
 ) -> BaseException:
     """Decide whether a failed agent call means the subscription is spent.
 
@@ -300,16 +301,24 @@ def evaluate_agent_failure(
     specific answer, and in particular an expired login is reported as
     `unavailable` upstream: auth must not be mistaken for exhaustion, since the
     fix is completely different and a freeze would hide it for hours.
+
+    `attribution_certain=False` says the caller knows *something* was spent but
+    not *whose*: a row with a paid twin whose stream named no model. The
+    vendor's own verdict is then unusable as a shortcut -- it is a statement
+    about an allowance nobody identified -- so it takes the probe path like
+    any other failure. Skipping that is how an hourly rate limit on the free
+    line, plus a spent credit balance behind it, freezes the *free* daily
+    quota that was never the problem.
     """
 
-    from .agent_paths import vendor_error_text
-    from .local_agent import (
-        LocalAgentQuotaError,
-        LocalAgentTransientError,
-        LocalAgentUnavailableError,
-    )
+    from .local_agent import LocalAgentQuotaError, LocalAgentTransientError
 
     book = ledger or default_ledger()
+    if isinstance(exc, LocalAgentQuotaError) and not attribution_certain:
+        detail = f"{type(exc).__name__}: {exc}"
+        if ping is None:
+            return exc
+        return _probe_then_freeze(book, pool, ping, detail, exc, warn) or exc
     if isinstance(exc, LocalAgentQuotaError):
         # The vendor said so outright, so there is nothing to probe -- but it
         # still has to be *recorded*, or the very next candidate on the same
@@ -328,12 +337,93 @@ def evaluate_agent_failure(
     detail = f"{type(exc).__name__}: {exc}"
     if not book.note_failure(pool) or ping is None:
         return exc
+    return _probe_then_freeze(book, pool, ping, detail, exc, warn) or exc
+
+
+def evaluate_fallback_switch(
+    *,
+    pool: str,
+    ping: Callable[[], None] | None,
+    ledger: AgentQuotaLedger | None = None,
+    warn: Callable[[str], None] | None = None,
+) -> BaseException | None:
+    """A paid twin answered, so the line it replaced is in trouble.
+
+    This is the only evidence that exists in the case that matters most: when
+    the vendor's own fallback rescues the call, the harness sees a success and
+    the spent line leaves no trace at all. Route the next task to the same row
+    and the CLI switches again, so credits drain while the ledger keeps
+    believing the free line is healthy.
+
+    The switch is worth exactly two failures, not a freeze. The interceptor
+    retries the primary once and only then hands the session over, so one
+    switch *is* two consecutive failures on that line -- which is the existing
+    threshold, and reaching it the ordinary way means the probe still decides.
+    That matters because the interceptor also switches on sustained rate
+    limiting: "the twin answered" proves the line failed twice, never that it
+    is out of quota, and freezing on that would be the expensive direction.
+
+    Returns the quota error the freeze produced, or None. Callers on the
+    success path have nothing to raise and can ignore it; it is returned so
+    the decision is inspectable rather than buried.
+    """
+
+    book = ledger or default_ledger()
+    if book.is_frozen(pool):
+        # Already recorded, and unlike every other freeze this one does not
+        # stop the calls: a row with a twin goes out of routing only when
+        # *every* allowance behind it is frozen, so it keeps running and keeps
+        # switching. Without this the switch would buy a fresh probe -- a real
+        # CLI launch -- on *every* call for the whole freeze, which is the cost
+        # this module exists to remove.
+        return None
+    reached = False
+    for _ in range(CONSECUTIVE_FAILURES_BEFORE_PING):
+        reached = book.note_failure(pool)
+    if not reached or ping is None:
+        return None
+    return _probe_then_freeze(
+        book,
+        pool,
+        ping,
+        "the CLI handed this session to its paid twin",
+        None,
+        warn,
+        # Recorded, not enforced. This pool is reached only from a row that
+        # declares a twin, and such a row leaves routing only when *every*
+        # allowance behind it is frozen -- so the run carries on over the
+        # fallback and the freeze is here to be *seen* (`agent-ping`, and one
+        # warning instead of one per call).
+        consequence="its free daily quota looks spent, so this row runs on its "
+        "paid twin from here",
+    )
+
+
+def _probe_then_freeze(
+    book: AgentQuotaLedger,
+    pool: str,
+    ping: Callable[[], None],
+    detail: str,
+    exc: BaseException | None,
+    warn: Callable[[str], None] | None,
+    consequence: str = "",
+) -> BaseException | None:
+    """Ask the allowance itself, and freeze only if it refuses.
+
+    Shared by both ways of reaching the threshold -- a run of failures, and a
+    fallback switch -- so the freeze always rests on the same evidence: one
+    minimal call to the line in question, made through a driver that cannot
+    answer from anywhere else.
+    """
+
+    from .agent_paths import vendor_error_text
+    from .local_agent import LocalAgentQuotaError, LocalAgentUnavailableError
 
     try:
         ping()
     except LocalAgentUnavailableError:
         # The probe says the CLI or the login is the problem, not the balance.
-        return exc
+        return None
     except Exception as probe_exc:
         deadline = book.freeze(
             pool, seconds=float(QUOTA_FREEZE_SECONDS), reason=detail
@@ -343,10 +433,16 @@ def evaluate_agent_failure(
         # and always fails" -- a model name the CLI does not serve fails exactly
         # like a spent plan, twice, and then the probe agrees with itself. Say
         # both, and quote the CLI so a person can tell them apart in one look.
-        said = vendor_error_text(probe_exc) or vendor_error_text(exc)
+        said = vendor_error_text(probe_exc) or (
+            vendor_error_text(exc) if exc is not None else ""
+        )
+        said_consequence = (
+            consequence
+            or f"skipping it until {deadline.isoformat(timespec='minutes')}"
+        )
         message = (
-            f"{pool} local agent stopped answering; skipping it until "
-            f"{deadline.isoformat(timespec='minutes')}. Usually a spent "
+            f"{pool} local agent stopped answering; {said_consequence}"
+            f" (until {deadline.isoformat(timespec='minutes')}). Usually a spent "
             "subscription -- check its usage and that you are still logged in. "
             "A target that cannot work at all fails identically (a model name "
             "this CLI does not serve, say), so check that too."
@@ -358,4 +454,4 @@ def evaluate_agent_failure(
     else:
         # It answers. Whatever went wrong, it was not the subscription.
         book.note_success(pool)
-        return exc
+        return None

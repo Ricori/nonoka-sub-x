@@ -31,10 +31,19 @@
 
 version = 2
 name = "streamer"
+blurb = "主播"                    # 结构表里这个类别的一句话说明
+matchable = true                # 进匹配面：按名字/别名从字幕文本里命中，有索引
+# rendered/streamer/index.md 的抬头。仅 matchable 类别有（索引就是拿来被匹配的）。
+index_header = "# 主播索引\n\n格式：`- key | 其他语言本名 | 别名 | 一句简介`（key = 源语言本名）"
 allow_custom_labels = true
 unknown_label_share = "local"   # 未登记的标记永不自动共享（可能是「中之人」这类）
 unknown_label_verify = "none"   # 也永不发给外部检索核查
 strict_sections = true          # 六节固定，不可新建
+# 整条的注入上限（owner 2026-10-02，三个类别一样）：注入时超过就按行截断，不是写入规则。
+max_entry_tokens = 6000
+# 超过软阈值时，可写的面提示压缩。不可拆：主播条目按主播名整条注入，拆出去的节会离开默认注入。
+soft_entry_tokens = 5000
+splittable = false
                                 # （「重要经历」退休；「说话风格」并入「特点」；新增「待归类」暂存区）
 
 [[sections]]
@@ -45,7 +54,7 @@ purpose = "条目身份：这条目是谁、归属何处。"
 exclude = "近况、版本性叙事、单场直播的轶事；称呼类信息去「频道用语」。"
 labels = [
   { name = "本名", core = true, role = "identity", note = "源语言全名 / 中文定名 / 英文定名（源语言定名已是英文则留空），斜杠分隔；条目的 index 行由它派生" },
-  { name = "别名", core = true, role = "aliases", note = "顿号分隔：昵称、简称、全称、俗称，以及源语言的特殊读音（假名写法）。覆盖社区常用写法，至少 2 字符；不罗列牵强或极少使用的写法。误听变体不算别名（会污染匹配）。这一行渲染自 items，删掉整行不等于清空别名" },
+  { name = "别名", core = true, role = "aliases", note = "顿号分隔：昵称、简称、全称、俗称，以及源语言的特殊读音（假名写法）。覆盖社区常用写法，至少 2 字符；不罗列牵强或极少使用的写法。误听变体不算别名（会污染匹配）。行体留空即清空" },
   { name = "人设", core = true, note = "外貌之外的人物设定：性格、身份、定位——影响译文口吻" },
   { name = "外观", core = true, note = "外貌特征：发色瞳色、标志性配饰与服装——多模态任务据此辨认" },
 ]

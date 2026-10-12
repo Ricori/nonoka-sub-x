@@ -23,7 +23,7 @@ from dataclasses import dataclass, replace
 from typing import AbstractSet, Dict, List, Optional, Sequence, Tuple
 
 from ..recognition.transcribe import GAP_KEEP_REAL_MAX_SEC
-from ... import config as app_config
+from ... import settings
 from ...subtitles.metrics import weighted_char_count
 from ...text import coerce_optional_float, punct_class, words_to_text
 
@@ -59,13 +59,8 @@ SYNTHETIC_WORD_KEY = "synthetic_from_segment"
 
 # The one tunable meant for humans: how long is "too long". Everything else in
 # SplitParams is a calibration constant whose right value comes from the gold
-# set, not from taste (tune those through tools/split_explorer).
-#
-# The accepted range is re-exported from ``finesub.config``, which owns
-# the shared file's contract: the settings panel validates a value before
-# writing it and cannot import this module (torch comes with it).
-LENGTH_SCALE_MIN = app_config.SPLIT_LENGTH_SCALE_MIN
-LENGTH_SCALE_MAX = app_config.SPLIT_LENGTH_SCALE_MAX
+# set, not from taste (tune those through tools/split_explorer). Its accepted
+# range is part of the declaration, `settings.SPLIT_LENGTH_SCALE`.
 
 
 def split_params_for_length_scale(
@@ -94,7 +89,7 @@ def split_params_for_length_scale(
     physics, not preference.
     """
 
-    value = app_config.validate_split_length_scale(scale)
+    value = settings.SPLIT_LENGTH_SCALE.check(scale)
     if value == 1.0:
         # Identity, not an optimization: the default path must stay bit-for-bit
         # what it was before the knob existed.
@@ -707,8 +702,22 @@ def _build_piece_segment(
     # that upstream in production, but archived artifacts do contain overlaps).
     seg_start = min(float(segment.get("start", 0.0)) for segment, _ in sources)
     seg_end = max(float(segment.get("end", 0.0)) for segment, _ in sources)
-    start = min(max(adj[a].start, seg_start), seg_end)
-    end = min(max(adj[b - 1].end, start), seg_end)
+    # min/max over the whole range, not adj[a]/adj[b-1]: gap-word adjustment
+    # can leave starts non-monotonic inside a piece (see the running max in
+    # `score_boundaries`), so the first word is not always the earliest.
+    word_start = min(adj[i].start for i in range(a, b))
+    word_end = max(adj[i].end for i in range(a, b))
+    start = min(max(word_start, seg_start), seg_end)
+    end = min(max(word_end, start), seg_end)
+    if end <= start:
+        # The clamp degenerated: every word of this piece was folded outside
+        # the source union, so clamping leaves an empty interval that cannot
+        # contain the piece's own text -- and an empty interval means the text
+        # is dropped without a trace downstream. Keeping the words' own span
+        # is the house invariant ("segment bounds = the span of its words");
+        # the clamp only exists to stop folded coordinates from resurrecting
+        # cross-segment overlaps, and it cannot do that by erasing the piece.
+        start, end = word_start, word_end
     piece: Dict[str, object] = {
         "start": start,
         "end": end,

@@ -15,10 +15,8 @@ _EMPTY_MARKERS = frozenset({"", "（无）", "（空）"})
 
 SESSION_RESPONSE_KINDS = frozenset(
     {
-        "research_round1_response",
-        "fast_round1_response",
-        "research_round2_response",
-        "search_loop_round",
+        "prepare_task_request",
+        "prepare_task_response",
         "correction_query_response",
         "correction_window_response",
         "knowledge_update_response",
@@ -29,26 +27,17 @@ SESSION_RESPONSE_KINDS = frozenset(
 def is_session_response_record(kind: str, payload: Mapping[str, Any]) -> bool:
     """Whether one artifact record represents an LLM response session.
 
-    ``search_loop_round`` is used for both the search execution ledger and
-    the subsequent judge response. Only the latter is an exchange and carries
-    response/call metadata; counting the ledger creates a fake zero-token
-    session in the task report.
+    A window's request turn that ``delivered`` at once is the same call the
+    ``correction_window_response`` below it records: one API request, one
+    exchange, one usage. The record is kept because it carries "the channel
+    was open and went unused", which is the request-rate audit face -- but
+    counting it as its own session would double every direct delivery in the
+    task report and in the round summary.
     """
 
-    if kind not in SESSION_RESPONSE_KINDS:
+    if kind == "correction_query_response" and payload.get("delivered"):
         return False
-    if kind != "search_loop_round":
-        return True
-    return any(
-        key in payload
-        for key in (
-            "response_content",
-            "usage",
-            "call_error",
-            "api_attempts",
-            "execution_attempts",
-        )
-    )
+    return kind in SESSION_RESPONSE_KINDS
 
 
 def extract_tagged_block(text: str, tag: str) -> str:
@@ -60,20 +49,13 @@ def extract_tagged_block(text: str, tag: str) -> str:
 def infer_session_name(kind: str, payload: Mapping[str, Any]) -> str:
     if payload.get("session"):
         return str(payload["session"])
-    if kind == "research_round1_response":
-        return f"research-round1-attempt{payload.get('attempt', 0)}"
-    if kind == "fast_round1_response":
-        return f"fast-round1-attempt{payload.get('attempt', 0)}"
-    if kind == "research_round2_response":
-        return f"research-round2-attempt{payload.get('attempt', 0)}"
-    if kind == "search_loop_round":
-        return (
-            f"research-search-loop-round{payload.get('round', 0)}"
-            f"-attempt{payload.get('attempt', 0)}"
-        )
+    if kind == "prepare_task_request":
+        return f"prepare-request-attempt{payload.get('attempt', 0)}"
+    if kind == "prepare_task_response":
+        return f"prepare-delivery-attempt{payload.get('attempt', 0)}"
     if kind == "correction_query_response":
         return (
-            f"correction-{payload.get('chunk_id', '?')}-query"
+            f"correction-{payload.get('chunk_id', '?')}-request"
             f"-attempt{payload.get('attempt', 0)}"
         )
     if kind == "correction_window_response":
@@ -121,6 +103,26 @@ def _is_empty_injection(text: str) -> bool:
     return not (text or "").strip() or text.strip() in _EMPTY_MARKERS
 
 
+def index_block_tokens(counter: TokenCounter | None, user_text: str) -> Dict[str, int]:
+    """``<category>_index_tokens`` for every matchable category.
+
+    These keys used to be two literals (`streamer_index_tokens` /
+    `common_index_tokens`) repeated across three exchange kinds. They are
+    derived now, so a new category is measured without editing this file --
+    ⚠ which also means the exchange-log key SET grows with the category set;
+    a reader must not assume exactly two.
+    """
+
+    from .knowledge.node.presets import MATCHABLE_CATEGORIES
+
+    return {
+        f"{category}_index_tokens": count_text_tokens(
+            counter, extract_tagged_block(user_text, f"{category}_index")
+        )
+        for category in MATCHABLE_CATEGORIES
+    }
+
+
 def count_text_tokens(counter: TokenCounter | None, text: str) -> int:
     if _is_empty_injection(text):
         return 0
@@ -162,17 +164,9 @@ def research_input_components(
             counter, extract_tagged_block(user_text, "extra_info")
         ),
         "note_url_extract_tokens": count_text_tokens(counter, note_url_extracts),
-        "streamer_index_tokens": count_text_tokens(
-            counter, extract_tagged_block(user_text, "streamer_index")
-        ),
-        "common_index_tokens": count_text_tokens(
-            counter, extract_tagged_block(user_text, "common_index")
-        ),
+        **index_block_tokens(counter, user_text),
         "preinjected_entry_tokens": count_text_tokens(
             counter, extract_tagged_block(user_text, "preinjected_entries")
-        ),
-        "round1_notes_tokens": count_text_tokens(
-            counter, extract_tagged_block(user_text, "round1_notes")
         ),
         "knowledge_injection_tokens": count_text_tokens(counter, knowledge_text),
         "search_injection_tokens": count_text_tokens(counter, search_text),
@@ -250,12 +244,7 @@ def correction_input_components(
         ),
         # Present only on the query round's prompt (the correction round does
         # not carry the indices).
-        "streamer_index_tokens": count_text_tokens(
-            counter, extract_tagged_block(user_text, "streamer_index")
-        ),
-        "common_index_tokens": count_text_tokens(
-            counter, extract_tagged_block(user_text, "common_index")
-        ),
+        **index_block_tokens(counter, user_text),
         "search_injection_tokens": count_text_tokens(counter, search_results),
         "expected_output_tokens": window.budget.estimated_output_tokens,
     }
@@ -280,42 +269,6 @@ def result_uses_high_resolution_video(result: Any) -> bool:
         )
     except (KeyError, OSError, ValueError):
         return False
-
-
-def search_loop_input_components(
-    *,
-    counter: TokenCounter | None = None,
-    search_results: str = "",
-    messages: List[Mapping[str, Any]] | None = None,
-) -> Dict[str, int]:
-    user_text = _user_message_text(messages)
-    search_text = search_results
-    if _is_empty_injection(search_text) and user_text:
-        search_text = extract_tagged_block(user_text, "search_results")
-    return {
-        "background_tokens": count_text_tokens(
-            counter, extract_tagged_block(user_text, "background")
-        ),
-        "contract_tokens": count_text_tokens(
-            counter, extract_tagged_block(user_text, "research_contract")
-        ),
-        "executed_queries_tokens": count_text_tokens(
-            counter, extract_tagged_block(user_text, "executed_queries")
-        ),
-        "progress_tokens": count_text_tokens(
-            counter, extract_tagged_block(user_text, "research_progress")
-        ),
-        "streamer_index_tokens": count_text_tokens(
-            counter, extract_tagged_block(user_text, "streamer_index")
-        ),
-        "common_index_tokens": count_text_tokens(
-            counter, extract_tagged_block(user_text, "common_index")
-        ),
-        "knowledge_injection_tokens": count_text_tokens(
-            counter, extract_tagged_block(user_text, "knowledge_entries")
-        ),
-        "search_injection_tokens": count_text_tokens(counter, search_text),
-    }
 
 
 def flatten_input_components(components: Mapping[str, Any]) -> Dict[str, Any]:
@@ -387,7 +340,14 @@ def llm_exchange_metadata(
     route_decision = dict(getattr(result, "route_decision", None) or {})
     metadata: Dict[str, Any] = {
         "prompt_version": PROMPT_VERSION,
-        "thinking_level": result.thinking_level or "（默认）",
+        # A budget-controlled model (Gemini 2.5) sends no level word, only its
+        # budget -- say which, or the header reads as "model default".
+        "thinking_level": result.thinking_level
+        or (
+            f"（预算 {result.thinking_budget}）"
+            if getattr(result, "thinking_budget", 0)
+            else "（默认）"
+        ),
         "input_tokens": (
             f"{usage['uncached_input_tokens']} / {usage['cached_input_tokens']} / "
             f"{usage['total_input_tokens']} (uncached / cached / total)"

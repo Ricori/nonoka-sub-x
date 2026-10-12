@@ -11,10 +11,26 @@ from dataclasses import dataclass
 from typing import Any, Iterable
 
 import numpy as np
-from faster_whisper.transcribe import WhisperModel, get_compression_ratio
 
 from ..runtime import hf_weights, phase_timing
-from ..runtime.cuda_libs import ensure_cublas_available
+from ..runtime.cuda_libs import (
+    ensure_cublas_available,
+    prepare_native_runtime_for_import,
+)
+
+# The ROCm build links its libraries in the import table, so the search path
+# has to be ready *now* -- the constructor's `ensure_cublas_available` runs in
+# a module that this import has to finish first. No-op everywhere else.
+prepare_native_runtime_for_import()
+
+# Pulls in CTranslate2, which is where a broken native install actually fails.
+# Deliberately NOT wrapped here: every importer of this module already runs the
+# failure through `cuda_libs.missing_asr_backend_message`, and a wrapper that
+# re-raised a plain `ImportError` flattened `ModuleNotFoundError` into it --
+# after which "the package is missing" and "the package will not load" became
+# the same case, and a machine with no faster-whisper was told it had one.
+from faster_whisper.transcribe import WhisperModel, get_compression_ratio
+from . import asr_backend
 from .encoder_cache import EncoderCache
 from .fw_refine import (
     AlignedSpan,
@@ -54,6 +70,26 @@ def _missing_gemm_backend(exc: RuntimeError, device: str) -> RuntimeError:
         f"docs/manual/ct2-wheel.md has the command and the self-check; "
         f"tools/wt_refine_port/ct2-patches/README.md has the build flags if "
         f"you build your own."
+    )
+
+
+def _flash_build_limit(exc: Exception) -> Exception:
+    """Point a model the trimmed flash kernels cannot run at the switch that turns them off.
+
+    The patched build compiles flash attention for what the Whisper encoder
+    runs (head dimension 64, float16; patch 0013), and `ct2_flash_attention`
+    checks everything it can see before the load -- but not the model's
+    head dimension, which only the converted model knows. Every Whisper size
+    is 64; a custom conversion that is not reaches the first encode and
+    CTranslate2 raises "FlashAttention is built for ... only".
+    """
+
+    if "FlashAttention is built" not in str(exc):
+        return exc
+    return RuntimeError(
+        f"{exc}. This model does not fit the flash-attention kernels in the "
+        f"patched CTranslate2 build; set FINESUB_CT2_FLASH_ATTENTION=off to run "
+        f"it with the standard attention."
     )
 
 
@@ -119,6 +155,29 @@ class RefinedWhisperModel(WhisperModel):
     faster-whisper's normal generation and teacher-force word alignment.
     """
 
+    #: The ASR backend contract (`asr_backend`): what this backend can do, and
+    #: which decode options it implements.
+    capabilities = frozenset({asr_backend.BEAM, asr_backend.BATCH_DECODE})
+    #: ⚠ **Written out, not derived from the contract.** It used to be
+    #: `accepted_for(capabilities)`, which made this backend claim every option
+    #: the loop declared -- including one added yesterday and implemented
+    #: nowhere -- and the contract test compared that claim against the same
+    #: source and found nothing wrong. Spelling the names here is what makes a
+    #: new option in `DECODE_OPTIONS` turn this red until somebody implements
+    #: it (`transcribe_wt` below reads exactly these).
+    accepted_decode_options = frozenset(
+        {
+            "language",
+            "temperature",
+            "beam_size",
+            "best_of",
+            "detect_disfluencies",
+            "collect_refine_signals",
+            "collect_attention_signals",
+            "force_teacher_force",
+        }
+    )
+
     def __init__(self, *args: Any, refine_sec: float = 1.0, **kwargs: Any) -> None:
         # CTranslate2 loads cuBLAS by name from C++, so its directory has to be
         # on the process search path before any GPU work -- and nothing here
@@ -127,11 +186,34 @@ class RefinedWhisperModel(WhisperModel):
         # `auto` is included: it resolves to CUDA whenever CUDA is usable.
         if str(kwargs.get("device", "auto")).strip().lower() != "cpu":
             ensure_cublas_available()
+        # Resolved here rather than at the two construction sites, so neither
+        # can forget it. faster-whisper hands unknown keywords to
+        # `ctranslate2.models.Whisper`; in the patched build the option reaches
+        # the encoder only (patch 0012): the decoder keeps its attention and
+        # cache layout, though it reads the (slightly different) encoder output.
+        if "flash_attention" not in kwargs:
+            from ..runtime.device import ct2_flash_attention
+
+            kwargs["flash_attention"] = ct2_flash_attention(
+                str(kwargs.get("device", "auto")),
+                str(kwargs.get("compute_type", "default")),
+            )
+        #: Whether the encoder runs with flash attention (the pool reports it
+        #: into the run's metadata).
+        self.flash_attention = bool(kwargs["flash_attention"])
         super().__init__(*args, **kwargs)
         generate_doc = inspect.getdoc(self.model.generate) or ""
         if "return_refine_paths" not in generate_doc:
             raise RuntimeError(
                 "CTranslate2 was not built with the WT refine trace extension"
+            )
+        # Checked here, before any decode, rather than per call: disfluency
+        # detection is on by default, so a per-call failure is raised on every
+        # window, and the alignment loop reads a decode failure as "drop this
+        # group" -- an old patched wheel would have emptied the run silently.
+        if "return_refine_weights" not in generate_doc:
+            raise RuntimeError(
+                "CTranslate2 was not built with WT disfluency weight support"
             )
         self.refine_frames = max(0, round(float(refine_sec) / self.time_precision))
         self._pending_refine_trace: _PendingTrace | None = None
@@ -181,6 +263,8 @@ class RefinedWhisperModel(WhisperModel):
                 output = super().encode(features)
         except RuntimeError as exc:
             raise _missing_gemm_backend(exc, self.model.device) from exc
+        except ValueError as exc:  # pybind11's std::invalid_argument
+            raise _flash_build_limit(exc) from exc
         self._encoder_cache.put(values, output)
         return output
 
@@ -457,6 +541,9 @@ class RefinedWhisperModel(WhisperModel):
     def transcribe_wt(self, audio: np.ndarray, **options: Any) -> dict[str, object]:
         """Accept the small WT option surface used by the production caller."""
 
+        asr_backend.reject_unknown(
+            options, self.accepted_decode_options, backend="fw-refine"
+        )
         beam_size = int(options.get("beam_size") or 1)
         best_of = int(options.get("best_of") or beam_size)
         previous_detect = self._detect_disfluencies
@@ -469,12 +556,6 @@ class RefinedWhisperModel(WhisperModel):
             options.get("collect_attention_signals", False)
         )
         self._force_teacher_force = bool(options.get("force_teacher_force", False))
-        if self._detect_disfluencies or self._collect_attention_signals:
-            generate_doc = inspect.getdoc(self.model.generate) or ""
-            if "return_refine_weights" not in generate_doc:
-                raise RuntimeError(
-                    "CTranslate2 was not built with WT disfluency weight support"
-                )
         try:
             # The umbrella span. Everything a window costs lands inside it, so
             # its exclusive time is faster-whisper's own seek loop and feature
@@ -610,8 +691,16 @@ def transcribe_batch(
     The caller owns batch composition. An item whose replay fails comes back
     as ``None`` rather than failing the batch -- the caller's sequential path
     then handles that window with its own fallback ladder.
+
+    ``force_teacher_force`` is refused: the batch path has no teacher-force
+    replay, and the loop only ever sends it on a sequential retry.
     """
 
+    asr_backend.reject_unknown(
+        options,
+        RefinedWhisperModel.accepted_decode_options - {"force_teacher_force"},
+        backend="fw-refine batch",
+    )
     if not audios:
         return []
     language = options.get("language")
@@ -811,6 +900,11 @@ class FwRefineModelPool:
         self._idle: list[RefinedWhisperModel] = []
         self._loaded = 0
         self._condition = threading.Condition()
+        #: Whether the loaded models run the encoder with flash attention;
+        #: None until `warm` has loaded them. Provenance for the run's
+        #: metadata: the default (`device.ct2_flash_attention`) differs by
+        #: card, so the same input decodes differently before and after Ampere.
+        self.flash_attention: bool | None = None
 
     @contextlib.contextmanager
     def lease(self):
@@ -836,15 +930,13 @@ class FwRefineModelPool:
                 # re-resolve `main` past the snapshot that was checked. And
                 # when that snapshot is complete where this will look for it,
                 # the load asks the hub for nothing at all.
+                on_gpu = self._device.strip().lower().startswith("cuda")
+
                 def build(plan: hf_weights.HfLoad) -> RefinedWhisperModel:
                     return RefinedWhisperModel(
                         self._model_name,
                         device=self._device,
-                        compute_type=(
-                            "float16"
-                            if self._device.strip().lower().startswith("cuda")
-                            else "float32"
-                        ),
+                        compute_type="float16" if on_gpu else "float32",
                         revision=plan.revision,
                         local_files_only=plan.local_files_only,
                         refine_sec=self._refine_sec,
@@ -875,6 +967,8 @@ class FwRefineModelPool:
                 model = self._acquire()
                 models.append(model)
                 _warm_up_encode(model)
+            if models:
+                self.flash_attention = bool(getattr(models[0], "flash_attention", False))
         finally:
             for model in models:
                 self._release(model)

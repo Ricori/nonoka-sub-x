@@ -133,8 +133,26 @@ def restore_node(store: KnowledgeStore, local_id: str) -> int:
             "SELECT * FROM link_versions WHERE valid_to_rev=? AND (source_id=? OR target_id=?)",
             (retire_rev, local_id, local_id),
         ).fetchall():
+            if row["rel"] == "part_of" and not _part_of_revivable(store, row):
+                continue
             _revive_row(txn, "link", row["link_id"], dict(row))
         return txn.rev
+
+
+def _part_of_revivable(store: KnowledgeStore, row) -> bool:  # type: ignore[no-untyped-def]
+    """A restored parent takes its sub-entries back only if each is still
+    there, still in the parent's category, and not a parent itself by now
+    (one level only) -- unlike memberships, links were revived blind."""
+
+    from .subentries import PART_OF
+
+    child = store.node(row["source_id"])
+    parent = store.node(row["target_id"])
+    if child is None or parent is None:
+        return False
+    if str(child.payload.get("category") or "") != str(parent.payload.get("category") or ""):
+        return False
+    return not any(link.rel == PART_OF for link in store.links_to(child.local_id))
 
 
 # ---- row-level helpers -----------------------------------------------------------

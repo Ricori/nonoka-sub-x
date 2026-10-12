@@ -22,7 +22,7 @@ from typing import Iterable
 
 
 REPOSITORY = "https://github.com/caca2331/finesub"
-DEFAULT_REF = "v0.5.1"
+DEFAULT_REF = "v0.6.0"
 SYNC_SCHEMA = 1
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_VENDOR = REPO_ROOT / "third_party" / "finesub"

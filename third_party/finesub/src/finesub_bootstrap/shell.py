@@ -40,6 +40,7 @@ from finesub_bootstrap.capabilities import (
 )
 from finesub_bootstrap.environment import (
     RuntimeEnvironment,
+    RuntimeInUse,
     shared_environment_overrides,
     token_counter_overrides,
 )
@@ -70,7 +71,7 @@ from finesub_bootstrap.locks import (
     task_workspace_lock_path,
     try_lock,
 )
-from finesub_bootstrap import secrets
+from finesub_bootstrap import runtime_health, secrets
 from finesub_bootstrap.migrations import apply_pending
 from finesub_bootstrap.paths import (
     BIG_DATA_NAMES,
@@ -95,6 +96,41 @@ _CAPABILITY_REASONS = {
 #: What `doctor`, and a run that finds something missing, tell the user.
 _PROVISIONING_HINT = "Run `finesub setup` to provision what is missing."
 
+#: Where the source install is documented. A CLI user installed from PyPI and
+#: has no checkout, so the way out has to be a URL, not a repo-relative path.
+REPO_INSTALL_DOC = (
+    "https://github.com/caca2331/finesub/blob/main/docs/manual/repo-install.md"
+)
+
+#: How the platforms that the managed runtime does not provision are named in
+#: that document. The runtime is Windows-only because the locked dependency
+#: set, the tool archives and the interpreter layout all are; the pipeline
+#: itself is not, so these platforms have a source install -- which is the
+#: whole content of this message. ⚠ Deliberately says nothing about which
+#: CTranslate2 wheels are published: that changes, and the document is where
+#: it is maintained.
+_SOURCE_INSTALL_PLATFORMS = {
+    "darwin": "macOS",
+    "linux": "Linux",
+}
+
+
+def _unsupported_platform_message() -> str:
+    for prefix, name in _SOURCE_INSTALL_PLATFORMS.items():
+        if sys.platform.startswith(prefix):
+            platform_name = name
+            break
+    else:
+        platform_name = sys.platform
+    return (
+        f"The FineSub managed runtime provisions Windows x64 only, so it cannot "
+        f"set itself up on {platform_name}.\n"
+        f"The pipeline is not Windows-only: install it from a source checkout, "
+        f"where you pick the PyTorch build and the patched CTranslate2 for your "
+        f"platform yourself.\n"
+        f"  {REPO_INSTALL_DOC}  (section 「其他平台：Linux、AMD、macOS」)"
+    )
+
 #: Column the description starts at in rendered help.
 _HELP_COLUMN = 42
 
@@ -118,8 +154,6 @@ class Command:
     #: Help rows as (left column, description). Multi-row entries carry their
     #: own left-column indentation so continuations line up under the command.
     help: tuple[tuple[str, str], ...] = ()
-    #: `doctor` is the one subcommand with nothing to parse.
-    takes_arguments: bool = True
 
 
 #: Where a bare `finesub <args...>` goes. A constant, not two literals: the
@@ -139,13 +173,16 @@ COMMANDS: tuple[Command, ...] = (
             ("finesub setup [--dirs-only]", "Provision the runtime without running"),
             ("              [--data-dir DIR]", "(--dirs-only only settles where the"),
             ("", "big files go, downloading nothing)"),
+            ("finesub setup --repair", "Rebuild the runtime from the lock"),
         ),
     ),
     Command(
         name="doctor",
         method="doctor",
-        help=(("finesub doctor", "Show runtime status and paths"),),
-        takes_arguments=False,
+        help=(
+            ("finesub doctor [--verify-hashes]", "Show runtime status and paths"),
+            ("", "(--verify-hashes also checks file contents)"),
+        ),
     ),
     Command(
         name="agent-clean",
@@ -406,6 +443,13 @@ def _boolean_flag(
     return value
 
 
+def _int_or_raw(value: str | None) -> int | str | None:
+    """A typed integer as a number, like the other numeric fields; anything
+    else as typed, for the pipeline to refuse."""
+
+    return int(value) if value and value.strip().isdigit() else value
+
+
 def _choice_flag(
     arguments: Sequence[str],
     name: str,
@@ -505,10 +549,16 @@ class Shell:
         resources: ResourceManager,
         runtime: RuntimeEnvironment,
         ask_big_data_dir: Callable[[Path], Path | None] | None = None,
+        version: str = "",
     ) -> None:
         self.paths = paths
         self.resources = resources
         self.runtime = runtime
+        # The installed `finesub` version, from the CLI (this layer cannot ask
+        # the distribution itself). Empty from a checkout: the runtime is then
+        # checked before every run, since there is no version to have succeeded.
+        self.version = version
+        self._runtime_settings_cache: runtime_health.RuntimeSettings | None = None
         # Asked once, before the first download lands. A caller with no way to
         # ask (tests) leaves it None and the default location is taken.
         self.ask_big_data_dir = ask_big_data_dir
@@ -531,7 +581,7 @@ class Shell:
         if entry.runtime_module:
             return self.run_in_runtime(entry.runtime_module, rest)
         handler = getattr(self, entry.method)
-        return handler(rest) if entry.takes_arguments else handler()
+        return handler(rest)
 
     # -- subcommands ----------------------------------------------------
 
@@ -576,11 +626,14 @@ class Shell:
 
         rest = list(arguments)
         dirs_only = False
+        repair = False
         requested: Path | None = None
         while rest:
             argument = rest.pop(0)
             if argument == "--dirs-only":
                 dirs_only = True
+            elif argument == "--repair":
+                repair = True
             elif argument == "--data-dir":
                 if not rest:
                     print("--data-dir needs a directory", file=sys.stderr)
@@ -596,9 +649,36 @@ class Shell:
             print(str(error), file=sys.stderr)
             return 2
         if dirs_only:
+            if repair:
+                print("--dirs-only and --repair do not go together", file=sys.stderr)
+                return 2
             print(f"FineSub will keep models and downloads in {self.paths.big_data}")
             return 0
-        self.ensure_ready()
+        if repair:
+            return self._repair_runtime()
+        if not self.ensure_ready(explicit=True):
+            return 1
+        print(f"FineSub runtime is ready under {self.paths.root}")
+        return 0
+
+    def _repair_runtime(self) -> int:
+        """`setup --repair`: rebuild from the lock, whatever the checks say."""
+
+        condition = self.runtime.condition()
+        if condition == "absent":
+            if not self.ensure_ready(explicit=True):
+                return 1
+            print(f"FineSub runtime is ready under {self.paths.root}")
+            return 0
+        self.ensure_ready(explicit=True, runtime=False)
+        if self._in_use(holds_lease=False):
+            return 1
+        report = self.runtime.check()
+        lines = ["正在按锁重建运行环境（几分钟；装完逐个文件核对哈希）。"]
+        lines += self._loss_lines(report, include_versions=condition != "outdated")
+        print("\n".join(lines), file=sys.stderr)
+        if not self._rebuild(holds_lease=False, verify_hashes=True):
+            return 1
         print(f"FineSub runtime is ready under {self.paths.root}")
         return 0
 
@@ -642,6 +722,11 @@ class Shell:
             )
         if already_placed:
             return
+        # Said before anything downloads, the one time it is cheap to act on:
+        # the runtime follows the root and cannot be moved on its own.
+        problem = runtime_health.non_ascii_path_problem([self.paths.root])
+        if problem:
+            print(f"提示：{problem}", file=sys.stderr)
         chosen = requested
         if chosen is None:
             from_environment = os.environ.get("FINESUB_BIG_DATA_DIR", "").strip()
@@ -676,11 +761,23 @@ class Shell:
                 file=sys.stderr,
             )
 
-    def doctor(self) -> int:
+    def doctor(self, arguments: Sequence[str] = ()) -> int:
+        verify_hashes = False
+        for argument in arguments:
+            if argument != "--verify-hashes":
+                print(f"Unknown doctor option: {argument}", file=sys.stderr)
+                return 2
+            verify_hashes = True
         # The diagnostic must not trust the instant filesystem check: it exists
         # for exactly the damage inside packages that check cannot see. Takes a
         # few seconds (spawns the runtime Python and imports the whole stack).
         runtime_status = self.runtime.status(force_probe=True)
+        # Reports only. Repairing is `setup --repair`, which the line says.
+        report = (
+            self.runtime.check(verify_hashes=verify_hashes)
+            if runtime_status.state == "ready"
+            else None
+        )
         try:
             uv_location = str(self.runtime.uv_executable())
         except Exception as error:  # A diagnostic must not crash on its subject.
@@ -699,6 +796,10 @@ class Shell:
             + (f" ({runtime_status.detail})" if runtime_status.detail else "")
         )
         print(f"uv           {uv_location}")
+        print(f"integrity    {self._integrity_line(report, verify_hashes=verify_hashes)}")
+        path_problem = runtime_health.non_ascii_path_problem(self._managed_roots())
+        if path_problem:
+            print(f"paths        {path_problem}")
         for line in self._activity_report():
             print(line)
         print(f"download     {self._download_route_report()}")
@@ -714,10 +815,28 @@ class Shell:
         ready = (
             runtime_status.state == "ready"
             and self._tool_state("ffmpeg") == "ready"
+            and not (report is not None and report.mismatched)
         )
         if not ready:
             print(f"\n{_PROVISIONING_HINT}")
         return 0 if ready else 1
+
+    @staticmethod
+    def _integrity_line(
+        report: runtime_health.RuntimeReport | None, *, verify_hashes: bool
+    ) -> str:
+        if report is None:
+            return "not checked (runtime not ready, a development environment, or no readable lock)"
+        if report.mismatched:
+            return (
+                "与锁不一致：" + "；".join(report.problems())
+                + f"。修复：{runtime_health.repair_command()}"
+            )
+        scope = "files and contents" if verify_hashes else "files present"
+        return f"ok ({scope} match the lock)"
+
+    def _managed_roots(self) -> list[Path]:
+        return [self.paths.runtime, self.paths.models, self.paths.cache]
 
     def _activity_report(self) -> list[str]:
         """Who is using this store right now.
@@ -1151,7 +1270,52 @@ class Shell:
         run_arguments = list(arguments)
         with self._announced_as_running():
             with self._claimed_run(run_arguments) as plan:
-                return self._planned_run(plan, run_arguments)
+                status = self._planned_run(plan, run_arguments)
+        # Outside the lease: a repair here must not count this run as another
+        # user of the runtime.
+        self._after_run(status)
+        return status
+
+    def _after_run(self, status: int) -> None:
+        """Remember a success; look for a cause after a failure.
+
+        Exit code 2 is a usage error and says nothing about the runtime.
+        """
+
+        if status == 0:
+            runtime_health.record_success(self.runtime.runtime_root, self.version)
+            return
+        if status == 2:
+            return
+        path_problem = runtime_health.non_ascii_path_problem(self._managed_roots())
+        if path_problem:
+            print(f"提示：这次运行失败，可能与路径有关：{path_problem}", file=sys.stderr)
+        if self.runtime.development_python is not None:
+            return
+        condition = self.runtime.condition()
+        if condition in ("damaged", "outdated"):
+            # Free to find out, and it may be why the run failed -- something
+            # quarantined out of the runtime while it ran.
+            self._replace_runtime(
+                condition,
+                explicit=False,
+                holds_lease=False,
+                fatal=False,
+                after_failure=True,
+            )
+            return
+        if condition != "ready" or self._runtime_settings().integrity_check == "off":
+            return
+        report = self.runtime.check()
+        if report is not None and report.mismatched:
+            self._replace_runtime(
+                "mismatched",
+                report=report,
+                explicit=False,
+                holds_lease=False,
+                fatal=False,
+                after_failure=True,
+            )
 
     def _planned_run(
         self, plan: "_RunPlan | None", arguments: list[str]
@@ -1444,17 +1608,22 @@ class Shell:
 
     @staticmethod
     def _recorded_request(plan: "_RunPlan") -> dict[str, object]:
-        """The effective CLI settings, complete enough to replay the run.
+        """The CLI settings this run was given, for a later reader.
 
-        Every field is written, and each default deliberately matches what the
-        pipeline resolves. Leaving a field absent for a reader to fill claimed
-        the run used settings it did not: the desktop's form defaulted the
-        knowledge switch to ``update`` and the media switch to ``video``, so a
-        retry of a ``--device cpu`` run from a partial record came back as CUDA
-        plus a knowledge update. Only what the CLI knows is written: the
-        three fields only the desktop's form ever set (`cleanup_intermediate`,
-        `gpu_index`, `gpu_name`) have defaults on the 0.4.x reader's side and
-        are left out (`test_shell.py` pins the shape).
+        Two kinds of field. The five LLM correction switches
+        (``llm_media`` / ``llm_retrieval`` / ``llm_difficulty`` /
+        ``llm_continuity`` / ``knowledge``) are written only when given on the
+        command line: an unset one is filled by the active LLM preset, which
+        this package cannot read (it may not import the main package), so a
+        mirrored default would record a value the run did not use. What the
+        run really used is in the correction task's ``resolved-switches.json``,
+        which ``resolved_switches`` points at -- absent when the run never
+        reached the correction task (owner 2026-09-30: look after downstream
+        readers, not the retired desktop's).
+
+        Every other field is still written in full with the pipeline's own
+        default, a choice made for the 0.4.x desktop's retries; whether those
+        go explicit-only too is an open followup.
         """
 
         arguments = plan.arguments
@@ -1476,12 +1645,25 @@ class Shell:
                 part for part in (extra_info, file_info) if part
             )
 
-        difficulty = _choice_flag(
-            arguments,
-            "--llm-difficulty",
-            ("quality", "intermediate", "efficiency"),
-            "quality",
-        )
+        switches = {
+            key: value
+            for key, value in (
+                ("llm_media", _flag_value(arguments, "--llm-media")),
+                ("llm_retrieval", _flag_value(arguments, "--llm-retrieval")),
+                ("llm_difficulty", _flag_value(arguments, "--llm-difficulty")),
+                ("llm_continuity", _flag_value(arguments, "--llm-continuity")),
+                ("knowledge", _flag_value(arguments, "--knowledge")),
+                ("llm_parallel_windows", _int_or_raw(_flag_value(arguments, "--llm-parallel-windows"))),
+                ("llm_preset", _flag_value(arguments, "--llm-preset")),
+            )
+            if value
+        }
+        artifact_dir = _flag_value(arguments, "--task-artifact-dir")
+        resolved_switches = (
+            Path(artifact_dir).expanduser().resolve()
+            if artifact_dir
+            else artifacts.artifact_directory(plan.output)
+        ) / artifacts.RESOLVED_SWITCHES_FILENAME
 
         return {
             "input": task_index.canonical_source(plan.source),
@@ -1510,13 +1692,8 @@ class Shell:
                 minimum=0.6,
                 maximum=1.6,
             ),
-            "llm_media": _choice_flag(
-                arguments, "--llm-media", ("text", "audio", "video"), "audio"
-            ),
-            "llm_retrieval": _choice_flag(
-                arguments, "--llm-retrieval", ("none", "local", "native"), "local"
-            ),
-            "llm_difficulty": difficulty,
+            **switches,
+            "resolved_switches": str(resolved_switches),
             "llm_fast": _choice_flag(
                 arguments, "--llm-fast", ("auto", "on", "off"), "auto"
             ),
@@ -1528,20 +1705,6 @@ class Shell:
             ),
             "extra_info": extra_info,
             "extra_style": _flag_value(arguments, "--extra-style") or "",
-            # Not a plain default: unset resolves to `collect`, except on an
-            # efficiency run where the LLM layer refuses knowledge anyway. The
-            # rule's one home is `stages.resolve_knowledge_switch`, which this
-            # package must not import (it may not import the main package at
-            # all), so this mirrors it -- and `test_shell.py` pins the pair.
-            # Recording a flat "none" said the run ignored the knowledge base
-            # when it had in fact read and injected it, and a retry from that
-            # record would then really ignore it.
-            "knowledge": _choice_flag(
-                arguments,
-                "--knowledge",
-                ("none", "collect", "update"),
-                "none" if difficulty == "efficiency" else "collect",
-            ),
             "postprocess_profile": _integer_choice_flag(
                 arguments, "--postprocess-profile", (-1, 0, 1, 2, 3, 4), 0
             ),
@@ -1553,9 +1716,9 @@ class Shell:
         Never fatal: a record we could not save must not change what actually
         happened.
 
-        The request is the CLI's complete effective configuration, defaults
-        included, so a later reader replays what actually ran rather than
-        filling omissions with defaults of its own.
+        The request is what ``_recorded_request`` describes: the LLM switches
+        as given plus a pointer to what the run resolved them to, and every
+        other setting with its default filled in.
         """
 
         now = time.time()
@@ -1667,7 +1830,9 @@ class Shell:
 
     def run_in_runtime(self, module: str, arguments: Sequence[str]) -> int:
         arguments = list(arguments)
-        self.ensure_ready()
+        # Only a transcription holds an activity lease, and only it is worth a
+        # quick check up front: the other commands finish in seconds.
+        self.ensure_ready(transcription=module == PIPELINE_MODULE)
         self._ensure_capabilities(arguments)
         self._prefer_capabilities(arguments)
         context = self.runtime.worker_context(
@@ -1691,11 +1856,28 @@ class Shell:
 
     # -- provisioning ---------------------------------------------------
 
-    def ensure_ready(self) -> None:
+    def ensure_ready(
+        self,
+        *,
+        explicit: bool = False,
+        transcription: bool = False,
+        runtime: bool = True,
+    ) -> bool:
+        """Provision what is missing, and keep the runtime matching its lock.
+
+        ``explicit`` is a user asking for it (`finesub setup`): rebuilding then
+        does not wait on `[runtime] auto_repair`, and the quick check always
+        runs. ``transcription`` is a run that holds an activity lease, and whose
+        start `[runtime] integrity_check` may precede with a quick check.
+        ``runtime=False`` stops after the tools, for callers that rebuild the
+        runtime themselves.
+
+        False when the runtime disagrees with its lock and was left that way
+        (rebuilding off, refused or failed) but a run may still go ahead.
+        """
+
         if os.name != "nt":
-            raise SystemExit(
-                "The FineSub managed runtime currently supports Windows x64 only."
-            )
+            raise SystemExit(_unsupported_platform_message())
         # Asked before anything is stored, so the answer decides where the
         # first download lands rather than where the next one would.
         self.settle_big_data_location()
@@ -1704,24 +1886,192 @@ class Shell:
         # data in, and it leaves a user who moved their store room to
         # re-register it before we start downloading a second copy.
         ensure_store(self.paths, log=_print_log)
-        if not self._missing_essentials():
-            return
-        self._ensure_resource("ffmpeg", "every run decodes media")
-        if self.runtime.status().state != "ready":
+        if self._tool_state("ffmpeg") != "ready":
+            self._ensure_resource("ffmpeg", "every run decodes media")
+        if not runtime:
+            return True
+        return self._ensure_runtime(explicit=explicit, transcription=transcription)
+
+    def _ensure_runtime(self, *, explicit: bool, transcription: bool) -> bool:
+        """The runtime half of `ensure_ready`; platform-independent to test."""
+
+        condition = self.runtime.condition()
+        if condition != "ready":
+            return self._replace_runtime(
+                condition, explicit=explicit, holds_lease=transcription, fatal=True
+            )
+        if self.runtime.development_python is not None:
+            return True
+        if not explicit and not (
+            transcription
+            and runtime_health.should_check_before_run(
+                self._runtime_settings().integrity_check,
+                self.runtime.runtime_root,
+                self.version,
+            )
+        ):
+            return True
+        report = self.runtime.check()
+        if report is None or not report.mismatched:
+            return True
+        return self._replace_runtime(
+            "mismatched",
+            report=report,
+            explicit=explicit,
+            holds_lease=transcription,
+            fatal=False,
+        )
+
+    def _runtime_settings(self) -> runtime_health.RuntimeSettings:
+        if self._runtime_settings_cache is None:
+            settings = runtime_health.read_runtime_settings(self.paths.user_data)
+            for problem in settings.problems:
+                print(f"Warning: {problem}", file=sys.stderr)
+            self._runtime_settings_cache = settings
+        return self._runtime_settings_cache
+
+    def _replace_runtime(
+        self,
+        reason: str,
+        *,
+        report: runtime_health.RuntimeReport | None = None,
+        explicit: bool,
+        holds_lease: bool,
+        fatal: bool,
+        after_failure: bool = False,
+    ) -> bool:
+        """Rebuild the runtime from the lock, or say why it was not rebuilt.
+
+        The runtime belongs to FineSub: anything that disagrees with the lock is
+        rebuilt, after saying what the rebuild takes away. `[runtime]
+        auto_repair = false` hands that decision to whoever manages the runtime
+        themselves -- except for a first install, where nothing can be lost.
+
+        ``fatal`` is for an instant-tier failure: the runtime lacks something
+        every command needs, so a command left to start would only die at an
+        import with an unhelpful message. Otherwise the old runtime is intact
+        and the run may go ahead; the return value says whether it was rebuilt.
+        """
+
+        if reason == "absent" or self.runtime.development_python is not None:
             print(
                 "Setting up the FineSub AI runtime "
                 "(the first run downloads several GB).",
                 file=sys.stderr,
             )
             self.runtime.install(stage=_print_stage, log=_print_log)
+            return True
+        if report is None:
+            report = self.runtime.check()
+        if reason == "outdated":
+            why = "运行环境是按另一份依赖锁装的（FineSub 升级了，或版本标记被删了）"
+        elif reason == "damaged":
+            why = f"运行环境不完整：{self.runtime.health_detail()}"
+        else:
+            why = "运行环境与锁不一致：" + "；".join(
+                report.problems() if report is not None else []
+            )
+        why = why.rstrip("。")
+        if not explicit and not self._runtime_settings().auto_repair:
+            print(
+                f"Warning: {why}。自动重建已关闭（[runtime] auto_repair = false）；"
+                f"要重建请运行：{runtime_health.repair_command()}",
+                file=sys.stderr,
+            )
+            if fatal:
+                raise SystemExit(1)
+            return False
+        # Before announcing anything: "rebuilding..." followed by "cannot
+        # rebuild" is two messages that contradict each other.
+        if self._in_use(holds_lease=holds_lease, why=why):
+            if fatal:
+                raise SystemExit(1)
+            return False
+        lines = [f"{why}。正在按锁重建运行环境（几分钟，通常不用重新下载）。"]
+        # An upgrade makes every upgraded dependency look "different" from the
+        # new lock; that is the upgrade, not something the user will lose.
+        lines += self._loss_lines(report, include_versions=reason != "outdated")
+        if after_failure:
+            lines.append("重建完成后请重新运行这次任务。")
+        print("\n".join(lines), file=sys.stderr)
+        if self._rebuild(holds_lease=holds_lease):
+            return True
+        if fatal:
+            raise SystemExit(1)
+        return False
 
-    def _missing_essentials(self) -> list[str]:
-        missing = []
-        if self._tool_state("ffmpeg") != "ready":
-            missing.append("ffmpeg")
-        if self.runtime.status().state != "ready":
-            missing.append("the Python runtime")
-        return missing
+    def _in_use(self, *, holds_lease: bool, why: str = "") -> bool:
+        """Whether another run holds the runtime; says so, naming who it can."""
+
+        try:
+            self.runtime.refuse_if_in_use(holds_lease=holds_lease)
+        except RuntimeInUse as error:
+            note = self._busy_note()
+            prefix = f"{why}。" if why else ""
+            print(
+                f"Warning: {prefix}{error}" + (f"（{note}）" if note else ""),
+                file=sys.stderr,
+            )
+            return True
+        return False
+
+    def _rebuild(self, *, holds_lease: bool, verify_hashes: bool = False) -> bool:
+        """Replace the runtime; on refusal or failure say why and keep the old one.
+
+        Every failure the install can end in -- another run holding the runtime,
+        a tree that still fails its check, uv exiting non-zero, a full disk --
+        leaves the previous runtime in place, so it is reported, not raised: a
+        run the old runtime can still serve should not die of a traceback.
+        """
+
+        try:
+            self.runtime.install(
+                stage=_print_stage,
+                log=_print_log,
+                force=True,
+                verify_hashes=verify_hashes,
+                holds_lease=holds_lease,
+            )
+        except RuntimeInUse as error:
+            note = self._busy_note()
+            print(f"Warning: {error}" + (f"（{note}）" if note else ""), file=sys.stderr)
+            return False
+        except FileNotFoundError as error:
+            # `install()` raises this up front for a missing uv: FineSub's own
+            # install is incomplete, and trying again later will not help.
+            print(
+                f"Warning: 重建运行环境需要的文件不在（{error}），原来的运行环境保持不变。"
+                "FineSub 自身的安装可能不完整，请重新安装 finesub。",
+                file=sys.stderr,
+            )
+            return False
+        except (RuntimeError, subprocess.CalledProcessError, OSError) as error:
+            print(
+                f"Warning: 重建运行环境没有成功，原来的运行环境保持不变：{error}\n"
+                f"稍后可以再试：{runtime_health.repair_command()}",
+                file=sys.stderr,
+            )
+            return False
+        return True
+
+    def _loss_lines(
+        self, report: runtime_health.RuntimeReport | None, *, include_versions: bool
+    ) -> list[str]:
+        if report is None:
+            return []
+        lines: list[str] = []
+        losses = report.losses(include_versions=include_versions)
+        if losses:
+            lines.append(
+                "重建会去掉直接装进运行环境的改动：" + "、".join(losses)
+                + "。需要额外的包请放在运行环境之外，用 FINESUB_EXTRA_PYTHONPATH 指过去。"
+            )
+        if report.missing_files:
+            lines.append(
+                "文件缺失多半是杀毒软件隔离了它们：请把 "
+                f"{self.paths.runtime} 与 {self.paths.cache} 加进白名单，否则重建时还会再被隔离。"
+            )
+        return lines
 
     def _ensure_resource(self, resource_id: str, reason: str) -> None:
         if self._system_tool(resource_id) is not None:

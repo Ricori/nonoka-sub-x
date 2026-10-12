@@ -66,24 +66,16 @@ SETTING_NAMES = KEY_NAMES | BASE_URL_NAMES
 #
 # `note` is prose the settings page shows under the detection line, for a
 # provider whose behaviour a person has to know *before* selecting it. Only
-# WorkBuddy carries one today, and what it says costs money.
+# CodeBuddy carries one today, and what it says costs money.
 LOCAL_AGENT_PROVIDERS: Mapping[str, dict[str, Any]] = {
     "local-codex": {
         "tier": "LOCAL_CODEX",
         "label": "本地 Codex",
         "command": "codex",
         # Which of the tier's packaged models the desktop offers, in display
-        # order — the first is what selecting the provider fills in. Saved
-        # routes keep their model when the default advances to the latest Sol.
-        "models": (
-            "gpt-6.1-sol",
-            "gpt-6-sol",
-            "gpt-6-astra",
-            "gpt-6-luna",
-            "gpt-5.6-sol",
-            "gpt-5.6-terra",
-            "gpt-5.6-luna",
-        ),
+        # order — the first is what selecting the provider fills in. The same
+        # two the engine packages (FineSub 0.6.0; Codex CLI 0.160.0 or newer).
+        "models": ("gpt-6.1-sol", "gpt-6-luna"),
         # The Codex app keeps its CLI in a content-hashed directory under
         # %LOCALAPPDATA% and never puts it on PATH, so `codex` is a name
         # nothing can resolve on a machine that has it installed. Windows only
@@ -95,8 +87,15 @@ LOCAL_AGENT_PROVIDERS: Mapping[str, dict[str, Any]] = {
         "label": "本地 Antigravity",
         "command": "agy",
         # Gemini 3.7 Flash remains the default used by the packaged agy groups.
-        # Both Flash versions can take media; 3.8 is also available explicitly.
-        "models": ("gemini-3.7-flash", "gemini-3.8-flash", "claude-opus-4-6-thinking"),
+        # The Flash rows can take media; the two Claude rows are text only and
+        # share agy's Claude allowance (agy 1.2.16 or newer).
+        "models": (
+            "gemini-3.7-flash",
+            "gemini-3.8-flash",
+            "gemini-3.6-flash",
+            "claude-sonnet-5-5",
+            "claude-opus-5-5",
+        ),
         # `agy` is a native Go binary installed by its own script
         # (`irm https://antigravity.google/cli/install.ps1 | iex`), *not* by
         # the Antigravity IDE — that Electron install carries no CLI at all.
@@ -105,45 +104,54 @@ LOCAL_AGENT_PROVIDERS: Mapping[str, dict[str, Any]] = {
         # vendor has shipped it under.
         "windows_app_globs": ("agy/bin/agy.exe", "Antigravity/agy.exe"),
     },
-    "local-workbuddy": {
-        "tier": "LOCAL_WORKBUDDY",
-        "label": "本地 WorkBuddy",
+    "local-codebuddy": {
+        "tier": "LOCAL_CODEBUDDY",
+        "label": "本地 CodeBuddy",
+        # The standalone CodeBuddy Code CLI (FineSub 0.6.0 stopped using the
+        # copy inside the WorkBuddy desktop app). It installs through npm, so
+        # its shim lands on PATH and the engine finds it by name.
         "command": "codebuddy",
-        # GLM-5.3 Flash leads on the engine's own recommendation: it is the
-        # row whose thinking tier was lowered so it stops looping on a
-        # correction window, and the cheapest of the five in credits. Its
-        # 32000-token output ceiling is the trade -- fewer subtitles fit in a
-        # window than on the other four.
+        # GLM-5.3 Flash leads on the engine's own recommendation (it heads
+        # the packaged `codebuddy-capable` group): the row whose thinking tier
+        # was lowered so it stops looping on a correction window, and the
+        # cheapest in credits. Its 32000-token output ceiling is the trade.
         #
         # ⚠ Which of these an account can actually reach is the account's
         # business, not the CLI version's: the vendor answers a wrong `--model`
-        # with the list that login is entitled to. These five are the rows the
+        # with the list that login is entitled to. These four are the rows the
         # engine packages; a plan carrying others needs a catalog row.
         "models": (
             "glm-5.3-flash",
             "hy3",
-            "hy4-preview",
-            "deepseek-v4-flash",
+            "deepseek-v4.1-flash",
             "deepseek-v4-pro",
         ),
-        # WorkBuddy ships the CLI inside its desktop app rather than as an npm
-        # package, so this is the same file the engine's own resolver falls
-        # back to when the PATH shim is absent. Detecting it anywhere else
-        # would answer a different question than the one the engine asks.
-        "windows_app_globs": (
-            "Programs/WorkBuddy/resources/app.asar.unpacked/cli/bin/codebuddy",
-        ),
-        # ...but do not put that directory on PATH: the file is a Node entry
-        # script, not something Windows can execute, and the engine reaches it
-        # through `%LOCALAPPDATA%` on its own. Pushing it would advertise a
-        # `codebuddy` that nothing can launch.
-        "path_entry": False,
         "note": (
-            "Hunyuan 3 与 Hunyuan 4 Preview 每天有免费额度；用光之后会自动切到"
-            "同一条线的付费额度把当次任务跑完（分别按 x0.05 与 x0.29 计费），"
-            "并在结束时提示切过。不想自动扣费就选 GLM-5.3 Flash 或 DeepSeek 两行，"
-            "它们本来就按积分计费，没有免费孪生可切。"
+            "Hunyuan 3 每天有免费额度；用光之后会自动切到同一条线的付费额度"
+            "（hy3-x）把当次任务跑完，并在结束时提示切过。不想自动扣费就选 "
+            "GLM-5.3 Flash 或 DeepSeek 两行，它们本来就按积分计费。需要独立安装并"
+            "登录 CodeBuddy Code CLI（2.164.0 或更新），不再使用 WorkBuddy 桌面端。"
         ),
+    },
+}
+
+#: Provider ids a saved route may still carry from before a rename.
+LEGACY_PROVIDER_IDS: Mapping[str, str] = {"local-workbuddy": "local-codebuddy"}
+
+#: Packaged models a sync removed, and the one a saved route moves to. A model
+#: that is gone with no entry here falls back to the provider's default.
+LEGACY_LOCAL_MODELS: Mapping[str, Mapping[str, str]] = {
+    "local-codex": {
+        "gpt-5.6-luna": "gpt-6-luna",
+        "gpt-5.6-terra": "gpt-6-luna",
+        "gpt-5.6-sol": "gpt-6.1-sol",
+        "gpt-6-sol": "gpt-6.1-sol",
+        "gpt-6-astra": "gpt-6.1-sol",
+    },
+    "local-agy": {"claude-opus-4-6-thinking": "claude-sonnet-5-5"},
+    "local-codebuddy": {
+        "hy4-preview": "hy3",
+        "deepseek-v4-flash": "deepseek-v4.1-flash",
     },
 }
 
@@ -195,24 +203,32 @@ _HTTP_TRANSPORTS: Mapping[str, tuple[str, str]] = {
 MODEL_PROVIDERS = frozenset(set(API_PROVIDER_BY_ID) | set(LOCAL_AGENT_PROVIDERS))
 MODEL_ROUTE_SPECS: tuple[dict[str, str], ...] = (
     {"id": "correction", "label": "纠错与翻译"},
-    {"id": "planning", "label": "窗口规划"},
-    {"id": "research", "label": "资料研究"},
-    {"id": "search_judge", "label": "检索判断"},
+    {"id": "research", "label": "背景准备与资料研究"},
     {"id": "knowledge", "label": "知识处理"},
 )
-#: One desktop row can own more than one engine task group. `correction` and
-#: `planning` each split into a `-mm` and a `-text` cell upstream, and a pin
-#: binds *both*: upstream 0.5.0's `[llm.preferred_targets]` replaces the bound
-#: chain outright (`_preferred_bindings`, owner decision 2026-08-28), so
-#: leaving the `-mm` half unpinned would quietly serve a multimodal correction
-#: from a provider the user did not choose. The desktop instead refuses the
-#: combination up front -- see `route_media_warnings`.
+#: One desktop row can own more than one engine task group. `correction`
+#: splits into a `-mm` and a `-text` cell upstream, and a pin binds *both*:
+#: `[llm.preferred_targets]` replaces the bound chain outright
+#: (`_preferred_bindings`, owner decision 2026-08-28), so leaving the `-mm`
+#: half unpinned would quietly serve a multimodal correction from a provider
+#: the user did not choose. The desktop instead refuses the combination up
+#: front, in the transcription dialog.
+#:
+#: FineSub 0.6.0 folded the window planning and search-judge rounds into the
+#: preparation task, which routes through `research`; those two groups no
+#: longer exist (see `LEGACY_ROUTES`).
 TASK_GROUPS_BY_ROUTE: dict[str, tuple[str, ...]] = {
     "correction": ("correction-mm", "correction-text"),
-    "planning": ("planning-mm", "planning-text"),
     "research": ("research",),
-    "search_judge": ("search_judge",),
     "knowledge": ("knowledge",),
+}
+#: Routes an older build saved, with the engine task groups it pinned. Their
+#: keys are cleared from the config so no stale pin names a group the engine
+#: no longer knows; a saved `planning` choice moves to `research`, which now
+#: does that work, when `research` has none of its own.
+LEGACY_ROUTES: Mapping[str, tuple[str, ...]] = {
+    "planning": ("planning-mm", "planning-text"),
+    "search_judge": ("search_judge",),
 }
 
 MODEL_SETTING_NAMES = frozenset(
@@ -382,9 +398,8 @@ def local_agent_path_entries() -> list[str]:
     entries: list[str] = []
     for provider, spec in LOCAL_AGENT_PROVIDERS.items():
         # `path_entry: False` is for a CLI whose entry point is not an
-        # executable -- WorkBuddy's is a Node script inside the desktop app.
-        # The engine finds that one through `%LOCALAPPDATA%` itself, so adding
-        # its directory would only advertise a name nothing can launch.
+        # executable the engine could launch from PATH; adding its directory
+        # would only advertise a name nothing can run.
         if not spec.get("path_entry", True):
             continue
         if shutil.which(spec["command"]):
@@ -442,6 +457,56 @@ def _route_from_config(config: Mapping[str, Any], prefix: str) -> dict[str, str]
     provider = str(config.get(f"{prefix}_provider") or "").strip()
     model = str(config.get(f"{prefix}_model") or "").strip()
     return {"provider": provider, "model": model}
+
+
+def migrate_model_config(config: Mapping[str, Any]) -> dict[str, str | None]:
+    """The `[nonoka_models]` writes that bring a saved config up to date.
+
+    Pure: the caller decides whether to persist them. Empty when nothing is
+    stale, so applying it again is a no-op. Three kinds of staleness, all left
+    by an engine sync rather than by the user:
+
+    * a route that no longer exists (`LEGACY_ROUTES`) -- cleared, its
+      `planning` choice moved to `research` when that has none;
+    * a renamed provider (`LEGACY_PROVIDER_IDS`);
+    * a local-agent model the engine stopped packaging -- moved to its named
+      successor (`LEGACY_LOCAL_MODELS`), else to the provider's default, so a
+      saved route never names a target the routing table cannot build.
+    """
+
+    current = {key: value for key, value in config.items() if value not in (None, "")}
+    updates: dict[str, str | None] = {}
+    research = _route_from_config(current, "research")
+    planning = _route_from_config(current, "planning")
+    if not research["provider"] and planning["provider"] and planning["model"]:
+        updates["research_provider"] = planning["provider"]
+        updates["research_model"] = planning["model"]
+    for route in LEGACY_ROUTES:
+        for field in ("provider", "model"):
+            if f"{route}_{field}" in current:
+                updates[f"{route}_{field}"] = None
+    current.update(updates)
+    for prefix in ("default", *(spec["id"] for spec in MODEL_ROUTE_SPECS)):
+        route = _route_from_config(current, prefix)
+        provider = LEGACY_PROVIDER_IDS.get(route["provider"], route["provider"])
+        if provider != route["provider"]:
+            updates[f"{prefix}_provider"] = provider
+        spec = LOCAL_AGENT_PROVIDERS.get(provider)
+        if spec is None or not route["model"]:
+            continue
+        model = LEGACY_LOCAL_MODELS.get(provider, {}).get(route["model"], route["model"])
+        if model not in spec["models"]:
+            model = spec["models"][0]
+        if model != route["model"]:
+            updates[f"{prefix}_model"] = model
+    return updates
+
+
+def _migrated(config: Mapping[str, Any]) -> dict[str, Any]:
+    """`config` with `migrate_model_config` applied, cleared keys removed."""
+
+    merged = {**config, **migrate_model_config(config)}
+    return {key: value for key, value in merged.items() if value is not None}
 
 
 def _provider_usable(provider: Mapping[str, Any], base_urls: Mapping[str, str]) -> bool:
@@ -507,7 +572,7 @@ class FineSubSettings:
         from .telemetry import model_snapshot
 
         config = _read_toml(self.config_file).get("nonoka_models", {})
-        return model_snapshot(config if isinstance(config, dict) else {}, request)
+        return model_snapshot(_migrated(config) if isinstance(config, dict) else {}, request)
 
     def snapshot(self) -> dict[str, Any]:
         secrets = _secrets_module()
@@ -517,6 +582,9 @@ class FineSubSettings:
         model_config = config.get("nonoka_models", {})
         if not isinstance(model_config, Mapping):
             model_config = {}
+        # What the routes mean after an engine sync, even before startup has
+        # written the migration back (`refresh_model_catalog`).
+        model_config = _migrated(model_config)
         model_options = _builtin_model_options()
         keys: list[dict[str, Any]] = []
         for spec in KEY_SPECS:
@@ -688,6 +756,9 @@ class FineSubSettings:
         current = _read_toml(self.config_file).get("nonoka_models", {})
         if not isinstance(current, Mapping):
             current = {}
+        # The user's edits land on the migrated config, and the migration is
+        # written with them so a stale key cannot outlive this save.
+        updates = {**migrate_model_config(current), **updates}
         candidate = {**current, **updates}
         options = _builtin_model_options()
         # Every provider whose models come from a closed packaged list: a typo
@@ -733,6 +804,10 @@ class FineSubSettings:
         model_config = data.get("nonoka_models", {})
         if not isinstance(model_config, Mapping):
             model_config = {}
+        migration = migrate_model_config(model_config)
+        if migration:
+            update_config_file(self.config_file, {"nonoka_models": migration})
+            model_config = _migrated(model_config)
         options = _builtin_model_options()
         gemini_targets = {
             "gemini-free": {item["id"]: f"gemini-free-{item['id'].split('/')[-1].replace('.', '_')}" for item in options["gemini-free"]},
@@ -834,6 +909,11 @@ class FineSubSettings:
             target = target_for(routes[spec["id"]])
             for group in TASK_GROUPS_BY_ROUTE[spec["id"]]:
                 preferred[group] = target
+        # Task groups an older engine had: a pin left on one would name a
+        # group the routing table refuses to load.
+        for groups in LEGACY_ROUTES.values():
+            for group in groups:
+                preferred[group] = None
         update_config_file(
             self.config_file,
             {
@@ -841,8 +921,8 @@ class FineSubSettings:
                 "llm": {
                     "default_target": None,
                     **{
-                        f"task_route_{spec['id']}": None
-                        for spec in MODEL_ROUTE_SPECS
+                        f"task_route_{route}": None
+                        for route in (*TASK_GROUPS_BY_ROUTE, *LEGACY_ROUTES)
                     },
                 },
             },

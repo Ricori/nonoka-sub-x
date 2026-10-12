@@ -10,18 +10,23 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Iterable, Mapping, Sequence
+from typing import TYPE_CHECKING, Any, Iterable, Mapping, Sequence
 
 from .model import (
-    MATCHABLE_CATEGORIES,
     METADATA_SECTION,
+    RECATEGORIZED_LABEL,
+    RECATEGORIZED_REASON_FIELD,
     ItemVersion,
     MembershipVersion,
     NodeVersion,
     UPDATED_DATE_LABEL,
 )
-from .presets import preset_for_category
+from ..base import join_names
+from .presets import MATCHABLE_CATEGORIES, preset_for_category
 from .store import KnowledgeStore
+
+if TYPE_CHECKING:
+    from .human_marks import LineMarks
 
 MODES = ("legacy", "human", "prompt")
 
@@ -47,6 +52,10 @@ class HandleMap:
     nodes: dict[str, tuple[str, int]] = field(default_factory=dict)
     items: dict[str, tuple[str, int]] = field(default_factory=dict)
     memberships: dict[str, tuple[str, int]] = field(default_factory=dict)
+    #: `@a` -> the subject whose `[别名]` row it marks. The row has no node of
+    #: its own (it renders from the subject's alias items), so it gets its own
+    #: prefix: sharing `@k` numbering would shift every later line's handle.
+    aliases: dict[str, tuple[str, int]] = field(default_factory=dict)
     _reverse: dict[str, str] = field(default_factory=dict)
 
     def node_handle(self, node: NodeVersion) -> str:
@@ -57,6 +66,9 @@ class HandleMap:
 
     def membership_handle(self, membership: MembershipVersion) -> str:
         return self._assign("m", membership.membership_id, membership.valid_from_rev, self.memberships)
+
+    def alias_row_handle(self, subject: NodeVersion) -> str:
+        return self._assign("a", subject.local_id, subject.valid_from_rev, self.aliases)
 
     def _assign(self, prefix: str, ident: str, from_rev: int, table: dict[str, tuple[str, int]]) -> str:
         key = f"{prefix}:{ident}"
@@ -79,11 +91,16 @@ class HandleMap:
         manifest, so the session's own reads continue numbering past them and
         ``kb_validate`` resolves both spaces (plan §6.5, 4c)."""
 
-        tables = {"node": (self.nodes, "k"), "item": (self.items, "i"), "membership": (self.memberships, "m")}
+        tables = {
+            "node": (self.nodes, "k"), "item": (self.items, "i"),
+            "membership": (self.memberships, "m"), "aliases": (self.aliases, "a"),
+        }
         for binding in bindings:
             table_prefix = tables.get(str(binding.get("kind")))
             if table_prefix is None:
-                continue
+                # A kind added to `bindings()` but not here would drop its
+                # handles from every agent session without a sound.
+                raise ValueError(f"unknown handle binding kind {binding.get('kind')!r}")
             table, prefix = table_prefix
             handle = str(binding.get("handle") or "")
             ident = str(binding.get("id") or "")
@@ -94,7 +111,10 @@ class HandleMap:
 
     def bindings(self) -> list[dict[str, Any]]:
         out: list[dict[str, Any]] = []
-        for table, kind in ((self.nodes, "node"), (self.items, "item"), (self.memberships, "membership")):
+        for table, kind in (
+            (self.nodes, "node"), (self.items, "item"), (self.memberships, "membership"),
+            (self.aliases, "aliases"),
+        ):
             for handle, (ident, from_rev) in table.items():
                 out.append({"handle": handle, "kind": kind, "id": ident, "expected_valid_from_rev": from_rev})
         return out
@@ -147,7 +167,7 @@ def format_body(node: NodeVersion, aliases: Iterable[str] | None = None) -> str:
         # `update` naturally copies it; desc is LAST so it may contain pipes.
         # Payload alias_text/reading are unrendered archive residue; misheard
         # items are matcher-only and never rendered.
-        alias_column = "、".join(dict.fromkeys(aliases or ()))
+        alias_column = join_names(dict.fromkeys(aliases or ()))
         return "|".join(
             (payload.get("surface", ""), payload.get("zh", ""), alias_column, payload.get("desc", ""))
         )
@@ -212,17 +232,6 @@ def line_shape_hint(spec) -> str:  # type: ignore[no-untyped-def]
     return f"行式：可选 [标记] + {body}。标记不是必须的，无标记行同样合法。"
 
 
-#: What each category is, for the generated structure table. A category with
-#: no blurb falls back to its preset name — a missing line is cosmetic, while a
-#: hardcoded pair of categories was a table that silently stopped covering the
-#: store (2026-09-02).
-_CATEGORY_BLURBS = {
-    "streamer": "主播",
-    "common": "主播之外的一切",
-    "style": "一套翻译口味，按 --style 点名注入",
-}
-
-
 def entry_prompt_tokens(store: KnowledgeStore, subject_id: str, rev: int | None = None) -> int:
     """What this entry costs a prompt, by the dependency-free upper bound.
 
@@ -239,27 +248,30 @@ def entry_prompt_tokens(store: KnowledgeStore, subject_id: str, rev: int | None 
     )
 
 
-def over_budget_marker(
-    store: KnowledgeStore, subject_id: str, category: str, rev: int | None = None
-) -> str:
-    """The line the model reads when this entry no longer fits its budget.
+def render_category_line(categories: Sequence[str]) -> str:
+    """The one-sentence roster the structure fragment opens with.
 
-    Empty when the category has no budget or the entry is inside it. Attached
-    where the entry is INJECTED rather than inside `render_subject`, because
-    the measure is taken on that rendering — computing it during the rendering
-    would have to render itself.
-    """
+    It read "两个类别：`streamer`（主播）和 `common`（主播之外的一切）" -- a
+    hand-written copy of the category list, in the same prompt as the generated
+    section table right below it. Adding a category left the model told, in
+    consecutive paragraphs, both that it exists and that it does not."""
 
-    budget = preset_for_category(category or "common").max_entry_tokens
-    if budget is None:
-        return ""
-    used = entry_prompt_tokens(store, subject_id, rev)
-    if used <= budget:
-        return ""
-    return (
-        f"（\u26a0 本条目已超注入预算：约 {used} / {budget} token。"
-        "本次**只能压缩**——把行改短、把两条并成一条、或删掉最弱的几条；新增会被整批拒绝）"
+    named = "、".join(
+        f"`{category}`（{preset_for_category(category).blurb or category}）"
+        for category in categories
     )
+    return f"本库有 {len(tuple(categories))} 个类别：{named}。"
+
+
+def render_writable_categories(categories: Sequence[str]) -> str:
+    """The `category` enum of the ops contract, from the caller's own grant.
+
+    Which categories a session may WRITE is narrower than which ones exist --
+    the knowledge-update round gets the matchable ones, the repair sessions get
+    all of them -- so this takes the same tuple that is handed to
+    `translate_model_proposals`, and the prompt cannot drift from the gate."""
+
+    return "|".join(categories)
 
 
 def render_structure_spec(categories: Sequence[str] | None = None) -> str:
@@ -273,7 +285,7 @@ def render_structure_spec(categories: Sequence[str] | None = None) -> str:
     out: list[str] = []
     for category in categories or MATCHABLE_CATEGORIES:
         preset = preset_for_category(category)
-        title = f"{category}（{_CATEGORY_BLURBS.get(category, preset.name)}）"
+        title = f"{category}（{preset.blurb or preset.name}）"
         rule = "固定小节，不可新建" if preset.strict_sections else "档案固定，其余小节自由命名"
         out.append(f"**{title}**（{rule}）")
         specs = list(preset.sections)
@@ -373,6 +385,8 @@ def render_subject(
     handles: HandleMap | None = None,
     sections: Iterable[str] | None = None,
     preview: str = "partial",
+    marks: "LineMarks | None" = None,
+    alias_row_handle: bool = True,
 ) -> str:
     """Render one subject as markdown in the requested projection.
 
@@ -387,10 +401,24 @@ def render_subject(
     ``sections`` restricts the output to the named sections (used by the
     REST by-hit pruning and the agent ``kb_read(section=…)``); the H1/intro
     and the metadata section are always included.
+
+    ``marks`` (human mode only) prints the latest human-endorsed value under
+    each line the model moved away from it, and a same-shaped comment for a
+    retired one in its old section (``human_marks.py``). Only ``entry_text``
+    passes it: the edit round-trip diffs against the unmarked rendering, and
+    no prompt projection may ever carry a human version.
+
+    ``alias_row_handle`` -- with ``handles``, the `[别名]` slot carries an
+    `@a` handle the model may `update` / `remove` (cold read Q5). The share
+    conflict repair turns it off: its gate refuses entry aliases.
     """
 
     if mode not in MODES:
         raise ValueError(mode)
+    if marks is not None and mode != "human":
+        raise ValueError("human-version marks belong to the human projection only")
+    if marks is not None:
+        from .human_marks import marker_comment  # human_marks renders lines with this module
     if preview not in PREVIEWS:
         raise ValueError(preview)
     full = preview == "full" and mode != "legacy"
@@ -410,6 +438,17 @@ def render_subject(
         out[-1] += f"  <!-- {handles.node_handle(subject)} -->"
     if payload.get("intro") and not (mode == "legacy" and layout.get("intro_from_index")):
         out.append(str(payload["intro"]))
+    if marks is not None and marks.head is not None:
+        # under the intro (H1 when there is none): still before the first
+        # section, where the parser only keeps the one intro line
+        out.append(marker_comment(marks.head))
+    relation = _relation_lines(store, subject.local_id, tree.rev) if mode != "legacy" else []
+    for line in relation:
+        # Prompt: a plain line. Human: a whole-line comment -- the harvest
+        # drops those, and a second plain line between the H1 and the first
+        # section is a format error that would fail every edit of the file.
+        out.append(f"<!-- {line} -->" if mode == "human" else line)
+    is_subentry = any(line.startswith(SUBENTRY_OF) for line in relation)
 
     ordered = _ordered_sections(tree, preset)
     # One block for every free section, instead of the same paragraph repeated
@@ -427,17 +466,14 @@ def render_subject(
     ):
         out.append("")
         out.extend(default_section_comment(free_spec))
+    rendered_gone: set[str] = set()
     for view in ordered:
         if wanted is not None and view.name not in wanted:
             continue
         spec = preset.section(view.name)
-        used_labels = {
-            # during the Phase A→B window a legacy fact's field IS its label
-            str(child.payload.get("label") or child.payload.get("field") or "")
-            for _, child in view.entries
-        }
+        used_labels = {line_label(child.payload) for _, child in view.entries}
         slots = (
-            [label for label in spec.core_labels() if label.name not in used_labels]
+            missing_core_slots(spec, used_labels, identity_only=is_subentry)
             if (full and spec is not None)
             else []
         )
@@ -488,15 +524,22 @@ def render_subject(
                 # (plan §2.3). HandleMap still hands them out for edit/apply.
                 line += f"  <!-- {handles.node_handle(child)} -->"
             out.append(line)
+            if marks is not None and child.local_id in marks.live:
+                out.append(marker_comment(marks.live[child.local_id]))
+        if marks is not None:
+            out.extend(marker_comment(mark) for mark in marks.gone.get(view.name, ()))
+            rendered_gone.add(view.name)
         for label in slots:
             # The alias label has no node of its own: it IS the subject's alias
             # column, rendered from items and diffed back into them (plan §4).
             body = ""
             if label.role == "aliases":
-                body = "、".join(subject_aliases(store, subject.local_id, tree.rev))
+                body = join_names(subject_aliases(store, subject.local_id, tree.rev))
             # Otherwise an empty slot is the whole reminder — no signal, no
             # ledger, nothing stored (owner decision, plan §0.1 item 17).
             line = f"[{label.name}] {body}".rstrip()
+            if label.role == "aliases" and mode == "prompt" and handles is not None and alias_row_handle:
+                line += f"  <!-- {handles.alias_row_handle(subject)} -->"
             out.append(f"- {line}" if mode == "human" else line)
 
         if mode == "legacy":
@@ -505,6 +548,16 @@ def render_subject(
             for _ in range(max(0, int(trailing_blank.get(view.name, 1)) - 1)):
                 out.append("")
 
+    if marks is not None and wanted is None:
+        # A retired line whose section is no longer rendered at all: its
+        # comment names the section and sits at the end of the body, where
+        # the harvest drops it like any other whole-line comment.
+        leftovers = [
+            mark for name, gone in marks.gone.items() if name not in rendered_gone for mark in gone
+        ]
+        if leftovers:
+            out.append("")
+            out.extend(marker_comment(mark, name_section=True) for mark in leftovers)
     if not (mode == "legacy" and layout.get("has_metadata") is False):
         out.append("")
         out.append(f"## {METADATA_SECTION}")
@@ -514,6 +567,15 @@ def render_subject(
         else:
             out.append("")
         out.append(f"{UPDATED_DATE_LABEL}: {payload.get('updated_date', '')}")
+        # Why this entry sits in the category it does, when it was moved. Full
+        # preview only: the writable faces (a person, and the knowledge-update
+        # session) are the ones that may move an entry again, and the same rule
+        # that keeps evidence out of the injection surface keeps this out of it
+        # -- a correction round has no use for the move's history and would pay
+        # tokens for it (plan §0 requirement 13).
+        reason = str(payload.get(RECATEGORIZED_REASON_FIELD, "")).strip()
+        if full and reason:
+            out.append(f"{RECATEGORIZED_LABEL}: {reason}")
     text = "\n".join(out)
     if mode == "legacy" and not layout.get("trailing_newline", True):
         return text
@@ -524,16 +586,69 @@ def _ordered_sections(tree: SubjectTree, preset) -> list[SectionView]:  # type: 
     """Preset order first (empty slots kept), then any free sections in stored order."""
 
     by_name = {view.name: view for view in tree.sections}
-    explicit = tree.subject.payload.get("section_order")
-    if explicit:
-        ordered = [by_name.get(name) or SectionView(name) for name in explicit]
-        seen = set(explicit)
-        ordered.extend(view for view in tree.sections if view.name not in seen)
-        return ordered
-    ordered = [by_name.get(name) or SectionView(name) for name in preset.section_names()]
-    seen = set(preset.section_names())
-    ordered.extend(view for view in tree.sections if view.name not in seen)
-    return ordered
+    return [
+        by_name.get(name) or SectionView(name)
+        for name in ordered_section_names(
+            tree.subject.payload, preset, [view.name for view in tree.sections]
+        )
+    ]
+
+
+def ordered_section_names(
+    payload: Mapping[str, Any], preset, live_section_names: Iterable[str]  # type: ignore[no-untyped-def]
+) -> list[str]:
+    """Which sections a subject renders, in order: its explicit
+    ``section_order`` (else the preset's), then any other section a rendered
+    line lives in. One rule for the renderer and for the human-version
+    marks, which answer "is the alias slot shown" without rendering."""
+
+    head = list(payload.get("section_order") or preset.section_names())
+    seen = set(head)
+    return head + [name for name in dict.fromkeys(live_section_names) if name not in seen]
+
+
+def line_label(payload: Mapping[str, Any]) -> str:
+    """The label a line occupies in its section. During the Phase A→B window
+    a legacy fact's field IS its label."""
+
+    return str(payload.get("label") or payload.get("field") or "")
+
+
+def missing_core_slots(spec, used_labels: Iterable[str], *, identity_only: bool = False) -> list:  # type: ignore[no-untyped-def]
+    """The core labels of a section no line carries yet: the full preview
+    renders an empty slot for each (the alias one shows the entry aliases).
+
+    ``identity_only`` -- a sub-entry (`subentries.py`): only its identity slot
+    counts. Its scope is "that section of its parent", said by its name and
+    its 属于 line; empty alias / scope slots on every sub-entry would only
+    invite proposals to fill them (plan kb-entry-size)."""
+
+    used = set(used_labels)
+    return [
+        label for label in spec.core_labels()
+        if label.name not in used and (not identity_only or label.role == "identity")
+    ]
+
+
+SUBENTRIES_LINE = "子条目："
+SUBENTRY_OF = "属于："
+
+
+def _relation_lines(store: KnowledgeStore, subject_id: str, rev: int) -> list[str]:
+    """The `part_of` relation, said on both ends (`subentries.py`)."""
+
+    from .subentries import children_of, parent_of
+
+    lines = []
+    parent = parent_of(store, subject_id, rev)
+    if parent is not None:
+        node = store.node(parent, rev)
+        lines.append(SUBENTRY_OF + str(node.payload.get("surface") or "") if node is not None else "")
+    children = [store.node(child, rev) for child in children_of(store, subject_id, rev)]
+    names = [str(child.payload.get("surface") or "") for child in children if child is not None]
+    if names:
+        lines.append(SUBENTRIES_LINE + "、".join(names))
+    return [line for line in lines if line]
 
 
 # ---- index rendering ----------------------------------------------------------------
@@ -558,16 +673,27 @@ def render_index_line(subject: NodeVersion, aliases: Iterable[str]) -> str:
     key = payload.get("surface", "")
     entry_type = payload.get("entry_type", "")
     head = f"{key} [{entry_type}]" if entry_type else key
-    native = "、".join(payload.get("native_names", []))
-    return f"- {head} | {native} | {'、'.join(aliases)} | {payload.get('intro', '')}"
+    native = join_names(payload.get("native_names", []))
+    return f"- {head} | {native} | {join_names(aliases)} | {payload.get('intro', '')}"
 
 
 def render_index(store: KnowledgeStore, category: str, *, rev: int | None = None, header: str = "") -> str:
+    from .subentries import children_of, parent_of
+
     lines = [header.rstrip("\n")] if header else []
-    for subject in store.subjects(rev):
-        if subject.payload.get("category") != category:
-            continue
-        if subject.maturity == "tentative":
-            continue  # shadow-only (plan §11.5): not in the model-facing index
+    listed = [
+        subject for subject in store.subjects(rev)
+        if subject.payload.get("category") == category
+        # tentative: shadow-only (plan §11.5), not in the model-facing index
+        and subject.maturity != "tentative"
+    ]
+    by_id = {subject.local_id: subject for subject in listed}
+    for subject in listed:
+        if parent_of(store, subject.local_id, rev) in by_id:
+            continue  # listed right after its parent
         lines.append(render_index_line(subject, subject_aliases(store, subject.local_id, rev)))
+        for child_id in children_of(store, subject.local_id, rev):
+            child = by_id.get(child_id)
+            if child is not None:
+                lines.append(render_index_line(child, subject_aliases(store, child_id, rev)))
     return "\n".join(lines) + "\n"

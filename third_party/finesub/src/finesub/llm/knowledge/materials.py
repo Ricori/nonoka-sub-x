@@ -34,7 +34,7 @@ from ..output_protocol import (
     _decode_text_cell,
     _encode_text_cell,
     _parse_conf,
-    _split_row_fields,
+    split_annotated_row,
 )
 from .feedback import (
     FeedbackAggregate,
@@ -106,7 +106,7 @@ def _parse_annotated_rows(text: str) -> list[dict[str, Any]]:
         line = raw_line.strip()
         if not line or line.startswith("#"):
             continue
-        fields = _split_row_fields(line)
+        fields = split_annotated_row(line)
         if fields is None:
             raise ValueError(f"annotated.csv line {line_no} has too few fields: {line!r}")
         try:

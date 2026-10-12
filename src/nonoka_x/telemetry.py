@@ -10,7 +10,9 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-ROUTES = ("correction", "planning", "research", "search_judge", "knowledge")
+# The desktop routes (`settings.MODEL_ROUTE_SPECS`); FineSub 0.6.0 folded planning
+# and the search judge into the preparation task, which routes through research.
+ROUTES = ("correction", "research", "knowledge")
 CODES = {
     "quota_exceeded", "auth_failed", "missing_llm_key", "missing_gpu", "missing_model",
     "insufficient_disk", "missing_dependency", "agent_failed", "engine_failed",
@@ -18,7 +20,8 @@ CODES = {
     "rate_limited", "timeout", "network_error", "out_of_memory", "unknown",
 }
 STAGES = {"unknown", "media", "separate", "separation", "vocal", "vad", "asr", "align", "aligned",
-          "stable", "raw-srt", "final-srt", "correction", "planning", "research", "knowledge", "translation"}
+          "stable", "diarize", "raw-srt", "final-srt", "correction", "planning", "research", "knowledge",
+          "translation"}
 
 
 def timestamp() -> str:

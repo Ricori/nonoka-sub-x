@@ -16,12 +16,12 @@ invisible there, so there is nothing to reuse and it is always managed.
 from __future__ import annotations
 
 from dataclasses import dataclass
-import os
 from pathlib import Path
 import shutil
 import subprocess
 
 from finesub_bootstrap import token_counter
+from finesub_bootstrap.processes import no_window
 
 
 @dataclass(frozen=True, slots=True)
@@ -50,16 +50,6 @@ def _version_token(banner: str, prefix: str) -> str:
     if len(words) >= 3 and words[0] == prefix and words[1] == "version":
         return words[2]
     return first
-
-
-def no_window() -> int:
-    """Creation flags that keep a subprocess from flashing a console window.
-
-    Load-bearing for both front ends: they are packaged --windowed and own no
-    console, so anything they spawn without this pops one up on screen.
-    """
-
-    return getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0
 
 
 def probe(command: list[str], timeout: float = 10.0) -> str | None:

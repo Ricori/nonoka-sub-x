@@ -187,6 +187,47 @@ def fold_proxied_retrieval(
     return clone
 
 
+def fold_kb_reads(runtime: Any, result: Any, *, assignment_id: str, task_id: str) -> Any:
+    """Carry the ``kb_read`` rows one task's last judged submit saw out on
+    its execution attempt (`AgentTaskRuntime.kb_read_events`: a snapshot of
+    the answering context's ledger, not whatever that context holds now).
+
+    The `--style auto` read-check (auto-style-gaps plan A1 step 3) runs twice
+    on the same ledger: in the runtime's submit (the MCP server) and again in
+    the harness's own window validation. The harness side reads it here,
+    after the session is gone, the way `fold_proxied_retrieval` carries the
+    proxied searches -- the driver's events keep the tool name and drop the
+    arguments, so they cannot say which entry was read or whether in full.
+    ``execution_attempt["kb_reads"]`` is always set on a tool-session result
+    (empty when nothing was read), so "no ledger" and "read nothing" look the
+    same: either way nothing was read through the harness.
+    """
+
+    try:
+        reads = runtime.kb_read_events(assignment_id=assignment_id, task_id=task_id)
+    except (AgentTaskRuntimeError, OSError, ValueError) as exc:
+        current_reporter().warning(
+            "agent-kb-read-ledger",
+            f"could not read the kb_read ledger of {assignment_id}/{task_id}: {exc}",
+        )
+        reads = []
+    attempt = getattr(result, "execution_attempt", None)
+    if isinstance(attempt, dict):
+        attempt["kb_reads"] = list(reads)
+    return result
+
+
+def fold_task_ledgers(runtime: Any, result: Any, *, assignment_id: str, task_id: str) -> Any:
+    """Every runtime ledger a tool-session result carries out: the proxied
+    retrieval (provenance) and the ``kb_read`` rows (the style read-check).
+    One helper for the three session forms, so none of them can forget one."""
+
+    result = fold_proxied_retrieval(
+        runtime, result, assignment_id=assignment_id, task_id=task_id
+    )
+    return fold_kb_reads(runtime, result, assignment_id=assignment_id, task_id=task_id)
+
+
 def write_audit_bundle(
     runtime: Any,
     *,
@@ -310,6 +351,40 @@ def capsule_retained(result: Any) -> bool:
 
     locator = dict(getattr(result, "execution_attempt", {}) or {}).get("evidence_locator")
     return isinstance(locator, Mapping)
+
+
+#: How much of a no-submit session's own final text to keep on the attempt.
+#: Four thousand characters is the tail, not the whole answer: enough to see
+#: whether one was composed at all and how it ends, small enough that a task
+#: with several of these does not turn its artifact log into a transcript.
+NO_SUBMIT_TEXT_TAIL_CHARS = 4000
+
+
+def no_submit_attempt(attempt: Mapping[str, Any], text: str) -> dict[str, Any]:
+    """One execution attempt of a session that ended without an accepted submit.
+
+    Two things the artifact could not say before, and both are needed to tell
+    the two failures apart -- an agent that never composed an answer, and one
+    that composed it and never called `submit`. The remedies are opposite
+    (change the model or the prompt / fix the delivery path), so a record that
+    cannot separate them cannot be acted on.
+
+    * `premature_stop` on **every** such attempt. It used to be set only where
+      a retry followed, which left the last attempt -- the one that decided the
+      failure -- as the single one the record did not name.
+    * a bounded tail of the CLI's own final text. For a tool session that text
+      is not the artifact (only `submit` delivers that), so nothing downstream
+      reads it and the capsule that staged it is pruned on clean exit -- and a
+      no-submit run *is* a clean exit. Held here, it survives the pruning.
+    """
+
+    record = dict(attempt)
+    record["premature_stop"] = True
+    tail = str(text or "")
+    if tail:
+        record["final_text_chars"] = len(tail)
+        record["final_text_tail"] = tail[-NO_SUBMIT_TEXT_TAIL_CHARS:]
+    return record
 
 
 def _remove_tree(path: Path) -> None:
@@ -787,7 +862,7 @@ class AgentSessionHost:
             conversation_handle="",
             turn_identity="",
         )
-        return fold_proxied_retrieval(
+        return fold_task_ledgers(
             self.runtime,
             result,
             assignment_id=self.assignment_id,
@@ -980,11 +1055,24 @@ class AgentSessionHost:
                     continue
                 failure = self._session_error
                 attempt = dict(self._session_attempt)
+                text = ""
                 if failure is not None:
                     attempt = dict(
                         (getattr(failure, "_harness_execution_attempts", None) or [attempt])[-1]
                     )
-                attempt["premature_stop"] = True
+                elif self._session_result is not None:
+                    # A clean exit: the driver's result is here, and the
+                    # attempt above is only the snapshot taken at launch. Take
+                    # the two things about how the session *ended* -- the text
+                    # its CLI left, and whether the driver kept its capsule as
+                    # unaccepted. Not the whole attempt: that carries the
+                    # session's usage, which is booked once on the session and
+                    # would be counted again on every task it stopped on.
+                    ended = getattr(self._session_result, "execution_attempt", None) or {}
+                    if ended.get("retained_unaccepted"):
+                        attempt["retained_unaccepted"] = True
+                    text = str(getattr(self._session_result, "content", "") or "")
+                attempt = no_submit_attempt(attempt, text)
                 attempt["task_id"] = task_id
                 outcome.premature_stops.append(attempt)
                 self.incidents += 1
@@ -1072,7 +1160,8 @@ class AgentSessionHost:
                 "usage": totals,
             },
         )
-        if self._disposable() and not keep_evidence:
+        keep_all = bool(getattr(getattr(self.driver, "config", None), "keep_episodes", False))
+        if self._disposable() and not keep_evidence and not keep_all:
             # Every task was accepted and nothing went wrong: the assignment
             # has no further use, exactly as a single-task tool session's
             # does not (`client._run_agent_tool_call`). The evidence a
@@ -1268,7 +1357,7 @@ class ConversationalQueue:
             conversation_handle="",
             turn_identity="",
         )
-        return fold_proxied_retrieval(
+        return fold_task_ledgers(
             self.runtime, result, assignment_id=self.assignment_id, task_id=task_id
         )
 

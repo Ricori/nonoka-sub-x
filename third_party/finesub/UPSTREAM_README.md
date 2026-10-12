@@ -56,6 +56,8 @@ winget install astral-sh.uv  # 没有 uv 的话先安装 uv（装完需开新终
 uv tool install finesub
 ```
 
+⚠ 托管 CLI **只支持 Windows x64**；Linux / macOS 请走[源码安装](docs/manual/repo-install.md)。
+
 安装的是一个轻量外壳：首次运行时会自动安装隔离的 Python 运行环境（无需预装 Python）与 FFmpeg，模型按需下载；所有数据存放于 `%LOCALAPPDATA%\FineSub` 下（大文件可通过 `finesub relocate` 迁移到其他磁盘），执行 `finesub uninstall` 即可完整卸载。设置、API Key 和知识库放在 `user-data` 下，一处配置、处处生效。子命令与细节见 [cli/README.md](cli/README.md)，数据位置见 [docs/manual/resources.md](docs/manual/resources.md)。
 
 ### 源码安装
@@ -79,9 +81,9 @@ finesub "https://www.bilibili.com/video/BVxxxx" --stage final-srt --name "四月
 - 不传 `--stage` 则默认停在 raw SRT（ASR 结果，不调 API）；加 `--stage final-srt` 跑 LLM 纠错翻译。这一步需要配置 API 或 agent，二选一或组合：
   - API：需要配好 Gemini API key（写进 `.env`）；推荐再配上 Exa API key；都是免费的，见 [环境配置](docs/manual/env.md)。
   - agent：使用 **Antigravity CLI / Codex CLI / Claude Code** 已有的订阅额度运行。其中 Antigravity 提供了现成预设，且是唯一支持音频多模态的后端。配置与细节见 [本机 Agent 后端](docs/manual/agent.md)。
-- 知识库（主播术语、角色名等）**默认读取但不写入**（`--knowledge collect`）：已有内容会自动注入，本次任务不改动它。传 `--knowledge update` 才在纠错后把本次的发现写回；传 `--knowledge none` 则完全不读也不写。
+- 知识库（主播术语、角色名等）**默认读取但不写入**（`--knowledge read`）：已有内容会自动注入，本次任务不改动它。传 `--knowledge update` 才在纠错后把本次的发现写回；传 `--knowledge none` 则完全不读也不写。
 - 传 `--name` 以指定和覆盖输入名。
-- `--style <名字>` 让译文沿用知识库里记好的一套翻译口味（某字幕组的用词与断句习惯）；不传则用库里的 `default_style`（如果有）。怎么建一套、怎么让它边翻边学（`--style-mode`），见 [知识库](docs/manual/knowledge.md)。
+- `--style <名字>` 让译文沿用知识库里记好的一套翻译口味（某字幕组的用词与断句习惯）；不传则由模型按素材从库里挑一套（库里只有 `default_style` 时就用它，一套都没有就不用；`--llm-difficulty efficiency` 下不让模型挑：沿用这个任务已定下的那套，没定过才用 `default_style`，没有它就不用风格）。怎么建一套、怎么让它边翻边学（`--style-mode`），见 [知识库](docs/manual/knowledge.md)。
 
 运行结束后，在 `out/<输入名>/` 目录中查看字幕：`<输入名>.srt`（成品）与 `<输入名>-raw.srt`（未经纠错的原文）。其余文件的含义与可删除范围，见 [运行产物](docs/manual/outputs.md)。
 
@@ -119,31 +121,23 @@ finesub "https://www.bilibili.com/video/BVxxxx" --stage final-srt --name "四月
 
 | 阶段         | 需要                                 |
 | ---------- | ---------------------------------- |
-| 人声分离 + ASR | NVIDIA 显卡（见下）、≥8GB 内存              |
+| 人声分离 + ASR | NVIDIA 或 AMD 显卡（见下；没有也能跑，回退 CPU）、≥8GB 内存 |
 | LLM 纠错翻译   | 无需 GPU；≥4GB 内存；ffmpeg（托管 CLI 自动提供） |
 
-显卡须为 **RTX 20 系或更新**（GTX 1660 / 1650，和部分其他卡亦可）。显存 ≥4GB；≥8GB 更佳。完整型号表、各档位的显存要求与不支持时的处理方式，见 [显卡支持范围与档位](docs/manual/resources.md)。
+N 卡须为 **RTX 20 系或更新**（GTX 1660 / 1650，和部分其他卡亦可）。显存 ≥4GB；≥8GB 更佳。WSL2 + N 卡是官方支持，A 卡、原生 Linux 与 macOS 是实验支持，这几种都只走源码装法，各自支持到什么程度见 [平台与支持等级](docs/manual/resources.md)；完整型号表、各档位的显存要求与不支持时的处理方式也在那份。
 
 URL 输入开箱即用。
 
 ## 相关项目
 
 - [Nonoka Sub X](https://github.com/Ricori/nonoka-sub-x/)——第三方图形工作站，带 UI 界面和更多编辑功能。以 finesub 的算法引擎为转写与翻译内核，外加多轨时间轴、波形、ASS 实时渲染与视频压制。
+- [Yanami Sub](https://github.com/tuzibuqiahuluobo/yanami-sub)——第三方 Windows 桌面字幕工作台，基于 finesub，提供图形界面、批处理、资源管理、知识库与应用内更新。
 - [audio-overlap-removal](https://github.com/caca2331/audio-overlap-removal)——从混合音频里剔除一条**已知**的参考音轨，尤其是带人声的；参考轨和混合里的那份可以时间线不一致（暂停、跳转、变速、有损编码都处理）。可以使 ASR 由此不识别媒体音轨，而专注识别主要内容。
+- [flowocr](https://github.com/caca2331/FlowOCR)——读出视频画面上出现过的所有文字（字幕、对话框、名牌、标注），每条带精确到帧的起止时间、按位置自动分轨，产出 SRT 或原位叠加的 ASS；有原文剧本时可把字幕对上剧本。与 finesub 的语音字幕互补。
 
 ## 文档
 
-面向使用者：
-
-- [环境配置](docs/manual/env.md)——API key 配置
-- [运行产物](docs/manual/outputs.md)——每个产物文件是什么、`--stage` 停在哪个阶段、低置信度行在哪里查看
-- [调参](docs/manual/tuning.md)——字幕长短、识别与 LLM 两侧的参数、大致耗时
-- [故障排查](docs/manual/troubleshooting.md)——按症状定位对应文档
-- [资源与大文件](docs/manual/resources.md)——数据存放位置、迁移与删除方式；显卡支持范围、档位与 CPU 回退
-- [模型选择](docs/manual/models.md)——ASR 可选用的 Whisper、分离器与第二模型的作用、各 LLM 后端的实际体验
-- [模型路由配置](docs/manual/model-routing.md)——各任务使用的模型、开关与参数的含义、接入自有 API endpoint
-- [本机 Agent 后端](docs/manual/agent.md)——用本机 Codex / Claude Code / Antigravity 订阅代替 API 额度
-- [知识库样板](examples/knowledge/)——迷你骨架条目
+面向使用者的文档都在 [使用手册](docs/manual/index.md)，那份索引按任务分组：安装与 API key、运行产物、调参、批量、知识库、模型与额度、显卡与搬盘、故障排查。另有 [知识库样板](examples/knowledge/)——迷你骨架条目。
 
 如需了解实现层：[开发者说明](README_DEV.md) 为入口，`docs/` 根下的其余文件面向开发者（约定见 [docs/README.md](docs/README.md)）。
 

@@ -16,7 +16,6 @@ from ...chunking import SubtitleWindow
 from ...routing.config import (
     ADVICE_LEDGER_MAX_TOKENS,
     CapabilityTier,
-    INJECTION_SECTION_MAX_TOKENS,
     KB_TRANSFER_MAX_ENTRIES,
     KB_WINDOW_TOTAL_ENTRIES,
     injection_block_token_limit,
@@ -28,8 +27,8 @@ from ...prompt_variants import resolve_variant
 from ...token_truncate import truncate_text_only
 from .attempts import _extract_next_advice, run_window_attempts
 from .commit import _entry_details_signature, _window_input_hash
-from .context import CorrectionRun
-from .query_round import QueryRoundProduct, run_window_query_round
+from .context import CorrectionRun, RequestTurnProduct
+from .request_turn import run_window_request_turn
 
 
 def run_serial_windows(run: CorrectionRun, windows: List[SubtitleWindow]) -> None:
@@ -136,87 +135,66 @@ def run_serial_windows(run: CorrectionRun, windows: List[SubtitleWindow]) -> Non
             keep="tail",
             prefer_natural_boundary=True,
         )
-        query_product = QueryRoundProduct()
-        if run.external_injection:
+        request_product = RequestTurnProduct()
+        if run.request_channel:
+            # No search client only means nothing gets searched: an
+            # entries-only channel (`retrieval=none|native`) still runs its turn.
             base_chunk_id = current.chunk_id.split("-", 1)[0]
-            if base_chunk_id not in run.query_round_cache and run.search_client is None:
-                run.query_round_cache[base_chunk_id] = QueryRoundProduct()
-            if base_chunk_id not in run.query_round_cache:
-                # The query round's clip follows ``planning_media``
-                # (model-routing v2): the old forced ``.aac`` assumed a lite model
-                # that is now the user's choice per preset.
-                query_file_ref = run.media.query_ref(current)
+            if base_chunk_id not in run.request_turn_cache:
                 carried_text = ""
                 if transfer_found:
                     carried_block = render_knowledge_entries_block(
                         transfer_found,
                         count_tokens=run.token_counter.count_text,
-                        entry_limit=INJECTION_SECTION_MAX_TOKENS,
                         block_limit=injection_block_token_limit(
                             KB_TRANSFER_MAX_ENTRIES
                         ),
                     )
                     carried_text = carried_block.text
-                run.query_round_cache[base_chunk_id] = run_window_query_round(
-                    knowledge_enabled=run.knowledge_enabled,
-                    client=run.client,
-                    window=current,
-                    context_pack=run.context_pack,
-                    audio_label=run.media.query_label(current),
+                run.request_turn_cache[base_chunk_id] = run_window_request_turn(
+                    run,
+                    current,
                     previous_advice=previous_advice,
-                    file_ref=query_file_ref,
-                    search_client=run.search_client,
-                    knowledge_root=run.knowledge_root,
-                    streamer_index=run.streamer_index_text,
-                    common_index=run.common_index_text,
                     carried_entries_text=carried_text,
                     carried_key_count=len(transfer_found),
-                    max_queries=run.max_search_queries_per_window,
-                    task_artifact_dir=run.task_artifact_dir,
-                    task_id=run.task_id,
-                    token_rows=run.token_rows,
                     exchange_logger=window_block,
-                    token_counter=run.token_counter,
-                    profile=run.profile,
-                    resume=run.resume,
-                    checkpoint_store=run.session_checkpoint_store,
-                    checkpoint_extra_identity={
-                        "task_fingerprint": run.task_fingerprint,
-                    },
                 )
-            query_product = run.query_round_cache[base_chunk_id]
-        # v17: one unified render — transfers first (they win the
-        # budget), then this window's new requests, capped to the
-        # window total. The fast-mode global entry_details (single
-        # window) still takes precedence unchanged.
+            request_product = run.request_turn_cache[base_chunk_id]
+        # v17: one unified render — transfers first, then this window's new
+        # requests, capped to the window total. Order is priority: a full
+        # block shares out longest-first, and when even the entries' heads do
+        # not fit, the last ones drop (`render_knowledge_entries_block`).
         injected_keys: List[str] = []
-        window_entry_details = run.entry_details
-        if not window_entry_details:
-            union: Dict[str, str] = dict(transfer_found)
-            fresh_keys = [
-                key
-                for key in query_product.requested_entry_keys
-                if key not in union
-            ]
-            if fresh_keys:
-                fresh_found, _fresh_missing = load_entry_texts(
-                    run.knowledge_root, fresh_keys
-                )
-                for key, body in fresh_found.items():
-                    if key not in union:
-                        union[key] = body
-            union = dict(list(union.items())[:KB_WINDOW_TOTAL_ENTRIES])
-            injected_keys = list(union)
-            if union:
-                window_entry_block = render_knowledge_entries_block(
-                    union,
-                    count_tokens=run.token_counter.count_text,
-                    entry_limit=INJECTION_SECTION_MAX_TOKENS,
-                    block_limit=injection_block_token_limit(
-                        KB_WINDOW_TOTAL_ENTRIES
-                    ),
-                )
-                window_entry_details = window_entry_block.text
+        window_entry_details = ""
+        union: Dict[str, str] = dict(transfer_found)
+        fresh_keys = [
+            key
+            for key in request_product.requested_entry_keys
+            if key not in union
+        ]
+        if fresh_keys:
+            fresh_found, _fresh_missing = load_entry_texts(
+                run.knowledge_root, fresh_keys
+            )
+            for key, body in fresh_found.items():
+                if key not in union:
+                    union[key] = body
+        union = dict(list(union.items())[:KB_WINDOW_TOTAL_ENTRIES])
+        injected_extent: Dict[str, Dict[str, int]] = {}
+        if union:
+            window_entry_block = render_knowledge_entries_block(
+                union,
+                count_tokens=run.token_counter.count_text,
+                block_limit=injection_block_token_limit(
+                    KB_WINDOW_TOTAL_ENTRIES
+                ),
+            )
+            window_entry_details = window_entry_block.text
+            # what the budget let in: an entry it dropped was never shown
+            injected_keys = list(window_entry_block.injected)
+            injected_extent = {
+                key: dict(kept) for key, kept in window_entry_block.kept.items()
+            }
         outcome = run_window_attempts(
             run,
             current,
@@ -224,6 +202,7 @@ def run_serial_windows(run: CorrectionRun, windows: List[SubtitleWindow]) -> Non
             window_entry_details=window_entry_details,
             window_entry_sig=_entry_details_signature(window_entry_details),
             injected_keys=injected_keys,
+            injected_extent=injected_extent,
             chained=True,
             add_tail=lambda half: (
                 windows.insert(i + 1, half),

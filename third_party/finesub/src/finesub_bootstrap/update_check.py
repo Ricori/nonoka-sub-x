@@ -39,6 +39,8 @@ from typing import Optional
 import urllib.error
 import urllib.request
 
+from finesub_bootstrap.user_config import read_section
+
 #: PyPI over GitHub Releases on purpose: one unauthenticated request with no
 #: 60/hour/IP budget to share, and `info.version` is *defined* as the latest
 #: non-prerelease -- the channel split we would otherwise have to implement.
@@ -186,57 +188,17 @@ def _env_says_no() -> bool:
     return bool(os.environ.get("CI", "").strip())
 
 
-def _toml_parser():
-    """`tomllib.load`, or the `tomli` backport, or None.
-
-    Imported here rather than at module scope: `tomllib` is 3.11+, and this
-    module is imported before *every* command the published CLI runs -- whose
-    shell supports Python 3.10 (`cli/pyproject.toml`). A top-level import turned
-    "no update notice" into `ModuleNotFoundError` for `setup`, transcription and
-    uninstall alike. The wheel declares `tomli` for 3.10 so the setting keeps
-    working there; None is the belt-and-braces path if even that is absent.
-    """
-
-    try:
-        from tomllib import load
-    except ImportError:
-        try:
-            from tomli import load  # type: ignore[no-redef]
-        except ImportError:
-            return None
-    return load
-
-
 def _config_says_no(user_data: Path | None) -> bool:
-    """`[cli] update_check = false` in the shared config.toml.
+    """`[cli] update_check = false` in the shared config.toml."""
 
-    Read with `tomllib` rather than the main package's resolver: this module is
-    imported by the thin launcher, which has no `finesub` on its path yet.
-    """
-
-    if user_data is None:
-        return False
-    config = Path(user_data) / "config.toml"
-    if not config.is_file():
-        return False
-
-    parser = _toml_parser()
-    if parser is None:
+    section = read_section(user_data, "cli")
+    if section is None:
         # No parser, so we cannot tell whether this user wrote
         # `[cli] update_check = false`. Treat that as "disabled": the setting is
         # a promise in `docs/manual/resources.md`, and the failure we refuse
         # here is contacting PyPI for somebody who asked us not to. The cost of
         # being wrong the other way is one missing notice.
         return True
-    try:
-        with config.open("rb") as handle:
-            data = parser(handle)
-    except (OSError, ValueError):
-        # A config nobody can parse states nothing, including an opt-out.
-        return False
-    section = data.get("cli")
-    if not isinstance(section, dict):
-        return False
     return section.get("update_check") is False
 
 

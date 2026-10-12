@@ -56,6 +56,11 @@ class ModelEntry:
     repo: str = ""
     revision: str = ""
     files: tuple[ManifestFile, ...] = ()
+    #: Fetch only the listed files instead of the whole repository. For a repository that carries
+    #: far more than we load -- NVIDIA's Nemotron-3 ships a `.nemo`, a GGUF and demo media beside
+    #: the two files the port opens. Off by default: a `from_pretrained` loader reads files the
+    #: manifest does not list (tokenizers, configs).
+    listed_only: bool = False
 
     @property
     def is_verifiable(self) -> bool:
@@ -110,6 +115,7 @@ def _entry(model_id: str, spec: dict[str, Any]) -> ModelEntry:
         repo=str(spec.get("repo") or ""),
         revision=str(spec.get("revision") or ""),
         files=tuple(files),
+        listed_only=spec.get("listedOnly") is True,
     )
 
 

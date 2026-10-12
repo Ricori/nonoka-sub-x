@@ -26,6 +26,7 @@ from typing import Any, Iterable, Mapping
 
 from ..node.model import (
     KINDS,
+    LINK_RELS,
     LEGACY_KINDS,
     PAYLOAD_CLAIM_GROUPS,
     canonical_json,
@@ -34,10 +35,21 @@ from ..node.model import (
     payload_group_hash,
     validate_payload,
 )
+from ..node.presets import CATEGORIES, preset_for_category
+from ..node.signals import EVIDENCE_KIND_JUDGED, STYLE_INJECTED_OPPORTUNITY
 from ..node.store import KnowledgeStore
 
 BUNDLE_SCHEMA_VERSION = 1
-SNAPSHOT_SCHEMA_VERSION = 1
+#: v2 (2026-09-09) adds ``corpus_id``: the library's identity is the corpus,
+#: not the URL it happens to be served from (see ``server.ShareService`` and
+#: ``cli._remote_id``). It is not part of the content digest — it is the chain's
+#: *seed*, so a server cannot restate its identity without breaking every link.
+SNAPSHOT_SCHEMA_VERSION = 2
+
+#: Server-minted corpus identity: uuid hex today, the grammar stays narrow
+#: because clients use it as a local state key (meta keys, ``sync_state.remote``,
+#: two JSONL ledgers) and a path- or tag-shaped value has no business there.
+CORPUS_ID_RE = re.compile(r"[a-z0-9]{8,64}")
 
 #: Per-field text cap. Generous for prose, tiny next to the reply caps — a
 #: pushed field longer than this is data smuggling, not knowledge.
@@ -324,6 +336,11 @@ def build_push_bundle(
             # this claim), not self-reportable evidence — indexing the counter
             # dynamically used to KeyError on it (review 2026-08-27 round 10).
             continue
+        if row["evidence_kind"] == EVIDENCE_KIND_JUDGED:
+            # A local model's judgement against the refined subtitles
+            # (`style_marks.py`) -- not external corroboration, so it never
+            # leaves this machine.
+            continue
         field_path = row["field_path"]
         if field_path.startswith("items/"):
             item_handle = item_handles.get(field_path.split("/", 1)[1])
@@ -347,9 +364,14 @@ def build_push_bundle(
             cell["evidence_kinds"].append(row["evidence_kind"])
         if row["source_ref"] and row["source_ref"] not in cell["source_refs"]:
             cell["source_refs"].append(sanitize_text(row["source_ref"], max_chars=500))
+    # A task's style choice is booked as `exposed` with its own opportunity
+    # (`signals.book_style_injected`); it is a usage count for the report, not
+    # a node shown in a window, so it does not count here either.
     event_rows = store.conn.execute(
         "SELECT node_id, kind, opportunity, COUNT(*) AS n FROM events"
-        " WHERE kind IN ('exposed', 'landed') GROUP BY node_id, kind, opportunity"
+        " WHERE kind IN ('exposed', 'landed') AND NOT (kind = 'exposed' AND opportunity = ?)"
+        " GROUP BY node_id, kind, opportunity",
+        (STYLE_INJECTED_OPPORTUNITY,),
     ).fetchall()
     exposure_counts: dict[str, dict[str, int]] = {}
     for row in event_rows:
@@ -541,13 +563,46 @@ def _bundle_subject_category(bundle: Mapping[str, Any]) -> dict[str, str | None]
 IDENTITY_LABELS = ("本名", "别名", "人设", "外观")
 
 
+def _identity_needs_external(category: str | None, label: str) -> bool:
+    """Does this category's identity field need an external source?
+
+    Read off the preset instead of naming a category here. ``verify`` is
+    already the preset's answer to "who may corroborate this field", and a
+    second mechanism for the same question is how a NEW category ends up with
+    a review policy nobody chose: the old rule was
+    ``category in ("streamer", None)``, so any category added later had its
+    identity fields silently downgraded to the loose slot -- adding a category
+    made the library *less* strict, which is the wrong direction to fail in.
+
+    Unknown or absent ancestry stays strict, and so does a category this end
+    has no preset for. An OLD end receiving a category from a newer release is
+    exactly that case, and it must not downgrade what it cannot read.
+
+    ⚠ ``IDENTITY_LABELS`` itself is still a fixed tuple. A category whose
+    identity labels are named differently simply never reaches this branch; it
+    falls through to the ``kind``-based rules below, which are strict for a
+    subject and loose for a term. Deriving the label set too would need a
+    preset-level marker for "this label is identity-bearing" -- `role` covers
+    only 本名/别名, not 人设/外观.
+    """
+
+    if not category:
+        return True
+    try:
+        preset = preset_for_category(category)
+    except ValueError:
+        return True  # a category this end does not know: fail closed
+    for section in preset.sections:
+        if section.label(label) is not None:
+            return preset.verify_for(section.name, label) == "external"
+    return True
+
+
 def _slot_for(kind: str, group: str, category: str | None, label: str = "") -> str:
     if group != "core":
         return "prose"  # named groups (term body, subject intro) are the manual slot
     if label and label in IDENTITY_LABELS:
-        # streamer identity is the strict slot; unknown ancestry is treated as
-        # strict too — never downgrade because the subject was out of sight
-        return "档案 fact" if category in ("streamer", None) else "term"
+        return "档案 fact" if _identity_needs_external(category, label) else "term"
     if kind == "term":
         return "term"
     if kind == "subject":
@@ -812,7 +867,7 @@ def validate_bundle(bundle: Mapping[str, Any]) -> list[str]:
     for link in collections["links"]:
         check_ref(link.get("source"), "link.source")
         check_ref(link.get("target"), "link.target")
-        if link.get("rel") not in ("see_also", "supersedes"):
+        if link.get("rel") not in LINK_RELS:
             problems.append(f"link: unknown rel {link.get('rel')!r}")
     for claim in collections["claim_summaries"]:
         check_ref(claim.get("node"), "claim.node")
@@ -971,15 +1026,23 @@ def verify_snapshot(snapshot: Mapping[str, Any]) -> None:
     entry I trusted last time" — is the client's check
     (``sync.check_anchor``); with the chain verified here, anchor membership
     implies the head extends the anchored prefix.
+
+    The chain is seeded with ``corpus_id`` rather than the empty string, which
+    is what makes the identity verifiable rather than merely asserted: two
+    servers that both started empty would otherwise share a genesis hash, and
+    a server could rename itself between pulls without breaking a link.
     """
 
     content = snapshot.get("content")
     if not isinstance(content, Mapping) or content.get("schema") != SNAPSHOT_SCHEMA_VERSION:
         raise ExchangeError("unsupported snapshot schema")
+    corpus_id = snapshot.get("corpus_id")
+    if not isinstance(corpus_id, str) or not CORPUS_ID_RE.fullmatch(corpus_id):
+        raise ExchangeError("snapshot carries no usable corpus id")
     history = snapshot.get("history")
     if not isinstance(history, list) or not history:
         raise ExchangeError("snapshot carries no chain history")
-    prev = ""
+    prev = corpus_id
     last_rev: int | None = None
     for entry in history:
         if not isinstance(entry, Mapping):
@@ -1060,6 +1123,20 @@ def snapshot_content_problems(content: Mapping[str, Any]) -> list[str]:
             problems.append(f"{where}: payload is not an object")
         elif not node.get("retired"):
             problems.extend(payload_shape_problems(str(kind), payload, where=where))
+            # A subject names its category, and this end may not have that
+            # category at all -- the two ends are two RELEASES, and a preset
+            # ships with the code. Refusing here is the only place it can be
+            # said out loud: `apply_snapshot` writes node rows straight through
+            # `store.begin("pull", …)`, so it never passes `allow_categories`
+            # and an unknown category used to land silently, unreadable by
+            # every projection that asks a preset what its sections are.
+            if str(kind) == "subject":
+                category = str(payload.get("category") or "")
+                if category and category not in CATEGORIES:
+                    problems.append(
+                        f"{where}: unknown category {category[:40]!r} — this end has no"
+                        " preset for it; upgrade before pulling from that peer"
+                    )
         if node.get("maturity", "normal") not in ("normal", "tentative"):
             problems.append(f"{where}: bad maturity")
     for item in rows["items"]:
@@ -1095,37 +1172,58 @@ def snapshot_content_problems(content: Mapping[str, Any]) -> list[str]:
     # same DFS); a pulled snapshot must restore that invariant instead of
     # trusting the signature (round 14) — the apply loop would happily write
     # the cycle into the local store.
-    state: dict[str, int] = {}
-
-    def cyclic(vertex: str) -> bool:
-        state[vertex] = 1
-        for peer in live_edges.get(vertex, ()):
-            mark = state.get(peer)
-            if mark == 1 or (mark is None and cyclic(peer)):
-                return True
-        state[vertex] = 2
-        return False
-
-    if any(state.get(v) is None and cyclic(v) for v in list(live_edges)):
+    if has_cycle(live_edges):
         problems.append("memberships contain a cycle")
     for link in rows["links"]:
         check_id(link.get("source"), "link")
         check_id(link.get("target"), "link")
-        if link.get("rel") not in ("see_also", "supersedes"):
+        if link.get("rel") not in LINK_RELS:
             problems.append(f"link: unknown rel {str(link.get('rel'))[:40]!r}")
     if isinstance(redirects, Mapping):
         # ``follow()`` on the pull side breaks cycles defensively; admission
         # refuses them outright — a redirect loop is never legitimate data.
+        # One walk per chain, not per start: every id has one target, so a
+        # node already walked is either on a known cycle or known to end.
+        done: set[Any] = set()
         for start in redirects:
-            seen: set[Any] = set()
+            path: set[Any] = set()
             current: Any = start
-            while isinstance(current, str) and current in redirects:
-                if current in seen:
-                    problems.append(f"redirects contain a cycle through {str(start)[:40]!r}")
+            while isinstance(current, str) and current in redirects and current not in done:
+                if current in path:
+                    problems.append(f"redirects contain a cycle through {str(current)[:40]!r}")
                     break
-                seen.add(current)
+                path.add(current)
                 current = redirects[current]
+            done |= path
     return problems
+
+
+def has_cycle(edges: Mapping[str, Iterable[str]]) -> bool:
+    """Whether the directed graph ``edges`` (vertex → successors) has a cycle.
+
+    Iterative, so a hostile snapshot's ten-thousand-deep membership chain is a
+    loop, not a ``RecursionError``."""
+
+    state: dict[str, int] = {}  # 1 = on the current path, 2 = finished
+    for root in list(edges):
+        if root in state:
+            continue
+        state[root] = 1
+        stack = [(root, iter(edges.get(root, ())))]
+        while stack:
+            vertex, successors = stack[-1]
+            for peer in successors:
+                mark = state.get(peer)
+                if mark == 1:
+                    return True
+                if mark is None:
+                    state[peer] = 1
+                    stack.append((peer, iter(edges.get(peer, ()))))
+                    break
+            else:
+                state[vertex] = 2
+                stack.pop()
+    return False
 
 
 def canonical_envelope_json(value: Any) -> str:

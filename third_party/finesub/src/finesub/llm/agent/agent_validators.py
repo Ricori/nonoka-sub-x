@@ -11,6 +11,16 @@ the same function from the same manifest.
 
 Adding a validator: register a builder under a stable id. The builder
 receives the task manifest and returns the ``Validator`` the runtime calls.
+
+What a validator sees is the manifest **plus** ``observed``: what the runtime
+saw this task do, which no manifest can know in advance -- today
+``observed.kb_reads``, the answering context's successful ``kb_read`` replies
+(``AgentTaskRuntime.validator_view``). Both judges read the same ledger: the
+MCP server's submit through the runtime, the harness through the copy folded
+into the call's execution attempt (``agent_session_host.fold_kb_reads``). A
+verdict that depends on it is flagged ``observed_dependent`` so the runtime
+does not cache it against the candidate: the same answer may pass once the
+read has happened.
 """
 
 from __future__ import annotations
@@ -85,12 +95,79 @@ def _accept(_manifest: Mapping[str, Any]) -> Validator:
     return lambda candidate, _m: ValidationResult.accepted(candidate)
 
 
+def observed_kb_reads(view: Mapping[str, Any]) -> list[Mapping[str, Any]]:
+    """The task's successful ``kb_read`` rows from a validator view."""
+
+    observed = view.get("observed") if isinstance(view, Mapping) else None
+    rows = (observed or {}).get("kb_reads") if isinstance(observed, Mapping) else None
+    return [row for row in rows or () if isinstance(row, Mapping)]
+
+
+def style_pick_params(catalog: Any) -> dict[str, Any]:
+    """What the window validator needs to judge a `--style auto` pick: the
+    candidate names and the revision they were read at, as JSON."""
+
+    return {"candidates": list(catalog.keys), "rev": catalog.rev}
+
+
+def judge_style_pick(
+    text: str, params: Mapping[str, Any], kb_reads: Any
+) -> tuple[Any, list[str], bool]:
+    """``(choice, errors, read_missing)`` for an agentic window's delivery.
+
+    auto-style-gaps plan A1 step 3: the delivery names one candidate in its
+    `<style_selection>` block (the forced-pick contract, `StyleCatalog.choose`)
+    and -- unless that pick is the legal "none" -- the task must have read
+    ``style/<pick>`` in full and successfully: a reply cut by the size cap is
+    never booked, and a ``sections`` read is not the whole style. Only the
+    harness-side ledger counts (``kb_reads``), never the driver's events,
+    which keep the tool name and drop the arguments. ``read_missing`` marks
+    the one verdict that depends on that ledger rather than on the text.
+    """
+
+    from ..knowledge.style import STYLE_CATEGORY, StyleCatalog, StyleContractError
+    from ..output_tags import find_top_level_tag_blocks
+    from ..prepare_prompts import STYLE_SELECTION_TAG
+
+    catalog = StyleCatalog.from_keys(
+        [str(key) for key in params.get("candidates") or ()],
+        rev=params.get("rev") if isinstance(params.get("rev"), int) else None,
+    )
+    try:
+        choice = catalog.choose(find_top_level_tag_blocks(text or "", STYLE_SELECTION_TAG))
+    except StyleContractError as exc:
+        return None, [str(exc)], False
+    if not choice.key:
+        return choice, [], False
+    rows = [
+        row
+        for row in kb_reads or ()
+        if isinstance(row, Mapping)
+        and str(row.get("category") or "") == STYLE_CATEGORY
+        and str(row.get("entry") or "") == choice.key
+    ]
+    if any(not row.get("sections") for row in rows):
+        return choice, [], False
+    partial = "（只读了部分章节）" if rows else ""
+    return (
+        None,
+        [
+            f"<style_selection> 选了 {choice.key!r}，但本任务没有用 kb_read 完整读过 "
+            f"style/{choice.key}{partial}：先不带 sections 读全文、按它翻译，再交付"
+        ],
+        True,
+    )
+
+
 def _correction_window(manifest: Mapping[str, Any]) -> Validator:
     """The correction window contract, rebuilt from the manifest's metadata.
 
     ``metadata.validator`` carries the serialized window; ``metadata.variant``
     and ``metadata.capability_tier`` name the prompt variant the answering
-    candidate received, which the CSV rules depend on.
+    candidate received, which the CSV rules depend on. ``style_pick`` in the
+    same params is a fast `--style auto` window that picks in its delivery
+    (`judge_style_pick`); the harness runs the same judge on the same ledger
+    (`stages/correction/attempts.py`), so the two never disagree.
     """
 
     from ..output_protocol import validate_correction_window_output
@@ -102,13 +179,22 @@ def _correction_window(manifest: Mapping[str, Any]) -> Validator:
     window = deserialize_window(params["window"])
     tier = CapabilityTier(str(metadata.get("capability_tier") or CapabilityTier.CAPABLE.value))
     variant = resolve_variant(str(metadata.get("variant") or "") or None, tier)
+    style_pick = params.get("style_pick")
 
-    def validate(candidate: Any, _manifest: Mapping[str, Any]) -> ValidationResult:
+    def validate(candidate: Any, view: Mapping[str, Any]) -> ValidationResult:
         text = str(candidate)
         result = validate_correction_window_output(text, window, variant=variant)
         errors = [str(item) for item in result.errors if str(item).strip()]
+        read_missing = False
+        if isinstance(style_pick, Mapping):
+            _choice, style_errors, read_missing = judge_style_pick(
+                text, style_pick, observed_kb_reads(view)
+            )
+            errors.extend(style_errors)
         if errors:
-            return ValidationResult.repairable(*errors)
+            return ValidationResult.repairable(
+                *errors, metadata={"observed_dependent": True} if read_missing else None
+            )
         return ValidationResult.accepted(text)
 
     return validate

@@ -1,15 +1,18 @@
-"""CLI and orchestration for LLM subtitle correction translation.
+"""One LLM correction task: ``run_correction_task``, and the module CLI over it.
 
-The window-execution loop lives in ``finesub.llm.stages.correction``; research
-acquisition in ``finesub.llm.research``; the unified knowledge update in
-``finesub.llm.knowledge.update``. This module keeps the CLI, dry-run prompt artifacts
-and the top-level orchestration.
+Every front end -- this CLI, ``run_pipeline``'s LLM stage, reference ingest --
+builds a ``CorrectionRequest`` and hands it to ``run_correction_task``, which is
+the only place the task is orchestrated. The window-execution loop lives in
+``finesub.llm.stages.correction``; research acquisition in
+``finesub.llm.research``; the unified knowledge update in
+``finesub.llm.knowledge.update``.
 """
 
 from __future__ import annotations
 
 import argparse
 from contextlib import nullcontext
+from dataclasses import dataclass, replace
 import json
 from pathlib import Path
 import sys
@@ -25,18 +28,35 @@ from finesub.run_metadata import (
 
 from finesub.media.clips import probe_audio_duration
 from finesub.reporting import current_reporter, reporting_to, terminal_reporter
-from finesub_bootstrap.artifacts import ARTIFACT_DIR_SUFFIX
+from finesub_bootstrap.artifacts import ARTIFACT_DIR_SUFFIX, RESOLVED_SWITCHES_FILENAME
 from .agent.agent_session_host import agent_session_scope, set_run_evidence_destination
 from .client import write_agent_session_usage
-from .knowledge.style import render_style_block, resolve_style_selection
-from .knowledge.subjects import parse_subject_names, render_subject_block
-from .routing.api_keys import read_config
-from .routing.config import (
-    DEFAULT_RESEARCH_SEARCH_ROUNDS,
-    research_search_query_limit,
+from .correction_request import (
+    KNOWLEDGE_MODES,
+    CorrectionRequest,
+    CorrectionRequestError,
+    resolve_switches,
+    resolved_request,
 )
+from .knowledge.node.repo import CATEGORY_SEPARATOR
+from .knowledge.style import (
+    DEFAULT_STYLE_NAME,
+    STYLE_CATEGORY,
+    StyleCatalog,
+    StyleChoice,
+    StyleSelection,
+    StyleSelectionError,
+    load_style_catalog,
+    load_style_entries,
+    record_style_injected,
+    resolve_style_keys,
+    render_style_block,
+    resolve_style_selection,
+)
+from .knowledge.subjects import parse_subject_names, render_subject_block
 from .knowledge.base import (
     DEFAULT_KNOWLEDGE_ROOT,
+    TASK_ARTIFACT_FILENAME,
     append_task_artifact,
     pinned_generation_rev,
 )
@@ -46,8 +66,6 @@ from .knowledge.update import (
 )
 from .routing.profiles import (
     CONTINUITY,
-    DEFAULT_FAST_SEARCH_ROUNDS,
-    DEFAULT_PROFILE,
     DIFFICULTY,
     MEDIA,
     RETRIEVAL,
@@ -59,39 +77,49 @@ from .routing.capabilities import (
     correction_planning_limits,
     validate_profile_capabilities,
 )
-from .prompts import (
-    ContextPack,
-    build_fast_round1_messages,
-)
+from .prompts import ContextPack
 from .prompt_artifacts import build_prompt_artifacts, write_prompt_artifacts
 from .research import (
     backup_unrecoverable_json,
     load_research_context,
     planning_metadata,
     research_reuse_key,
-    research_stage_runs,
     run_research_stage,
 )
 from finesub.subtitles.postprocess import (
-    DEFAULT_POSTPROCESS_PROFILE,
     SUPPORTED_POSTPROCESS_PROFILES,
     postprocess_srt_file,
 )
-from .stages.correction import execute_correction_windows
-from .stages.fast_session import FastSessionResult, acquire_fast_context
-from .stages.plan import FastDecision, decide_fast_mode
+from .stages.correction import (
+    execute_correction_windows,
+    refresh_annotated_speakers,
+    resolve_correction_plan,
+)
+from .stages.plan import FastDecision, decide_fast_mode, fast_context_pack
+from .stages.task_graph import (
+    TaskGraph,
+    grant_for_run,
+    plan_task_graph,
+    resolve_execution_strategy,
+    task_graph_metadata,
+)
 from .task_report import write_task_report
 from .token_budget import default_token_counter, TokenCounter
+from .client import RoleClient
+from .routing.config import WINDOW_PLANNING_CONTEXT_RESERVE_TOKENS
 
 
-# Tri-state knowledge switch (docs/knowledge.md):
-# none = no collection, collect = correction/research emit task_update_feedback,
-# update = collect + run the unified knowledge update after the task.
-KNOWLEDGE_MODES = ("none", "collect", "update")
+def knowledge_reads(knowledge: str) -> bool:
+    return knowledge in ("read", "update")
 
 
-def knowledge_collects(knowledge: str) -> bool:
-    return knowledge in ("collect", "update")
+def collects_feedback(request: CorrectionRequest) -> bool:
+    """`<task_update_feedback>` is asked for under `update` only, unless the
+    caller says otherwise (`CorrectionRequest.collect_feedback`)."""
+
+    if request.collect_feedback is not None:
+        return request.collect_feedback
+    return request.knowledge == "update"
 
 
 def _load_reusable_research_context(
@@ -210,370 +238,1009 @@ def run_post_correction_knowledge_update(
     return report
 
 
-def _fast_execute_kwargs(
-    decision: FastDecision,
-    fast_ctx: FastSessionResult | None,
-    fast_file_ref: Any | None,
-    profile: TranslationProfile,
-) -> Dict[str, Any]:
-    """execute_correction_windows kwargs for an enabled fast decision."""
+def _fast_execute_kwargs(decision: FastDecision) -> Dict[str, Any]:
+    """execute_correction_windows kwargs for an enabled fast decision: the whole
+    input as one window task (plan §3, fast column)."""
 
-    kwargs: Dict[str, Any] = {"windows_override": [decision.window]}
-    if profile.external_injection and fast_ctx is not None:
-        kwargs.update(
-            seed_query_results=fast_ctx.seed_query_results(),
-            entry_details=fast_ctx.entry_details_text,
-            evidence_pack_mode=fast_ctx.evidence_pack_mode,
-            extra_fingerprint=fast_ctx.fingerprint(),
-        )
-        if fast_file_ref is not None:
-            kwargs["file_ref_seed"] = {decision.window.chunk_id: fast_file_ref}
-    return kwargs
+    return {"windows_override": [decision.window]}
 
 
-def resolve_chunking_subtitle_cap() -> int | None:
-    """``[chunking] max_window_subtitle_tokens`` from config.toml.
-
-    Returns ``None`` when the key is absent (callers then fall back to
-    ``limits.max_window_subtitle_tokens``, default 10k); ``0`` disables the
-    cap; a malformed or negative value is a hard error so a typo never
-    silently changes windowing.
-    """
-
-    data = read_config()
-    section = data.get("chunking") if isinstance(data, Mapping) else None
-    if not isinstance(section, Mapping):
-        return None
-    raw = section.get("max_window_subtitle_tokens")
-    if raw is None:
-        return None
-    try:
-        value = int(raw)
-    except (TypeError, ValueError):
-        raise ValueError(
-            "[chunking] max_window_subtitle_tokens must be an integer"
-        ) from None
-    if value < 0:
-        raise ValueError("[chunking] max_window_subtitle_tokens must be >= 0")
-    return value
-
-
-def _run_full_correction_impl(
+def _record_dispatch(
+    artifact_dir: str | Path,
     *,
-    stable_json: str | Path,
-    output_path: str | Path,
-    audio_path: str | Path | None,
-    video_path: str | Path | None = None,
-    extra_info: str = "",
-    profile: TranslationProfile = DEFAULT_PROFILE,
-    fast: str = "auto",
-    fast_search_rounds: int = DEFAULT_FAST_SEARCH_ROUNDS,
-    knowledge_root: str | Path = DEFAULT_KNOWLEDGE_ROOT,
-    max_retries_per_window: int = 5,
-    max_replacements_per_window: int = 1,
-    parallel_windows: int = 1,
-    research_search_rounds: int = DEFAULT_RESEARCH_SEARCH_ROUNDS,
-    postprocess_profile: int | None = DEFAULT_POSTPROCESS_PROFILE,
-    extra_style: str = "",
-    #: Named style entries (`--style`). `None` falls through to the config,
-    #: `""` is a decision to run without one — `resolve_style_names` owns that
-    #: precedence so both front ends get the same answer.
-    style: str | Sequence[str] | None = None,
-    #: What this run may do with it: `none` / `read` / `update`. Unset reads
-    #: `[llm] style_mode`, then defaults to `read` — injecting is what a style
-    #: is for; writing back is asked for.
-    style_mode: str | None = None,
-    #: Knowledge subjects the task names (`knowledge/subjects.py`): their
-    #: entries ride in every window's system prompt and are pinned into the
-    #: post-task update. Ignored under `knowledge="none"`.
-    knowledge_subjects: str | Sequence[str] | None = None,
-    task_id: str = "",
-    task_summary: str = "",
-    task_artifact_dir: str | Path | None = None,
-    knowledge: str = "none",
-    refined_srt: str | Path | None = None,
-    test_profile: bool = False,
-    resume: bool = True,
-    max_window_subtitle_tokens: int | None = None,
-) -> Path:
-    """Research + correction windows + optional unified knowledge update.
+    task_id: str,
+    fast_decision: FastDecision,
+    profile: TranslationProfile,
+    knowledge: str,
+    style_selected: bool,
+    test_profile: bool,
+) -> TaskGraph:
+    """The two dispatch artifacts: ``fast_decision``, then the ``task_graph`` it implies.
 
-    ``knowledge`` is the tri-state switch (none/collect/update); ``update``
-    implies collection. ``refined_srt`` (with ``knowledge="update"``) switches
-    the update to the refined_aligned evidence mode.
-
-    ``max_window_subtitle_tokens`` caps one window's ``<asr_result>`` CSV input
-    (quality guardrail, default from config.toml ``[chunking]`` then
-    ``limits.max_window_subtitle_tokens``); ``0`` disables it.
-
-    Programmatic equivalent of the CLI's --execute path, used by
-    finesub.workflows.reference_ingest. An existing
-    *-research-context.json under the task
-    artifact directory (or a legacy sibling next to the output SRT) is reused
-    so reruns skip the research rounds.
+    Every research or execute run writes it, so plan / production / replay can
+    be compared on one record (plan §8, last bullet).
     """
-    if knowledge not in KNOWLEDGE_MODES:
-        raise ValueError(f"unknown knowledge mode {knowledge!r}; use none|collect|update")
-    # Resolved once, up here: the early-return paths (an existing translated
-    # output that still owes a knowledge update) reach the post-task update
-    # without passing the correction call.
-    style_selection = resolve_style_selection(
-        style, style_mode, knowledge_root=knowledge_root, difficulty=profile.difficulty
-    )
-    style_names = style_selection.names
-    if style_selection.writable:
-        # `update` rides on the post-task knowledge update, and that task may
-        # only touch a style with refined subtitles in front of it. Asking for
-        # the write without either is a run that quietly behaves like `read`.
-        missing = []
-        if knowledge != "update":
-            missing.append("--knowledge update")
-        if not refined_srt:
-            missing.append("--refined-srt")
-        if missing:
-            current_reporter().warning(
-                "style-update-inert",
-                f"--style-mode update 需要 {' 与 '.join(missing)}，本次缺少它们",
-                impact="这套风格照常注入提示词，但本次学到的东西不会写回去",
-                action="补上缺的参数，或改成 --style-mode read 让意图和行为一致",
-            )
-    if profile.difficulty == "efficiency" and knowledge != "none":
-        # efficiency disables knowledge outright (owner decision 2026-08-12; it
-        # used to cap at collect). The cheapest shape reads no indices, injects
-        # no entries and runs no post-task update -- and its thinking knob is
-        # low everywhere, which is not a tier that should be feeding the
-        # knowledge base either.
-        raise ValueError(
-            "difficulty=efficiency disables knowledge (no injection, no "
-            "collection, no post-task update); use --knowledge none, or "
-            "--difficulty intermediate for a cheap run that still reads the base."
-        )
-    collect_feedback = knowledge_collects(knowledge)
-    subject_names = parse_subject_names(knowledge_subjects) if collect_feedback else ()
-    if max_window_subtitle_tokens is None:
-        max_window_subtitle_tokens = resolve_chunking_subtitle_cap()
-    out = Path(output_path).expanduser().resolve()
-    task_id = task_id or Path(stable_json).stem
-    task_summary = task_summary or f"LLM subtitle correction task {task_id}"
-    artifact_dir = (
-        Path(task_artifact_dir).expanduser().resolve()
-        if task_artifact_dir
-        else out.with_suffix(ARTIFACT_DIR_SUFFIX)
-    )
-    translated_path = out.with_name(f"{out.stem}-translated.srt")
 
-    def _maybe_knowledge_update(result_srt: Path) -> None:
-        if knowledge != "update":
-            return
-        run_post_correction_knowledge_update(
-            task_id=task_id,
-            task_summary=task_summary,
-            result_srt_path=result_srt,
-            output_path=out,
-            stable_json=stable_json,
-            artifact_dir=artifact_dir,
-            refined_srt=refined_srt,
-            knowledge_root=knowledge_root,
-            test_profile=test_profile,
-            difficulty=profile.difficulty,
-            style_names=style_selection.writable,
-            subject_names=subject_names,
-        )
-
-    if postprocess_profile is None and translated_path.exists():
-        _maybe_knowledge_update(translated_path)
-        return translated_path
-    if postprocess_profile is not None and out.exists():
-        _maybe_knowledge_update(out)
-        return out
-    if postprocess_profile is not None and translated_path.exists():
-        report = postprocess_srt_file(translated_path, output_path=out, profile=postprocess_profile)
-        append_task_artifact(
-            artifact_dir,
-            kind="final_srt",
-            task_id=task_id,
-            payload={
-                "path": str(out),
-                "translated_path": str(translated_path),
-                "postprocess": report.to_dict(),
-            },
-        )
-        write_task_report(
-            artifact_dir,
-            task_id=task_id,
-            outputs={
-                "translated_srt": str(translated_path),
-                "final_srt": str(out),
-                "task_artifact_dir": str(artifact_dir),
-            },
-        )
-        _maybe_knowledge_update(out)
-        return out
-    token_counter = default_token_counter()
-    fast_decision = decide_fast_mode(
-        stable_json=stable_json,
-        fast=fast,
-        profile=profile,
-        audio_path=audio_path,
-        extra_info=extra_info,
-        knowledge_root=knowledge_root,
-        knowledge_enabled=collect_feedback,
-        token_counter=token_counter,
-        # Group planning envelope (plan v2 D13): the fused window is budgeted
-        # against the correction cell's group minimum too.
-        limits=correction_planning_limits(profile),
-        max_window_subtitle_tokens=max_window_subtitle_tokens,
+    append_task_artifact(
+        artifact_dir, kind="fast_decision", task_id=task_id, payload=fast_decision.to_metadata()
     )
-    # Planning determines whether retrieval=local uses the ordinary per-window
-    # query chain or the fused fast round-1 chain. Validate only the shape this
-    # run will execute; checking both can reject a healthy --fast off run for a
-    # model pool it never calls.
-    validate_profile_capabilities(
-        profile,
+    strategy, source = resolve_execution_strategy(profile, test_profile=test_profile)
+    # Resolved per task, so recorded per task: the preparation task runs on the
+    # research chain and is text-only, which can be a tool session where a
+    # media-bearing window cannot (agy + the default `--media audio` is exactly
+    # that split). Recording only the window's would file such a run as
+    # `batched` while its preparation fetched for itself. Not asked at all
+    # under fast: there is no preparation task, and the question is not free
+    # (it walks a chain and may probe a driver).
+    prepare_strategy, prepare_source = (
+        resolve_execution_strategy(profile, test_profile=test_profile, task_group="research")
+        if not fast_decision.enabled
+        else (None, "")
+    )
+    graph = plan_task_graph(
+        strategy=strategy,
+        prepare_strategy=prepare_strategy,
         fast_enabled=fast_decision.enabled,
-        test_profile=test_profile,
+        grant=grant_for_run(profile, knowledge=knowledge, style_selected=style_selected),
     )
     append_task_artifact(
         artifact_dir,
-        kind="fast_decision",
+        kind="task_graph",
         task_id=task_id,
-        payload=fast_decision.to_metadata(),
+        payload=task_graph_metadata(
+            graph, strategy_source=source, prepare_strategy_source=prepare_source
+        ),
     )
-    context_pack: ContextPack | None = None
-    fast_kwargs: Dict[str, Any] = {}
-    context_path = ensure_research_context_path(
-        artifact_dir=artifact_dir,
-        stem=out.stem,
-        run_dir=out.parent,
-    )
-    if fast_decision.enabled and profile.external_injection:
-        fast_ctx, fast_file_ref, _ = acquire_fast_context(
-            context_path=context_path,
-            stable_json=stable_json,
-            window=fast_decision.window,
-            segment_count=len(fast_decision.window.segments),
-            audio_path=audio_path,
-            video_path=video_path,
-            stable_json_stem=Path(stable_json).stem,
-            extra_info=extra_info,
-            knowledge_root=knowledge_root,
-            knowledge_enabled=collect_feedback,
-            search_rounds=fast_search_rounds,
-            test_profile=test_profile,
-            task_artifact_dir=artifact_dir,
-            task_id=task_id,
-            token_counter=token_counter,
-            profile=profile,
-            collect_task_feedback=collect_feedback,
-            resume=resume,
+    return graph
+
+
+def _auto_style_catalog(knowledge_root: str | Path) -> StyleCatalog:
+    """`--style auto`: the candidates the preparation task picks from."""
+
+    return load_style_catalog(knowledge_root)
+
+
+def _apply_auto_style(
+    selection: StyleSelection,
+    catalog: StyleCatalog,
+    *,
+    knowledge_root: str | Path,
+    context_path: Path,
+    artifact_dir: Path | None,
+    task_id: str,
+    fast: bool,
+) -> tuple[StyleSelection, bool]:
+    """Pin `--style auto`'s pick before any window starts; ``(selection, window_picks)``.
+
+    The record comes first, in both modes (auto-style-gaps plan, C 「先读记录」
+    step 1): whatever this task already committed -- the preparation task's
+    pick in `research-context.json` (which outranks any artifact copy), else a
+    fast window's `style_selection` artifact or an earlier run's no-choice
+    result (`_recorded_style_choice`) -- is what a resume uses, whatever the
+    base holds now. Handing a recorded fast pick back to the
+    window would let a resume re-pick, and the two halves of a split window
+    mix styles.
+
+    Without a record:
+
+    * nothing to choose (no styles, or only `default_style`), or a selection
+      that does not ask (``ask=False``: efficiency, owner 2026-10-02): a
+      silent, persisted choice of the static default -- `default_style` when
+      it exists, else none (step 2). Not a fallback: nobody was asked, because
+      there was nothing to ask about or this difficulty does not ask.
+    * fast, with candidates: the window picks (``window_picks``) and records
+      it itself -- the batched request turn or the agentic delivery.
+    * normal mode, with candidates: the preparation task had to pick and
+      record it (or fail the task), so no record is a fact about the setup
+      -- a context made without auto, for one -- and says so.
+    """
+
+    choice = _recorded_style_choice(context_path=context_path, artifact_dir=artifact_dir)
+    # Whether "no style this run" is a fact about the *setup* (worth saying) or
+    # a recorded decision (the task looked and chose none -- auto-style plan
+    # §2.2: "一次无匹配是正常结果，记录简短理由，不作为 warning").
+    structural = False
+    if choice is None:
+        if not catalog.has_choice or not selection.ask:
+            choice = StyleChoice(
+                outcome="selected" if catalog.has_default else "none",
+                key=DEFAULT_STYLE_NAME if catalog.has_default else "",
+                reason="没有可选的 style" if not catalog.has_choice else "efficiency 不做风格选择",
+                rev=catalog.rev,
+            )
+        elif fast:
+            return selection, True
+        else:
+            choice = StyleChoice(
+                outcome="none", reason="准备阶段没有留下风格选择记录", rev=catalog.rev
+            )
+            structural = True
+    render_rev = choice.rev
+    if choice.key:
+        # The record is honoured before the catalog is judged: a task whose
+        # styles have all been retired since can still render its pick out of
+        # history, and dropping it would take the style off the remaining
+        # windows of a task that already used it.
+        renderable, render_rev = _renderable_style_rev(knowledge_root, choice)
+        if not renderable:
+            # Neither the revision it was picked at nor the current base can
+            # produce this style's rules any more. `render_style_block` would
+            # raise and take the whole resume with it, over a style: drop it and
+            # say so. An explicit `--style <名>` still raises: there the name is
+            # the user's own instruction, not a recovered record.
+            choice = StyleChoice(
+                outcome="none",
+                reason=f"记录里选中的 {choice.key!r} 已无法从知识库渲染出正文",
+                rev=catalog.rev,
+            )
+            structural = True
+    if choice.outcome == "none" and structural:
+        current_reporter().warning(
+            "style-auto-none",
+            f"--style auto 本次没有选中风格：{choice.reason}",
+            impact="本次不注入风格约定",
         )
-        fast_kwargs = _fast_execute_kwargs(fast_decision, fast_ctx, fast_file_ref, profile)
-    elif research_stage_runs(
-        profile, knowledge_root=knowledge_root, knowledge_enabled=collect_feedback
-    ):
-        # Runs for fast vectors too when they are not retrieval=local: their
-        # fused round has no query/entry step, so without this stage a fast
-        # none/native run would never read the knowledge base at all (r1 is
-        # the session's only entry pick on those vectors; see
-        # docs/llm_harness_behavior.md). Under
-        # ``none`` this is r1 only; under ``native`` r2 also runs and its
-        # general context reaches the fused window (window-specific contexts
-        # are keyed by the multi-window plan and simply miss).
+    if artifact_dir:
+        append_task_artifact(
+            artifact_dir, kind="style_selection", task_id=task_id, payload=choice.to_dict()
+        )
+    return selection.resolved(choice.names, rev=render_rev), False
+
+
+def _record_named_style(
+    selection: StyleSelection,
+    *,
+    knowledge_root: str | Path,
+    artifact_dir: Path,
+    task_id: str,
+) -> None:
+    """Record an explicitly named style as this task's choice.
+
+    The name is the user's instruction for this run and is never overridden by
+    a record. Recording it is for a later run of the same task that names
+    nothing: under the default `auto` that resume reads the task's record first
+    and continues the named style instead of picking anew or, finding no
+    record, running without one (owner 2026-10-02, same root cause as the
+    efficiency resume). One name, or an explicit "none"; a stacked
+    `--style 甲组,乙组` has no single-choice record shape and is not recorded.
+    """
+
+    if selection.mode == "none" or len(selection.names) > 1:
+        return
+    if selection.names:
+        keys = resolve_style_keys(knowledge_root, selection.names, rev=selection.rev)
+        choice = StyleChoice(
+            outcome="selected", key=keys[0], reason="--style 点名", rev=selection.rev, intent="named"
+        )
+    else:
+        choice = StyleChoice(outcome="none", reason="--style 显式不用风格", intent="named")
+    append_task_artifact(
+        artifact_dir, kind="style_selection", task_id=task_id, payload=choice.to_dict()
+    )
+
+
+def _previewed_style_names(selection: StyleSelection, catalog: StyleCatalog) -> tuple[str, ...]:
+    """What a plan's prompt artifacts show as the injected style.
+
+    A plan runs no preparation and pins nothing, so under `auto` it can only
+    show what is already certain: with no choice to make, the no-choice result
+    (`default_style` when the store has it) -- the shape the old default showed.
+    With a choice the pick is the model's, and the plan shows none.
+    """
+
+    if selection.names or not selection.auto:
+        return selection.names
+    if (not catalog.has_choice or not selection.ask) and catalog.has_default:
+        return (f"{STYLE_CATEGORY}{CATEGORY_SEPARATOR}{DEFAULT_STYLE_NAME}",)
+    return ()
+
+
+def writable_styles_for_task(
+    selection: StyleSelection,
+    *,
+    knowledge_root: str | Path,
+    output_path: str | Path,
+    artifact_dir: Path,
+) -> tuple[str, ...]:
+    """The styles a task's post-task update may write, for a caller that ran
+    the correction task itself (`workflows.reference_ingest`): `selection`'s
+    own names, or -- under `auto` -- the pick the task recorded."""
+
+    if not selection.auto:
+        return selection.writable
+    anchor = Path(output_path).expanduser().resolve()
+    context_path = ensure_research_context_path(
+        artifact_dir=artifact_dir, stem=anchor.stem, run_dir=anchor.parent
+    )
+    return _writable_style_names(
+        selection,
+        load_style_catalog(knowledge_root),
+        context_path=context_path,
+        artifact_dir=artifact_dir,
+    )
+
+
+def _renderable_style_rev(
+    knowledge_root: str | Path, choice: StyleChoice
+) -> tuple[bool, int | None]:
+    """``(can it render, at which revision)`` for a recorded pick.
+
+    The revision it was made against first (auto-style plan §5: a resume
+    injects the rules the earlier windows actually saw, so rewriting -- or
+    retiring -- the entry afterwards changes nothing for this task), then the
+    current base. ⚠ The two answers have to come back together: probing both
+    and then rendering at the recorded one turned "the recorded revision has
+    no such entry but the current base does" into a `StyleSelectionError` at
+    render time -- exactly what this check exists to prevent. That cell is
+    reachable whenever the recorded revision belongs to a *different* store
+    (`knowledge/` rebuilt, or a different `--knowledge-root`), because a
+    revision is an integer with meaning only inside one store.
+    """
+
+    for rev in ((choice.rev, None) if choice.rev is not None else (None,)):
+        try:
+            if load_style_entries(knowledge_root, choice.names, rev=rev):
+                return True, rev
+        except StyleSelectionError:
+            continue
+    return False, None
+
+
+def _recorded_style_choice(
+    *, context_path: Path | None, artifact_dir: Path | None
+) -> StyleChoice | None:
+    """The pick this *task* committed, read back from whatever recorded it.
+
+    Two kinds of record, both durable and both belonging to the task rather
+    than to one run:
+
+    * `research-context.json`'s ``style_selection`` -- the preparation task's
+      pick. **It wins whenever it is there.** The orchestrator copies every pin
+      into a `style_selection` artifact as well, and that copy must never
+      outrank the context it was copied from: when the preparation reruns
+      (its reuse key changed, or the user deleted the context) and picks
+      anew, the new context is the task's decision, and reading the old copy
+      first would inject and grant writes to a style the context and the
+      report no longer name (peer review of phase A, 2026-10-01).
+    * the latest `style_selection` artifact -- where the record lives when the
+      context holds none: a fast window's pick (with ``chunk_id``; fast runs no
+      preparation, so its context has no pick), and the no-choice result
+      `_apply_auto_style` records for a run with nothing to choose.
+
+    One rule for both modes, so the pin and the post-task write read the same
+    record -- and the write is reached from an early return that never decides
+    fast or not.
+
+    Reading it back rather than handing it along in memory is what covers the
+    runs that never reach the windows at all: an SRT that already exists takes
+    an early return, which is exactly the shape of "the knowledge update was
+    interrupted, run it again".
+    """
+
+    if context_path is not None:
+        try:
+            saved = json.loads(context_path.read_text(encoding="utf-8")).get("style_selection")
+        except (OSError, ValueError):
+            saved = None
+        if isinstance(saved, Mapping):
+            return StyleChoice.from_dict(saved)
+    if artifact_dir:
+        path = Path(artifact_dir) / TASK_ARTIFACT_FILENAME
+        try:
+            lines = path.read_text(encoding="utf-8").splitlines()
+        except OSError:
+            lines = []
+        for line in reversed(lines):
+            try:
+                record = json.loads(line)
+            except ValueError:
+                continue
+            if record.get("kind") == "style_selection" and isinstance(
+                record.get("payload"), Mapping
+            ):
+                return StyleChoice.from_dict(record["payload"])
+    return None
+
+
+def _writable_style_names(
+    selection: StyleSelection,
+    catalog: StyleCatalog,
+    *,
+    context_path: Path,
+    artifact_dir: Path | None,
+) -> tuple[str, ...]:
+    """Which style the post-task knowledge update may write into (§6).
+
+    `selection.writable` as soon as this run pinned a name. Under `--style
+    auto` it may never have: the fast window picks inside itself, and an early
+    return skips the pin entirely. The pick is a property of the task, so it is
+    recovered from the durable record instead.
+
+    ⚠ **Reading and writing are judged against different revisions.** The
+    translation may render a retired entry out of history (§5: the resume
+    injects the rules the earlier windows saw); a proposal has nowhere to land
+    -- the update writes to the current head, and `resolve_style_keys` would
+    raise on a name that is no longer there. So the write target is always
+    checked against the *current* catalog, including the names this run pinned
+    itself.
+    """
+
+    if selection.mode != "update":
+        return ()
+    if not selection.auto:
+        # An explicit `--style <名>` is the user's own instruction; a name that
+        # no longer resolves is their error to hear about, not ours to drop.
+        # (The catalog is not even loaded for those runs.)
+        return selection.writable
+    names = selection.writable or ()
+    if not names:
+        choice = _recorded_style_choice(context_path=context_path, artifact_dir=artifact_dir)
+        if choice is None or not choice.key:
+            return ()
+        names = choice.names
+    # Compared as the qualified names both sides are built from, not by
+    # splitting one back apart: `StyleChoice.names` and this set come from the
+    # same key, so there is nothing to parse.
+    current = {f"{STYLE_CATEGORY}/{c.key}" for c in catalog.candidates}
+    return tuple(name for name in names if name in current)
+
+
+def _prepare_stage_runs(fast_decision: FastDecision) -> bool:
+    """Normal mode always prepares (plan §3: capabilities only shape the task);
+    fast mode never does -- the whole input is one translate task that asks
+    for its own inputs."""
+
+    return not fast_decision.enabled
+
+
+@dataclass
+class CorrectionOutcome:
+    """What one task produced, for the front end to report."""
+
+    #: The SRT the task ended at: final, or translated when the request stops
+    #: before postprocess. None for a plan or a research-only request.
+    result: Path | None = None
+    #: The result was already on disk: nothing ran but what it still owed
+    #: (the postprocess tail, the knowledge update).
+    result_reused: bool = False
+    #: The research context the windows read, and whether an earlier run (or
+    #: the caller, through ``context_file``) had already prepared it.
+    research_context: Path | None = None
+    research_reused: bool = False
+    #: The post-task knowledge update's report, when ``knowledge="update"``.
+    knowledge_update: Dict[str, Any] | None = None
+    artifact_dir: Path | None = None
+
+
+def run_correction_task(request: CorrectionRequest) -> CorrectionOutcome:
+    """Run one correction task -- research, the windows, the knowledge update --
+    inside its run boundary.
+
+    Every front end comes through here (the module CLI, ``run_pipeline``'s LLM
+    stage, reference ingest), so the task is orchestrated once: there used to
+    be a second copy in the CLI, and fixes kept landing in only one of them.
+
+    The boundary: the run's agent slot account, one agent session scope that
+    research, the windows and the knowledge update share (docs/llm_local_agent.md
+    §12.1.3), and the knowledge generation pin (``_generation_pin``;
+    ``knowledge="none"`` never opens the store). An executed task also books
+    its timing into the run metadata and writes the task report -- after the
+    session scope has closed, so the report sees what those sessions spent.
+
+    Refusals are ``CorrectionRequestError`` and come before any work.
+    """
+
+    request = _resolve_request(request)
+    artifact_dir = _task_artifact_dir(request)
+    execute = request.mode == "execute"
+    out = Path(request.output_path).expanduser().resolve() if request.output_path else None
+    task_id = _task_id(request)
+    existed = bool(
+        execute and out and (out.exists() or out.with_name(f"{out.stem}-translated.srt").exists())
+    )
+    status = "reused" if existed and request.knowledge != "update" and not _judge_owed(request) else "executed"
+    started = time.perf_counter()
+    if status == "reused":
+        # An earlier run left the output and nothing is owed but, at most, the
+        # postprocess tail: no agent slot, session or knowledge pin is needed,
+        # and taking a slot would queue a finished item of a batch resume
+        # behind the agent tasks still running.
+        finished = _finished_output(request, out, artifact_dir=artifact_dir, task_id=task_id)
+        if finished is not None:
+            _book_run(out, artifact_dir, task_id=task_id, status=status, started=started)
+            return CorrectionOutcome(result=finished, result_reused=True, artifact_dir=artifact_dir)
+    _record_switches(request, artifact_dir)
+    sessions: Any = None
+    outcome: CorrectionOutcome | None = None
+    try:
+        with _task_slots(request.test_profile), agent_session_scope() as sessions, _generation_pin(
+            str(request.knowledge), request.knowledge_root
+        ):
+            if artifact_dir is not None:
+                # Said once, while the scope is open: it files what the
+                # sessions kept when it closes.
+                set_run_evidence_destination(artifact_dir)
+            outcome = _run_task(request, artifact_dir)
+        return outcome
+    except BaseException:
+        status = "failed"
+        raise
+    finally:
+        if sessions is not None and artifact_dir is not None:
+            write_agent_session_usage(artifact_dir, sessions)
+        if execute and out is not None and artifact_dir is not None:
+            _book_run(out, artifact_dir, task_id=task_id, status=status, started=started)
+        elif outcome is not None and outcome.research_context and artifact_dir is not None:
+            write_task_report(
+                artifact_dir,
+                task_id=task_id,
+                outputs={"research_context": str(outcome.research_context)},
+            )
+
+
+def _resolve_request(request: CorrectionRequest) -> CorrectionRequest:
+    """``resolved_request``, plus the runtime's knowledge root for an unset one."""
+
+    request = resolved_request(request)
+    if request.knowledge_root is None:
+        request = replace(request, knowledge_root=DEFAULT_KNOWLEDGE_ROOT)
+    return request
+
+def _task_id(request: CorrectionRequest) -> str:
+    return request.task_id or Path(request.stable_json).stem
+
+
+def _record_switches(request: CorrectionRequest, artifact_dir: Path | None) -> None:
+    """Write ``RESOLVED_SWITCHES_FILENAME`` -- what this task's correction
+    actually ran with and where each switch came from, for whoever reads the
+    run later (owner 2026-09-30: downstream readers, not the retired desktop's
+    record) -- and note the switches nobody typed.
+
+    Here rather than in a front end because every front end comes through
+    this function, and because only here is the vector the one the task
+    really uses (reference ingest's ASR step runs ``run_pipeline`` with no LLM
+    switches at all). Notes go to ``debug`` -- the log file always, the
+    terminal under ``--verbose`` -- like the other routing notes.
+    """
+
+    profile = request.profile
+    values = {
+        "media": profile.correction_media,
+        "retrieval": profile.retrieval,
+        "difficulty": profile.difficulty,
+        "continuity": profile.continuity,
+        "knowledge": str(request.knowledge),
+        "parallel_windows": request.parallel_windows,
+    }
+    sources = dict(request.switch_sources or {key: "caller" for key in values})
+    for key, source in sources.items():
+        if source.startswith("preset:"):
+            current_reporter().debug(f"{key}={values[key]} 来自预设 {source[len('preset:'):]}（命令行未指定）")
+        elif source.startswith(("pinned:efficiency", "capped:efficiency")):
+            how, _, replaced = source.partition(":efficiency")
+            replaced = replaced.strip("()")
+            current_reporter().debug(
+                f"{key}={values[key]}：difficulty=efficiency {'钉死' if how == 'pinned' else '封顶'}（命令行未指定"
+                + (f"；{replaced.replace('preset:', '预设 ')} 不生效" if replaced else "")
+                + "）"
+            )
+    if artifact_dir is None:
+        return
+    artifact_dir.mkdir(parents=True, exist_ok=True)
+    (artifact_dir / RESOLVED_SWITCHES_FILENAME).write_text(
+        json.dumps(
+            {"switches": values, "sources": sources, "active_preset": _active_preset_id()},
+            ensure_ascii=False,
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+
+def _active_preset_id() -> str:
+    from .routing.model_routes import default_model_routes
+
+    return default_model_routes().active_preset_id
+
+
+def _task_artifact_dir(request: CorrectionRequest) -> Path | None:
+    """Where the task keeps its artifacts: as asked, else beside the output
+    (beside the input when research runs without one). A plan without an
+    explicit directory keeps none."""
+
+    if request.task_artifact_dir:
+        return Path(request.task_artifact_dir).expanduser().resolve()
+    if request.mode == "plan":
+        return None
+    if request.output_path:
+        return Path(request.output_path).expanduser().resolve().with_suffix(ARTIFACT_DIR_SUFFIX)
+    source = Path(request.stable_json).expanduser().resolve()
+    return source.with_name(f"{source.stem}{ARTIFACT_DIR_SUFFIX}")
+
+
+def _research_context_path(request: CorrectionRequest, artifact_dir: Path) -> Path:
+    anchor = Path(request.output_path or request.stable_json).expanduser().resolve()
+    return ensure_research_context_path(
+        artifact_dir=artifact_dir, stem=anchor.stem, run_dir=anchor.parent
+    )
+
+
+def _finished_output(
+    request: CorrectionRequest, out: Path, *, artifact_dir: Path, task_id: str
+) -> Path | None:
+    """The task's output when an earlier run already produced it (stages skip
+    on existence), finishing the postprocess tail on the way; None when the
+    windows still have to run."""
+
+    translated = out.with_name(f"{out.stem}-translated.srt")
+    if request.postprocess_profile is None:
+        return translated if translated.exists() else None
+    if out.exists():
+        return out
+    if not translated.exists():
+        return None
+    # The pad bound is the duration recognition recorded, not a probe: by
+    # now the source may be gone (a URL input whose download was cleaned up).
+    from finesub.speech.postprocessing.stabilization import recorded_audio_end
+
+    report = postprocess_srt_file(
+        translated,
+        output_path=out,
+        profile=request.postprocess_profile,
+        audio_end=recorded_audio_end(request.stable_json),
+    )
+    raw = out.with_name(f"{out.stem}-raw.srt")
+    append_task_artifact(
+        artifact_dir,
+        kind="final_srt",
+        task_id=task_id,
+        payload={
+            "path": str(out),
+            **({"raw_path": str(raw)} if raw.exists() else {}),
+            "translated_path": str(translated),
+            "postprocess": report.to_dict(),
+        },
+    )
+    return out
+
+
+def _run_task(request: CorrectionRequest, artifact_dir: Path | None) -> CorrectionOutcome:
+    profile = request.profile
+    root = request.knowledge_root
+    knowledge = str(request.knowledge)
+    reads = knowledge_reads(knowledge)
+    feedback = collects_feedback(request)
+    subject_names = parse_subject_names(request.knowledge_subjects) if reads else ()
+    task_id = _task_id(request)
+    task_summary = request.task_summary or f"LLM subtitle correction task {task_id}"
+    execute = request.mode == "execute"
+    out = Path(request.output_path).expanduser().resolve() if request.output_path else None
+    audio_label = str(request.audio_path) if request.audio_path else ""
+    outcome = CorrectionOutcome(artifact_dir=artifact_dir)
+
+    # Before the early return below (it can still owe a knowledge update,
+    # which writes into the pick) and before planning (a plan must render the
+    # prompt the run would really send; review 2026-09-02).
+    style_selection = resolve_style_selection(
+        request.style,
+        request.style_mode,
+        knowledge_root=root,
+        difficulty=profile.difficulty if request.style_efficiency_cap else "",
+    )
+    style_catalog = _auto_style_catalog(root) if style_selection.auto else StyleCatalog()
+    # What a model is shown and asked to pick from: only a catalog with a
+    # choice in it. Only `default_style`, or no style at all, asks nobody and
+    # costs no call -- `_apply_auto_style` records the no-choice result.
+    offered_catalog = (
+        style_catalog if style_catalog.has_choice and style_selection.ask else StyleCatalog()
+    )
+    if execute:
+        _warn_if_style_update_is_inert(style_selection, knowledge, request.refined_srt)
+    # Where `--style auto` reads its pick back from: the preparation task
+    # persisted it into the context this run uses, which `context_file`
+    # redirects. Resolved before the early return, which is the resumed-update
+    # path that reads it.
+    context_path = (
+        (Path(request.context_file) if request.context_file else _research_context_path(request, artifact_dir))
+        if artifact_dir is not None and request.mode != "plan"
+        else None
+    )
+
+    def knowledge_update(result: Path) -> None:
+        if knowledge != "update":
+            return
+        outcome.knowledge_update = run_post_correction_knowledge_update(
+            task_id=task_id,
+            task_summary=task_summary,
+            result_srt_path=result,
+            output_path=out,
+            stable_json=request.stable_json,
+            artifact_dir=artifact_dir,
+            refined_srt=request.refined_srt,
+            knowledge_root=root,
+            test_profile=request.test_profile,
+            difficulty=profile.difficulty,
+            style_names=_writable_style_names(
+                style_selection, style_catalog, context_path=context_path, artifact_dir=artifact_dir
+            ),
+            subject_names=subject_names,
+        )
+
+    if execute:
+        finished = _finished_output(request, out, artifact_dir=artifact_dir, task_id=task_id)
+        if finished is not None:
+            outcome.result, outcome.result_reused = finished, True
+            if _judge_owed(request):
+                _judge_finished_task(request, out, artifact_dir=artifact_dir, task_id=task_id,
+                                     context_path=context_path, knowledge_root=root if reads else None)
+            knowledge_update(finished)
+            return outcome
+
+    # Shared across planning, research and the windows: the sha cache makes
+    # repeated countTokens calls over identical window texts free.
+    token_counter = default_token_counter()
+    try:
+        fast_decision = decide_fast_mode(
+            stable_json=request.stable_json,
+            fast=request.fast,
+            profile=profile,
+            audio_path=request.audio_path,
+            extra_info=request.extra_info,
+            knowledge_root=root,
+            knowledge_enabled=reads,
+            token_counter=token_counter,
+            # Required: omitting it silently plans against DEFAULT_LIMITS
+            # (test_llm_fast_plan guards every call site and says why). The
+            # group planning envelope (plan v2 D13) budgets the fast window
+            # against the correction cell's group minimum.
+            limits=correction_planning_limits(profile),
+            max_window_subtitle_tokens=request.max_window_subtitle_tokens,
+            style_catalog=offered_catalog.render(),
+        )
+    except ValueError as exc:
+        raise CorrectionRequestError(str(exc)) from exc
+    if execute:
+        # A plan works without configured provider keys; execution checks the
+        # shape the fast planner chose before the first model call.
+        try:
+            validate_profile_capabilities(profile, test_profile=request.test_profile)
+        except CapabilityUnavailableError as exc:
+            raise CorrectionRequestError(str(exc)) from exc
+    if request.on_plan is not None:
+        artifacts = build_prompt_artifacts(
+            style_names=_previewed_style_names(style_selection, style_catalog),
+            style_catalog=offered_catalog.render(),
+            extra_style=request.extra_style,
+            test_profile=request.test_profile,
+            stable_json=request.stable_json,
+            audio_path=request.audio_path,
+            video_path=request.video_path,
+            audio_label=audio_label,
+            extra_info=request.extra_info,
+            knowledge_root=root,
+            knowledge_enabled=reads,
+            task_update_feedback=feedback,
+            counter=token_counter,
+            profile=profile,
+            max_window_subtitle_tokens=request.max_window_subtitle_tokens,
+            speakers=request.speaker_judge != "off",
+        )
+        artifacts["fast_decision"] = fast_decision.to_metadata()
+        if request.speaker_judge != "off":
+            artifacts.update(_preview_judge(request, fast_decision, token_counter, knowledge_root=root if reads else None))
+        request.on_plan(artifacts)
+    if request.mode == "plan":
+        return outcome
+    assert artifact_dir is not None and context_path is not None
+    _record_dispatch(
+        artifact_dir, task_id=task_id, fast_decision=fast_decision, profile=profile, knowledge=knowledge,
+        # `auto` over a store with no style at all selects nothing -- the
+        # same grant the old default gave that store.
+        style_selected=bool(style_selection.names) or (style_selection.auto and bool(style_catalog)),
+        test_profile=request.test_profile,
+    )
+
+    fast_kwargs: Dict[str, Any] = {}
+    if request.context_file:
         if fast_decision.enabled:
-            fast_kwargs = _fast_execute_kwargs(fast_decision, None, None, profile)
+            fast_kwargs = _fast_execute_kwargs(fast_decision)
+        try:
+            context_pack = load_research_context(request.context_file)
+        except (OSError, ValueError, TypeError, json.JSONDecodeError) as exc:
+            # An explicitly named file is an instruction, not a checkpoint:
+            # say why it cannot be used instead of quietly researching again.
+            raise CorrectionRequestError(
+                f"Error: {request.context_file} is not a usable research context ({exc})."
+            ) from exc
+        _seed_transfer_from_context(context_path, fast_kwargs)
+        outcome.research_context, outcome.research_reused = context_path, True
+    elif not _prepare_stage_runs(fast_decision):
+        # Fast: one whole-input task, no preparation. The user's notes still
+        # reach the window as its general context -- nothing else digests them.
+        fast_kwargs = _fast_execute_kwargs(fast_decision)
+        context_pack = fast_context_pack(request.extra_info)
+    else:
         context_pack = None
         if context_path.exists():
             context_pack = _load_reusable_research_context(
                 context_path,
                 expected_planning=planning_metadata(
                     profile,
-                    stable_json=stable_json,
-                    extra_info=extra_info,
-                    knowledge_root=knowledge_root,
-                    knowledge_enabled=collect_feedback,
-                    search_rounds=research_search_rounds,
-                    collect_task_feedback=collect_feedback,
+                    stable_json=request.stable_json,
+                    extra_info=request.extra_info,
+                    knowledge_root=root,
+                    knowledge_enabled=reads,
+                    collect_task_feedback=feedback,
                     audio_duration=(
-                        probe_audio_duration(audio_path) if audio_path else None
+                        probe_audio_duration(request.audio_path) if request.audio_path else None
                     ),
-                    max_window_subtitle_tokens=max_window_subtitle_tokens,
+                    max_window_subtitle_tokens=request.max_window_subtitle_tokens,
                     limits=correction_planning_limits(profile),
-                    test_profile=test_profile,
+                    test_profile=request.test_profile,
                 ),
             )
+        outcome.research_reused = context_pack is not None
         if context_pack is None:
             context_pack = run_research_stage(
-                stable_json=stable_json,
+                stable_json=request.stable_json,
                 context_path=context_path,
-                audio_path=audio_path,
-                extra_info=extra_info,
-                knowledge_root=knowledge_root,
-                knowledge_enabled=collect_feedback,
-                search_rounds=research_search_rounds,
-                test_profile=test_profile,
+                audio_path=request.audio_path,
+                extra_info=request.extra_info,
+                knowledge_root=root,
+                knowledge_enabled=reads,
+                test_profile=request.test_profile,
                 task_artifact_dir=artifact_dir,
                 task_id=task_id,
                 token_counter=token_counter,
                 profile=profile,
-                collect_task_feedback=collect_feedback,
-                resume=resume,
-                max_window_subtitle_tokens=max_window_subtitle_tokens,
-                parallel_windows=parallel_windows,
+                collect_task_feedback=feedback,
+                resume=request.resume,
+                max_window_subtitle_tokens=request.max_window_subtitle_tokens,
+                parallel_windows=request.parallel_windows,
+                runner_kwargs={
+                    **({"style_catalog": offered_catalog, "extra_style": request.extra_style} if offered_catalog else {}),
+                    # The judge's cast candidates: asked only when it will run (owner 2026-10-09).
+                    **({"speakers": True} if request.speaker_judge != "off" else {}),
+                } or None,
             )
-        # v17: the research stage's <keep_entries> seeds the first window's
+        outcome.research_context = context_path
+        # v17: the preparation task's <keep_entries> seeds the first window's
         # transfer chain (persisted in the context JSON, so reuse keeps it).
-        # This is also what replaced the text route's note-keyword seeding --
-        # R1 now picks entries for every vector with a readable index, by
-        # judgment over the whole transcript rather than by keyword match.
         _seed_transfer_from_context(context_path, fast_kwargs)
-    elif fast_decision.enabled:
-        # Fast on a vector with nothing to research (no retrieval, no index).
-        fast_kwargs = _fast_execute_kwargs(fast_decision, None, None, profile)
-
+    # The task's style is decided -- and recorded -- before a research-only
+    # run returns: a later full run (perhaps after styles were added, or at
+    # another difficulty) has to find the decision this task already made.
+    window_picks = False
+    if style_selection.auto:
+        style_selection, window_picks = _apply_auto_style(
+            style_selection,
+            style_catalog,
+            knowledge_root=root,
+            context_path=context_path,
+            artifact_dir=artifact_dir,
+            task_id=task_id,
+            fast=fast_decision.enabled,
+        )
+    else:
+        _record_named_style(
+            style_selection, knowledge_root=root, artifact_dir=artifact_dir, task_id=task_id
+        )
+    if request.mode == "research":
+        return outcome
+    # The task's style is fixed here whenever the orchestrator decides it (an
+    # explicit `--style`, the static `default_style`, or an `auto` pick or
+    # record); a fast window that picks books its own when it does.
+    record_style_injected(
+        root, style_selection.names, task_id=task_id, rev=style_selection.rev
+    )
+    # Resolved once and shared: a second resolution would find the plan file
+    # this one wrote and read it as reused.
+    correction_plan = resolve_correction_plan(
+        stable_json=request.stable_json,
+        task_artifact_dir=artifact_dir,
+        test_profile=request.test_profile,
+        audio_path=request.audio_path,
+        video_path=request.video_path,
+        token_counter=token_counter,
+        resume=request.resume,
+        profile=profile,
+        max_window_subtitle_tokens=request.max_window_subtitle_tokens,
+        windows_override=fast_kwargs.pop("windows_override", None),
+    )
+    if request.speaker_judge != "off":
+        # Before the windows, which read nothing it writes in route one: the place route three's
+        # minimal version (the correction reading the verdicts) needs (`docs/llm_followups.md`
+        # 「说话人裁判的另两种接法」).
+        _judge_safely(request, correction_plan.windows, context_pack, artifact_dir=artifact_dir, task_id=task_id,
+                      knowledge_root=root if reads else None, fallback_title=_judge_title(request, out))
     result = execute_correction_windows(
-        stable_json=stable_json,
+        plan=correction_plan,
+        style_catalog=offered_catalog if window_picks else None,
+        stable_json=request.stable_json,
         output_path=out,
         context_pack=context_pack,
-        audio_label=str(audio_path) if audio_path else "",
-        audio_path=audio_path,
-        video_path=video_path,
-        test_profile=test_profile,
-        max_retries_per_window=max_retries_per_window,
-        max_replacements_per_window=max_replacements_per_window,
-        parallel_window_limit=parallel_windows,
-        postprocess_profile=postprocess_profile,
-        extra_style=extra_style,
-        style_block=render_style_block(knowledge_root, style_names)
+        audio_label=audio_label,
+        audio_path=request.audio_path,
+        video_path=request.video_path,
+        test_profile=request.test_profile,
+        max_retries_per_window=request.max_retries_per_window,
+        max_replacements_per_window=request.max_replacements_per_window,
+        parallel_window_limit=request.parallel_windows,
+        postprocess_profile=request.postprocess_profile,
+        extra_style=request.extra_style,
+        style_block=render_style_block(root, style_selection.names, rev=style_selection.rev)
         + render_subject_block(
-            knowledge_root, subject_names, count_tokens=token_counter.count_text
+            root, subject_names, count_tokens=token_counter.count_text, rev=style_selection.rev
         ),
-        knowledge_enabled=collect_feedback,
+        knowledge_enabled=reads,
         task_artifact_dir=artifact_dir,
         task_id=task_id,
-        task_update_feedback=collect_feedback,
+        task_update_feedback=feedback,
         token_counter=token_counter,
-        resume=resume,
+        resume=request.resume,
         profile=profile,
-        knowledge_root=knowledge_root,
-        max_window_subtitle_tokens=max_window_subtitle_tokens,
+        knowledge_root=root,
+        max_window_subtitle_tokens=request.max_window_subtitle_tokens,
         **fast_kwargs,
     )
-    _maybe_knowledge_update(result)
-    return result
+    outcome.result = Path(result)
+    knowledge_update(outcome.result)
+    return outcome
 
 
-def _generation_pin(kwargs: Mapping[str, Any]) -> ContextManager[Any]:
+def _judge_owed(request: CorrectionRequest) -> bool:
+    """The speaker judge is on and its sidecar does not yet cover this stable."""
+
+    if request.speaker_judge == "off":
+        return False
+    from finesub.speech.diarization.judgments import covers
+
+    return not covers(request.stable_json)
+
+
+def _judge_safely(request: CorrectionRequest, windows: Any, context_pack: Any, *, artifact_dir: Path, task_id: str,
+                  knowledge_root: Any, fallback_title: str) -> None:
+    """The judge is an optional step: whatever goes wrong in it is a warning, never the correction's failure."""
+
+    from .stages.speaker_judge.task import judge_task
+
+    try:
+        judge_task(request, windows, context_pack, client=RoleClient(test_profile=request.test_profile),
+                   artifact_dir=artifact_dir, task_id=task_id, knowledge_root=knowledge_root,
+                   fallback_title=fallback_title, warn=_judge_warning, counter=default_token_counter())
+    except Exception as error:  # noqa: BLE001 - see the docstring
+        _judge_warning(f"说话人裁判没跑完（{type(error).__name__}: {error}），没判的行保留声学标签；纠错照常进行")
+
+
+def _judge_title(request: CorrectionRequest, out: Path | None) -> str:
+    return (out or Path(request.stable_json)).stem.removesuffix("-stable")
+
+
+def _judge_warning(message: str) -> None:
+    current_reporter().warning("speaker-judge", message)
+
+
+def _judge_finished_task(
+    request: CorrectionRequest, out: Path, *, artifact_dir: Path, task_id: str, context_path: Path | None,
+    knowledge_root: Any,
+) -> None:
+    """The judge for a task whose correction already finished: the preparation task's context is
+    reused when it is there, the windows are the saved correction plan's (else a fresh plan, not
+    written), and only the `-annotated.csv` `spk` column is rendered again -- the correction itself is
+    never re-run."""
+
+    context_pack = None
+    if context_path is not None and context_path.exists():
+        try:
+            context_pack = load_research_context(context_path)
+        except (OSError, ValueError, TypeError, json.JSONDecodeError):
+            context_pack = None
+    try:
+        windows = resolve_correction_plan(
+            stable_json=request.stable_json, task_artifact_dir=artifact_dir, test_profile=request.test_profile,
+            audio_path=request.audio_path, video_path=request.video_path, token_counter=default_token_counter(),
+            resume=True, profile=request.profile, max_window_subtitle_tokens=request.max_window_subtitle_tokens,
+            persist=False,
+        ).windows
+    except Exception as error:  # noqa: BLE001 - the judge is optional: its windows failing is a warning too
+        _judge_warning(f"说话人裁判没跑（排窗失败：{type(error).__name__}: {error}），行保留声学标签；成品不变")
+        return
+    _judge_safely(request, windows, context_pack, artifact_dir=artifact_dir, task_id=task_id,
+                  knowledge_root=knowledge_root, fallback_title=_judge_title(request, out))
+    if not refresh_annotated_speakers(stable_json=request.stable_json, output_path=out):
+        _judge_warning(f"{out.stem}-annotated.csv 不在，裁判结果只进了 sidecar 与分轨导出")
+
+
+def _preview_judge(request: CorrectionRequest, fast_decision: FastDecision, counter: Any, *,
+                   knowledge_root: Any) -> Dict[str, Any]:
+    """The dry run's judge prompts. Its windows nest in the plan this dry run computes itself, never
+    written to the plan file -- a later real run must not take a dry run's plan as its own."""
+
+    from .chunking import load_segments_from_stable_json, plan_correction_windows
+    from .stages.speaker_judge.task import preview_task
+
+    if fast_decision.enabled:
+        windows = [fast_decision.window]
+    else:
+        windows = plan_correction_windows(
+            load_segments_from_stable_json(request.stable_json), counter=counter,
+            context_tokens=WINDOW_PLANNING_CONTEXT_RESERVE_TOKENS,
+            audio_duration=probe_audio_duration(request.audio_path) if request.audio_path else None,
+            profile=request.profile, max_window_subtitle_tokens=request.max_window_subtitle_tokens,
+            limits=correction_planning_limits(request.profile),
+        )
+    out = Path(request.output_path) if request.output_path else None
+    return preview_task(request, windows, knowledge_root=knowledge_root, fallback_title=_judge_title(request, out),
+                        counter=counter)
+
+
+def _warn_if_style_update_is_inert(
+    selection: StyleSelection, knowledge: str, refined_srt: str | Path | None
+) -> None:
+    """`update` rides on the post-task knowledge update, and that task may only
+    touch a style with refined subtitles in front of it. Asking for the write
+    without either is a run that quietly behaves like `read`."""
+
+    if not selection.wants_write:
+        return
+    missing = []
+    if knowledge != "update":
+        missing.append("--knowledge update")
+    if not refined_srt:
+        missing.append("--refined-srt")
+    if missing:
+        current_reporter().warning(
+            "style-update-inert",
+            f"--style-mode update 需要 {' 与 '.join(missing)}，本次缺少它们",
+            impact="这套风格照常注入提示词，但本次学到的东西不会写回去",
+            action="补上缺的参数，或改成 --style-mode read 让意图和行为一致",
+        )
+
+
+def _book_run(out: Path, artifact_dir: Path, *, task_id: str, status: str, started: float) -> None:
+    """The executed task's line in the run metadata, and its task report."""
+
+    metadata_path = metadata_path_for_output(out)
+    update_run_metadata(
+        metadata_path,
+        {
+            "task_id": task_id,
+            "timing": {
+                "stages": {
+                    "llm_harness": stage_record(
+                        status=status,
+                        elapsed_sec=None if status == "reused" else time.perf_counter() - started,
+                    )
+                }
+            },
+            "llm_rounds": summarize_llm_rounds(artifact_dir),
+        },
+    )
+    if status != "failed":
+        write_task_report(
+            artifact_dir,
+            task_id=task_id,
+            outputs={
+                "translated_srt": str(out.with_name(f"{out.stem}-translated.srt")),
+                **({"final_srt": str(out)} if out.exists() else {}),
+            },
+            run_metadata_path=metadata_path,
+        )
+
+
+def _generation_pin(knowledge: str, knowledge_root: str | Path | None) -> ContextManager[Any]:
     """Pin every knowledge read of this run to one revision (plan §2.5).
 
     research, the windows and the query rounds all read through the pin; the
     post-run knowledge update passes its own explicit ``working_rev`` per
-    chunk, which overrides it. ``--knowledge none`` never touches the base, so
+    chunk, which overrides it. ``knowledge="none"`` never touches the base, so
     it never opens (or creates) the store either.
     """
 
-    if str(kwargs.get("knowledge") or "none") == "none":
+    if knowledge == "none":
         return nullcontext()
-    root = kwargs.get("knowledge_root", DEFAULT_KNOWLEDGE_ROOT)
+    root = knowledge_root if knowledge_root is not None else DEFAULT_KNOWLEDGE_ROOT
     # Absorb pending rendered/ user edits BEFORE pinning (plan §11.3 / O5):
     # the run then reads the freshly harvested revision. Guarded (worktree
     # gate + write lock) and per-file isolated inside; never blocks the run.
@@ -586,7 +1253,7 @@ def _generation_pin(kwargs: Mapping[str, Any]) -> ContextManager[Any]:
     return pinned_generation_rev(root)
 
 
-def _task_slots(kwargs: Mapping[str, Any]) -> ContextManager[Any]:
+def _task_slots(test_profile: bool) -> ContextManager[Any]:
     """This run's agent slot account (task-parallelism plan W4).
 
     A task whose routing can reach an agent target reserves its mandatory
@@ -595,95 +1262,17 @@ def _task_slots(kwargs: Mapping[str, Any]) -> ContextManager[Any]:
 
     from .run_context import default_task_slots
 
-    return default_task_slots(test_profile=bool(kwargs.get("test_profile")))
-
-
-def run_full_correction(*args: Any, **kwargs: Any) -> Path:
-    """Timed public wrapper around the correction harness."""
-
-    output_path = kwargs.get("output_path")
-    if output_path is None:
-        with _task_slots(kwargs), agent_session_scope(), _generation_pin(kwargs):
-            return _run_full_correction_impl(*args, **kwargs)
-    out = Path(output_path).expanduser().resolve()
-    artifact_dir = (
-        Path(kwargs["task_artifact_dir"]).expanduser().resolve()
-        if kwargs.get("task_artifact_dir")
-        else out.with_suffix(ARTIFACT_DIR_SUFFIX)
-    )
-    existed = out.exists() or out.with_name(f"{out.stem}-translated.srt").exists()
-    started = time.perf_counter()
-    status = (
-        "reused"
-        if existed and str(kwargs.get("knowledge") or "none") != "update"
-        else "executed"
-    )
-    # One scope for the whole run: research, the windows and the knowledge
-    # update each build their own `RoleClient`, and a run-long agent session
-    # is shared by all of them (docs/llm_local_agent.md §12.1.3). It closes
-    # before the report below, which is what lets the report see what those
-    # sessions spent.
-    sessions: Any = None
-    try:
-        with _task_slots(kwargs), agent_session_scope() as sessions, _generation_pin(kwargs):
-            # Said once, while the scope is open: it files what the sessions
-            # kept when it closes, which is after this block and before the
-            # booking below.
-            set_run_evidence_destination(artifact_dir)
-            result = _run_full_correction_impl(*args, **kwargs)
-        return result
-    except BaseException:
-        status = "failed"
-        raise
-    finally:
-        if sessions is not None:
-            write_agent_session_usage(artifact_dir, sessions)
-        metadata_path = metadata_path_for_output(out)
-        update_run_metadata(
-            metadata_path,
-            {
-                "task_id": str(kwargs.get("task_id") or Path(kwargs["stable_json"]).stem),
-                "timing": {
-                    "stages": {
-                        "llm_harness": stage_record(
-                            status=status,
-                            elapsed_sec=(
-                                None
-                                if status == "reused"
-                                else time.perf_counter() - started
-                            ),
-                        )
-                    }
-                },
-                "llm_rounds": summarize_llm_rounds(artifact_dir),
-            },
-        )
-        if status != "failed":
-            write_task_report(
-                artifact_dir,
-                task_id=str(
-                    kwargs.get("task_id") or Path(kwargs["stable_json"]).stem
-                ),
-                outputs={
-                    "translated_srt": str(
-                        out.with_name(f"{out.stem}-translated.srt")
-                    ),
-                    **({"final_srt": str(out)} if out.exists() else {}),
-                },
-                run_metadata_path=metadata_path,
-            )
+    return default_task_slots(test_profile=test_profile)
 
 
 def _seed_transfer_from_context(context_path: Path, fast_kwargs: dict) -> None:
-    """Read research round 2's persisted <keep_entries> into the transfer seed."""
+    """Read the preparation task's persisted <keep_entries> into the transfer seed."""
 
     try:
         saved_payload = json.loads(context_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return
     raw_keep_entries = saved_payload.get("keep_entries")
-    if raw_keep_entries is None and isinstance(saved_payload.get("fast"), dict):
-        raw_keep_entries = saved_payload["fast"].get("keep_entries")
     transfer_seed = [
         key
         for key in (raw_keep_entries or [])
@@ -705,59 +1294,43 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--media",
         choices=list(MEDIA),
-        default=DEFAULT_PROFILE.correction_media,
+        default=None,
         help=(
-            "Convenience knob: sets both --correction-media and "
-            "--planning-media at once (text / +audio / +video, a ladder -- "
-            "video implies audio)."
-        ),
-    )
-    parser.add_argument(
-        "--correction-media",
-        choices=list(MEDIA),
-        default="",
-        help=(
-            "What the correction window sees; overrides --media for that "
-            "task only (e.g. text to put a text-only strong model on the "
-            "correction window while the query round keeps the clip)."
-        ),
-    )
-    parser.add_argument(
-        "--planning-media",
-        choices=list(MEDIA),
-        default="",
-        help=(
-            "What the per-window query round sees; overrides --media for "
-            "that task only. video sends the window's video clip to the "
-            "query round (it no longer force-cuts an audio-only .aac)."
+            "What the correction window sees: text / +audio / +video, a "
+            "ladder (video implies audio). text is also how a text-only "
+            "strong model handles media material."
         ),
     )
     parser.add_argument(
         "--retrieval",
         choices=list(RETRIEVAL),
-        default=DEFAULT_PROFILE.retrieval,
+        default=None,
         help=(
             "none = no retrieval at all; local = the harness injection machinery "
-            "(background research, per-window query round, local search agent); "
+            "(preparation fill, per-window request turn, local search agent); "
             "native = the model's own search tool, no harness search."
         ),
     )
     parser.add_argument(
         "--difficulty",
         choices=list(DIFFICULTY),
-        default=DEFAULT_PROFILE.difficulty,
+        default=None,
         help=(
             "Which prompt/thinking cell to use. quality = the task group's "
             "top cell; intermediate = the declared step down (correction "
             "binds the lite group there); efficiency = cheapest shape that "
-            "still corrects and translates (pins both media switches to text, "
-            "retrieval=none and knowledge=none)."
+            "still corrects and translates (pins media to text and "
+            "retrieval=none -- a pinned switch you leave unset follows, one "
+            "you set otherwise is an error -- and caps knowledge and the style "
+            "mode at read: they are read, never written back). Unset "
+            "media/retrieval/difficulty/continuity/knowledge take the active "
+            "preset's [llm.presets.<id>.defaults], then the built-in defaults."
         ),
     )
     parser.add_argument(
         "--continuity",
         choices=list(CONTINUITY),
-        default=DEFAULT_PROFILE.continuity,
+        default=None,
         help=(
             "serial (default) keeps the chained inter-window context (advice "
             "ledger, entry transfer chain); parallel gives it up and "
@@ -768,16 +1341,17 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--parallel-windows",
         type=int,
-        default=1,
+        default=None,
         help=(
-            "Concurrency cap for --continuity parallel (default 1 -- a "
-            "preference, not a calibrated constant; see docs/manual/agent.md)."
+            "Concurrency cap for --continuity parallel (default: the active "
+            "preset's parallel_windows, else 1 -- a preference, not a "
+            "calibrated constant; see docs/manual/agent.md)."
         ),
     )
     parser.add_argument(
         "--output-scale",
         type=float,
-        default=1.0,
+        default=None,
         help=(
             "Scale k on the expected-output estimate k x c x csv_tokens; larger "
             "values plan smaller windows."
@@ -786,21 +1360,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--fast",
         choices=["auto", "on", "off"],
-        default="auto",
+        default=None,
         help=(
-            "Fast mode: one fused window (research round 1 merged into the "
-            "correction session). auto enables it when the whole input fits "
-            "0.8 x output_limit - 10k output and the round-1 input leaves a 20k "
-            "reserve; on errors out when it does not fit; off forces the normal flow."
-        ),
-    )
-    parser.add_argument(
-        "--fast-search-rounds",
-        type=int,
-        default=DEFAULT_FAST_SEARCH_ROUNDS,
-        help=(
-            "Total search rounds in fast mode (round 0 included, default 2); "
-            "--research-search-rounds does not apply to fast runs."
+            "Fast mode: the whole input as one correction task (no preparation "
+            "task; the window asks for its own inputs). auto enables it when the "
+            "whole input fits 0.8 x output_limit - 10k output and the opening "
+            "message leaves the fill reserve; on errors out when it does not fit; "
+            "off forces the normal flow."
         ),
     )
     parser.add_argument(
@@ -821,7 +1387,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--extra-info",
-        default="",
+        default=None,
         help="Extra user-provided info for research: source URL, content notes, requirements.",
     )
     parser.add_argument(
@@ -830,17 +1396,18 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--context-file",
-        help="Existing research-context.json; skips the research rounds.",
+        help="Existing research-context.json; skips the preparation task.",
     )
     parser.add_argument(
         "--research-only",
         action="store_true",
-        help="Run only the two research rounds, write research-context.json, then exit.",
+        help="Run only the preparation task, write research-context.json, then exit.",
     )
     parser.add_argument(
         "--style",
         default=None,
-        help="翻译风格条目名（可逗号分隔；同名时写 style/<名字>）。不给则读配置 [llm] style",
+        help="翻译风格条目名（可逗号分隔；同名时写 style/<名字>）；auto 让模型从库里选一套。"
+             "不给则读配置 [llm] style，再不给就是 auto（difficulty=efficiency 时用 default_style）",
     )
     parser.add_argument(
         "--style-mode",
@@ -852,24 +1419,14 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--extra-style",
-        default="",
+        default=None,
         help="Extra translation style prompt injected into the correction system prompt.",
-    )
-    parser.add_argument(
-        "--research-search-rounds",
-        type=int,
-        default=DEFAULT_RESEARCH_SEARCH_ROUNDS,
-        help=(
-            "Total background-research search rounds (round 0 included). Values >1 "
-            "enable the multi-round search loop (Research Contract / Evidence Pack); "
-            "1 restores the legacy single-round search."
-        ),
     )
     parser.add_argument(
         "--postprocess-profile",
         type=int,
         choices=SUPPORTED_POSTPROCESS_PROFILES,
-        default=DEFAULT_POSTPROCESS_PROFILE,
+        default=None,
         help=(
             "Final SRT postprocess profile: -1 semantic no-op re-render; "
             "0 t2s, overlap, duration, punctuation; 1 duration only; "
@@ -878,12 +1435,12 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--task-summary",
-        default="",
+        default=None,
         help="Task summary included in knowledge update prompts.",
     )
     parser.add_argument(
         "--task-id",
-        default="",
+        default=None,
         help="Stable task id used in retained artifacts and knowledge commits.",
     )
     parser.add_argument(
@@ -895,15 +1452,13 @@ def parse_args() -> argparse.Namespace:
         choices=list(KNOWLEDGE_MODES),
         default=None,
         help=(
-            "Knowledge switch. Default 'collect': read and inject the base "
-            "(indices, entries, style) and emit "
-            "task_update_feedback, without writing anything back (the default "
-            "resolves to 'none' at --difficulty efficiency, which disables "
-            "knowledge by construction). 'none': the knowledge base is not "
-            "read, injected, collected from, or updated. 'update': everything "
-            "collect does, plus the unified knowledge update after the task -- "
-            "which a dry run never reaches, so it is accepted there and simply "
-            "writes nothing."
+            "Knowledge switch. Default 'read': read and inject the base "
+            "(indices, entries, style), collect nothing, write nothing back "
+            "(efficiency too; there 'update' is refused). 'none': the knowledge base is not "
+            "read or injected. 'update': read, have the windows and the "
+            "preparation task emit task_update_feedback, and run the unified "
+            "knowledge update after the task -- which a dry run never reaches, "
+            "so it is accepted there and simply writes nothing."
         ),
     )
     parser.add_argument(
@@ -915,11 +1470,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--knowledge-root",
-        default=(
-            str(DEFAULT_KNOWLEDGE_ROOT)
-            if DEFAULT_KNOWLEDGE_ROOT is not None
-            else None
-        ),
+        default=None,
         help="Root directory of the local Markdown knowledge base (embedded git repo).",
     )
     parser.add_argument(
@@ -934,12 +1485,23 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--test-profile",
         action="store_true",
+        default=None,
         help="Use gemini-3.5-flash-lite for every role.",
+    )
+    parser.add_argument(
+        "--speaker-judge",
+        choices=("off", "text", "audio"),
+        default=None,
+        help="Let a model re-check, one correction window at a time, which speaker track each line "
+             "belongs to, reading the rows (text) or also hearing them (audio); needs speaker labels "
+             "on the stable (the pipeline's --diarize judge-text / judge-audio). Results go to "
+             "<stem>-speaker-judge.json and the annotated CSV's spk column; the single-track SRT is "
+             "unchanged. Off by default.",
     )
     parser.add_argument(
         "--max-retries-per-window",
         type=int,
-        default=5,
+        default=None,
         help=(
             "Tier 1 of the per-window retry budget: repair retries within "
             "one session chain -- each carries the previous output and the "
@@ -951,7 +1513,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--max-replacements-per-window",
         type=int,
-        default=1,
+        default=None,
         help=(
             "Tier 2 of the per-window retry budget: how many times a window "
             "whose repair chain is spent is handed to a fresh session -- "
@@ -963,57 +1525,26 @@ def parse_args() -> argparse.Namespace:
         "--no-resume",
         dest="resume",
         action="store_false",
+        default=None,
         help=(
             "Disable LLM session and correction-window checkpoint reads/writes "
             "(default: resume validated sessions and completed windows in the "
             "task artifact directory)."
         ),
     )
-    parser.add_argument(
-        "--llm-model",
-        dest="llm_model",
-        action="append",
-        metavar="[TASKGROUP=]VALUE",
-        help=(
-            "Runtime LLM routing override (repeatable; value = model group or "
-            "route target, rebinding the task group's cell with NO fallback; "
-            "bare value = default). Process-local — config.toml is never "
-            "touched; routing identity changes, so resume caches invalidate "
-            "by design."
-        ),
-    )
+    from .routing.model_routes import add_routing_arguments
+
+    add_routing_arguments(parser)
     return parser.parse_args()
 
 
 def _load_extra_info(args: argparse.Namespace) -> str:
-    parts = [args.extra_info.strip()] if args.extra_info.strip() else []
+    parts = [args.extra_info.strip()] if (args.extra_info or "").strip() else []
     if args.extra_info_file:
         parts.append(
             Path(args.extra_info_file).expanduser().read_text(encoding="utf-8").strip()
         )
     return "\n".join(part for part in parts if part)
-
-
-def _default_research_context_path(args: argparse.Namespace) -> Path:
-    artifact_dir = _default_task_artifact_dir(args)
-    if args.output:
-        stem = Path(args.output).expanduser().resolve().stem
-        run_dir = Path(args.output).expanduser().resolve().parent
-    else:
-        source = Path(args.input).expanduser().resolve()
-        stem = source.stem
-        run_dir = source.parent
-    return ensure_research_context_path(
-        artifact_dir=artifact_dir,
-        stem=stem,
-        run_dir=run_dir,
-    )
-
-def _default_task_artifact_dir(args: argparse.Namespace) -> Path:
-    if args.output:
-        return Path(args.output).expanduser().resolve().with_suffix(ARTIFACT_DIR_SUFFIX)
-    source = Path(args.input).expanduser().resolve()
-    return source.with_name(f"{source.stem}{ARTIFACT_DIR_SUFFIX}")
 
 
 def main() -> int:
@@ -1033,444 +1564,127 @@ def main() -> int:
 
 
 def _main() -> int:
-    """The run itself: its own run boundary, like `run_full_correction`.
+    """Parse, build one request, run it, say what happened.
 
-    This entry point does not go through `run_full_correction` -- it drives
-    research, the windows and the knowledge update itself -- so the run's
-    agent session scope *and* the knowledge generation pin have to be opened
-    here too (docs/llm_local_agent.md §12.1.3, and the knowledge pin per
-    docs/plans/knowledge-node-plan.md §2.5). The knowledge
-    switches resolve before the pin so `--knowledge none` never opens the
-    store; every knowledge read of the run then happens inside the pin.
-    The report is written inside the run, so it is refreshed afterwards with
-    what those sessions turned out to have spent.
+    Every refusal is the task's own (``CorrectionRequestError``, exit 2); this
+    function only presents. The plan -- the prompts the run would send -- is
+    shown through the request's ``on_plan`` hook, before anything runs.
     """
 
     args = parse_args()
     # Installed unconditionally (empty → clears) BEFORE any routing consumer:
     # planning envelopes, preflight, research and the correction drivers all
     # construct their clients off the memoized route loader.
-    from .routing.model_routes import install_runtime_preferred, parse_llm_model_args
+    from .routing.model_routes import install_runtime_routing
 
-    install_runtime_preferred(parse_llm_model_args(args.llm_model))
+    install_runtime_routing(args)
     try:
+        switches = resolve_switches(
+            {
+                "media": args.media,
+                "retrieval": args.retrieval,
+                "difficulty": args.difficulty,
+                "continuity": args.continuity,
+                "knowledge": args.knowledge,
+                "parallel_windows": args.parallel_windows,
+            }
+        )
         profile = resolve_profile(
-            args.media,
-            args.retrieval,
-            args.difficulty,
-            args.continuity,
-            correction_media=args.correction_media,
-            planning_media=args.planning_media,
-            output_scale=args.output_scale,
+            switches.media,
+            switches.retrieval,
+            switches.difficulty,
+            switches.continuity,
+            **({"output_scale": args.output_scale} if args.output_scale is not None else {}),
         )
     except ValueError as exc:
         print(str(exc), file=sys.stderr)
         return 2
-    # An unset switch is not a user statement: efficiency disables knowledge by
-    # construction, so it resolves the default to none instead of refusing to
-    # start. An *explicit* --knowledge on an efficiency run is still the hard
-    # error it was, because that one really is a contradiction.
-    if args.knowledge is None:
-        args.knowledge = "none" if profile.difficulty == "efficiency" else "collect"
-    elif profile.difficulty == "efficiency" and args.knowledge != "none":
-        print(
-            "--difficulty efficiency disables --knowledge entirely (no "
-            "injection, no collection, no post-task update); drop the switch, "
-            "or use --difficulty intermediate for a cheap run that still reads "
-            "the base.",
-            file=sys.stderr,
-        )
-        return 2
-    # No --execute coupling: `--knowledge` says what happens *if* the LLM stage
-    # runs, which is a different axis from whether this invocation calls the
-    # API at all. A dry run takes `update` and simply never reaches the write --
-    # it returns after the prompt artifacts, and the post-task update lives
-    # inside `run_correction_task`, past that return. What `collect`/`update` do
-    # change here is the dry run's actual product -- the dumped correction
-    # prompts carry the feedback-collection contract -- which is the reason to
-    # let the switch through rather than refuse the combination.
-    if args.refined_srt and args.knowledge != "update":
-        print("--refined-srt requires --knowledge update", file=sys.stderr)
-        return 2
-    booking: dict[str, Any] = {}
-    sessions: Any = None
-    try:
-        with _task_slots(
-            {"test_profile": args.test_profile}
-        ), agent_session_scope() as sessions, _generation_pin(
-            {"knowledge": args.knowledge, "knowledge_root": args.knowledge_root}
-        ):
-            return _main_impl(args, booking, profile)
-    finally:
-        _book_agent_session_usage(sessions, booking)
 
-
-def _book_agent_session_usage(sessions: Any, booking: Mapping[str, Any]) -> None:
-    """Rewrite the report with what this run's agent sessions actually spent.
-
-    Unconditionally, once the book is settled: a run that spent nothing
-    *clears* the previous one's book, and the report that was written during
-    the run had already folded it in. Skipping the rewrite there left the
-    Markdown quoting tokens whose JSON no longer exists.
-    """
-
-    artifact_dir = booking.get("artifact_dir")
-    outputs = booking.get("outputs")
-    if sessions is None or not artifact_dir:
-        return
-    write_agent_session_usage(artifact_dir, sessions)
-    if outputs is None:
-        # No report of ours to refresh (a dry run, or an early exit): the
-        # outputs are only known where one was written.
-        return
-    write_task_report(
-        artifact_dir,
-        task_id=str(booking.get("task_id") or ""),
-        outputs=dict(outputs),
-    )
-
-
-def _main_impl(args: argparse.Namespace, booking: dict[str, Any], profile: Any) -> int:
-    task_id = args.task_id or Path(args.input).stem
-    booking["task_id"] = task_id
-    if args.research_only and args.context_file:
-        print("--research-only conflicts with --context-file", file=sys.stderr)
-        return 2
-    if (args.research_only or args.context_file) and not research_stage_runs(
-        profile,
-        knowledge_root=args.knowledge_root,
-        knowledge_enabled=knowledge_collects(args.knowledge),
-    ):
-        print(
-            "--research-only/--context-file need a vector that runs a research "
-            "stage: retrieval=local|native, or retrieval=none with a readable "
-            "knowledge base (--knowledge collect|update)",
-            file=sys.stderr,
-        )
-        return 2
-    # A media switch above what the input files provide is a configuration
-    # error, not a silent downgrade (plan v2 D20).
-    if args.execute and profile.uses_media and not args.audio:
-        print(
-            "--audio is required with --execute when any media switch is not "
-            "text",
-            file=sys.stderr,
-        )
-        return 2
-    if args.video and not profile.uses_video:
-        print("--video only applies when a media switch is video", file=sys.stderr)
-        return 2
-    if args.execute and profile.uses_video and not args.video:
-        print(
-            "--video is required with --execute when a media switch is video",
-            file=sys.stderr,
-        )
-        return 2
-    audio_label = args.audio or ""
-    extra_info = _load_extra_info(args)
-    try:
-        max_window_subtitle_tokens = resolve_chunking_subtitle_cap()
-    except ValueError as exc:
-        print(str(exc), file=sys.stderr)
-        return 2
-    task_artifact_dir = (
-        Path(args.task_artifact_dir).expanduser().resolve()
-        if args.task_artifact_dir
-        else (_default_task_artifact_dir(args) if (args.execute or args.research_only) else None)
-    )
-    booking["artifact_dir"] = task_artifact_dir
-    # Shared across planning/research/execution: the sha cache makes repeated
-    # countTokens calls over identical window texts free.
-    token_counter = default_token_counter()
-    try:
-        fast_decision = decide_fast_mode(
-            stable_json=args.input,
-            fast=args.fast,
-            profile=profile,
-            audio_path=args.audio,
-            extra_info=extra_info,
-            knowledge_root=args.knowledge_root,
-            knowledge_enabled=knowledge_collects(args.knowledge),
-            token_counter=token_counter,
-            # Required: omitting it silently plans against DEFAULT_LIMITS
-            # (test_llm_fast_mode guards every call site and says why).
-            limits=correction_planning_limits(profile),
-            max_window_subtitle_tokens=max_window_subtitle_tokens,
-        )
-    except ValueError as exc:
-        print(str(exc), file=sys.stderr)
-        return 2
-    if args.execute:
-        # Dry runs deliberately work without configured provider keys. Full
-        # execution validates the shape selected by the fast planner before
-        # the first model call.
-        try:
-            validate_profile_capabilities(
-                profile,
-                fast_enabled=fast_decision.enabled,
-                test_profile=args.test_profile,
-            )
-        except CapabilityUnavailableError as exc:
-            print(str(exc), file=sys.stderr)
-            return 2
-    # Resolved BEFORE the dry-run branch: the artifact must be the prompt the
-    # run would really send. With style on by default, a resolution that
-    # happened only on the execution path made the dry run miss a whole block
-    # (review 2026-09-02).
-    cli_style = resolve_style_selection(
-        args.style, args.style_mode, knowledge_root=args.knowledge_root,
-        difficulty=profile.difficulty,
-    )
-    artifacts = build_prompt_artifacts(
-        style_names=cli_style.names,
-        stable_json=args.input,
-        audio_path=args.audio,
-        video_path=args.video,
-        audio_label=audio_label,
-        extra_info=extra_info,
-        knowledge_root=args.knowledge_root,
-        knowledge_enabled=knowledge_collects(args.knowledge),
-        task_update_feedback=knowledge_collects(args.knowledge),
-        research_search_rounds=args.research_search_rounds,
-        counter=token_counter,
-        profile=profile,
-        max_window_subtitle_tokens=max_window_subtitle_tokens,
-    )
-    artifacts["fast_decision"] = fast_decision.to_metadata()
-    if fast_decision.enabled and profile.external_injection:
-        # The dry-run placeholder must match what execution will inject:
-        # with knowledge off the round carries no index at all, so the plan
-        # must not claim one will be injected at run time.
-        knowledge_on = knowledge_collects(args.knowledge)
-        artifacts["fast_round1_messages"] = build_fast_round1_messages(
-            window=fast_decision.window,
-            extra_info=extra_info,
-            streamer_index="（运行时注入 streamer index）" if knowledge_on else "",
-            common_index="（运行时注入 common index）" if knowledge_on else "",
-            max_search_queries=research_search_query_limit(
-                len(fast_decision.window.segments)
-            ),
-            use_search_contract=args.fast_search_rounds > 1,
-            profile=profile,
-        )
-    if args.prompt_dir:
-        write_prompt_artifacts(artifacts, args.prompt_dir)
-        print(f"Wrote prompt artifacts: {Path(args.prompt_dir).expanduser().resolve()}")
-    else:
+    def show_plan(artifacts: Mapping[str, Any]) -> None:
+        # The plan is this CLI's product in a dry run: the prompts go to
+        # --prompt-dir, or to stdout as JSON (minus the message bodies).
+        if args.prompt_dir:
+            write_prompt_artifacts(dict(artifacts), args.prompt_dir)
+            print(f"Wrote prompt artifacts: {Path(args.prompt_dir).expanduser().resolve()}")
+            return
         print(
             json.dumps(
                 {
                     key: value
                     for key, value in artifacts.items()
-                    if key
-                    not in {
-                        "research_messages",
-                        "search_loop_example_messages",
-                        "correction_query_messages",
-                        "correction_messages",
-                        "fast_round1_messages",
-                    }
+                    if key not in {"research_messages", "correction_messages", "speaker_judge_messages"}
                 },
                 ensure_ascii=False,
                 indent=2,
             )
         )
 
-    if not args.execute and not args.research_only:
-        return 0
+    def path(value: str | None) -> Path | None:
+        return Path(value) if value else None
 
-    if task_artifact_dir:
-        append_task_artifact(
-            task_artifact_dir,
-            kind="fast_decision",
-            task_id=task_id,
-            payload=fast_decision.to_metadata(),
-        )
-    context_pack: ContextPack | None = None
-    fast_kwargs: Dict[str, Any] = {}
-    if fast_decision.enabled and profile.external_injection:
-        context_path = _default_research_context_path(args)
-        fast_ctx, fast_file_ref, reused = acquire_fast_context(
-            context_path=context_path,
-            context_file=args.context_file,
-            stable_json=args.input,
-            window=fast_decision.window,
-            segment_count=len(fast_decision.window.segments),
-            audio_path=args.audio,
-            video_path=args.video,
-            stable_json_stem=Path(args.input).stem,
-            extra_info=extra_info,
-            knowledge_root=args.knowledge_root,
-            knowledge_enabled=knowledge_collects(args.knowledge),
-            search_rounds=args.fast_search_rounds,
-            test_profile=args.test_profile,
-            task_artifact_dir=task_artifact_dir,
-            task_id=task_id,
-            token_counter=token_counter,
-            profile=profile,
-            collect_task_feedback=knowledge_collects(args.knowledge),
-            resume=args.resume,
-        )
-        if not reused:
-            print(f"Wrote fast research context: {context_path}")
-        if args.research_only:
-            if task_artifact_dir:
-                booking["outputs"] = {"research_context": str(context_path)}
-                write_task_report(
-                    task_artifact_dir,
-                    task_id=task_id,
-                    outputs={"research_context": str(context_path)},
-                )
-                print(f"Task report: {Path(task_artifact_dir) / 'task-report.md'}")
-            return 0
-        fast_kwargs = _fast_execute_kwargs(fast_decision, fast_ctx, fast_file_ref, profile)
-    elif not research_stage_runs(
-        profile,
-        knowledge_root=args.knowledge_root,
-        knowledge_enabled=knowledge_collects(args.knowledge),
-    ):
-        # Nothing to research: no retrieval and no index to pick entries off.
-        if fast_decision.enabled:
-            fast_kwargs = _fast_execute_kwargs(fast_decision, None, None, profile)
-    elif args.context_file:
-        if fast_decision.enabled:
-            fast_kwargs = _fast_execute_kwargs(fast_decision, None, None, profile)
-        try:
-            context_pack = load_research_context(args.context_file)
-        except (OSError, ValueError, TypeError, json.JSONDecodeError) as exc:
-            # An explicitly named file is a user instruction, not a checkpoint:
-            # say why it cannot be used instead of quietly researching again.
-            print(
-                f"Error: {args.context_file} is not a usable research context "
-                f"({exc}).",
-                file=sys.stderr,
-            )
-            return 2
-        _seed_transfer_from_context(Path(args.context_file), fast_kwargs)
-    else:
-        # Also reached by fast runs on non-local vectors: their fused round has
-        # no query/entry step, so this stage is the session's only entry pick
-        # (r1; plus r2's own search under retrieval=native); see
-        # docs/llm_harness_behavior.md.
-        if fast_decision.enabled:
-            fast_kwargs = _fast_execute_kwargs(fast_decision, None, None, profile)
-        context_path = _default_research_context_path(args)
-        context_pack = (
-            _load_reusable_research_context(
-                context_path,
-                expected_planning=planning_metadata(
-                    profile,
-                    stable_json=args.input,
-                    extra_info=extra_info,
-                    knowledge_root=args.knowledge_root,
-                    knowledge_enabled=knowledge_collects(args.knowledge),
-                    search_rounds=args.research_search_rounds,
-                    collect_task_feedback=knowledge_collects(args.knowledge),
-                    audio_duration=(
-                        probe_audio_duration(args.audio) if args.audio else None
-                    ),
-                    max_window_subtitle_tokens=max_window_subtitle_tokens,
-                    limits=correction_planning_limits(profile),
-                    test_profile=args.test_profile,
-                ),
-            )
-            if context_path.exists()
-            else None
-        )
-        if context_pack is None:
-            context_pack = run_research_stage(
-                stable_json=args.input,
-                context_path=context_path,
-                audio_path=args.audio,
-                extra_info=extra_info,
-                knowledge_root=args.knowledge_root,
-                knowledge_enabled=knowledge_collects(args.knowledge),
-                search_rounds=args.research_search_rounds,
-                test_profile=args.test_profile,
-                task_artifact_dir=task_artifact_dir,
-                task_id=task_id,
-                token_counter=token_counter,
-                profile=profile,
-                collect_task_feedback=knowledge_collects(args.knowledge),
-                resume=args.resume,
-                max_window_subtitle_tokens=max_window_subtitle_tokens,
-                parallel_windows=args.parallel_windows,
-            )
-            print(f"Wrote research context: {context_path}")
-        else:
-            print(f"Reused research context: {context_path}")
-        _seed_transfer_from_context(context_path, fast_kwargs)
-        if args.research_only:
-            if task_artifact_dir:
-                booking["outputs"] = {"research_context": str(context_path)}
-                write_task_report(
-                    task_artifact_dir,
-                    task_id=task_id,
-                    outputs={"research_context": str(context_path)},
-                )
-                print(f"Task report: {Path(task_artifact_dir) / 'task-report.md'}")
-            return 0
-
-    if not args.output:
-        print("--output is required with --execute", file=sys.stderr)
-        return 2
-
-    out = execute_correction_windows(
-        stable_json=args.input,
-        output_path=args.output,
-        context_pack=context_pack,
-        audio_label=audio_label,
-        audio_path=args.audio,
-        video_path=args.video,
-        test_profile=args.test_profile,
-        max_retries_per_window=args.max_retries_per_window,
-        max_replacements_per_window=args.max_replacements_per_window,
-        parallel_window_limit=args.parallel_windows,
-        postprocess_profile=args.postprocess_profile,
-        extra_style=args.extra_style,
-        style_block=render_style_block(args.knowledge_root, cli_style.names),
-        knowledge_enabled=knowledge_collects(args.knowledge),
-        task_artifact_dir=task_artifact_dir,
-        task_id=task_id,
-        task_update_feedback=knowledge_collects(args.knowledge),
-        token_counter=token_counter,
-        resume=args.resume,
-        profile=profile,
-        knowledge_root=args.knowledge_root,
-        max_window_subtitle_tokens=max_window_subtitle_tokens,
-        **fast_kwargs,
-    )
-    print(f"Wrote {out}")
-    booking["outputs"] = {
-        "translated_srt": str(Path(args.output).with_name(f"{Path(args.output).stem}-translated.srt")),
-        **({"final_srt": str(out)} if Path(out).exists() else {}),
+    # argparse passes None for every flag the user did not give, and None is
+    # dropped here: an unset option is answered by `CorrectionRequest`'s own
+    # default, never by a second copy on this side (README_DEV 开发原则).
+    given = {
+        "output_path": path(args.output),
+        "audio_path": path(args.audio),
+        "video_path": path(args.video),
+        "fast": args.fast,
+        "extra_info": _load_extra_info(args) or None,
+        "extra_style": args.extra_style,
+        "style": args.style,
+        "style_mode": args.style_mode,
+        "knowledge": switches.knowledge,
+        "switch_sources": switches.sources,
+        "knowledge_root": args.knowledge_root,
+        "refined_srt": path(args.refined_srt),
+        "task_id": args.task_id,
+        "task_summary": args.task_summary,
+        "task_artifact_dir": path(args.task_artifact_dir),
+        "context_file": path(args.context_file),
+        "parallel_windows": switches.parallel_windows,
+        "max_retries_per_window": args.max_retries_per_window,
+        "max_replacements_per_window": args.max_replacements_per_window,
+        "postprocess_profile": args.postprocess_profile,
+        "speaker_judge": args.speaker_judge,
+        "resume": args.resume,
+        "test_profile": args.test_profile,
     }
-    if task_artifact_dir:
-        report_path = Path(task_artifact_dir) / "task-report.md"
-        if report_path.exists():
-            print(f"Task report: {report_path}")
-    if args.knowledge == "update":
-        update_report = run_post_correction_knowledge_update(
-            task_id=task_id,
-            task_summary=args.task_summary or f"LLM subtitle correction task {task_id}",
-            result_srt_path=out,
-            output_path=args.output,
-            stable_json=args.input,
-            artifact_dir=task_artifact_dir or _default_task_artifact_dir(args),
-            refined_srt=args.refined_srt,
-            knowledge_root=args.knowledge_root,
-            test_profile=args.test_profile,
-            difficulty=profile.difficulty,
-            style_names=cli_style.writable,
-        )
-        print(
-            f"Knowledge update ({update_report['mode']}): "
-            f"{len(update_report['chunks'])} chunk(s); ledger: {update_report['ledger_path']}"
-        )
-        report_path = Path(task_artifact_dir or _default_task_artifact_dir(args)) / "task-report.md"
-        if report_path.exists():
-            print(f"Task report: {report_path}")
+    request = CorrectionRequest(
+        stable_json=Path(args.input),
+        mode="research" if args.research_only else ("execute" if args.execute else "plan"),
+        profile=profile,
+        on_plan=show_plan,
+        **{name: value for name, value in given.items() if value is not None},
+    )
+    try:
+        outcome = run_correction_task(request)
+    except CorrectionRequestError as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
+    for line in _outcome_lines(outcome, request):
+        print(line)
     return 0
+
+
+def _outcome_lines(outcome: CorrectionOutcome, request: CorrectionRequest) -> list[str]:
+    lines: list[str] = []
+    if outcome.research_context is not None and request.context_file is None:
+        verb = "Reused" if outcome.research_reused else "Wrote"
+        lines.append(f"{verb} research context: {outcome.research_context}")
+    if outcome.result is not None:
+        lines.append(f"{'Reused' if outcome.result_reused else 'Wrote'} {outcome.result}")
+    if outcome.knowledge_update is not None:
+        update = outcome.knowledge_update
+        lines.append(
+            f"Knowledge update ({update['mode']}): {len(update['chunks'])} chunk(s);"
+            f" ledger: {update['ledger_path']}"
+        )
+    if outcome.artifact_dir is not None and request.mode != "plan":
+        report = outcome.artifact_dir / "task-report.md"
+        if report.exists():
+            lines.append(f"Task report: {report}")
+    return lines
 
 
 if __name__ == "__main__":

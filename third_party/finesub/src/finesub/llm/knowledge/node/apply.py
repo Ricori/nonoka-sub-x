@@ -19,7 +19,14 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from .envelope import Binding, Envelope, EnvelopeError
-from .model import ITEM_FIELDS, KINDS, LINK_RELS, VISIBILITIES, validate_payload
+from .model import (
+    BODY_KIND_LABELS,
+    ITEM_FIELDS,
+    KINDS,
+    LINK_RELS,
+    VISIBILITIES,
+    validate_payload,
+)
 from .presets import preset_for_category
 from .store import KnowledgeStore, NotFoundError, StaleWriteError, Transaction
 from ..base import _match_normalize
@@ -46,6 +53,9 @@ class ApplyResult:
     created: dict[str, str] = field(default_factory=dict)  # draft handle -> local_id
     rolled_back: bool = False
     rollback_reason: str = ""
+    #: lines a recategorize parked in the target's staging section, as
+    #: ``(subject id, section it came from, what the line says)``
+    parked: list[tuple[str, str, str]] = field(default_factory=list)
 
 
 # ---- overlay ----------------------------------------------------------------------
@@ -108,6 +118,11 @@ class Overlay:
     links: dict[str, OLink] = field(default_factory=dict)
     created: dict[str, str] = field(default_factory=dict)
     rejected: list[tuple[int, str]] = field(default_factory=list)
+    #: ``(subject id, section it came from, what the line says)`` for lines a
+    #: recategorize had to park in the target's staging section. Not a
+    #: rejection -- the move happened; these are what the next pass has to
+    #: sort out.
+    parked: list[tuple[str, str, str]] = field(default_factory=list)
 
 
 class _Resolver:
@@ -263,6 +278,142 @@ def effective_visibility(
     return "shareable" if preset.share_for(section, label) == "inherit" else "local"
 
 
+def _check_recategorized(store, overlay: Overlay, live_node, problems: list) -> tuple[set[str], bool]:  # type: ignore[no-untyped-def]
+    """A moved entry must fit the template it moved INTO, and say why.
+
+    Moving is allowed on purpose (plan §0 requirement 7): a misfiled entry
+    whose only remedy is delete-and-retype loses its history, its evidence and
+    its canonical id. But the move is where the target preset first applies, so
+    it is where the mismatch has to surface -- afterwards the entry just looks
+    like it was always wrong.
+
+    All refusals rather than reports, because unlike a template change this is
+    a move somebody is making right now and can simply not make:
+
+    * the target category must exist here;
+    * every LINE the entry holds must fit the target template -- its section
+      has to exist there (when that template fixes its sections) AND the
+      section has to accept that line's body kind. ⚠ The two are not the same
+      test and the second is the one that bites: a non-strict target accepts
+      every section NAME, so the name check has nothing to report while its
+      free sections hold `term` bodies only. Checking names alone let a
+      streamer's free sentences land in `common` sections that forbid them
+      (review 2026-09-07, second round).
+
+    ⚠ The line check asks whether the MOVE breaks the line, not whether the
+    line is valid: one that already failed its own preset is left alone. The
+    store loads legacy-imported rows with `strict=False` and `scan` reports
+    them, so refusing the move for those would lock recategorize out of
+    exactly the entries that most need repairing.
+
+    The reason is required by `_check_recategorize_reason` on the op itself --
+    ⚠ separately, because an entry can also reach a new category through a bare
+    `update` of `payload.category`, and the shape check must cover that path
+    too even though no reason came with it.
+
+    Returns ``(entries judged here, an unknown category was seen)``. The first
+    keeps the generic membership loop from reporting the same line twice with
+    a worse message; the second is fatal for the whole pass, because every
+    later check resolves a preset by category and would raise on that one.
+    """
+
+    judged: set[str] = set()
+    unknown = False
+    for node in overlay.nodes.values():
+        if node.retired or node.kind != "subject":
+            continue
+        category = str(node.payload.get("category") or "")
+        stored = store.node(node.local_id, overlay.read_rev)
+        if stored is not None and str(stored.payload.get("category") or "") == category:
+            continue  # not a move
+        try:
+            preset = preset_for_category(category)
+        except ValueError:
+            problems.append((
+                "node", node.local_id,
+                f"没有 {category!r} 这个类别——重分类的目标必须是现有类别",
+            ))
+            unknown = True
+            continue
+        if stored is None:
+            continue  # a create: every line of it is in the overlay already
+        from .subentries import children_of, parent_of
+
+        in_batch = any(
+            link.rel == "part_of" and node.local_id in (link.source_id, link.target_id)
+            for link in overlay.links.values()
+        )
+        if in_batch or parent_of(store, node.local_id, overlay.read_rev) or children_of(store, node.local_id, overlay.read_rev):
+            # v1 keeps a parent and its sub-entries in one category; caught
+            # here so a bare `update` of the category and a human edit are
+            # refused too, not only `recategorize`
+            problems.append((
+                "node", node.local_id,
+                "带子条目的条目、以及子条目本身，不能改类别",
+            ))
+            continue
+        judged.add(node.local_id)
+        source = _preset_or_none(str(stored.payload.get("category") or ""))
+        for section, child_id in sorted(_members_of(store, overlay, node.local_id)):
+            child = live_node(child_id)
+            if child is None:
+                continue
+            if _line_fits(preset, section, child.kind):
+                continue
+            if source is not None and not _line_fits(source, section, child.kind):
+                # Already illegal where it sits, so the move is not what broke
+                # it -- legacy-imported rows are full of these (the store loads
+                # them with `strict=False`, and `scan` reports them). Refusing
+                # the move for them would make recategorize impossible on
+                # exactly the entries that most need repairing.
+                continue
+            spec = preset.section(section)
+            if spec is None:
+                problems.append((
+                    "node", node.local_id,
+                    f"目标类别 {category} 的模版里没有「{section}」这一节"
+                    "——先把这节的行挪走或删掉，再重分类",
+                ))
+                continue
+            allowed = "、".join(BODY_KIND_LABELS.get(k, k) for k in spec.body_kinds)
+            problems.append((
+                "node", node.local_id,
+                f"目标类别 {category} 的「{section}」节只放{allowed}，这里有一行"
+                f"{BODY_KIND_LABELS.get(child.kind, child.kind)}"
+                "——先 move_line 挪进暂存区或改写成允许的行体，再重分类",
+            ))
+    return judged, unknown
+
+
+def _preset_or_none(category: str):  # type: ignore[no-untyped-def]
+    try:
+        return preset_for_category(category)
+    except ValueError:
+        return None
+
+
+def _line_fits(preset, section: str, kind: str) -> bool:  # type: ignore[no-untyped-def]
+    spec = preset.section(section)
+    return spec is not None and kind in spec.body_kinds
+
+
+def _members_of(store, overlay: Overlay, subject_id: str) -> set[tuple[str, str]]:  # type: ignore[no-untyped-def]
+    """``(section, child id)`` for every line this subject holds, overlay
+    included -- so a batch that moves the offending lines out first and then
+    recategorizes is judged on what it ends with, not on what it started with."""
+
+    members = {
+        (membership.section, membership.child_id)
+        for membership in store.children(subject_id, overlay.read_rev)
+        if membership.membership_id not in overlay.memberships
+    }
+    for membership in overlay.memberships.values():
+        if membership.parent_id != subject_id or membership.removed:
+            continue
+        members.add((membership.section, membership.child_id))
+    return members
+
+
 def _check_label_uniqueness(store, overlay: Overlay, live_node, problems: list) -> None:  # type: ignore[no-untyped-def]
     """One line per label per section — an INVARIANT, so it is checked here
     rather than at any single write surface.
@@ -410,6 +561,251 @@ def _downgrade_visibility(
             return
 
 
+def _rename_cascade(
+    store: KnowledgeStore, overlay: Overlay, parent_id: str, old: str, new: str, index: int
+) -> None:
+    """A renamed entry renames its sub-entries whose name is still the derived
+    one (`subentries.derived_name`): their H1 and their identity line. Here, in
+    the engine, because a human renaming the H1 in `rendered/` never passes
+    through `rename_entry`. A sub-entry renamed to something else is left
+    alone, and so is one whose new name another entry already answers to (it
+    keeps its old name rather than failing the rename)."""
+
+    from .subentries import PART_OF, SUBENTRY_SEPARATOR
+
+    at = overlay.read_rev
+    for link in store.links_to(parent_id, at):
+        if link.rel != PART_OF:
+            continue
+        child = store.node(link.source_id, at)
+        if child is None:
+            continue
+        surface = str(child.payload.get("surface") or "")
+        prefix = old + SUBENTRY_SEPARATOR
+        if not surface.startswith(prefix):
+            continue
+        renamed = new + SUBENTRY_SEPARATOR + surface[len(prefix):]
+        if _name_taken(store, renamed, at, exclude=child.local_id):
+            from finesub.reporting import current_reporter
+
+            current_reporter().warning(
+                "knowledge-subentry-rename-kept",
+                f"子条目「{surface}」没有跟着改名：「{renamed}」已是别的条目的名字",
+                impact="这个子条目的名字不再跟着母条目",
+                action="手动给它改个名，或处理撞名的那个条目",
+            )
+            continue
+        node = _load_node(store, overlay, child.local_id, None)
+        node.payload["surface"] = renamed
+        node.payload["native_names"] = [
+            renamed if str(name) == surface else name for name in node.payload.get("native_names", [])
+        ]
+        node.ops.append(index)
+        identity = preset_for_category(str(child.payload.get("category") or "common")).label_by_role("identity")
+        if identity is None:
+            continue
+        section, label = identity
+        for membership in store.children(child.local_id, at):
+            line = store.node(membership.child_id, at)
+            if (
+                membership.section == section and line is not None
+                and str(line.payload.get("label") or "") == label.name
+                and str(line.payload.get("text") or "") == surface
+            ):
+                held = _load_node(store, overlay, line.local_id, None)
+                held.payload["text"] = renamed
+                held.ops.append(index)
+
+
+def _name_taken(store: KnowledgeStore, name: str, rev: int, *, exclude: str) -> bool:
+    """Does another live entry answer to ``name`` (its H1, native names or
+    aliases, normalized as `repo.resolve` normalizes)? Store-level, because the
+    engine has no repo."""
+
+    from .render import subject_aliases
+
+    needle = _match_normalize(name)
+    for subject in store.subjects(rev):
+        if subject.local_id == exclude:
+            continue
+        names = [subject.payload.get("surface", ""), *subject.payload.get("native_names", []),
+                 *subject_aliases(store, subject.local_id, rev)]
+        if needle in {_match_normalize(str(n)) for n in names if n}:
+            return True
+    return False
+
+
+def _recategorize_cascade(
+    store: KnowledgeStore, overlay: Overlay, subject_id: str, index: int
+) -> None:
+    """A category change re-governs every line already under the entry.
+
+    The batch touches only the SUBJECT, so without this nothing else is ever
+    looked at: `validate_overlay`'s membership checks iterate the OVERLAY, and
+    `_downgrade_visibility` runs on the node an op named. Both have to see the
+    lines that were already there, because the target preset governs them from
+    now on -- its section shapes, and its share policy. `common` does not
+    register `[人设]` at all and its `unknown_label_share` is fail-closed, so a
+    line that was shareable under `streamer` must stop being so the moment it
+    lands (review 2026-09-07, second round).
+
+    Loading is not writing: `_write` emits a row for an existing node only
+    when it has ops, and this appends one only where it actually demotes. The
+    memberships come along because `_downgrade_visibility` reads them -- and
+    that is also what puts the entry's sections in front of the validators.
+
+    ⚠ Parking runs FIRST, and completely. The share policy resolves from the
+    SECTION a line sits in, so demoting before the move answers the question
+    about the wrong section: a line parked into a staging section that shares
+    nothing kept `shareable` (review 2026-09-07, third round).
+    """
+
+    direct = _direct_memberships(store, overlay, subject_id)
+    for membership in direct:
+        _park_if_homeless(store, overlay, subject_id, membership, index)
+
+    seen = {subject_id}
+    frontier = list(direct)
+    while frontier:
+        membership = frontier.pop()
+        if membership.removed or membership.child_id in seen:
+            continue
+        seen.add(membership.child_id)
+        child = _load_node(store, overlay, membership.child_id, None)
+        before = child.visibility
+        _downgrade_visibility(store, overlay, membership.child_id, child)
+        if child.visibility != before:
+            child.ops.append(index)
+        frontier.extend(_direct_memberships(store, overlay, membership.child_id))
+
+
+def _direct_memberships(store, overlay: Overlay, parent_id: str) -> list[OMembership]:  # type: ignore[no-untyped-def]
+    """Live memberships hanging directly off ``parent_id``, batch included.
+
+    Stored rows are loaded into the overlay so the caller mutates the SAME
+    objects the validators and `_write` will read; memberships this batch
+    created (an `append_lines` that ran before the recategorize) exist only in
+    the overlay and would otherwise be judged by `_check_recategorized` while
+    never being offered to the parking pass.
+    """
+
+    out: list[OMembership] = []
+    for stored in store.children(parent_id, overlay.read_rev):
+        live = overlay.memberships.get(stored.membership_id)
+        if live is None:
+            live = OMembership(
+                membership_id=stored.membership_id,
+                parent_id=stored.parent_id,
+                child_id=stored.child_id,
+                section=stored.section,
+                order_key=stored.order_key,
+                expected_from_rev=stored.valid_from_rev,
+                is_new=False,
+            )
+            overlay.memberships[stored.membership_id] = live
+        if live.parent_id == parent_id:
+            out.append(live)
+    seen = {m.membership_id for m in out}
+    for live in overlay.memberships.values():
+        if live.parent_id == parent_id and live.membership_id not in seen:
+            out.append(live)
+    return out
+
+
+def _park_if_homeless(  # type: ignore[no-untyped-def]
+    store, overlay: Overlay, subject_id: str, membership: OMembership, index: int
+) -> None:
+    """Send a line the target template cannot hold to its staging section.
+
+    Refusing the whole move instead is what this used to do, and it is the
+    wrong trade twice over (owner 2026-09-07). The blast radius is the
+    ENVELOPE, not the op -- one unmovable line dropped every other proposal in
+    the same chunk. And the refusal reaches nobody who can act on it: the
+    knowledge-update round only warns a human, and `conflicted_entries`
+    excludes a rolled-back report from the B' repair round on purpose, so
+    "先 move_line 挪走" is advice with no reader.
+
+    `edit.py` already settled the rule this follows: park when nobody is
+    watching, refuse when "the human who typed it is right there". A
+    maintenance session is the first case. The staging section is built for
+    exactly this ("转运站，不是仓库") and reports its own line count while
+    non-empty, so the pressure to sort the line out survives the move.
+
+    Only DIRECT children: sections are a subject-level concept, and they are
+    the same set `_check_recategorized` judges. That check stays as it was and
+    becomes the backstop -- it now fires only for a target preset with no
+    staging section at all.
+
+    ⚠ Judged on the section the line sits in AFTER this batch, not the one the
+    store still records. A batch that moves a line somewhere legal and then
+    recategorizes is doing precisely what the contract tells it to do, and
+    reading the stored section parked the line anyway -- undoing an explicit
+    instruction with an automatic one (review 2026-09-07, third round).
+    """
+
+    if membership.removed:
+        return
+    node = overlay.nodes.get(subject_id)
+    payload = node.payload if node is not None else store.node(subject_id).payload
+    stored_subject = store.node(subject_id, overlay.read_rev)
+    child = _load_node(store, overlay, membership.child_id, None)
+    section = membership.section
+    staging = parked_section(
+        target=str(payload.get("category") or ""),
+        source=str(stored_subject.payload.get("category") or "") if stored_subject else "",
+        section=section,
+        kind=child.kind,
+    )
+    if staging is None:
+        return
+    overlay.parked.append((subject_id, section, _line_gist(child)))
+    membership.section = staging
+    membership.ops.append(index)
+
+
+def parked_section(*, target: str, source: str, section: str, kind: str) -> str | None:
+    """Where a recategorize would send this line, or ``None`` if it stays put.
+
+    A named predicate rather than an inlined one because the PROPOSAL layer has
+    to predict the same move: parking happens here, at fold time, so a later op
+    in the same batch would otherwise be judged against the section the line is
+    being moved out of -- and the sequence the contract teaches (recategorize,
+    then fix the line) was the one that failed, while the same edit in a second
+    batch worked (review 2026-09-07, sixth round). Two copies of this rule
+    would drift; there is one.
+
+    ``None`` covers all three ways a line stays where it is: it fits the target,
+    it did not fit the SOURCE either (already homeless, not this move's doing),
+    or the target has nowhere to park it -- in which case
+    `_check_recategorized` refuses the move instead.
+    """
+
+    destination = _preset_or_none(target)
+    if destination is None or _line_fits(destination, section, kind):
+        return None
+    origin = _preset_or_none(source)
+    if origin is not None and not _line_fits(origin, section, kind):
+        return None
+    staging = destination.staging_section()
+    if staging is None or not staging.name or section == staging.name:
+        return None
+    return staging.name
+
+
+def _line_gist(node: ONode) -> str:
+    """Enough of a line to recognise it in a report, without the whole body."""
+
+    label = str(node.payload.get("label") or "").strip()
+    body = str(
+        node.payload.get("surface")
+        or node.payload.get("text")
+        or node.payload.get("value")
+        or ""
+    ).strip()
+    gist = f"[{label}] {body}" if label else body
+    return gist[:60] + ("…" if len(gist) > 60 else "")
+
+
 def _fold(store: KnowledgeStore, overlay: Overlay, resolver: _Resolver, index: int, op: dict[str, Any]) -> None:
     name = op["op"]
     if name == "create":
@@ -446,6 +842,8 @@ def _fold(store: KnowledgeStore, overlay: Overlay, resolver: _Resolver, index: i
     if name == "update":
         local_id, expected = resolver.node(op["id"])
         node = _load_node(store, overlay, local_id, expected)
+        was_category = str(node.payload.get("category") or "")
+        was_surface = str(node.payload.get("surface") or "")
         for key, value in dict(op["set"]).items():
             if key == "visibility":
                 if value not in VISIBILITIES:
@@ -466,6 +864,10 @@ def _fold(store: KnowledgeStore, overlay: Overlay, resolver: _Resolver, index: i
         validate_payload(node.kind, node.payload)
         _downgrade_visibility(store, overlay, local_id, node)
         node.ops.append(index)
+        if node.kind == "subject" and str(node.payload.get("category") or "") != was_category:
+            _recategorize_cascade(store, overlay, local_id, index)
+        if node.kind == "subject" and str(node.payload.get("surface") or "") != was_surface:
+            _rename_cascade(store, overlay, local_id, was_surface, str(node.payload.get("surface") or ""), index)
         return
     if name == "add_item":
         local_id, expected = resolver.node(op["id"])
@@ -606,70 +1008,6 @@ def _section_labels(store, overlay: Overlay, live_node, parent_id: str, section:
     return labels
 
 
-def _check_entry_budget(store, overlay: Overlay, live_node, problems: list) -> None:  # type: ignore[no-untyped-def]
-    """The preset's `max_entry_tokens`, enforced MONOTONELY.
-
-    The per-section caps bound each line and each section; this bounds the
-    whole entry's injected projection. It cannot be a plain refusal: the fix
-    for an oversized entry is itself a write, so refusing everything would lock
-    the entry at its worst size and leave the model no move (owner 2026-09-02).
-
-    So: while an entry is over budget, a batch may only make it smaller — no
-    new lines under it, and no `update` that lengthens a line. Shrinking and
-    deleting stay open, which is exactly the repair the notice on the entry's
-    projection asks for."""
-
-    from .render import entry_prompt_tokens
-
-    at = store.current_rev()
-    parents: set[str] = set()
-    for membership in overlay.memberships.values():
-        if not membership.removed:
-            parents.add(membership.parent_id)
-    for node in overlay.nodes.values():
-        if node.retired:
-            continue
-        for parent_id, _section in _placements_of(store, overlay, node.local_id, at):
-            parents.add(parent_id)
-
-    for parent_id in sorted(parents):
-        parent = live_node(parent_id)
-        if parent is None or parent.kind != "subject":
-            continue
-        budget = preset_for_category(
-            parent.payload.get("category") or "common"
-        ).max_entry_tokens
-        if budget is None or store.node(parent_id, at) is None:
-            continue
-        used = entry_prompt_tokens(store, parent_id, at)
-        if used <= budget:
-            continue
-        for membership in overlay.memberships.values():
-            child = overlay.nodes.get(membership.child_id)
-            if membership.parent_id == parent_id and not membership.removed and (
-                child is not None and child.is_new
-            ):
-                problems.append((
-                    "membership", membership.membership_id,
-                    f"条目已超注入预算（约 {used} / {budget} token），"
-                    "本次不能再新增行——先把行改短、并条或删掉最弱的几条",
-                ))
-        for node in overlay.nodes.values():
-            if node.retired or node.is_new:
-                continue
-            stored = store.node(node.local_id, at)
-            if stored is None or (parent_id, ) not in {
-                (p, ) for p, _s in _placements_of(store, overlay, node.local_id, at)
-            }:
-                continue
-            if _line_length(node.kind, node.payload) > _line_length(stored.kind, stored.payload):
-                problems.append((
-                    "node", node.local_id,
-                    f"条目已超注入预算（约 {used} / {budget} token），"
-                    "这行只能改短不能改长",
-                ))
-
-
 def _check_label_references(store, overlay: Overlay, live_node, problems: list) -> None:  # type: ignore[no-untyped-def]
     """A section whose preset declares `labels_from` may only carry labels that
     exist in that other section.
@@ -719,7 +1057,7 @@ def _check_label_references(store, overlay: Overlay, live_node, problems: list) 
 
 def _check_section_caps(store, overlay: Overlay, live_node, problems: list) -> None:  # type: ignore[no-untyped-def]
     """The preset's `max_lines` / `max_body_chars`, checked where every write
-    passes (`docs/plans/translation-style-plan.md` §2.3).
+    passes (`docs/knowledge.md`, 「style 类别」, the caps).
 
     Caps exist to force a choice at write time: with the section full, adding a
     convention means retiring, merging or shortening another one. Enforcing
@@ -789,15 +1127,31 @@ def validate_overlay(store: KnowledgeStore, overlay: Overlay) -> list[tuple[str,
     for node in overlay.nodes.values():
         if node.retired:
             continue
+        if not node.is_new:
+            stored = store.node(node.local_id, overlay.read_rev)
+            if stored is not None and stored.payload == node.payload:
+                # The strict rules are the rules for WRITING content (the store
+                # itself loads with strict=False so legacy-imported rows keep
+                # working). This node is here because the batch touched its
+                # visibility, its placement, or its owner -- or merely because
+                # something needed to read it. Re-litigating its shape would
+                # let one legacy `fact` line block a recategorize that never
+                # went near it (review 2026-09-07, second round).
+                continue
         try:
             validate_payload(node.kind, node.payload)
         except ValueError as exc:
             problems.append(("node", node.local_id, str(exc)))
     _check_label_uniqueness(store, overlay, live_node, problems)
+    judged, unknown_category = _check_recategorized(store, overlay, live_node, problems)
+    if unknown_category:
+        # Nothing below can run: every remaining check resolves a preset by
+        # the subject's category, and an unknown one raises rather than
+        # returning None.
+        return problems
     _check_membership_uniqueness(store, overlay, problems)
     _check_section_caps(store, overlay, live_node, problems)
     _check_label_references(store, overlay, live_node, problems)
-    _check_entry_budget(store, overlay, live_node, problems)
     for item in overlay.items.values():
         if item.removed or item.field != "aliases":
             continue
@@ -829,6 +1183,12 @@ def validate_overlay(store: KnowledgeStore, overlay: Overlay) -> list[tuple[str,
             continue
         if parent.kind != "subject":
             problems.append(("membership", membership.membership_id, "parent is not a subject"))
+            continue
+        if membership.parent_id in judged:
+            # `_check_recategorized` already judged every line of this entry
+            # against the target template, with a message that says it is a
+            # move and what to do about it. Reporting it again here would put
+            # two problems in the rollback reason for one line.
             continue
         preset = preset_for_category(parent.payload.get("category") or "common")
         spec = preset.section(membership.section)
@@ -975,6 +1335,7 @@ def apply_envelope(
                 raise _NoWrites
             _write(txn, overlay, result)
             result.rev = txn.rev
+            result.parked = list(overlay.parked)
             # Provenance booking (plan §11.4 / O8-O9): a user apply endorses
             # the values it set (evidence_kind=user); a harness apply records
             # that the values came out of this run's material

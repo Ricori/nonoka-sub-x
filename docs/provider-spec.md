@@ -90,17 +90,17 @@ interface ExecutionProvider {
   "artifact_schema": 1,            // 必填，固定为 1
   "engine": {
     "name": "finesub",             // 可选，引擎名
-    "version": "0.5.1",            // 必填，引擎版本
-    "commit": "b9b2f10c80abd58ddff739b60461624f51c0789c", // 必填，引擎 commit
-    "bundle_id": "finesub-0.5.1+b9b2f10c80ab"             // 可选，引擎包标识
+    "version": "0.6.0",            // 必填，引擎版本
+    "commit": "5caf422cbad36f0402c98eb565e4c29aee4ac197", // 必填，引擎 commit
+    "bundle_id": "finesub-0.6.0+5caf422cbad3"             // 可选，引擎包标识
   },
   "features": {                    // 必填，六个布尔位缺一不可
     "raw_srt": true,               // 支持 target=raw-srt
     "translation": true,           // 支持 target=final-srt（纠错 + 翻译）
     "video_multimodal": true,      // 支持 correction.media=video
-    "knowledge": true,             // 支持 knowledge=collect/update
+    "knowledge": true,             // 支持 knowledge=read/update
     "resume": true,                // 支持 resume()
-    "diarization": false           // 说话人分离（v1 保留位）
+    "diarization": true            // 支持 diarization（说话人分离，FineSub 0.6.0）
   },
   "devices": [                     // 必填，可为空数组
     { "id": "cuda:0", "name": "NVIDIA GeForce RTX 4070", "memory_mb": 12288 }
@@ -152,6 +152,7 @@ interface ExecutionProvider {
     { "kind": "work", "subject": "新建主体的官方或源语言名称", "aliases": "常用译名、旧名", "description": "作品背景等消歧说明" }
   ],
   "llm_model": { "correction": "local-agy-media-gemini-3_7-flash" },
+  "diarization": { "level": "acoustics" },
   "cleanup_intermediate": false
 }
 ```
@@ -173,9 +174,10 @@ interface ExecutionProvider {
 | `correction.difficulty` | `efficiency` \| `intermediate` \| `quality` | — | LLM 质量档 |
 | `correction.fast` | `auto` \| `off` | — | 快速通道开关，默认 `auto`：字幕放得进单个窗口时走快速通道，放不下时走正常多窗口流程。 |
 | `correction.extra_info` / `extra_style` | `string` | — | 用户补充的背景信息与风格要求 |
-| `knowledge` | `none` \| `collect` \| `update` | — | 需 `features.knowledge=true` |
-| `knowledge_subjects` | `[{id?, kind, subject, aliases, description}]` | `knowledge=update` 的新任务至少一项 | 用户手动选择的知识主体，最多 8 个，读取与写回共用。每项的 `kind` 为 `streamer`、`work` 或 `topic`，`subject` 是必填的官方/源语言名称，`aliases` 与 `description` 用于消歧。带 `id` 的是知识库里已有的主体；不带 `id` 的是新建主体，仅 `knowledge=update` 允许，Local Provider 会在任务开始前幂等建好词条。所选主体的词条常驻每个纠错窗口（引擎补丁 `0010`），`update` 时也固定为知识更新的写回目标。`collect` 可不选，此时由模型按内容挑选条目；`none` 时忽略。旧版请求的单个 `knowledge_context` 在 `update` 下按一项列表处理，两个字段都没有的已排队请求仍可重试 |
+| `knowledge` | `none` \| `read` \| `update` | — | 需 `features.knowledge=true`。FineSub 0.6.0 把只读档 `collect` 改名为 `read`（只读取知识库，不再收集反馈）；仍带 `collect` 的旧请求由 Provider 映射为 `read` 并在任务日志里说明 |
+| `knowledge_subjects` | `[{id?, kind, subject, aliases, description}]` | `knowledge=update` 的新任务至少一项 | 用户手动选择的知识主体，最多 8 个，读取与写回共用。每项的 `kind` 为 `streamer`、`work` 或 `topic`，`subject` 是必填的官方/源语言名称，`aliases` 与 `description` 用于消歧。带 `id` 的是知识库里已有的主体；不带 `id` 的是新建主体，仅 `knowledge=update` 允许，Local Provider 会在任务开始前幂等建好词条。所选主体的词条常驻每个纠错窗口（引擎补丁 `0006`），`update` 时也固定为知识更新的写回目标。`read` 可不选，此时由模型按内容挑选条目；`none` 时忽略。旧版请求的单个 `knowledge_context` 在 `update` 下按一项列表处理，两个字段都没有的已排队请求仍可重试 |
 | `llm_model` | `string` \| `{任务组: string}` | — | 本次运行的模型覆盖，等价于引擎的 `--llm-model`。字符串钉住所有任务组，对象只钉它点名的那些。值是模型组或路由 target；名字由引擎的路由加载器校验。⚠ 钉住即**替换整条链**——钉住的模型做不了的调用会直接失败，后面不再挂任何兜底 |
+| `diarization` | `{level, max_speakers?}` | — | 说话人分离，需 `features.diarization=true`；缺省或 `level=off` 即不分离。`level` 为 `acoustics`（按声音区分）、`judge-text` / `judge-audio`（再由 LLM 在纠错阶段按窗口复核，实验）。裁判只在 `final-srt` 下运行，其余目标降为 `acoustics`；云端的纠错只读文本，`judge-audio` 降为 `judge-text`。有日文轴时拒绝（不跑识别）。`max_speakers` 为 1–32，上游建议不设。结果写在 `stable_json` 的 `speaker` 与 `annotated_csv` 的 `spk` 列里，只决定每行放进哪条说话人轨，不改变字幕文本与时间；`-diar.json`（说话人时间线）留作复用，删掉才会重算 |
 | `cleanup_intermediate` | `boolean` | — | 完成后是否清理中间产物 |
 | `axis` | `Axis` | — | 用户导入的已有产物；见 4.2.2。只在 `kind="ja"` 时出现，其余轴型不进任务请求 |
 
@@ -412,7 +414,7 @@ interface UploadedAudioSource {
 | :--- | :--- | :--- |
 | 不支持视频多模态 | `features.video_multimodal=false`，收到 `correction.media=video` 时返回 400 | 静默改用 `media=text` 执行 |
 | 不支持某个 `vocal_profile` | 收到不支持的档位返回 `invalid_request` | 静默按默认档位执行 |
-| 不支持知识库 | `features.knowledge=false`，收到 `knowledge=collect/update` 时报错 | 忽略该字段 |
+| 不支持知识库 | `features.knowledge=false`，收到 `knowledge=read/update` 时报错 | 忽略该字段 |
 | 运行时未就绪 | `runtime.ready=false` + 明确 `issues`，`start()` 返回 503 | 先建任务再失败 |
 
 `requested_capabilities` 与 `effective_capabilities` 必须如实记录「用户请求了什么」与「实际执行了什么」；若二者不一致，Provider 有义务在 `warning` 事件中说明原因。
@@ -442,19 +444,26 @@ interface UploadedAudioSource {
       "end": 15.67,
       "text": "原文文本",
       "words": [ /* 词级时间戳，原样透传给编辑器 */ ],
-      "low_conf": false          // 亦接受 low_confidence / confidence_label="low"
+      "low_conf": false,         // 亦接受 low_confidence / confidence_label="low"
+      "speaker": { "track": 1, "block": 0, "labels": [] } // 可选，说话人分离的结果
     }
   ]
 }
 ```
 顶层也可直接是 segments 数组。列表**不得为空**，任一段落时长非正即判定失败。
 
+`speaker` 缺失表示「没有标注」，不是「换了人」。Projector 取它的主说话人：有人写的
+`labels[].name` 优先，其次 `tracks[0]` / `track`，再次 `mark.tier="filled"` 时的 `mark.track`，
+记为 `s<编号>`；没有任何一项时视为未标注。
+
 ### 7.3 `annotated_csv`
 
-以 `|` 分隔的 **9 列**文本，`#` 开头为注释行：
+以 `|` 分隔的文本，`#` 开头为注释行。FineSub 0.6.0 在首行写表头并多出 `spk` 一列（排在 `note`
+之前，因为只有 `note` 允许包含 `|`）；没有表头的旧文件按 9 列解析：
 
 ```text
-kind|position|duration|gap|corrected|translation|conf|chars|note
+# type|position|duration|gap|corrected|translation|conf|char_count|spk|note   ← 0.6.0，10 列
+kind|position|duration|gap|corrected|translation|conf|chars|note               ← 旧版，9 列
 ```
 
 | 列 | 说明 |
@@ -465,6 +474,7 @@ kind|position|duration|gap|corrected|translation|conf|chars|note
 | `corrected` | 纠错后的原文，`\n` 表示换行 |
 | `translation` | 译文 |
 | `conf` | `high` / `median` / `low`（兼容 1–9 整数：≥7 → high，≥4 → median，其余 low） |
+| `spk` | 这一行的说话人。`s3`、`s3?`（没把握）、`s3?(s5)`（附备选轨）、`s4*`（补上的漏检）、`s0+s1`（两人）、`s7<s3`（裁判把它从 s3 挪到 s7）或人写的名字；Projector 只取主说话人（`+` 前第一个、`<` 左边，去掉 `?` `*` 与括号），有它时优先于 `stable_json` 的 `speaker` |
 | `gap` / `chars` / `note` | 保留列，Projector 不使用但必须占位 |
 
 ### 7.4 `final_srt`
@@ -489,6 +499,7 @@ kind|position|duration|gap|corrected|translation|conf|chars|note
 | `aligned` | 语音识别 | ASR / 对齐 |
 | `postprocess-queued` | 等待字幕处理 | 等待 CPU 后处理资源 |
 | `stable` | 整理识别结果 | 稳定化，产出 `stable_json` |
+| `diarize` | 说话人分离 | 产出说话人时间线并写进 `stable_json` |
 | `raw-srt` | 生成字幕 | 产出 `raw_srt` |
 | `llm-queued` | 等待纠错与翻译 | 等待 LLM 资源 |
 | `translated-srt` | 纠错与翻译 | 产出 `annotated_csv` |
@@ -602,7 +613,7 @@ kind|position|duration|gap|corrected|translation|conf|chars|note
 **产物**
 - [ ] `completed` 时 `artifacts()` 立即可用，否则返回 409 `artifacts_not_ready`
 - [ ] `stable_json` 段落 ID 唯一、时长为正、列表非空
-- [ ] `annotated_csv` 严格 9 列，`position` 引用的 ID 均存在于 `stable_json`
+- [ ] `annotated_csv` 列数与表头一致（无表头时 9 列），`position` 引用的 ID 均存在于 `stable_json`
 - [ ] `annotated_csv` 行数与 `final_srt` cue 数完全相等
 - [ ] `annotated_csv` 与 `final_srt` 成对出现，`sha256` / `bytes` 真实
 

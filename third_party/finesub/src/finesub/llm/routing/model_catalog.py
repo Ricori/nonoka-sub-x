@@ -62,6 +62,17 @@ CATALOG_COLUMNS = (
     "fallback_model",
     "quota_pool",
 )
+#: `quota_pool` sentinel: this row draws on an allowance of its own.
+#: Deliberately lower case, so it cannot be mistaken for a pool identifier --
+#: every real one is written in caps. Same idea as `-1` for an unlimited rate.
+PER_MODEL_QUOTA_POOL = "per-model"
+#: Tiers where one CLI login covers several separately metered allowances, so
+#: "the provider tier" is not an answer -- an empty `quota_pool` there is a
+#: question nobody answered rather than a default worth guessing. Guessing
+#: either way is wrong for some row on these tiers, and the expensive wrong
+#: guess (merging) takes a working line out for hours with no call left to
+#: thaw it, so they are made to say.
+TIERS_METERED_PER_LINE = frozenset({"LOCAL_AGY", "LOCAL_CODEBUDDY"})
 # Names an older override file may still carry. They are rejected with the new
 # name rather than silently ignored: a dropped `api_model_id` column would only
 # surface as "this model is not in the catalog", far from the header that caused
@@ -103,7 +114,7 @@ PACKAGED_PROVIDER_KINDS = {
     "LOCAL_CLAUDE": LOCAL_AGENT_KIND,
     "LOCAL_AGY": LOCAL_AGENT_KIND,
     "LOCAL_DSH": LOCAL_AGENT_KIND,
-    "LOCAL_WORKBUDDY": LOCAL_AGENT_KIND,
+    "LOCAL_CODEBUDDY": LOCAL_AGENT_KIND,
     "LOCAL_CONVERSATIONAL": CONVERSATIONAL_KIND,
 }
 DEFAULT_MAX_OUTPUT_TOKENS = 65_536
@@ -127,7 +138,7 @@ UNSTATED_QUALITY_SCORE = 100
 
 # ``thinking`` column (owner design 2026-08-11, identity default 2026-08-12):
 #
-# - ``true`` (and an omitted user-model field) -- the **identity mapping**: the
+# - ``true`` (and an empty cell) -- the **identity mapping**: the
 #   harness's abstract high/medium/low goes out verbatim. All three dialects
 #   happen to spell the levels the same way (Gemini ``thinkingLevel``,
 #   OpenAI-compatible ``reasoning_effort``, Anthropic ``output_config.effort``),
@@ -136,7 +147,10 @@ UNSTATED_QUALITY_SCORE = 100
 #   endpoints that 400 on unknown fields declare this).
 # - three comma-separated provider values -- an explicit override mapping the
 #   abstract high, medium, low requests, in that order (e.g. a provider whose
-#   words are ``max,default,minimal``).
+#   words are ``max,default,minimal``). For a model whose thinking is a token
+#   budget (Gemini 2.5) the three values are integers: the budgets themselves,
+#   because the harness's derived ones (a share of the output limit) can exceed
+#   the model's own ceiling, and the API rejects the call outright.
 THINKING_DISABLED = "false"
 THINKING_IDENTITY = "true"
 IDENTITY_THINKING_LEVELS = ("high", "medium", "low")
@@ -173,6 +187,25 @@ def thinking_value_for(entry: "ModelCatalogEntry", level: str | None) -> str:
     return entry.thinking_levels[index]
 
 
+def dispatched_thinking(
+    entry: "ModelCatalogEntry", level: str | None, derived_budget: int
+) -> tuple[str, int]:
+    """``(thinking_level, thinking_budget)`` actually sent for this model.
+
+    An integer mapping is the model's own budget for that level and replaces
+    the derived one (and no level word goes out); otherwise the mapped word
+    goes out next to the derived budget, as before. A model that declares
+    ``false`` gets neither.
+    """
+
+    if entry.thinking_levels is None:
+        return "", 0
+    value = thinking_value_for(entry, level)
+    if value.isdigit():
+        return "", int(value)
+    return value, derived_budget
+
+
 @dataclass(frozen=True)
 class ModelCatalogEntry:
     fact_id: str
@@ -192,17 +225,18 @@ class ModelCatalogEntry:
     #: ⚠ **Nothing enforces that.** The loader cannot know the pool's shape:
     #: ``provider_kind`` says which dialect a row speaks, and no dialect implies
     #: a pool -- ``openai_compat`` covers both kinds of provider, and every
-    #: local agent (agy fronts Opus, codex fronts GPT) declares ``local_agent``.
+    #: local agent (agy fronts Claude, codex fronts GPT) declares ``local_agent``.
     #: So a row that omits the cell plans against ``max_input + max_output``,
     #: and only its author knows whether that is true.
     #:
-    #: ``local-agy-opus-4_6`` is deliberately left blank (owner 2026-09-03).
-    #: Opus is a single pool, but nobody has checked whether agy passes its
-    #: full context through, so the row keeps the envelope it has always had
-    #: (194000) instead of taking the vendor's 1M on faith -- filling
+    #: The agy Claude rows (``local-agy-opus-5_5``, ``local-agy-sonnet-5_5``)
+    #: are deliberately left blank (owner 2026-09-03, for the Opus 4.6 row they
+    #: replaced). Claude is a single pool, but nobody has checked whether agy
+    #: passes its full context through, so the rows keep the envelope that row
+    #: always had (194000) instead of taking the vendor's 1M on faith -- filling
     #: ``max_input`` *and* the pool with 1M would raise it to 934464 on an
-    #: unverified assumption. See ``docs/plans/model-window-limits-plan.md``
-    #: §7.1: that row's ``max_input`` is not a vendor number either.
+    #: unverified assumption. Those rows' ``max_input`` is not a vendor number
+    #: either (``docs/llm_design_notes.md``, 「模型路由 v2 的持久决策」).
     #:
     #: Gemini publishes its two limits separately, so blank is the honest
     #: reading and the **free** rows use it. The **paid** rows and agy are still
@@ -247,15 +281,17 @@ class ModelCatalogEntry:
     #: fail instead".
     #:
     #: ⚠ **This spends money.** It exists for the free/paid pairs a
-    #: subscription offers -- WorkBuddy's `hy3` -> `hy3-x` and
-    #: `hy4-preview` -> `hy4-preview-x` -- where the free line is a daily
-    #: allowance and the paid one bills credits (x0.05 and x0.29 against the
-    #: free lines' x0.00, vendor product config 2026-09-04). Owner decision
-    #: 2026-09-04: for those two rows, a spent allowance should switch and
-    #: carry on rather than stop the run, with one notice per session.
+    #: subscription offers -- CodeBuddy's `hy3` -> `hy3-x` -- where the
+    #: free line is a daily allowance and the paid one bills credits
+    #: (x0.05 against the free line's x0.00, vendor product config
+    #: 2026-09-04; `hy4-preview` used to be a second pair, dropped
+    #: 2026-09-11 when that line started billing credits). Owner
+    #: decision 2026-09-04: for that row, a spent allowance should
+    #: switch and carry on rather than stop the run, with one notice
+    #: per session.
     #:
-    #: Left blank for every other row, including `glm-5.3-flash` and the two
-    #: DeepSeek rows -- those bill credits already and have no free twin to
+    #: Left blank for every other row, including `glm-5.3-flash` and
+    #: DeepSeek -- those bill credits already and have no free twin to
     #: fall back *from*.
     fallback_model: str = ""
     # Which API dialect serves this row, and where. ``gemini`` / ``local_agent``
@@ -270,12 +306,24 @@ class ModelCatalogEntry:
     # carry a systematic bias. Multiplied into every local estimate, never into
     # reported usage -- reports and calibration read the API's own numbers.
     token_scale: float = 1.0
-    # Which allowance this row draws on when it runs out. Empty means "the
-    # provider tier", which is right wherever one subscription backs every
-    # model on a tier -- one Codex plan, one Claude plan. It is *not* right for
-    # Antigravity, where the Gemini and Opus models are metered separately, and
-    # booking their exhaustion together would take a working model out of
-    # service for hours because its neighbour ran dry.
+    # Which allowance this row draws on when it runs out -- an allowance is a
+    # property of the line the vendor meters, and a row only *points* at one.
+    #
+    # Three ways to write it:
+    #   ""            the provider tier, right wherever one subscription backs
+    #                 every model on a tier (one Codex plan, one Claude plan);
+    #   PER_MODEL     this row has an allowance of its own. For a vendor whose
+    #                 free lines are metered one by one, so a name never has to
+    #                 be invented and a line that stops being free is a
+    #                 one-value edit rather than a rename;
+    #   anything else a pool shared by every row that names it.
+    #
+    # The tier default is *not* right for Antigravity, where the Gemini and
+    # Claude models are metered separately, nor for CodeBuddy, where each free
+    # line has its own daily quota and everything payable shares one credit
+    # balance. Booking those together would take a working model out of
+    # service for hours because its neighbour ran dry -- which is why
+    # `TIERS_METERED_PER_LINE` refuses to guess for them.
     quota_pool: str = ""
 
     # Whether this row came from the override file rather than the packaged
@@ -284,6 +332,13 @@ class ModelCatalogEntry:
 
     @property
     def effective_quota_pool(self) -> str:
+        if self.quota_pool == PER_MODEL_QUOTA_POOL:
+            # Derived rather than written down, so a new free line needs no
+            # invented name (and two rows cannot silently share one by typo).
+            # Keyed on (tier, model) rather than fact_id because that is what
+            # an answering model name can be looked up by -- see
+            # `get_model_catalog_entry_for_tier`.
+            return f"{self.provider_tier}:{self.api_model_id}"
         return self.quota_pool or self.provider_tier
 
     @property
@@ -417,7 +472,7 @@ def _entry_from_row(
                 raise ValueError(
                     f"{CATALOG_FILENAME}:{line_number}: {field_name}=true is not "
                     f"available on provider_kind={provider_kind} (custom HTTP "
-                    "media is unsupported; use --correction-media text to "
+                    "media is unsupported; use --media text to "
                     "put a text model on media-bearing material)"
                 )
     max_input = _parse_int(
@@ -583,8 +638,76 @@ def load_model_catalog(
                 self_reported=self_reported,
             )
         )
-    _reject_duplicates(entries, catalog_path)
+    _validate_catalog_table(entries, catalog_path)
     return entries
+
+
+def _validate_catalog_table(
+    entries: Sequence[ModelCatalogEntry], where: Any
+) -> None:
+    """Every check a whole table has to pass, in one call.
+
+    One entry point on purpose: the effective catalog is reached by two paths
+    -- the packaged file alone when there is no override, and the merged table
+    when there is -- and a check wired into only one of them is a check the
+    other silently skips.
+    """
+
+    _reject_duplicates(entries, where)
+    _reject_bad_quota_pools(entries, where)
+
+
+def _reject_bad_quota_pools(
+    entries: Sequence[ModelCatalogEntry], where: Any
+) -> None:
+    """Two things a table of allowances must not say.
+
+    Neither is detectable later: a wrong pool produces no error, just a freeze
+    booked against the wrong line -- or a working line taken out for hours.
+    """
+
+    by_pool: dict[str, set[bool]] = {}
+    for entry in entries:
+        if (
+            entry.provider_tier in TIERS_METERED_PER_LINE
+            and not entry.quota_pool
+        ):
+            raise ValueError(
+                f"{where}: {entry.fact_id!r} leaves quota_pool empty, but "
+                f"{entry.provider_tier} meters several allowances behind one "
+                f"login, so the tier is not an answer. Write "
+                f"{PER_MODEL_QUOTA_POOL!r} if this line has a quota of its "
+                f"own, or the name of the pool it shares (e.g. "
+                f"CODEBUDDY_CREDITS)."
+            )
+        by_pool.setdefault(entry.effective_quota_pool, set()).add(entry.is_free)
+    # A free line and a paid one cannot draw on the same allowance, so this
+    # says the table is wrong -- but it *warns*, and the asymmetry is the
+    # point. `is_free` drives nothing else and never has, so its values across
+    # the table are unverified annotations; promoting one to a load-blocking
+    # gate would stop a person's working configuration over a column nobody
+    # had reason to keep accurate. It found a real one the first time it ran
+    # (a free row sharing the tier pool with paid ones), which is exactly the
+    # service it should render: say so, let the owner decide.
+    for pool, free_flags in by_pool.items():
+        if len(free_flags) > 1:
+            sharing = sorted(
+                entry.fact_id
+                for entry in entries
+                if entry.effective_quota_pool == pool
+            )
+            _warn_catalog(
+                f"{where}: quota_pool {pool!r} is shared by rows that "
+                f"disagree about is_free ({', '.join(sharing)}). A free line "
+                f"and a paid one cannot draw on the same allowance, so one of "
+                f"them is booked against a quota it does not spend."
+            )
+
+
+def _warn_catalog(message: str) -> None:
+    from finesub.reporting import current_reporter
+
+    current_reporter().warning("model-catalog", message)
 
 
 def _reject_duplicates(
@@ -622,7 +745,7 @@ def merge_catalogs(
     for entry in override:
         merged[entry.fact_id] = entry
     result = list(merged.values())
-    _reject_duplicates(result, "merged catalog")
+    _validate_catalog_table(result, "merged catalog")
     return result
 
 

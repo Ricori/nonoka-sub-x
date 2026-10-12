@@ -28,7 +28,8 @@ from pathlib import Path
 from typing import Callable, Sequence
 
 from ..injection_budget import render_knowledge_entries_block
-from ..routing.config import INJECTION_SECTION_MAX_TOKENS, injection_block_token_limit
+from ..routing.config import injection_block_token_limit
+from .node.presets import preset_for_category
 from .node.repo import AmbiguousName, KnowledgeRepo
 from .style import STYLE_CATEGORY, parse_style_names
 
@@ -118,6 +119,12 @@ def resolve_subject_keys(
     ]
 
 
+def _entry_cap(label: str) -> int | None:
+    """Each entry's own category cap -- the one every other injection uses."""
+
+    return preset_for_category(label.split("/", 1)[0]).max_entry_tokens
+
+
 def render_subject_block(
     knowledge_root: str | Path,
     names: Sequence[str],
@@ -138,7 +145,7 @@ def render_subject_block(
     block = render_knowledge_entries_block(
         {f"{subject.category}/{subject.key}": subject.text for subject in subjects},
         count_tokens=count_tokens,
-        entry_limit=INJECTION_SECTION_MAX_TOKENS,
+        entry_limit=_entry_cap,
         block_limit=injection_block_token_limit(len(subjects)),
     )
     if not block.text.strip():

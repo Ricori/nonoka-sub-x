@@ -108,7 +108,7 @@ def _device_slug(name: str) -> str:
     """
 
     trimmed = name.lower()
-    for noise in ("nvidia ", "geforce "):
+    for noise in ("nvidia ", "geforce ", "amd ", "radeon "):
         trimmed = trimmed.replace(noise, "")
     return re.sub(r"[^a-z0-9]+", "", trimmed)[:32] or "gpu"
 
@@ -142,20 +142,22 @@ def cache_key(model_name: str) -> Optional[str]:
 
     import torch
 
-    if not torch.cuda.is_available():
+    from ...runtime import device as device_module
+
+    if not device_module.cuda_usable():
         return None
     try:
-        major, minor = torch.cuda.get_device_capability()
-        device = torch.cuda.get_device_name()
+        arch = device_module.gpu_arch_tag()
+        device = device_module.gpu_name()
     except Exception:
         return None
     digest = hashlib.sha256(model_name.encode("utf-8")).hexdigest()[:8]
     # torch's local label usually already names the CUDA build, but not always
     # (a CPU wheel carries none), so the runtime version is kept separately --
-    # spelled differently so the pair does not read as a duplicate.
-    cuda = torch.version.cuda or "none"
+    # spelled differently so the pair does not read as a duplicate. On AMD the
+    # runtime reads hip<ver> and the architecture its gfx target.
     return (
-        f"v{BUILD_FORMAT}-{torch.__version__}-cuda{cuda}-sm{major}{minor}"
+        f"v{BUILD_FORMAT}-{torch.__version__}-{device_module.gpu_runtime_tag()}-{arch}"
         f"-{_device_slug(device)}-{digest}"
     )
 
@@ -541,6 +543,17 @@ def select_backend(
     """
 
     if paths is None or not triton_available():
+        return "eager"
+    from ...runtime.device import is_rocm
+
+    if is_rocm():
+        # AOTI links cudart and has only ever run on NVIDIA; ROCm gets the JIT
+        # tier, whose Triton comes with the ROCm wheel on Linux. On Windows the
+        # Triton available is triton-windows, an NVIDIA-only build, so eager.
+        if os.name == "nt":
+            return "eager"
+        if duration_sec >= JIT_MIN_DURATION_SEC and read_probe(paths).get("jit") != "unavailable":
+            return "jit"
         return "eager"
     if aoti_package_ready(paths):
         return "aoti"

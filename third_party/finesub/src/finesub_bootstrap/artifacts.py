@@ -49,6 +49,14 @@ REMOVABLE_SUFFIXES = (
     # stem. A decoded copy is named after the *source*, so the sidecar below is
     # what actually finds it; this stays as the cheap half of the answer.
     "-decoded.flac",
+    # The clustering's own evidence, beside -diar.json: a float matrix rather than a contract, so
+    # it is removable while the timeline is a record.
+    # ⚠ Reproducible, but NOT by deleting this file alone. The evidence is only produced on the
+    # path that computes a timeline, and -diar.json is reused on existence -- so a run after this
+    # file is gone finds the timeline present, skips the stage and writes nothing. Getting it back
+    # means deleting -diar.json too. That is the cost of putting it in this list, and it is
+    # acceptable because nothing needs it to finish a run.
+    "-diar-evidence.npz",
 )
 
 #: Where a run lists the scratch files nothing else could name. Restated here
@@ -61,16 +69,30 @@ _METADATA_SUFFIX = "-metadata.json"
 #: list above. The ASR result is what a rerun reads instead of redoing
 #: separation and recognition; the annotated CSV is what the knowledge base
 #: reads, and only another LLM pass could produce it again. Everything else is
-#: reproducible from these two.
+#: reproducible from these.
+#:
+#: The three speaker files are here for a stronger reason than cost: they are not
+#: reproducible at all. The same audio on other hardware gives a different
+#: timeline (plan 5a.4), and the same prompt gives different roles (5g.1) and
+#: different speaker-judge verdicts, so a rerun that lost them would not restore
+#: them -- it would replace them with other, equally valid answers that a
+#: person's proofreading no longer matches. They exist only when `--diarize`
+#: (and, for the verdicts, the LLM speaker judge) ran; absent files are not copied.
 RECORD_SUFFIXES = (
     "-stable.json",
     "-annotated.csv",
+    "-diar.json",
+    "-speaker-judge.json",
 )
 
 #: Appended to the stem to name the LLM harness's working directory. Removed
 #: whole: session and window checkpoints exist to survive a *failure*, and a
 #: task that reached cleanup had none.
 ARTIFACT_DIR_SUFFIX = ".llm-artifacts"
+#: Inside the artifact directory: the LLM switches the correction task ran
+#: with and where each came from. Written by the main package's correction
+#: task, pointed at by the CLI's task record -- one spelling for both.
+RESOLVED_SWITCHES_FILENAME = "resolved-switches.json"
 
 
 #: Which file a run actually delivers, by the stage it was asked for. `-o`

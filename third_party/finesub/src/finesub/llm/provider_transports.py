@@ -41,7 +41,7 @@ from typing import Any, Dict, List, Mapping, Optional
 
 import httpx
 
-from .http import llm_http_client
+from .http import post_within_deadline
 
 ANTHROPIC_VERSION = "2023-06-01"
 
@@ -81,8 +81,11 @@ def _post_json(
     payload: Mapping[str, Any],
     timeout: float,
 ) -> Dict[str, Any]:
-    with llm_http_client(timeout=timeout) as client:
-        response = client.post(url, headers=dict(headers), json=dict(payload))
+    """`timeout` is a deadline on the whole call (see `post_within_deadline`)."""
+
+    response = post_within_deadline(
+        url, headers=headers, json=dict(payload), deadline_seconds=timeout
+    )
     if response.status_code < 200 or response.status_code >= 300:
         snippet = response.text[:500]
         raise ProviderHTTPError(

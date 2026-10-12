@@ -23,7 +23,7 @@ $output_start_clause
 6. `conf`、`char_count`、`duration`、`gap` 必须符合各自格式；`type` 和 `position` 不得含 `|`。
 7. 不要输出 SRT 编号或时间戳。duration、gap、char_count 写各自列，理由只写 note。
 8. **`<void>`**：写完某行才发现时长、字数、分组或取舍错误时，在行尾追加 `<void>`；本地丢弃该行，源序号可重用。
-9. **前置 reasoning 注释**（本变体核心机制）：
+9. **前置 reasoning 注释**：
    格式：以 `#` 开头的注释行（如 `# gap=0.3s 同一枚举未完，合并后 3.2s/18字在界内`），紧接在其管辖的 sub 或 discard 行**正上方**。不写源序号——位置即归属。
    - **触发条件（门控）**：当且仅当该行满足以下之一时，**必须**前置一条 `#` 注释：
      (a) 合并 ≥2 个源；(b) discard 丢弃；(c) conf=low；(d) 越过硬门槛（字数 >${thr_hard_chars} 或跨度 >${thr_hard_seconds}s）。

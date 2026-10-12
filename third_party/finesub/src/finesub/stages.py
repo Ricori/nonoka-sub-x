@@ -19,10 +19,12 @@ from __future__ import annotations
 
 from collections.abc import Callable
 import os
+import sys
 import time
 from pathlib import Path
 from typing import Any, Mapping, NamedTuple, Optional, Sequence
 
+from . import settings
 from .reporting import current_reporter
 from .speech.recognition import transcribe as asr_align
 from .speech.postprocessing import stabilization as asr_stabilize
@@ -44,6 +46,19 @@ class PipelinePaths(NamedTuple):
     vad_energy_npz: Path
     aligned_json: Path
     stable_json: Path
+    #: The speaker timeline. Its own artifact because it is the one thing here
+    #: that a rerun may not reproduce: the same audio down the same numerical
+    #: path is bit-reproducible, but a changed input or a changed path gives a
+    #: different-but-equally-valid answer, because a hard argmax turns last-bit
+    #: float differences into flipped labels (`docs/diarization-findings.md`
+    #: 5.1 and 5.2). So it is cached rather than recomputed, and `metadata.backend`
+    #: records which backend made it -- provenance, not a compatibility key.
+    #: The labels derived from it live on `stable_json`.
+    diar_json: Path
+    #: The LLM speaker judge's verdicts (`speech/diarization/judgments.py`): a
+    #: record like `diar_json`, read over the acoustic labels by the `spk` column
+    #: and the per-speaker exports, never folded into `stable_json`.
+    speaker_judge_json: Path
     raw_srt: Path
     translated_srt: Path
     final_srt: Path
@@ -68,6 +83,16 @@ class PipelinePaths(NamedTuple):
         if flac_fallback.exists():
             return flac_fallback
         return self.vocal_audio
+
+
+#: `--diarize`: off; the acoustic labels (and confidence marks); those plus the LLM speaker judge,
+#: reading the rows or also hearing them (owner 2026-10-07, 2026-10-09: one switch, four levels).
+DIARIZE_LEVELS = ("off", "acoustics", "judge-text", "judge-audio")
+
+
+def judge_of(diarize: str) -> str:
+    """The speaker judge a `--diarize` level asks for: `off`, `text` or `audio`."""
+    return diarize.removeprefix("judge-") if diarize.startswith("judge-") else "off"
 
 
 PIPELINE_STAGE_ORDER = {
@@ -117,28 +142,18 @@ def resolve_llm_media_for_source(
     stage: str,
     llm_media: str,
     llm_video: str | Path | None,
-    llm_correction_media: str = "",
-    llm_planning_media: str = "",
 ) -> tuple[str, str | Path | None, str]:
-    """Pick the effective LLM media switches / video file for a local input.
+    """Pick the effective LLM media switch / video file for a local input.
 
     A video switch needs a video track: a local video file becomes the default
-    ``llm_video``. When the input is audio-only, the *default-derived*
-    convenience ``--llm-media video`` downgrades to audio with a notice; an
-    **explicit** per-task override asking for video is a configuration error
-    (plan v2 D20 -- a switch above the available media never silently
-    downgrades). Only meaningful once an LLM stage actually runs, so earlier
-    stages are left untouched. Returns ``(llm_media, llm_video, notice)``;
-    an empty notice means silence. The per-task overrides pass through
-    unchanged.
+    ``llm_video``. When the input is audio-only, ``--llm-media video``
+    downgrades to audio with a notice. Only meaningful once an LLM stage
+    actually runs, so earlier stages are left untouched. Returns
+    ``(llm_media, llm_video, notice)``; an empty notice means silence.
     """
     if PIPELINE_STAGE_ORDER[stage] < PIPELINE_STAGE_ORDER["translated-srt"]:
         return llm_media, llm_video, ""
-    wants_video = "video" in {
-        llm_correction_media or llm_media,
-        llm_planning_media or llm_media,
-    }
-    if not wants_video:
+    if llm_media != "video":
         return llm_media, llm_video, ""
     if source_path.suffix.lower() in _VIDEO_EXTENSIONS:
         return llm_media, llm_video or source_path, ""
@@ -148,33 +163,11 @@ def resolve_llm_media_for_source(
         # show the .mp4 to the LLM). Availability is about the video *source*,
         # not about the ASR input's suffix.
         return llm_media, llm_video, ""
-    if "video" in {llm_correction_media, llm_planning_media}:
-        raise ValueError(
-            "input is audio-only and no --llm-video was given, but an explicit "
-            "--llm-correction-media/--llm-planning-media asks for video; supply "
-            "--llm-video, drop the override, or use a video input"
-        )
     return (
         "audio",
         llm_video,
         "Note: input is audio-only; downgrading --llm-media video → audio.",
     )
-
-
-def resolve_knowledge_switch(knowledge: str | None, llm_difficulty: str) -> str:
-    """The one rule three front ends share.
-
-    An unset switch is not a user statement, and ``difficulty=efficiency``
-    disables knowledge by construction, so an unset switch resolves to ``none``
-    there instead of handing the LLM layer a combination it refuses -- which it
-    refuses *after* ASR has already run, the most expensive place to find out.
-    Passing the switch explicitly on an efficiency run stays the hard error it
-    was; this only decides what "unset" means.
-    """
-
-    if knowledge is not None:
-        return knowledge
-    return "none" if llm_difficulty == "efficiency" else "collect"
 
 
 def default_pipeline_paths(
@@ -192,6 +185,8 @@ def default_pipeline_paths(
         vad_energy_npz=base.with_name(f"{base.name}-vad-energy.npz"),
         aligned_json=base.with_name(f"{base.name}-aligned.json"),
         stable_json=base.with_name(f"{base.name}-stable.json"),
+        diar_json=base.with_name(f"{base.name}-diar.json"),
+        speaker_judge_json=base.with_name(f"{base.name}-speaker-judge.json"),
         raw_srt=base.with_name(f"{base.name}-raw.srt"),
         translated_srt=base.with_name(f"{base.name}-translated.srt"),
         final_srt=srt_path,
@@ -332,17 +327,20 @@ def _validate_llm_configuration(
 ) -> None:
     """Everything about the LLM stage that is knowable before ASR runs.
 
-    Not an optimisation. Both checks below are configuration facts -- a typo in
-    `--style`, a bound model group whose members cannot hold a window -- and
-    the correction stage finds them only after the expensive half of the run
-    has already happened. A run that was going to fail should fail in the first
-    second.
+    Not an optimisation. Every check below is a configuration fact -- a
+    malformed `[chunking]` cap, a typo in `--style`, a bound model group whose
+    members cannot hold a window -- and the correction stage finds them only
+    after the expensive half of the run has already happened. A run that was
+    going to fail should fail in the first second.
     """
 
     from finesub.llm.knowledge.base import DEFAULT_KNOWLEDGE_ROOT
     from finesub.llm.knowledge.style import resolve_style_keys, resolve_style_selection
     from finesub.llm.routing.capabilities import check_model_group_windows
 
+    # Read again where they are used; checked here only for the early failure.
+    settings.MAX_WINDOW_SUBTITLE_TOKENS.resolve()
+    settings.RESEARCH_TRANSCRIPT_MAX_TOKENS.resolve()
     check_model_group_windows()
     root = knowledge_root or DEFAULT_KNOWLEDGE_ROOT
     names = resolve_style_selection(
@@ -354,6 +352,299 @@ def _validate_llm_configuration(
         from finesub.llm.knowledge.subjects import resolve_subject_keys
 
         resolve_subject_keys(root, knowledge_subjects)
+
+
+def _correction_request(
+    paths: PipelinePaths,
+    source_path: Path,
+    stage: str,
+    *,
+    axes: tuple[str, str, str, str, float],
+    llm_video: str | Path | None,
+    refined_srt: str | Path | None,
+    task_id: str,
+    postprocess_profile: int,
+    **options: Any,
+) -> Any:
+    """``run_pipeline``'s LLM keys as the one value the correction task takes,
+    checked. The keys that pass through unchanged arrive in ``options`` under
+    ``CorrectionRequest``'s own names, so a new one costs a line here only if
+    the pipeline has to translate it."""
+
+    from finesub.llm.correction_request import CorrectionRequest, resolved_request
+    from finesub.llm.routing.profiles import resolve_profile
+
+    media, retrieval, difficulty, continuity, output_scale = axes
+    profile = resolve_profile(media, retrieval, difficulty, continuity, output_scale=output_scale)
+    if llm_video and not profile.uses_video:
+        raise ValueError("--llm-video only applies when a media switch is video")
+    if profile.uses_video and not llm_video:
+        raise ValueError("--llm-video is required when a media switch is video")
+    return resolved_request(
+        CorrectionRequest(
+            stable_json=paths.stable_json,
+            output_path=paths.final_srt,
+            audio_path=source_path,
+            video_path=Path(llm_video) if llm_video else None,
+            profile=profile,
+            refined_srt=Path(refined_srt) if refined_srt else None,
+            task_id=task_id or paths.final_srt.stem,
+            task_artifact_dir=paths.task_artifact_dir,
+            # What the speaker judge listens to (separation may not have run yet).
+            vocal_audio=paths.resolve_vocal_audio(),
+            # Targeting translated-srt stops before the final postprocess.
+            postprocess_profile=None if stage == "translated-srt" else postprocess_profile,
+            **options,
+        )
+    )
+
+
+def _run_speaker_export_stage(
+    paths: PipelinePaths,
+    *,
+    speaker_tracks: str,
+    announce: Callable[..., None],
+) -> None:
+    """The lossless exports: one SRT per speaker, and/or one ASS holding all.
+
+    Explicitly requested, never automatic -- the single-track SRT is the product
+    and these are additions to it (owner, 2026-09-05). A single track has to make
+    a choice about overlapping speech; these do not.
+
+    The acceptance here is the completeness invariant, not the labelling: a line
+    written into one track too many costs a deletion, a line that reached no
+    track has to be noticed, found and retyped. So a broken invariant is a
+    warning on every run, not a silent shortfall.
+
+    The speaker judge's verdicts apply when its sidecar is there and still
+    belongs to this stable (`judgments.read_judgments`): a moved line goes to
+    its new track, a track the judge opened gets its own file. Called after
+    raw-srt and again after the LLM stage, so the files always follow the
+    sidecar (the second call is `run_pipeline`'s, after the task whose judge
+    the raw-srt export could not see yet); every file an earlier export wrote goes first, whichever format
+    it was in, so a track that no longer exists leaves nothing behind.
+    """
+
+    if speaker_tracks not in ("off", "srt", "ass", "both"):
+        raise ValueError(f"--speaker-tracks takes off/srt/ass/both, got {speaker_tracks!r}")
+    if speaker_tracks == "off":
+        return
+
+    import json
+
+    from .speech.diarization import export as speaker_export
+    from .speech.diarization.judgments import judged_speakers, read_judgments
+    from .speech.diarization.labels import filled_track, speaker_of
+
+    if not paths.stable_json.exists():
+        return
+    payload = json.loads(paths.stable_json.read_text(encoding="utf-8"))
+    subtitles = payload.get("segments", [])
+    speakers = [speaker_of(segment) for segment in subtitles]
+    if not any(speaker.track is not None or filled_track(speaker) is not None for speaker in speakers):
+        print(  # product output
+            "Warning: --speaker-tracks needs speaker labels; run with --diarize acoustics (or a judge level)",
+            file=sys.stderr,
+        )
+        announce("speaker-tracks", "skipped", detail="没有说话人标签")
+        return
+
+    announce("speaker-tracks", "running")
+    speakers = judged_speakers(subtitles, speakers, read_judgments(paths.stable_json, subtitles))
+    destination = paths.stable_json.with_name(f"{paths.stable_json.name.removesuffix('-stable.json')}-speakers")
+    destination.mkdir(parents=True, exist_ok=True)
+    for stale in (*destination.glob(f"{destination.name}-*.srt"), destination / f"{destination.name}.ass"):
+        stale.unlink(missing_ok=True)
+    groups = speaker_export.group_by_speaker(subtitles, speakers)
+    missing = speaker_export.check_completeness(subtitles, groups)
+    if missing:
+        print(  # product output
+            f"Warning: {len(missing)} subtitle line(s) reached no speaker track "
+            f"(first at index {missing[0]}); the tracks are incomplete",
+            file=sys.stderr,
+        )
+
+    written = []
+    if speaker_tracks in ("srt", "both"):
+        for name, text in speaker_export.render_speaker_srts(subtitles, speakers).items():
+            target = destination / f"{destination.name}-{name}.srt"
+            target.write_text(text, encoding="utf-8")
+            written.append(target.name)
+    if speaker_tracks in ("ass", "both"):
+        target = destination / f"{destination.name}.ass"
+        target.write_text(speaker_export.render_ass(subtitles, speakers), encoding="utf-8")
+        written.append(target.name)
+    current_reporter().debug(
+        "speaker tracks", {"directory": str(destination), "files": len(written)}
+    )
+
+
+def _planned_stages(target_order: int, *, diarize: str) -> list[str]:
+    """Which stage lines a person should expect to see, reused ones included.
+
+    Diarization is not a rung on the `--stage` ladder -- that ladder names which
+    *product* to stop at, and speaker labels are an addition to the subtitles
+    rather than another kind of them. It still gets its own line when it runs,
+    because it costs GPU minutes and a watcher should see where they went.
+    """
+
+    planned = [name for name, order in PIPELINE_STAGE_ORDER.items() if order <= target_order]
+    if diarize != "off" and "stable" in planned:
+        planned.insert(planned.index("stable") + 1, "diarize")
+    return planned
+
+
+def _warn_on_backend_mismatch(diar_json, requested, diarization) -> None:
+    """Say so when the cached timeline came from a different backend.
+
+    Never fatal and never a reason to recompute -- see the call site. A bad read
+    is not worth failing over either: the point is the label, and an unreadable
+    cache produces its own error where it is actually used.
+
+    ⚠ **Only a `Warning:` when a backend was NAMED.** Compared against the
+    resolved backend either way, but the default has moved (Sortformer, then a
+    probe, then DiariZen on 2026-09-21, then Nemotron-3 on 2026-09-25), and every
+    older task's resume would otherwise print this for a run where nothing on the
+    command line named a backend. That
+    is the case the resume rule covers -- current parameters do not retroactively
+    redefine finished stages -- so an implicit mismatch is reported where run
+    detail lives, not on stderr.
+    """
+    try:
+        resolved = diarization.resolve_backend(requested).name
+    except ValueError:  # an unknown name is reported where it is resolved for real
+        return
+    try:
+        cached = diarization.read_timeline(diar_json).backend
+    except Exception:  # the consumer reports an unreadable timeline properly
+        return
+    if cached == resolved:
+        return
+    note = (f"{diar_json.name} was produced by the {cached} backend, not {resolved}; "
+            "it is reused as-is. Delete it to recompute.")
+    if requested is None:
+        current_reporter().debug("diarization backend differs", {"cached": cached,
+                                                                 "resolved": resolved})
+        return
+    print(f"Warning: {note}", file=sys.stderr)  # product output
+
+
+def _diarization_device(device: str | None, gpu_tier: str) -> str:
+    """Where the timeline is computed: the run's device, unless the tier or the card says CPU.
+
+    Every backend runs on CPU, so a run without a usable GPU still gets labels -- slowly. Measured
+    once for the default (2026-09-25, 8 threads): Nemotron-3 + vbx RTF 0.20 on CPU (10 min of
+    hina-04) against 0.009 on CUDA (all 59 min), and on another file the CPU chain differed from
+    NeMo on the GPU by 0.19% of frames. Said on stderr, because an hour of audio then costs about
+    twelve minutes. (DiariZen, research only: RTF 0.86.)
+    """
+    from .speech.runtime.device import resolve_device
+    from .speech.runtime.resources import get_resource_profile
+
+    requested = device or "cuda"
+    if not get_resource_profile(gpu_tier).gpu:
+        requested = "cpu"
+    chosen = resolve_device(requested, context="speaker diarization")
+    if not str(chosen).startswith("cuda"):
+        current_reporter().warning(
+            "diarization-on-cpu",
+            "说话人分离在 CPU 上跑：约为音频时长的五分之一（1 小时音频约 12 分钟）",
+            impact="只影响这一阶段的耗时",
+        )
+    return chosen
+
+
+def warn_if_the_judge_cannot_run(diarize: str, stage: str) -> None:
+    """A judge level whose item stops before the LLM stage gets only the acoustic labels: say so. Called once
+    per item with its target stage (`pipeline._build_item`), never from `run_pipeline`: an item past raw-srt
+    runs it twice, the first time only up to raw-srt."""
+    if judge_of(diarize) == "off" or PIPELINE_STAGE_ORDER[stage] >= PIPELINE_STAGE_ORDER["translated-srt"]:
+        return
+    print(  # product output
+        f"Warning: --diarize {diarize}: the LLM speaker judge runs in the LLM stage, and this run "
+        f"stops at {stage}; only the acoustic labels this time",
+        file=sys.stderr,
+    )
+    current_reporter().warning("speaker-judge-not-run", f"--diarize {diarize} 的说话人裁判在 LLM 阶段，这次只跑到 {stage}",
+                               impact="只有声学标签")
+
+
+def _run_diarization_stage(
+    paths: PipelinePaths,
+    *,
+    diarize: str,
+    device: str | None,
+    gpu_tier: str,
+    announce: Callable[..., None],
+    backend: str | None = None,
+    max_speakers: int | None = None,
+) -> None:
+    """Speaker timeline after stabilization, when asked for.
+
+    Two halves with opposite properties, so two existence checks rather than one:
+    the timeline is cached because it cannot be reproduced, while writing labels
+    onto stable.json is cheap and deterministic and may always be redone. A run
+    that already has both does nothing at all.
+
+    Failure never takes the run down. The subtitles are the product; speaker
+    labels are an addition to them, and a missing model or an unusable GPU should
+    cost the labels, not the subtitles -- with a `Warning:`. Labelling from a cached
+    timeline needs neither the GPU nor the model. (There used to be an `auto` that
+    ran "whenever this machine can"; owner 2026-09-21 removed it.)
+    """
+
+    if diarize not in DIARIZE_LEVELS:
+        raise ValueError(f"--diarize takes {'/'.join(DIARIZE_LEVELS)}, got {diarize!r}")
+    if diarize == "off":
+        return
+
+    from .speech.diarization import stage as diarization
+
+    timeline_exists = paths.diar_json.exists()
+    annotated = diarization.is_annotated(paths.stable_json)
+    if timeline_exists:
+        # Owner 2026-09-19: a cached timeline does NOT expire because the run
+        # asked for a different backend. It is neither corrupt nor unreadable,
+        # so backend identity is provenance and only warns -- the way to get the
+        # other backend's answer is to delete the artifact, which is the rule
+        # every stage already has. Warning rather than silence, because serving
+        # X while the command line said Y is the part nobody would notice.
+        _warn_on_backend_mismatch(paths.diar_json, backend, diarization)
+    if timeline_exists and annotated:
+        announce("diarize", "reused")
+        return
+    announce("diarize", "running")
+    reporter = current_reporter()
+    try:
+        if not timeline_exists:
+            from .speech.diarization.evidence import evidence_path
+
+            result = diarization.run_diarization(
+                paths.resolve_vocal_audio(), device=_diarization_device(device, gpu_tier),
+                backend=backend,
+                evidence_path=evidence_path(paths.diar_json), max_speakers=max_speakers,
+            )
+            diarization.write_timeline(result, paths.diar_json)
+            reporter.debug(
+                "diarization timeline",
+                {
+                    "backend": result.backend,
+                    "tracks": len({segment.track for segment in result.tracks}),
+                    "segments": len(result.tracks),
+                    "segment_overlap_ratio": round(result.overlap, 4),
+                },
+            )
+        diarization.apply_to_stable(paths.stable_json, paths.diar_json)
+    except diarization.DiarizationUnavailable as error:
+        # Documented degradation, not a crash: `Warning:` to stderr is the
+        # repository's convention for "the run continues without this".
+        print(f"Warning: speaker diarization skipped: {error}", file=sys.stderr)  # product output
+        if judge_of(diarize) != "off":
+            print(  # product output
+                f"Warning: --diarize {diarize}: no speaker labels, so the LLM speaker judge will not run either",
+                file=sys.stderr,
+            )
+        announce("diarize", "skipped", detail="模型或依赖不可用")
 
 
 def _run_vocal_stage(
@@ -422,7 +713,7 @@ def _run_vocal_stage(
                     "skipping vocal separation", {"existing": str(existing_vocal)}
                 )
             elif not separate:
-                # Route (b) of docs/plans/field-feedback-batch-plan.md §5.3: the
+                # README_DEV.md, 「Pipeline 复用规则」: the
                 # stage's *contract* is honoured (a 16 kHz mono track at the
                 # path everything downstream reads), only the separation itself
                 # is not run. Every consumer, the existence-based skip and
@@ -528,19 +819,26 @@ def run_pipeline(
     vad_silero_assist: bool | None = None,
     qwen_verify: str = "auto",
     lang_redecode: str = "auto",
+    # Off for 0.6.0, and `auto` behaves as off: see `_run_diarization_stage`.
+    diarize: str = "off",
+    # None = the stage's own `DEFAULT_BACKEND`; never a second copy here.
+    diarize_backend: str | None = None,
+    diarize_max_speakers: int | None = None,
+    # Lossless extras, asked for explicitly: see `_run_speaker_export_stage`.
+    speaker_tracks: str = "off",
     split_length_scale: float | None = None,
     asr_decode_batch: int | str | None = None,
     asr_context: str | None = None,
     word: bool = False,
     asr_stabilize_profile: int = asr_stabilize.DEFAULT_ASR_STABILIZE_PROFILE,
     stage: str = "raw-srt",
-    llm_media: str = "audio",
-    llm_correction_media: str = "",
-    llm_planning_media: str = "",
-    llm_retrieval: str = "local",
-    llm_difficulty: str = "quality",
-    llm_continuity: str = "serial",
-    llm_parallel_windows: int = 1,
+    # None = the active preset's defaults, then the built-in ones
+    # (`resolve_llm_switches`); so is `knowledge` below.
+    llm_media: str | None = None,
+    llm_retrieval: str | None = None,
+    llm_difficulty: str | None = None,
+    llm_continuity: str | None = None,
+    llm_parallel_windows: int | None = None,
     llm_fast: str = "auto",
     llm_output_scale: float = 1.0,
     llm_video: str | Path | None = None,
@@ -548,7 +846,7 @@ def run_pipeline(
     extra_style: str = "",
     #: Named style entries for the LLM correction (`--style`). `None` falls
     #: through to `[llm] style` in the config; the backend resolver decides,
-    #: not argparse (CLAUDE.md's option-default chain).
+    #: not argparse (README_DEV.md 开发原则's option-default chain).
     style: str | None = None,
     #: none / read / update — see `knowledge/style.py`. `None` reads
     #: `[llm] style_mode`, then defaults to `read`.
@@ -564,8 +862,8 @@ def run_pipeline(
     task_summary: str = "",
     test_profile: bool = False,
     postprocess_profile: int = 0,
-    max_retries_per_window: int = 5,
-    max_replacements_per_window: int = 1,
+    max_retries_per_window: int | None = None,
+    max_replacements_per_window: int | None = None,
     resume: bool = True,
     _run_started_monotonic: float | None = None,
     _prior_timing: Mapping[str, Any] | None = None,
@@ -586,13 +884,20 @@ def run_pipeline(
         raise ValueError(f"Unknown pipeline stage: {stage}")
     if word and PIPELINE_STAGE_ORDER[stage] > PIPELINE_STAGE_ORDER["raw-srt"]:
         raise ValueError("--word can only be used through the raw-srt stage.")
-    knowledge = resolve_knowledge_switch(knowledge, llm_difficulty)
-    separate = vocal_separation.resolve_separate(separate)
+    separate = settings.SEPARATE.resolve(separate)
+    # Their stage resolves these itself; they are checked here too so that a
+    # bad value -- a manifest row, a typo in config.toml -- fails the run
+    # before separation, the heaviest stage, rather than after it.
+    settings.VAD_SILERO_ASSIST.resolve(vad_silero_assist)
+    settings.SPLIT_LENGTH_SCALE.resolve(split_length_scale)
     # `None` is "not chosen" -- a front end sends it so that a bare `cpu` tier
     # can be told apart from an explicit `cuda` -- and it means the code
     # default. Normalised here, once, so no stage ever sees None and reads it
     # as something other than "the user asked for the card".
     device = str(device or "cuda")
+    switches, _ = resolve_llm_switches(stage, llm_media, llm_retrieval, llm_difficulty, llm_continuity,
+                                       knowledge, llm_output_scale, llm_parallel_windows)
+    llm_media, llm_retrieval, llm_difficulty, llm_continuity, knowledge = switches.vector()
     if PIPELINE_STAGE_ORDER[stage] > PIPELINE_STAGE_ORDER["raw-srt"]:
         _validate_llm_configuration(
             knowledge_root=knowledge_root,
@@ -615,12 +920,6 @@ def run_pipeline(
         source_path, paths, llm_video, source_extra_info = prepare_url_input(
             source_arg,
             output_path=output_path,
-            llm_media=llm_media,
-            llm_correction_media=llm_correction_media,
-            llm_planning_media=llm_planning_media,
-            llm_retrieval=llm_retrieval,
-            llm_difficulty=llm_difficulty,
-            llm_output_scale=llm_output_scale,
             llm_video=llm_video,
             download_video_source=download_video_source,
         )
@@ -645,8 +944,6 @@ def run_pipeline(
             stage=stage,
             llm_media=llm_media,
             llm_video=llm_video,
-            llm_correction_media=llm_correction_media,
-            llm_planning_media=llm_planning_media,
         )
         if media_notice:
             # Says the LLM stage will not get the video it was asked for, which
@@ -666,6 +963,25 @@ def run_pipeline(
     )
     if resolved_task_artifact_dir != paths.task_artifact_dir:
         paths = paths._replace(task_artifact_dir=resolved_task_artifact_dir)
+    # The LLM keys become the one value the correction task takes, here and not
+    # at the LLM stage: building it is where a contradictory request is found
+    # (`--knowledge update` on an efficiency run, a video switch without a video), and
+    # finding that after ASR is finding it at the most expensive moment.
+    llm_request = None
+    if PIPELINE_STAGE_ORDER[stage] >= PIPELINE_STAGE_ORDER["translated-srt"]:
+        llm_request = _correction_request(
+            paths, source_path, stage,
+            axes=(llm_media, llm_retrieval, llm_difficulty, llm_continuity, llm_output_scale),
+            llm_video=llm_video, fast=llm_fast, parallel_windows=switches.parallel_windows,
+            extra_info=extra_info, extra_style=extra_style, style=style, style_mode=style_mode,
+            knowledge=knowledge, knowledge_root=knowledge_root, refined_srt=refined_srt,
+            knowledge_subjects=knowledge_subjects,
+            switch_sources=switches.sources,
+            task_id=task_id, task_summary=task_summary, postprocess_profile=postprocess_profile,
+            max_retries_per_window=max_retries_per_window,
+            max_replacements_per_window=max_replacements_per_window,
+            speaker_judge=judge_of(diarize), resume=resume, test_profile=test_profile,
+        )
 
     from .media.ffmpeg import describe_ffmpeg
 
@@ -706,9 +1022,7 @@ def run_pipeline(
     target_order = PIPELINE_STAGE_ORDER[stage]
     # Every stage at or below the target may be announced, reused ones
     # included -- which is exactly the denominator a person watching wants.
-    reporter.planned(
-        [name for name, order in PIPELINE_STAGE_ORDER.items() if order <= target_order]
-    )
+    reporter.planned(_planned_stages(target_order, diarize=diarize))
     aligned_required = stage == "aligned" or (
         target_order >= PIPELINE_STAGE_ORDER["stable"]
         and not paths.stable_json.exists()
@@ -809,6 +1123,9 @@ def run_pipeline(
             stable_t0,
             status="reused" if stable_existed else "executed",
         )
+        _run_diarization_stage(paths, diarize=diarize, device=device, gpu_tier=gpu_tier,
+                               announce=announce, backend=diarize_backend,
+                               max_speakers=diarize_max_speakers)
     if target_order >= PIPELINE_STAGE_ORDER["raw-srt"]:
         raw_srt_existed = paths.raw_srt.exists()
         announce("raw-srt", "reused" if raw_srt_existed else "running")
@@ -818,6 +1135,8 @@ def run_pipeline(
             TIMELINE_POSTPROCESS_PROFILES,
             postprocess_srt_file,
         )
+
+        stable_audio_end = asr_stabilize.recorded_audio_end(paths.stable_json)
 
         def _create_raw_srt(temporary: Path) -> Path:
             # Every write below lands in `temporary`, and there are up to three
@@ -835,11 +1154,15 @@ def run_pipeline(
                 # Timeline half of the final profile; the ASR text stays as is.
                 for timeline_profile in TIMELINE_POSTPROCESS_PROFILES:
                     postprocess_srt_file(
-                        produced, profile=timeline_profile, validate=False
+                        produced, profile=timeline_profile, validate=False,
+                        audio_end=stable_audio_end,
                     )
             produced = Path(produced)
+            # Raw text is before layout: only lines far over the budget are
+            # worth a mention, as one banded summary (see the validator).
             warn_on_invalid_srt(
-                produced.read_text(encoding="utf-8"), where=str(paths.raw_srt)
+                produced.read_text(encoding="utf-8"), where=str(paths.raw_srt),
+                budget_stage="raw-srt", budget_above=35,
             )
             return produced
 
@@ -847,6 +1170,9 @@ def run_pipeline(
             paths.raw_srt,
             "raw SRT export",
             _create_raw_srt,
+        )
+        _run_speaker_export_stage(
+            paths, speaker_tracks=speaker_tracks, announce=announce
         )
         _record_stage_time(
             paths,
@@ -870,37 +1196,13 @@ def run_pipeline(
             # the call below will do -- so this one is announced up front.
             announce("final-srt", "reused" if final_done else "running")
         llm_t0 = _stage_clock()
-        _run_llm_stage(
-            paths=paths,
-            source_path=source_path,
-            stage=stage,
-            llm_media=llm_media,
-            llm_correction_media=llm_correction_media,
-            llm_planning_media=llm_planning_media,
-            llm_retrieval=llm_retrieval,
-            llm_difficulty=llm_difficulty,
-            llm_continuity=llm_continuity,
-            llm_parallel_windows=llm_parallel_windows,
-            llm_fast=llm_fast,
-            llm_output_scale=llm_output_scale,
-            llm_video=llm_video,
-            extra_info=extra_info,
-            extra_style=extra_style,
-            style=style,
-            style_mode=style_mode,
-            knowledge_subjects=knowledge_subjects,
-            knowledge=knowledge,
-            refined_srt=refined_srt,
-            knowledge_root=knowledge_root,
-            task_artifact_dir=paths.task_artifact_dir,
-            task_id=task_id or paths.final_srt.stem,
-            task_summary=task_summary,
-            test_profile=test_profile,
-            postprocess_profile=postprocess_profile,
-            max_retries_per_window=max_retries_per_window,
-            max_replacements_per_window=max_replacements_per_window,
-            resume=resume,
-        )
+        from finesub.llm.correction_translation import run_correction_task
+
+        # The task skips what is on disk itself (and still owes the knowledge
+        # update for an output an earlier run left behind).
+        run_correction_task(llm_request)
+        if judge_of(diarize) != "off":
+            _run_speaker_export_stage(paths, speaker_tracks=speaker_tracks, announce=announce)
         if wants_final and not translated_done:
             # The single correction pass above produced the final SRT itself,
             # post-processing included. This marks the transition; there is no
@@ -1066,7 +1368,7 @@ def build_asr_context(
 def stage_consumes_extra_info(stage: str, *, asr_context: str | None = None) -> bool:
     """Does a run stopping at `stage` have anything that reads extra-info?
 
-    Two consumers, and they sit at different depths. `run_full_correction` is
+    Two consumers, and they sit at different depths. The correction task is
     the obvious one, so a run stopping at `vocal` through `raw-srt` normally
     reads it never -- and that matters, because one line of extra-info costs a
     network probe for the title.
@@ -1122,17 +1424,55 @@ def compose_url_extra_info(
     )
 
 
+def resolve_llm_switches(
+    stage: str,
+    llm_media: str | None,
+    llm_retrieval: str | None,
+    llm_difficulty: str | None,
+    llm_continuity: str | None,
+    knowledge: str | None,
+    llm_output_scale: float,
+    llm_parallel_windows: int | None = None,
+) -> tuple[Any, Any]:
+    """The run's LLM switches (``correction_request.resolve_switches``) and the
+    profile they make, which also validates them.
+
+    Called before anything is downloaded or separated -- by ``run_pipeline``
+    and by the batch runner's download stage -- so a conflicting vector costs
+    nothing, and every later use reads the resolved values.
+    A run that stops at ``raw-srt`` skips the preset layers: its switches are
+    only validated, and a route configuration it never uses must not fail it.
+    """
+
+    from finesub.llm.correction_request import resolve_switches
+    from finesub.llm.routing.profiles import resolve_profile
+
+    switches = resolve_switches(
+        {
+            "media": llm_media,
+            "retrieval": llm_retrieval,
+            "difficulty": llm_difficulty,
+            "continuity": llm_continuity,
+            "knowledge": knowledge,
+            "parallel_windows": llm_parallel_windows,
+        },
+        presets=PIPELINE_STAGE_ORDER[stage] > PIPELINE_STAGE_ORDER["raw-srt"],
+    )
+    profile = resolve_profile(
+        switches.media,
+        switches.retrieval,
+        switches.difficulty,
+        switches.continuity,
+        output_scale=llm_output_scale,
+    )
+    return switches, profile
+
+
 def prepare_url_input(
     url: str,
     *,
     output_path: str | Path | None,
-    llm_media: str,
-    llm_retrieval: str,
-    llm_difficulty: str,
-    llm_output_scale: float,
     llm_video: str | Path | None,
-    llm_correction_media: str = "",
-    llm_planning_media: str = "",
     download_video_source: bool = True,
 ) -> tuple[Path, PipelinePaths, str | Path | None, str]:
     """Resolve a media URL into (audio_path, paths, llm_video, extra_info).
@@ -1154,23 +1494,13 @@ def prepare_url_input(
         resolve_video_id,
     )
     from .paths import resolve_reference_data_root
-    from finesub.llm.routing.profiles import resolve_profile
 
+    # The switches are validated by the caller (`resolve_llm_switches`),
+    # before this downloads anything.
     map_dir = resolve_reference_data_root()
     video_id = resolve_video_id(url, map_dir)
     paths = default_pipeline_paths(Path(video_id), output_path)
     media_dir = paths.final_srt.parent
-    profile = resolve_profile(
-        llm_media,
-        llm_retrieval,
-        llm_difficulty,
-        correction_media=llm_correction_media,
-        planning_media=llm_planning_media,
-        output_scale=llm_output_scale,
-    )
-    # `profile` is resolved above for its validation side effect: a conflicting
-    # switch vector must fail here, before anything is downloaded.
-    del profile
     if download_video_source and not llm_video:
         resolved_id, video_path = download_video(
             url, map_dir, video_id=video_id, target_dir=media_dir
@@ -1206,156 +1536,3 @@ def _stage_output(paths: PipelinePaths, stage: str) -> Path:
     if stage == "translated-srt":
         return paths.translated_srt
     return paths.final_srt
-
-
-def _run_llm_stage(
-    *,
-    paths: PipelinePaths,
-    source_path: Path,
-    stage: str,
-    llm_media: str = "audio",
-    llm_correction_media: str = "",
-    llm_planning_media: str = "",
-    llm_retrieval: str = "local",
-    llm_difficulty: str = "quality",
-    llm_continuity: str = "serial",
-    llm_parallel_windows: int = 1,
-    llm_fast: str = "auto",
-    llm_output_scale: float = 1.0,
-    llm_video: str | Path | None = None,
-    extra_info: str,
-    extra_style: str,
-    style: str | None,
-    style_mode: str | None,
-    knowledge: str,
-    knowledge_subjects: str | Sequence[str] | None = None,
-    refined_srt: str | Path | None,
-    knowledge_root: str | Path | None,
-    task_artifact_dir: str | Path | None,
-    task_id: str,
-    task_summary: str,
-    test_profile: bool,
-    postprocess_profile: int,
-    max_retries_per_window: int,
-    max_replacements_per_window: int = 1,
-    resume: bool = True,
-) -> None:
-    from finesub.llm.routing.profiles import resolve_profile
-
-    profile = resolve_profile(
-        llm_media,
-        llm_retrieval,
-        llm_difficulty,
-        llm_continuity,
-        correction_media=llm_correction_media,
-        planning_media=llm_planning_media,
-        output_scale=llm_output_scale,
-    )
-    if llm_video and not profile.uses_video:
-        raise ValueError("--llm-video only applies when a media switch is video")
-    if profile.uses_video and not llm_video:
-        raise ValueError("--llm-video is required when a media switch is video")
-    artifact_dir = Path(task_artifact_dir).expanduser() if task_artifact_dir else paths.task_artifact_dir
-    if stage == "translated-srt":
-        if paths.translated_srt.exists():
-            current_reporter().debug(
-                "skipping LLM correction/translation",
-                {"existing": str(paths.translated_srt)},
-            )
-            return
-        from finesub.llm.correction_translation import run_full_correction
-        from finesub.llm.knowledge.base import DEFAULT_KNOWLEDGE_ROOT
-
-        run_full_correction(
-            stable_json=paths.stable_json,
-            output_path=paths.final_srt,
-            audio_path=source_path,
-            video_path=llm_video,
-            profile=profile,
-            fast=llm_fast,
-            extra_info=extra_info,
-            knowledge_root=knowledge_root or DEFAULT_KNOWLEDGE_ROOT,
-            parallel_windows=llm_parallel_windows,
-            postprocess_profile=None,
-            extra_style=extra_style,
-            style=style,
-            style_mode=style_mode,
-            knowledge_subjects=knowledge_subjects,
-            task_id=task_id,
-            task_summary=task_summary,
-            task_artifact_dir=artifact_dir,
-            knowledge=knowledge,
-            refined_srt=refined_srt,
-            test_profile=test_profile,
-            max_retries_per_window=max_retries_per_window,
-            max_replacements_per_window=max_replacements_per_window,
-            resume=resume,
-        )
-        return
-
-    if paths.final_srt.exists():
-        current_reporter().debug(
-            "skipping LLM final SRT", {"existing": str(paths.final_srt)}
-        )
-        return
-    if paths.translated_srt.exists():
-        from finesub.llm.knowledge.base import append_task_artifact
-        from .subtitles.postprocess import postprocess_srt_file
-        from finesub.llm.task_report import write_task_report
-
-        report = postprocess_srt_file(
-            paths.translated_srt,
-            output_path=paths.final_srt,
-            profile=postprocess_profile,
-        )
-        append_task_artifact(
-            artifact_dir,
-            kind="final_srt",
-            task_id=task_id,
-            payload={
-                "path": str(paths.final_srt),
-                "raw_path": str(paths.raw_srt),
-                "translated_path": str(paths.translated_srt),
-                "postprocess": report.to_dict(),
-            },
-        )
-        write_task_report(
-            artifact_dir,
-            task_id=task_id,
-            outputs={
-                "raw_srt": str(paths.raw_srt),
-                "translated_srt": str(paths.translated_srt),
-                "final_srt": str(paths.final_srt),
-            },
-        )
-        # The delivered artifact is announced once, by `completed`.
-        return
-
-    from finesub.llm.correction_translation import run_full_correction
-    from finesub.llm.knowledge.base import DEFAULT_KNOWLEDGE_ROOT
-
-    run_full_correction(
-        stable_json=paths.stable_json,
-        output_path=paths.final_srt,
-        audio_path=source_path,
-        video_path=llm_video,
-        profile=profile,
-        fast=llm_fast,
-        extra_info=extra_info,
-        knowledge_root=knowledge_root or DEFAULT_KNOWLEDGE_ROOT,
-        parallel_windows=llm_parallel_windows,
-        postprocess_profile=postprocess_profile,
-        extra_style=extra_style,
-        style=style,
-        style_mode=style_mode,
-        knowledge_subjects=knowledge_subjects,
-        task_id=task_id,
-        task_summary=task_summary,
-        task_artifact_dir=artifact_dir,
-        knowledge=knowledge,
-        refined_srt=refined_srt,
-        test_profile=test_profile,
-        max_retries_per_window=max_retries_per_window,
-        max_replacements_per_window=max_replacements_per_window,
-        resume=resume,
-    )

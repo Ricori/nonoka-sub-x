@@ -1,55 +1,39 @@
 {
-  "archive_sha256": "5f96a9c6ab0a08ce8370ee577b69f160210259d797f23bb3ea58bce338fa15a6",
-  "commit": "b9b2f10c80abd58ddff739b60461624f51c0789c",
-  "content_sha256": "46a074fda0d3ce49b5b4ac7b1177bedca09dfb7b9a1cfda585f9a2a5a504a42c",
-  "engine_bundle_id": "finesub-0.5.1+b9b2f10c80ab",
-  "engine_version": "0.5.1",
-  "files_manifest_sha256": "af38ce3ca593ccab8a1ae726839ccb3787df5d019770681ccdca70d99c0740d8",
+  "archive_sha256": "e76340e70a214412facdb7b7288b5532886ff9e6bab0b3519bfb54ed1cc257ae",
+  "commit": "5caf422cbad36f0402c98eb565e4c29aee4ac197",
+  "content_sha256": "1b9fcc0ccf90e95a62226fe2f9552375c4b4ac2922f3fa217764961c200820d7",
+  "engine_bundle_id": "finesub-0.6.0+5caf422cbad3",
+  "engine_version": "0.6.0",
+  "files_manifest_sha256": "b604a15b780d72a207dae0c579274a9532999cfba18fc8f4dbb0b18840d937de",
   "patches": [
     {
       "path": "0001-qwen-tail-entry-point.patch",
-      "sha256": "cf88873057cc9804ab1a025e608dee9301050e68e43741a27c9a363617328710"
+      "sha256": "6c395a1f39ba7a3327d64b3849a9f45ae3b33fd2812ba147c3085ca229bf5685"
     },
     {
       "path": "0002-runtime-tool-manifest.patch",
       "sha256": "f231b5c9f28b99e693610337aa04f3334098acd62b3d93c57a7aac536052df8d"
     },
     {
-      "path": "0003-agy-workspace-read-grant.patch",
-      "sha256": "0ffb018a05921259207dc34a3544b00a35891d87418e48b0052fc6af5e62bed2"
+      "path": "0003-triton-msvc-c11-empty-struct.patch",
+      "sha256": "9b95c1089f270af4c9ee77aead5a1cf8cc571ec19fa251397b2dc3eb6dd3ce9d"
     },
     {
-      "path": "0004-nonoka-042-runtime-marker.patch",
-      "sha256": "c59989c55444ba7517a0119d0f2eb352fadd503191bdfd1f520f4997ec4b0fd1"
+      "path": "0004-aoti-posix-compiler.patch",
+      "sha256": "88f7d7463d510d375cb7d2e1898e4aa14fce98527555f4654b3b9f182de41e1e"
     },
     {
-      "path": "0005-triton-msvc-c11-empty-struct.patch",
-      "sha256": "834c6ba640779891bcf2367d8a84d4ae2824ec799f88e0a482743eaeac7b28ac"
+      "path": "0005-remove-managed-git.patch",
+      "sha256": "004b68145953b3ee90156d59c1225c184c30e3e94cbd9725c45b3899538c4f01"
     },
     {
-      "path": "0006-aoti-posix-compiler.patch",
-      "sha256": "abed7a4f64738774bd699012f891e673609766bdff198b506c54bafc8917499c"
-    },
-    {
-      "path": "0007-remove-managed-git.patch",
-      "sha256": "4db64404cf0b7f60e9c61d323346df5e3b814af0a62d1a2359add2cb559dac8f"
-    },
-    {
-      "path": "0008-silero-non-ascii-path.patch",
-      "sha256": "c0a4dd5bf696de5071ba9ce9e0b7797da091d6e20822fbea353c786ba2659121"
-    },
-    {
-      "path": "0009-codex-gpt6-models.patch",
-      "sha256": "ee07fb87375507ab9026da574b042bd9cf0c8447850a319c934df3e8df0f4641"
-    },
-    {
-      "path": "0010-pinned-knowledge-subjects.patch",
-      "sha256": "c55ba2e54b5394cc3cc8d1db13ecd21a6f83d9f07b77c805a2e6559a81bbff11"
+      "path": "0006-pinned-knowledge-subjects.patch",
+      "sha256": "8f31416c3d80e16308f69effe839576c0e5cf7a1966fd3a227c101b5204aacf3"
     }
   ],
-  "ref": "v0.5.1",
+  "ref": "v0.6.0",
   "repository": "https://github.com/caca2331/finesub",
   "runtime_manifest_sha256": "0171f663e3512bf2604e8f788942e8ed0253cb1b09ec8cd70e0c166f25f58db5",
   "sync_schema": 1,
-  "synced_at": "2026-09-05T07:36:04Z"
+  "synced_at": "2026-10-11T20:10:58Z"
 }

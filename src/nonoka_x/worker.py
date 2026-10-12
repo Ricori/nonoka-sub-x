@@ -40,19 +40,6 @@ def emit(event_type: str, payload: Mapping[str, Any] | None = None) -> None:
     print(json.dumps({"type": event_type, "payload": dict(payload or {})}, ensure_ascii=False, separators=(",", ":")), flush=True)
 
 
-# The engine warns once per run when the switch vector is outside its six
-# measured combinations (finesub `capabilities.CALIBRATED_VECTORS`). Most of
-# Nonoka X's switch matrix is, so it fires on nearly every task -- and there is
-# nothing the user can do about it: `c` is derived by the same per-axis sum as
-# the measured vectors, and a window that does overrun its output envelope is
-# split in half and retried by the correction loop. Dropped rather than
-# downgraded, per product decision. The sibling `routing-profile` warnings --
-# continuity=parallel, and a vector whose measurement went stale -- still speak.
-# Matching on the text is deliberate: an upstream rewording lets the line back
-# in (noise, not breakage), and the vendor snapshot is hash-pinned, so a sync
-# surfaces the change as a diff.
-_UNCALIBRATED_VECTOR_NOTICE = "未标定：输出预算系数"
-
 # FineSub 0.5.0 records every LLM call, local agent call and web retrieval as
 # one debug line, which is the right shape for the run log it was written for
 # -- and the wrong shape for a task log the user is watching, where a single
@@ -102,8 +89,6 @@ class NonokaXReporter:
         emit("log", {"message": f"{stage}: " + "，".join(f"{key} {value}" for key, value in metrics.items())})
 
     def warning(self, code: str, message: str, *, impact: str = "", action: str = "") -> None:
-        if code == "routing-profile" and _UNCALIBRATED_VECTOR_NOTICE in message:
-            return
         if code == "srt-line-budget":
             emit("log", {"code": code, "message": message, "impact": impact, "action": action})
             return
@@ -159,7 +144,7 @@ def knowledge_subjects(request: Mapping[str, Any]) -> list[Mapping[str, Any]]:
     """
 
     knowledge = request.get("knowledge")
-    if knowledge not in ("collect", "update"):
+    if knowledge not in ("read", "update"):
         return []
     subjects = request.get("knowledge_subjects")
     if subjects is None and knowledge == "update":
@@ -345,6 +330,81 @@ def translate_axis(
     )
 
 
+def diarization_kwargs(request: Mapping[str, Any]) -> dict[str, Any]:
+    """`run_pipeline`'s speaker keys for this request; empty when it asks for none.
+
+    The provider has already validated and normalized the block
+    (`local_provider.normalize_diarization`), so this only translates it.
+    Nothing is passed for `off`, which keeps such a run on upstream's own
+    defaults.
+    """
+
+    block = request.get("diarization")
+    if not isinstance(block, Mapping):
+        return {}
+    level = str(block.get("level") or "off")
+    if level == "off":
+        return {}
+    kwargs: dict[str, Any] = {"diarize": level}
+    if block.get("max_speakers") is not None:
+        kwargs["diarize_max_speakers"] = int(block["max_speakers"])
+    return kwargs
+
+
+def emit_request_notices(request: Mapping[str, Any]) -> None:
+    """Say once what the provider adjusted in this request, and why."""
+
+    if request.get("legacy_knowledge") == "collect":
+        emit("log", {
+            "message": "知识库模式「collect」已更名为「read」：只读取知识库，不再收集反馈；"
+                       "需要写回请选择自动更新",
+        })
+    block = request.get("diarization")
+    if diarization_kwargs(request) and diarization_models_missing():
+        emit("log", {
+            "message": "首次使用说话人分离：需要下载约 450MB 模型，将在说话人分离阶段自动下载并校验",
+        })
+    if isinstance(block, Mapping) and block.get("requested_level"):
+        emit("warning", {
+            "code": "diarize-judge-skipped",
+            "message": f"说话人裁判（{block['requested_level']}）只在完整翻译流程中运行，"
+                       "本次只做声学说话人分离",
+            "impact": "",
+            "action": "",
+        })
+
+
+def diarization_models_missing() -> bool:
+    """Whether the default diarization backend still has weights to fetch.
+
+    The engine fetches them itself, with its own mirror routing and checks,
+    the first time the stage runs -- but that is a silent wait of several
+    hundred megabytes, so the task log says so before it starts. Unknown
+    counts as present: this only decides whether to warn.
+    """
+
+    models_root = os.environ.get("FINESUB_MODEL_DIR")
+    if not models_root:
+        return False
+    try:
+        from .model_install import DIARIZATION_MODEL_IDS, missing_managed_models
+
+        return bool(missing_managed_models(Path(models_root), DIARIZATION_MODEL_IDS))
+    except Exception:  # noqa: BLE001 - a notice, never a reason to fail the run
+        return False
+
+
+def diarization_evidence_path(diar_json: Path) -> Path:
+    """The acoustic evidence written beside the speaker timeline.
+
+    FineSub's `speech.diarization.evidence.evidence_path`, restated so the
+    manifest can be built without importing the diarization package (checked
+    against it in tests/test_worker_adapter.py).
+    """
+
+    return diar_json.with_name(diar_json.name.removesuffix("-diar.json") + "-diar-evidence.npz")
+
+
 def install_llm_model_override(request: Mapping[str, Any]) -> None:
     """Apply this run's `llm_model` pin, or clear whatever a previous one left.
 
@@ -459,6 +519,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         request = json.loads(sys.stdin.readline())
         install_llm_model_override(request)
+        emit_request_notices(request)
         source = request["source"]
         correction = dict(request.get("correction") or {})
         correction["extra_info"] = compose_knowledge_context(
@@ -511,9 +572,11 @@ def main(argv: list[str] | None = None) -> int:
                     device=engine_device,
                     gpu_tier=gpu_tier,
                     separate=bool(request.get("separate", True)),
-                    llm_media=correction.get("media", "audio"),
-                    llm_retrieval=correction.get("retrieval", "local"),
-                    llm_difficulty=correction.get("difficulty", "quality"),
+                    # Unset switches stay None: the engine resolves them
+                    # through the active preset's defaults, then its own.
+                    llm_media=correction.get("media"),
+                    llm_retrieval=correction.get("retrieval"),
+                    llm_difficulty=correction.get("difficulty"),
                     llm_fast=resolve_request_fast(
                         correction, warn=lambda message: reporter.warning("fast-mode", message)
                     ),
@@ -524,6 +587,10 @@ def main(argv: list[str] | None = None) -> int:
                     task_id=args.task_id,
                     task_artifact_dir=artifact_dir,
                     resume=True,
+                    # The editor builds its own speaker tracks from the labels
+                    # on stable.json, so the engine's per-speaker exports stay off.
+                    speaker_tracks="off",
+                    **diarization_kwargs(request),
                     **subject_kwargs,
                 )
             # Every artifact the pipeline names, not only the four the editor
@@ -536,6 +603,11 @@ def main(argv: list[str] | None = None) -> int:
                 "vad_energy_npz": Path(paths.vad_energy_npz),
                 "aligned_json": Path(paths.aligned_json),
                 "stable_json": Path(paths.stable_json),
+                # Kept, never regenerated on their own: a rerun may label the
+                # speakers differently, so these are the record of this run's.
+                "diar_json": Path(paths.diar_json),
+                "diar_evidence_npz": diarization_evidence_path(Path(paths.diar_json)),
+                "speaker_judge_json": Path(paths.speaker_judge_json),
                 "raw_srt": Path(paths.raw_srt),
                 "translated_srt": Path(paths.translated_srt),
                 "annotated_csv": Path(paths.final_srt).with_name(f"{Path(paths.final_srt).stem}-annotated.csv"),

@@ -15,13 +15,18 @@ import re
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any, Mapping, Sequence
 
-from ..base import IndexEntry, _match_normalize, _parse_entry_for_index, parse_index_text
+from finesub_bootstrap.processes import no_window
+
+from ..base import IndexEntry, _match_normalize, _parse_entry_for_index, _split_names, parse_index_text
 from .model import (
     METADATA_SECTION,
     PROFILE_SECTION,
+    RECATEGORIZED_LABEL,
+    RECATEGORIZED_REASON_FIELD,
     UPDATED_DATE_LABEL,
+    ItemVersion,
     MigrationAux,
     migration_id,
 )
@@ -72,6 +77,11 @@ class ParsedEntry:
     trailing_newline: bool
     text: str
     has_metadata: bool = True
+    #: Why the entry sits in the category it does. Written by `recategorize`
+    #: and rendered in the full preview -- which is an EDITABLE face, so the
+    #: parser has to accept what the renderer emits or a moved entry can no
+    #: longer be edited at all (review 2026-09-07, second round).
+    recategorized_reason: str = ""
 
 
 @dataclass
@@ -186,6 +196,7 @@ def parse_entry_text(path: Path, text: str, *, keep_comments: bool = False) -> P
 
     sections: list[ParsedSection] = []
     updated_date = ""
+    recategorized_reason = ""
     metadata_blank_after = False
     has_metadata = False
     while index < len(raw_lines):
@@ -223,8 +234,11 @@ def parse_entry_text(path: Path, text: str, *, keep_comments: bool = False) -> P
                 if not raw.strip():
                     continue
                 match = _FACT_RE.match(raw)
-                if match and match.group("field").strip() == UPDATED_DATE_LABEL:
+                field = match.group("field").strip() if match else ""
+                if field == UPDATED_DATE_LABEL:
                     updated_date = match.group("value").strip()
+                elif field == RECATEGORIZED_LABEL:
+                    recategorized_reason = match.group("value").strip()
                 else:
                     raise ImportFormatError(f"{path}:{lineno}: unexpected metadata line {raw!r}")
             continue
@@ -245,6 +259,7 @@ def parse_entry_text(path: Path, text: str, *, keep_comments: bool = False) -> P
         intro=intro,
         sections=sections,
         updated_date=updated_date,
+        recategorized_reason=recategorized_reason,
         metadata_blank_after=metadata_blank_after,
         trailing_newline=trailing_newline,
         text=text,
@@ -493,12 +508,10 @@ def strip_misheard_prose(text: str) -> str:
 
 
 def split_names(text: str) -> list[str]:
-    """Alias-list split. A token with no word character at all (the legacy
-    ``—`` placeholder column, stray punctuation) is not a name — dropping it
-    here covers import, the candidate scan and the rendered-edit alias diff alike."""
+    """Alias-list split (``base._split_names``: 、 , ， separate; a token with
+    no word character is not a name)."""
 
-    parts = (part.strip() for part in re.split(r"[、,，]", text or ""))
-    return [part for part in parts if part and re.search(r"\w", part)]
+    return list(_split_names(text))
 
 
 def alias_delta(old: Sequence[str], new: Sequence[str]) -> tuple[list[str], list[str]]:
@@ -519,6 +532,30 @@ def alias_delta(old: Sequence[str], new: Sequence[str]) -> tuple[list[str], list
     return added, removed
 
 
+def alias_row_delta(
+    items: Sequence[ItemVersion], new: Sequence[str], base: Sequence[str] | None = None,
+) -> tuple[list[str], list[ItemVersion]]:
+    """``(values to add, items to remove)`` when an alias row or column is
+    rewritten -- an entry header ``[别名]`` row or a term line's alias column,
+    by the model or by a person in ``rendered/``.
+
+    The diff base is what the writer saw: the rendered aliases, which leave
+    out tentative items (plan §11.5). ``base`` defaults to the non-tentative
+    values in ``items``; pass the parsed old text when that is the face that
+    was edited. So a tentative alias is never removed by a rewrite, and a name
+    that matches one (by normalized identity) is skipped rather than sent as an
+    ``add_item`` the apply engine would reject as already present -- it stays
+    tentative."""
+
+    aliases = [item for item in items if item.field == "aliases"]
+    visible = {_match_normalize(item.value): item for item in aliases if item.maturity != "tentative"}
+    present = {_match_normalize(item.value) for item in aliases}
+    added, removed = alias_delta([item.value for item in visible.values()] if base is None else base, new)
+    adds = [value for value in added if _match_normalize(value) not in present]
+    drops = [visible[norm] for norm in (_match_normalize(value) for value in removed) if norm in visible]
+    return adds, drops
+
+
 # ---- import -----------------------------------------------------------------------
 
 
@@ -535,6 +572,7 @@ def _source_lock(root: Path) -> str:
                 encoding="utf-8",
                 errors="replace",
                 check=False,
+                creationflags=no_window(),
             )
             if head.returncode == 0 and head.stdout.strip():
                 return f"git:{head.stdout.strip()}"
@@ -703,6 +741,8 @@ def _import_entry(
         "native_names": list(native_names),
         "reading": reading,
     }
+    if parsed.recategorized_reason:
+        payload[RECATEGORIZED_REASON_FIELD] = parsed.recategorized_reason
     txn.create_node(subject_id, "subject", payload)
     txn.set_migration_aux(
         MigrationAux(

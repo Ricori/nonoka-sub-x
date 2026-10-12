@@ -113,7 +113,7 @@ DEFAULT_BLOCKED_REQUEUES = 2
 # Generation files are append-only snapshots and only the newest is ever read
 # (`index.json` names it). Older ones are forensics, so keep a bounded tail.
 RETAINED_STATE_GENERATIONS = 20
-# Relaxed 2026-08-28 (owner decision, docs/report 2026-08-28 §2.4/§2.5): the
+# Relaxed 2026-08-28 (owner decision, docs/llm_local_agent.md Local（已实施）): the
 # binding constraint in real runs was max_response_tokens — one search returns
 # ~12k tokens, so 64k starved a "verify a dozen names" task after four calls
 # while max_queries sat unused. Sized for ~12 full-fat searches.
@@ -332,8 +332,12 @@ class ValidationResult:
         return cls("accepted", artifact, (), dict(metadata or {}))
 
     @classmethod
-    def repairable(cls, *errors: str) -> "ValidationResult":
-        return cls("repairable", None, tuple(str(item) for item in errors if item))
+    def repairable(
+        cls, *errors: str, metadata: Mapping[str, Any] | None = None
+    ) -> "ValidationResult":
+        return cls(
+            "repairable", None, tuple(str(item) for item in errors if item), dict(metadata or {})
+        )
 
     @classmethod
     def blocked(cls, *errors: str) -> "ValidationResult":
@@ -350,6 +354,10 @@ class ValidationResult:
         )
 
 
+#: ``(candidate, view)``: the view is the task manifest plus ``observed`` --
+#: what this runtime saw the task do (`AgentTaskRuntime.validator_view`). A
+#: result whose verdict depends on ``observed`` carries
+#: ``metadata.observed_dependent`` and is not cached against the candidate.
 Validator = Callable[[Any, Mapping[str, Any]], ValidationResult]
 
 
@@ -1378,8 +1386,10 @@ class AgentTaskRuntime:
         task["status"] = "leased"
         # Task scope has no conversation record: a lease *is* the context, so
         # the ledger starts empty with it (docs/llm_agent_tool_protocol.md
-        # §3, context id for the `api` tier).
+        # §3, context id for the `api` tier). The `kb_read` rows are part of
+        # it: what an earlier context read is not in front of this one.
         task["pulled"] = []
+        task["kb_reads"] = []
         task["protocol_repairs"] = 0
         self._reset_submit_ledger(task)
         state.setdefault("waiters", {}).pop(worker_id, None)
@@ -1622,6 +1632,7 @@ class AgentTaskRuntime:
         }
         task["lease"] = None
         task["pulled"] = []
+        task["kb_reads"] = []
         task["protocol_repairs"] = 0
         self._reset_submit_ledger(task)
         task["retirements"] = int(task.get("retirements", 0)) + 1
@@ -1857,6 +1868,7 @@ class AgentTaskRuntime:
                 # only a reset/retirement (a new context) clears it.
                 "pulled": list((current or {}).get("pulled") or []),
                 "pull_sources": dict((current or {}).get("pull_sources") or {}),
+                "kb_reads": [dict(row) for row in (current or {}).get("kb_reads") or ()],
                 "protocol_repairs": int((current or {}).get("protocol_repairs") or 0),
             }
             response = {
@@ -1916,6 +1928,7 @@ class AgentTaskRuntime:
                 # §2.4): a reset is a new context there too, same lease.
                 task["pulled"] = []
                 task["pull_sources"] = {}
+                task["kb_reads"] = []
                 task["protocol_repairs"] = 0
             current = dict(state.get("conversations") or {}).get(worker_id) or {}
             epoch = int(current.get("conversation_epoch", 0)) + 1
@@ -2179,8 +2192,8 @@ class AgentTaskRuntime:
             if reason:
                 # The refusal must not read as "retrieval is unavailable": a
                 # model that misreads it discards results it already has and
-                # marks verified facts unverified (docs/report 2026-08-28
-                # §2.4 — exactly that happened).
+                # marks verified facts unverified (2026-08-28: exactly
+                # that happened; docs/llm_local_agent.md Local（已实施）).
                 row = {
                     "status": "budget_exhausted",
                     "operation": operation,
@@ -2477,6 +2490,75 @@ class AgentTaskRuntime:
             self._commit_state_locked(state)
             return response
 
+    def record_kb_read(
+        self,
+        *,
+        assignment_id: str,
+        task_id: str,
+        worker_id: str,
+        lease_generation: int,
+        entry: str,
+        category: str,
+        sections: bool,
+    ) -> None:
+        """Book one *successful* ``kb_read`` reply of this task.
+
+        The MCP server calls this after the reply passed its size cap
+        (``_kb_finish``), so an errored read is never booked. A row says which
+        entry the reply resolved to and whether ``sections`` narrowed it -- the
+        two facts the `--style auto` read-check needs (auto-style-gaps plan A1
+        step 3): "the picked style was in front of the model" means the
+        conversation that answers, so the rows live in the same per-context
+        ledger as ``pulled`` (`_ledger_locked`) and clear with it -- on a new
+        lease, a reset or a retirement -- and survive a checkpoint. The
+        driver's own events cannot answer this, they keep only tool names.
+        """
+
+        row = {"entry": str(entry), "category": str(category), "sections": bool(sections)}
+        with self._locked():
+            state = self._load_state_locked()
+            self._assert_assignment(state, assignment_id)
+            task = self._validate_lease(
+                state,
+                task_id=task_id,
+                worker_id=worker_id,
+                lease_generation=lease_generation,
+            )
+            ledger = self._ledger_locked(state, task, worker_id=worker_id)
+            reads = list(ledger.get("kb_reads") or [])
+            if row not in reads:
+                reads.append(row)
+            ledger["kb_reads"] = reads
+            self._renew_lease_locked(task)
+            self._commit_state_locked(state)
+
+    def kb_read_events(self, *, assignment_id: str, task_id: str) -> list[dict[str, Any]]:
+        """The ``kb_read`` rows the task's last judged submit was validated
+        against. Read-only and lease-free: the harness reads it after the
+        session is gone (`fold_kb_reads`), when the context that answered may
+        already be reset or, in an assignment-scope session, have moved on --
+        so the rows are the snapshot `submit` took, not the live ledger."""
+
+        with self._locked():
+            state = self._load_state_locked()
+            self._assert_assignment(state, assignment_id)
+            task = state["tasks"].get(task_id)
+            if task is None:
+                return []
+            return [dict(row) for row in task.get("judged_kb_reads") or ()]
+
+    @staticmethod
+    def validator_view(manifest: Mapping[str, Any], ledger: Mapping[str, Any]) -> dict[str, Any]:
+        """What a validator is handed: the manifest plus what this runtime
+        observed the answering context do (``ledger`` is `_ledger_locked`'s).
+        The validator runs inside whichever process serves ``submit`` -- the
+        MCP server, under the tool protocol -- and this runtime is the one
+        place both that process and the harness can read the ledger from."""
+
+        view = dict(manifest)
+        view["observed"] = {"kb_reads": [dict(row) for row in ledger.get("kb_reads") or ()]}
+        return view
+
     def retrieval_search_events(
         self, *, assignment_id: str, task_id: str
     ) -> tuple[list[dict[str, Any]], list[str]]:
@@ -2576,7 +2658,7 @@ class AgentTaskRuntime:
 
         "budget_exhausted" alone was misread as "retrieval is unavailable":
         the model then reported zero sources and downgraded facts it had in
-        fact retrieved (docs/report 2026-08-28 §2.4). A refusal is not a
+        fact retrieved (2026-08-28; docs/llm_local_agent.md Local（已实施）). A refusal is not a
         failure and earlier results stay valid — say so, with counts."""
 
         completed = sum(
@@ -2786,7 +2868,9 @@ class AgentTaskRuntime:
             ledger = self._ledger_locked(state, task, worker_id=worker_id)
             owed = self._owed_blocks(task, ledger)
             manifest = self._read_ref(task["manifest_ref"])
-            result = validator(_json_copy(candidate), json.loads(manifest)).normalized()
+            result = validator(
+                _json_copy(candidate), self.validator_view(json.loads(manifest), ledger)
+            ).normalized()
             self._renew_lease_locked(task)
             self._commit_state_locked(state)
             return {
@@ -2941,7 +3025,12 @@ class AgentTaskRuntime:
                 ).normalized()
             else:
                 manifest = self._read_ref(task["manifest_ref"])
-                result = validator(_json_copy(candidate), json.loads(manifest)).normalized()
+                view = self.validator_view(json.loads(manifest), ledger)
+                # What this judgment saw, kept on the task row: the harness's
+                # half of the check must read the answering context's ledger,
+                # which a later reset or claim may already have replaced.
+                task["judged_kb_reads"] = view["observed"]["kb_reads"]
+                result = validator(_json_copy(candidate), view).normalized()
             if result.status != "accepted":
                 task["validation_errors"] = list(result.errors)
                 response = {
@@ -2965,9 +3054,13 @@ class AgentTaskRuntime:
                         # depends on what has been read since, not on the
                         # candidate.
                         task["repair_attempts"] = int(task.get("repair_attempts", 0)) + 1
-                        task.setdefault("submissions", {})[fingerprint] = _json_copy(
-                            response
-                        )
+                        if not result.metadata.get("observed_dependent"):
+                            # Same reason, for a verdict the validator drew
+                            # from `observed`: the identical answer may pass
+                            # once the read it lacked has happened.
+                            task.setdefault("submissions", {})[fingerprint] = _json_copy(
+                                response
+                            )
                     # The harness reads this back when a tool-protocol session
                     # ends without an accepted submit: the last rejected
                     # output is what a replacement round reports.

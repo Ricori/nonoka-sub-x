@@ -43,8 +43,10 @@ def _probe_one(
 ) -> dict[str, Any]:
     from ..routing.execution_policy import driver_for_provider_tier, load_execution_settings
     from .local_agent import (
+        LocalAgentProviderError,
         LocalAgentQuotaError,
         LocalAgentUnavailableError,
+        probing_driver,
     )
 
     row: dict[str, Any] = {"provider_tier": tier, "model": model, "quota_pool": pool}
@@ -54,7 +56,12 @@ def _probe_one(
 
     settings = load_execution_settings()
     try:
-        driver = driver_for_provider_tier(settings, provider_tier=tier, model=model)
+        # Never through a paid twin: this tool's whole job is to say which of
+        # "me, my login, my quota" is at fault for *this* model, and a switch
+        # to another allowance answers for the wrong one -- while billing.
+        driver = probing_driver(
+            driver_for_provider_tier(settings, provider_tier=tier, model=model)
+        )
     except ValueError as exc:
         return {**row, "status": "unroutable", "detail": str(exc)}
 
@@ -83,6 +90,10 @@ def _probe_one(
             profile_id="probe=agent-ping",
             reasoning_effort="low",
         )
+    except LocalAgentProviderError as exc:
+        # The user's own provider settings, not their login: a proxy that is
+        # not running answers "log in again" with the wrong advice.
+        return {**row, "status": "provider_unavailable", "detail": str(exc)[:300]}
     except LocalAgentUnavailableError as exc:
         return {**row, "status": "not_authenticated", "detail": str(exc)[:300]}
     except LocalAgentQuotaError as exc:
@@ -117,6 +128,10 @@ _ADVICE = {
     "ok": "usable",
     "out_of_quota": "subscription is spent; it will be skipped until it recovers",
     "not_authenticated": "log in again with this CLI",
+    "provider_unavailable": (
+        "check the provider in this CLI's own config: is the proxy running, "
+        "are the variables it names set?"
+    ),
     "cli_missing": "the CLI is not installed, or not on PATH",
     "cli_unusable": "update the CLI",
     "unroutable": "no driver is registered for this provider tier",
@@ -155,7 +170,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     # Matching on either name: a freeze is booked per pool, so "why is this row
     # frozen and its neighbour not" is a pool question, and `--tier LOCAL_AGY`
-    # has no way to say "just the Opus allowance".
+    # has no way to say "just the Claude allowance".
     wanted = {agent_quota.normalized_pool(item) for item in args.tier}
     rows = [
         _probe_one(tier, model, pool, timeout_seconds=args.timeout)

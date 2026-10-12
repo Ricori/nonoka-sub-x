@@ -14,6 +14,7 @@ from dataclasses import dataclass
 import threading
 from .progress import WindowProgress
 from finesub.reporting import current_reporter
+from finesub import settings
 
 import json
 from pathlib import Path
@@ -37,7 +38,6 @@ from ...routing.capabilities import (
     correction_planning_envelope_description,
     correction_planning_limits,
     correction_task_group,
-    planning_task_group,
 )
 from ...chunking import (
     SubtitleWindow,
@@ -73,11 +73,13 @@ from ...knowledge.base import (
     DEFAULT_KNOWLEDGE_ROOT,
     append_task_artifact,
     knowledge_version as current_knowledge_version,
-    load_index_text,
+    index_texts_present,
+    load_index_texts,
 )
 from ...output_protocol import (
     render_corrected_segments_as_srt,
-    render_translated_segments_as_csv,
+    render_annotated_csv,
+    respeak_annotated_csv,
     render_translated_segments_as_srt,
 )
 from ...routing.profiles import DEFAULT_PROFILE, TranslationProfile, max_window_csv_tokens
@@ -97,6 +99,7 @@ from .commit import (
     _write_text_atomic,
 )
 from .context import (
+    RequestTurnProduct,
     CarriedContext,
     CorrectionRun,
     ResumeLedger,
@@ -105,8 +108,8 @@ from .context import (
 )
 from .metadata import _response_reference_metadata
 from .parallel import run_parallel_windows
-from .query_round import QueryRoundProduct
 from .serial import run_serial_windows
+from ..task_graph import window_flow
 
 
 def _shadow_scan_windows(
@@ -119,11 +122,13 @@ def _shadow_scan_windows(
     """
 
     try:
-        from ...knowledge.base import knowledge_root_path
+        from ...knowledge.base import knowledge_root_path, knowledge_signals_enabled, version_rev
         from ...knowledge.node.matching import shadow_scan
         from ...knowledge.node.repo import KnowledgeRepo
 
-        rev = int(version.rsplit(":", 1)[1]) if ":" in version else None
+        if not knowledge_signals_enabled(knowledge_root):
+            return
+        rev = version_rev(version)
         store = KnowledgeRepo.open(knowledge_root_path(knowledge_root)).store
         inserted = shadow_scan(
             store,
@@ -156,10 +161,12 @@ def _log_landed_windows(
     scan; reruns deduplicate on the event key."""
 
     try:
-        from ...knowledge.base import knowledge_root_path
+        from ...knowledge.base import knowledge_root_path, knowledge_signals_enabled, version_rev
         from ...knowledge.node.repo import KnowledgeRepo
         from ...knowledge.node.signals import log_landed_windows
 
+        if not knowledge_signals_enabled(knowledge_root):
+            return
         window_of: dict[str, str] = {}
         for window in windows:
             for source_id in window.source_ids:
@@ -171,7 +178,7 @@ def _log_landed_windows(
             )
             if owner is not None and segment.corrected_text:
                 corrected_parts.setdefault(owner, []).append(segment.corrected_text)
-        rev = int(version.rsplit(":", 1)[1]) if ":" in version else None
+        rev = version_rev(version)
         store = KnowledgeRepo.open(knowledge_root_path(knowledge_root)).store
         inserted = log_landed_windows(
             store,
@@ -192,6 +199,105 @@ def _log_landed_windows(
         )
     except Exception as exc:  # telemetry must never sink the run
         current_reporter().debug(f"knowledge landed scan skipped: {exc}")
+
+
+def _speaker_cells(stable_json: Any) -> Callable[[Sequence[str]], str] | None:
+    """The `spk` cell of a rendered line, from the source ids it covers.
+
+    Deliberately re-read here rather than threaded through the window machinery:
+    speakers have nothing to say to planning, prompts or the model contract, and
+    the join only matters at the moment the product CSV is written. A run without
+    diarization yields `None` and every cell stays blank.
+
+    A line that merges several sources gets their speakers joined in one
+    `speaker_cell` call, never by gluing finished cells together: the cell is a
+    rendering (`s1?`, `s1?(s3)`), and two renderings of one track are not equal
+    strings (plan 5o.1 K1).
+
+    Ids match `load_segments_from_stable_json`: an explicit `id`, else the
+    1-based position. Fail-soft -- a missing or unreadable file costs the column,
+    never the run.
+
+    A line the speaker judge moved (`speech.diarization.judgments`) reads
+    `s7<s3`: left the tracks it now has, right today's acoustic cell unchanged.
+    """
+
+    try:
+        from finesub.speech.diarization.assign import AssignmentParameters
+        from finesub.speech.diarization.judgments import judged_speakers, read_judgments
+        from finesub.speech.diarization.labels import SegmentSpeaker, speaker_cell, speaker_of
+
+        payload = json.loads(Path(stable_json).read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001 - the subtitles are the product, not this
+        return None
+    raw = payload.get("segments", payload) if isinstance(payload, dict) else payload
+    if not isinstance(raw, list):
+        return None
+    speakers: Dict[str, SegmentSpeaker] = {}
+    seconds: Dict[str, float] = {}
+    every: Dict[str, SegmentSpeaker] = {}
+    for index, segment in enumerate(raw, start=1):
+        if not isinstance(segment, dict):
+            continue
+        try:
+            speaker = speaker_of(segment)
+            labelled = bool(speaker_cell([speaker]))
+        except Exception:  # noqa: BLE001 - one malformed label is not a run failure
+            continue
+        key = str(segment.get("id") or index)
+        try:  # a broken time costs this segment its weight in a merged line, never its label
+            seconds[key] = max(0.0, float(segment["end"]) - float(segment["start"]))
+        except (KeyError, TypeError, ValueError):
+            seconds[key] = 0.0
+        every[key] = speaker
+        if labelled:
+            speakers[key] = speaker
+    if not speakers:
+        return None
+    judged: Dict[str, SegmentSpeaker] = {}
+    if len(every) == len(raw):
+        judgments = read_judgments(stable_json, raw, warn=lambda message: current_reporter().warning(
+            "speaker-judge-ignored", message, impact="这些行的 spk 列按声学标签写"))
+        if judgments is not None and judgments.moved:
+            effective = judged_speakers(raw, list(every.values()), judgments)
+            judged = {key: speaker for key, speaker in zip(every, effective) if key in judgments.moved}
+    # With confidence marks `?` follows each source's own `low` mark, so a merged line is not re-decided
+    # from coverage; without them (`metadata.speaker.marks` null or absent) it is, as `assign` does.
+    metadata = payload.get("metadata") if isinstance(payload, dict) else None
+    marked = isinstance(metadata, dict) and isinstance(metadata.get("speaker"), dict) \
+        and metadata["speaker"].get("marks") is not None
+    review_margin = None if marked else AssignmentParameters().review_margin
+
+    def rendered(chosen: Mapping[str, SegmentSpeaker], keys: Sequence[str]) -> str:
+        return speaker_cell([chosen[key] for key in keys], [seconds[key] for key in keys],
+                            review_margin=review_margin)
+
+    def cell(source_ids: Sequence[str]) -> str:
+        acoustic = rendered(speakers, [key for key in source_ids if key in speakers])
+        if not any(key in judged for key in source_ids):
+            return acoustic
+        now = {**speakers, **judged}
+        return f"{rendered(now, [key for key in source_ids if key in now])}<{acoustic}"
+
+    return cell
+
+
+def refresh_annotated_speakers(*, stable_json: str | Path, output_path: str | Path) -> bool:
+    """Render a finished task's `-annotated.csv` `spk` column again from today's speakers.
+
+    For the speaker judge run after the correction had finished: only that column of only that
+    file changes -- the correction's rows stay, the SRTs are not touched, nothing is re-corrected.
+    False when there is no CSV to rewrite (or no labels)."""
+
+    out = Path(output_path).expanduser().resolve()
+    path = out.with_name(f"{out.stem}-annotated.csv")
+    if not path.exists():
+        return False
+    cell = _speaker_cells(stable_json)
+    if cell is None:
+        return False
+    _write_text_atomic(path, respeak_annotated_csv(path.read_text(encoding="utf-8"), cell))
+    return True
 
 
 def _report_correction_summary(run: CorrectionRun) -> None:
@@ -291,7 +397,121 @@ class _RefitEnvelope:
         )
 
 
-# The run opens the scope (`correction_translation.run_full_correction`), so
+@dataclass(frozen=True)
+class CorrectionPlan:
+    """The correction windows a task runs, resolved once per run.
+
+    ``reused`` is True when the boundaries came back from the plan file: only
+    then do the ledger's chunk ids still address these windows (a lost or
+    re-planned plan leaves the ledger empty even if ids happen to collide).
+    ``fast`` marks the single whole-input window a fast decision supplies,
+    which keeps no plan file but still reads the ledger.
+    """
+
+    windows: List[SubtitleWindow]
+    task_fingerprint: str
+    reused: bool = False
+    fast: bool = False
+    report: Dict[str, Any] = dataclasses.field(default_factory=dict)
+
+
+def resolve_correction_plan(
+    *,
+    stable_json: str | Path,
+    task_artifact_dir: str | Path | None,
+    test_profile: bool,
+    audio_path: str | Path | None,
+    video_path: str | Path | None,
+    token_counter: TokenCounter,
+    resume: bool = True,
+    profile: TranslationProfile = DEFAULT_PROFILE,
+    max_window_subtitle_tokens: int | None = None,
+    windows_override: List[SubtitleWindow] | None = None,
+    persist: bool = True,
+) -> CorrectionPlan:
+    """The task's correction windows: the saved plan when its fingerprint
+    still matches, else a fresh plan written back; a fast decision's window
+    as given.
+
+    One call per run, and its result handed to everything that needs the
+    boundaries (the speaker judge splits inside them): a second call would
+    find the plan the first one wrote and read it as reused, and the ledger
+    would then replay windows from a plan that was lost. ``persist=False``
+    is a finished task's late judge: it takes the saved plan's boundaries
+    whatever its fingerprint (they are the windows the correction ran on),
+    else plans afresh, and writes nothing.
+    """
+
+    segments = load_segments_from_stable_json(stable_json)
+    audio_duration = probe_audio_duration(audio_path) if audio_path else None
+    planning_limits = correction_planning_limits(profile)
+    task_fingerprint = _task_fingerprint(
+        prompt_version=PROMPT_VERSION,
+        test_profile=test_profile,
+        source_fingerprint=stable_json_source_hash(stable_json),
+        media_identity={
+            "audio": _media_identity(audio_path),
+            "video": _media_identity(video_path),
+        },
+    )
+    if windows_override is not None:
+        return CorrectionPlan(list(windows_override), task_fingerprint, fast=True)
+    plan_path = (
+        Path(task_artifact_dir) / WINDOW_PLAN_FILENAME
+        if resume and task_artifact_dir
+        else None
+    )
+    # The saved plan owns only boundary identity.  Its media ranges and token
+    # budgets are derived again under the current profile/envelope.
+    if plan_path is not None and plan_path.exists():
+        try:
+            stored = json.loads(plan_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            stored = None
+        if isinstance(stored, dict) and (stored.get("source_fingerprint") == task_fingerprint or not persist):
+            restored = rebuild_windows_from_plan(
+                stored.get("plan"),
+                segments,
+                counter=token_counter,
+                limits=planning_limits,
+                audio_duration=audio_duration,
+                profile=profile,
+                context_tokens=WINDOW_PLANNING_CONTEXT_RESERVE_TOKENS,
+            )
+            if restored is not None:
+                return CorrectionPlan(restored, task_fingerprint, reused=True)
+    report: Dict[str, Any] = {}
+    windows = plan_correction_windows(
+        segments,
+        context_tokens=WINDOW_PLANNING_CONTEXT_RESERVE_TOKENS,
+        counter=token_counter,
+        audio_duration=audio_duration,
+        profile=profile,
+        report_sink=report,
+        max_window_subtitle_tokens=max_window_subtitle_tokens,
+        limits=planning_limits,
+    )
+    if plan_path is not None and persist:
+        _write_text_atomic(
+            plan_path,
+            json.dumps(
+                {
+                    "source_fingerprint": task_fingerprint,
+                    "geometry": plan_geometry_metadata(
+                        profile,
+                        audio_duration=audio_duration,
+                        max_window_subtitle_tokens=max_window_subtitle_tokens,
+                        limits=planning_limits,
+                    ),
+                    "plan": window_plan_payload(windows),
+                },
+                ensure_ascii=False,
+            ),
+        )
+    return CorrectionPlan(windows, task_fingerprint, report=report)
+
+
+# The run opens the scope (`correction_translation.run_correction_task`), so
 # that research and the knowledge update share the windows' sessions. This is
 # for the callers that enter here directly -- a replay, a test -- and is
 # re-entrant, so inside a run it is the run's scope that stays in charge.
@@ -306,8 +526,8 @@ def execute_correction_windows(
     video_path: str | Path | None = None,
     clip_dir: str | Path | None = None,
     test_profile: bool = False,
-    max_retries_per_window: int = 5,
-    max_replacements_per_window: int = 1,
+    max_retries_per_window: int | None = None,
+    max_replacements_per_window: int | None = None,
     search_client: WebSearchClient | None = None,
     max_search_queries_per_window: int = MAX_WINDOW_SEARCH_QUERIES,
     postprocess_profile: int | None = DEFAULT_POSTPROCESS_PROFILE,
@@ -322,29 +542,22 @@ def execute_correction_windows(
     knowledge_root: str | Path = DEFAULT_KNOWLEDGE_ROOT,
     knowledge_enabled: bool = True,
     windows_override: List[SubtitleWindow] | None = None,
+    plan: CorrectionPlan | None = None,
     parallel_window_limit: int = 4,
-    seed_query_results: Mapping[str, "QueryRoundProduct"] | None = None,
-    entry_details: str = "",
-    evidence_pack_mode: bool = False,
-    file_ref_seed: Mapping[str, UploadedFileRef] | None = None,
-    extra_fingerprint: str = "",
     initial_transfer_keys: Sequence[str] = (),
     max_window_subtitle_tokens: int | None = None,
+    style_catalog: Any = None,
 ) -> Path:
-    """Execute the correction windows (planned here unless overridden).
+    """Execute the correction windows.
 
-    Fast mode passes ``windows_override`` (the single fused window),
-    ``seed_query_results`` (round-1 products keyed by base chunk id, replacing
-    the per-window query round), ``entry_details`` / ``evidence_pack_mode``
-    (round-2 injections), ``file_ref_seed`` (the round-1 clip upload, reused
-    instead of re-uploading) and ``extra_fingerprint`` (folds the seeded
-    injections into the resume fingerprint). ``knowledge_root`` feeds the
-    query round's knowledge-index exposure and entry requests.
+    ``plan`` is the run's :func:`resolve_correction_plan`; a direct caller
+    (a replay, a test) may leave it out and pass ``windows_override`` instead,
+    and the plan is resolved here.
+    ``knowledge_root`` feeds the request turn's knowledge-index exposure and
+    entry requests.
 
-    ``video_path``: whichever switch says ``video`` reads a low-res
-    video+audio ``.mp4`` clip of the window; a switch saying ``audio`` reads
-    the ``.aac``. When both switches name the same kind the two rounds share
-    one clip and one upload (model-routing v2).
+    ``video_path``: ``correction_media=video`` reads a low-res video+audio
+    ``.mp4`` clip of the window; ``audio`` reads the ``.aac``.
     """
 
     segments = load_segments_from_stable_json(stable_json)
@@ -355,31 +568,35 @@ def execute_correction_windows(
     out.parent.mkdir(parents=True, exist_ok=True)
     raw_srt_path = out.with_name(f"{out.stem}-raw.srt")
     _write_text_atomic(raw_srt_path, render_segments_as_srt(segments))
+    # Probed above its old spot: the timeline pass bounds its cue-end pad by it.
+    audio_duration = probe_audio_duration(audio_path) if audio_path else None
     if postprocess_profile is None or postprocess_profile in (0, 1):
         # Keep raw ASR text untouched while applying the same timeline-only
         # policy as the final profile; `validate=False` -- two passes, one file.
         for timeline_profile in TIMELINE_POSTPROCESS_PROFILES:
-            postprocess_srt_file(raw_srt_path, profile=timeline_profile, validate=False)
+            postprocess_srt_file(
+                raw_srt_path, profile=timeline_profile,
+                validate=False, audio_end=audio_duration,
+            )
 
     token_counter = token_counter or default_token_counter()
-    audio_duration = probe_audio_duration(audio_path) if audio_path else None
     # Group planning envelope (plan v2 D13): min limits over the correction
     # cell's bound group; DEFAULT_LIMITS for whole-Gemini groups.
     planning_limits = correction_planning_limits(profile)
-    plan_report: Dict[str, Any] = {}
-    if windows_override is not None:
-        windows = list(windows_override)
-    else:
-        windows = plan_correction_windows(
-            segments,
-            context_tokens=WINDOW_PLANNING_CONTEXT_RESERVE_TOKENS,
-            counter=token_counter,
-            audio_duration=audio_duration,
+    if plan is None:
+        plan = resolve_correction_plan(
+            stable_json=stable_json,
+            task_artifact_dir=task_artifact_dir,
+            test_profile=test_profile,
+            audio_path=audio_path,
+            video_path=video_path,
+            token_counter=token_counter,
+            resume=resume,
             profile=profile,
-            report_sink=plan_report,
             max_window_subtitle_tokens=max_window_subtitle_tokens,
-            limits=planning_limits,
+            windows_override=windows_override,
         )
+    windows = list(plan.windows)
     global_first_id = segments[0].id if segments else ""
     global_last_id = segments[-1].id if segments else ""
     # Where this task's own files go. A run names it; a stage entered directly
@@ -434,39 +651,22 @@ def execute_correction_windows(
                 task_group=correction_task_group(profile),
                 difficulty=profile.difficulty,
             )
-        if profile.external_injection and audio_path and profile.planning_use_audio:
-            ensure_eligible(
-                LLMRole.LIGHTWEIGHT_MULTIMODAL,
-                needs_audio=True,
-                needs_video=bool(video_path) and profile.planning_use_video,
-                task_group=planning_task_group(profile),
-                difficulty=profile.difficulty,
-            )
     # One clip + upload per executed window (exact chunk id: -a/-b halves get
-    # their own clips); reused across the query round, the correction round
-    # and same-window validation retries. Extraction + upload run on a
-    # background thread: window 0 is scheduled after planning; at the start of
-    # window i we schedule i+1 so the main loop rarely waits on ffmpeg.
-    #
-    # Clip ownership (model-routing v2): a clip kind is cut iff *either* switch asks
-    # for it -- the query round is a first-class owner now, so
-    # ``correction_media=text`` no longer turns the machinery off while
-    # ``planning_media`` still wants a clip. When both switches name the same
-    # kind, the two rounds share one clip and one upload.
+    # their own clips); reused across the window's request turn, the
+    # correction round and same-window validation retries -- all one
+    # conversation, so ``correction_media`` is the only clip owner (the
+    # separate query round that ``planning_media`` used to feed is gone).
+    # Extraction + upload run on a background thread: window 0 is scheduled
+    # after planning; at the start of window i we schedule i+1 so the main
+    # loop rarely waits on ffmpeg.
     clip_prefetcher: WindowClipPrefetcher | None = None
     video_prefetcher: WindowClipPrefetcher | None = None
     # One-level video->audio safety-net (model-routing v2): the ladder's on-demand
     # .aac cutter, created only if a video-incapable target ever answers.
     make_ladder: Callable[[], WindowClipPrefetcher] | None = None
-    planning_active = profile.external_injection  # only ``local`` runs r1
-    wants_audio_clip = profile.correction_media == "audio" or (
-        planning_active and profile.planning_media == "audio"
-    )
-    wants_video_clip = bool(video_path) and (
-        profile.correction_use_video
-        or (planning_active and profile.planning_use_video)
-    )
+    wants_audio_clip = profile.correction_media == "audio"
     correction_use_video = bool(video_path) and profile.correction_use_video
+    wants_video_clip = correction_use_video
     if audio_path and (wants_audio_clip or wants_video_clip):
 
         def _tracked_upload(path: Path, cancel: threading.Event) -> UploadedFileRef:
@@ -525,36 +725,32 @@ def execute_correction_windows(
         audio_path=Path(audio_path) if audio_path else None,
         video_path=Path(video_path) if video_path else None,
         audio_label=audio_label,
-        file_ref_seed=dict(file_ref_seed or {}),
         audio_clips=clip_prefetcher,
         video_clips=video_prefetcher,
         _make_ladder=make_ladder,
     )
 
-    # The per-window query round and injected search only exist on the mm
-    # route; the text route never runs harness-side retrieval.
+    # Harness-side search only exists under ``retrieval=local``; the window
+    # request channel itself (entries, and search where granted) is decided
+    # below, once the knowledge base is known to be readable.
     external_injection = profile.external_injection
-    if external_injection and search_client is None and not seed_query_results:
+    if external_injection and search_client is None:
         search_client = WebSearchClient(
             execution_settings=getattr(client, "execution_settings", None)
         )
-    # Query round output is fetched once per planned window (keyed by the base
-    # chunk id) and reused across validation retries and -a/-b split halves.
-    # Fast mode seeds it with round-1 products so no query round ever runs.
-    query_round_cache: Dict[str, QueryRoundProduct] = dict(seed_query_results or {})
+    # The request turn's product is fetched once per planned window (keyed by
+    # the base chunk id) and reused across validation retries and -a/-b halves.
+    request_turn_cache: Dict[str, RequestTurnProduct] = {}
     # ``knowledge_enabled`` is the caller's tri-state (``--knowledge none``
     # means the base is not read at all); an empty or unreadable base disables
     # the machinery just the same, rather than showing entry rules against an
     # "(empty)" index. Both have to hold, and the indices are not even loaded
     # when the switch is off.
-    streamer_index_text = (
-        load_index_text(knowledge_root, "streamer") if knowledge_enabled else ""
+    knowledge_index_texts = (
+        load_index_texts(knowledge_root) if knowledge_enabled else {}
     )
-    common_index_text = (
-        load_index_text(knowledge_root, "common") if knowledge_enabled else ""
-    )
-    knowledge_enabled = knowledge_enabled and bool(
-        streamer_index_text.strip() or common_index_text.strip()
+    knowledge_enabled = knowledge_enabled and index_texts_present(
+        knowledge_index_texts
     )
     content_filter_blacklist = load_content_filter_blacklist(task_artifact_dir)
     # v17 entry pass-through: canonical keys kept by the previous step (the
@@ -562,11 +758,21 @@ def execute_correction_windows(
     # <keep_entries> for the next). The set is injected into both the query
     # round (context) and the correction round, and its keys+bodies enter the
     # per-window resume input hash.
-    # Without a query round no window can request an entry back, so the
-    # transfer chain is the only copy: it carries the whole window budget
-    # rather than the increment-sized reserve, and is never pruned (§1.4).
+    # Without a way to ask for an entry back the transfer chain is the only
+    # copy: it carries the whole window budget rather than the
+    # increment-sized reserve, and is never pruned (§1.4).
+    # A fast `--style auto` window that still has to pick (auto-style-gaps
+    # plan A): the caller hands the catalog only then, and only a catalog with
+    # something besides `default_style` is a choice at all.
+    style_pick = bool(style_catalog is not None and style_catalog.has_choice)
+    flow = window_flow(
+        profile,
+        knowledge_readable=knowledge_enabled,
+        test_profile=test_profile,
+        style_pick=style_pick,
+    )
     transfer_cap = (
-        KB_TRANSFER_MAX_ENTRIES if external_injection else KB_WINDOW_TOTAL_ENTRIES
+        KB_TRANSFER_MAX_ENTRIES if flow.window_requests else KB_WINDOW_TOTAL_ENTRIES
     )
     carried = CarriedContext.starting_from(
         initial_transfer_keys, knowledge_root=knowledge_root, cap=transfer_cap
@@ -576,28 +782,13 @@ def execute_correction_windows(
 
     # Mid-loop resume: a committed window survives every configuration change
     # the whitelist above lists, and only those.
-    task_fingerprint = _task_fingerprint(
-        prompt_version=PROMPT_VERSION,
-        test_profile=test_profile,
-        source_fingerprint=stable_json_source_hash(stable_json),
-        media_identity={
-            "audio": _media_identity(audio_path),
-            "video": _media_identity(video_path),
-        },
-        extra=extra_fingerprint,
-    )
+    task_fingerprint = plan.task_fingerprint
     # Recorded per window, never a fingerprint input: the knowledge base
     # auto-commits, so gating on it would let any other task's update discard
     # this task's progress (docs/llm_local_agent.md SS8 binds a *task's* retries
     # to one version, not a whole run's windows).
     knowledge_version = (
         current_knowledge_version(knowledge_root) if knowledge_enabled else ""
-    )
-    plan_geometry = plan_geometry_metadata(
-        profile,
-        audio_duration=audio_duration,
-        max_window_subtitle_tokens=max_window_subtitle_tokens,
-        limits=planning_limits,
     )
     window_cache_path = (
         Path(task_artifact_dir) / WINDOW_CACHE_FILENAME if task_artifact_dir else None
@@ -615,63 +806,17 @@ def execute_correction_windows(
         path=window_cache_path,
         task_fingerprint=task_fingerprint,
     )
-    plan_reused = False
-    # The saved plan owns only boundary identity.  Its media ranges and token
-    # budgets are derived again under the current profile/envelope below.
-    if windows_override is None and ledger.enabled and task_artifact_dir:
-        plan_path = Path(task_artifact_dir) / WINDOW_PLAN_FILENAME
-        restored: List[SubtitleWindow] | None = None
-        if plan_path.exists():
-            try:
-                stored = json.loads(plan_path.read_text(encoding="utf-8"))
-            except (OSError, json.JSONDecodeError):
-                stored = None
-            if (
-                isinstance(stored, dict)
-                and stored.get("source_fingerprint") == task_fingerprint
-            ):
-                restored = rebuild_windows_from_plan(
-                    stored.get("plan"),
-                    segments,
-                    counter=token_counter,
-                    limits=planning_limits,
-                    audio_duration=audio_duration,
-                    profile=profile,
-                    context_tokens=WINDOW_PLANNING_CONTEXT_RESERVE_TOKENS,
-                )
-        if restored is not None:
-            windows = restored
-            plan_reused = True
-            ledger.load()
-        else:
-            _write_text_atomic(
-                plan_path,
-                json.dumps(
-                    {
-                        "source_fingerprint": task_fingerprint,
-                        "geometry": plan_geometry,
-                        "plan": window_plan_payload(windows),
-                    },
-                    ensure_ascii=False,
-                ),
-            )
-            # A lost, corrupt or re-planned plan means the old chunk ids no
-            # longer address anything. The ledger stays empty even if some ids
-            # happen to collide.
-    elif ledger.enabled:
-        # Fast mode supplies its single full-source window explicitly and does
-        # not need a separate plan file.
+    plan_reused = plan.reused
+    if ledger.enabled and (plan.reused or plan.fast):
+        # A fast decision's single window keeps no plan file; anything else
+        # reads the ledger only when the boundaries it addresses came back.
         ledger.load()
-    if (
-        not plan_reused
-        and task_artifact_dir
-        and plan_report.get("replan_attempts")
-    ):
+    if not plan_reused and task_artifact_dir and plan.report.get("replan_attempts"):
         append_task_artifact(
             task_artifact_dir,
             kind="window_plan_report",
             task_id=task_id,
-            payload={"phase": "correction", **plan_report},
+            payload={"phase": "correction", **plan.report},
         )
     # Reuse the parsed append-only ledger across windows. Constructing a store
     # per query would repeatedly rescan the same JSONL file on long tasks.
@@ -753,11 +898,7 @@ def execute_correction_windows(
     # Primed here rather than at construction, so the resume cache is known: a
     # window that will be answered from it needs no clip, and cutting one costs
     # an ffmpeg run plus a Gemini Files upload for nothing.
-    if (
-        windows
-        and not (file_ref_seed and windows[0].chunk_id in file_ref_seed)
-        and not ledger.holds(windows[0].chunk_id)
-    ):
+    if windows and not ledger.holds(windows[0].chunk_id):
         media.schedule_correction(windows[0])
 
     if knowledge_enabled:
@@ -773,15 +914,21 @@ def execute_correction_windows(
         task_update_feedback=task_update_feedback,
         test_profile=test_profile,
         resume=resume,
-        max_retries_per_window=max_retries_per_window,
-        max_replacements_per_window=max_replacements_per_window,
+        # A run arrives resolved (`resolved_request`); a replay or a test that
+        # enters here directly gets the same config-then-default answer.
+        max_retries_per_window=settings.MAX_RETRIES_PER_WINDOW.resolve(max_retries_per_window),
+        max_replacements_per_window=settings.MAX_REPLACEMENTS_PER_WINDOW.resolve(
+            max_replacements_per_window
+        ),
         max_search_queries_per_window=max_search_queries_per_window,
         parallel_window_limit=parallel_window_limit,
         task_artifact_dir=task_artifact_dir,
         task_id=task_id,
-        entry_details=entry_details,
-        evidence_pack_mode=evidence_pack_mode,
         external_injection=external_injection,
+        style_catalog=style_catalog if style_pick else None,
+        window_requests=flow.window_requests,
+        request_channel=flow.request_channel,
+        agent_fetches=flow.agent_fetches,
         transfer_cap=transfer_cap,
         client=client,
         search_client=search_client,
@@ -790,15 +937,14 @@ def execute_correction_windows(
         session_checkpoint_store=session_checkpoint_store,
         planning_limits=planning_limits,
         content_filter_blacklist=content_filter_blacklist,
-        streamer_index_text=streamer_index_text,
-        common_index_text=common_index_text,
+        knowledge_index_texts=knowledge_index_texts,
         media=media,
         geometry=geometry,
         ledger=ledger,
         carried=carried,
         task_fingerprint=task_fingerprint,
         knowledge_version=knowledge_version,
-        query_round_cache=query_round_cache,
+        request_turn_cache=request_turn_cache,
     )
 
     run.progress = WindowProgress(len(windows))
@@ -844,16 +990,17 @@ def execute_correction_windows(
     annotated_csv_path = out.with_name(f"{out.stem}-annotated.csv")
     _write_text_atomic(
         annotated_csv_path,
-        "# type|position|duration|gap|corrected|translation|conf|char_count|note\n"
-        + render_translated_segments_as_csv(run.rendered_segments),
+        render_annotated_csv(
+            run.rendered_segments,
+            _speaker_cells(stable_json),
+        ),
     )
     postprocess_report = None
     result_path = translated_srt_path
     if postprocess_profile is not None:
         postprocess_report = postprocess_srt_file(
-            translated_srt_path,
-            output_path=out,
-            profile=postprocess_profile,
+            translated_srt_path, output_path=out,
+            profile=postprocess_profile, audio_end=audio_duration,
         )
         result_path = out
     final_text = result_path.read_text(encoding="utf-8")

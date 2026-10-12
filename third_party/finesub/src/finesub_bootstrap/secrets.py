@@ -1,19 +1,30 @@
-"""Machine-bound protection for API keys in ``.env``.
+"""Protection for API keys in ``.env``: account-bound on Windows, obfuscated elsewhere.
 
-Envelope encryption: DPAPI (bound to the current Windows account, with app
-entropy) wraps a random 32-byte master key stored as the ``FINESUB_KEYRING``
-line of the ``.env`` file itself, and every API key value is sealed with a
-stream cipher + MAC derived from that master. Only the key material is
-replaced in place -- names, braces, quotes, commas, comments and line endings
-are preserved byte for byte, so the file stays diffable and `config.toml`'s
-``[pools]`` selectors can still be checked against it by eye.
+Envelope encryption: a random 32-byte master key is stored as the
+``FINESUB_KEYRING`` line of the ``.env`` file itself, and every API key value
+is sealed with a stream cipher + MAC derived from that master. Only the key
+material is replaced in place -- names, braces, quotes, commas, comments and
+line endings are preserved byte for byte, so the file stays diffable and
+`config.toml`'s ``[pools]`` selectors can still be checked against it by eye.
 
-What this protects against: accidental sharing of the file, generic API-key
-regex scans, generic DPAPI-blob harvesting (the single blob is obfuscated and
-uses entropy such tools do not know), and other accounts on the same machine.
-What it cannot protect against: any code running as the current user -- the
-program must decrypt without user input, so the material is reachable. Wording
-elsewhere must say "绑定当前 Windows 账户的保护", never unqualified "加密".
+How the master key is kept is the one thing that differs by platform, and the
+keyring prefix says which (so a file can be read wherever it lands):
+
+- ``finesub$kek$v1$`` -- Windows. DPAPI (bound to the current Windows account,
+  with app entropy) wraps the master. Protects against accidental sharing of
+  the file, generic API-key regex scans, generic DPAPI-blob harvesting (the
+  single blob is obfuscated and uses entropy such tools do not know), and other
+  accounts on the same machine. Wording elsewhere must say "绑定当前 Windows
+  账户的保护", never unqualified "加密".
+- ``finesub$obf$v1$`` -- every other platform (owner 2026-09-11). The master is
+  *not* wrapped by anything: it only goes through the obfuscation layer, and the
+  file is written ``0600``. That defeats scanners that do not know FineSub and
+  nothing else -- anyone with the file and this source can open it, and a copy
+  opens on any machine. Wording must say "混淆", never "加密" or "绑定账户".
+  A Windows machine reading such a file keeps it as it is; nothing upgrades it.
+
+What neither can protect against: any code running as the current user -- the
+program must decrypt without user input, so the material is reachable.
 
 Two permanent constraints keep this importable from a plain ``[harness]``
 install (which lacks pydantic): this module is stdlib-only, and the package
@@ -46,6 +57,7 @@ from finesub_bootstrap.locks import LockUnavailable, holding_lock
 
 KEYRING_NAME = "FINESUB_KEYRING"
 KEK_PREFIX = "finesub$kek$v1$"
+OBF_PREFIX = "finesub$obf$v1$"
 VALUE_PREFIX = "fs$"
 
 # Two orthogonal uses of the same fixed string: DPAPI entropy (a generic
@@ -72,7 +84,7 @@ _REVEAL_HINT = (
 
 
 class ProtectionUnavailable(RuntimeError):
-    """Wrapping is impossible here: not Windows, or crypt32 is unusable."""
+    """Wrapping is impossible here: crypt32 is unusable, or a backend refused."""
 
 
 class SecretUnreadable(ValueError):
@@ -100,6 +112,24 @@ class KekBackend(Protocol):
     def unwrap(self, blob: bytes) -> bytes: ...
 
 
+class ObfuscationBackend:
+    """Every platform without DPAPI: the master is not wrapped at all.
+
+    `wrap_master` still passes the result through `_obfuscate`, so the keyring
+    line carries no recognisable key material; that layer is the whole of the
+    protection here. See the module docstring for what that does and does not
+    buy.
+    """
+
+    prefix = OBF_PREFIX
+
+    def wrap(self, data: bytes) -> bytes:
+        return data
+
+    def unwrap(self, blob: bytes) -> bytes:
+        return blob
+
+
 class _DataBlob(ctypes.Structure):
     _fields_ = [("cbData", ctypes.c_uint32), ("pbData", ctypes.c_void_p)]
 
@@ -114,6 +144,8 @@ class DpapiBackend:
     the design wraps a random master key instead of deriving one from a fixed
     string.
     """
+
+    prefix = KEK_PREFIX
 
     def __init__(self) -> None:
         if os.name != "nt":
@@ -181,7 +213,8 @@ class DpapiBackend:
 
 
 _INJECTED_BACKEND: KekBackend | None = None
-_DEFAULT_BACKEND: DpapiBackend | None = None
+_DEFAULT_BACKEND: KekBackend | None = None
+_OBFUSCATION = ObfuscationBackend()
 
 
 def set_backend(backend: KekBackend | None) -> None:
@@ -197,24 +230,37 @@ def set_backend(backend: KekBackend | None) -> None:
 
 
 def _backend() -> KekBackend:
+    """The backend new keyrings are written with on this machine."""
+
     global _DEFAULT_BACKEND
     if _INJECTED_BACKEND is not None:
         return _INJECTED_BACKEND
     if _DEFAULT_BACKEND is None:
-        _DEFAULT_BACKEND = DpapiBackend()
+        _DEFAULT_BACKEND = DpapiBackend() if os.name == "nt" else _OBFUSCATION
     return _DEFAULT_BACKEND
 
 
 def available() -> bool:
-    if _INJECTED_BACKEND is not None:
+    if _INJECTED_BACKEND is not None or os.name != "nt":
         return True
-    if os.name != "nt":
-        return False
     try:
         _backend()
     except ProtectionUnavailable:
         return False
     return True
+
+
+def account_bound(token: str) -> bool:
+    """Whether THIS keyring line's master key is bound to the current account.
+
+    Decides the wording shown to the user, which must never call obfuscation
+    encryption -- and must follow the backend that actually holds this file's
+    master key, not the one a new keyring here would use. A `.env` carried over
+    from Linux keeps its obfuscated keyring on Windows: values added to it are
+    still only obfuscated, so "bound to your Windows account" would be a lie.
+    """
+
+    return not token.startswith(OBF_PREFIX)
 
 
 # --- Envelope ------------------------------------------------------------
@@ -259,21 +305,40 @@ _deobfuscate = _obfuscate
 
 def wrap_master(master: bytes) -> str:
     salt = os.urandom(_KEK_SALT_LEN)
-    blob = _backend().wrap(master)
-    return KEK_PREFIX + _b64encode(salt + _obfuscate(blob, salt))
+    backend = _backend()
+    blob = backend.wrap(master)
+    prefix = getattr(backend, "prefix", KEK_PREFIX)
+    return prefix + _b64encode(salt + _obfuscate(blob, salt))
+
+
+def _unwrapping_backend(token: str) -> tuple[KekBackend, str]:
+    """The backend a keyring token was written with, chosen by its prefix.
+
+    Not `_backend()`: the file may come from another platform. An obfuscated
+    keyring opens anywhere; a DPAPI one only where DPAPI exists.
+    """
+
+    if token.startswith(OBF_PREFIX):
+        return _OBFUSCATION, token[len(OBF_PREFIX):]
+    if token.startswith(KEK_PREFIX):
+        if _INJECTED_BACKEND is None and os.name != "nt":
+            raise SecretUnreadable(
+                "keyring line is bound to a Windows account and cannot be opened here"
+            )
+        return _backend(), token[len(KEK_PREFIX):]
+    raise SecretUnreadable("keyring line has an unknown format")
 
 
 def unwrap_master(token: str) -> bytes:
-    if not token.startswith(KEK_PREFIX):
-        raise SecretUnreadable("keyring line has an unknown format")
+    backend, body = _unwrapping_backend(token)
     try:
-        raw = _b64decode(token[len(KEK_PREFIX):])
+        raw = _b64decode(body)
     except (binascii.Error, ValueError) as error:
         raise SecretUnreadable(f"keyring line is corrupt: {error}") from error
     if len(raw) <= _KEK_SALT_LEN:
         raise SecretUnreadable("keyring line is truncated")
     salt, obfuscated = raw[:_KEK_SALT_LEN], raw[_KEK_SALT_LEN:]
-    master = _backend().unwrap(_deobfuscate(obfuscated, salt))
+    master = backend.unwrap(_deobfuscate(obfuscated, salt))
     if len(master) != _MASTER_LEN:
         raise SecretUnreadable("keyring line does not hold a master key")
     return master
@@ -563,6 +628,9 @@ class _ProtectResult:
     ok: bool
     encrypted: list[str] = field(default_factory=list)
     reason: str = ""
+    #: Whether the keyring that ended up in the file is account-bound; the
+    #: notice wording follows it, not what this machine would write anew.
+    account_bound: bool = True
 
 
 def _protect_text(text: str) -> _ProtectResult:
@@ -601,11 +669,12 @@ def _protect_text(text: str) -> _ProtectResult:
             todo.append((index, spans))
 
     master: bytes | None = None
+    keyring_token = ""
     rebuild = False
     if keyring_index is not None:
-        token = lines[keyring_index].rhs.strip()
+        keyring_token = lines[keyring_index].rhs.strip()
         try:
-            master = _resolve_master(token)
+            master = _resolve_master(keyring_token)
         except SecretUnreadable as error:
             if has_ciphertext:
                 # "Unreadable" is an observation relative to THIS machine,
@@ -633,20 +702,20 @@ def _protect_text(text: str) -> _ProtectResult:
 
     if master is None or rebuild:
         master = new_master()
-        wrapped = wrap_master(master)  # ProtectionUnavailable propagates
-        keyring_body = f"{KEYRING_NAME}={wrapped}"
+        keyring_token = wrap_master(master)  # ProtectionUnavailable propagates
+        keyring_body = f"{KEYRING_NAME}={keyring_token}"
         if rebuild:
             line = lines[keyring_index]
             lines[keyring_index] = _EnvLine(
                 keyring_body, line.ending or ending, KEYRING_NAME,
                 len(KEYRING_NAME) + 1,
             )
+            # The old note describes the backend that just went away (a file
+            # from another platform is rebuilt with this machine's backend).
+            _refresh_header_note(lines, account_bound(keyring_token))
         else:
             header = [
-                _EnvLine(
-                    "# FineSub 主密钥：绑定当前 Windows 账户，勿手动修改或删除。",
-                    ending,
-                ),
+                _EnvLine(_header_note(account_bound(keyring_token)), ending),
                 _EnvLine("# 导出明文密钥：finesub keys --reveal", ending),
                 _EnvLine(
                     keyring_body, ending, KEYRING_NAME, len(KEYRING_NAME) + 1
@@ -666,14 +735,39 @@ def _protect_text(text: str) -> _ProtectResult:
                 # In-memory round-trip is the pre-write validation; giving up
                 # here is why no plaintext .env.bak needs to be left behind.
                 return _ProtectResult(
-                    text, False, reason="加密自校验失败，.env 保持原样"
+                    text, False, reason="密钥保护自校验失败，.env 保持原样"
                 )
             offset = line.rhs_start
             body = body[:offset + start] + token + body[offset + end:]
         lines[index] = _EnvLine(body, line.ending, line.name, line.rhs_start)
         encrypted.append(line.name or "")
 
-    return _ProtectResult(_join(lines), True, encrypted=encrypted)
+    return _ProtectResult(
+        _join(lines), True, encrypted=encrypted,
+        account_bound=account_bound(keyring_token),
+    )
+
+
+#: The note above the keyring line, and the prefix an older one is found by.
+_HEADER_NOTE_PREFIX = "# FineSub 主密钥："
+
+
+def _header_note(bound: bool) -> str:
+    tail = (
+        "绑定当前 Windows 账户，勿手动修改或删除。"
+        if bound
+        else "仅作混淆（不是加密），勿手动修改或删除。"
+    )
+    return _HEADER_NOTE_PREFIX + tail
+
+
+def _refresh_header_note(lines: list[_EnvLine], bound: bool) -> None:
+    """Rewrite an existing note in place; a file without one keeps not having one."""
+
+    for index, line in enumerate(lines):
+        if line.name is None and line.body.startswith(_HEADER_NOTE_PREFIX):
+            lines[index] = _EnvLine(_header_note(bound), line.ending)
+            return
 
 
 def _join(lines: list[_EnvLine]) -> str:
@@ -682,15 +776,40 @@ def _join(lines: list[_EnvLine]) -> str:
 
 def _write_env_text(path: Path, text: str) -> None:
     temp_path = path.with_name(path.name + ".tmp")
-    temp_path.write_text(text, encoding="utf-8", newline="")
+    if os.name == "nt":
+        temp_path.write_text(text, encoding="utf-8", newline="")
+    else:
+        # Owner-only from the first byte: on these platforms the file mode is
+        # half of the protection (the other half is only obfuscation).
+        descriptor = os.open(temp_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(descriptor, "w", encoding="utf-8", newline="") as handle:
+            os.fchmod(handle.fileno(), 0o600)
+            handle.write(text)
     replace_path(temp_path, path, budget=RECORD_REPLACE)
 
 
-def _notice_converted(path: Path, names: list[str]) -> None:
+def _owner_only(path: Path) -> None:
+    """POSIX: make an existing `.env` owner-only, even when nothing needs rewriting."""
+
+    if os.name == "nt":
+        return
+    try:
+        if path.stat().st_mode & 0o077:
+            os.chmod(path, 0o600)
+    except OSError:
+        pass
+
+
+def _notice_converted(path: Path, names: list[str], bound: bool) -> None:
+    if bound:
+        stored = "已改为绑定当前 Windows 账户存储"
+        caution = "换机或重装系统前请先导出。"
+    else:
+        stored = "已混淆存储，文件权限设为仅本人可读"
+        caution = "混淆只挡不认识 FineSub 的扫描工具，不是加密。"
     print(
-        f"FineSub: {path} 中的 API key 已改为绑定当前 Windows 账户存储"
-        f"（{', '.join(names)}）。导出明文：finesub keys --reveal；"
-        "换机或重装系统前请先导出。",
+        f"FineSub: {path} 中的 API key {stored}"
+        f"（{', '.join(names)}）。导出明文：finesub keys --reveal；{caution}",
         file=sys.stderr,
     )
 
@@ -715,6 +834,7 @@ def protect_env_file(path: Path) -> bool:
         if not path.is_file():
             return True
         with holding_lock(_lock_path(path), timeout=_LOCK_TIMEOUT_SECONDS):
+            _owner_only(path)
             text = path.read_bytes().decode("utf-8")
             result = _protect_text(text)
             if not result.ok:
@@ -723,18 +843,18 @@ def protect_env_file(path: Path) -> bool:
             if result.text != text:
                 _write_env_text(path, result.text)
                 if result.encrypted:
-                    _notice_converted(path, result.encrypted)
+                    _notice_converted(path, result.encrypted, result.account_bound)
             return True
     except LockUnavailable as error:
-        _warn_once(path, "lock", f"未能加密 {path.name}（{error}），继续使用明文")
+        _warn_once(path, "lock", f"未能保护 {path.name} 里的密钥（{error}），继续使用明文")
         return False
     except ProtectionUnavailable as error:
         _warn_once(
-            path, "unavailable", f"本机不支持密钥保护（{error}），继续使用明文"
+            path, "unavailable", f"本机无法保护密钥（{error}），继续使用明文"
         )
         return False
     except (OSError, ValueError) as error:
-        _warn_once(path, "error", f"未能加密 {path.name}（{error}），继续使用明文")
+        _warn_once(path, "error", f"未能保护 {path.name} 里的密钥（{error}），继续使用明文")
         return False
 
 
@@ -793,7 +913,7 @@ def update_env_file(path: Path, updates: Mapping[str, str | None]) -> None:
             result = _protect_text(plaintext)
         except ProtectionUnavailable as error:
             result = _ProtectResult(
-                plaintext, False, reason=f"本机不支持密钥保护（{error}）"
+                plaintext, False, reason=f"本机无法保护密钥（{error}）"
             )
         if not result.ok:
             _warn_once(path, "write", f"{result.reason}；新值以明文写入 {path.name}")

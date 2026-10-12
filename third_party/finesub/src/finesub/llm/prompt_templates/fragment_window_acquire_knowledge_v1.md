@@ -1,0 +1,1 @@
+你看不到知识库条目全文，需要的词条由 harness 代为取得。$native_search_note

@@ -238,6 +238,14 @@ class KnowledgeStore:
         ).fetchall()
         return [_row_link(row) for row in rows]
 
+    def links_to(self, target_id: str, rev: int | None = None) -> list[LinkVersion]:
+        at = self._rev(rev)
+        rows = self.conn.execute(
+            f"SELECT * FROM link_versions WHERE target_id=? AND {_PINNED}",
+            (target_id, at, at),
+        ).fetchall()
+        return [_row_link(row) for row in rows]
+
     def subjects(self, rev: int | None = None) -> list[NodeVersion]:
         """Top-level subjects: kind=subject with no parent membership at ``rev``."""
 

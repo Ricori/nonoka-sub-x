@@ -18,6 +18,8 @@ import shutil
 import subprocess
 import time
 
+from finesub_bootstrap.processes import no_window
+
 
 @dataclass(frozen=True)
 class ReplaceBudget:
@@ -127,6 +129,7 @@ def create_directory_link(path: Path, target: str, *, symlink: bool = False) -> 
     result = subprocess.run(
         ["cmd", "/c", "mklink", "/J", str(path), target],
         capture_output=True,
+        creationflags=no_window(),
     )
     if result.returncode != 0:
         raise OSError(
@@ -273,6 +276,7 @@ def copy_tree(source: Path, destination: Path) -> None:
                 "/NP",
             ],
             capture_output=True,
+            creationflags=no_window(),
         )
         if result.returncode >= 8:
             raise OSError(

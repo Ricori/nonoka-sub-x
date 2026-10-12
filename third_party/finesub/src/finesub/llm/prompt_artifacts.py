@@ -1,8 +1,9 @@
 """Dry-run prompt assembly shared by ``correction_translation --prompt-dir``.
 
-``build_prompt_artifacts`` renders every stage prompt for a stable JSON with
-placeholder injections (no API calls); ``write_prompt_artifacts`` writes them
-as plan.json + per-session text files.
+``build_prompt_artifacts`` renders the preparation task's opening message and
+every correction window's opening message for a stable JSON with placeholder
+injections (no API calls); ``write_prompt_artifacts`` writes them as plan.json
++ per-session text files.
 """
 
 from __future__ import annotations
@@ -19,24 +20,25 @@ from .chunking import (
 from .knowledge.style import render_style_block
 from .routing.config import (
     DEFAULT_LIMITS,
-    DEFAULT_RESEARCH_SEARCH_ROUNDS,
     WINDOW_PLANNING_CONTEXT_RESERVE_TOKENS,
     CapabilityTier,
-    followup_search_query_limit,
     research_search_query_limit,
 )
-from .knowledge.base import DEFAULT_KNOWLEDGE_ROOT, load_index_text
+from .knowledge.base import (
+    DEFAULT_KNOWLEDGE_ROOT,
+    index_texts_present,
+    load_index_texts,
+)
 from .routing.profiles import DEFAULT_PROFILE, TranslationProfile
 from .prompts import (
     ContextPack,
-    build_correction_csv_messages,
-    build_correction_query_messages,
-    build_research_round1_messages,
-    build_research_round2_messages,
-    build_search_loop_messages,
     r1_request_cap,
 )
-from .research import render_research_transcript, research_stage_runs
+from .prepare_prompts import build_prepare_task_messages
+from .request_prompts import build_window_task_messages
+from .routing.config import MAX_WINDOW_SEARCH_QUERIES
+from .research import render_research_transcript
+from .stages.task_graph import resolve_execution_strategy, window_flow
 from .exchange_log import messages_to_text
 from .stages.correction.metadata import _window_audio_label, window_to_metadata
 from .token_budget import TokenCounter, default_token_counter, requested_output_limit
@@ -44,21 +46,7 @@ from .token_budget import TokenCounter, default_token_counter, requested_output_
 PREVIEW_AUDIO_LABEL = "[preview-audio.aac]"
 PREVIEW_VIDEO_PATH = Path("preview-video.mp4")
 
-PLACEHOLDER_ROUND1_NOTES = "（第一轮 <analysis_notes> 分析要点将注入此处）"
-PLACEHOLDER_ENTRY_DETAILS = "（第一轮 requested_entries 对应的条目详情将按预算渲染注入此处）"
-PLACEHOLDER_EVIDENCE_PACK = "（多轮搜索 loop 生成的 Evidence Pack 将注入此处）"
-PLACEHOLDER_SEARCH_RESULTS = "（本地搜索代理对第一轮 query 的搜索结果将注入此处）"
-PLACEHOLDER_WINDOW_SEARCH = "（本窗口前置搜索 query 的本地搜索结果将注入此处）"
-PLACEHOLDER_LOOP_BACKGROUND = "（用户额外信息与第一轮 <analysis_notes> 将注入此处）"
-PLACEHOLDER_LOOP_CONTRACT = "（第一轮 <research_contract> JSON 将注入此处，priority 为当前值）"
-PLACEHOLDER_LOOP_EXECUTED = "（已执行过的搜索 query 将注入此处）"
-PLACEHOLDER_LOOP_PROGRESS = "（此前各轮 <progress_update> 增量的累积将注入此处）"
-PLACEHOLDER_LOOP_ROUND_RESULTS = (
-    "--- query: 游戏A 剧情考据 ---\n"
-    "provider: preview\n- 示例来源 (https://example.test/search)\n  搜索摘要。\n\n"
-    "--- 深度提取 url: https://example.test/page ---\n"
-    "provider: preview\n页面正文摘录。"
-)
+PLACEHOLDER_WINDOW_SEARCH = "（本窗口请求的本地搜索结果将注入此处）"
 
 
 def build_prompt_artifacts(
@@ -74,18 +62,23 @@ def build_prompt_artifacts(
     #: Same selection the run would use, so the dry-run artifact shows the
     #: prompt the run would actually send.
     style_names: Sequence[str] = (),
+    #: `--style auto`: the candidate list both tasks pick from, rendered.
+    style_catalog: str = "",
+    extra_style: str = "",
     task_update_feedback: bool = False,
-    research_search_rounds: int = DEFAULT_RESEARCH_SEARCH_ROUNDS,
     counter: TokenCounter | None = None,
     profile: TranslationProfile = DEFAULT_PROFILE,
-    streamer_index: str | None = None,
-    common_index: str | None = None,
+    knowledge_indexes: Mapping[str, str] | None = None,
+    #: The run's own `--test-profile`: it pins one stub endpoint, so the
+    #: strategy it records is the default. Resolving the dry run against the
+    #: real chain instead would show a prompt shape the run will not send.
+    test_profile: bool = False,
     windows_override: Sequence[Any] | None = None,
     max_window_subtitle_tokens: int | None = None,
+    speakers: bool = False,
 ) -> Dict[str, Any]:
     segments = load_segments_from_stable_json(stable_json)
     research_query_limit = research_search_query_limit(len(segments))
-    multi_round_research = int(research_search_rounds) > 1
     counter = counter or default_token_counter()
     if windows_override is not None:
         windows = list(windows_override)
@@ -104,120 +97,69 @@ def build_prompt_artifacts(
     transcript = render_research_transcript(segments, windows)
     # Knowledge reads follow the tri-state here exactly as they do at run
     # time, or the plan shows indices a `--knowledge none` run never loads.
-    streamer_index_text = (
-        streamer_index
-        if streamer_index is not None
-        else (load_index_text(knowledge_root, "streamer") if knowledge_enabled else "")
+    index_texts = (
+        knowledge_indexes
+        if knowledge_indexes is not None
+        else (load_index_texts(knowledge_root) if knowledge_enabled else {})
     )
-    common_index_text = (
-        common_index
-        if common_index is not None
-        else (load_index_text(knowledge_root, "common") if knowledge_enabled else "")
+    entries_available = index_texts_present(index_texts)
+    # The preparation task: the dry-run must show the prompt the run sends --
+    # which means its own strategy, not the window's. The production default
+    # (an agent preset plus `--media audio`) is exactly the split where the two
+    # differ: the window carries a clip and is batched, the text-only
+    # preparation task can be agentic. Mirrors `stages/prepare_task.py`.
+    prepare_strategy, _prepare_source = resolve_execution_strategy(
+        profile,
+        task_group="research",
+        test_profile=test_profile,
+        knowledge_readable=entries_available,
     )
-    # Which research rounds this vector runs, decided by the production
-    # predicates rather than a second copy of the rule (docs/llm_harness_behavior.md).
-    entries_available = bool(streamer_index_text.strip() or common_index_text.strip())
-    stage_runs = research_stage_runs(
-        profile, knowledge_root=knowledge_root, knowledge_enabled=knowledge_enabled
+    prepare_agentic = prepare_strategy == "agentic" and (
+        profile.external_injection or entries_available
     )
-    run_round1 = stage_runs and (profile.external_injection or entries_available)
-    run_round2 = stage_runs and profile.retrieval != "none"
-
-    research_messages = []
-    if run_round1:
-        research_messages.append(
-            build_research_round1_messages(
-                transcript=transcript,
-                extra_info=extra_info,
-                streamer_index=streamer_index_text,
-                common_index=common_index_text,
-                max_search_queries=research_query_limit,
-                use_search_contract=multi_round_research,
-                emits_queries=profile.external_injection,
-                emits_entries=entries_available,
-                emits_notes=run_round2,
-                max_requested_entries=r1_request_cap(
-                    downstream_can_request=profile.external_injection
-                ),
-            )
+    # The windows' flow, from the one owner (`task_graph.window_flow`): the
+    # preparation task's downstream caps and the window prompts both read it.
+    flow = window_flow(profile, knowledge_readable=entries_available, test_profile=test_profile)
+    research_messages = [
+        build_prepare_task_messages(
+            transcript=transcript,
+            extra_info=extra_info,
+            knowledge_indexes=index_texts,
+            max_search_queries=research_query_limit,
+            emits_queries=profile.external_injection,
+            emits_entries=entries_available,
+            native_search=profile.native_search,
+            max_requested_entries=r1_request_cap(
+                downstream_can_request=flow.window_requests
+            ),
+            collect_task_feedback=task_update_feedback,
+            emits_keep=(flow.window_requests or prepare_agentic) and entries_available,
+            agentic=prepare_agentic,
+            style_catalog=style_catalog,
+            extra_style=extra_style,
+            speakers=speakers,
         )
-    if run_round2:
-        research_messages.append(
-            build_research_round2_messages(
-                transcript=transcript,
-                extra_info=extra_info,
-                round1_notes=PLACEHOLDER_ROUND1_NOTES,
-                entry_details_text=(
-                    PLACEHOLDER_ENTRY_DETAILS if entries_available else ""
-                ),
-                search_results=(
-                    ""
-                    if profile.native_search
-                    else (
-                        PLACEHOLDER_EVIDENCE_PACK
-                        if multi_round_research
-                        else PLACEHOLDER_SEARCH_RESULTS
-                    )
-                ),
-                use_evidence_pack=multi_round_research and not profile.native_search,
-                native_search=profile.native_search,
-                emits_keep=profile.external_injection,
-            )
-        )
-    if profile.external_injection:
-        search_loop_example = (
-            build_search_loop_messages(
-                round_index=0,
-                max_rounds=int(research_search_rounds),
-                is_final_round=False,
-                background=PLACEHOLDER_LOOP_BACKGROUND,
-                contract_json=PLACEHOLDER_LOOP_CONTRACT,
-                executed_queries=[PLACEHOLDER_LOOP_EXECUTED],
-                progress_log=PLACEHOLDER_LOOP_PROGRESS,
-                search_results=PLACEHOLDER_LOOP_ROUND_RESULTS,
-                previous_requested_entries=["条目甲"],
-                previous_kept_entries=["条目乙"],
-                previous_contract_json=PLACEHOLDER_LOOP_CONTRACT,
-                previous_search_queries=["F1|游戏A 剧情考据 >> 确认官方名"],
-                previous_extract_urls=[
-                    "https://example.test/page >> 提取角色与阵营段落"
-                ],
-                followup_query_cap=followup_search_query_limit(research_query_limit),
-            )
-            if multi_round_research
-            else None
-        )
-        # The query round's clip follows ``planning_media`` (model-routing v2).
-        planning_video = bool(video_path) and profile.planning_use_video
-        correction_query_messages = [
-            build_correction_query_messages(
-                window=window,
-                context_pack=context_pack,
-                audio_file_label=_window_audio_label(
-                    video_path if planning_video else audio_path,
-                    audio_label
-                    or (
-                        PREVIEW_VIDEO_PATH.name
-                        if planning_video
-                        else PREVIEW_AUDIO_LABEL
-                    ),
-                    window,
-                    clip_suffix=(
-                        CLIP_VIDEO_SUFFIX if planning_video else CLIP_AUDIO_SUFFIX
-                    ),
-                ),
-                profile=profile,
-            )
-            for window in windows
-        ]
-    else:
-        search_loop_example = None
-        correction_query_messages = []
-
+    ]
     style_block = render_style_block(knowledge_root, style_names)
     use_video = bool(video_path) and profile.correction_use_video
+    # Plan §8, last bullet: the dry run must show the window prompt the run
+    # would send -- the request-channel opening under the batched strategy,
+    # the tool-session shape under agentic.
+    task_flow_shape: Dict[str, Any] = {
+        "knowledge_enabled": entries_available,
+    }
+    if flow.window_requests:
+        task_flow_shape.update(
+            {
+                "request_channel": flow.request_channel,
+                "agentic": flow.agent_fetches,
+                "knowledge_indexes": index_texts if entries_available else {},
+                "max_search_queries": MAX_WINDOW_SEARCH_QUERIES,
+            }
+        )
     correction_messages = [
-        build_correction_csv_messages(
+        build_window_task_messages(
+            **task_flow_shape,
             window=window,
             context_pack=context_pack,
             audio_file_label=_window_audio_label(
@@ -242,7 +184,8 @@ def build_prompt_artifacts(
     # falls back to a basic-capability endpoint); other windows differ only
     # in user content, not in the tiered system prompt.
     correction_basic_example = (
-        build_correction_csv_messages(
+        build_window_task_messages(
+            **task_flow_shape,
             window=windows[0],
             context_pack=context_pack,
             audio_file_label=_window_audio_label(
@@ -276,11 +219,8 @@ def build_prompt_artifacts(
             "output_scale": profile.output_scale,
         },
         "research_search_query_limit": research_query_limit,
-        "research_search_rounds": int(research_search_rounds),
         "correction_windows": [window_to_metadata(window) for window in windows],
         "research_messages": research_messages,
-        "search_loop_example_messages": search_loop_example,
-        "correction_query_messages": correction_query_messages,
         "correction_messages": correction_messages,
         "correction_basic_example_messages": correction_basic_example,
     }
@@ -295,34 +235,17 @@ def write_prompt_artifacts(artifacts: Dict[str, Any], output_dir: str | Path) ->
         if key
         not in {
             "research_messages",
-            "search_loop_example_messages",
-            "correction_query_messages",
             "correction_messages",
             "correction_basic_example_messages",
-            "fast_round1_messages",
+            "speaker_judge_messages",
         }
     }
     (output_path / "plan.json").write_text(
         json.dumps(plan, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
-    for idx, messages in enumerate(artifacts.get("research_messages") or [], start=1):
-        (output_path / f"research-round{idx}.txt").write_text(
-            messages_to_text(messages),
-            encoding="utf-8",
-        )
-    if artifacts.get("search_loop_example_messages"):
-        (output_path / "research-search-loop-example.txt").write_text(
-            messages_to_text(artifacts["search_loop_example_messages"]),
-            encoding="utf-8",
-        )
-    if artifacts.get("fast_round1_messages"):
-        (output_path / "fast-round1.txt").write_text(
-            messages_to_text(artifacts["fast_round1_messages"]),
-            encoding="utf-8",
-        )
-    for idx, messages in enumerate(artifacts.get("correction_query_messages", []), start=1):
-        (output_path / f"correction-{idx:04d}-query.txt").write_text(
+    for messages in artifacts.get("research_messages") or []:
+        (output_path / "research-prepare.txt").write_text(
             messages_to_text(messages),
             encoding="utf-8",
         )
@@ -331,6 +254,8 @@ def write_prompt_artifacts(artifacts: Dict[str, Any], output_dir: str | Path) ->
             messages_to_text(messages),
             encoding="utf-8",
         )
+    for messages in artifacts.get("speaker_judge_messages") or []:
+        (output_path / "speaker-judge-0001.txt").write_text(messages_to_text(messages), encoding="utf-8")
     if artifacts.get("correction_basic_example_messages"):
         (output_path / "correction-0001-basic-tier.txt").write_text(
             messages_to_text(artifacts["correction_basic_example_messages"]),

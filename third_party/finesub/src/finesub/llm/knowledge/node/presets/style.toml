@@ -31,16 +31,19 @@
 
 version = 2
 name = "style"
+blurb = "一套翻译口味，按 --style 点名注入"   # 结构表里这个类别的一句话说明
+matchable = false               # 不进匹配面：只按 --style 点名，因此也没有索引（理由见本文头部第 1 条）
 allow_custom_labels = true
 unknown_label_share = "local"   # 未登记的标记 fail-closed，不随节默认继承共享
 unknown_label_verify = "none"
 strict_sections = true          # 五节固定，不可新建
-# ⚠ 整条注入面的兜底（owner 2026-09-02）：逐节上限乘起来仍可能塞满一个窗口，所以整条的
-# prompt 投影另有一个 token 预算。超了**不是拒绝写入**——修复超大条目本身就是一次写入，
-# 一律拒绝会把它锁死在最差状态。规则是单调的：超预算时只准改短或删行、不准再加
-# （`node/apply.py` 的 `_check_entry_budget`），并且投影顶部会挂一行提示，让下一次更新或
-# repair 先做压缩。计数用无依赖的启发式上界（`HeuristicTokenCounter`），不联网、不起子进程。
+# 整条的注入上限（owner 2026-10-02，三个类别一样）：逐节上限乘起来仍可能塞满一个窗口，所以
+# 注入时整条超过这个 token 数就按行截断（`injection_budget`）。它**不是写入规则**——超了照写，
+# 压缩靠更新任务看到的提示。
 max_entry_tokens = 6000
+# 超过软阈值时，可写的面提示压缩。不可拆：style 按名字静态选取，拆出去的约定会离开 --style。
+soft_entry_tokens = 5000
+splittable = false
 
 [[sections]]
 name = "档案"
@@ -51,7 +54,7 @@ exclude = "具体怎么做——那是「约定」。"
 labels = [
   { name = "本名", core = true, role = "identity", note = "这套风格的名字，也就是 `--style` 点名时写的那个串；通常是字幕组名或译者名" },
   { name = "作者", core = true, note = "谁的口味。自由文本，只给人看——style 没有真相，作者归属也不需要可验证" },
-  { name = "适用范围", core = true, note = "对谁成立（该组全部投稿 / 某主播 / 某题材）。⚠ 静态选取下它**不参与任何判断**，是给人看的说明，别拿它做匹配" },
+  { name = "适用范围", core = true, note = "对谁成立（该组全部投稿 / 某主播 / 某题材）。`--style auto` 按它和简介挑风格，要写具体；点名选取时它不参与判断" },
 ]
 
 # 上限：**owner 2026-09-02 拍的粗值，随时可改**——每节 20 行 × 200 字（含 [标记]）。
@@ -59,7 +62,7 @@ labels = [
 # 的唯一真相，apply 引擎与 prompt 说明都从这里取；换值只改这几行。
 #
 # 逐节上限只管「一行多长、一节多少行」；三节都逼近各自上限时整条仍可能很大，所以顶上还有
-# `max_entry_tokens` 这道兜底（见文件末）。
+# `max_entry_tokens` 这道注入上限。
 [[sections]]
 name = "约定"
 body_kinds = ["note"]

@@ -11,6 +11,8 @@ drift apart:
 * ``episodic-desc`` — a desc that reads like version narrative
 * ``duplicate-term`` — same surface twice under one subject
 * ``chapter-alias`` — a subject alias that is also a term surface
+* ``orphan-section`` — a line in a section the preset no longer declares, i.e.
+  what a TEMPLATE change leaves behind (2026-09-07)
 """
 
 from __future__ import annotations
@@ -71,7 +73,8 @@ def scan_candidates(store: KnowledgeStore, rev: int | None = None) -> CandidateS
     from .presets import preset_for_category
 
     for subject in subjects.values():
-        preset = preset_for_category(str(subject.payload.get("category", "")) or "common")
+        category = str(subject.payload.get("category", "")) or "common"
+        preset = preset_for_category(category)
         # staging sections are a transfer point, not a warehouse: every line
         # sitting in one is a candidate by construction (preset `staging`)
         for membership in store.children(subject.local_id, at):
@@ -93,6 +96,37 @@ def scan_candidates(store: KnowledgeStore, rev: int | None = None) -> CandidateS
                          "（需要中文定名/别名就补上，术语节要写成四列术语行），"
                          "或按该节的收录纪律删除"}
             )
+        # A section the preset no longer declares. This is what a TEMPLATE
+        # change leaves behind: delete a section from a preset and the lines
+        # that lived there keep their content, keep their history, and stop
+        # being governed by anything -- `_check_section_caps` reads
+        # `preset.section(name)`, gets `None`, and skips the whole section.
+        # Silently: the write still succeeds, the caps just no longer apply.
+        #
+        # Reported, never enforced (plan §0 requirement 8): refusing writes to
+        # such an entry would lock it at whatever shape the preset change left
+        # it in, and the fix for a non-conforming entry is itself a write. Only
+        # a strict-sections preset can produce this -- a free-section preset
+        # resolves every unknown name to its default section.
+        if preset.strict_sections:
+            for membership in store.children(subject.local_id, at):
+                if preset.section(membership.section) is not None:
+                    continue
+                child = store.node(membership.child_id, at)
+                if child is None:
+                    continue
+                from .render import format_line
+
+                plan.candidates.append(
+                    {"kind": "orphan-section", "node": child.local_id,
+                     "subject": subject.payload.get("surface", ""),
+                     "subject_id": subject.local_id,
+                     "section": membership.section,
+                     "line": format_line(child),
+                     "hint": f"「{membership.section}」不在 {category} 的模版里了"
+                             "——这行的内容与历史都还在，但已经不受任何小节规则约束："
+                             "把它挪到模版里的某一节，或按收录纪律删除"}
+                )
         # a term Phase B produced from a v1 relation: its 中文定名 column is
         # empty by construction, and the line may not belong in 人际关系 at all
         # (channel coinage was admitted there under the old kind rules)

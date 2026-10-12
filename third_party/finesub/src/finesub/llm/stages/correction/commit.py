@@ -59,7 +59,7 @@ WINDOW_PLAN_FILENAME = "correction-window-plan.json"
 # classify a new field then fails a test rather than silently reusing a window
 # it should have invalidated.
 WINDOW_INVALIDATION_INPUTS = (
-    # The output contract itself; a bump invalidates by design (CLAUDE.md).
+    # The output contract itself; a bump invalidates by design (AGENTS.md).
     "prompt_version",
     "test_profile",
     # The source subtitles, parsed rather than byte-hashed.
@@ -67,8 +67,6 @@ WINDOW_INVALIDATION_INPUTS = (
     # Source media path+size. Deliberately not mtime: re-downloading or touching
     # the same audio is not a content change, and mtime made it look like one.
     "media_identity",
-    # Fast mode's seeded round-1 injections.
-    "extra",
 )
 #
 # Everything else is whitelisted, each for a stated reason:
@@ -78,8 +76,8 @@ WINDOW_INVALIDATION_INPUTS = (
 #                         file half in one voice and half in another — a
 #                         difference the user CAN see, and owner 2026-09-02
 #                         judged it acceptable rather than pay for discarding
-#                         every finished window. (`translation-style-plan.md`
-#                         §2.5 records the decision and what it overrides.)
+#                         every finished window. (`docs/llm_harness_behavior.md`,
+#                         「纠错窗口中途 resume」 records the decision.)
 #
 #   execution_identity     model, preset, model group, thinking, policy, agent
 #                          driver/effort/timeout. docs/llm_local_agent.md §11.
@@ -104,7 +102,6 @@ def _task_fingerprint(
     test_profile: bool,
     source_fingerprint: str,
     media_identity: Mapping[str, Any],
-    extra: str,
 ) -> str:
     """Fingerprint the inputs that make a *committed* window unusable."""
 
@@ -113,7 +110,6 @@ def _task_fingerprint(
         "test_profile": bool(test_profile),
         "source_fingerprint": source_fingerprint,
         "media_identity": dict(media_identity or {}),
-        "extra": extra or "",
     }
     unclassified = set(payload) - set(WINDOW_INVALIDATION_INPUTS)
     if unclassified:

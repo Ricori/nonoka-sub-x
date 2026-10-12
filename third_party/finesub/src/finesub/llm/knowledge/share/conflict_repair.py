@@ -25,12 +25,16 @@ from __future__ import annotations
 
 import json
 import re
-from typing import Any, Mapping, Sequence
+from typing import Any, Collection, Mapping, Sequence
 
 from finesub.reporting import current_reporter
 
-from ...prompt_compose import load_prompt_template, reasoning_clause
-from ..node.model import CATEGORIES
+from ...prompt_compose import (
+    load_prompt_template,
+    reasoning_clause,
+    render_term_line_rules,
+)
+from ..node.presets import CATEGORIES
 from ..node.render import HandleMap
 from ..node.proposals import parse_model_proposals
 from ..node.repo import KnowledgeRepo
@@ -42,6 +46,13 @@ CONFLICT_REPAIR_MAX_TOKENS = 8_192
 #: ``keep_local`` is a real decision (the ledger's sticky ``dismissed``),
 #: ``needs_human`` is the explicit "cannot decide" exit that leaves the row open.
 CONFLICT_VERDICTS = ("keep_local", "updated", "needs_human")
+
+#: The entry-level fields a session may settle, and the op that settles each
+#: (owner 2026-10-02). Both name their target with `entry`, not `id`, and an
+#: op passes only for an entry whose conflict on THAT field is in this round.
+#: A rename still goes through `rename_entry`'s dedupe, script folding and
+#: namespace rules; refused there, the row simply stays open.
+ENTRY_FIELD_OPS: dict[str, str] = {"intro": "set_intro", "surface": "rename_entry"}
 
 _VERDICTS_RE = re.compile(
     r"<conflict_verdicts\b[^>]*>(?P<body>.*?)</conflict_verdicts>",
@@ -70,29 +81,34 @@ def owning_subject(repo: KnowledgeRepo, local_id: str) -> str:
 def human_only(repo: KnowledgeRepo, row: Mapping[str, Any]) -> str:
     """Why a repair session cannot take this conflict, or ``""`` if it can.
 
-    Two reasons, and both are properties of the store rather than of the
-    model:
+    Owner 2026-10-02: in principle every knowledge-base problem should be
+    solvable by the AI. What is still left to a person is where no session
+    op can honour the answer -- sending it anyway would promise what the
+    schema will not do: the model answers `updated`, the op is skipped, the
+    field never moves, and the row stays open forever (reviewer 2026-09-01
+    P2). So, properties of the store rather than of the model:
 
-    * the local node is gone (retired since the pull) -- there is no entry
-      left to re-decide it against;
-    * the conflict is on the SUBJECT's own payload (`intro`, `surface`). The
-      proposal schema deliberately refuses `update` on a subject
-      (`proposals.py`: "use rename_entry / append_lines for subjects") -- an
-      entry's own prose is not something a model edits. Sending it to the
-      session anyway would promise what the schema will not honour: the model
-      answers `updated`, the op is skipped, the field never moves, and the row
-      stays open forever (reviewer 2026-09-01 P2).
+    * the local node is gone (retired since the pull), or the entry it hung
+      under is -- there is no entry left to show the session;
+    * the conflict is on the SUBJECT's own payload and is neither its
+      `intro` nor its `surface` (H1). Those two have ops the session answers
+      with (`set_intro`, `rename_entry`; owner 2026-10-02), admitted by
+      `restrict_to_conflicted_nodes` for exactly these rows; the remaining
+      entry-level fields have no op at all.
 
-    Both end at the same place: `share conflicts --dismiss/--resolve` after a
-    human has looked, editing the entry first if it needs editing.
+    Both end at `share conflicts --dismiss/--resolve` after a human has
+    looked, editing the entry first if it needs editing.
     """
 
     local_id = str(row.get("local_id") or "")
     node = repo.store.node(local_id) if local_id else None
     if node is None:
         return "本地条目已退役"
-    if node.kind == "subject":
-        return "条目自身的字段（提案 schema 不允许模型改条目正文）"
+    owner = repo.store.node(owning_subject(repo, local_id))
+    if owner is None or owner.kind != "subject":
+        return "所属条目已退役"
+    if node.kind == "subject" and str(row.get("field") or "") not in ENTRY_FIELD_OPS:
+        return "条目自身的字段（只有简介与 H1 交给 AI；其余条目层字段没有对应的操作，留给人）"
     return ""
 
 
@@ -168,14 +184,49 @@ def render_conflict_repair_prompt(
         "share_conflict_repair_v1.md",
         strict=True,
         judgment=load_prompt_template("fragment_kb_judgment_v1.md", strict=True),
-        entry_text=repo.entry_prompt_text(subject_id, handles),
+        writing=load_prompt_template("fragment_kb_writing_v1.md", strict=True),
+        # No `@a` on the `[别名]` row: entry aliases are outside what this round may write.
+        entry_text=repo.entry_prompt_text(subject_id, handles, alias_row_handle=False),
         conflict_rows=_conflict_rows_text(handle_map),
-        ops_contract=load_prompt_template(
-            "fragment_knowledge_output_v1.md",
+        entry_field_rules=_entry_field_rules(repo, list(handle_map.values())),
+        # Not the full proposal grammar: `restrict_to_conflicted_nodes` lets
+        # only line rewrites through (plus this round's entry-field ops, whose
+        # rules and row formats `entry_field_rules` carries), so the prompt
+        # offers exactly those (cold read Q7).
+        conflict_ops=load_prompt_template(
+            "fragment_share_conflict_ops_v1.md",
             strict=True,
+            term_line_rules=render_term_line_rules(),
             reasoning_clause=reasoning_clause(),
         ),
     )
+
+
+#: What the prompt says about each entry-level field it may settle -- only
+#: for the fields this round actually has a conflict on.
+_ENTRY_FIELD_RULES = {
+    "intro": "fragment_share_conflict_intro_v1.md",
+    "surface": "fragment_share_conflict_surface_v1.md",
+}
+
+
+def _entry_field_rules(repo: KnowledgeRepo, rows: Sequence[Mapping[str, Any]]) -> str:
+    """The `set_intro` / `rename_entry` instructions for the entry-level
+    conflicts in this round, or ``""`` when there are none -- a round about
+    lines reads exactly as it did before entries could be settled."""
+
+    fields = []
+    for row in rows:
+        node = repo.store.node(str(row.get("local_id") or ""))
+        field = str(row.get("field") or "")
+        if node is not None and node.kind == "subject" and field in _ENTRY_FIELD_RULES:
+            fields.append(field)
+    texts = [
+        load_prompt_template(_ENTRY_FIELD_RULES[field]).strip()
+        for field in ENTRY_FIELD_OPS
+        if field in fields
+    ]
+    return "\n".join(texts) + "\n\n" if texts else ""
 
 
 def parse_conflict_verdicts(text: str, valid_handles: set[str]) -> list[dict[str, str]]:
@@ -218,12 +269,16 @@ def parse_conflict_verdicts(text: str, valid_handles: set[str]) -> list[dict[str
 #: Ops that name a line the session was shown. Anything else is
 #: entry-level (creating, retiring or renaming the whole entry, or appending
 #: new lines) and has no business in a round whose entire job is to re-decide
-#: fields that already exist.
+#: fields that already exist -- except the two in `ENTRY_FIELD_OPS`, which
+#: re-decide an entry's own intro or H1 and pass only for that conflict.
 _LINE_OPS = ("update", "remove", "add_item", "remove_item")
 
 
 def restrict_to_conflicted_nodes(
-    text: str, handles: HandleMap, allowed: set[str]
+    text: str,
+    handles: HandleMap,
+    allowed: Collection[str],
+    entry_ops: Mapping[str, Collection[str]] | None = None,
 ) -> tuple[str, list[dict[str, Any]]]:
     """Keep only the proposals that touch a node this round is about.
 
@@ -238,7 +293,11 @@ def restrict_to_conflicted_nodes(
     ⚠ The allowlist is by NODE, not by field: a `zh` conflict is fixed by
     rewriting the term line, which necessarily carries that line's other
     columns. Refusing anything that touches a second column would refuse the
-    only legal repair.
+    only legal repair. Entries are the exception: ``allowed`` holds lines
+    only, and ``entry_ops`` maps each entry-level op (`ENTRY_FIELD_OPS`) to
+    the entries whose conflict on that field is in this round -- such an
+    entry admits that op and nothing else: not its aliases, not its other
+    fields.
 
     Returns ``(text to apply, refused ops)``. The original text is kept by the
     caller for the record -- what was refused is part of what happened.
@@ -250,7 +309,13 @@ def restrict_to_conflicted_nodes(
     for proposal in parse_model_proposals(text):
         op = str(proposal.get("op") or "")
         target = str(proposal.get("id") or "")
-        if op in _LINE_OPS and node_of.get(target) in allowed:
+        if op in ENTRY_FIELD_OPS.values():
+            admitted = node_of.get(str(proposal.get("entry") or "")) in (
+                (entry_ops or {}).get(op, ())
+            )
+        else:
+            admitted = op in _LINE_OPS and node_of.get(target) in allowed
+        if admitted:
             kept.append(proposal)
         else:
             refused.append(proposal)
@@ -289,9 +354,19 @@ def run_conflict_repair_session(
         "verdicts": parse_conflict_verdicts(result.content, set(handle_map)),
     }
     if apply:
-        allowed = {str(row.get("local_id") or "") for row in rows}
+        lines: set[str] = set()
+        entry_ops: dict[str, set[str]] = {}
+        for row in rows:
+            local_id = str(row.get("local_id") or "")
+            node = repo.store.node(local_id)
+            if node is not None and node.kind == "subject":
+                op = ENTRY_FIELD_OPS.get(str(row.get("field") or ""))
+                if op:
+                    entry_ops.setdefault(op, set()).add(local_id)
+            else:
+                lines.add(local_id)
         applied_text, refused = restrict_to_conflicted_nodes(
-            result.content, handles, allowed
+            result.content, handles, lines, entry_ops
         )
         out["refused_ops"] = refused
         if refused:
@@ -360,11 +435,22 @@ def book_verdicts(
             and node.payload.get(str(conflict.get("field"))) != conflict.get("local")
         )
         if not moved:
+            entry_op = ENTRY_FIELD_OPS.get(str(conflict.get("field"))) if (
+                node is not None and node.kind == "subject"
+            ) else None
+            # Why it did not move, when the engine said: a rename refused by
+            # the dedupe rules is the case worth reading (owner 2026-10-02).
+            reasons = [
+                f"{record.op}: {record.reason}"
+                for record in report.skipped
+                if entry_op is None or record.op == entry_op
+            ]
             booked.append(
                 {
                     "conflict": row["conflict"],
                     "status": ledger.OPEN,
                     "note": "裁定为 updated，但 apply 后该字段没有变化（提案被跳过或回滚），保持未决",
+                    **({"skipped": reasons} if reasons else {}),
                 }
             )
             continue

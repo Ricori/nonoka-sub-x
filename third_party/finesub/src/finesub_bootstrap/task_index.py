@@ -8,8 +8,8 @@ taken out of it, so the CLI can join the same index instead of keeping a second
 one beside it.
 
 Entries are plain dicts and `request` is opaque: this layer never interprets
-it, which lets the desktop store its typed request while the CLI stores the
-TaskRequest-compatible settings it can faithfully replay.
+it: the CLI stores the settings it was given (the LLM switches only when
+typed, plus a pointer to what the run resolved them to -- `shell._recorded_request`).
 
 **Do not add fields to an entry, or values a `Literal` does not already
 allow.** The desktop validated each entry into a model that forbids extras --

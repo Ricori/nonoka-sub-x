@@ -12,12 +12,11 @@ from pathlib import Path
 from typing import Any, Sequence
 
 from .base import (
-    INVALID_ENTRY_CHARS_RE,
     KNOWLEDGE_CATEGORIES,
     IndexEntry,
     _match_normalize,
 )
-from .node.model import text_digest
+from .node.model import entry_name_problem, text_digest
 from .node.repo import KnowledgeRepo
 
 
@@ -125,10 +124,10 @@ class KnowledgeSnapshot:
     def _resolve(self, name: str) -> tuple[str, IndexEntry]:
         category_hint = ""
         key_name = name
-        if "/" in name:
-            category_hint, key_name = name.split("/", 1)
-            if category_hint not in KNOWLEDGE_CATEGORIES:
-                raise KeyError(name)
+        prefix, separator, rest = name.partition("/")
+        # Only a known category is a prefix: entry names may contain `/`.
+        if separator and prefix in KNOWLEDGE_CATEGORIES:
+            category_hint, key_name = prefix, rest
         needle = _match_normalize(key_name)
         categories: Sequence[str] = (category_hint,) if category_hint else KNOWLEDGE_CATEGORIES
         for category in categories:
@@ -202,5 +201,5 @@ class KnowledgeSnapshot:
 
     @staticmethod
     def _validate_entry_name(value: str) -> None:
-        if not value or INVALID_ENTRY_CHARS_RE.search(value) or value in {".", ".."}:
+        if entry_name_problem(value) is not None:
             raise KnowledgeSnapshotError(f"Invalid knowledge entry name: {value!r}")

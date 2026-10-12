@@ -272,16 +272,10 @@ def summarize_llm_rounds(artifact_dir: str | Path) -> list[dict[str, Any]]:
 
 
 def _logical_round_name(kind: str, payload: Mapping[str, Any]) -> str:
-    if kind == "research_round1_response":
-        return "research-r1"
-    if kind == "fast_round1_response":
-        return "fast-r1"
-    if kind == "research_round2_response":
-        return "research-r2"
-    if kind == "search_loop_round":
-        session = str(payload.get("session") or "")
-        prefix = "fast-search" if session.startswith("fast-") else "research-search"
-        return f"{prefix}-round{payload.get('round', 0)}"
+    if kind == "prepare_task_request":
+        return "prepare-request"
+    if kind == "prepare_task_response":
+        return "prepare-delivery"
     if kind.startswith("correction_query_"):
         return f"correction-{payload.get('chunk_id', '?')}-query"
     if kind.startswith("correction_window_"):
@@ -292,15 +286,13 @@ def _logical_round_name(kind: str, payload: Mapping[str, Any]) -> str:
 
 
 def _record_succeeded(kind: str, payload: Mapping[str, Any]) -> bool:
-    # One definition of "this record is an LLM response, not a search ledger":
-    # `search_loop_round` carries both, and the two readers must not drift.
+    # One definition of "this record is an LLM response"; the two readers
+    # must not drift.
     from finesub.llm.exchange_metadata import is_session_response_record
 
-    if not kind.endswith("_response") and kind != "search_loop_round":
+    if not is_session_response_record(kind, payload):
         return False
     if payload.get("call_error") or payload.get("error_type"):
-        return False
-    if kind == "search_loop_round" and not is_session_response_record(kind, payload):
         return False
     if kind == "correction_window_response":
         return bool(payload.get("validation_ok")) and not bool(payload.get("output_limited"))

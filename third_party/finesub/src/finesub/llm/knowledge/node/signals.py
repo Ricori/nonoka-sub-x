@@ -23,9 +23,10 @@ Level semantics (plan §5.1):
 - ``confirmed``/``refuted``: claim-level evidence rows, not events. The
   deterministic producer here is the refined-SRT alignment (§5.4): a kept
   correction confirms exactly the misheard-item claim that attributed it, an
-  overturned one refutes it. The mistake-ledger half of that feedback stays
-  with the model's ``add_mistake`` proposals (refined mode already applies
-  them); this module owns the evidence half.
+  overturned one refutes it. The translation-preference half of that
+  feedback is the refined-mode knowledge update's style-entry proposals (it
+  went to the mistake ledger until that retired on 2026-09-02); this module
+  owns the evidence half.
 """
 
 from __future__ import annotations
@@ -42,6 +43,11 @@ EXPOSED_ALGO_VERSION = "exposure-1"
 LANDED_ALGO_VERSION = "landed-1"
 REFINED_ALGO_VERSION = "refined-align-1"
 EVIDENCE_KIND_REFINED = "refined_srt"
+#: A model's judgement against the refined subtitles (`knowledge/style_marks.py`):
+#: whether the refinement kept or overturned a style convention. Kept apart
+#: from the deterministic `refined_srt` rows, never exported to the share
+#: server, and read only by the report.
+EVIDENCE_KIND_JUDGED = "judged"
 
 
 def _now() -> str:
@@ -226,6 +232,38 @@ def subject_pack_node_ids(
     return out
 
 
+def injected_node_ids(
+    store: KnowledgeStore, subject_id: str, rev: int, kept: Mapping[str, int] | None
+) -> list[str]:
+    """The nodes an injected entry actually showed. ``kept`` is the injection
+    budget's record for a cut entry (section -> how many of its lines went
+    in); None means the entry went in whole. The head sections always went in
+    (`injection_budget._fill`)."""
+
+    if kept is None:
+        return subject_pack_node_ids(store, subject_id, rev)
+    from .presets import head_section_names, preset_for_category
+    from .render import _ordered_sections, load_subject_tree
+
+    tree = load_subject_tree(store, subject_id, rev)
+    preset = preset_for_category(tree.subject.payload.get("category") or "common")
+    head = head_section_names()
+    out = [subject_id]
+    seen = {subject_id}
+    frontier: list[str] = []
+    for view in _ordered_sections(tree, preset):
+        members = [child.local_id for _membership, child in view.entries]
+        frontier += members if view.name in head else members[: kept.get(view.name, 0)]
+    while frontier:
+        node_id = frontier.pop(0)
+        if node_id in seen:
+            continue
+        seen.add(node_id)
+        out.append(node_id)
+        frontier.extend(membership.child_id for membership in store.children(node_id, rev))
+    return out
+
+
 def misheard_owner_ids(index: ExactIndex, window_text: str) -> set[str]:
     """Nodes whose ``misheard`` item fires in this window's raw text — the
     exposures that count toward the false-injection denominator (§5.2)."""
@@ -279,10 +317,12 @@ def log_exposed_entries(
     window_id: str = "",
     window_text: str = "",
     rev: int | None = None,
+    kept: Mapping[str, Mapping[str, int]] | None = None,
 ) -> int:
-    """REST whole-pack exposure (plan §4.2 item 5): every node the injected
-    entries render, correction-opportunity where a misheard item of that node
-    fired in the window's raw text."""
+    """REST exposure (plan §4.2 item 5): every node the injected entries
+    showed -- the whole pack, or for an entry the budget cut only what went in
+    (``kept``, keyed like ``entry_keys``) -- correction-opportunity where a
+    misheard item of that node fired in the window's raw text."""
 
     store = repo.store
     at = store.current_rev() if rev is None else rev
@@ -295,7 +335,9 @@ def log_exposed_entries(
         resolved = repo.resolve(key, at)
         if resolved is None:
             continue
-        for node_id in subject_pack_node_ids(store, resolved.subject_id, at):
+        for node_id in injected_node_ids(
+            store, resolved.subject_id, at, (kept or {}).get(key)
+        ):
             if node_id not in seen:
                 seen.add(node_id)
                 exposures.append((resolved.subject_id, node_id))
@@ -307,6 +349,92 @@ def log_exposed_entries(
         correction_nodes=correction,
         rev=at,
     )
+
+
+# ---------------------------------------------------------------------------
+# style usage (kb-followups batch 2, item 2)
+
+#: The ``opportunity`` of an ``exposed`` event that says "this task translated
+#: under this style". Distinct from ``context``: a model may ``kb_read`` style
+#: candidates it then does not pick, and those reads book ``context``
+#: exposures through `log_exposed_nodes` -- usage must not count them.
+STYLE_INJECTED_OPPORTUNITY = "style_injected"
+
+
+def book_style_injected(
+    repo,  # KnowledgeRepo; untyped to keep the import edge one-way
+    names: Iterable[str],
+    *,
+    task_id: str,
+    rev: int | None = None,
+) -> int:
+    """Book that the task's style choice was fixed on these styles.
+
+    Called where the choice becomes final, not where a block is rendered --
+    style text reaches a window four ways and none of them is a single render
+    point: the orchestrator's pin (`correction_translation._run_task`,
+    including an explicit `--style X` and the static `default_style`), the
+    fast batched request turn, and the fast agentic window's first valid pick
+    (`_pin_style_pick`). ``names`` are style names as the run addresses them
+    (`style/<名>` or a user-given name); ``rev`` the revision they were
+    rendered at (a resumed task may render a retired entry out of history).
+
+    Event shape (the usage report reads exactly this):
+    ``kind="exposed"``, ``opportunity="style_injected"``, ``subject_id`` and
+    ``node_id`` both the style entry's subject node, ``task_id`` the run task,
+    no ``window_id`` (it is a task-level fact), ``rev`` as given, ``algo_version``
+    `EXPOSED_ALGO_VERSION`. One row per task and style: a later call for the
+    same pair -- a resume, the other half of a split window -- books nothing,
+    whatever its ``rev``. Returns how many rows were new.
+    """
+
+    store = repo.store
+    at = store.current_rev() if rev is None else rev
+    booked = 0
+    for name in names:
+        resolved = repo.resolve_qualified(name, at)
+        if resolved is None:
+            continue
+        subject_id = resolved.subject_id
+        seen = store.conn.execute(
+            "SELECT 1 FROM events WHERE kind='exposed' AND opportunity=? AND task_id=?"
+            " AND subject_id=? LIMIT 1",
+            (STYLE_INJECTED_OPPORTUNITY, task_id, subject_id),
+        ).fetchone()
+        if seen is not None:
+            continue
+        booked += int(
+            book_event(
+                store,
+                {
+                    "kind": "exposed",
+                    "opportunity": STYLE_INJECTED_OPPORTUNITY,
+                    "task_id": task_id,
+                    "subject_id": subject_id,
+                    "node_id": subject_id,
+                    "rev": at,
+                    "algo_version": EXPOSED_ALGO_VERSION,
+                },
+            )
+        )
+    return booked
+
+
+def style_usage_counts(store: KnowledgeStore) -> dict[str, int]:
+    """``{style subject_id: number of distinct tasks that injected it}``.
+
+    The usage of a style is the count of different ``task_id`` with a
+    `STYLE_INJECTED_OPPORTUNITY` exposure -- nothing else. A style never
+    injected is absent (read it as 0). Telemetry: the caller decides what a
+    closed signal gate means (`knowledge_signals_enabled`).
+    """
+
+    rows = store.conn.execute(
+        "SELECT subject_id, COUNT(DISTINCT task_id) AS n FROM events"
+        " WHERE kind='exposed' AND opportunity=? GROUP BY subject_id",
+        (STYLE_INJECTED_OPPORTUNITY,),
+    ).fetchall()
+    return {str(row["subject_id"]): int(row["n"]) for row in rows}
 
 
 # ---------------------------------------------------------------------------

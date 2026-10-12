@@ -34,7 +34,7 @@ interface RuntimePageProps {
 }
 
 // 会把十几 GB 拉下来的安装目标。装 yt-dlp 等小工具不值得为它弹位置提示。
-const largeInstallTargets = new Set<RuntimeInstallTarget>(["all", "runtime", "models"]);
+const largeInstallTargets = new Set<RuntimeInstallTarget>(["all", "runtime", "models", "optional-models"]);
 
 const installPhases = [
   { id: "downloading", label: "下载" },
@@ -46,7 +46,7 @@ const installPhases = [
 const assetStateLabels: Record<RuntimeItem["state"], string> = {
   missing: "尚未安装",
   downloading: "下载中",
-  outdated: "版本过旧",
+  outdated: "需要更新",
   ready: "已就绪",
   failed: "安装失败",
 };
@@ -65,6 +65,8 @@ const assetLabels: Record<string, string> = {
   separator: "人声分离模型",
   whisper: "Whisper 转写模型",
   "qwen-referee": "Qwen 复核模型",
+  nemotron3: "说话人活动模型",
+  "speaker-embedding": "声纹模型",
   "yt-dlp": "yt-dlp",
   tokcount: "tokcount",
   aria2c: "aria2c",
@@ -73,6 +75,8 @@ const assetLabels: Record<string, string> = {
 };
 
 const toolPurposes: Record<string, string> = {
+  nemotron3: "说话人分离：判断谁在说话",
+  "speaker-embedding": "说话人分离：按声音归人",
   tokcount: "本地精确统计 Token",
   "yt-dlp": "解析在线视频与字幕",
   aria2c: "多连接加速下载",
@@ -189,6 +193,8 @@ function AssetGroup({ title, items, optional = false, target, installing, blocke
 }) {
   const readyCount = items.filter((item) => item.state === "ready").length;
   const allReady = items.length > 0 && readyCount === items.length;
+  // 已装好、只是依赖锁变了的运行时：动作是「更新」，不是「下载缺失项」。
+  const needsUpdate = items.some((item) => item.state === "outdated");
   const disabledReason = blocked
     || (!items.length ? "当前平台没有可安装的项目。" : "")
     || (allReady ? "该分组已全部安装并通过校验。" : "");
@@ -205,10 +211,10 @@ function AssetGroup({ title, items, optional = false, target, installing, blocke
               className="quiet-button asset-group-action"
               disabled={disabledReason !== ""}
               onClick={() => void onInstall(target)}
-              title={disabledReason || `下载并安装「${title}」中的缺失项`}
+              title={disabledReason || (needsUpdate ? `按新的依赖锁更新「${title}」，只下载有变化的部分` : `下载并安装「${title}」中的缺失项`)}
               type="button"
             >
-              {installing ? "安装中…" : allReady ? "已安装" : "下载缺失项"}
+              {installing ? needsUpdate ? "更新中…" : "安装中…" : allReady ? "已安装" : needsUpdate ? "更新" : "下载缺失项"}
             </button>
           )}
           {removable && onRemove && (
@@ -274,6 +280,7 @@ export function RuntimePage({ capabilities, message, provisionMessage, provision
     ...resources.filter((item) => !optionalToolIds.has(item.id)),
   ];
   const requiredModels = provision?.models ?? [];
+  const optionalModels = provision?.optional_models ?? [];
   const runtimeTarget: RuntimeInstallTarget = provision?.runtime_supported ? "runtime" : "media";
   // Every control below is gated on provision state. Without a reason attached
   // the panel greys out silently — on a first launch, or whenever the sidecar
@@ -442,6 +449,15 @@ export function RuntimePage({ capabilities, message, provisionMessage, provision
             items={requiredModels}
             target="models"
             installing={jobRunning && job?.target === "models"}
+            blocked={modelsBlocked}
+            onInstall={requestInstall}
+          />
+          <AssetGroup
+            title="可选模型 · 说话人分离"
+            items={optionalModels}
+            optional
+            target="optional-models"
+            installing={jobRunning && job?.target === "optional-models"}
             blocked={modelsBlocked}
             onInstall={requestInstall}
           />

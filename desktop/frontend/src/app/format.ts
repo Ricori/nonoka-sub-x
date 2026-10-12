@@ -73,6 +73,7 @@ export function taskStageLabel(stage: string, state?: TaskSnapshot["state"]): st
     aligned: "语音识别",
     "postprocess-queued": "等待字幕处理",
     stable: "整理识别结果",
+    diarize: "说话人分离",
     "raw-srt": "生成字幕",
     "llm-queued": "等待纠错与翻译",
     "translated-srt": "纠错与翻译",
@@ -139,8 +140,9 @@ const FINAL_STAGE_PROGRESS: Record<string, ProgressBand> = {
   vocal: { start: 9, end: 36, timeConstantSeconds: 75 },
   aligned: { start: 36, end: 64, timeConstantSeconds: 120 },
   "postprocess-queued": { start: 64, end: 66, timeConstantSeconds: 15 },
-  stable: { start: 66, end: 70, timeConstantSeconds: 15 },
-  "raw-srt": { start: 70, end: 73, timeConstantSeconds: 10 },
+  stable: { start: 66, end: 69, timeConstantSeconds: 15 },
+  diarize: { start: 69, end: 71, timeConstantSeconds: 30 },
+  "raw-srt": { start: 71, end: 73, timeConstantSeconds: 10 },
   "llm-queued": { start: 73, end: 75, timeConstantSeconds: 20 },
   "translated-srt": { start: 75, end: 94, timeConstantSeconds: 210 },
   "final-srt": { start: 94, end: 99, timeConstantSeconds: 60 },
@@ -154,8 +156,9 @@ const RAW_STAGE_PROGRESS: Record<string, ProgressBand> = {
   vocal: { start: 9, end: 48, timeConstantSeconds: 75 },
   aligned: { start: 48, end: 88, timeConstantSeconds: 120 },
   "postprocess-queued": { start: 88, end: 90, timeConstantSeconds: 15 },
-  stable: { start: 90, end: 95, timeConstantSeconds: 15 },
-  "raw-srt": { start: 95, end: 99, timeConstantSeconds: 10 },
+  stable: { start: 90, end: 93, timeConstantSeconds: 15 },
+  diarize: { start: 93, end: 96, timeConstantSeconds: 30 },
+  "raw-srt": { start: 96, end: 99, timeConstantSeconds: 10 },
 };
 
 function progressBand(snapshot: TaskSnapshot): ProgressBand | undefined {

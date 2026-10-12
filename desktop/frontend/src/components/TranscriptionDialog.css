@@ -353,6 +353,17 @@
   line-height: 1.65;
 }
 
+/* 注释句末尾的跳转，和「前往配置」那类按钮同一种样子 */
+.transcription-note .inline-link {
+  margin-left: 6px;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--accent);
+  font-size: inherit;
+  cursor: pointer;
+}
+
 /* 网格自己有间距，这两块在设置页里带的外边距会在这里叠成一道空档 */
 .execution-picker .transcription-summary {
   margin-top: 2px;

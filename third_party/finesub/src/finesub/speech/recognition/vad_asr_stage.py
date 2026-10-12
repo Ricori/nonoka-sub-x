@@ -13,7 +13,7 @@ import threading
 import time
 import zipfile
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 import numpy as np
 import torch
@@ -32,8 +32,10 @@ from ..runtime.resources import (
     gpu_tier_help,
     resolve_asr_decode_batch,
 )
+from ..runtime.cuda_libs import missing_asr_backend_message
 from ..runtime.gpu_stage_gate import GPU_STAGE_GATE, GpuStageLease
 from ..runtime.device import resolve_asr_device
+from ..runtime.support_levels import note_accelerated_stage
 from ..runtime import hf_weights, phase_timing
 from ..runtime import stall_watchdog
 from ..runtime.thread_budget import bounded_intra_op_threads
@@ -41,7 +43,7 @@ from ..preprocessing import energy as vad_energy
 from ..preprocessing import vad as vad_detection
 from ..preprocessing.audio import ensure_decodable_input
 from ...run_metadata import record_scratch_file, update_run_metadata
-from ... import config as app_config
+from ... import settings
 from ...reporting import (
     bind_reporter,
     current_reporter,
@@ -134,7 +136,7 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help=(
             "How long a subtitle may get before the splitter buys a cut "
-            f"({segment_split.LENGTH_SCALE_MIN}-{segment_split.LENGTH_SCALE_MAX}, "
+            f"({settings.SPLIT_LENGTH_SCALE.minimum}-{settings.SPLIT_LENGTH_SCALE.maximum}, "
             "default 1.0; below 1 = shorter subtitles). Overrides "
             "[segmentation] length_scale in config.toml."
         ),
@@ -164,34 +166,6 @@ def vad_prefix_energy_path(prefix_path: Path) -> Path:
     """
 
     return prefix_path.with_name(f"{prefix_path.stem}-energy.npz")
-
-
-#: The backend default for the silero assist. It lives here, once: the CLI
-#: passes `None` for "the user did not say" and this stage resolves it, so a
-#: front end that wants something else overrides deliberately rather than by
-#: carrying a second copy of the answer (`README_DEV.md` -> 开发原则).
-#:
-#: On by default because the pipeline separates first, and the two-signal
-#: post-pass exists for exactly that kind of noisy vocal. Clean, unseparated
-#: source audio should pass `--no-vad-silero-assist`: there the packing
-#: perturbation is paid for nothing.
-DEFAULT_VAD_SILERO_ASSIST = True
-
-
-def resolve_vad_silero_assist(explicit: bool | None = None) -> bool:
-    """Three layers, in order: the flag, `[vad] silero_assist`, the default.
-
-    The same shape as `resolve_split_params`, and for the same reason: one
-    function owns the whole chain, so every front end lands on the same answer
-    and there is exactly one place to read to find out what "unset" means.
-    """
-
-    if explicit is not None:
-        return bool(explicit)
-    configured = app_config.config_bool("vad", "silero_assist")
-    if configured is not None:
-        return configured
-    return DEFAULT_VAD_SILERO_ASSIST
 
 
 #: Bumped when a payload written here stops being readable by the loader below.
@@ -654,6 +628,70 @@ def write_aligned_json(
     )
 
 
+def _finish_segment_timeline(
+    monotonic_segments: list[dict[str, object]],
+    vad_segments: list[dict[str, object]],
+    split_params: object,
+    energy_track: vad_energy.VadEnergyTrack,
+    align_meta: dict[str, object],
+    timing: dict[str, float],
+    audio_duration: float | None = None,
+) -> list[dict[str, object]]:
+    """DP split, the artifact's time contract, then energy annotation.
+
+    The contract is the reason these three sit together. `split_segments`
+    derives piece bounds from the words but clamps them into the source
+    segments' union, and the upstream passes each maintain only half of
+    "a segment spans its own words" -- so this is the one place that answers
+    for what leaves the stage: every segment spans its own words, lasts
+    longer than zero, and ends no later than the audio does. Downstream drops
+    `end <= start` silently
+    (`subtitles/rendering.py`, `llm/chunking.py`), so a segment that loses the
+    invariant loses its text with no trace at all.
+
+    Repairs are RECORDED, never warned about (owner 2026-09-06): across 61
+    artifacts / 23648 segments the defect never changed what a viewer sees, so
+    it belongs in an audit trail rather than in every run's output. Energy is
+    annotated last so repaired segments get their own reading -- a zero-length
+    one cannot have any, and every stabilize drop leg needs either a duration
+    or an energy, which is what made these invisible to the ladder.
+    """
+
+    t_post = time.perf_counter()
+    split_result_segments = segment_split.split_segments(
+        monotonic_segments,
+        vad_segments,
+        params=split_params,
+    )
+    timing["dp_split_sec"] = time.perf_counter() - t_post
+    split_result_segments, time_repairs = segment_ops.normalize_segment_timeline(
+        split_result_segments, audio_end=audio_duration
+    )
+    align_meta["segment_time_repairs"] = time_repairs
+    synthetic_word_segments = sum(
+        1
+        for segment in split_result_segments
+        if any(
+            word.get(segment_split.SYNTHETIC_WORD_KEY)
+            for word in segment.get("words") or []
+        )
+    )
+    align_meta["segment_split"]["synthetic_word_segments"] = synthetic_word_segments
+    if synthetic_word_segments:
+        current_reporter().warning(
+            "synthetic-word-span",
+            "synthesized one segment-span word for "
+            f"{synthetic_word_segments} text-only ASR segment(s).",
+        )
+    t_post = time.perf_counter()
+    energy_segments = annotate_segments_with_vad_energy(
+        split_result_segments,
+        energy_track,
+    )
+    timing["energy_annotate_sec"] = time.perf_counter() - t_post
+    return energy_segments
+
+
 def finalize_qwen_verification(
     input_path: str | Path,
     aligned_path: str | Path,
@@ -847,25 +885,17 @@ def resolve_split_params(
 ) -> segment_split.SplitParams:
     """Subtitle-length knob, resolved once for the whole stage.
 
-    Three layers, in order: an explicit value (CLI flag or caller) beats
-    ``[segmentation] length_scale`` in ``config.toml``, which beats the
-    calibrated code default. Whatever wins is written into
+    The scale comes from `settings.SPLIT_LENGTH_SCALE` (flag, then
+    ``[segmentation] length_scale``, then the calibrated 1.0); this maps it onto
+    the splitter's walls. Whatever wins is written into
     ``metadata.asr_align.segment_split``, so a produced artifact says which
     length target it was cut for without anyone having to know where the value
     came from.
     """
 
-    scale = explicit
-    source = "--split-length-scale"
-    if scale is None:
-        scale = app_config.config_float("segmentation", "length_scale")
-        source = "config.toml [segmentation] length_scale"
-    if scale is None:
-        return segment_split.DEFAULT_SPLIT_PARAMS
-    try:
-        return segment_split.split_params_for_length_scale(scale)
-    except ValueError as exc:
-        raise ValueError(f"{exc} (from {source})") from exc
+    return segment_split.split_params_for_length_scale(
+        settings.SPLIT_LENGTH_SCALE.resolve(explicit)
+    )
 
 
 def ensure_asr_weights(model_name: str) -> hf_weights.HfLoad:
@@ -1180,6 +1210,49 @@ def resolve_verification_referee(
     )
 
 
+def _warm_asr_model_pool(
+    model_name: str,
+    device: str,
+    asr_load: Any,
+    align_meta: dict[str, Any],
+    timing: dict[str, Any],
+) -> Any:
+    """Build the ASR model pool and warm it, recording the load time and how it decodes.
+
+    Warm-up encodes, so a broken build fails here at stage entry; on that
+    failure the pool is closed before the error propagates, since the caller
+    never receives it to close.
+    """
+
+    try:
+        from .fw_refine_backend import FwRefineModelPool
+    except Exception as exc:
+        # The message has to say what happened, not what usually happens:
+        # this used to answer a failed native load with "install [asr]",
+        # which on Windows + AMD is the one instruction that breaks the
+        # install it is given to.
+        raise RuntimeError(missing_asr_backend_message(exc)) from exc
+    model_pool = FwRefineModelPool(
+        model_name,
+        device=device,
+        size=1,
+        refine_sec=asr_align.REFINE_SEC,
+        load=asr_load,
+    )
+    t0 = time.perf_counter()
+    try:
+        model_pool.warm()
+    except BaseException:
+        model_pool.close()
+        raise
+    timing["whisper_load_sec"] = time.perf_counter() - t0
+    # Provenance, NOT a compatibility key: it says how this run decoded
+    # (flash attention is on by default from Ampere on), and a resume under
+    # another setting continues the task's own artefacts.
+    align_meta["fw_refine"]["ct2_flash_attention"] = model_pool.flash_attention
+    return model_pool
+
+
 def run_vad_asr(
     input_path: str | Path,
     *,
@@ -1192,8 +1265,8 @@ def run_vad_asr(
     # cap on what the pipeline may use; `resolve_gpu_tier` owns the answer.
     gpu_tier: str = AUTO_GPU_TIER,
     # None = "the caller did not say"; resolved once, here, by
-    # `resolve_vad_silero_assist`. A literal default would be a second copy of
-    # the answer that lives in that resolver.
+    # `settings.VAD_SILERO_ASSIST`. A literal default would be a second copy of
+    # the answer that lives in that declaration.
     vad_silero_assist: bool | None = None,
     qwen_verify: str = "auto",
     lang_redecode: str = "auto",
@@ -1209,12 +1282,16 @@ def run_vad_asr(
     # Before anything else: an out-of-range knob must not surface after the
     # GPU work is already done.
     split_params = resolve_split_params(split_length_scale)
+    # One tier resolution for the whole stage: it is what `--device` reaches
+    # (a CPU run must not be told its card is idle), and two resolutions can
+    # answer differently mid-run.
+    resource_profile = get_resource_profile(gpu_tier, device=device)
     decode_batch = resolve_asr_decode_batch(
-        asr_decode_batch, gpu_tier=gpu_tier
+        asr_decode_batch, profile=resource_profile
     )
     # Resolved once, here, so every front end lands on the same answer and the
     # rest of this function sees a plain bool.
-    vad_silero_assist = resolve_vad_silero_assist(vad_silero_assist)
+    vad_silero_assist = settings.VAD_SILERO_ASSIST.resolve(vad_silero_assist)
     input_path = Path(input_path).expanduser().resolve()
     if not input_path.exists():
         raise FileNotFoundError(f"Input not found: {input_path}")
@@ -1244,7 +1321,6 @@ def run_vad_asr(
         record_scratch_file(run_metadata_path, temporary_audio)
     asr_load = ensure_asr_weights(model_name)
     stage_completed = False
-    resource_profile = get_resource_profile(gpu_tier)
     device_for_usage = None
     memory_sampler = None
     model_pool = None
@@ -1263,6 +1339,7 @@ def run_vad_asr(
         # device below, which is "cpu" after a CT2-only fallback too.
         requested_device = str(device or "cuda")
         device = resolve_asr_device(requested_device, gpu_allowed=bool(resource_profile.gpu))
+        note_accelerated_stage("ASR", device)
         device_for_usage = device
         # After `resolve_device`, so an explicit `--device cpu` and a CPU
         # fallback both stay silent. Same rule and same place whether the tier
@@ -1316,7 +1393,14 @@ def run_vad_asr(
         if prefix is None:
             prefix = run_vad_prefix(
                 audio_source,
-                device=device,
+                # NOT the resolved ASR device. Silero is a torch model, so
+                # CTranslate2's verdict about Whisper says nothing about it --
+                # the two-questions rule again (docs/architecture.md, gpu-profiles.md).
+                # Passing the resolved device sent the assist to the CPU on
+                # every AMD machine, because the CUDA CTranslate2 cannot use
+                # that card while torch can. Intent and tier policy still
+                # apply; `resolve_silero_device` asks torch for the rest.
+                device=requested_device if resource_profile.gpu else "cpu",
                 vad_silero_assist=vad_silero_assist,
             )
             if vad_prefix_path is not None:
@@ -1349,6 +1433,11 @@ def run_vad_asr(
         # the one the return used to skip.
         coverage = audio_coverage(segments, audio_duration)
         align_meta["audio_coverage"] = coverage
+        # Its own key, not borrowed from the coverage stat next to it: the
+        # rebuild path reads this as the bound of the timeline contract
+        # ("no segment ends after the audio does"), and a contract must not
+        # depend on the shape of a statistic that is free to change.
+        align_meta["audio_duration"] = round(float(audio_duration), 3)
         if run_metadata_path is not None:
             update_run_metadata(
                 run_metadata_path, {"audio_coverage": dict(coverage)}
@@ -1468,24 +1557,7 @@ def run_vad_asr(
             # decode, it never changes it, so it cannot invalidate a partial.
             lang_redecode=lang_redecoder is not None and not audit_only,
         )
-        try:
-            from .fw_refine_backend import FwRefineModelPool
-        except Exception as exc:
-            raise RuntimeError(
-                "Missing dependency: faster-whisper plus the patched CTranslate2 "
-                'runtime. Install with `pip install -e ".[asr]"` and see '
-                "tools/wt_refine_port/ct2-patches/README.md for the runtime."
-            ) from exc
-        model_pool = FwRefineModelPool(
-            model_name,
-            device=device,
-            size=1,
-            refine_sec=asr_align.REFINE_SEC,
-            load=asr_load,
-        )
-        t0 = time.perf_counter()
-        model_pool.warm()
-        timing["whisper_load_sec"] = time.perf_counter() - t0
+        model_pool = _warm_asr_model_pool(model_name, device, asr_load, align_meta, timing)
 
         # Load the verification referee under the decode where the profile
         # has room for both models. The inline language referee is that same
@@ -1533,7 +1605,10 @@ def run_vad_asr(
         # a guess (docs/plans/crispasr-followups.md -> A3.2). The collector breaks it
         # into encode / decode / refine / rescue without changing what runs.
         with phase_timing.collect() as asr_phases:
-            with asr_align.collecting_stats() as recovery_stats:
+            with (
+                asr_align.collecting_stats() as recovery_stats,
+                asr_align.collecting_coverage() as coverage_records,
+            ):
                 with bounded_intra_op_threads(1), model_pool.lease() as model:
                     aligned_segments = asr_align.align_segments(
                         segments,
@@ -1557,6 +1632,12 @@ def run_vad_asr(
                     lang_redecoder.run_audit()
         timing["asr_align_sec"] = time.perf_counter() - t0
         align_meta["recovery"] = dict(recovery_stats)
+        # Every group, not just the ones that fell short: a missing subtitle
+        # inside a group whose coverage was fine is precisely the case with
+        # nothing else left to look at. ⚠ This measures the DECODE stage --
+        # stabilize still drops segments afterwards, so a gap in the finished
+        # subtitle need not appear here.
+        align_meta["asr_coverage"] = list(coverage_records)
         if referee_warm is not None:
             referee_warm.join(asr_phases)
             timing["qwen_warm_sec"] = referee_warm.elapsed_sec
@@ -1625,38 +1706,15 @@ def run_vad_asr(
             monotonic_segments
         )
         timing["segment_cleanup_sec"] = time.perf_counter() - t_post
-        # DP split of over-long whisper segments (docs/segmentation-split.md);
-        # runs before energy annotation so pieces get their own energy.
-        t_post = time.perf_counter()
-        split_result_segments = segment_split.split_segments(
+        energy_segments = _finish_segment_timeline(
             monotonic_segments,
             segments,
-            params=split_params,
-        )
-        timing["dp_split_sec"] = time.perf_counter() - t_post
-        synthetic_word_segments = sum(
-            1
-            for segment in split_result_segments
-            if any(
-                word.get(segment_split.SYNTHETIC_WORD_KEY)
-                for word in segment.get("words") or []
-            )
-        )
-        align_meta["segment_split"]["synthetic_word_segments"] = (
-            synthetic_word_segments
-        )
-        if synthetic_word_segments:
-            current_reporter().warning(
-                "synthetic-word-span",
-                "synthesized one segment-span word for "
-                f"{synthetic_word_segments} text-only ASR segment(s).",
-            )
-        t_post = time.perf_counter()
-        energy_segments = annotate_segments_with_vad_energy(
-            split_result_segments,
+            split_params,
             energy_track,
+            align_meta,
+            timing,
+            audio_duration,
         )
-        timing["energy_annotate_sec"] = time.perf_counter() - t_post
 
         # Second-model verification evidence (docs/asr-align.md): suspects
         # and coverage gaps get a Qwen3-ASR re-recognition, recorded as

@@ -21,13 +21,13 @@ from .envelope import Binding, Envelope
 from .importer import (
     EMPTY_SLOT_RE,
     ImportFormatError,
-    alias_delta,
+    alias_row_delta,
     classify_line,
     extract_misheard,
     parse_entry_text,
     storable_term_payload,
 )
-from .model import METADATA_SECTION, NodeVersion
+from .model import METADATA_SECTION, NodeVersion, entry_name_problem
 from .presets import preset_for_category
 from .render import format_line, node_aliases, render_subject
 from .repo import KnowledgeRepo
@@ -204,11 +204,13 @@ def edit_subject(
     subject_set: dict[str, Any] = {}
 
     if parsed.h1 != subject.payload.get("surface", ""):
-        clash = repo.resolve_in(parsed.h1, category, rev)
-        if clash is not None and clash.subject_id != subject.local_id:
+        if problem := entry_name_problem(parsed.h1):
+            raise EditError(f"H1 cannot be an entry name: {problem} ({parsed.h1[:60]!r})")
+        clash = repo.resolve_in(parsed.h1, category, rev, exclude=subject.local_id)
+        if clash is not None:
             raise EditError(f"rename collides with existing entry {clash.key!r}")
         subject_set["payload.surface"] = parsed.h1
-    if parsed.intro != subject.payload.get("intro", ""):
+    if _differs(subject.payload.get("intro", ""), parsed.intro):
         subject_set["payload.intro"] = parsed.intro
 
     new_sections = [s for s in parsed.sections if s.name != METADATA_SECTION]
@@ -244,24 +246,12 @@ def edit_subject(
     #                      not a request to wipe the retrieval index)
     #   row, empty body -> explicit clear
     #   row with values -> normal delta
-    added_aliases, removed_aliases = (
-        alias_delta(old_aliases, new_aliases) if _has_alias_row(parsed, preset) else ([], [])
-    )
-    if added_aliases or removed_aliases:
-        current_items = {
-            _match_normalize(item.value): item
-            for item in store.items_of(subject.local_id, rev)
-            if item.field == "aliases"
-        }
-        for alias in added_aliases:
-            if _match_normalize(alias) not in current_items:
-                ops.ops.append({"op": "add_item", "id": subject_handle, "field": "aliases", "value": alias})
-        for alias in removed_aliases:
-            item = current_items.get(_match_normalize(alias))
-            if item is not None:
-                ops.ops.append(
-                    {"op": "remove_item", "item": ops.bind("item", item.item_id, item.valid_from_rev)}
-                )
+    if _has_alias_row(parsed, preset):
+        adds, drops = alias_row_delta(store.items_of(subject.local_id, rev), new_aliases, base=old_aliases)
+        for alias in adds:
+            ops.ops.append({"op": "add_item", "id": subject_handle, "field": "aliases", "value": alias})
+        for item in drops:
+            ops.ops.append({"op": "remove_item", "item": ops.bind("item", item.item_id, item.valid_from_rev)})
 
     old_by_section: dict[str, list[tuple[MembershipVersion, NodeVersion]]] = {}
     for membership in store.children(subject.local_id, rev):
@@ -284,17 +274,22 @@ def edit_subject(
             format_line(child, aliases=node_aliases(store, child, rev)) for _, child in old_entries
         ]
         # Human-mode entries carry a markdown bullet (one entry per line in
-        # rendered markdown views); the diff runs on the bare grammar.
+        # rendered markdown views); the diff runs on the bare grammar, and on
+        # TRIMMED text: an edit that only adds or drops surrounding
+        # whitespace is not a human edit (owner 2026-10-01) -- it would write
+        # a revision that changes nothing, and endorse a value nobody touched.
         new_lines = [
             line
-            for line in (_strip_bullet(raw) for _, raw, _ in section.lines if raw.strip())
+            for line in (_strip_bullet(raw).strip() for _, raw, _ in section.lines if raw.strip())
             # Dropping empty slots here gives the three states of plan §6.3 for
             # free: a slot nobody filled disappears (no-op), a line the user
             # EMPTIED disappears from the new text so the diff retires its node
             # (explicit clear), and a line absent from the edit was never here.
             if not EMPTY_SLOT_RE.match(line) and not _is_alias_line(line, section.name, preset)
         ]
-        matcher = SequenceMatcher(a=old_rendered, b=new_lines, autojunk=False)
+        matcher = SequenceMatcher(
+            a=[line.strip() for line in old_rendered], b=new_lines, autojunk=False
+        )
         for tag, i1, i2, j1, j2 in matcher.get_opcodes():
             if tag == "equal":
                 survivors.extend(
@@ -321,7 +316,7 @@ def edit_subject(
                     # would come back on the next render (review 2026-08-29 P2-1). Removing a
                     # label is a legitimate edit, so clear it explicitly.
                     changes = {
-                        f"payload.{k}": v for k, v in payload.items() if child.payload.get(k) != v
+                        f"payload.{k}": v for k, v in payload.items() if _differs(child.payload.get(k), v)
                     }
                     if "label" not in payload and child.payload.get("label"):
                         changes["payload.label"] = ""
@@ -350,7 +345,7 @@ def edit_subject(
     # moved lines: identical text deleted here and inserted there is the same node
     remaining_insertions: list[tuple[str, int, str, Any]] = []
     for section_name, position, raw, spec in insertions:
-        match = next((d for d in deletions if d[2] == raw), None)
+        match = next((d for d in deletions if d[2].strip() == raw), None)
         if match is not None:
             deletions.remove(match)
             survivors.append((section_name, position, match[0]))
@@ -484,18 +479,15 @@ def harvest_rendered_edits_at_run_start(knowledge_root) -> list[dict[str, Any]]:
     every other knowledge write — worktree gate and the cross-process write
     lock. Never blocks or fails the run: guard misses degrade to a warning."""
 
-    import os
-
-    from finesub.paths import is_linked_worktree
     from finesub.reporting import current_reporter
 
-    from ..base import knowledge_root_path, knowledge_write_lock
+    from ..base import knowledge_root_path, knowledge_write_lock, worktree_blocks_knowledge_write
 
     repo = KnowledgeRepo.open(knowledge_root_path(knowledge_root))
     dirty = repo.rendered_dirty_files()
     if not dirty:
         return []
-    if is_linked_worktree() and os.environ.get("FINESUB_KNOWLEDGE_WRITE", "").strip().lower() not in {"1", "true", "yes", "on"}:
+    if worktree_blocks_knowledge_write(knowledge_root):
         current_reporter().warning(
             "knowledge-rendered-harvest-skipped",
             f"检测到 {len(dirty)} 个 rendered/ 用户编辑，但当前在 git worktree 中，"
@@ -558,6 +550,15 @@ def _strip_bullet(raw: str) -> str:
     bullets."""
 
     return _BULLET_RE.sub("", raw, count=1)
+
+
+def _differs(old: Any, new: Any) -> bool:
+    """A field change worth an op: text compares trimmed, so a column that
+    only gained or lost surrounding whitespace (``アリス |…``) is unchanged."""
+
+    if isinstance(old, str) and isinstance(new, str):
+        return old.strip() != new.strip()
+    return old != new
 
 
 def _derived_reading(text: str) -> str:
@@ -635,22 +636,18 @@ def _retire_or_unlink(
 
 def _sync_items(ops: _Ops, store, rev: int, child: NodeVersion, alias_column: list[str] | None, raw: str) -> None:  # type: ignore[no-untyped-def]
     """Items follow the rewritten line: the alias column diffs both ways
-    against the CURRENT alias items (the column renders from items now, plan
-    §11.2), misheard extraction is add-only (plan §2.1/§4.1)."""
+    against the alias items it rendered from (plan §11.2) -- tentative ones
+    are not rendered, so a rewrite never touches them (`alias_row_delta`);
+    misheard extraction is add-only (plan §2.1/§4.1)."""
 
     items = store.items_of(child.local_id, rev)
     if child.kind == "term" and alias_column is not None:
-        current = {_match_normalize(item.value): item for item in items if item.field == "aliases"}
-        added, removed = alias_delta([item.value for item in current.values()], alias_column)
+        adds, drops = alias_row_delta(items, alias_column)
         handle = ops.bind("node", child.local_id, child.valid_from_rev)
-        for alias in added:
-            if _match_normalize(alias) not in current:
-                ops.ops.append({"op": "add_item", "id": handle, "field": "aliases", "value": alias})
-        for alias in removed:
-            item = current.get(_match_normalize(alias))
-            if item is not None:
-                item_handle = ops.bind("item", item.item_id, item.valid_from_rev)
-                ops.ops.append({"op": "remove_item", "item": item_handle})
+        for alias in adds:
+            ops.ops.append({"op": "add_item", "id": handle, "field": "aliases", "value": alias})
+        for item in drops:
+            ops.ops.append({"op": "remove_item", "item": ops.bind("item", item.item_id, item.valid_from_rev)})
     known_misheard = {item.value for item in items if item.field == "misheard"}
     handle = ops.bind("node", child.local_id, child.valid_from_rev)
     for variant in extract_misheard(raw):

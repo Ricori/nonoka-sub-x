@@ -17,6 +17,7 @@ one thing bootstrap cannot know -- that a wrong answer must not be fatal.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Callable, NamedTuple, Optional, TypeVar
 
 from ...reporting import current_reporter
@@ -111,6 +112,26 @@ def prepare(manifest_id: str) -> HfLoad:
     except Exception as error:  # noqa: BLE001 - the loader reports for real
         _debug(manifest_id, error)
     return HfLoad(revision, local_only)
+
+
+def prepare_directory(manifest_id: str) -> "Path | None":
+    """`prepare`, for weights read from a directory rather than through `from_pretrained`.
+
+    Same fetch, same verification, same mirror routing; the answer is the snapshot directory
+    holding every file the manifest lists, or `None` when the fetch could not produce it (the
+    reason is in the debug log). A `VerificationMismatch` still raises, as in `prepare`.
+    """
+
+    prepare(manifest_id)
+    try:
+        from finesub.paths import resolve_managed_app_paths
+        from finesub_bootstrap.model_ensure import pinned_snapshot_dir
+
+        paths = resolve_managed_app_paths()
+        return pinned_snapshot_dir(manifest_id, models_root=paths.models if paths else None)
+    except Exception as error:  # noqa: BLE001 - the caller says what was missing
+        _debug(manifest_id, error)
+        return None
 
 
 T = TypeVar("T")

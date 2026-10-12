@@ -296,7 +296,7 @@ class FineSubSettingsTests(unittest.TestCase):
                 snapshot = settings.update_keys(
                     {
                         "LLM_DEFAULT_PROVIDER": "local-codex",
-                        "LLM_DEFAULT_MODEL": "gpt-5.6-sol",
+                        "LLM_DEFAULT_MODEL": "gpt-6-luna",
                     }
                 )
                 self.assertTrue(snapshot["llmReady"])
@@ -314,7 +314,7 @@ class FineSubSettingsTests(unittest.TestCase):
             snapshot = settings.update_keys(
                 {
                     "LLM_DEFAULT_PROVIDER": "local-codex",
-                    "LLM_DEFAULT_MODEL": "gpt-5.6-sol",
+                    "LLM_DEFAULT_MODEL": "gpt-6-luna",
                 }
             )
             codex = next(
@@ -322,19 +322,17 @@ class FineSubSettingsTests(unittest.TestCase):
             )
             self.assertFalse(codex["requiresKey"])
             self.assertEqual(codex["mode"], "select")
-            # The newest Sol leads; an existing saved route stays on 5.6 Sol.
+            # The engine's two packaged rows, the newest Sol first.
             self.assertEqual(
-                [model["id"] for model in codex["models"]],
-                ["gpt-6.1-sol", "gpt-6-sol", "gpt-6-astra", "gpt-6-luna",
-                 "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"],
+                [model["id"] for model in codex["models"]], ["gpt-6.1-sol", "gpt-6-luna"]
             )
             self.assertEqual(codex["defaultModel"], "gpt-6.1-sol")
             self.assertEqual(
                 snapshot["modelRouting"]["defaultRoute"],
-                {"provider": "local-codex", "model": "gpt-5.6-sol"},
+                {"provider": "local-codex", "model": "gpt-6-luna"},
             )
             config = (Path(temporary) / "finesub.toml").read_text(encoding="utf-8")
-            self.assertIn('default = "local-codex-completion-gpt-5_6-sol"', config)
+            self.assertIn('default = "local-codex-completion-gpt-6-luna"', config)
 
             from finesub.config import clear_config_cache
             from finesub.llm.routing.model_catalog import default_model_catalog
@@ -353,7 +351,7 @@ class FineSubSettingsTests(unittest.TestCase):
             # its capability check naming the CLI, instead of quietly
             # continuing on a Gemini tier that may have no key at all.
             self.assertEqual(
-                correction.target_ids, ("local-codex-completion-gpt-5_6-sol",)
+                correction.target_ids, ("local-codex-completion-gpt-6-luna",)
             )
 
     def test_new_local_models_save_and_resolve_global_and_task_routes(self) -> None:
@@ -361,11 +359,11 @@ class FineSubSettingsTests(unittest.TestCase):
 
         cases = (
             ("local-codex", "gpt-6.1-sol", "local-codex-completion-gpt-6_1-sol", False),
-            ("local-codex", "gpt-6-sol", "local-codex-completion-gpt-6-sol", False),
-            ("local-codex", "gpt-6-astra", "local-codex-completion-gpt-6-astra", False),
             ("local-codex", "gpt-6-luna", "local-codex-completion-gpt-6-luna", False),
-            ("local-codex", "gpt-5.6-luna", "local-codex-completion-gpt-5_6-luna", False),
             ("local-agy", "gemini-3.8-flash", "local-agy-media-gemini-3_8-flash", True),
+            ("local-agy", "gemini-3.6-flash", "local-agy-media-gemini-3_6-flash", True),
+            ("local-agy", "claude-sonnet-5-5", "local-agy-sonnet-5_5", False),
+            ("local-codebuddy", "hy3", "local-codebuddy-hy3", False),
         )
         for provider, model, target_id, media in cases:
             with self.subTest(provider=provider, model=model), tempfile.TemporaryDirectory() as temporary, patch.dict(
@@ -392,9 +390,6 @@ class FineSubSettingsTests(unittest.TestCase):
                 self.assertEqual(fact.supports_video, media)
                 self.assertFalse(routes.execution_profiles[target.execution_profile].native_search_tool)
                 if model.startswith("gpt-6"):
-                    self.assertEqual(fact.max_input_tokens, 1_050_000)
-                    self.assertEqual(fact.max_output_tokens, 128_000)
-                    self.assertEqual(fact.thinking_levels, ("high", "medium", "low"))
                     native_id = target_id.replace("-completion-", "-native-")
                     native = routes.targets[native_id]
                     self.assertEqual(native.fact_id, target.fact_id)
@@ -412,7 +407,7 @@ class FineSubSettingsTests(unittest.TestCase):
         ):
             settings = FineSubSettings(temporary)
             settings.bind_environment()
-            for model in ("gpt-5.6-sol", "gpt-6.1-sol", "gpt-6-astra"):
+            for model in ("gpt-6-luna", "gpt-6.1-sol", "gpt-6-luna"):
                 settings.update_keys({"LLM_DEFAULT_PROVIDER": "local-codex", "LLM_DEFAULT_MODEL": model})
                 routes = default_model_routes()
                 binding, _ = routes.resolve_binding(routes.active_preset_id, "research", "quality")
@@ -439,7 +434,7 @@ class FineSubSettingsTests(unittest.TestCase):
                 snapshot = settings.update_keys({"LLM_DEFAULT_PROVIDER": provider, "LLM_DEFAULT_MODEL": model})
                 selected = next(p for p in snapshot["modelRouting"]["providers"] if p["id"] == provider)
                 option = next(item for item in selected["models"] if item["id"] == model)
-                supported = model != "claude-opus-4-6-thinking"
+                supported = model not in {"claude-sonnet-5-5", "claude-opus-5-5"}
                 self.assertEqual(option["supportsNativeSearch"], supported)
                 before = settings.config_file.read_bytes()
                 install_llm_model_override({"correction": {"retrieval": "native"}})
@@ -475,14 +470,15 @@ class FineSubSettingsTests(unittest.TestCase):
             request = {"correction": {"retrieval": "native", "difficulty": "efficiency"}}
             for overrides, research_target in (
                 ({}, "local-codex-native-gpt-6_1-sol"),
-                ({"research": "local-workbuddy-glm-5_3-flash"}, "local-workbuddy-native-glm-5_3-flash"),
+                ({"research": "local-codebuddy-glm-5_3-flash"}, "local-codebuddy-native-glm-5_3-flash"),
             ):
                 install_llm_model_override({**request, "llm_model": overrides})
                 routes = default_model_routes()
                 for group_id, expected in (
                     ("correction-text", "local-agy-native-gemini-3_7-flash"),
                     ("research", research_target),
-                    ("planning-text", "local-codex-completion-gpt-6_1-sol"),
+                    # Knowledge work never searches: its pin stays the plain target.
+                    ("knowledge", "local-codex-completion-gpt-6_1-sol"),
                 ):
                     group, _ = routes.resolve_binding(routes.active_preset_id, group_id, "efficiency")
                     self.assertEqual(group.target_ids, (expected,))
@@ -506,7 +502,13 @@ class FineSubSettingsTests(unittest.TestCase):
             self.assertEqual(agy["mode"], "select")
             self.assertEqual(
                 [model["id"] for model in agy["models"]],
-                ["gemini-3.7-flash", "gemini-3.8-flash", "claude-opus-4-6-thinking"],
+                [
+                    "gemini-3.7-flash",
+                    "gemini-3.8-flash",
+                    "gemini-3.6-flash",
+                    "claude-sonnet-5-5",
+                    "claude-opus-5-5",
+                ],
             )
             self.assertEqual(agy["defaultModel"], "gemini-3.7-flash")
             # The multimodal model is why agy leads with it; the snapshot has
@@ -534,7 +536,7 @@ class FineSubSettingsTests(unittest.TestCase):
                 correction.target_ids, ("local-agy-media-gemini-3_7-flash",)
             )
 
-    def test_local_agy_opus_route_binds_its_own_target(self) -> None:
+    def test_local_agy_claude_route_binds_its_own_target(self) -> None:
         with tempfile.TemporaryDirectory() as temporary, patch.dict(
             os.environ, {"FINESUB_ENV_PROTECT": "0"}, clear=False
         ):
@@ -543,14 +545,14 @@ class FineSubSettingsTests(unittest.TestCase):
             settings.update_keys(
                 {
                     "LLM_ROUTE_CORRECTION_PROVIDER": "local-agy",
-                    "LLM_ROUTE_CORRECTION_MODEL": "claude-opus-4-6-thinking",
+                    "LLM_ROUTE_CORRECTION_MODEL": "claude-opus-5-5",
                 }
             )
             config = (Path(temporary) / "finesub.toml").read_text(encoding="utf-8")
-            self.assertIn('correction-mm = "local-agy-opus-4_6"', config)
-            self.assertIn('correction-text = "local-agy-opus-4_6"', config)
+            self.assertIn('correction-mm = "local-agy-opus-5_5"', config)
+            self.assertIn('correction-text = "local-agy-opus-5_5"', config)
 
-    def test_local_workbuddy_route_binds_the_packaged_agent_target(self) -> None:
+    def test_local_codebuddy_route_binds_the_packaged_agent_target(self) -> None:
         with tempfile.TemporaryDirectory() as temporary, patch.dict(
             os.environ, {"FINESUB_ENV_PROTECT": "0"}, clear=False
         ):
@@ -558,37 +560,31 @@ class FineSubSettingsTests(unittest.TestCase):
             settings.bind_environment()
             snapshot = settings.update_keys(
                 {
-                    "LLM_DEFAULT_PROVIDER": "local-workbuddy",
+                    "LLM_DEFAULT_PROVIDER": "local-codebuddy",
                     "LLM_DEFAULT_MODEL": "glm-5.3-flash",
                 }
             )
-            workbuddy = next(
+            codebuddy = next(
                 item
                 for item in snapshot["modelRouting"]["providers"]
-                if item["id"] == "local-workbuddy"
+                if item["id"] == "local-codebuddy"
             )
-            self.assertFalse(workbuddy["requiresKey"])
-            self.assertEqual(workbuddy["mode"], "select")
+            self.assertFalse(codebuddy["requiresKey"])
+            self.assertEqual(codebuddy["mode"], "select")
             self.assertEqual(
-                [model["id"] for model in workbuddy["models"]],
-                [
-                    "glm-5.3-flash",
-                    "hy3",
-                    "hy4-preview",
-                    "deepseek-v4-flash",
-                    "deepseek-v4-pro",
-                ],
+                [model["id"] for model in codebuddy["models"]],
+                ["glm-5.3-flash", "hy3", "deepseek-v4.1-flash", "deepseek-v4-pro"],
             )
-            self.assertEqual(workbuddy["defaultModel"], "glm-5.3-flash")
-            # None of the five takes a clip: the multimodal correction entry
+            self.assertEqual(codebuddy["defaultModel"], "glm-5.3-flash")
+            # None of the four takes a clip: the multimodal correction entry
             # has to stay disabled on this provider rather than fail mid-run.
-            self.assertFalse(any(model["supportsAudio"] for model in workbuddy["models"]))
-            self.assertFalse(any(model["supportsVideo"] for model in workbuddy["models"]))
+            self.assertFalse(any(model["supportsAudio"] for model in codebuddy["models"]))
+            self.assertFalse(any(model["supportsVideo"] for model in codebuddy["models"]))
             config = (Path(temporary) / "finesub.toml").read_text(encoding="utf-8")
             # The plain target, not the search-entitled twin: a pinned target is
             # prepended to the bound group, so `retrieval=native` has to stay
             # free to fall through to one that declares a search tool.
-            self.assertIn('default = "local-workbuddy-glm-5_3-flash"', config)
+            self.assertIn('default = "local-codebuddy-glm-5_3-flash"', config)
 
             from finesub.config import clear_config_cache
             from finesub.llm.routing.model_catalog import default_model_catalog
@@ -601,16 +597,16 @@ class FineSubSettingsTests(unittest.TestCase):
             correction, _ = routes.resolve_binding(
                 routes.active_preset_id, "correction-text", "quality"
             )
-            self.assertEqual(correction.target_ids, ("local-workbuddy-glm-5_3-flash",))
+            self.assertEqual(correction.target_ids, ("local-codebuddy-glm-5_3-flash",))
 
-    def test_workbuddy_says_which_of_its_models_bill_automatically(self) -> None:
+    def test_codebuddy_says_which_of_its_models_bill_automatically(self) -> None:
         """The one provider whose default behaviour spends money unprompted.
 
-        `hy3` and `hy4-preview` carry a `fallback_model` pointing at their paid
-        twin, so a spent daily allowance switches lines and carries on instead
-        of stopping. That is the engine's decision and a good one -- a task
-        half-done is worse -- but it has to be legible *before* someone picks
-        the provider, which is what the snapshot's `note` is for.
+        `hy3` carries a `fallback_model` pointing at its paid twin, so a spent
+        daily allowance switches lines and carries on instead of stopping.
+        That is the engine's decision and a good one -- a task half-done is
+        worse -- but it has to be legible *before* someone picks the provider,
+        which is what the snapshot's `note` is for.
         """
 
         with tempfile.TemporaryDirectory() as temporary, patch.dict(
@@ -622,62 +618,88 @@ class FineSubSettingsTests(unittest.TestCase):
                 item["id"]: item
                 for item in settings.snapshot()["modelRouting"]["providers"]
             }
-            self.assertIn("Hunyuan", providers["local-workbuddy"]["note"])
+            self.assertIn("Hunyuan", providers["local-codebuddy"]["note"])
             # Every provider carries the field; only this one has anything to
             # say, so a frontend can render it unconditionally.
             self.assertEqual(providers["local-agy"]["note"], "")
             self.assertEqual(providers["openai"]["note"], "")
 
-    def test_unknown_local_workbuddy_model_is_rejected(self) -> None:
+    def test_unknown_local_codebuddy_model_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as temporary, patch.dict(
             os.environ, {"FINESUB_ENV_PROTECT": "0"}, clear=False
         ):
             settings = FineSubSettings(temporary)
             settings.bind_environment()
-            with self.assertRaisesRegex(ValueError, "not available in local-workbuddy"):
+            with self.assertRaisesRegex(ValueError, "not available in local-codebuddy"):
                 settings.update_keys(
                     {
-                        "LLM_DEFAULT_PROVIDER": "local-workbuddy",
+                        "LLM_DEFAULT_PROVIDER": "local-codebuddy",
                         "LLM_DEFAULT_MODEL": "hy5",
                     }
                 )
 
-    def test_workbuddy_is_detected_inside_its_desktop_app(self) -> None:
-        """The same file the engine's own resolver falls back to.
+    def test_routes_saved_by_an_older_engine_are_migrated_at_startup(self) -> None:
+        """FineSub 0.6.0 renamed WorkBuddy, dropped models and two task groups.
 
-        WorkBuddy ships the CLI inside the Electron app instead of as an npm
-        package, and its PATH shim is a bash script `shutil.which` cannot find
-        on Windows -- so the install root is the whole question here.
+        A config written by the previous build has to come back meaning the
+        nearest current thing, with nothing left that names a group or a
+        target the routing table would refuse to load.
         """
 
-        with tempfile.TemporaryDirectory() as temporary:
-            cli = (
-                Path(temporary)
-                / "Programs"
-                / "WorkBuddy"
-                / "resources"
-                / "app.asar.unpacked"
-                / "cli"
-                / "bin"
+        with tempfile.TemporaryDirectory() as temporary, patch.dict(
+            os.environ, {"FINESUB_ENV_PROTECT": "0"}, clear=False
+        ):
+            config_path = Path(temporary) / "finesub.toml"
+            config_path.write_text(
+                "[nonoka_models]\n"
+                'default_provider = "local-workbuddy"\n'
+                'default_model = "hy4-preview"\n'
+                'correction_provider = "local-codex"\n'
+                'correction_model = "gpt-5.6-terra"\n'
+                'planning_provider = "local-agy"\n'
+                'planning_model = "claude-opus-4-6-thinking"\n'
+                'search_judge_provider = "local-codex"\n'
+                'search_judge_model = "gpt-6-astra"\n'
+                "\n[llm.preferred_targets]\n"
+                'planning-mm = "local-agy-opus-4_6"\n'
+                'planning-text = "local-agy-opus-4_6"\n'
+                'search_judge = "local-codex-completion-gpt-6-astra"\n',
+                encoding="utf-8",
             )
-            cli.mkdir(parents=True)
-            (cli / "codebuddy").write_bytes(b"")
-            with patch.dict(os.environ, {"LOCALAPPDATA": temporary}, clear=False), patch(
-                "nonoka_x.settings.shutil.which", return_value=None
-            ), patch("nonoka_x.settings.os.name", "nt"):
-                from nonoka_x.settings import (
-                    local_agent_executable,
-                    local_agent_path_entries,
-                )
+            settings = FineSubSettings(temporary)
+            settings.bind_environment()
+            # Read before startup has written anything: already the new meaning.
+            routing = settings.snapshot()["modelRouting"]
+            self.assertEqual(routing["defaultRoute"], {"provider": "local-codebuddy", "model": "hy3"})
+            routes = {item["id"]: item["route"] for item in routing["taskRoutes"]}
+            self.assertEqual(set(routes), {"correction", "research", "knowledge"})
+            self.assertEqual(routes["correction"], {"provider": "local-codex", "model": "gpt-6-luna"})
+            # Planning's work moved into the preparation task, routed as research.
+            self.assertEqual(routes["research"], {"provider": "local-agy", "model": "claude-sonnet-5-5"})
 
-                self.assertEqual(
-                    local_agent_executable("local-workbuddy"), cli / "codebuddy"
-                )
-                # ...and deliberately not put on PATH: that file is a Node entry
-                # script, not an executable, and the engine reaches it through
-                # %LOCALAPPDATA% itself. Advertising it would put a `codebuddy`
-                # on PATH that nothing can launch.
-                self.assertEqual(local_agent_path_entries(), [])
+            settings.refresh_model_catalog()
+            config = config_path.read_text(encoding="utf-8")
+            for stale in ("planning", "search_judge", "workbuddy", "hy4", "gpt-5", "opus-4"):
+                self.assertNotIn(stale, config)
+            self.assertIn('default = "local-codebuddy-hy3"', config)
+            self.assertIn('research = "local-agy-sonnet-5_5"', config)
+
+            from finesub.llm.routing.model_routes import default_model_routes
+
+            routes_table = default_model_routes()
+            binding, _ = routes_table.resolve_binding(
+                routes_table.active_preset_id, "correction-text", "quality"
+            )
+            self.assertEqual(binding.target_ids, ("local-codex-completion-gpt-6-luna",))
+
+    def test_retired_route_names_are_not_settings(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary, patch.dict(
+            os.environ, {"FINESUB_ENV_PROTECT": "0"}, clear=False
+        ):
+            settings = FineSubSettings(temporary)
+            settings.bind_environment()
+            with self.assertRaisesRegex(ValueError, "Unknown FineSub key setting"):
+                settings.update_keys({"LLM_ROUTE_PLANNING_PROVIDER": "local-codex"})
 
     def test_unknown_local_agy_model_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as temporary, patch.dict(
@@ -744,21 +766,20 @@ class FineSubSettingsTests(unittest.TestCase):
 
             self.assertEqual(local_agent_path_entries(), [])
 
-    def test_terra_route_binds_its_own_target(self) -> None:
+    def test_codex_models_the_engine_dropped_are_refused_when_saved(self) -> None:
         with tempfile.TemporaryDirectory() as temporary, patch.dict(
             os.environ, {"FINESUB_ENV_PROTECT": "0"}, clear=False
         ):
             settings = FineSubSettings(temporary)
             settings.bind_environment()
-            settings.update_keys(
-                {
-                    "LLM_ROUTE_CORRECTION_PROVIDER": "local-codex",
-                    "LLM_ROUTE_CORRECTION_MODEL": "gpt-5.6-terra",
-                }
-            )
-            config = (Path(temporary) / "finesub.toml").read_text(encoding="utf-8")
-            self.assertIn('correction-mm = "local-codex-completion-gpt-5_6-terra"', config)
-            self.assertIn('correction-text = "local-codex-completion-gpt-5_6-terra"', config)
+            for model in ("gpt-5.6-terra", "gpt-6-sol", "gpt-6-astra"):
+                with self.assertRaisesRegex(ValueError, "not available in local-codex"):
+                    settings.update_keys(
+                        {
+                            "LLM_ROUTE_CORRECTION_PROVIDER": "local-codex",
+                            "LLM_ROUTE_CORRECTION_MODEL": model,
+                        }
+                    )
 
     def test_unknown_local_codex_model_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as temporary, patch.dict(

@@ -11,7 +11,7 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 import re
 import statistics
-from typing import List, Optional, Sequence
+from typing import Callable, List, Optional, Sequence
 
 from .chunking import SubtitleSegment, SubtitleWindow, WindowIdMap
 from .exchange_metadata import extract_top_level_tagged_blocks
@@ -35,44 +35,27 @@ KIND_PLAN = "plan"
 KIND_DISCARD = "discard"
 CONFIDENCE_LEVELS = frozenset({"high", "median", "low"})
 
-# A reply may discard sources, but a window that discards most of itself is a
-# failure wearing a valid shape. The 2026-08-22 canary: an agent that never saw
-# the window text answered with one `sub` row plus `discard` for everything
+# A reply may discard sources, but a window that keeps almost none of itself is
+# a failure wearing a valid shape. The 2026-08-22 canary: an agent that never
+# saw the window text answered with one `sub` row plus `discard` for everything
 # else; every structural check passed and the finished subtitle kept one line.
 #
-# This is the same rule the all-discard case has always had ("Translated CSV
-# contains no valid rows" -- see the short-circuit comment below), just moved
-# off the 100% boundary, so it adds no new class of rejection.
+# The rule (owner 2026-09-30): reject when the sources *kept* (not discarded)
+# number at most `min(KEPT_FLOOR, total * 0.5 - KEPT_FLOOR)`. On a window of
+# 40+ sources that is "10 or fewer kept"; it shrinks toward zero below that,
+# and at 20 or fewer it never fires on a reply that kept anything -- what is
+# left there is the all-discard check ("Translated CSV contains no valid rows").
+# It replaced a plain 50% discard ratio, which had no small-sample guard (a
+# one-minute clip that is mostly song correctly discards most of six lines)
+# and could not be applied to a split leaf at all (the worst correct half in
+# the archive discards 43.8%, `bench-baselines.md` 二十五). An absolute floor
+# has neither problem, so it applies to every window, leaves included.
 #
-# The threshold is calibrated against replies that were *correct*, because the
-# only cost of getting it wrong is rejecting one of those. `tools/
-# discard_ratio_scan.py` over the local archive (63 whole windows / 49 runs,
-# 2026-09-03) reads p50 0.007, p95 0.096, **max 0.219** -- and that max is the
-# singing/English-PV material where discarding most of a song is correct. 0.5
-# sits 2.3x above anything real, so it is a wrongness detector, not a quality
-# knob. `bench-baselines.md` 二十五 has the full record.
-#
-# **Whole windows only.** The same scan replays each window through the
-# production `split_window_in_half` (cut on the reasonable boundary nearest the
-# middle, second half re-including the overlap tail -- so halves are neither
-# equal nor disjoint), and reads the worst half at **43.8%** (H6dTZf9QFTY
-# 0007-a: 128 sources, 56 discarded -- a stretch of song inside a window that
-# averages far less). Gating a leaf like that would fail validation, exhaust
-# the retries and stop the task on an answer that was right.
-#
-# 0.5 buys nothing there anyway: it is 2.3x the worst whole window but only
-# **1.14x** the worst half, which is a coin flip rather than a detector. And
-# applying the same 2.3x calibration to the half maximum lands above 100%, i.e.
-# back on the all-discard check that already runs. So on a leaf the discard
-# ratio simply has no discriminating power, and the protection there is that
-# pre-existing check.
-#
-# ⚠ That leaves a **declared gap, not a proven absence**: a leaf is its own API
-# call, so a reply that never saw the body can in principle arrive there too,
-# and this gate would not catch it. Closing it needs a *different* signal (did
-# the model receive the window text at all), not a different number -- filed in
+# ⚠ Still a **declared gap**: a reply that never saw the body but keeps more
+# than the floor passes. Closing it needs a *different* signal (did the model
+# receive the window text at all), not a different number -- filed in
 # `llm_followups.md`.
-MAX_DISCARD_RATIO = 0.5
+KEPT_FLOOR = 10
 
 # End-of-line marker (v12) letting the model retract a row it already wrote
 # (e.g. it computed the duration cell and realized the merge span ran away).
@@ -106,24 +89,20 @@ def _uncovered_sources_error(
     )
 
 
-def _majority_discard_error(
-    discarded_ids: set[str], expected_ids: Sequence[str], *, enabled: bool
-) -> str | None:
+def _too_few_kept_error(discarded_ids: set[str], expected_ids: Sequence[str]) -> str | None:
     """Coverage says every source was *accounted for*; this says the window
-    still produced subtitles. See MAX_DISCARD_RATIO for why 0.5, and why
-    `enabled` is false on a split leaf."""
+    still produced subtitles. See KEPT_FLOOR for the rule."""
 
-    if not enabled or not expected_ids:
+    total = len(expected_ids)
+    kept = total - len(discarded_ids)
+    floor = min(KEPT_FLOOR, total * 0.5 - KEPT_FLOOR)
+    if kept > floor:
         return None
-    if len(discarded_ids) <= MAX_DISCARD_RATIO * len(expected_ids):
-        return None
-    percent = round(100 * len(discarded_ids) / len(expected_ids))
     return (
-        f"Translated discards {len(discarded_ids)} of {len(expected_ids)} "
-        f"sources ({percent}%), over the "
-        f"{round(100 * MAX_DISCARD_RATIO)}% limit. Discard is for "
-        "individual sources that carry no speech; a window where most "
-        "sources are dropped means the window text was not read."
+        f"Translated keeps {kept} of {total} sources and discards the rest, "
+        f"at or under the floor of {floor:g} kept. Discard is for individual "
+        "sources that carry no speech; a window where almost every source is "
+        "dropped means the window text was not read."
     )
 
 
@@ -232,6 +211,9 @@ class _RowFields:
     has_char_count: bool = False
     start: str = ""
     has_start: bool = False
+    #: Product artifact only (`<stem>-annotated.csv`); never present in a model
+    #: row, and empty when the run had no diarization.
+    spk: str = ""
 
 
 def _is_numeric_cell(cell: str) -> bool:
@@ -284,7 +266,7 @@ def _normalized_char_count(
 #: When a whole window's char counts disagree the same way, the text being
 #: measured is probably not the text the model wrote. Both figures were
 #: registered before the check existed, off a 116-exchange baseline
-#: (docs/plans/nonoka-downstream-findings-plan.md, 离线基线测量):
+#: (docs/llm_harness_behavior.md, 「Prompt 信息」, `char_count`):
 #: the worst baseline window disagreed on **2.4%** of its rows, and **38 of 38**
 #: baseline ratios were below 1 -- models over-report their own length, they do
 #: not under-report it. The one measured transport fault disagreed on **100%**
@@ -305,8 +287,6 @@ def _window_errors(
     expected_ids: Sequence[str],
     covered: set[str],
     discarded_ids: set[str],
-    *,
-    check_discard_ratio: bool,
 ) -> List[str]:
     """The errors that are about the window as a whole rather than any row.
 
@@ -325,9 +305,7 @@ def _window_errors(
         for message in (
             empty,
             _uncovered_sources_error(expected_ids, covered),
-            _majority_discard_error(
-                discarded_ids, expected_ids, enabled=check_discard_ratio
-            ),
+            _too_few_kept_error(discarded_ids, expected_ids),
         )
         if message
     ]
@@ -405,6 +383,63 @@ _ROW_COLUMNS_WITH_START = (
     "char_count",
     "note",
 )
+
+#: The *product* artifact's columns -- `<stem>-annotated.csv`, not what the model
+#: emits. It carries one more cell, `spk`, holding whichever speaker tracks the
+#: line's source segments fell in (empty when the run had no diarization).
+#:
+#: `spk` sits **before** `note` for the same reason `note` is last everywhere
+#: else: `note` is the one cell allowed to contain a raw `|`, so anything after
+#: it would be swallowed by the split. The model never emits this column --
+#: speakers are decided long after the correction round, by a different layer.
+_ANNOTATED_ROW_COLUMNS = (
+    "kind",
+    "position",
+    "duration",
+    "gap",
+    "corrected",
+    "translation",
+    "conf",
+    "char_count",
+    "spk",
+    "note",
+)
+
+#: Written at the top of every `<stem>-annotated.csv`, and the single definition
+#: of that file's layout. Readers split by position, so this and
+#: `_ANNOTATED_ROW_COLUMNS` have to move together.
+ANNOTATED_CSV_HEADER = "# " + "|".join(
+    "type" if name == "kind" else name for name in _ANNOTATED_ROW_COLUMNS
+)
+
+
+def split_annotated_row(row: str) -> Optional[_RowFields]:
+    """Map one `<stem>-annotated.csv` row onto its columns, strictly by position.
+
+    Separate from `_split_row_fields` because the product file carries `spk` and
+    the model's output does not. Sharing one splitter would mean either asking
+    the model for a column it cannot know, or letting a row shift a cell to the
+    left in silence -- the failure the positional split exists to prevent.
+    """
+
+    parts = row.split("|", len(_ANNOTATED_ROW_COLUMNS) - 1)
+    if len(parts) < len(_ANNOTATED_ROW_COLUMNS):
+        return None
+    cells = dict(zip(_ANNOTATED_ROW_COLUMNS, parts))
+    return _RowFields(
+        kind=cells["kind"],
+        position=cells["position"],
+        duration=cells["duration"],
+        corrected=cells["corrected"],
+        translation=cells["translation"],
+        conf=cells["conf"],
+        note=cells["note"],
+        gap=cells["gap"],
+        has_gap=True,
+        char_count=cells["char_count"],
+        has_char_count=True,
+        spk=cells["spk"],
+    )
 
 
 def _split_row_fields(row: str, *, has_start_column: bool = False) -> Optional[_RowFields]:
@@ -535,7 +570,6 @@ def validate_translated_csv_text(
     require_headers: bool = False,
     require_start_column: bool = False,
     forbid_start_column: bool = False,
-    check_discard_ratio: bool = True,
 ) -> CsvValidationResult:
     """Validate and parse the `<translated>` block into typed segments.
 
@@ -896,7 +930,6 @@ def validate_translated_csv_text(
             expected_ids,
             seen_source_ids | discarded_ids,
             discarded_ids,
-            check_discard_ratio=check_discard_ratio,
         )
     )
     warnings += _systematic_char_count_warning(ledger, len(translated_segments))
@@ -1065,13 +1098,22 @@ def _validate_singles_block(
     return errors
 
 
+#: How a reply opens when the model shipped its reasoning as the answer: agy's
+#: `result.response` starts with this literal (docs/llm_local_agent_agy.md §7,
+#: about 4 in 26 calls on 2026-09-02).
+LEAKED_THOUGHT_PREFIX = "thought\n"
+LEAKED_THOUGHT_ERROR = (
+    "The previous reply was your reasoning, not the answer. Return only the "
+    "answer, in the required blocks."
+)
+
+
 def validate_correction_output_text(
     text: str,
     source_segments: Sequence[SubtitleSegment],
     *,
     variant: CorrectionVariant,
     clip_start: float = 0.0,
-    check_discard_ratio: bool = True,
 ) -> CsvValidationResult:
     """Validate one correction reply against the exact served prompt variant.
 
@@ -1081,7 +1123,7 @@ def validate_correction_output_text(
     against a different variant than the answering endpoint received.
     """
 
-    return validate_translated_csv_text(
+    result = validate_translated_csv_text(
         text,
         source_segments,
         clip_start=clip_start,
@@ -1089,8 +1131,14 @@ def validate_correction_output_text(
         require_headers=True,
         require_start_column=variant.output_has_start,
         forbid_start_column=not variant.output_has_start,
-        check_discard_ratio=check_discard_ratio,
     )
+    # A leaked reasoning reply fails on structure anyway; saying *why* first
+    # points the repair round at the cause instead of at missing blocks. A
+    # reply that passes keeps passing: reasoning outside the blocks is not
+    # part of the product (owner 2026-10-01).
+    if not result.ok and text.lstrip().startswith(LEAKED_THOUGHT_PREFIX):
+        return replace(result, errors=[LEAKED_THOUGHT_ERROR, *result.errors])
+    return result
 
 
 def remap_validation_source_ids(
@@ -1132,8 +1180,6 @@ def validate_correction_window_output(
         id_map.localize_segments(window.segments),
         variant=variant,
         clip_start=window.clip_start,
-        # Only whole windows: see MAX_DISCARD_RATIO.
-        check_discard_ratio=window.split_depth == 0,
     )
     return remap_validation_source_ids(result, id_map)
 
@@ -1241,6 +1287,51 @@ def render_translated_segments_as_csv(
             )
         )
     return "\n".join(lines) + ("\n" if lines else "")
+
+
+def render_annotated_csv(
+    segments: Sequence[TranslatedCsvSegment],
+    speaker_cell_for: Callable[[Sequence[str]], str] | None = None,
+) -> str:
+    """The product artifact: the model's row plus a `spk` cell, with a header.
+
+    `speaker_cell_for` turns the source ids a rendered line covers into its
+    cell. Joining several sources' speakers is the caller's job, done once on
+    the speakers themselves -- a finished cell is a rendering, and unioning
+    renderings as strings lists one track twice (`s1?` and `s1`). Pass nothing
+    (a run without diarization) and every `spk` cell is empty -- the column
+    still exists, so one layout parses every file.
+    """
+
+    lines = [ANNOTATED_CSV_HEADER]
+    rendered = render_translated_segments_as_csv(segments).splitlines()
+    for segment, row in zip(segments, rendered):
+        cell = speaker_cell_for(segment.source_ids) if speaker_cell_for else ""
+        # `note` is the last cell and may hold a raw `|`, so insert before it
+        # by splitting from the right exactly once.
+        head, separator, note = row.rpartition("|")
+        lines.append(f"{head}{separator}{cell}|{note}" if separator else row)
+    return "\n".join(lines) + "\n"
+
+
+def respeak_annotated_csv(text: str, speaker_cell_for: Callable[[Sequence[str]], str]) -> str:
+    """The same `-annotated.csv` with every `spk` cell rendered again from its row's `position`.
+
+    For a finished task whose speakers changed after the correction (the speaker judge ran
+    later): the rows are the correction's, only the column the correction never wrote moves.
+    A row that does not split into the layout is left as it is."""
+
+    out = []
+    for line in text.splitlines():
+        fields = None if line.startswith("#") or not line.strip() else split_annotated_row(line)
+        if fields is None:
+            out.append(line)
+            continue
+        parts = line.split("|", len(_ANNOTATED_ROW_COLUMNS) - 1)
+        ids = [part for part in fields.position.split(",") if part]
+        parts[_ANNOTATED_ROW_COLUMNS.index("spk")] = speaker_cell_for(ids) if ids else ""
+        out.append("|".join(parts))
+    return "\n".join(out) + ("\n" if text.endswith("\n") else "")
 
 
 def merge_translated_csv_windows(

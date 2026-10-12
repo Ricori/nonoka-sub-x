@@ -91,10 +91,9 @@ class SubtitleWindow:
         suffixes `-a` / `-b`, so the id IS the lineage and cannot drift out of
         sync with a counter (`0007-a-b` is the second half of the first half).
 
-        Lives on the window because two unrelated layers need it -- the retry
-        loop's split budget and the output validator's discard-ratio gate --
-        and a second copy of the rule in either of them would be exactly the
-        silent drift this repo keeps getting bitten by.
+        Lives on the window so the rule has one home: a second copy beside the
+        retry loop's split budget would be exactly the silent drift this repo
+        keeps getting bitten by.
         """
 
         return self.chunk_id.count("-")

@@ -77,7 +77,10 @@ from ..preprocessing.audio import (
 from ..postprocessing import stabilization as asr_stabilize
 from ..preprocessing import energy as vad_energy
 from ..runtime import hf_weights, phase_timing
-from ..recognition.segments import coerce_optional_float
+from ..recognition.segments import (
+    coerce_optional_float,
+    uncovered_speech_pieces,
+)
 from .qwen_decode import FixedShapeDecoder
 
 DEFAULT_QWEN_MODEL = "Qwen/Qwen3-ASR-0.6B-hf"
@@ -236,30 +239,20 @@ def collect_gaps(
     *,
     min_sec: float = GAP_MIN_SEC,
 ) -> List[Tuple[float, float]]:
-    """Uncovered VAD spans of at least ``min_sec`` seconds."""
+    """Uncovered VAD spans of at least ``min_sec`` seconds.
 
-    covered = sorted(
-        span for span in (_segment_span(s) for s in segments) if span
-    )
-    gaps: List[Tuple[float, float]] = []
-    for interval in vad_intervals:
-        span = _segment_span(interval)
-        if span is None:
-            continue
-        pieces = [span]
-        for c_start, c_end in covered:
-            next_pieces: List[Tuple[float, float]] = []
-            for p_start, p_end in pieces:
-                if c_end <= p_start or c_start >= p_end:
-                    next_pieces.append((p_start, p_end))
-                    continue
-                if c_start > p_start:
-                    next_pieces.append((p_start, c_start))
-                if c_end < p_end:
-                    next_pieces.append((c_end, p_end))
-            pieces = next_pieces
-        gaps.extend(p for p in pieces if p[1] - p[0] >= min_sec)
-    return gaps
+    The cutting itself lives in `recognition.segments.uncovered_speech_pieces`,
+    shared with the stable artifact's gap summary. ⚠ The two differ only in
+    what they keep: this one asks "is this piece worth a second listen", that
+    one asks "did the viewer lose this" -- so fragmented loss (several short
+    pieces) is invisible here by design and visible there.
+    """
+
+    return [
+        piece
+        for piece in uncovered_speech_pieces(vad_intervals, segments)
+        if piece[1] - piece[0] >= min_sec
+    ]
 
 
 def _ensure_referee_weights(model_name: str) -> hf_weights.HfLoad:
@@ -330,13 +323,15 @@ def _accel_cache_dir(model_name: str) -> Path | None:
         import torch
         import transformers
 
-        if not torch.cuda.is_available():
+        from ..runtime import device as device_module
+
+        if not device_module.cuda_usable():
             return None
         parts = (
             ACCEL_BUILD_FORMAT,
             torch.__version__,
-            str(torch.version.cuda),
-            torch.cuda.get_device_name(0),
+            str(device_module.gpu_runtime_version()),
+            device_module.gpu_name(0),
             transformers.__version__,
             model_name,
         )
@@ -502,6 +497,20 @@ class QwenReferee:
     def requested_device(self) -> str:
         return self._device
 
+    @property
+    def effective_device(self) -> str:
+        """Where the model actually sits, which is not always what was asked for.
+
+        `_ensure_model` falls back to the CPU when `model.to()` fails, and it
+        deliberately does not rewrite `_device`: the request is what warm-reuse
+        compares against. So the request is the wrong thing to record -- a run
+        that fell back would claim it verified on the card, which is exactly the
+        "quietly verified on the CPU" case the metadata field exists to expose.
+        Before the model is built there is nothing but the request.
+        """
+
+        return str(getattr(self._model, "device", self._device))
+
     def _ensure_model(self):
         with self._lock:
             if self._model is None:
@@ -521,7 +530,12 @@ class QwenReferee:
         import torch
         from transformers import AutoModelForMultimodalLM, AutoProcessor
 
+        from ..runtime.device import bf16_supported
+
         wants_cuda = self._device.startswith("cuda")
+        # bf16 wherever the card computes it natively (every supported NVIDIA
+        # card); an AMD card before RDNA3 would only emulate it, slowly.
+        gpu_dtype = torch.bfloat16 if bf16_supported() else torch.float32
 
         def fetch(load: hf_weights.HfLoad):
             # Both calls under one plan: the processor is the one that lists
@@ -539,11 +553,14 @@ class QwenReferee:
                 self._model_name,
                 revision=load.revision,
                 local_files_only=load.local_files_only,
-                dtype=torch.bfloat16 if wants_cuda else torch.float32,
+                dtype=gpu_dtype if wants_cuda else torch.float32,
             )
 
         model = hf_weights.offline_first(fetch, plan, what="qwen referee")
         if wants_cuda:
+            from ..runtime.support_levels import note_accelerated_stage
+
+            note_accelerated_stage("the Qwen referee", self._device)
             try:
                 model = model.to(self._device)
             except Exception as exc:
@@ -752,6 +769,12 @@ class QwenReferee:
         if not str(getattr(self._model, "device", self._device)).startswith("cuda"):
             return False
         if self._accel == "auto":
+            from ..runtime.device import is_rocm
+
+            if is_rocm():
+                # The compiled step is CUDA graphs ("reduce-overhead"), measured
+                # only on NVIDIA. On AMD `auto` stays eager; `on` still compiles.
+                return False
             budget = self._vram_budget_gib
             if budget is None or budget < COMPILE_MIN_VRAM_GIB:
                 return False
@@ -823,7 +846,9 @@ class QwenReferee:
                     # (measured: 3 GiB per instance left on the card).
                     decoder.close()
                     gc.collect()
-                if torch.cuda.is_available():
+                from ..runtime.device import cuda_usable
+
+                if cuda_usable():
                     torch.cuda.empty_cache()
             except Exception:
                 pass
@@ -910,8 +935,10 @@ def apply_verification(
         # derives it from the tier's VRAM minus the resident Whisper pool, so a
         # run that quietly verified on the CPU is otherwise indistinguishable
         # from one that had the card. Every other stage already records its
-        # device (docs/plans/stage-device-plan.md 2.6); this was the one that did not.
-        "device": referee.requested_device,
+        # device (docs/vad-asr.md, 「数据流」); this was the one that did not.
+        # The *effective* device, not the request: a failed `model.to()` falls
+        # back to the CPU silently, and that is the very case this must show.
+        "device": referee.effective_device,
         "suspects": len(suspect_indices),
         "gaps_probed": len(gaps),
     }
@@ -964,4 +991,10 @@ def apply_verification(
             )
     stats[GAP_RECOVERY_KEY] = recoveries
     stats["gaps_recovered"] = len(recoveries)
+    # Now that the model exists, replace the request with where it actually
+    # sits: the lazy load happens inside `transcribe_batch`, so reading it any
+    # earlier gives the request back -- and a referee that fell back to the CPU
+    # would be recorded as having used the card. The early return above leaves
+    # the request in place on purpose: nothing was loaded, nothing ran.
+    stats["device"] = referee.effective_device
     return out, stats

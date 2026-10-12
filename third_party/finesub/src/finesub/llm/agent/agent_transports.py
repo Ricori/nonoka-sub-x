@@ -27,6 +27,11 @@ from .local_agent import (
     LocalAgentUnavailableError,
 )
 from ..prompts import agent_worker_bootstrap
+from ..routing.model_routes import (
+    AGENT_SESSION_MODES,
+    DEFAULT_AGENT_SESSION_MODE,
+    TOOL_SESSION_MODES,
+)
 from ..session_checkpoint import agent_conversation_identity
 
 # One watch must end before the provider conversation it is protecting goes
@@ -116,8 +121,8 @@ def agent_transport_for(
         raise ValueError(
             f"{AGENT_TRANSPORT_OVERRIDE_ENV} must be one of {AGENT_TRANSPORTS}, got {override!r}"
         )
-    mode = mode or "per-window"
-    if mode not in {"api", "per-window", "resume", "pseudo-conversational"}:
+    mode = mode or DEFAULT_AGENT_SESSION_MODE
+    if mode not in AGENT_SESSION_MODES:
         raise ValueError(f"Unknown agent session mode: {mode!r}")
     mcp = bool(getattr(probe, "supports_mcp_config", False))
     if mode == "pseudo-conversational":
@@ -136,7 +141,7 @@ def agent_transport_for(
                 f"{driver_id or 'this driver'} does not"
             )
         return "tool-session"
-    if has_media or mode in {"api", "resume"}:
+    if has_media or mode not in TOOL_SESSION_MODES:
         return "capsule"
     if override:
         return override

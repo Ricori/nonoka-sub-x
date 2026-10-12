@@ -4,15 +4,19 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import re
-from typing import List, Sequence
+from typing import List, Sequence, Tuple
 
-from .metrics import format_weighted_char_count, weighted_char_count
+from .metrics import weighted_char_count
 
 
 TIMESTAMP_RE = re.compile(
     r"(?P<start>\d{2}:\d{2}:\d{2},\d{3})\s*-->\s*"
     r"(?P<end>\d{2}:\d{2}:\d{2},\d{3})"
 )
+#: Layout limit the validator measures a line against (weighted characters).
+DEFAULT_MAX_LINE_CHARS = 25
+
+
 @dataclass(frozen=True)
 class SrtSegment:
     index: int
@@ -26,7 +30,10 @@ class SrtValidationResult:
     ok: bool
     segments: List[SrtSegment]
     errors: List[str]
-    warnings: List[str]
+    #: `(segment index, weighted length of its longest line)` for every segment
+    #: with a line over the budget. Data, not messages: how to report it
+    #: depends on the stage (see `warn_on_invalid_srt`).
+    over_budget: List[Tuple[int, float]]
 
 
 def parse_srt_timestamp(value: str) -> float:
@@ -112,15 +119,17 @@ def render_srt(segments: Sequence[SrtSegment], *, reindex: bool = True) -> str:
 def validate_srt_text(
     text: str,
     *,
-    max_line_chars: int = 25,
+    max_line_chars: float = DEFAULT_MAX_LINE_CHARS,
     max_lines_per_segment: int = 2,
 ) -> SrtValidationResult:
     errors: List[str] = []
-    warnings: List[str] = []
+    over_budget: List[Tuple[int, float]] = []
     try:
         segments = parse_srt(text)
     except ValueError as exc:
-        return SrtValidationResult(ok=False, segments=[], errors=[str(exc)], warnings=[])
+        return SrtValidationResult(
+            ok=False, segments=[], errors=[str(exc)], over_budget=[]
+        )
 
     previous_end = -1.0
     for segment in segments:
@@ -136,24 +145,52 @@ def validate_srt_text(
             errors.append(
                 f"Segment {segment.index} has more than {max_lines_per_segment} lines."
             )
-        for line in body_lines:
-            visual_len = weighted_char_count(line)
-            if visual_len > max_line_chars:
-                warnings.append(
-                    f"Segment {segment.index} line has "
-                    f"{format_weighted_char_count(visual_len)} weighted characters; "
-                    f"limit is {max_line_chars}."
-                )
+        longest = max((weighted_char_count(line) for line in body_lines), default=0.0)
+        if longest > max_line_chars:
+            over_budget.append((segment.index, longest))
     if not segments:
         errors.append("SRT contains no segments.")
     return SrtValidationResult(
         ok=not errors,
         segments=segments,
         errors=errors,
-        warnings=warnings,
+        over_budget=over_budget,
     )
 
-def warn_on_invalid_srt(srt_text: str, *, where: str) -> None:
+def over_budget_buckets(
+    over_budget: Sequence[Tuple[int, float]],
+    *,
+    max_line_chars: float = DEFAULT_MAX_LINE_CHARS,
+    above: float | None = None,
+) -> List[Tuple[str, List[int]]]:
+    """Group over-budget segments into 5-character bands, worst band open-ended.
+
+    With the default limit the bands are 26-30, 31-35, 36-40, 41-45 and 46+.
+    Lengths are half-integers, so "26-30" holds everything above 25 up to and
+    including 30. Empty bands are left out. `above` drops segments at or under
+    that length first (a multiple of 5 keeps the bands whole: 35 starts at 36).
+    """
+
+    first = int(max_line_chars) + 1
+    edges = [max_line_chars + step for step in (5, 10, 15, 20)]
+    labels = [f"{first + 5 * n}-{first + 5 * n + 4}" for n in range(len(edges))]
+    labels.append(f"{int(edges[-1]) + 1}+")
+    bands: List[List[int]] = [[] for _ in labels]
+    for index, length in over_budget:
+        if above is not None and length <= above:
+            continue
+        band = next((n for n, edge in enumerate(edges) if length <= edge), len(edges))
+        bands[band].append(index)
+    return [(label, ids) for label, ids in zip(labels, bands) if ids]
+
+
+def warn_on_invalid_srt(
+    srt_text: str,
+    *,
+    where: str,
+    budget_stage: str | None = None,
+    budget_above: float = DEFAULT_MAX_LINE_CHARS,
+) -> None:
     """Report what the SRT validator finds, without blocking the write.
 
     Warn-only on purpose. The validator flags an empty file, a cue whose end is
@@ -167,6 +204,13 @@ def warn_on_invalid_srt(srt_text: str, *, where: str) -> None:
 
     Escalating `end <= start` to an error is the one change worth discussing
     later; it is left warn-only here so this wiring changes no behaviour.
+
+    The line budget is not a warning at all. A 98-minute run put 168 raw lines
+    over it -- nothing anyone could act on, and enough to bury the findings
+    that matter. It is reported only when the caller names a stage
+    (`budget_stage`), as one summary that lists the segment numbers per band.
+    Raw ASR text is before any layout policy, so it asks for `budget_above`
+    35: only the lines that are far over.
     """
 
     from ..reporting import current_reporter
@@ -176,5 +220,16 @@ def warn_on_invalid_srt(srt_text: str, *, where: str) -> None:
         current_reporter().warning(
             "srt-invalid", f"{where}: {message}"
         )
-    for message in result.warnings:
-        current_reporter().warning("srt-line-budget", f"{where}: {message}")
+    if budget_stage is None or not result.over_budget:
+        return
+    bands = over_budget_buckets(result.over_budget, above=budget_above)
+    if not bands:
+        return
+    current_reporter().summary(
+        budget_stage,
+        {
+            f"单行超 {int(budget_above)} 字的段（编号，按段内最长行分档）": "；".join(
+                f"{label} 字：{'、'.join(map(str, ids))}" for label, ids in bands
+            )
+        },
+    )

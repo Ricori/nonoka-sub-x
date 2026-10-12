@@ -283,6 +283,7 @@ class _StubReferee:
 
     _model_name = "stub"
     requested_device = "cpu"
+    effective_device = "cpu"
 
     def __init__(self) -> None:
         self.on_batch = None

@@ -17,6 +17,7 @@ from typing import Any, Callable, Iterable, Mapping, Protocol, Sequence
 
 from finesub.paths import token_counter_candidates
 from finesub_bootstrap import token_counter
+from finesub_bootstrap.processes import no_window
 
 from .http import llm_http_client
 from .routing.config import DEFAULT_LIMITS, GEMINI_31_FLASH_LITE, ModelLimits
@@ -257,18 +258,13 @@ class _LocalTokenCounterService:
             return
         self._stop_locked()
         self._stderr_tail.clear()
-        creationflags = (
-            subprocess.CREATE_NO_WINDOW
-            if os.name == "nt" and hasattr(subprocess, "CREATE_NO_WINDOW")
-            else 0
-        )
         process = subprocess.Popen(
             [self.exe_path, "-model", self.model, "-server"],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             bufsize=0,
-            creationflags=creationflags,
+            creationflags=no_window(),
         )
         if process.stdout is None or process.stderr is None:
             process.kill()
@@ -681,5 +677,4 @@ def validate_correction_budget(
     # derived as `context_window - output_limit`, so `input + expected_output`
     # is inside the window whenever the two above pass. The one that used to be
     # here compared a total carrying an extra 1000-token `safety_margin`, which
-    # is the only reason it could fire -- both went together
-    # (docs/plans/model-window-limits-plan.md 3.1).
+    # is the only reason it could fire -- both went together (2026-09-03).

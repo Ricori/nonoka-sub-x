@@ -44,7 +44,6 @@ _BUDGET_NOTE_PREFIX = "（注入预算说明："
 
 KIND_QUERY_RESULTS = "query_results"
 KIND_URL_EXTRACT = "url_extract"
-KIND_EVIDENCE_PACK = "evidence_pack"
 _URL_KINDS = (KIND_URL_EXTRACT,)
 
 BLACKLIST_ARTIFACT_KIND = "content_filter_blacklist"
@@ -180,22 +179,6 @@ def split_rendered_search_block(text: str) -> SplitBlock:
         preamble="\n".join(preamble_lines),
         units=tuple(units),
         tail="\n".join(tail_lines),
-    )
-
-
-def evidence_pack_block(text: str) -> SplitBlock:
-    """Wrap a monolithic evidence pack / context blob as one droppable unit."""
-
-    if not (text or "").strip():
-        return SplitBlock(preamble="", units=(), tail="")
-    return SplitBlock(
-        preamble="",
-        units=(
-            InjectionUnit(
-                kind=KIND_EVIDENCE_PACK, stable_id="evidence_pack", text=text
-            ),
-        ),
-        tail="",
     )
 
 

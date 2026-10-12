@@ -1,13 +1,14 @@
 """Fast-mode planning: the single whole-input window and the enable decision.
 
-Fast mode treats the entire input as one correction window and fuses research
-round 1 with the per-window query round. Auto-enable requires both:
+Fast mode treats the entire input as one correction task (no preparation
+task; under ``retrieval=local`` the window asks for its own inputs through
+the request channel). Auto-enable requires both:
 
 - output: k x c x total_csv_tokens <= 0.8 x output_limit - 10k
-- input:  round-1 prompt text + clip media tokens
-          <= prompt_input_limit - FAST_ROUND2_INPUT_RESERVE_TOKENS
-  (that reserve keeps headroom for round-2 injections: entry details,
-  evidence pack / search results, round-1 notes)
+- input:  opening prompt text + clip media tokens
+          <= prompt_input_limit - FAST_FILL_INPUT_RESERVE_TOKENS
+  (that reserve keeps headroom for the fill turn: entry details, search
+  results, the model's own request turn)
 
 Both limits come from the *bound group's* envelope, not the packaged ceiling
 (the caller passes ``correction_planning_limits``). The reserve itself is an
@@ -34,14 +35,15 @@ from ..chunking import (
 )
 from ..routing.config import (
     DEFAULT_LIMITS,
+    MAX_WINDOW_SEARCH_QUERIES,
     ModelLimits,
     effective_window_subtitle_cap,
-    research_search_query_limit,
 )
-from ..knowledge.base import DEFAULT_KNOWLEDGE_ROOT, load_index_text
+from ..knowledge.base import DEFAULT_KNOWLEDGE_ROOT, index_texts_present, load_index_texts
+from .task_graph import window_requests
 from ..routing.profiles import (
     DEFAULT_PROFILE,
-    FAST_ROUND2_INPUT_RESERVE_TOKENS,
+    FAST_FILL_INPUT_RESERVE_TOKENS,
     TranslationProfile,
     expected_output_tokens,
     window_output_budget,
@@ -59,7 +61,7 @@ class FastDecision:
     window: SubtitleWindow | None = None
     expected_output_tokens: int = 0
     output_budget: int = 0
-    round1_input_tokens: int = 0
+    opening_input_tokens: int = 0
     input_budget: int = 0
     subtitle_input_tokens: int = 0
     max_window_subtitle_tokens: int = 0
@@ -71,7 +73,7 @@ class FastDecision:
             "reason": self.reason,
             "expected_output_tokens": self.expected_output_tokens,
             "output_budget": self.output_budget,
-            "round1_input_tokens": self.round1_input_tokens,
+            "opening_input_tokens": self.opening_input_tokens,
             "input_budget": self.input_budget,
             "subtitle_input_tokens": self.subtitle_input_tokens,
             "max_window_subtitle_tokens": self.max_window_subtitle_tokens,
@@ -126,6 +128,9 @@ def decide_fast_mode(
     token_counter: TokenCounter | None = None,
     limits: ModelLimits = DEFAULT_LIMITS,
     max_window_subtitle_tokens: int | None = None,
+    # `--style auto`: the candidate list rides in the opening message, so the
+    # gate has to weigh it (the 56k reserve is for the *fill*).
+    style_catalog: str = "",
 ) -> FastDecision:
     """Decide whether the run goes fast (single fused window).
 
@@ -145,9 +150,9 @@ def decide_fast_mode(
         return FastDecision(mode=mode, enabled=False, reason="fast mode disabled")
 
     counter = token_counter or default_token_counter()
-    if limits.prompt_input_limit <= FAST_ROUND2_INPUT_RESERVE_TOKENS:
-        # The round-2 reserve is an absolute token count (the sum of what
-        # round 2 injects: entry block + evidence pack + notes + scaffolding),
+    if limits.prompt_input_limit <= FAST_FILL_INPUT_RESERVE_TOKENS:
+        # The fill reserve is an absolute token count (the sum of what the
+        # fill turn injects: entry block + search results + scaffolding),
         # calibrated against Gemini's 194k prompt limit. A bound group with a
         # smaller envelope makes ``prompt_limit - reserve`` negative, and every
         # input then "exceeds" a negative budget -- true, but unreadable. Say
@@ -155,15 +160,15 @@ def decide_fast_mode(
         #
         # Scaling the reserve to the envelope is deliberately NOT done here:
         # it is a sum of specific injection caps, not a ratio, so shrinking it
-        # without shrinking those caps would let the gate pass and round 2
-        # overflow anyway. Doing it properly means re-calibrating the caps
-        # themselves (entry block / evidence pack / notes), which is a quality
-        # decision, not space accounting -- recorded in
-        # docs/llm_followups.md "fast 会话内部预算未按组收缩".
+        # without shrinking those caps would let the gate pass and the fill
+        # turn overflow anyway. Doing it properly means re-calibrating the caps
+        # themselves (entry block / search results), which is a quality
+        # decision, not space accounting -- and not one worth making: small-
+        # context models have all but gone (owner 2026-09-30).
         reason = (
             f"bound group input envelope {limits.prompt_input_limit} <= the "
-            f"{FAST_ROUND2_INPUT_RESERVE_TOKENS} round-2 reserve: this group "
-            "cannot hold a fused single window; use the normal multi-window "
+            f"{FAST_FILL_INPUT_RESERVE_TOKENS} fill reserve: this group "
+            "cannot hold a whole-input window; use the normal multi-window "
             "flow (fast mode is calibrated for large-context models)"
         )
         if mode == "on":
@@ -192,9 +197,9 @@ def decide_fast_mode(
 
     expected = expected_output_tokens(profile, window.budget.subtitle_input_tokens)
     output_budget = window_output_budget(limits, fast=True)
-    round1_input, input_budget = _round1_input_estimate(
+    opening_input, input_budget = _opening_input_estimate(
         window,
-        segments_count=len(segments),
+        style_catalog=style_catalog,
         extra_info=extra_info,
         knowledge_root=knowledge_root,
         knowledge_enabled=knowledge_enabled,
@@ -209,10 +214,10 @@ def decide_fast_mode(
         failures.append(
             f"expected output {expected} > fast output budget {output_budget}"
         )
-    if round1_input > input_budget:
+    if opening_input > input_budget:
         failures.append(
-            f"round-1 input {round1_input} > input budget {input_budget} "
-            f"(prompt limit minus the {FAST_ROUND2_INPUT_RESERVE_TOKENS} round-2 reserve)"
+            f"opening input {opening_input} > input budget {input_budget} "
+            f"(prompt limit minus the {FAST_FILL_INPUT_RESERVE_TOKENS} fill reserve)"
         )
     if subtitle_cap > 0 and subtitle_input > subtitle_cap:
         failures.append(
@@ -226,7 +231,7 @@ def decide_fast_mode(
         window=window,
         expected_output_tokens=expected,
         output_budget=output_budget,
-        round1_input_tokens=round1_input,
+        opening_input_tokens=opening_input,
         input_budget=input_budget,
         subtitle_input_tokens=subtitle_input,
         max_window_subtitle_tokens=subtitle_cap,
@@ -239,10 +244,10 @@ def decide_fast_mode(
     return decision
 
 
-def _round1_input_estimate(
+def _opening_input_estimate(
     window: SubtitleWindow,
     *,
-    segments_count: int,
+    style_catalog: str = "",
     extra_info: str,
     knowledge_root: str | Path,
     knowledge_enabled: bool,
@@ -250,36 +255,56 @@ def _round1_input_estimate(
     limits: ModelLimits,
     profile: TranslationProfile,
 ) -> tuple[int, int]:
-    """Measure the fast round-1 prompt (text via countTokens, media locally).
+    """Measure the fast window's opening message (text via countTokens, media locally).
 
-    On the mm route round 1 is the fused research+query prompt (knowledge
-    indices included); on the text route there is no separate round 1, so the
-    correction prompt itself is measured against the same reserve. The
-    ``--extra-info`` URL pre-extracts are not included (approximation; the
-    reserve absorbs them).
+    Wherever the window has something to request (harness search under
+    ``retrieval=local``, or a readable knowledge base -- `task_graph.window_flow`)
+    or a style to pick (``--style auto`` with a choice) the opening carries the
+    request channel, the knowledge indices and the candidate catalog where
+    they apply; otherwise it is the correction
+    prompt itself, measured against the same reserve. ``extra_info`` rides in the general context (there is no
+    preparation task to digest it).
+
+    ⚠ Always the **batched** shape, even for a run whose correction chain
+    resolves to ``agentic`` -- that one sends the acquire note instead of the
+    request channel and no index at all, so the gate over-counts it. Measured
+    2026-09-10: 956 chars with an empty base, ~2.8k at 50 index entries, ~6.7k
+    at 200, against a 138k budget. Deliberately left over-counting: it errs
+    toward the normal multi-window flow, which is this gate's own fallback, and
+    asking the real question here would pull routing (and a driver probe) into
+    the planner for ~2% on one narrow cell. Recorded in docs/llm_harness_behavior.md
+    (「快速模式」).
     """
 
-    from ..prompts import build_correction_csv_messages, build_fast_round1_messages
+    from ..prompts import ContextPack
+    from ..request_prompts import build_window_task_messages
 
-    if profile.external_injection:
-        # ``--knowledge none`` never reads the base, in the estimate either --
-        # a growing knowledge base must not inflate the fast gate for runs
-        # that will not see it.
-        messages = build_fast_round1_messages(
-            window=window,
-            extra_info=extra_info,
-            streamer_index=(
-                load_index_text(knowledge_root, "streamer") if knowledge_enabled else ""
-            ),
-            common_index=(
-                load_index_text(knowledge_root, "common") if knowledge_enabled else ""
-            ),
-            max_search_queries=research_search_query_limit(segments_count),
-            use_search_contract=True,
-            profile=profile,
-        )
-    else:
-        messages = build_correction_csv_messages(window=window, profile=profile)
+    # ``--knowledge none`` never reads the base, in the estimate either -- a
+    # growing knowledge base must not inflate the fast gate for runs that will
+    # not see it.
+    index_texts = load_index_texts(knowledge_root) if knowledge_enabled else {}
+    readable = index_texts_present(index_texts)
+    # `task_graph.window_requests`, not `window_flow`: always the batched
+    # shape (see above), so no strategy and no driver probe. A catalog opens
+    # the channel on its own (auto-style-gaps plan A, the `style_pick` half of
+    # `WindowFlow`): a style-only window has a request turn, and measuring it
+    # without one would leave the catalog out of the gated message.
+    messages = build_window_task_messages(
+        request_channel=window_requests(profile, knowledge_readable=readable)
+        or bool(style_catalog.strip()),
+        knowledge_indexes=index_texts if readable else {},
+        max_search_queries=MAX_WINDOW_SEARCH_QUERIES,
+        # Under `--style auto` the fused window picks in its own request turn,
+        # so the candidate list is part of the message being gated -- not of
+        # the fill the reserve covers. (`--extra-style` rides in the same
+        # section but is one user-written clause; the reserve absorbs it, like
+        # the note URL extracts.)
+        style_catalog=style_catalog,
+        window=window,
+        context_pack=fast_context_pack(extra_info),
+        profile=profile,
+        knowledge_enabled=readable,
+    )
     text_tokens = counter.count_texts(
         str(message.get("content", "")) for message in messages
     )
@@ -287,5 +312,18 @@ def _round1_input_estimate(
         max(0.0, window.clip_end - window.clip_start)
         * media_tokens_per_second(profile, limits)
     )
-    input_budget = limits.prompt_input_limit - FAST_ROUND2_INPUT_RESERVE_TOKENS
+    input_budget = limits.prompt_input_limit - FAST_FILL_INPUT_RESERVE_TOKENS
     return text_tokens + media_tokens, input_budget
+
+
+def fast_context_pack(extra_info: str) -> "ContextPack":
+    """What a fast window gets as general context: the user's own notes.
+
+    Fast mode runs no preparation task, so nothing digests ``--extra-info``
+    for it; the notes are handed to the window verbatim instead of dropped.
+    """
+
+    from ..prompts import ContextPack
+
+    notes = (extra_info or "").strip()
+    return ContextPack(general_context={"user_notes": notes} if notes else {})

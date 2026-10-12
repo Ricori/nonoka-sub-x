@@ -11,6 +11,14 @@ import tomllib
 from types import MappingProxyType
 from typing import Any, Mapping
 
+from finesub import settings
+
+from .profiles import (
+    EFFICIENCY_KNOWLEDGE_ALLOWED,
+    EFFICIENCY_PINS,
+    PRESET_PARALLEL_WINDOWS_KEY,
+    PRESET_SWITCH_VALUES,
+)
 from .model_catalog import (
     LOCAL_AGENT_KIND,
     PACKAGED_PROVIDER_KINDS,
@@ -19,6 +27,7 @@ from .model_catalog import (
     default_model_catalog,
     get_model_catalog_entry_by_fact,
     get_model_catalog_entry_for_tier,
+    load_model_catalog,
     quality_floor_warnings,
     unstated_quality_notes,
 )
@@ -26,7 +35,7 @@ from .model_catalog import (
 
 ROUTES_FILENAME = "model_routes.toml"
 # Model-routing v2 first cut: two text-only API backends join the packaged pair. They
-# exist only for user-declared providers (config.toml [llm.providers]).
+# exist only for user-declared providers (rows in the data root's model_catalog.psv).
 # A worker a person is already running, which claims work rather than being
 # called. Its own backend rather than another local-agent tier, because the
 # direction is what differs: every `backend == "local_agent"` site launches a
@@ -48,16 +57,23 @@ CUSTOM_PROVIDER_KINDS = frozenset({"openai_compat", "anthropic"})
 #:
 #: - dsh is a harness around whatever provider its owner configured in
 #:   `$DSH_HOME/settings.yaml`;
-#: - WorkBuddy's menu is per **account**, not per release. `codebuddy --help`
+#: - CodeBuddy's menu is per **account**, not per release. `codebuddy --help`
 #:   prints a generic list that this login could not use at all, while a wrong
 #:   `--model` is answered by the server with the models it can reach
 #:   (measured 2026-09-04: the two lists overlapped in one name). The packaged
 #:   rows are the ones that menu was verified against; another plan's models
 #:   are the owner's to declare.
+#:
+#: Packaged rows on these tiers grow **two** targets (plain ``fact_id`` + a
+#: ``native`` infix after the vendor prefix). User-added rows still grow one
+#: target named after the fact -- ``supports_native_search`` picks the
+#: profile -- because the manuals promise that shape, and a bind of
+#: ``fact_id`` on a searching row must keep entitling search.
 AUTO_TARGET_LOCAL_AGENT_PROFILES = {
     "LOCAL_DSH": ("dsh-default", "dsh-web-search"),
-    "LOCAL_WORKBUDDY": ("workbuddy-default", "workbuddy-web-search"),
+    "LOCAL_CODEBUDDY": ("codebuddy-default", "codebuddy-web-search"),
 }
+_AUTO_PAIR_PREFIXES = ("local-dsh-", "local-codebuddy-")
 
 
 def _auto_target_profile(
@@ -95,11 +111,141 @@ def _auto_target_profile(
     if "custom-default" not in profiles:
         profiles["custom-default"] = ExecutionProfile("custom-default", "")
     return "custom-default"
+
+
+def auto_pair_native_target_id(fact_id: str) -> str:
+    """The searching target id a packaged dsh / CodeBuddy row must grow.
+
+    Public bind ids: ``local-dsh-foo`` → ``local-dsh-native-foo``, same for
+    CodeBuddy. A packaged fact that does not match is a naming error, not a
+    row that silently gets one target.
+    """
+
+    for prefix in _AUTO_PAIR_PREFIXES:
+        if not fact_id.startswith(prefix):
+            continue
+        rest = fact_id[len(prefix) :]
+        if rest and not rest.startswith("native-"):
+            return f"{prefix}native-{rest}"
+    raise ModelRouteConfigError(
+        f"model_catalog {fact_id!r}: packaged auto-pair rows must be named "
+        "local-dsh-<model> or local-codebuddy-<model> so the native target "
+        "can insert -native- after the vendor prefix"
+    )
+
+
+def _packaged_auto_pair_fact_ids() -> frozenset[str]:
+    """Fact ids in the *shipped* catalog, not the merged override table.
+
+    An override of a packaged row is ``self_reported=True`` and would otherwise
+    fall onto the one-target path, dropping the native half groups still name.
+    """
+
+    return frozenset(
+        entry.fact_id
+        for entry in load_model_catalog()
+        if entry.provider_tier in AUTO_TARGET_LOCAL_AGENT_PROFILES
+    )
+
+
+def _add_auto_built_target(
+    targets: dict[str, ExecutionTarget],
+    profiles: dict[str, ExecutionProfile],
+    fact: ModelCatalogEntry,
+    target_id: str,
+    profile_id: str,
+) -> None:
+    if target_id in targets:
+        raise ModelRouteConfigError(
+            f"model_catalog {fact.fact_id!r}: auto-built target {target_id!r} "
+            "collides with a declared target id"
+        )
+    if profile_id not in profiles:
+        raise ModelRouteConfigError(
+            f"model_catalog {fact.fact_id!r}: auto-builds targets on "
+            f"execution profile {profile_id!r}, which the packaged routes "
+            "do not declare"
+        )
+    profile = profiles[profile_id]
+    if profile.native_search_tool and not fact.supports_native_search:
+        raise ModelRouteConfigError(
+            f"Target {target_id!r} enables native search tool "
+            f"{profile.native_search_tool!r}, but its runtime fact does not "
+            "support it"
+        )
+    targets[target_id] = ExecutionTarget(
+        id=target_id,
+        backend="local_agent",
+        fact_id=fact.fact_id,
+        enabled_by="local_agent",
+        execution_profile=profile_id,
+    )
+
+
+def _emit_packaged_local_agent_pair(
+    targets: dict[str, ExecutionTarget],
+    profiles: dict[str, ExecutionProfile],
+    fact: ModelCatalogEntry,
+) -> None:
+    plain_profile, searching_profile = AUTO_TARGET_LOCAL_AGENT_PROFILES[
+        fact.provider_tier
+    ]
+    native_id = auto_pair_native_target_id(fact.fact_id)
+    _add_auto_built_target(targets, profiles, fact, fact.fact_id, plain_profile)
+    if fact.supports_native_search:
+        _add_auto_built_target(
+            targets, profiles, fact, native_id, searching_profile
+        )
+
+
+def _wire_unclaimed_catalog_target(
+    targets: dict[str, ExecutionTarget],
+    profiles: dict[str, ExecutionProfile],
+    fact: ModelCatalogEntry,
+    packaged_pair_ids: frozenset[str],
+) -> None:
+    """One unclaimed catalog row → the target(s) a bind can name.
+
+    Packaged dsh / CodeBuddy facts grow a plain+native pair. Everything else
+    still gets one target named after the fact, so a user row with search
+    entitled stays one bind id.
+    """
+
+    fact_id = fact.fact_id
+    if fact_id in packaged_pair_ids:
+        if fact.provider_tier not in AUTO_TARGET_LOCAL_AGENT_PROFILES:
+            raise ModelRouteConfigError(
+                f"model_catalog {fact_id!r}: packaged auto-pair rows must "
+                f"stay on {sorted(AUTO_TARGET_LOCAL_AGENT_PROFILES)}"
+            )
+        _emit_packaged_local_agent_pair(targets, profiles, fact)
+        return
+    profile_id = _auto_target_profile(fact, profiles)
+    if profile_id is None:
+        # A packaged-dialect fact with no target is simply not wired up
+        # (the catalog may record facts for experiments -- plan D3).
+        return
+    if fact.provider_kind == LOCAL_AGENT_KIND:
+        _add_auto_built_target(targets, profiles, fact, fact_id, profile_id)
+        return
+    if fact_id in targets:
+        raise ModelRouteConfigError(
+            f"model_catalog {fact_id!r} collides with a declared target id"
+        )
+    targets[fact_id] = ExecutionTarget(
+        id=fact_id,
+        backend=fact.provider_kind,
+        fact_id=fact_id,
+        enabled_by=fact.provider_tier,
+        execution_profile=profile_id,
+    )
+
+
 BACKEND_PROVIDER_TIERS = {
     "gemini_rest": frozenset({"GEMINI_FREE", "GEMINI_PAID"}),
     # One backend, one driver per tier: the tier is what selects the CLI.
     "local_agent": frozenset(
-        {"LOCAL_CODEX", "LOCAL_CLAUDE", "LOCAL_AGY", "LOCAL_DSH", "LOCAL_WORKBUDDY"}
+        {"LOCAL_CODEX", "LOCAL_CLAUDE", "LOCAL_AGY", "LOCAL_DSH", "LOCAL_CODEBUDDY"}
     ),
     CONVERSATIONAL_BACKEND: frozenset({"LOCAL_CONVERSATIONAL"}),
 }
@@ -112,8 +258,10 @@ STANDARD_FALLBACK = frozenset(
 
 # The gate that forbids nothing. Safe as a default only because a policy can no
 # longer *add* an agent: the packaged `default` preset names none, so this is
-# api-only in practice until somebody binds a group that says otherwise.
-DEFAULT_EXECUTION_POLICY = "agent-text-preferred"
+# api-only in practice until somebody binds a group that says otherwise. The
+# value is `[llm] execution_policy`'s declared default, named here for the
+# route modules that need it.
+DEFAULT_EXECUTION_POLICY = settings.EXECUTION_POLICY.default
 
 
 class ModelRouteConfigError(ValueError):
@@ -185,15 +333,12 @@ class RoutePolicy:
 
 # --- v2 declarative layer (docs/manual/model-routing.md) --------------------
 
-# The seven task groups are harness-defined: sessions map onto them (§6), so
+# The four task groups are harness-defined: sessions map onto them (§6), so
 # the set is closed -- users compose model groups and presets, not new tasks.
 TASK_GROUP_IDS = (
     "correction-mm",
     "correction-text",
-    "planning-mm",
-    "planning-text",
     "research",
-    "search_judge",
     "knowledge",
 )
 DIFFICULTIES = ("quality", "intermediate", "efficiency")
@@ -273,6 +418,57 @@ def install_runtime_preferred(overlay: Mapping[str, str] | None) -> None:
 
 def runtime_preferred() -> dict[str, str]:
     return dict(_RUNTIME_PREFERRED)
+
+
+# Process-local `--llm-preset`: the active preset for this run, over
+# `[llm] preset` (owner 2026-10-01). Same lifecycle as the preferred overlay.
+_RUNTIME_PRESET = ""
+
+
+def install_runtime_preset(preset_id: str | None) -> None:
+    """Install (or clear, with None/empty) the process-local `--llm-preset`;
+    an unknown id fails at the next route load, listing the known ones."""
+
+    global _RUNTIME_PRESET
+    _RUNTIME_PRESET = (preset_id or "").strip()
+    default_model_routes.cache_clear()
+
+
+def add_routing_arguments(parser: Any) -> None:
+    """`--llm-model` and `--llm-preset`: one definition for every entry point
+    that routes LLM calls."""
+
+    parser.add_argument(
+        "--llm-model",
+        dest="llm_model",
+        action="append",
+        metavar="[TASKGROUP=]VALUE",
+        help=(
+            "Runtime LLM routing override (repeatable; value = model group or "
+            "route target, rebinding the task group's cell with NO fallback; "
+            "bare value = default). Applied on top of the active preset. "
+            "Process-local -- config.toml is never touched."
+        ),
+    )
+    parser.add_argument(
+        "--llm-preset",
+        dest="llm_preset",
+        metavar="ID",
+        help=(
+            "The LLM preset for this run, over config.toml's [llm] preset "
+            "(e.g. default, agy-hybrid, agy, agy-fast, fast; see "
+            "docs/manual/model-routing.md). Process-local."
+        ),
+    )
+
+
+def install_runtime_routing(args: Any) -> None:
+    """Install both process-local overrides from parsed arguments --
+    unconditionally, so a second `main()` in one interpreter never inherits
+    the previous run's choice."""
+
+    install_runtime_preset(getattr(args, "llm_preset", None))
+    install_runtime_preferred(parse_llm_model_args(getattr(args, "llm_model", None)))
 
 
 def parse_llm_model_args(values: list[str] | None) -> dict[str, str]:
@@ -408,6 +604,12 @@ AGENT_SESSION_MODES = ("api", "per-window", "resume", "pseudo-conversational")
 # rather than the first tuple entry (the tuple is ordered by session lifetime,
 # and its first entry -- the `api` baseline -- would be a behavior regression).
 DEFAULT_AGENT_SESSION_MODE = "per-window"
+#: The modes whose transport can be a tool session at all -- `api` and
+#: `resume` are `capsule` by definition (`agent_transports.agent_transport_for`
+#: derives it, and reads this tuple so the two cannot drift). Whether a given
+#: driver then really gets one also depends on `supports_mcp_config`, which
+#: needs a probe; this tuple is the part that is decided by configuration.
+TOOL_SESSION_MODES = ("per-window", "pseudo-conversational")
 
 
 @dataclass(frozen=True)
@@ -424,6 +626,13 @@ class Preset:
     # Per-cell agent session mode, same key shape and same fallback as
     # ``thinking``; entirely unfilled cells use DEFAULT_AGENT_SESSION_MODE.
     agent_session: Mapping[tuple[str, str], str] = MappingProxyType({})
+    # Correction switch defaults (switch -> value; keys from
+    # PRESET_SWITCH_VALUES). Below the command line and above the code
+    # defaults -- `correction_request.resolve_switches` reads them. Deliberately
+    # absent from routing_identity_digest: a value only matters once resolved,
+    # and then it reaches the checkpoints exactly as the same value typed on
+    # the command line would (owner 2026-09-30).
+    defaults: Mapping[str, Any] = MappingProxyType({})
 
 
 # Fact fields that only change how we evaluate or display a model, never what
@@ -445,7 +654,7 @@ class ModelRouteCatalog:
     task_groups: Mapping[str, TaskGroup] = MappingProxyType({})
     presets: Mapping[str, Preset] = MappingProxyType({})
     providers: Mapping[str, ProviderSpec] = PACKAGED_PROVIDERS
-    # User-declared facts (config.toml [llm.models]): unverified numbers the
+    # User-declared facts (rows in the data root's model_catalog.psv): unverified numbers the
     # user typed in. Artifacts label them so they never mix silently with
     # measured facts; fail-closed is relaxed for them (plan §10).
     self_reported_fact_ids: frozenset[str] = frozenset()
@@ -696,7 +905,7 @@ class ModelRouteCatalog:
                 if task_group_id.endswith("-mm"):
                     # Report the *count*, not a boolean. Warning per text-only
                     # member made the shipped `agy` preset print six lines a run
-                    # for a deliberate pattern (Opus first so text windows
+                    # for a deliberate pattern (Sonnet first so text windows
                     # prefer it, media windows skip past it for free). But
                     # collapsing that to "does anyone here hear?" threw away the
                     # thing worth knowing: a four-member cell whose media calls
@@ -934,7 +1143,7 @@ def load_model_routes(
             # which build their targets below rather than through this table.
             raise ModelRouteConfigError(
                 f"Target {target_id!r} declares backend {target.backend!r}, "
-                "which only user-declared providers ([llm.providers]) may use"
+                "which only user-declared providers (data-root model_catalog.psv) may use"
             )
         if fact.provider_tier not in expected_tiers:
             raise ModelRouteConfigError(
@@ -982,15 +1191,16 @@ def load_model_routes(
     #
     # Facts belong to the catalog, composition to config.toml (owner decision
     # 2026-08-12): the endpoint dialect and URL are facts, so they are catalog
-    # columns, and ``[llm.providers]`` / ``[llm.models]`` are gone. Every
-    # catalog row that no packaged target already claims becomes a target of
-    # its own, which is what lets a user add a model by writing one line in
-    # the override catalog.
+    # columns, and ``[llm.providers]`` / ``[llm.models]`` are gone. Packaged
+    # dsh / CodeBuddy rows grow a plain+native pair; every other unclaimed row
+    # becomes a target of its own, which is what lets a user add a model by
+    # writing one line in the override catalog.
     providers: dict[str, ProviderSpec] = dict(PACKAGED_PROVIDERS)
     self_reported = {
         fact.fact_id for fact in facts.values() if fact.self_reported
     }
     claimed_fact_ids = {target.fact_id for target in targets.values()}
+    packaged_pair_ids = _packaged_auto_pair_fact_ids()
     for fact_id, fact in facts.items():
         declared = providers.get(fact.provider_tier)
         if declared is None:
@@ -1024,29 +1234,8 @@ def load_model_routes(
             )
         if fact_id in claimed_fact_ids:
             continue
-        profile_id = _auto_target_profile(fact, profiles)
-        if profile_id is None:
-            # A packaged-dialect fact with no target is simply not wired up
-            # (the catalog may record facts for experiments -- plan D3).
-            continue
-        if fact_id in targets:
-            raise ModelRouteConfigError(
-                f"model_catalog {fact_id!r} collides with a declared target id"
-            )
-        targets[fact_id] = ExecutionTarget(
-            id=fact_id,
-            backend=(
-                "local_agent"
-                if fact.provider_kind == LOCAL_AGENT_KIND
-                else fact.provider_kind
-            ),
-            fact_id=fact_id,
-            enabled_by=(
-                "local_agent"
-                if fact.provider_kind == LOCAL_AGENT_KIND
-                else fact.provider_tier
-            ),
-            execution_profile=profile_id,
+        _wire_unclaimed_catalog_target(
+            targets, profiles, fact, packaged_pair_ids
         )
     for section in ("providers", "models"):
         if _table(user, section):
@@ -1305,6 +1494,7 @@ def load_model_routes(
             MappingProxyType(bindings),
             MappingProxyType(thinking),
             MappingProxyType(agent_session),
+            MappingProxyType(_preset_defaults(preset_id, raw.get("defaults", {}))),
         )
 
     policies: dict[str, RoutePolicy] = {}
@@ -1342,12 +1532,7 @@ def load_model_routes(
     if not policies:
         raise ModelRouteConfigError(f"{route_path} has no route policies")
 
-    active_preset_id = str(user.get("preset") or "default").strip() or "default"
-    if active_preset_id not in presets:
-        raise ModelRouteConfigError(
-            f"llm.preset = {active_preset_id!r} names no known preset; "
-            f"known: {sorted(presets)}"
-        )
+    active_preset_id = _active_preset_id(user, presets)
 
     # Both presets, not just the active one: a cell the active preset leaves
     # unbound falls back to the default preset's, and a preferred model that
@@ -1546,22 +1731,7 @@ def load_model_routes(
             facts, lambda key: key == "fact_id" or key in ADVISORY_FACT_FIELDS
         )
         + b"\0advisory-routes\0"
-        + json.dumps(
-            {
-                # Judgement-only knobs: they phrase warnings, never a decision.
-                "floors": {
-                    group_id: task_groups[group_id].floor_score
-                    for group_id in sorted(task_groups)
-                },
-                "preset_names": {
-                    preset_id: presets[preset_id].name
-                    for preset_id in sorted(presets)
-                },
-            },
-            ensure_ascii=False,
-            sort_keys=True,
-            separators=(",", ":"),
-        ).encode("utf-8")
+        + _advisory_routes_identity(task_groups, presets)
     ).hexdigest()
     return ModelRouteCatalog(
         routing_identity_digest,
@@ -1578,6 +1748,96 @@ def load_model_routes(
         active_preset_id,
         tuple(override_notices),
     )
+
+
+def _active_preset_id(user: Mapping[str, Any], presets: Mapping[str, Preset]) -> str:
+    """`--llm-preset`, else `[llm] preset`, else `default` -- and known."""
+
+    source = "--llm-preset" if _RUNTIME_PRESET else "llm.preset ="
+    active = _RUNTIME_PRESET or str(user.get("preset") or "default").strip() or "default"
+    if active not in presets:
+        raise ModelRouteConfigError(
+            f"{source} {active!r} names no known preset; known: {sorted(presets)}"
+        )
+    return active
+
+
+def _advisory_routes_identity(
+    task_groups: Mapping[str, TaskGroup], presets: Mapping[str, Preset]
+) -> bytes:
+    """The route-side half of ``advisory_digest``: knobs that are recorded but
+    never keyed on."""
+
+    return json.dumps(
+        {
+            # Judgement-only knobs: they phrase warnings, never a decision.
+            "floors": {
+                group_id: task_groups[group_id].floor_score
+                for group_id in sorted(task_groups)
+            },
+            "preset_names": {
+                preset_id: presets[preset_id].name for preset_id in sorted(presets)
+            },
+            # A default reaches a run only as the value it resolves to, and
+            # that value is what the checkpoints see (Preset.defaults).
+            "preset_defaults": {
+                preset_id: dict(sorted(presets[preset_id].defaults.items()))
+                for preset_id in sorted(presets)
+            },
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+
+
+def _preset_defaults(preset_id: str, raw: Any) -> dict[str, Any]:
+    """``[llm.presets.<id>.defaults]``, checked: known switches, legal values,
+    and not contradicting itself -- a preset that says efficiency and audio in
+    the same breath is a typo, refused here rather than pinned away later."""
+
+    if not isinstance(raw, Mapping):
+        raise ModelRouteConfigError(f"presets.{preset_id}.defaults must be a table")
+    defaults: dict[str, Any] = {}
+    for key, value in raw.items():
+        if key == PRESET_PARALLEL_WINDOWS_KEY:
+            if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+                raise ModelRouteConfigError(
+                    f"presets.{preset_id}.defaults[{key!r}] must be an integer >= 1"
+                )
+            defaults[key] = value
+            continue
+        allowed = PRESET_SWITCH_VALUES.get(str(key))
+        if allowed is None:
+            raise ModelRouteConfigError(
+                f"presets.{preset_id}.defaults key {key!r} must be one of "
+                f"{[*PRESET_SWITCH_VALUES, PRESET_PARALLEL_WINDOWS_KEY]}"
+            )
+        if value not in allowed:
+            raise ModelRouteConfigError(
+                f"presets.{preset_id}.defaults[{key!r}] must be one of {list(allowed)}"
+            )
+        defaults[str(key)] = value
+    if PRESET_PARALLEL_WINDOWS_KEY in defaults and defaults.get("continuity") == "serial":
+        raise ModelRouteConfigError(
+            f"presets.{preset_id}.defaults sets parallel_windows, which only applies under "
+            "continuity=parallel, and continuity=serial"
+        )
+    if defaults.get("difficulty") == "efficiency":
+        clashes = [
+            f"{key}={defaults[key]}"
+            for key, pinned in EFFICIENCY_PINS.items()
+            if defaults.get(key, pinned) != pinned
+        ]
+        if defaults.get("knowledge", "read") not in EFFICIENCY_KNOWLEDGE_ALLOWED:
+            clashes.append(f"knowledge={defaults['knowledge']}")
+        if clashes:
+            raise ModelRouteConfigError(
+                f"presets.{preset_id}.defaults sets difficulty=efficiency, which pins "
+                "media=text, retrieval=none and allows knowledge none|read"
+                + f"; it also sets {', '.join(clashes)}"
+            )
+    return defaults
 
 
 @lru_cache(maxsize=1)

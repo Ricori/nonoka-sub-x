@@ -2,7 +2,7 @@
 and task artifacts.
 
 The store itself is ``knowledge.node`` (SQLite, versioned rows, pinned reads
--- ``docs/plans/knowledge-node-plan.md``). This module keeps the function names
+-- ``docs/archive/knowledge-node-plan.md``). This module keeps the function names
 the harness has always called (``load_index_text``, ``load_entry_texts``,
 ``match_index_keywords`` …) and backs them with ``KnowledgeRepo``; the
 legacy markdown tree is imported once on first open and then only ever
@@ -16,16 +16,17 @@ from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import json
+import os
 from pathlib import Path
 import re
 import threading
 import unicodedata
 from typing import Any, Callable, Iterable, Iterator, List, Mapping, Sequence
 
-from finesub.paths import resolve_knowledge_root
+from finesub.paths import is_linked_worktree, resolve_knowledge_root, shared_knowledge_roots
 from finesub.text import t2s_converter
 
-from .node.model import MATCHABLE_CATEGORIES
+from .node.presets import MATCHABLE_CATEGORIES
 
 DEFAULT_KNOWLEDGE_ROOT = resolve_knowledge_root(required=False)
 TASK_ARTIFACT_FILENAME = "task-artifacts.jsonl"
@@ -42,7 +43,6 @@ PROFILE_SECTION = "档案"
 KNOWLEDGE_METADATA_SECTION = "元数据"
 LATEST_UPDATE_LABEL = "最近更新日期"
 
-INVALID_ENTRY_CHARS_RE = re.compile(r'[\\/:*?"<>|\x00-\x1f]')
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 KNOWLEDGE_PROPOSALS_RE = re.compile(
     r"<knowledge_proposals\b[^>]*>(?P<body>.*?)</knowledge_proposals>",
@@ -123,8 +123,8 @@ class IndexEntry:
     def to_line(self) -> str:
         key_part = f"{self.key} [{self.entry_type}]" if self.entry_type else self.key
         return (
-            f"- {key_part} | {'、'.join(self.native_names)} | "
-            f"{'、'.join(self.aliases)} | {self.intro}"
+            f"- {key_part} | {join_names(self.native_names)} | "
+            f"{join_names(self.aliases)} | {self.intro}"
         )
 
 
@@ -143,8 +143,59 @@ def current_month() -> str:
 _KEY_TYPE_RE = re.compile(r"^(?P<key>.+?)\s*(?:\[(?P<type>[^\]]+)\])?\s*$")
 
 
+#: What separates names in a one-line list. A name that contains one is
+#: written inside 「」 (`join_names`), and the split does not break inside them.
+NAME_SEPARATORS = "、,，"
+_QUOTE_OPEN, _QUOTE_CLOSE = "「", "」"
+
+
+def _needs_quotes(name: str) -> bool:
+    # A name that is itself wrapped in 「」 is quoted again, or the split would
+    # take its own corner brackets for the list's and drop them.
+    return any(ch in name for ch in NAME_SEPARATORS) or (
+        name.startswith(_QUOTE_OPEN) and name.endswith(_QUOTE_CLOSE)
+    )
+
+
+def join_names(names: Iterable[str]) -> str:
+    """The one-line form of a name list: 、-separated, a name containing a
+    separator inside 「」 (『彼女、お借りします』 stays one alias)."""
+
+    return "、".join(f"{_QUOTE_OPEN}{name}{_QUOTE_CLOSE}" if _needs_quotes(name) else name for name in names)
+
+
 def _split_names(text: str) -> tuple[str, ...]:
-    return tuple(part.strip() for part in re.split(r"[、,]", text or "") if part.strip())
+    """Name-list split, the inverse of `join_names`: 、 , ， all separate
+    except inside 「」, one outer pair of which is then dropped; a token with
+    no word character at all (the legacy ``—`` placeholder, stray
+    punctuation) is not a name. One rule for the index columns, the
+    entry-header alias row -- edited by a person in ``rendered/`` or by a
+    model through its ``@a`` handle -- and the term-line alias column
+    (``importer.split_names``)."""
+
+    parts, current, depth = [], [], 0
+    for ch in text or "":
+        if ch == _QUOTE_OPEN:
+            depth += 1
+        elif ch == _QUOTE_CLOSE and depth:
+            depth -= 1
+        if ch in NAME_SEPARATORS and depth == 0:
+            parts.append("".join(current))
+            current = []
+        else:
+            current.append(ch)
+    parts.append("".join(current))
+    if depth:
+        # An unpaired 「 -- in a stored name (`A「B`) or a model's slip -- would
+        # swallow the rest of the list into one name: split as if unquoted.
+        parts = re.split(r"[、,，]", text or "")
+    names = []
+    for part in (part.strip() for part in parts):
+        if len(part) >= 2 and part.startswith(_QUOTE_OPEN) and part.endswith(_QUOTE_CLOSE):
+            part = part[1:-1].strip()
+        if part and re.search(r"\w", part):
+            names.append(part)
+    return tuple(names)
 
 
 def parse_index_text(text: str) -> list[IndexEntry]:
@@ -440,8 +491,43 @@ def knowledge_version(knowledge_root: str | Path | None = None, rev: int | None 
     return _repo(knowledge_root).version(_effective_rev(knowledge_root, rev))
 
 
+def version_rev(version: str) -> int | None:
+    """The N of a ``rev:N`` identity; None for an empty one (no pin)."""
+
+    return int(version.rsplit(":", 1)[1]) if ":" in version else None
+
+
 def load_index_text(knowledge_root: str | Path, category: str, rev: int | None = None) -> str:
     return _repo(knowledge_root).index_text(category, _effective_rev(knowledge_root, rev))
+
+
+def load_index_texts(
+    knowledge_root: str | Path, rev: int | None = None
+) -> dict[str, str]:
+    """Every matchable category's index, keyed by category.
+
+    Nine call sites used to spell out `load_index_text(root, "streamer")` and
+    `load_index_text(root, "common")` side by side, which is what made the
+    category set a fact about the CALLERS rather than about the store. Loading
+    the set here is the whole point: a category added to `CATEGORIES` shows up
+    in every prompt without any of them being edited.
+    """
+
+    return {
+        category: load_index_text(knowledge_root, category, rev)
+        for category in MATCHABLE_CATEGORIES
+    }
+
+
+def index_texts_present(indexes: Mapping[str, str] | None) -> bool:
+    """Is there any index to read at all?
+
+    A real state with prompt consequences: with no index, the entry-request
+    rules come out of the system prompt entirely, because asking a model to
+    pick entries off nothing is asking for nothing.
+    """
+
+    return any(str(text).strip() for text in (indexes or {}).values())
 
 
 def load_index_entries(knowledge_root: str | Path, category: str, rev: int | None = None) -> list[IndexEntry]:
@@ -472,7 +558,7 @@ def load_entry_texts(
 
 # Local keyword pre-injection: harness-side (not LLM-robust) matching of index
 # keys/aliases against free text (the user note), so knowledge entries reach
-# round 1 / the correction windows without depending on the model asking.
+# the preparation task / the correction windows without depending on the model asking.
 KB_KEYWORD_MIN_TERM_CHARS = 2
 
 
@@ -759,6 +845,54 @@ def knowledge_lock_path(knowledge_root: str | Path) -> Path:
 
     root = knowledge_root_path(knowledge_root)
     return root.with_name(f"{root.name}.lock")
+
+
+def worktree_blocks_knowledge_write(knowledge_root: str | Path | None) -> bool:
+    """Whether an automatic write to ``knowledge_root`` must be skipped.
+
+    From a linked worktree the shared knowledge bases (the main checkout's and
+    the installation's, ``paths.shared_knowledge_roots``) are read, not
+    written: a throwaway experiment would otherwise commit into the real base,
+    and its signal events would count in the ledger product decisions are
+    read from. Any other root -- a test's tmp directory, a scratch base -- is
+    the caller's own. ``FINESUB_KNOWLEDGE_WRITE=1`` lets a run meant to update
+    the shared base through. Only automatic writes ask: the ``maintain`` and
+    ``share`` commands are the user's own act.
+    """
+
+    if not is_linked_worktree():
+        return False
+    if os.environ.get("FINESUB_KNOWLEDGE_WRITE", "").strip().lower() in {"1", "true", "yes", "on"}:
+        return False
+    return knowledge_root_path(knowledge_root).resolve() in shared_knowledge_roots()
+
+
+_SIGNAL_SKIP_WARNED: set[str] = set()
+_SIGNAL_SKIP_LOCK = threading.Lock()
+
+
+def knowledge_signals_enabled(knowledge_root: str | Path | None) -> bool:
+    """The same gate for signal events (``matched`` / ``exposed`` /
+    ``landed``), which warns once per root per process when it closes, so a
+    run audit can tell "skipped by the gate" from "nothing happened". Signal
+    writes are idempotent inserts and take no write lock: waiting up to
+    ``KNOWLEDGE_LOCK_TIMEOUT_SECONDS`` for telemetry would stall a run."""
+
+    if not worktree_blocks_knowledge_write(knowledge_root):
+        return True
+    key = str(knowledge_root_path(knowledge_root))
+    with _SIGNAL_SKIP_LOCK:
+        first = key not in _SIGNAL_SKIP_WARNED
+        _SIGNAL_SKIP_WARNED.add(key)
+    if first:
+        from finesub.reporting import current_reporter
+
+        current_reporter().warning(
+            "knowledge-signals-skipped",
+            "当前在 git worktree 中运行，本次不向主仓知识库记录命中/曝光/落地事件"
+            "（FINESUB_KNOWLEDGE_WRITE=1 可放行）",
+        )
+    return False
 
 
 # The OS byte lock is exclusive per file *handle*, so a second thread of this

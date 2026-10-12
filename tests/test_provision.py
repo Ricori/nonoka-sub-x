@@ -248,3 +248,38 @@ def test_remove_all_preserves_tasks_and_user_data(tmp_path: Path) -> None:
     assert task.read_text(encoding="utf-8") == "important"
     assert user_data.read_text(encoding="utf-8") == "important"
     assert status["job"]["target"] == "remove-all"
+
+
+def test_optional_models_are_listed_and_installable_on_their_own(tmp_path: Path) -> None:
+    from nonoka_x.model_install import DIARIZATION_MODEL_IDS
+    from nonoka_x.provision import OPTIONAL_MODELS, OPTIONAL_MODELS_TARGET, START_MESSAGES, TARGETS
+
+    assert OPTIONAL_MODELS == DIARIZATION_MODEL_IDS
+    assert OPTIONAL_MODELS_TARGET in TARGETS
+    assert OPTIONAL_MODELS_TARGET in START_MESSAGES and OPTIONAL_MODELS_TARGET in DONE_MESSAGES
+    status = RuntimeProvisioner(tmp_path, VENDOR).status()
+    assert [item["id"] for item in status["optional_models"]] == list(OPTIONAL_MODELS)
+    assert all(item["state"] == "missing" for item in status["optional_models"])
+    # Never part of the required set: a missing one blocks nothing.
+    assert not set(OPTIONAL_MODELS) & {item["id"] for item in status["models"]}
+
+
+def test_a_runtime_built_for_an_older_lock_is_outdated_not_missing(tmp_path: Path) -> None:
+    provisioner = RuntimeProvisioner(tmp_path, VENDOR)
+    runtime = provisioner.runtime
+    if runtime is None:
+        pytest.skip("no managed runtime on this platform")
+    runtime.python_executable.parent.mkdir(parents=True, exist_ok=True)
+    runtime.python_executable.write_bytes(b"")
+    runtime.marker_path.parent.mkdir(parents=True, exist_ok=True)
+    runtime.marker_path.write_text(
+        json.dumps({"schemaVersion": 2, "pythonVersion": "3.12", "runtimeLockHash": "0" * 64}),
+        encoding="utf-8",
+    )
+    state = provisioner.status()["runtime"]
+    assert state["state"] == "outdated"
+    assert "更新" in state["detail"]
+
+    # No marker at all is a runtime that was never installed.
+    runtime.marker_path.unlink()
+    assert provisioner.status()["runtime"]["state"] == "missing"

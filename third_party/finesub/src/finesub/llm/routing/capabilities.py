@@ -1,14 +1,15 @@
-"""Model-capability requirements per role chain, and the startup check.
+"""Model-capability requirements per task chain, and the startup check.
 
 Two layers, documented in docs/llm_harness_behavior.md:
 
 - the **capability table** (``model_catalog.psv``) says what a model can do;
-- the **role chains** (``config.default_role_configs``) say who does which job.
+- the **task-group chains** (``model_routes.toml`` bindings) say who does which job.
 
 This module joins them: for a given profile it lists every chain the run will
 actually use together with the capability bits that chain needs, then fails
-fast if any of them has no usable endpoint left. Checking only the correction
-chain would miss "correction pool supports it, query-round pool does not".
+fast if any of them has no usable endpoint left. The correction chain is the
+media-bearing one; ``retrieval=native`` adds the preparation task's chain,
+which must contain a member that can run the native search tool.
 """
 
 from __future__ import annotations
@@ -16,6 +17,7 @@ from __future__ import annotations
 import math
 
 from dataclasses import dataclass
+from functools import lru_cache
 import sys
 from typing import List, Sequence, Tuple
 
@@ -24,7 +26,11 @@ from . import api_keys, execution_policy, model_router, model_routes
 # Bound by name as well as by module: `test_llm_model_router` replaces
 # *this module's* view of the fact table to make one target video-incapable,
 # which is a narrower thing to say than editing the table for everybody.
-from .model_routes import runtime_fact_for
+from .model_routes import (
+    DEFAULT_AGENT_SESSION_MODE,
+    TOOL_SESSION_MODES,
+    runtime_fact_for,
+)
 from .config import (
     ModelEndpoint,
     ModelLimits,
@@ -128,15 +134,110 @@ def _effective_endpoints(
     )
 
 
+def _strategy_chain(profile: TranslationProfile, task_group: str) -> ChainRequirement:
+    if task_group == "correction":
+        return required_chains(profile)[0]
+    if task_group == "research":
+        return ChainRequirement(
+            label="研究 (research)",
+            endpoints=_effective_endpoints(
+                role_config_for("research", profile.difficulty),
+                native_search=profile.native_search,
+            ),
+            needs_native_search=profile.native_search,
+        )
+    raise ValueError(f"unknown task group for a strategy: {task_group!r}")
+
+
+def chain_backends(profile: TranslationProfile, *, task_group: str = "correction") -> List[str]:
+    """``backend`` of every usable endpoint of the chain serving ``task_group``.
+
+    ``correction``: the window chain of :func:`required_chains` (the fast
+    whole-input window shares its cell). ``research``: the preparation task's
+    chain under the same native-search requirement. What the execution
+    strategy (docs/llm_harness_behavior.md, 「开关组合 → 实际会跑的会话」) reads.
+    """
+
+    return [endpoint.backend for endpoint in usable_endpoints(_strategy_chain(profile, task_group))]
+
+
+def chain_serves_tool_session(
+    profile: TranslationProfile, *, task_group: str = "correction"
+) -> bool:
+    """Whether this task's agent calls would actually get the harness tools.
+
+    An agentic task fetches for itself, which only exists on the **tool
+    session** transport. ``agent_transports.agent_transport_for`` derives that
+    transport from ``(session mode, driver, media)``, so all three inputs are
+    asked here:
+
+    * a call carrying a media part is always ``capsule`` -- the tool protocol
+      is text-only (docs/llm_agent_tool_protocol.md §7);
+    * ``api`` and ``resume`` are ``capsule`` by definition;
+    * ``per-window`` is a tool session only for a driver whose CLI takes a
+      per-invocation MCP server, and falls back to ``capsule`` otherwise.
+
+    All three leave an "acquire it yourself" prompt in front of an executor
+    with no tools while the harness has already stood down its own request
+    turn -- ``retrieval=local`` silently becomes ``none``. ⚠ The third one used
+    to be left to the transport's own fallback warning on the grounds that it
+    "changes cost, not capability". That was true before this strategy existed:
+    the same prompt simply travelled a slower road. Now the strategy decides
+    *who fetches*, so the fallback destroys retrieval and the warning cannot
+    undo it -- the answer has to be known before the prompt is written.
+    """
+
+    if task_group == "correction":
+        if profile.correction_media != "text":
+            return False
+        routing_group = correction_task_group(profile)
+    elif task_group == "research":
+        routing_group = "research"
+    else:
+        raise ValueError(f"unknown task group for a strategy: {task_group!r}")
+    mode = getattr(role_config_for(routing_group, profile.difficulty), "agent_session_mode", "")
+    if (mode or DEFAULT_AGENT_SESSION_MODE) not in TOOL_SESSION_MODES:
+        return False
+    # Every agent that may answer, not just the first: a fallback down the
+    # chain lands on the same "you fetch" prompt. Non-agent members do not
+    # reach here -- a chain with one of those is already `batched`.
+    return all(
+        _driver_takes_mcp_server(endpoint.provider_tier, endpoint.api_model_id)
+        for endpoint in usable_endpoints(_strategy_chain(profile, task_group))
+        if endpoint.backend == "local_agent"
+    )
+
+
+@lru_cache(maxsize=None)
+def _driver_takes_mcp_server(provider_tier: str, model: str) -> bool:
+    """Does this agent target's CLI accept a per-invocation MCP server?
+
+    The one input of the transport rule that needs a probe -- a ``--help`` run,
+    which the driver caches and which this run is going to make anyway before
+    its first agent call. Memoized on the target because the strategy is
+    resolved once per task and the answer is a property of the installed CLI.
+
+    Anything that goes wrong -- no driver registered for the tier, the CLI
+    missing, the probe raising -- answers "no", which is the side that keeps
+    the harness fetching for the model.
+    """
+
+    try:
+        driver = execution_policy.driver_for_provider_tier(
+            execution_policy.load_execution_settings(),
+            provider_tier=provider_tier,
+            model=model,
+        )
+        return bool(getattr(driver.probe(), "supports_mcp_config", False))
+    except Exception:  # noqa: BLE001 -- any failure means "cannot promise tools"
+        return False
+
+
 def correction_task_group(profile: TranslationProfile) -> str:
     """The correction window's task group; ``correction_media`` selects it
     (plan v2 D20 -- the switch *is* the selector)."""
 
     return "correction-mm" if profile.correction_media != "text" else "correction-text"
-
-
-def planning_task_group(profile: TranslationProfile) -> str:
-    return "planning-mm" if profile.planning_media != "text" else "planning-text"
 
 
 def correction_planning_limits(profile: TranslationProfile) -> ModelLimits:
@@ -217,17 +318,14 @@ def correction_planning_envelope_description(profile: TranslationProfile) -> str
     return f"group={group.id}; limiting_members={','.join(members) or 'none'}"
 
 
-def required_chains(
-    profile: TranslationProfile, *, fast_enabled: bool = False
-) -> List[ChainRequirement]:
+def required_chains(profile: TranslationProfile) -> List[ChainRequirement]:
     """Every chain this profile will actually exercise, with its capability bits.
 
     Media requirements mirror what the call sites really attach: the
-    correction window carries the ``correction_media`` clip, the ordinary
-    local query round carries the ``planning_media`` clip, and its mutually
-    exclusive fast round 1 carries the correction clip. Text-only chains
-    (search-loop judge, non-native research rounds, knowledge update) need no
-    capability bits and are left out.
+    correction window (request turn and delivery alike, fast or not) carries
+    the ``correction_media`` clip. Text-only chains (the non-native
+    preparation task, knowledge update) need no capability bits and are left
+    out.
     """
 
     correction_group = correction_task_group(profile)
@@ -244,41 +342,17 @@ def required_chains(
         )
     ]
     if profile.native_search:
-        # Research R2 runs the model's own search tool under retrieval=native;
-        # like the correction window, the bound research group must contain a
-        # native-capable member (no fallback chain since D4).
+        # The preparation task runs the model's own search tool under
+        # retrieval=native; like the correction window, the bound research
+        # group must contain a native-capable member (no fallback chain).
         chains.append(
             ChainRequirement(
-                label="研究 R2 (native)",
+                label="准备任务 (native)",
                 endpoints=_effective_endpoints(
                     role_config_for("research", profile.difficulty),
                     native_search=True,
                 ),
                 needs_native_search=True,
-            )
-        )
-    if profile.external_injection and not fast_enabled:
-        chains.append(
-            ChainRequirement(
-                label="每窗查询轮 (query round)",
-                endpoints=_effective_endpoints(
-                    role_config_for(planning_task_group(profile), profile.difficulty)
-                ),
-                needs_audio=profile.planning_use_audio,
-                needs_video=profile.planning_use_video,
-            )
-        )
-    if profile.external_injection and fast_enabled:
-        # Fast round 1 carries the correction window's clip and belongs with
-        # the correction task group, not research (model-routing v2 -- do not
-        # "tidy" it back onto research: with media it shares the correction
-        # cell's quality bar and clip).
-        chains.append(
-            ChainRequirement(
-                label="fast round 1",
-                endpoints=_effective_endpoints(correction_config),
-                needs_audio=profile.correction_use_audio,
-                needs_video=profile.correction_use_video,
             )
         )
     return chains
@@ -318,21 +392,19 @@ def _describe(requirement: ChainRequirement) -> str:
 def validate_profile_capabilities(
     profile: TranslationProfile,
     *,
-    fast_enabled: bool = False,
     test_profile: bool = False,
 ) -> None:
     """Fail fast when a switch combination has no endpoint able to serve it.
 
-    ``fast_enabled`` selects the planned local-retrieval shape: ordinary query
-    round or fused fast round 1. ``test_profile`` runs pin a single stub
-    endpoint and never enable native search, so the check does not apply.
+    ``test_profile`` runs pin a single stub endpoint and never enable native
+    search, so the check does not apply.
     """
 
     if test_profile:
         return
     unmet: Sequence[ChainRequirement] = [
         requirement
-        for requirement in required_chains(profile, fast_enabled=fast_enabled)
+        for requirement in required_chains(profile)
         if not usable_endpoints(requirement)
     ]
     if unmet:
@@ -376,68 +448,24 @@ def validate_profile_capabilities(
         current_reporter().debug(message)
 
 
-# The six vectors the retired route/level presets mapped to. Everything else is
-# expressible but has never been measured -- neither the c coefficient nor the
-# output quality (calibration follow-ups live in docs/llm_followups.md).
-# Keys are (correction_media, retrieval, difficulty) since D20: the output
-# coefficient follows the correction window's media, so the calibration key
-# does too. The entries migrated 1:1 -- pre-split runs had both switches equal.
-CALIBRATED_VECTORS = frozenset(
-    {
-        ("text", "none", "efficiency"),
-        ("text", "none", "quality"),
-        ("text", "native", "quality"),
-        ("text", "local", "quality"),
-        ("audio", "local", "quality"),
-        ("video", "local", "quality"),
-    }
-)
-
-# Vectors whose measured c predates a repositioning that changed their output
-# side: the old measurement no longer calibrates them. They keep the
-# old value until P6 re-measures, and say so on every run.
-RECALIBRATION_PENDING: dict[Tuple[str, str, str], str] = {
-    ("text", "none", "efficiency"): (
-        "efficiency 取消输出系数减免（model-routing v2：c 从实测时的 2.0 提到 3.5，"
-        "窗口容量降至 57%），且该档仍强制 basicB 变体"
-    ),
-    ("video", "local", "quality"): (
-        "reasoning 措辞深度由 high 降为 medium（旧 mm-high 实测时为 high）"
-    ),
-}
-
-
 def profile_warnings(profile: TranslationProfile) -> List[str]:
     """Non-fatal notices about a switch vector that runs but may surprise.
 
-    Both cases are "the run proceeds and produces something reasonable, but not
-    what the switches literally promise", which is exactly what a warning is
-    for -- rejecting them would remove usable combinations over a catalog fact
-    that a future model could change.
+    "The run proceeds and produces something reasonable, but not what the
+    switches literally promise" is exactly what a warning is for -- rejecting
+    it would remove a usable combination.
     """
 
     messages: List[str] = []
     # (The old "native pool is basic-tier only" warning died with the v1
     # native-search chain: the variant now comes from the task-group cell, so
     # difficulty=quality gets capableC on whichever native-capable model the
-    # user bound -- plan v2 D4.)
-    vector = (profile.correction_media, profile.retrieval, profile.difficulty)
-    if vector not in CALIBRATED_VECTORS:
-        messages.append(
-            f"开关组合 {profile.profile_id} 未标定：输出预算系数 "
-            f"c={profile.output_coefficient} 是按轴推定值，质量也无实测（计划 P6）。"
-        )
+    # user bound -- plan v2 D4.) The output coefficient is not calibrated per
+    # switch vector and says nothing at run time (owner 2026-09-30).
     if profile.continuity == "parallel":
         messages.append(
-            "continuity=parallel：并发上限与风控形态未标定（计划 P7d，默认取保守值）；"
+            "continuity=parallel："
             "窗口间无 advice 台账与词条透传链，会话级词条集在屏障处一次定死。"
-        )
-    stale_reason = RECALIBRATION_PENDING.get(vector)
-    if stale_reason is not None:
-        messages.append(
-            f"开关组合 {profile.profile_id} 未重新标定：c="
-            f"{profile.output_coefficient} 沿用重构前实测值，但本次重构改变了"
-            f"该档的输出侧条件——{stale_reason}——旧标定已失效，P6 重测前按现值运行。"
         )
     return messages
 
@@ -451,7 +479,7 @@ def profile_warnings(profile: TranslationProfile) -> List[str]:
 #: here would put a healthy model into permanent warning.
 #:
 #: The input floor moved 194000 -> 192000 for the same reason (owner
-#: 2026-09-04): `local-workbuddy-hy3` declares exactly 192000 in, measured off
+#: 2026-09-04): `local-codebuddy-hy3` declares exactly 192000 in, measured off
 #: the CLI's own `modelUsage`, and it is the cheapest healthy row on that tier.
 #: 194000 was never a vendor number either -- it is the free-Gemini planning
 #: baseline that `ENVELOPE_BASELINE_INPUT` still carries, and that one is a

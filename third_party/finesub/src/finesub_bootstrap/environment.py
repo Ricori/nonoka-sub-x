@@ -14,14 +14,16 @@ import threading
 import time
 from typing import Any
 
-from finesub_bootstrap.fsops import remove_tree, replace_path, write_atomic
+from finesub_bootstrap.fsops import ReplaceBudget, remove_tree, replace_path, write_atomic
 from finesub_bootstrap.http_client import apply_network_environment
-from finesub_bootstrap.locks import holding_lock
+from finesub_bootstrap.locks import LockUnavailable, activity_gate_path, holding_lock
 from finesub_bootstrap.model_caches import existing_hf_home
 from finesub_bootstrap.models import ResourceStatus
 from finesub_bootstrap.paths import AppPaths
-from finesub_bootstrap.processes import terminate_process_tree
+from finesub_bootstrap.processes import no_window, terminate_process_tree
 from finesub_bootstrap.downloader import DownloadPaused
+from finesub_bootstrap import runtime_health
+from finesub_bootstrap.locks import active_run_count
 from finesub_bootstrap.token_counter import TOKEN_COUNTER_VARIABLE
 
 
@@ -200,6 +202,28 @@ def _swap_failure_message(error: OSError) -> str:
     )
 
 
+class RuntimeInUse(RuntimeError):
+    """Another FineSub run holds the runtime a rebuild would replace.
+
+    Refused up front rather than discovered at the final swap: another run's
+    loaded DLLs make that rename fail minutes into the install, and the only
+    message available there blames antivirus or Explorer.
+    """
+
+
+#: Moving the old runtime aside happens under the activity gate, which a
+#: starting run waits on for at most ten seconds; a rename that is refused
+#: there means the old runtime is loaded, so it gives up in about a second.
+_ASIDE_REPLACE = ReplaceBudget(attempts=4, backoff_seconds=0.1, cap_seconds=0.5)
+
+
+#: Extra import roots for the runtime's Python only -- the extension point for
+#: front ends and users who need packages the lock does not carry. Unlike
+#: `PYTHONPATH` it never reaches the thin launcher's own interpreter, and the
+#: packages live outside the runtime, so a rebuild does not take them away.
+EXTRA_PYTHONPATH_VARIABLE = "FINESUB_EXTRA_PYTHONPATH"
+
+
 CommandRunner = Callable[..., Any]
 StageCallback = Callable[[str, str], None]
 LogCallback = Callable[[str], None]
@@ -211,75 +235,6 @@ RuntimeValidator = Callable[[Path], tuple[bool, str]]
 # subprocess.run(timeout=5) -- so tests can decide the outcome without
 # touching the host. Production leaves this unset and probes for real.
 SystemPythonProber = Callable[[], Path | None]
-
-
-# One name per thing that can go missing independently: the worker's own IPC
-# models, the separator stack (whose deps it pulls in transitively and has
-# broken on before), the ASR decode chain, and the optional-by-CLI-default
-# extras the pipeline reaches for. An environment that imports all of these can
-# run a task end to end; one that cannot must be reported as needing repair
-# rather than failing halfway through a job.
-REQUIRED_RUNTIME_IMPORTS = (
-    "pydantic",
-    "audio_separator.separator",
-    "beartype",
-    "ml_collections",
-    "faster_whisper",
-    "ctranslate2",
-    "silero_vad",
-    "transformers",
-)
-
-# Stock CTranslate2 satisfies `import ctranslate2` and even the version pin, but
-# cannot run fw-refine -- only the patched build emits the decoder trace. The
-# lock installs the right one by hashed URL; this catches an environment that
-# drifted off it. See docs/ct2-distribution.md.
-#
-# Deliberately the product name and not the whole local label: the question here
-# is patched-versus-stock, and stock CTranslate2 never carries a `+finesub...`
-# label. Pinning the version too would mean editing this line on every wheel
-# rebuild, and getting it wrong reads as "the stock build is installed" against a
-# perfectly good runtime.
-REQUIRED_CTRANSLATE2_LOCAL_LABEL = "finesub"
-
-# The same requirement expressed as directories under site-packages, for the
-# checks that must not cost 15 seconds. Import names differ from distribution
-# names, so these are the on-disk package directories, not the pip names.
-REQUIRED_RUNTIME_PACKAGE_DIRS = (
-    "pydantic",
-    "audio_separator",
-    "faster_whisper",
-    "ctranslate2",
-    "silero_vad",
-    "transformers",
-    "torch",
-)
-
-
-def runtime_probe_source(modules: tuple[str, ...], ctranslate2_label: str) -> str:
-    """Build the `python -c` program that decides whether a runtime is usable.
-
-    Kept separate from the subprocess call so it can be exercised against a
-    real interpreter with a cheap module list, rather than only against an
-    environment that already has the multi-gigabyte ASR stack installed.
-    """
-
-    return (
-        "import importlib\n"
-        "mods = {}\n"
-        f"for name in {list(modules)!r}:\n"
-        "    mods[name] = importlib.import_module(name)\n"
-        "ct2 = mods.get('ctranslate2')\n"
-        f"label = {ctranslate2_label!r}\n"
-        "version = getattr(ct2, '__version__', '') if ct2 is not None else ''\n"
-        "problem = (\n"
-        "    f'ctranslate2 {version} is the stock build, not the patched one'\n"
-        "    if ct2 is not None and label not in version\n"
-        "    else None\n"
-        ")\n"
-        # None exits 0; any string -- including '' -- exits 1 and is printed.
-        "raise SystemExit(problem)\n"
-    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -319,24 +274,6 @@ def _holding_install_lock(
 #: for why these two travel together). The regional lock is still found beside
 #: whichever lock is in use, by name -- see `regional_lock`.
 PACKAGED_RUNTIME_LOCK = Path(__file__).with_name("pylock.win-py312.toml")
-
-
-#: What installs made before 0.5.0 recorded as `runtimeLockHash`: the sha256 of
-#: the lock *file*, whole -- so a header comment, or the line endings of the
-#: checkout that built the wheel, were part of "the dependencies". Both forms
-#: of the one lock those installs have are listed, and `_marker_is_current`
-#: accepts them, so the 0.5.0 header edit does not send every upgrading user
-#: through a multi-GB rebuild. Delete this the next time the lock is genuinely
-#: regenerated: that rebuilds anyway and writes the content digest.
-_LEGACY_LOCK_FILE_DIGESTS = frozenset({
-    "6dfc839ce1d328fef9426c663c1ab02c03ff739b6c051eb684f59c54759289ec",  # committed bytes (LF)
-    "e56b52fba617d0caa82351e19b06cb91bb07643af11a0a1a7fe50b6854516f43",  # autocrlf working copy (CRLF)
-    # Nonoka X 0.4.2 shipped the same dependency rows with its desktop lock's
-    # original generation-command header.  That packaged file, rather than an
-    # upstream checkout, is what existing desktop markers actually hashed.
-    "86e22beb2c6d2f603547a1147f3cecad2c388e1b43ca37aadf13bd7c6d6280ce",  # packaged 0.4.2 (LF)
-    "fb58922d3725f64e505849877657bec8c96611287da6e4e36795596a17231b4d",  # packaged 0.4.2 (CRLF)
-})
 
 
 def lock_content_digest(lock: Path) -> str:
@@ -380,7 +317,7 @@ class RuntimeEnvironment:
         self.command_runner = command_runner
         self.process_factory = process_factory
         self.process_terminator = process_terminator
-        self.runtime_validator = runtime_validator or self._validate_python
+        self.runtime_validator = runtime_validator or runtime_health.import_probe
         self.python_version = python_version
         self.development_python = (
             development_python.expanduser().resolve()
@@ -404,6 +341,68 @@ class RuntimeEnvironment:
     @property
     def marker_path(self) -> Path:
         return self.runtime_root / "finesub-runtime.json"
+
+    @property
+    def site_packages(self) -> Path:
+        return runtime_health.site_packages_of(self.python_executable)
+
+    def condition(self) -> str:
+        """Why the runtime is or is not ready, for deciding what to do next.
+
+        `ready`; `absent` -- no runtime directory, so nothing a rebuild could
+        take away; `outdated` -- installed for a different lock (an upgrade),
+        or the version marker was removed; `damaged` -- the instant check
+        failed, including a runtime directory that lost its interpreter.
+        """
+
+        if self.development_python is not None:
+            return "ready" if self.status().state == "ready" else "damaged"
+        # Only a runtime directory that is not there at all is a first install.
+        # One that lost its interpreter still holds whatever was put into it,
+        # so it is damage, and `auto_repair` decides.
+        if not self.runtime_root.exists():
+            return "absent"
+        if not self.python_executable.is_file():
+            return "damaged"
+        try:
+            marker = json.loads(self.marker_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return "outdated"
+        if not self._marker_is_current(marker):
+            return "outdated"
+        healthy, _detail = self._active_runtime_health()
+        return "ready" if healthy else "damaged"
+
+    def health_detail(self) -> str:
+        """What the instant check found wrong, for a message; empty when healthy."""
+
+        return self._active_runtime_health()[1]
+
+    def refuse_if_in_use(self, *, holds_lease: bool = False) -> None:
+        """Raise `RuntimeInUse` when another FineSub run holds the runtime.
+
+        Nothing installed means nothing another run could be using. Asked by
+        `install` itself, and by callers that want to know before they
+        announce a rebuild.
+        """
+
+        if not self.runtime_root.exists():
+            return
+        others = active_run_count(self.paths.user_data) - (1 if holds_lease else 0)
+        if others > 0:
+            raise RuntimeInUse(
+                f"另有 {others} 个 FineSub 运行正在使用运行环境，现在不能重建它；"
+                "等它们结束后再运行一次即可。"
+            )
+
+    def check(self, *, verify_hashes: bool = False) -> runtime_health.RuntimeReport | None:
+        """The quick (or full) check of the active runtime against the lock."""
+
+        if self.development_python is not None or not self.site_packages.is_dir():
+            return None
+        return runtime_health.check_runtime(
+            self.site_packages, self.runtime_lock, verify_hashes=verify_hashes
+        )
 
     def status(self, *, force_probe: bool = False) -> ResourceStatus:
         """Report whether the runtime is usable.
@@ -462,7 +461,19 @@ class RuntimeEnvironment:
         stage: StageCallback | None = None,
         log: LogCallback | None = None,
         should_pause: PauseCheck | None = None,
+        force: bool = False,
+        verify_hashes: bool = False,
+        holds_lease: bool = False,
     ) -> ResourceStatus:
+        """Build the runtime in staging and swap it in.
+
+        ``force`` rebuilds an environment that looks healthy (a repair);
+        ``verify_hashes`` checks the new environment with the full tier instead
+        of the quick one. ``holds_lease`` says the caller is itself a run that
+        registered an activity lease, so that lease is not counted as another
+        user of the runtime.
+        """
+
         if self.development_python is not None:
             if not self.development_python.is_file():
                 raise FileNotFoundError(
@@ -473,6 +484,7 @@ class RuntimeEnvironment:
         if not uv.is_file():
             raise FileNotFoundError(f"uv bootstrap executable was not found: {uv}")
 
+        self.refuse_if_in_use(holds_lease=holds_lease)
         self.paths.runtime.mkdir(parents=True, exist_ok=True)
         self.paths.cache.mkdir(parents=True, exist_ok=True)
         with _holding_install_lock(
@@ -485,6 +497,9 @@ class RuntimeEnvironment:
                 stage=stage,
                 log=log,
                 should_pause=should_pause,
+                force=force,
+                verify_hashes=verify_hashes,
+                holds_lease=holds_lease,
             )
 
     def _install_locked(
@@ -494,27 +509,20 @@ class RuntimeEnvironment:
         stage: StageCallback | None,
         log: LogCallback | None,
         should_pause: PauseCheck | None,
+        force: bool = False,
+        verify_hashes: bool = False,
+        holds_lease: bool = False,
     ) -> ResourceStatus:
         # Whoever held the lock before us may have finished the very install
         # we queued up for; redoing it would tear down a runtime that is
-        # already correct (and possibly in use).
+        # already correct (and possibly in use). A forced repair was asked for
+        # precisely because "ready" was not the whole truth.
         current = self.status()
-        if current.state == "ready":
+        if current.state == "ready" and not force:
             return current
 
         staging = self.paths.runtime / "python.staging"
         previous = self.paths.runtime / "python.previous"
-        # A staging tree carrying this exact marker was already built and
-        # validated by an attempt that only failed to swap it in. Finishing it
-        # is one rename; rebuilding it is minutes and 2.8GB of unpacking.
-        if self._staging_is_complete(staging):
-            if stage is not None:
-                stage("activating", "正在校验并启用 Python 环境")
-            self._activate(staging, previous)
-            return self.status()
-        self._discard(staging)
-
-        self._warn_if_cache_is_on_another_volume(log)
         environment = os.environ.copy()
         environment.update(
             {
@@ -527,6 +535,21 @@ class RuntimeEnvironment:
             }
         )
         apply_network_environment(environment)
+        # A staging tree carrying this exact marker was already built and
+        # validated by an attempt that only failed to swap it in. Finishing it
+        # is one rename; rebuilding it is minutes and 2.8GB of unpacking. It
+        # still has to pass the file check: the swap may have failed because
+        # something was quarantining files out of it.
+        if self._staging_is_complete(staging) and self._staging_passes(
+            staging, verify_hashes=verify_hashes, log=log
+        ):
+            if stage is not None:
+                stage("activating", "正在校验并启用 Python 环境")
+            self._activate(staging, previous, holds_lease=holds_lease)
+            return self.status()
+        self._discard(staging)
+
+        self._warn_if_cache_is_on_another_volume(log)
         try:
             base_python = self.system_python()
             if base_python is None:
@@ -583,6 +606,18 @@ class RuntimeEnvironment:
                 log=log,
                 should_pause=should_pause,
             )
+            # Files first, then imports: mending the tree may reinstall
+            # packages, and the probe should see the tree that ships. Both
+            # before the marker, so a tree that fails is partial and the
+            # handler below discards it instead of keeping it for a retry.
+            self._verify_staging(
+                uv,
+                staging_python,
+                environment,
+                verify_hashes=verify_hashes,
+                log=log,
+                should_pause=should_pause,
+            )
             healthy, detail = self.runtime_validator(staging_python)
             if not healthy:
                 raise RuntimeError(
@@ -603,7 +638,7 @@ class RuntimeEnvironment:
                 raise DownloadPaused("Python environment installation paused")
             if stage is not None:
                 stage("activating", "正在校验并启用 Python 环境")
-            self._activate(staging, previous)
+            self._activate(staging, previous, holds_lease=holds_lease)
             self._prune_cache(uv, environment, log=log)
         except Exception:
             # A tree that is built and validated has nothing left but the swap,
@@ -622,6 +657,7 @@ class RuntimeEnvironment:
         *,
         log: LogCallback | None,
         should_pause: PauseCheck | None,
+        reinstall: Sequence[str] = (),
     ) -> None:
         """Install from the regional lock, falling back to the canonical one.
 
@@ -645,6 +681,11 @@ class RuntimeEnvironment:
                     str(staging_python),
                     "--requirement",
                     str(lock),
+                    *(
+                        argument
+                        for name in reinstall
+                        for argument in ("--reinstall-package", name)
+                    ),
                 ],
                 environment,
                 log=log,
@@ -702,7 +743,8 @@ class RuntimeEnvironment:
         ``extra_env``: this method owns them, and a caller that merely set them
         in ``extra_env`` would have them silently overwritten. Extra entries go
         through ``extra_path_dirs`` / ``extra_python_path`` instead -- managed
-        tools that are found by execution or by import (for example yt-dlp).
+        tools that are found by execution or by import (for example yt-dlp). Last
+        come the caller's own import roots from ``FINESUB_EXTRA_PYTHONPATH``.
         """
 
         source_paths = [str(self.app_source), str(self.app_source / "src")]
@@ -711,6 +753,9 @@ class RuntimeEnvironment:
             source_paths.append(existing_python_path)
         # Appended, so the app's own modules still win any name clash.
         source_paths.extend(str(path) for path in extra_python_path)
+        extra = os.environ.get(EXTRA_PYTHONPATH_VARIABLE, "").strip()
+        if extra:
+            source_paths.append(extra)
         environment = dict(extra_env)
         environment.update(
             {
@@ -775,8 +820,7 @@ class RuntimeEnvironment:
             errors="replace",
             bufsize=1,
             creationflags=(
-                getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
-                | getattr(subprocess, "CREATE_NO_WINDOW", 0)
+                getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0) | no_window()
                 if os.name == "nt"
                 else 0
             ),
@@ -859,11 +903,7 @@ class RuntimeEnvironment:
                     encoding="utf-8",
                     errors="replace",
                     timeout=5,
-                    creationflags=(
-                        getattr(subprocess, "CREATE_NO_WINDOW", 0)
-                        if os.name == "nt"
-                        else 0
-                    ),
+                    creationflags=no_window(),
                 )
                 path = Path(result.stdout.strip()).expanduser().resolve()
                 version = subprocess.run(
@@ -879,11 +919,7 @@ class RuntimeEnvironment:
                     encoding="utf-8",
                     errors="replace",
                     timeout=5,
-                    creationflags=(
-                        getattr(subprocess, "CREATE_NO_WINDOW", 0)
-                        if os.name == "nt"
-                        else 0
-                    ),
+                    creationflags=no_window(),
                 )
                 actual = tuple(int(part) for part in version.stdout.split())
             except (OSError, ValueError, subprocess.SubprocessError):
@@ -891,6 +927,82 @@ class RuntimeEnvironment:
             if path.is_file() and actual == expected:
                 return path
         return None
+
+    def _staging_passes(
+        self,
+        staging: Path,
+        *,
+        verify_hashes: bool,
+        log: LogCallback | None,
+    ) -> bool:
+        report = runtime_health.check_runtime(
+            runtime_health.site_packages_of(staging / "Scripts" / "python.exe"),
+            self.runtime_lock,
+            verify_hashes=verify_hashes,
+        )
+        if report is not None and report.mismatched:
+            if log is not None:
+                log("未完成的新运行环境与锁不一致，重新构建：" + "；".join(report.problems()))
+            return False
+        return True
+
+    def _verify_staging(
+        self,
+        uv: Path,
+        staging_python: Path,
+        environment: dict[str, str],
+        *,
+        verify_hashes: bool,
+        log: LogCallback | None,
+        should_pause: PauseCheck | None,
+    ) -> None:
+        """Hold the freshly built environment to its lock, and mend it once.
+
+        uv's exit code and the import probe both pass an environment whose
+        cache handed back a quarantined or corrupted file: files are hardlinked
+        out of uv's cache, the cache is not re-verified, and a missing
+        `silero_vad.jit` breaks no import. So the new tree is checked file by
+        file. The packages that fail are evicted from the cache -- the old
+        environment keeps its own links, so it is unaffected -- and reinstalled,
+        which downloads them again and repairs the cache for every later build
+        too. A tree that still fails is not swapped in.
+        """
+
+        site_packages = runtime_health.site_packages_of(staging_python)
+        report = runtime_health.check_runtime(
+            site_packages, self.runtime_lock, verify_hashes=verify_hashes
+        )
+        if report is None or not report.mismatched:
+            return
+        packages = report.packages_to_reinstall()
+        if log is not None:
+            log("新运行环境与锁不一致，清掉缓存重装：" + "、".join(packages))
+        for name in packages:
+            self._run(
+                [str(uv), "cache", "clean", name],
+                environment,
+                log=log,
+                should_pause=should_pause,
+            )
+        self._install_dependencies(
+            uv,
+            staging_python,
+            environment,
+            log=log,
+            should_pause=should_pause,
+            reinstall=packages,
+        )
+        report = runtime_health.check_runtime(
+            site_packages, self.runtime_lock, verify_hashes=verify_hashes
+        )
+        if report is not None and report.mismatched:
+            raise RuntimeError(
+                "新装的运行环境里仍有文件缺失或内容不对（"
+                + "；".join(report.problems())
+                + "）。这几乎总是杀毒软件在安装的同时隔离了文件：请把 "
+                f"{self.paths.runtime} 与 {self.paths.cache} 加进杀毒软件的白名单后重试。"
+                "原来的运行环境没有改动。"
+            )
 
     def _active_runtime_health(
         self,
@@ -924,33 +1036,9 @@ class RuntimeEnvironment:
 
         if force_probe:
             return self.runtime_validator(python_executable)
-        site_packages = python_executable.parent.parent / "Lib" / "site-packages"
-        if not python_executable.is_file() or not site_packages.is_dir():
-            return False, "Python 运行环境不完整。"
-        healthy, detail = self._repair_base_interpreter(python_executable)
-        if not healthy:
-            return False, detail
-        missing = [
-            name
-            for name in REQUIRED_RUNTIME_PACKAGE_DIRS
-            if not (site_packages / name).is_dir()
-        ]
-        if missing:
-            return False, f"Python 运行环境缺少必需依赖：{', '.join(missing)}"
-        # Stock CTranslate2 satisfies every path check above; only the version
-        # separates it from the build fw-refine needs, and dist-info carries it
-        # without importing anything.
-        labels = [
-            item.name
-            for item in site_packages.glob("ctranslate2-*.dist-info")
-        ]
-        if labels and not any(
-            REQUIRED_CTRANSLATE2_LOCAL_LABEL in label for label in labels
-        ):
-            return False, (
-                "ctranslate2 是原版而非补丁版，ASR 无法运行；请重装运行环境。"
-            )
-        return True, ""
+        return runtime_health.instant_health(
+            python_executable, python_builds=self.paths.runtime / "python-builds"
+        )
 
     def _prune_cache(
         self,
@@ -964,9 +1052,10 @@ class RuntimeEnvironment:
         Hygiene, not reclamation: because uv hardlinks wheels out of the cache
         into the environment, deleting a cache entry that an environment still
         references frees nothing. Space comes back when the last reference goes
-        -- which is why `uv cache clean <package>` is never run automatically:
+        -- which is why `uv cache clean <package>` is never run to save space:
         it evicts the version currently in use, freeing nothing while making
-        the next rebuild download it again.
+        the next rebuild download it again. The one place it does run is
+        `_verify_staging`, for a package whose cached copy is itself damaged.
 
         Routed through `command_runner` like every other uv invocation. Calling
         `subprocess.run` directly here punched a hole in the seam: tests hand
@@ -983,11 +1072,7 @@ class RuntimeEnvironment:
                 env=environment,
                 capture_output=True,
                 timeout=120,
-                creationflags=(
-                    getattr(subprocess, "CREATE_NO_WINDOW", 0)
-                    if os.name == "nt"
-                    else 0
-                ),
+                creationflags=no_window(),
             )
         except (OSError, subprocess.SubprocessError) as error:
             if log is not None:
@@ -1018,93 +1103,6 @@ class RuntimeEnvironment:
             "建议整个 FineSub 文件夹一起搬走。"
         )
 
-    def _repair_base_interpreter(
-        self, python_executable: Path
-    ) -> tuple[bool, str]:
-        """Keep a moved environment usable by fixing `pyvenv.cfg`'s `home`.
-
-        A virtual environment carries no standard library: `Scripts\\python.exe`
-        finds it through the base interpreter recorded in `pyvenv.cfg`. Moving
-        the environment is otherwise harmless -- `sys.prefix` follows the
-        executable -- so the only thing a hand-moved installation breaks is that
-        one absolute path, and only when the base lives inside the tree that
-        moved (an interpreter uv installed under `python-builds`, rather than a
-        system Python that stayed put).
-
-        Rewriting one line rescues several GB. This runs inside the polling
-        health check, so it reads first and writes only when actually broken.
-        """
-
-        config = python_executable.parent.parent / "pyvenv.cfg"
-        try:
-            lines = config.read_text(encoding="utf-8").splitlines()
-        except OSError:
-            return True, ""  # No pyvenv.cfg: not a venv we manage.
-        recorded: str | None = None
-        for line in lines:
-            key, separator, value = line.partition("=")
-            if separator and key.strip() == "home":
-                recorded = value.strip()
-                break
-        if recorded is None or Path(recorded).is_dir():
-            return True, ""
-        replacement = self._relocated_base(Path(recorded))
-        if replacement is None:
-            return False, (
-                "Python 运行环境的基础解释器已不存在，需要重新安装运行环境。"
-            )
-        rewritten = [
-            f"home = {replacement}"
-            if line.partition("=")[0].strip() == "home"
-            else line
-            for line in lines
-        ]
-        write_atomic(config, "\n".join(rewritten) + "\n")
-        return True, ""
-
-    def _relocated_base(self, recorded: Path) -> Path | None:
-        """The same uv-managed interpreter under this installation, if present."""
-
-        builds = self.paths.runtime / "python-builds"
-        candidate = builds / recorded.name
-        return candidate if candidate.is_dir() else None
-
-    def _validate_python(self, python_executable: Path) -> tuple[bool, str]:
-        probe = runtime_probe_source(
-            REQUIRED_RUNTIME_IMPORTS,
-            REQUIRED_CTRANSLATE2_LOCAL_LABEL,
-        )
-        command = [str(python_executable), "-I", "-c", probe]
-        try:
-            result = subprocess.run(
-                command,
-                check=False,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.PIPE,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                # Generous on purpose: the probe imports torch (via the
-                # separator and silero) plus the whole decode chain, which on a
-                # cold cache is seconds, not milliseconds. A timeout here is
-                # reported as a broken runtime, so erring short is the costly
-                # direction. The result is cached against site-packages mtime,
-                # so a healthy environment pays this once.
-                timeout=120,
-                creationflags=(
-                    getattr(subprocess, "CREATE_NO_WINDOW", 0)
-                    if os.name == "nt"
-                    else 0
-                ),
-            )
-        except (OSError, subprocess.SubprocessError) as error:
-            return False, f"Python 运行环境检测失败：{error}"
-        if result.returncode == 0:
-            return True, ""
-        details = result.stderr.strip().splitlines()
-        reason = details[-1] if details else "required module import failed"
-        return False, f"Python 运行环境缺少必需依赖：{reason}"
-
     @staticmethod
     def _drain_logs(
         lines: queue.Queue[str],
@@ -1123,7 +1121,9 @@ class RuntimeEnvironment:
             if tail is not None:
                 tail.append(line)
 
-    def _activate(self, staging: Path, previous: Path) -> None:
+    def _activate(
+        self, staging: Path, previous: Path, *, holds_lease: bool = False
+    ) -> None:
         self._discard(previous)
         # lexists, not Path.exists: the latter follows links, so a stale
         # junction reads as absent while still owning the name, and it reports
@@ -1132,7 +1132,7 @@ class RuntimeEnvironment:
         # existing directory is exactly the access-denied case below.
         had_active = os.path.lexists(self.runtime_root)
         if had_active:
-            self._swap(self.runtime_root, previous)
+            self._move_aside(previous, holds_lease=holds_lease)
         try:
             self._swap(staging, self.runtime_root)
         except OSError as error:
@@ -1143,6 +1143,31 @@ class RuntimeEnvironment:
                     pass
             raise RuntimeError(_swap_failure_message(error)) from error
         self._discard(previous)
+
+    def _move_aside(self, previous: Path, *, holds_lease: bool) -> None:
+        """Move the old runtime out of the way while no other run can start.
+
+        Building took minutes, and a run that started meanwhile may have the old
+        runtime's DLLs loaded. A run publishes its lease while holding the
+        activity gate, so holding the gate across the last lease check and this
+        one rename leaves no moment for a run to start in between. A run that
+        starts after it finds no runtime, waits on the install lock this build
+        holds, and goes on with the new runtime.
+
+        Only this rename is inside the gate, and with a short budget: a run
+        waits at most ten seconds for the gate, and an old runtime that cannot
+        be moved is one somebody has loaded -- a reason to stop, not to wait.
+        A refusal keeps the finished staging tree for the next attempt.
+        """
+
+        try:
+            with holding_lock(activity_gate_path(self.paths.user_data), timeout=10):
+                self.refuse_if_in_use(holds_lease=holds_lease)
+                self._swap(self.runtime_root, previous, budget=_ASIDE_REPLACE)
+        except LockUnavailable as error:
+            raise RuntimeInUse(
+                "另一个 FineSub 运行正在启动，现在不能重建运行环境；等它开始后再运行一次即可。"
+            ) from error
 
     # The activation swap was where this wait was first needed and first
     # written; it now shares the one in `fsops` with every other publish.
@@ -1182,24 +1207,9 @@ class RuntimeEnvironment:
         }
 
     def _marker_is_current(self, marker: object) -> bool:
-        """Whether a marker on disk describes the runtime this lock wants.
+        """Whether a marker on disk describes the runtime this lock wants."""
 
-        Equality with `_marker()`, plus one grace: a marker written before
-        0.5.0 recorded the digest of the lock *file*, and those installs must
-        not rebuild several GB because the file's header changed.
-        """
-
-        expected = self._marker()
-        if marker == expected:
-            return True
-        if not isinstance(marker, dict):
-            return False
-        recorded = dict(marker)
-        if recorded.pop("runtimeLockHash", None) not in _LEGACY_LOCK_FILE_DIGESTS:
-            return False
-        return recorded == {
-            key: value for key, value in expected.items() if key != "runtimeLockHash"
-        }
+        return marker == self._marker()
 
     def regional_lock(self) -> Path | None:
         """The lock for this machine's region, if one shipped and applies.

@@ -11,6 +11,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 import ctypes
 import hashlib
+import importlib.resources
 import json
 import os
 from pathlib import Path
@@ -29,6 +30,8 @@ import uuid
 from finesub.reporting import current_reporter
 from finesub_bootstrap.fsops import is_directory_link, remove_tree, write_atomic
 from finesub_bootstrap.locks import LockUnavailable, holding_activity, holding_lock
+from finesub_bootstrap.processes import no_window
+from . import codex_connection
 from .agent_paths import (
     AgentEpisodeLocation,
     evidence_locator,
@@ -42,12 +45,30 @@ DEFAULT_TIMEOUT_SECONDS = 900
 DEFAULT_MAX_RESULT_BYTES = 1_048_576
 DEFAULT_MAX_EVENT_BYTES = 8_388_608
 DEFAULT_MAX_STDERR_BYTES = 1_048_576
+# Windows `CREATE_SUSPENDED`, which `subprocess` does not export: the CLI is put
+# in its kill-on-close job before its first instruction runs.
+_CREATE_SUSPENDED = 0x00000004
 
 # How many failed episodes a runtime domain keeps. A successful call deletes
 # its own capsule, so this only ever bounds *evidence*, and evidence loses its
 # value oldest-first: the failure someone is actually investigating is the one
 # that just happened. Matches the task runtime's retained state generations.
 RETAINED_FAILED_EPISODES = 20
+# Harness sessions (a tool session, or a session host's CLI) that left cleanly
+# while the runtime still had not accepted their work. To the transport that is
+# a success -- clean exit, a final message -- and it used to be removed like
+# one. But such a session's final message is not its artifact (only `submit`
+# delivers that) and the harness writes no exchange for a call it then fails, so
+# the removal took the only record of what the agent did. Kept in a pool of its
+# own so a burst of these cannot push transport failures out of theirs, and a
+# smaller one, since each is a whole session. The attempt's `final_text_tail`
+# covers how the reply ended; the event stream, stderr and the prompt it read are
+# only here. (An empty reply never gets this far: it raises and is kept as a
+# transport failure.)
+RETAINED_UNACCEPTED_EPISODES = 10
+#: Written into a kept episode to put it in the pool above rather than the
+#: transport-failure one. Its presence is the whole signal.
+UNACCEPTED_EPISODE_MARKER = "unaccepted-session.json"
 # Nothing older than this can still be running: the transport kills a call at
 # `timeout_seconds`, so twice that with an hour floor is past any live owner.
 # Belt to the newest-N braces -- N alone already protects live capsules unless
@@ -70,7 +91,26 @@ SENSITIVE_ENV_NAMES = frozenset(
 ENV_ALLOWLIST = frozenset(
     {
         "APPDATA",
+        # Where each CLI keeps its own configuration and login: stripping one
+        # points the call at the default directory while the user's own CLI
+        # reads another (the DSH_HOME note below).
+        "CLAUDE_CONFIG_DIR",
+        "CODEBUDDY_CONFIG_DIR",
+        # Which CodeBuddy site the login belongs to. The CLI also reads the
+        # misspelled name, so a user who set that one keeps their site too.
+        "CODEBUDDY_INTERNET_ENVIRONMENT",
+        "CODEBUDDY_INTERNET_ENVIROMENT",
         "CODEX_HOME",
+        # How this machine reaches the network. Not credentials; without them
+        # a user behind a proxy or a corporate CA has no working agent at all.
+        "ALL_PROXY",
+        "CODEX_CA_CERTIFICATE",
+        "HTTP_PROXY",
+        "HTTPS_PROXY",
+        "NODE_EXTRA_CA_CERTS",
+        "NO_PROXY",
+        "SSL_CERT_DIR",
+        "SSL_CERT_FILE",
         "COMSPEC",
         # Same kind of name as CODEX_HOME -- where a CLI keeps its own
         # configuration, not a credential. dsh is the one driver that declares
@@ -102,6 +142,25 @@ _URL_RE = re.compile(r"https?://[^\s\"'<>]+")
 # trailing sentence stop. None can end a real URL, and an unmatched `)` cannot
 # either -- Wikipedia-style parens come in pairs.
 _URL_TRAILING = "\\.,;:!?'\"`"
+
+
+def _harvested_strings(value: Any) -> list[str]:
+    """Every string inside a decoded event payload, in document order."""
+
+    found: list[str] = []
+
+    def walk(node: Any) -> None:
+        if isinstance(node, str):
+            found.append(node)
+        elif isinstance(node, Mapping):
+            for item in node.values():
+                walk(item)
+        elif isinstance(node, Sequence) and not isinstance(node, (str, bytes)):
+            for item in node:
+                walk(item)
+
+    walk(value)
+    return found
 
 
 def _harvest_urls(value: Any) -> list[str]:
@@ -154,10 +213,41 @@ _ALLOWED_ITEM_TYPES = frozenset(
 # gets this long to leave on its own; then its tree is reclaimed and whatever
 # it was still saying goes to the audit only.
 ACCEPTED_EXIT_GRACE_SECONDS = 15.0
+# Exit-on-accept (`[llm] local_agent_exit_on_accept`, single-task tool sessions
+# only): the harness MCP server sits on its `accepted` reply this long, so the
+# CLI never gets to spend a request on "submitted" -- the driver sees the accept
+# within a poll and ends the tree first. The reply still goes out if nobody
+# does, so a hold the driver did not act on costs time, never the call.
+ACCEPTED_REPLY_HOLD_SECONDS = 10.0
 _FORBIDDEN_ITEM_TYPES = frozenset(
     {"command_execution", "file_change", "mcp_tool_call", "computer_use"}
 )
 _ALLOWED_CONFIG_OVERRIDE_KEYS = frozenset({"service_tier", "model_reasoning_effort"})
+
+def _load_user_rules_notice() -> str:
+    """The opening sentence that sets aside the user's injected rule files.
+
+    Codex injects `$CODEX_HOME/AGENTS.md`, CodeBuddy the user-level
+    `CODEBUDDY.md`, agy `~/.gemini/GEMINI.md`, and none of them has a switch
+    that keeps it out (measured 2026-09-30). This sentence asks the model to
+    take language, format and behaviour from the task instead -- a soft
+    guard, the hard one being the output validator. Prompt text, so it lives
+    in `prompt_templates/`; a missing file fails the import rather than
+    shipping an empty sentence.
+    """
+
+    text = (
+        importlib.resources.files("finesub.llm")
+        .joinpath("prompt_templates", "fragment_agent_user_rules_v1.md")
+        .read_text(encoding="utf-8")
+        .strip()
+    )
+    if not text:
+        raise RuntimeError("prompt_templates/fragment_agent_user_rules_v1.md is empty")
+    return text
+
+
+AGENT_USER_RULES_NOTICE = _load_user_rules_notice()
 
 # The driver's own framing, ahead of the task's real messages. Two variants
 # because the two CLIs differ in what the agent can actually reach: Codex runs
@@ -171,17 +261,17 @@ _AGENT_TASK_PROMPT_TAIL = (
     "tools. Return only the requested final response, with no wrapper or "
     "explanation."
 )
-AGENT_TASK_PROMPT_READABLE_CAPSULE = (
+AGENT_TASK_PROMPT_READABLE_CAPSULE = AGENT_USER_RULES_NOTICE + " " + (
     "You are a FineSub text execution backend. The exact chat messages and "
     "optional stateless repair context are in the appended <stdin> JSON; the "
     "messages are mirrored in input/messages.json for audit. "
 ) + _AGENT_TASK_PROMPT_TAIL
-AGENT_TASK_PROMPT_STDIN_ONLY = (
+AGENT_TASK_PROMPT_STDIN_ONLY = AGENT_USER_RULES_NOTICE + " " + (
     "You are a FineSub text execution backend. The exact chat messages and "
     "optional stateless repair context are in the appended <stdin> JSON, which "
     "is your only input. "
 ) + _AGENT_TASK_PROMPT_TAIL
-AGENT_TASK_PROMPT_TOOL_SESSION = (
+AGENT_TASK_PROMPT_TOOL_SESSION = AGENT_USER_RULES_NOTICE + " " + (
     "You are a FineSub task-runtime worker. The exact worker bootstrap is in "
     "the appended <stdin> JSON. Use only the entitled tools from the MCP "
     "server named finesub: call next_task, follow its protocol, and hand the "
@@ -190,7 +280,7 @@ AGENT_TASK_PROMPT_TOOL_SESSION = (
     "computer-use, or file-change tools. A chat answer is not a submission; "
     "after submit returns accepted, reply only submitted and stop."
 )
-AGENT_TASK_PROMPT_AGY_MEDIA = (
+AGENT_TASK_PROMPT_AGY_MEDIA = AGENT_USER_RULES_NOTICE + " " + (
     "You are a FineSub multimodal execution backend. The exact chat messages "
     "are in the task file named below; on a repair round a second file is "
     "named alongside it. "
@@ -261,21 +351,21 @@ if tool_call.get("name") == "view_file" and isinstance(raw_path, str) and os.pat
 
 json.dump({"decision": decision, "reason": reason}, sys.stdout)
 """
-# agy splits its catalogue in two: the Gemini models take `--effort` and are
-# listed once per level, while every other model bakes the level into its id
-# (`claude-opus-4-6-thinking`, `gpt-oss-120b-medium`) and **rejects the flag**:
+# agy takes `--effort low|medium|high` for every model it lists, and its Claude
+# models refuse to start without one (verified 2026-10-03, agy 1.2.16):
 #
-#   Error: invalid model selection (--model "claude-opus-4-6-thinking"
-#   --effort "high"): --effort is not supported for model "..."
+#   invalid model selection (--model "claude-sonnet-5-5" --effort ""):
+#   --model claude-sonnet-5-5 requires --effort (available: low, medium, high)
 #
-# That refusal is a hard pre-flight failure, which classifies as transient --
-# so two of them and the quota probe freezes the whole allowance for two hours
-# over a flag. The catalog's `thinking = false` already keeps the harness from
-# asking, but `[llm].local_agent_reasoning_effort` reaches the driver config
-# directly, so the CLI's own rule is enforced here too. Re-derive with
-# `agy models` (verified 2026-08-15, agy 1.1.x).
-def _agy_model_takes_effort(model: str) -> bool:
-    return model.strip().lower().startswith("gemini-")
+# `[llm].local_agent_reasoning_effort` may say `xhigh`, which agy does not
+# have -- a hard pre-flight failure that classifies as transient -- so it is
+# sent as `high`. (Under agy 1.1.x the Claude model baked its level into its id,
+# `claude-opus-4-6-thinking`, and rejected the flag; that model is gone.)
+_AGY_EFFORT_CEILING = {"xhigh": "high"}
+
+
+def _agy_effort(effort: str) -> str:
+    return _AGY_EFFORT_CEILING.get(effort, effort)
 
 
 AGY_AGENT_DOCUMENT = """---
@@ -308,6 +398,13 @@ AGY_NATIVE_AGENT_NAME = "finesub-native"
 #: and a list would silently break research on every site not on it. Written
 #: into the project's OWN record, never the user's global settings.
 AGY_NATIVE_PERMISSION_RULES: tuple[str, ...] = ("read_url(*)",)
+#: Every project's `view_file`. Since agy 1.2.13 its own check also refuses
+#: reads outside the workspace (project and cwd) that the hook allowed, the
+#: system temp directory excepted, with the same turn-ending auto-deny. The
+#: capsule domain sits in temp only when run from a checkout; the managed
+#: domain and explicit roots do not, and the tool path's assignment roots are
+#: outside its project and cwd. The guards remain the read boundary.
+AGY_READ_PERMISSION_RULES: tuple[str, ...] = ("read_file(*)",)
 
 # A **second project**, rooted one level below the runtime domain. The two modes
 # cannot share one: the entitlement lives in the project's `.agents/` tree, so a
@@ -453,6 +550,17 @@ DSH_SESSION_DIRNAME = "dsh-sessions"
 #: dsh's own web tool, as it appears in the transcript. Harness-proxied tools
 #: arrive through MCP and are prefixed, so the bare name is the native one.
 DSH_SEARCH_TOOL = "web_search"
+#: Its fetch half, served by `web-fetch-http` since dsh 0.1.5. A retrieval
+#: call like the search, so both become retrieval rows in the audit.
+DSH_FETCH_TOOL = "web_fetch"
+DSH_RETRIEVAL_TOOLS: frozenset[str] = frozenset({DSH_SEARCH_TOOL, DSH_FETCH_TOOL})
+#: The session transcript's file name: `session.jsonl` up to 0.1.1-rc.2,
+#: `session.v3.jsonl` from 0.1.5 -- versioned, so a later `v<N>` is read too.
+_DSH_SESSION_LOG_NAME = re.compile(r"session(?:\.v\d+)?\.jsonl")
+#: The first line of a `web_fetch` result: `Fetched <finalUrl> (HTTP <code>)`
+#: (dsh-tool-web's README). The final URL is the page actually read, which
+#: after a redirect is not the one the call asked for.
+_DSH_FETCHED_LINE = re.compile(r"^Fetched (\S+) \(HTTP \d+\)", re.MULTILINE)
 #: The environment name dsh's search backend looks its own key up under.
 #: Not in SENSITIVE_ENV_NAMES: that list is the harness's own credentials,
 #: which a driver could bill against. This one is the driver's.
@@ -552,22 +660,17 @@ AGY_TOOL_AGENT_DOCUMENT = """---
 name: __AGY_TOOL_AGENT_NAME__
 description: FineSub worker that takes and submits its task over the finesub MCP server.
 tools:
-  - __AGY_MCP_CALL_TOOL__
   - view_file
 mainAgent: true
 subagent: false
 inheritMcp: true
-mcpServers:
-  - __AGY_MCP_SERVER_NAME__
 commandExecutionPolicy: sandbox
 ---
 
 You are a FineSub worker. The only tools you use are the ones the `finesub` MCP
 server offers, plus `view_file` on the exact file paths a task names; the task
 prompt tells you the order. Do not read any other file and never write files.
-""".replace("__AGY_TOOL_AGENT_NAME__", AGY_TOOL_AGENT_NAME).replace(
-    "__AGY_MCP_CALL_TOOL__", AGY_MCP_CALL_TOOL
-).replace("__AGY_MCP_SERVER_NAME__", MCP_SERVER_NAME)
+""".replace("__AGY_TOOL_AGENT_NAME__", AGY_TOOL_AGENT_NAME)
 
 # The document is advice, not a boundary -- but advice that disagrees with the
 # hook is what produced the silent denial this project kind exists to fix, so
@@ -577,15 +680,12 @@ AGY_TOOL_NATIVE_AGENT_DOCUMENT = """---
 name: __AGY_TOOL_NATIVE_AGENT_NAME__
 description: FineSub worker that takes its task over the finesub MCP server and may search the web.
 tools:
-  - __AGY_MCP_CALL_TOOL__
   - view_file
   - __AGY_SEARCH_TOOL__
   - __AGY_FETCH_TOOL__
 mainAgent: true
 subagent: false
 inheritMcp: true
-mcpServers:
-  - __AGY_MCP_SERVER_NAME__
 commandExecutionPolicy: sandbox
 ---
 
@@ -595,13 +695,16 @@ task prompt tells you the order. You may also use __AGY_SEARCH_TOOL__ and
 __AGY_FETCH_TOOL__ to look up facts the task asks about. Do not read any other
 file and never write files.
 """.replace("__AGY_TOOL_NATIVE_AGENT_NAME__", AGY_TOOL_NATIVE_AGENT_NAME).replace(
-    "__AGY_MCP_CALL_TOOL__", AGY_MCP_CALL_TOOL
-).replace("__AGY_MCP_SERVER_NAME__", MCP_SERVER_NAME).replace(
     "__AGY_SEARCH_TOOL__", AGY_SEARCH_TOOL
 ).replace("__AGY_FETCH_TOOL__", AGY_FETCH_TOOL)
-# `mcpServers` is what makes a custom agent see the project's servers at all
-# (measured 2026-08-21, agy 1.1.17): with `tools` alone the turn ran empty --
-# zero tokens, no server spawned -- and `inheritMcp` by itself did not help.
+# `inheritMcp: true` is what brings the finesub server in: it adds
+# `call_mcp_tool` and the `mcp_servers` prompt section (agy 1.2.16, measured
+# 2026-10-06). Two spellings that look right are not: listing `call_mcp_tool`
+# under `tools` is accepted but fails the executor ("not found in registry",
+# exit 3, no reply), and any `mcpServers` key makes agy drop the whole
+# document and silently run its default agent -- which every tool session did
+# from 2026-08-21 to 2026-10-06. `_ensure_project` now fails closed on that
+# fallback (`_verify_agent_resolved`).
 
 
 class LocalAgentError(RuntimeError):
@@ -610,6 +713,21 @@ class LocalAgentError(RuntimeError):
 
 class LocalAgentUnavailableError(LocalAgentError):
     route_failure_kind = "unavailable"
+
+
+class AgyAgentUnverifiableError(LocalAgentUnavailableError):
+    """agy left no log to judge the agent document by. Unlike a project agy
+    no longer opens, registering again cannot fix this, so the project-setup
+    fast path re-raises it instead of registering a fresh project per call."""
+
+
+class LocalAgentProviderError(LocalAgentUnavailableError):
+    """The provider the user chose in the CLI's own config cannot serve this call.
+
+    Its config is unreadable, a variable it reads is missing, or a provider on
+    this machine does not answer (codex_connection.py). Unavailable for
+    routing; told apart so `agent-ping` does not answer "log in again".
+    """
 
 
 class LocalAgentTimeoutError(LocalAgentError):
@@ -686,6 +804,13 @@ class AgentDriverConfig:
     max_stderr_bytes: int = DEFAULT_MAX_STDERR_BYTES
     runtime_root: Path | None = None
     allow_unisolated_user_config: bool = False
+    # `[llm] local_agent_keep_episodes`: delete nothing -- no clean-run
+    # removal, no rolling prune. Debugging only.
+    keep_episodes: bool = False
+    # `[llm] local_agent_exit_on_accept`, resolved per driver by
+    # `ExecutionSettings`: what a single-task tool session passes as
+    # `run(exit_on_completion=...)`. Read only by that caller.
+    exit_on_accept: bool = False
     # How many calls this driver may have in flight, and how long a provider
     # conversation is worth resuming. Both are local resource facts: neither
     # borrows the API rate limiter, and neither enters execution identity.
@@ -718,8 +843,13 @@ class AgentDriverConfig:
 @dataclass(frozen=True)
 class CodexDriverConfig(AgentDriverConfig):
     command: tuple[str, ...] = ("codex",)
-    # `codex --version` -> "codex-cli 0.147.0" (owner's machine, 2026-09-02).
-    min_version: str = "0.147.0"
+    # `codex --version` -> "codex-cli 0.160.0" (owner's machine, 2026-10-03).
+    # Raised from 0.157.1 with the move to GPT-6.1 Sol: the model catalog
+    # 0.157.1 had fetched did not list `gpt-6.1-sol`, 0.160.0's does. (From
+    # 0.147.0 to 0.157.1 with GPT-6: on 0.147 the server refuses `gpt-6-*`.)
+    # 0.157.1 was verified with gpt-6-luna: completion, native search, and a
+    # tool session (`next_task -> submit` against a stub MCP server).
+    min_version: str = "0.160.0"
     config_overrides: tuple[str, ...] = ()
     # How much of a tool result Codex shows the model (`tool_output_token_limit`,
     # owner-verified 2026-08-22). Passed as a `-c` override on a tool session
@@ -753,8 +883,8 @@ class ClaudeCodeDriverConfig(AgentDriverConfig):
 
 
 @dataclass(frozen=True)
-class WorkBuddyDriverConfig(AgentDriverConfig):
-    """WorkBuddy's bundled CodeBuddy Code CLI, a fork of Claude Code.
+class CodeBuddyDriverConfig(AgentDriverConfig):
+    """The independently installed CodeBuddy Code CLI.
 
     Same `stream-json` dialect and the same `mcp__<server>__<tool>` naming, so
     the event path is shared. What it does *not* have is the isolation half:
@@ -766,9 +896,9 @@ class WorkBuddyDriverConfig(AgentDriverConfig):
     """
 
     command: tuple[str, ...] = ("codebuddy",)
-    # `codebuddy --version` -> "2.137.1", bare (owner's machine, 2026-09-04).
+    # Independent CLI completion and MCP submission verified 2026-10-10.
     # No vendor name in the string, unlike the other four.
-    min_version: str = "2.137.1"
+    min_version: str = "2.164.0"
     # `--effort` takes minimal/low/medium/high/xhigh/max, a superset of the
     # abstract levels, so the catalog's identity mapping reaches it unchanged
     # and there is no alias table to keep in execution identity.
@@ -800,8 +930,9 @@ class WorkBuddyDriverConfig(AgentDriverConfig):
 @dataclass(frozen=True)
 class AgyDriverConfig(AgentDriverConfig):
     command: tuple[str, ...] = ("agy",)
-    # `agy --version` -> "1.1.24" (owner's machine, 2026-09-02).
-    min_version: str = "1.1.24"
+    # `agy --version` -> "1.2.16" (owner's machine, 2026-10-03): the Claude 5.5
+    # models and their `--effort` were verified there (see `_agy_effort`).
+    min_version: str = "1.2.16"
     effort: str = ""
     project_setup_timeout_seconds: int = 45
     # Owner-observed idle window (2026-08-14), matching the vendor analysis'
@@ -839,14 +970,33 @@ class DshDriverConfig(AgentDriverConfig):
     """
 
     command: tuple[str, ...] = ("dsh",)
-    # `dsh --version` -> "0.1.1-rc.2" (owner's machine, 2026-09-02). A
-    # prerelease, so the comparison has to order `0.1.1` *above* it rather
+    # `dsh --version` -> "0.1.5-rc.1" (owner's machine, 2026-09-12). A
+    # prerelease, so the comparison has to order `0.1.5` *above* it rather
     # than treating the shorter string as older.
-    min_version: str = "0.1.1-rc.2"
+    #
+    # Raised from 0.1.1-rc.2 on the owner's call (2026-09-12), after the
+    # behaviour that matters was re-verified on 0.1.5-rc.1: the new plugins
+    # vetted below, the inline quota probe, and a synthetic native
+    # tool-protocol window run end to end twice -- both searched and had their
+    # submit accepted; the first also fetched pages, and the second, run after
+    # the transcript fix, had its searches read back into the audit. An older
+    # install still runs; it now warns once that it is older than what was
+    # verified. This number means "behaviour last verified", not "a version
+    # that starts".
+    min_version: str = "0.1.5-rc.1"
     profile: str = "headless"
     # No flag of dsh's own: the thinking knob is a field on whichever model
     # plugin serves the route, so it goes down the patch like the rest.
     effort: str = ""
+    # Set only by `probing_driver`. dsh takes its task from argv alone, so a
+    # window cannot ride inline and a call without the harness server is
+    # refused -- which also refused the quota probe, a one-word ask that fits
+    # on any command line. Until 2026-09-12 that made `agent-ping` report every
+    # dsh row `failed` without calling dsh, and the router's exhaustion probe
+    # never reached it either. With this on, a call without the server runs
+    # the same overlay minus the MCP entry, capped at
+    # `DSH_INLINE_PROBE_MAX_CHARS` so it cannot become a window by accident.
+    inline_probe: bool = False
     # `--profile headless` is documented as "one fresh persisted session" and
     # nothing on its command line names a session to continue, so there is no
     # conversation worth keeping and `resume` is refused outright.
@@ -901,6 +1051,35 @@ class DshDriverConfig(AgentDriverConfig):
         "tool-subagent-control",
         "tool-subagent-list-agents",
         "tool-subagent-report",
+        # Seven of the eight plugins dsh 0.1.5-rc.1 added, denied on reading
+        # (2026-09-12). None registers a model-facing tool; each is either of
+        # no use to a one-shot headless call or does something this driver
+        # must not:
+        #   `storage`, `storage-json`, `storage-domain`,
+        #     `session-projection-cache` -- durable history-list checkpoints
+        #     for sessions that get restarted, written under
+        #     `dshHomePath('storages')`, i.e. into the user's `$DSH_HOME`;
+        #   `deepseek-llm-api-extensions` -- a registry for extra top-level
+        #     request fields, only there for the next two;
+        #   `plugin-package-inventory-deepseek` -- on by default, attaches the
+        #     loaded plugin packages' names and versions to every official
+        #     API request, for the vendor's diagnostics;
+        #   `session-log-deepseek` -- uploads the session log suffix to the
+        #     official API (off by default, for deployments that ask for it).
+        # The eighth, `web-fetch-http`, is NOT here: it is the backend of
+        # `tool-web`'s `web_fetch`, and a native round is entitled to fetch
+        # (owner 2026-09-12), so it follows `tool-web` in `_patch_entries`.
+        # Denying it on its own would leave the tool offered and failing:
+        # `dsh-tool-web` registers `web_fetch` by product switch, not by
+        # backend presence, and without a backend a call returns
+        # `WEB_PROVIDER_UNAVAILABLE`.
+        "deepseek-llm-api-extensions",
+        "plugin-package-inventory-deepseek",
+        "session-log-deepseek",
+        "session-projection-cache",
+        "storage",
+        "storage-domain",
+        "storage-json",
         # NOT denied, and each for a measured reason:
         #   `commands`, `command-*` -- contribute no model-facing tool at all
         #     (denying them changed the list by nothing), and compaction has a
@@ -911,6 +1090,13 @@ class DshDriverConfig(AgentDriverConfig):
         #     `fs-observation-policy`, `workflow-worker-thread` -- the registry
         #     and the guards, not tools.
     )
+    # Plugins that inject the user's rule files, denied for the same reason
+    # the other drivers ignore user configuration. Not tool plugins, so kept
+    # apart from the list above. `agent-instructions` injects
+    # `$DSH_HOME/AGENTS.md` and every AGENTS.md / CLAUDE.md from the git
+    # root down to cwd (its package README); the capsule cwd is in no
+    # repository, so what it brought in was the user's global rules.
+    disabled_instruction_plugins: tuple[str, ...] = ("agent-instructions",)
     # Deny every composed plugin the snapshot below does not list, turning
     # the deny list into an allowlist for anything nobody has vetted. The
     # failure mode is the honest one: should a dsh upgrade add a plugin the
@@ -919,31 +1105,41 @@ class DshDriverConfig(AgentDriverConfig):
     # would change how calls behave with nothing to see. Set False to keep
     # only the explicit list.
     deny_unknown_plugins: bool = True
-    # Every plugin id the verified bundle composes for this profile -- dsh
-    # 0.1.1-rc.2, `--dump-config`, 2026-09-02. With the flag above, this is
-    # the allowlist; without it, only the visibility a deny list cannot give.
+    # Every plugin id a vetted bundle composes for this profile: the union of
+    # dsh 0.1.1-rc.2 (2026-09-02) and 0.1.5-rc.1 (2026-09-12) `--dump-config`,
+    # so both installs run without drift. 0.1.5-rc.1 dropped
+    # `tool-str-replace-editor` and `tool-subagent-report`; they stay listed
+    # because the older bundle still composes them. Re-take with
+    # `format_dsh_expected_plugin_ids()` after the next upgrade -- and vet.
+    # With the flag above, this is the allowlist; without it, only the
+    # visibility a deny list cannot give.
     expected_plugin_ids: tuple[str, ...] = (
         "agent", "agent-default-model", "agent-instructions", "agent-loop",
         "approval", "attachment-local", "bash-sandbox", "code-runtime",
         "command-compact", "command-feedback", "command-goal", "commands",
-        "compaction-basic", "credentials", "fs-observation-policy",
-        "fs-sandbox", "goal", "goal-round-driver", "headless-runner",
-        "headless-startup", "hmr", "jobs", "llm", "llm-deepseek", "llm-pi-ai",
-        "llm-retry", "permission", "plan-mode", "pwsh-sandbox",
+        "compaction-basic", "credentials", "deepseek-llm-api-extensions",
+        "fs-observation-policy", "fs-sandbox", "goal", "goal-round-driver",
+        "headless-runner", "headless-startup", "hmr", "jobs", "llm",
+        "llm-deepseek", "llm-pi-ai", "llm-retry", "permission", "plan-mode",
+        "plugin-package-inventory-deepseek", "pwsh-sandbox",
         "repeat-tool-reminder", "sandbox", "sandbox-policy", "session",
-        "session-checkpoint-policy", "session-persistence-jsonl",
-        "session-projection", "session-query-sqlite", "session-telemetry-otel",
-        "session-title", "session-title-llm", "settings", "shell-env", "skill",
-        "skill-badge", "skill-filesystem", "spill-local", "spill-policy",
-        "subagent", "subagent-fork-in-process", "subagent-spawn-in-process",
-        "subprocess", "system-prompt", "timeout-policy", "timer", "token-meter",
-        "tool-bash", "tool-fs", "tool-fs-search", "tool-goal", "tool-jobs",
-        "tool-pwsh", "tool-ralph", "tool-result-pruner", "tool-skill",
+        "session-checkpoint-policy", "session-log-deepseek",
+        "session-persistence-jsonl", "session-projection",
+        "session-projection-cache", "session-query-sqlite",
+        "session-telemetry-otel", "session-title", "session-title-llm",
+        "settings", "shell-env", "skill", "skill-badge", "skill-filesystem",
+        "spill-local", "spill-policy", "storage", "storage-domain",
+        "storage-json", "subagent", "subagent-fork-in-process",
+        "subagent-spawn-in-process", "subprocess", "system-prompt",
+        "timeout-policy", "timer", "token-meter", "tool-bash", "tool-fs",
+        "tool-fs-search", "tool-goal", "tool-jobs", "tool-pwsh",
+        "tool-ralph", "tool-result-pruner", "tool-skill",
         "tool-str-replace-editor", "tool-subagent", "tool-subagent-control",
         "tool-subagent-fork", "tool-subagent-list-agents",
         "tool-subagent-report", "tool-todo", "tool-web", "tool-workflow",
-        "tools", "typert", "typert-gateway", "typert-loader", "user-questions",
-        "web", "web-search-deepseek", "workflow-worker-thread",
+        "tools", "typert", "typert-gateway", "typert-loader",
+        "user-questions", "web", "web-fetch-http", "web-search-deepseek",
+        "workflow-worker-thread",
     )
     # dsh reads `$DSH_HOME/settings.yaml` for its provider routes and its
     # credential references, so unlike the other three there is no "ignore the
@@ -992,6 +1188,20 @@ def _sha256_file(path: Path) -> str:
         for chunk in iter(lambda: handle.read(1_048_576), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _completion_holds(completion: Callable[[], bool]) -> bool:
+    """Ask the runtime whether a harness session's work is done.
+
+    A predicate that raises says no: it must never kill the call, and the one
+    decision that reads a "no" -- keeping an unaccepted session's capsule -- errs
+    toward keeping evidence, which costs only disk.
+    """
+
+    try:
+        return bool(completion())
+    except Exception:  # noqa: BLE001 -- the predicate must never kill the call
+        return False
 
 
 def _conversation_handle(events: Sequence[Mapping[str, Any]]) -> str:
@@ -1057,10 +1267,11 @@ CAPSULE_MANIFEST_MAGIC = "finesub-agent-capsule"
 
 
 class AgentCapsuleManager:
-    def __init__(self, runtime_root: str | Path | None = None) -> None:
+    def __init__(self, runtime_root: str | Path | None = None, *, keep_all: bool = False) -> None:
         self.explicit_runtime_root = (
             None if runtime_root is None else Path(runtime_root).expanduser().resolve()
         )
+        self.keep_all = keep_all
 
     def resolve_location(self) -> AgentEpisodeLocation:
         location = resolve_agent_episode_location(self.explicit_runtime_root)
@@ -1069,7 +1280,12 @@ class AgentCapsuleManager:
 
     @staticmethod
     def prune(location: AgentEpisodeLocation, *, timeout_seconds: int) -> list[str]:
-        """Drop the oldest retained episodes past ``RETAINED_FAILED_EPISODES``.
+        """Drop the oldest retained episodes past each pool's cap.
+
+        Two pools, counted apart: transport failures (``RETAINED_FAILED_EPISODES``)
+        and harness sessions nobody accepted (``RETAINED_UNACCEPTED_EPISODES``,
+        told apart by ``UNACCEPTED_EPISODE_MARKER``). Counting them together
+        would let a run full of one kind evict all of the other.
 
         Runs when a new episode is created, because that is the only moment the
         domain grows. Two independent guards keep a live call's capsule safe:
@@ -1102,16 +1318,22 @@ class AgentCapsuleManager:
         except OSError:
             return []
 
-        dated: list[tuple[float, Path]] = []
+        pools: dict[bool, list[tuple[float, Path]]] = {False: [], True: []}
         for entry in episodes:
             try:
-                dated.append((entry.stat().st_mtime, entry))
+                modified = entry.stat().st_mtime
             except OSError:
                 continue
-        dated.sort(key=lambda item: item[0], reverse=True)
+            pools[(entry / UNACCEPTED_EPISODE_MARKER).is_file()].append((modified, entry))
+
+        stale: list[tuple[float, Path]] = []
+        for unaccepted, dated in pools.items():
+            dated.sort(key=lambda item: item[0], reverse=True)
+            keep = RETAINED_UNACCEPTED_EPISODES if unaccepted else RETAINED_FAILED_EPISODES
+            stale.extend(dated[keep:])
 
         removed: list[str] = []
-        for modified, entry in dated[RETAINED_FAILED_EPISODES:]:
+        for modified, entry in stale:
             if modified > horizon:
                 continue
             try:
@@ -1145,7 +1367,8 @@ class AgentCapsuleManager:
             location.parent.mkdir(parents=True, exist_ok=True)
             # Before growing the domain, not after: the cap is on what is kept,
             # and pruning first means a crash mid-call cannot leave N+1.
-            self.prune(location, timeout_seconds=timeout_seconds)
+            if not self.keep_all:
+                self.prune(location, timeout_seconds=timeout_seconds)
             safe_task = re.sub(r"[^A-Za-z0-9_.-]+", "-", task).strip("-.")
             root = Path(
                 tempfile.mkdtemp(
@@ -1332,74 +1555,28 @@ def _sanitized_environment() -> dict[str, str]:
     return env
 
 
-#: Where the WorkBuddy desktop app keeps the Node build it launches its CLI
-#: with, and the file naming the version directory in use. Consulted only as a
-#: fallback: the PATH shim names an interpreter too, but it hard-codes a
-#: version directory that an app update renames (observed 2026-09-04: the shim
-#: still pointed at `22.22.2` while the installed build was `22.22.2-2`), so a
-#: resolver that trusted it alone would break on every Node bump.
-#: Resolved lazily: this module is imported by `routing.execution_policy`, and
-#: `Path.home()` raises when it cannot determine a home directory -- an import
-#: that dies on a service account with no HOME would take the whole router with
-#: it, for a path only the Windows resolver ever reads.
-def _workbuddy_node_versions() -> Path:
-    return Path.home() / ".workbuddy" / "binaries" / "node" / "versions"
-#: The CLI entry script inside the desktop app, relative to the install root.
-_WORKBUDDY_CLI_ENTRY = Path("resources/app.asar.unpacked/cli/bin/codebuddy")
+def _codebuddy_windows_command(executable: str) -> tuple[str, ...] | None:
+    """Resolve an independent native install or npm package without a shell.
 
-
-def _workbuddy_entry_script(executable: str) -> Path | None:
-    """The CLI's Node entry script, found the way the vendor's own shim does.
-
-    The shim on PATH (`~/.workbuddy/bin/codebuddy`) is a **bash** script with
-    no extension, so `shutil.which` finds something this driver can neither
-    execute on Windows nor accept -- reaching a CLI through a shell is what the
-    resolver exists to prevent. The shim's second quoted path is the entry
-    script, and reading it out beats hard-coding an install directory that
-    moves with the desktop app. The default install root is the fallback for a
-    machine whose PATH never got the shim.
+    Skip desktop shims even when an older application still has one first on
+    PATH. Only the official npm package layout or a native .exe is accepted.
     """
 
-    shim = shutil.which(executable)
-    if shim:
-        try:
-            text = Path(shim).read_text(encoding="utf-8", errors="replace")
-        except OSError:
-            text = ""
-        for quoted in re.findall(r'"([^"]+)"', text):
-            candidate = Path(quoted)
-            if candidate.name.lower().startswith("codebuddy") and candidate.is_file():
-                return candidate
-    local_app_data = os.environ.get("LOCALAPPDATA")
-    if local_app_data:
-        default = Path(local_app_data) / "Programs" / "WorkBuddy" / _WORKBUDDY_CLI_ENTRY
-        if default.is_file():
-            return default
-    return None
-
-
-def _workbuddy_node() -> str | None:
-    """A real `node.exe` to run the CLI entry script with.
-
-    The app's own Node comes first -- it is the build the vendor tests against
-    -- read through `versions/current` rather than a pinned directory name. A
-    system Node is the fallback, and the CLI runs on one (measured 2026-09-04:
-    identical `--version` output under the bundled 22.22.2 and a PATH 22.20.0).
-    """
-
-    try:
-        current = (_workbuddy_node_versions() / "current").read_text(
-            encoding="utf-8"
-        ).strip()
-    except OSError:
-        current = ""
-    if current:
-        bundled = _workbuddy_node_versions() / current / "node.exe"
-        if bundled.is_file():
-            return str(bundled.resolve())
-    found = shutil.which("node.exe") or shutil.which("node")
-    if found and Path(found).suffix.lower() == ".exe":
-        return str(Path(found).resolve())
+    native = shutil.which(executable) if Path(executable).suffix.lower() == ".exe" else shutil.which(executable + ".exe")
+    if native and Path(native).suffix.lower() == ".exe":
+        return (str(Path(native).resolve()),)
+    shim = shutil.which(executable if Path(executable).suffix else executable + ".cmd")
+    roots = [Path(shim).resolve().parent] if shim else []
+    roots.extend(Path(folder) for folder in os.environ.get("PATH", "").split(os.pathsep) if folder)
+    if os.environ.get("APPDATA"):
+        roots.append(Path(os.environ["APPDATA"]) / "npm")
+    node = shutil.which("node.exe") or shutil.which("node")
+    if not node or Path(node).suffix.lower() != ".exe":
+        return None
+    for root in dict.fromkeys(roots):
+        entry = root / "node_modules" / "@tencent-ai" / "codebuddy-code" / "bin" / "codebuddy"
+        if entry.is_file():
+            return (str(Path(node).resolve()), str(entry.resolve()))
     return None
 
 
@@ -1459,17 +1636,11 @@ def _resolve_shell_free_command(command: Sequence[str]) -> tuple[str, ...] | Non
                 return (str(Path(node).resolve()), str(entry), *command[1:])
     if (
         os.name == "nt"
-        and Path(executable).stem.lower() == "codebuddy"
+        and Path(executable).stem.lower() in {"codebuddy", "codebuddy-code", "cbc"}
         and resolved is None
     ):
-        # WorkBuddy ships its CLI inside the desktop app rather than as an npm
-        # package, and puts a bash shim on PATH. Same shell-free spelling as
-        # dsh's -- interpreter plus entry script -- but both halves are found
-        # rather than configured, because an app update moves either one.
-        entry = _workbuddy_entry_script(executable)
-        node = _workbuddy_node() if entry else None
-        if entry and node:
-            return (node, str(entry.resolve()), *command[1:])
+        found = _codebuddy_windows_command(executable)
+        return (*found, *command[1:]) if found else None
     if os.name == "nt" and resolved is None and not Path(executable).suffix:
         resolved = shutil.which(executable + ".exe")
     if resolved is None:
@@ -1634,6 +1805,29 @@ def _write_stdin(process: subprocess.Popen[bytes], payload: bytes) -> None:
         pass
 
 
+def _codex_turn_started(capsule: AgentCapsule) -> bool:
+    """Whether the CLI got as far as a turn before it exited.
+
+    The catalog verdict ("update the CLI") is only true of a CLI that could not
+    start at all. Codex 0.147 also logs `failed to load models cache` when a
+    stale cache is merely refetched, then runs the turn: observed 2026-09-16 on
+    a call whose turn failed on the usage limit, which this classifier used to
+    report as a catalog failure -- the wrong fix, on the wrong layer.
+    """
+
+    try:
+        lines = capsule.events_path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return False
+    for line in lines:
+        try:
+            if json.loads(line).get("event") == "turn.started":
+                return True
+        except (json.JSONDecodeError, AttributeError):
+            continue
+    return False
+
+
 def _nonzero_exit_error(capsule: AgentCapsule, return_code: int) -> LocalAgentError:
     """Classify stable Codex startup failures without echoing stderr.
 
@@ -1667,7 +1861,9 @@ def _nonzero_exit_error(capsule: AgentCapsule, return_code: int) -> LocalAgentEr
         "failed to decode models response",
         "failed to load models cache",
     )
-    if any(marker in stderr.lower() for marker in catalog_markers):
+    if any(marker in stderr.lower() for marker in catalog_markers) and not _codex_turn_started(
+        capsule
+    ):
         return LocalAgentUnavailableError(
             "Codex CLI cannot decode the current model catalog; update the CLI "
             f"({evidence})"
@@ -1698,11 +1894,22 @@ def _dsh_session_rows(session_root: Path) -> list[dict[str, Any]]:
     Absent or unreadable is not an error: the answer already succeeded, and a
     transcript the plugin never wrote is a thinner audit trail, not a failed
     call.
+
+    ⚠ The file name is versioned. dsh 0.1.5 writes `session.v3.jsonl` where
+    0.1.1-rc.2 wrote `session.jsonl`, and a glob for the old name alone read
+    nothing -- every tool event of every call dropped out of the audit, the
+    native-search note said "no search" on a call that searched twice, and the
+    suite stayed green (found 2026-09-12). Both spellings, and any later
+    `session.v<N>.jsonl`, are read; nothing else in the directory is.
     """
 
     if not session_root.is_dir():
         return []
-    logs = sorted(session_root.glob("*/session-*/session.jsonl"))
+    logs = sorted(
+        path
+        for path in session_root.glob("*/session-*/session*.jsonl")
+        if _DSH_SESSION_LOG_NAME.fullmatch(path.name)
+    )
     rows: list[dict[str, Any]] = []
     for log in logs:
         try:
@@ -1732,9 +1939,9 @@ def _dsh_session_rows(session_root: Path) -> list[dict[str, Any]]:
                     "state": "DONE",
                     "tool": name,
                 }
-                if name == DSH_SEARCH_TOOL:
-                    # `queries` is a list on this tool; the shared row shape
-                    # carries one string, so they are joined rather than
+                if name in DSH_RETRIEVAL_TOOLS:
+                    # `queries` is a list on the search tool; the shared row
+                    # shape carries one string, so they are joined rather than
                     # dropped or silently truncated to the first.
                     arguments: Any = data.get("arguments")
                     if isinstance(arguments, str):
@@ -1751,9 +1958,15 @@ def _dsh_session_rows(session_root: Path) -> list[dict[str, Any]]:
                         row["query"] = " | ".join(str(item) for item in queries)
                     elif isinstance(arguments, Mapping):
                         row["query"] = str(arguments.get("query") or "")
+                    # A fetch is a retrieval row too -- the shape Claude Code's
+                    # `WebFetch` and agy's fetch tool already produce -- and it
+                    # names its page up front. A search's sources arrive only
+                    # with its result, and a URL typed into a query is not one.
                     row["event"] = "item.completed"
                     row["item_type"] = "web_search"
-                    row["urls"] = []
+                    row["urls"] = (
+                        _harvest_urls(arguments) if name == DSH_FETCH_TOOL else []
+                    )
                     if call_id:
                         pending[call_id] = row
                 rows.append(row)
@@ -1770,8 +1983,57 @@ def _dsh_session_rows(session_root: Path) -> list[dict[str, Any]]:
                     # simply has none, and the row stays with an empty list
                     # rather than being dropped -- "searched and got nothing"
                     # and "never searched" are different facts.
-                    row["urls"] = _harvest_urls(data)
+                    if row.get("tool") == DSH_FETCH_TOOL:
+                        # A fetch result is the page itself, so every link on
+                        # it would read as a source -- measured 2026-09-12, a
+                        # dictionary page's footer link to its author's GitHub
+                        # landed in provenance beside the page. Only the page
+                        # the status line names joins the one the call asked
+                        # for (they differ after a redirect).
+                        fetched = {
+                            match.group(1)
+                            for match in _DSH_FETCHED_LINE.finditer(
+                                "\n".join(_harvested_strings(data))
+                            )
+                        }
+                        row["urls"] = sorted(set(row["urls"]) | fetched)
+                    else:
+                        row["urls"] = _harvest_urls(data)
     return rows
+
+
+def _read_event_text(raw_path: Path, *, vendor: str, max_bytes: int) -> str:
+    """A CLI's raw event stream as text, without a line the kill cut short.
+
+    A CLI ended mid-write -- exit-on-accept, a reclaim after the grace -- can
+    leave half a line behind, and half a multi-byte character with it. That
+    fragment is a cut, not a malformed stream: an unterminated last line that
+    is not UTF-8 or not JSON is dropped here, so no normalizer reports it.
+    Every complete line is held to the old rules: bad bytes before the last
+    newline still fail the call.
+    """
+
+    if raw_path.stat().st_size > max_bytes:
+        raise LocalAgentPolicyViolationError(
+            f"{vendor} event stream exceeds {max_bytes} bytes"
+        )
+    data = raw_path.read_bytes()
+    complete = data.rfind(b"\n") + 1
+    try:
+        text = data.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        if exc.start < complete:
+            raise LocalAgentPolicyViolationError(
+                f"{vendor} event stream is not UTF-8 at byte {exc.start}"
+            ) from exc
+        return data[:complete].decode("utf-8")
+    tail = data[complete:].decode("utf-8")
+    if tail.strip():
+        try:
+            json.loads(tail)
+        except json.JSONDecodeError:
+            return text[: len(text) - len(tail)]
+    return text
 
 
 def _normalize_events(
@@ -1781,10 +2043,7 @@ def _normalize_events(
     max_bytes: int,
     extra_entitled: frozenset[str] = frozenset(),
 ) -> tuple[list[dict[str, Any]], dict[str, Any], list[str], str]:
-    if raw_path.stat().st_size > max_bytes:
-        raise LocalAgentPolicyViolationError(
-            f"Codex event stream exceeds {max_bytes} bytes"
-        )
+    raw_text = _read_event_text(raw_path, vendor="Codex", max_bytes=max_bytes)
     normalized: list[dict[str, Any]] = []
     usage: dict[str, Any] = {}
     violations: list[str] = []
@@ -1792,12 +2051,6 @@ def _normalize_events(
     terminal_count = 0
     final_message_line = 0
     terminal_line = 0
-    try:
-        raw_text = raw_path.read_bytes().decode("utf-8")
-    except UnicodeDecodeError as exc:
-        raise LocalAgentPolicyViolationError(
-            f"Codex event stream is not UTF-8 at byte {exc.start}"
-        ) from exc
     for line_number, line in enumerate(raw_text.splitlines(), 1):
         if not line.strip():
             continue
@@ -1878,7 +2131,7 @@ def _normalize_events(
 # boundary; `--allowed-tools` separately grants permission without expanding
 # that boundary.
 CLAUDE_SEARCH_TOOLS: frozenset[str] = frozenset({"WebFetch", "WebSearch"})
-# WorkBuddy's fork ships both names, but only one of them can run unattended.
+# CodeBuddy's fork ships both names, but only one of them can run unattended.
 # Measured 2026-09-04 (codebuddy 2.137.1, deepseek-v4-flash): `WebSearch`
 # returns real results with no approval channel involved, while every
 # `WebFetch` call comes back as "Permission to use WebFetch has been denied
@@ -1886,7 +2139,7 @@ CLAUDE_SEARCH_TOOLS: frozenset[str] = frozenset({"WebFetch", "WebSearch"})
 # in non-interactive mode" -- including with the tool named in `--allowedTools`.
 # Entitling it anyway would buy nothing but a wasted turn, so the entitlement
 # says what a call can actually do.
-WORKBUDDY_SEARCH_TOOLS: frozenset[str] = frozenset({"WebSearch"})
+CODEBUDDY_SEARCH_TOOLS: frozenset[str] = frozenset({"WebSearch"})
 
 #: The bootstrap sentence a row switches on with `hint_output_ceiling`.
 #:
@@ -1908,7 +2161,7 @@ WORKBUDDY_SEARCH_TOOLS: frozenset[str] = frozenset({"WebSearch"})
 #:
 #: The number is never written down twice: the row says *whether*, and the same
 #: row's `max_output_tokens` says *what*. A wrong one is worse than none.
-def workbuddy_output_ceiling_clause(ceiling: int) -> str:
+def codebuddy_output_ceiling_clause(ceiling: int) -> str:
     """The bootstrap sentence for a model on the allowlist above."""
 
     return (
@@ -1961,10 +2214,19 @@ def claude_entitled_tools(native_search: bool) -> frozenset[str]:
     return CLAUDE_SEARCH_TOOLS if native_search else frozenset()
 
 
-def workbuddy_entitled_tools(native_search: bool) -> frozenset[str]:
-    """The exact WorkBuddy built-in tool set available to this call."""
+def _codebuddy_authentication_required(text: str) -> bool:
+    """Match vendor login diagnostics, never generic authentication prose."""
 
-    return WORKBUDDY_SEARCH_TOOLS if native_search else frozenset()
+    lowered = text.lower()
+    return any(phrase in lowered for phrase in (
+        "not logged in", "authenticate", "authentication required", "please use /login"
+    ))
+
+
+def codebuddy_entitled_tools(native_search: bool) -> frozenset[str]:
+    """The exact CodeBuddy built-in tool set available to this call."""
+
+    return CODEBUDDY_SEARCH_TOOLS if native_search else frozenset()
 
 
 #: dsh's contract facts are read off its config defaults rather than
@@ -1989,7 +2251,11 @@ def local_agent_execution_profiles() -> dict[str, dict[str, Any]]:
             "configuration": {
                 "session": "ephemeral",
                 "events": "jsonl",
-                "user_configuration": "ignored_when_supported",
+                # Ignored when the CLI can, except the connection and login
+                # keys, which follow the user (codex_connection.py); the
+                # global AGENTS.md is injected regardless.
+                "user_configuration": "ignored_except_connection_when_supported",
+                "global_instructions": "injected_by_cli",
                 "policy_enforcement": "event_allowlist",
             },
             "toolset": {
@@ -2013,7 +2279,7 @@ def local_agent_execution_profiles() -> dict[str, dict[str, Any]]:
             },
             "sandbox": "named_tool_allowlist",
         },
-        "LOCAL_WORKBUDDY": {
+        "LOCAL_CODEBUDDY": {
             "driver_id": "codebuddy",
             # Its own version, not Claude Code's: the two share a dialect but
             # not a contract, and a fork that drifts must invalidate its own
@@ -2026,8 +2292,10 @@ def local_agent_execution_profiles() -> dict[str, dict[str, Any]]:
                 # visible in identity because a checkpoint produced here was
                 # produced under a weaker isolation claim: no `--safe-mode`,
                 # no `--ignore-rules`, and `--setting-sources ""` does not
-                # reach rule files. What keeps them out is the fresh capsule
-                # cwd, which is a property of the transport, not the CLI.
+                # reach rule files. The fresh capsule cwd keeps *project*
+                # rules out -- a property of the transport, not the CLI; the
+                # user-level `~/.codebuddy/CODEBUDDY.md` still comes in
+                # (measured 2026-09-30), answered only by the opening notice.
                 "user_configuration": "inherited",
                 "policy_enforcement": "exact_builtin_toolset_plus_tool_use_audit",
                 # Not a knob: with deferral on, the tools a call entitles are
@@ -2045,7 +2313,7 @@ def local_agent_execution_profiles() -> dict[str, dict[str, Any]]:
                 # `WebFetch` is offered by the CLI and refused by its own
                 # permission layer in non-interactive mode, so it is not here:
                 # this list is what a call can do, not what it is shown.
-                "native": sorted(WORKBUDDY_SEARCH_TOOLS),
+                "native": sorted(CODEBUDDY_SEARCH_TOOLS),
             },
             "sandbox": "named_tool_allowlist",
         },
@@ -2123,6 +2391,9 @@ def local_agent_execution_profiles() -> dict[str, dict[str, Any]]:
                 "effort_aliases": dict(sorted(DSH_EFFORT_ALIASES.items())),
                 "disabled_tool_plugins": sorted(
                     _DSH_IDENTITY.disabled_tool_plugins
+                ),
+                "disabled_instruction_plugins": sorted(
+                    _DSH_IDENTITY.disabled_instruction_plugins
                 ),
                 # The POLICY, not the resolved set: which ids this machine
                 # ended up disabling today is a machine fact, and stays out
@@ -2226,9 +2497,12 @@ class _StreamJsonDialect:
     vendor: str
     #: `usage["source"]` on the artifact, i.e. which stream the numbers came from.
     usage_source: str
+    #: The same, when the numbers are the per-request ones on the `assistant`
+    #: messages because the stream ended before its `result` (exit-on-accept).
+    message_usage_source: str
     #: Whether `system.init`'s `tools` is the set this call may actually use.
     #: True for Claude Code, where `--tools` *is* the announced set. False for
-    #: WorkBuddy, which announces its whole built-in registry regardless of
+    #: CodeBuddy, which announces its whole built-in registry regardless of
     #: `--tools` and enforces the restriction when a tool is invoked
     #: (measured 2026-09-04, codebuddy 2.137.1) -- auditing the announcement
     #: there would raise a leak warning on every single call.
@@ -2238,11 +2512,13 @@ class _StreamJsonDialect:
 CLAUDE_STREAM_JSON = _StreamJsonDialect(
     vendor="Claude Code",
     usage_source="claude_code_result_event",
+    message_usage_source="claude_code_message_events",
     audit_announced_tools=True,
 )
-WORKBUDDY_STREAM_JSON = _StreamJsonDialect(
-    vendor="WorkBuddy",
-    usage_source="workbuddy_result_event",
+CODEBUDDY_STREAM_JSON = _StreamJsonDialect(
+    vendor="CodeBuddy",
+    usage_source="codebuddy_result_event",
+    message_usage_source="codebuddy_message_events",
     audit_announced_tools=False,
 )
 
@@ -2270,11 +2546,65 @@ def _claude_usage(
     return usage
 
 
+_CLAUDE_REQUEST_USAGE_FIELDS = (
+    "input_tokens",
+    "output_tokens",
+    "cache_read_input_tokens",
+    "cache_creation_input_tokens",
+)
+_AGY_REQUEST_USAGE_FIELDS = (
+    "input_tokens",
+    "output_tokens",
+    "thinking_tokens",
+    "cache_read_tokens",
+    "total_tokens",
+)
+
+
+def _fold_request_usage(
+    book: dict[str, dict[str, int]],
+    key: str,
+    raw: Any,
+    fields: Sequence[str],
+) -> bool:
+    """Book one request's usage under ``key``; False if it is there but unreadable.
+
+    A stream that ends before its terminal record (exit-on-accept) still says
+    what each finished request cost, on the event that closed it: a stream-json
+    ``assistant`` message, an agy ``step_update`` in state DONE. One request can
+    arrive as several events -- Claude Code writes one ``assistant`` event per
+    content block, all under one ``message.id`` -- so each field keeps its
+    largest value per key rather than adding up: the copies repeat or grow
+    their numbers, they never split them. A missing field or a null counts as
+    zero (CodeBuddy's thinking-only messages carry nulls).
+    """
+
+    if raw is None:
+        return True
+    if not isinstance(raw, Mapping):
+        return False
+    entry = book.setdefault(key, {})
+    for field in fields:
+        value = raw.get(field)
+        if value is None:
+            continue
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            return False
+        entry[field] = max(entry.get(field, 0), int(value))
+    return True
+
+
+def _summed_request_usage(
+    book: Mapping[str, Mapping[str, int]], fields: Sequence[str]
+) -> dict[str, int]:
+    return {field: sum(entry.get(field, 0) for entry in book.values()) for field in fields}
+
+
 def _stream_json_error_text(event: Mapping[str, Any]) -> str:
     """The diagnostic a failing `result` record carries.
 
     Claude Code puts it in `result`, where the answer would otherwise be.
-    WorkBuddy leaves `result` absent on failure and carries `errors` (strings)
+    CodeBuddy leaves `result` absent on failure and carries `errors` (strings)
     plus `errors_info` (`{status, code, category, details}`) instead, so
     reading only `result` there would record an empty reason and leave
     `_classify_stream_failure` with nothing to classify (measured 2026-09-04:
@@ -2303,10 +2633,10 @@ def _stream_json_error_text(event: Mapping[str, Any]) -> str:
 def _stream_json_error_facts(event: Mapping[str, Any]) -> dict[str, Any]:
     """The typed half of a failing terminal record, when the CLI emits one.
 
-    Claude Code emits neither key, so this is empty there. WorkBuddy carries
+    Claude Code emits neither key, so this is empty there. CodeBuddy carries
     `errors_info: [{status, code, category, details}]`; the **code** is the
     vendor's business code and the only one of the three that distinguishes a
-    spent allowance from a rate limit (see `_workbuddy_quota_exhausted`).
+    spent allowance from a rate limit (see `_codebuddy_quota_exhausted`).
     """
 
     infos = event.get("errors_info")
@@ -2358,7 +2688,7 @@ def _stream_json_error_facts(event: Mapping[str, Any]) -> dict[str, Any]:
 #: same way and for the same reason -- `isCraftDailyQuotaBusinessCode` is
 #: exactly `{6004, 6008}`, and `isRequestLevelRetryableError` refuses to retry
 #: on it while retrying everything `isTransientRateLimitBusinessCode` covers.
-_WORKBUDDY_DAILY_QUOTA_CODES = frozenset(
+_CODEBUDDY_DAILY_QUOTA_CODES = frozenset(
     {
         6004,  # CraftRateTPDLimit
         6008,  # CraftRateRPDLimit
@@ -2382,12 +2712,12 @@ _WORKBUDDY_DAILY_QUOTA_CODES = frozenset(
 #: `15001 WebSearchRateLimit` is the *web search* allowance; neither says this
 #: model line has stopped answering, and freezing it for two hours over either
 #: is the expensive direction under docs/llm_local_agent.md §11.1.
-_WORKBUDDY_RATE_LIMIT_CODES = frozenset({6000, 6001, 6002, 6003}) | frozenset(
+_CODEBUDDY_RATE_LIMIT_CODES = frozenset({6000, 6001, 6002, 6003}) | frozenset(
     {6005, 6006, 6007, 14003, 10105, 15001}
 )
 
 
-def _workbuddy_quota_exhausted(row: Mapping[str, Any]) -> bool:
+def _codebuddy_quota_exhausted(row: Mapping[str, Any]) -> bool:
     """Whether a failing `result` row says the model line has no allowance left.
 
     Measured 2026-09-04 (`hy4-preview`, free daily allowance spent): HTTP 429,
@@ -2411,9 +2741,9 @@ def _workbuddy_quota_exhausted(row: Mapping[str, Any]) -> bool:
     codes = tuple(row.get("error_codes") or ())
     # Stated before the 429 rule rather than through it: a daily code is the
     # answer whatever status carried it.
-    if any(code in _WORKBUDDY_DAILY_QUOTA_CODES for code in codes):
+    if any(code in _CODEBUDDY_DAILY_QUOTA_CODES for code in codes):
         return True
-    if codes and all(code in _WORKBUDDY_RATE_LIMIT_CODES for code in codes):
+    if codes and all(code in _CODEBUDDY_RATE_LIMIT_CODES for code in codes):
         return False
     categories = row.get("error_categories") or ()
     statuses = row.get("error_statuses") or ()
@@ -2437,19 +2767,19 @@ def _normalize_claude_events(
     )
 
 
-def _normalize_workbuddy_events(
+def _normalize_codebuddy_events(
     raw_path: Path,
     *,
     native_search: bool,
     max_bytes: int,
     extra_entitled: frozenset[str] = frozenset(),
 ) -> tuple[list[dict[str, Any]], dict[str, Any], list[str], str]:
-    """WorkBuddy `--output-format stream-json` -> the shared event rows."""
+    """CodeBuddy `--output-format stream-json` -> the shared event rows."""
 
     return _normalize_stream_json_events(
         raw_path,
-        dialect=WORKBUDDY_STREAM_JSON,
-        entitled=workbuddy_entitled_tools(native_search) | extra_entitled,
+        dialect=CODEBUDDY_STREAM_JSON,
+        entitled=codebuddy_entitled_tools(native_search) | extra_entitled,
         max_bytes=max_bytes,
     )
 
@@ -2471,16 +2801,7 @@ def _normalize_stream_json_events(
     """
 
     vendor = dialect.vendor
-    if raw_path.stat().st_size > max_bytes:
-        raise LocalAgentPolicyViolationError(
-            f"{vendor} event stream exceeds {max_bytes} bytes"
-        )
-    try:
-        raw_text = raw_path.read_bytes().decode("utf-8")
-    except UnicodeDecodeError as exc:
-        raise LocalAgentPolicyViolationError(
-            f"{vendor} event stream is not UTF-8 at byte {exc.start}"
-        ) from exc
+    raw_text = _read_event_text(raw_path, vendor=vendor, max_bytes=max_bytes)
 
     normalized: list[dict[str, Any]] = []
     usage: dict[str, Any] = {}
@@ -2498,6 +2819,10 @@ def _normalize_stream_json_events(
     # tool_use id -> the row it produced, so the result message can fill in
     # the URLs the call itself does not carry.
     search_rows_by_id: dict[str, dict[str, Any]] = {}
+    # message id -> that request's usage: the book a stream with no `result`
+    # (ended on accept) is costed from.
+    request_usage: dict[str, dict[str, int]] = {}
+    request_usage_readable = True
 
     for line_number, line in enumerate(raw_text.splitlines(), 1):
         if not line.strip():
@@ -2546,6 +2871,12 @@ def _normalize_stream_json_events(
                 answered_by = str(message.get("model") or "").strip()
                 if answered_by:
                     row["model"] = answered_by
+                request_usage_readable &= _fold_request_usage(
+                    request_usage,
+                    str(message.get("id") or f"line:{line_number}"),
+                    message.get("usage"),
+                    _CLAUDE_REQUEST_USAGE_FIELDS,
+                )
                 text = _claude_text_from_message(message)
                 if text.strip():
                     final_content = text
@@ -2630,6 +2961,11 @@ def _normalize_stream_json_events(
             f"{vendor} event stream requires exactly one result event; "
             f"got {terminal_count}"
         )
+    if not terminal_count and request_usage and request_usage_readable:
+        usage = {
+            **_summed_request_usage(request_usage, _CLAUDE_REQUEST_USAGE_FIELDS),
+            "source": dialect.message_usage_source,
+        }
     if final_message_line and terminal_line <= final_message_line:
         violations.append(
             f"{vendor} result event did not follow the final assistant message"
@@ -2651,6 +2987,20 @@ def _agy_usage(payload: Mapping[str, Any]) -> dict[str, Any]:
     raw = payload.get("usage")
     if not isinstance(raw, Mapping):
         return {}
+    return _agy_usage_shape(raw, source="agy_result_event", cumulative=True)
+
+
+def _agy_usage_shape(
+    raw: Mapping[str, Any], *, source: str, cumulative: bool
+) -> dict[str, Any]:
+    """agy's usage fields in the shape artifacts expect.
+
+    The same five fields come on ``result`` (whole conversation) and on every
+    finished ``step_update`` (one request). Measured 2026-09-30 on a
+    seven-request tool session, the steps' fields add up to the result's
+    exactly. A sum of steps covers this turn only, hence ``cumulative`` false.
+    """
+
     input_tokens = int(raw.get("input_tokens") or 0)
     output_tokens = int(raw.get("output_tokens") or 0)
     thinking_tokens = int(raw.get("thinking_tokens") or 0)
@@ -2664,8 +3014,8 @@ def _agy_usage(payload: Mapping[str, Any]) -> dict[str, Any]:
             raw.get("total_tokens")
             or input_tokens + output_tokens + thinking_tokens
         ),
-        "conversation_cumulative": True,
-        "source": "agy_result_event",
+        "conversation_cumulative": cumulative,
+        "source": source,
     }
 
 
@@ -2683,16 +3033,7 @@ def _normalize_agy_events(
     requires one init, one terminal result and a successful final response.
     """
 
-    if raw_path.stat().st_size > max_bytes:
-        raise LocalAgentPolicyViolationError(
-            f"agy event stream exceeds {max_bytes} bytes"
-        )
-    try:
-        raw_text = raw_path.read_bytes().decode("utf-8")
-    except UnicodeDecodeError as exc:
-        raise LocalAgentPolicyViolationError(
-            f"agy event stream is not UTF-8 at byte {exc.start}"
-        ) from exc
+    raw_text = _read_event_text(raw_path, vendor="agy", max_bytes=max_bytes)
 
     normalized: list[dict[str, Any]] = []
     violations: list[str] = []
@@ -2704,6 +3045,9 @@ def _normalize_agy_events(
     # Collected across the stream and reported once, because a single call shows
     # up as an ACTIVE row and a DONE row.
     unentitled_tools: set[str] = set()
+    # step index -> that request's usage, for a stream with no `result`.
+    step_usage: dict[str, dict[str, int]] = {}
+    step_usage_readable = True
     for line_number, line in enumerate(raw_text.splitlines(), 1):
         if not line.strip():
             continue
@@ -2743,6 +3087,13 @@ def _normalize_agy_events(
             if isinstance(update, Mapping):
                 row["step_type"] = str(update.get("step_type") or "")
                 row["state"] = str(update.get("state") or "")
+                if row["state"].upper() == "DONE":
+                    step_usage_readable &= _fold_request_usage(
+                        step_usage,
+                        str(update.get("step_index", f"line:{line_number}")),
+                        update.get("usage"),
+                        _AGY_REQUEST_USAGE_FIELDS,
+                    )
                 urls = _harvest_urls(update)
                 if urls:
                     row["urls"] = urls
@@ -2840,9 +3191,51 @@ def _normalize_agy_events(
         violations.append(
             f"agy event stream requires exactly one result event; got {terminal_count}"
         )
+    if not terminal_count and step_usage and step_usage_readable:
+        usage = _agy_usage_shape(
+            _summed_request_usage(step_usage, _AGY_REQUEST_USAGE_FIELDS),
+            source="agy_step_events",
+            cumulative=False,
+        )
     if terminal_line <= 0:
         final_content = ""
     return normalized, usage, violations, final_content
+
+
+def probing_driver(driver: "LocalAgentDriver") -> "LocalAgentDriver":
+    """The same driver, but unable to answer from a different allowance.
+
+    A probe asks whether *one* allowance is still alive. A call that may hand
+    itself to a paid twin mid-run cannot answer that question: it can come
+    back successful off a different balance -- and bill for the privilege --
+    after which the ledger records the spent line as healthy. That is the one
+    way a diagnostic can be worse than no diagnostic.
+
+    A fresh instance rather than an edited config: the caller's driver may be
+    cached and shared with real calls (`RoleClient._local_agent_drivers`), and
+    stripping the fallback in place would quietly disarm the paid twin for
+    every one of them. Returns the driver untouched when it has no twin to
+    strip and no probe mode to switch on -- every driver but CodeBuddy's and
+    dsh's, and every injected test double.
+
+    dsh is the second case: it serves the tool protocol only, so a call
+    without the harness server is refused -- and a probe is exactly such a
+    call. `inline_probe` lets that one short ask ride its command line.
+    """
+
+    config = getattr(driver, "config", None)
+    if config is None:
+        return driver
+    changes: dict[str, Any] = {}
+    if getattr(config, "fallback_model", ""):
+        changes["fallback_model"] = ""
+    if getattr(config, "inline_probe", True) is False:
+        changes["inline_probe"] = True
+    if not changes:
+        return driver
+    from dataclasses import replace as _replace
+
+    return type(driver)(_replace(config, **changes))
 
 
 def driver_meets_requirements(
@@ -3306,6 +3699,29 @@ def _report_attempt(
     return attempt
 
 
+def _note_usage_unknown_after_accept(attempt: dict[str, Any], display_name: str) -> None:
+    """Say why a call ended on accept carries no usage -- and nothing more.
+
+    The CLI's own total arrives with its terminal record, which exit-on-accept
+    never lets it write; the per-request numbers it wrote before are the
+    fallback. A CLI that reports usage only at the end (Codex), or a stream
+    whose per-request numbers were missing or unreadable, leaves the usage
+    unknown (``{"source": "unavailable"}``). Best effort by design: the call
+    itself has already succeeded and must not wait, retry or fail over it.
+    """
+
+    attempt.setdefault("warnings", []).append(
+        {
+            "event": "usage_unknown_after_accept",
+            "message": (
+                f"{display_name} was ended on accept before its final usage "
+                "report, and its stream had no readable per-request usage to "
+                "add up; this call's token usage is unknown"
+            ),
+        }
+    )
+
+
 class LocalAgentDriver:
     """Shared headless-CLI transport: capsule in, one final message out.
 
@@ -3334,7 +3750,9 @@ class LocalAgentDriver:
 
     def __init__(self, config: AgentDriverConfig | None = None) -> None:
         self.config = config or AgentDriverConfig()
-        self.capsules = AgentCapsuleManager(self.config.runtime_root)
+        self.capsules = AgentCapsuleManager(
+            self.config.runtime_root, keep_all=self.config.keep_episodes
+        )
         self._probe: DriverProbe | None = None
         self._probe_lock = threading.Lock()
         self._resolved_command: tuple[str, ...] | None = None
@@ -3443,13 +3861,45 @@ class LocalAgentDriver:
         del session_scope, conversation_handle
         return True
 
+    def _settle_answer(
+        self,
+        capsule: AgentCapsule,
+        content: str,
+        attempt: dict[str, Any],
+        *,
+        tool_session: bool,
+    ) -> None:
+        """Refuse an empty answer; record a malformed shape the driver knows.
+
+        The shape is observability only (``answer_shape`` on the attempt): the
+        caller's output contract decides, and its repair round resumes this
+        conversation. Reclassifying it as transient here would instead drop
+        the session and walk the rest of the chain. A tool session's final
+        text is not the product -- the answer went through ``submit`` -- so
+        nothing is read from it.
+        """
+
+        if not content:
+            error = self._empty_answer_error(capsule)
+            setattr(error, "_harness_execution_attempts", [attempt])
+            raise error
+        shape = "" if tool_session else self._answer_shape(content)
+        if shape:
+            attempt["answer_shape"] = shape
+
+    def _answer_shape(self, content: str) -> str:
+        """A known malformed answer shape for this CLI, or ``""``."""
+
+        del content
+        return ""
+
     def _isolation_metadata(
         self, probe: DriverProbe, reasoning_effort: str
     ) -> dict[str, Any]:
         raise NotImplementedError
 
     def _prepare_capsule_input(
-        self, capsule: AgentCapsule, message_bytes: bytes
+        self, capsule: AgentCapsule, message_bytes: bytes, *, conversation_handle: str = ""
     ) -> tuple[bytes, Mapping[str, Any]]:
         """Vendor-specific, harness-owned input preparation before spawn.
 
@@ -3547,6 +3997,15 @@ class LocalAgentDriver:
         """
 
         answered = self._answering_model(normalized)
+        # Whether the *stream* named anybody, which is not the same question as
+        # what `reported_model` holds: that field is seeded with the model this
+        # call asked for, so it reads identically when the asked model answered
+        # and when nothing answered at all. On a CLI that can hand the session
+        # to a paid twin, a failure with no name is genuinely ambiguous -- it
+        # may have died on the free line or on the twin's balance -- and only
+        # this flag can say so. Recorded on every driver, false where the
+        # dialect does not name models per message.
+        attempt["answering_model_known"] = bool(answered)
         if answered and answered != attempt["reported_model"]:
             attempt["configured_model"] = attempt["reported_model"]
             attempt["reported_model"] = answered
@@ -3556,7 +4015,7 @@ class LocalAgentDriver:
 
         Only a driver whose dialect names the model per message can answer
         this, and only one has a reason to: a CLI that may hand the session to
-        a different model mid-run (WorkBuddy's paid fallback) would otherwise
+        a different model mid-run (CodeBuddy's paid fallback) would otherwise
         file the answer under the model nobody actually called.
         """
 
@@ -3595,6 +4054,12 @@ class LocalAgentDriver:
         # to exit before its tree is reclaimed, and the call returns without
         # demanding a final message or a clean exit code.
         completion: Callable[[], bool] | None = None,
+        # Exit-on-accept: end the CLI as soon as `completion` holds, with no
+        # grace -- an expected end, settled like a clean exit. Only a caller
+        # whose predicate means "nothing more to do" may set it: a
+        # single-task tool session, never the pseudo-conversational host
+        # (its CLI goes on to `next_task`).
+        exit_on_completion: bool = False,
         # Pseudo-conversational session (docs/llm_local_agent.md §12.1.3):
         # "is the agent parked in a long poll?" -- while true, silence is not
         # a stall. Polled with `completion`.
@@ -3635,6 +4100,7 @@ class LocalAgentDriver:
                     conversation_handle=conversation_handle,
                     mcp_server=mcp_server,
                     completion=completion,
+                    exit_on_completion=exit_on_completion,
                     parked=parked,
                     observer=observer,
                     timeout_seconds=timeout_seconds,
@@ -3660,6 +4126,7 @@ class LocalAgentDriver:
         conversation_handle: str = "",
         mcp_server: Mapping[str, Any] | None = None,
         completion: Callable[[], bool] | None = None,
+        exit_on_completion: bool = False,
         parked: Callable[[], bool] | None = None,
         observer: Any = None,
         timeout_seconds: float | None = None,
@@ -3734,7 +4201,7 @@ class LocalAgentDriver:
             locator = evidence_locator(location, capsule.episode_id).as_dict()
             attempt["evidence_locator"] = locator
             message_bytes, preparation = self._prepare_capsule_input(
-                capsule, message_bytes
+                capsule, message_bytes, conversation_handle=conversation_handle
             )
             if preparation:
                 attempt["input_preparation"] = dict(preparation)
@@ -3761,7 +4228,7 @@ class LocalAgentDriver:
                 attempt["evidence_locator"] = dict(retained)
             fail_before_spawn(exc)
         creationflags = (
-            (subprocess.CREATE_NEW_PROCESS_GROUP | 0x00000004)
+            (subprocess.CREATE_NEW_PROCESS_GROUP | _CREATE_SUSPENDED | no_window())
             if os.name == "nt"
             else 0
         )
@@ -3873,12 +4340,9 @@ class LocalAgentDriver:
                 and now - last_completion_check >= 1.0
             ):
                 last_completion_check = now
-                try:
-                    if completion is not None and completion():
-                        completed_at = now
-                        attempt["completed_by_runtime_at"] = _utc_now()
-                except Exception:  # noqa: BLE001 -- the predicate must never kill the call
-                    pass
+                if completion is not None and _completion_holds(completion):
+                    completed_at = now
+                    attempt["completed_by_runtime_at"] = _utc_now()
                 try:
                     # A parked session is waiting on the harness, not stuck:
                     # its silence resets the stall clock (docs §12.1.3).
@@ -3886,9 +4350,14 @@ class LocalAgentDriver:
                         last_progress = now
                 except Exception:  # noqa: BLE001
                     pass
-            if completed_at is not None and now - completed_at >= ACCEPTED_EXIT_GRACE_SECONDS:
+            if completed_at is not None and (
+                exit_on_completion or now - completed_at >= ACCEPTED_EXIT_GRACE_SECONDS
+            ):
+                # Both end the tree; only the grace running out is an anomaly.
                 reclaimed_after_completion = True
-                attempt["reclaimed_after_completion"] = True
+                attempt[
+                    "ended_on_accept" if exit_on_completion else "reclaimed_after_completion"
+                ] = True
                 break
             if stall_timeout and now - last_progress > stall_timeout:
                 parked_now = False
@@ -3968,7 +4437,13 @@ class LocalAgentDriver:
         # may be cut mid-line, or hold the tail the CLI was still writing; in
         # that case it stays beside the normalized file instead of being
         # replaced by it (docs §0-3: the tail goes to the audit, not away).
-        if done_by_runtime and (stream_partial or reclaimed_after_completion or process.returncode):
+        # Ending it ourselves on accept is not such a case: the kill and its
+        # exit code are ours, and a cut last line is dropped by the reader.
+        ended_on_accept = bool(attempt.get("ended_on_accept"))
+        if done_by_runtime and (
+            stream_partial
+            or (not ended_on_accept and (reclaimed_after_completion or process.returncode))
+        ):
             attempt["raw_events_retained"] = True
             attempt["stream_partial"] = bool(stream_partial)
         else:
@@ -4003,46 +4478,14 @@ class LocalAgentDriver:
             episode_id=capsule.episode_id,
         )
         attempt["search_events"] = self._search_event_rows(normalized)
-        if native_search and not attempt["search_events"]:
-            attempt.setdefault("notes", []).append(
-                {
-                    "event": "native_search_not_used",
-                    # States what was observed, not why. The earlier wording
-                    # ("completed without searching") reads as a choice the
-                    # model made, and on 2026-08-30 that reading turned a
-                    # denied-by-the-project-hook search into a reported
-                    # "the model did not search" -- see
-                    # docs/llm_local_agent_agy.md §6.1.
-                    "message": (
-                        "No completed search was observed on this "
-                        "native-search call: either the model did not search, "
-                        "or a search it started never completed."
-                    ),
-                }
-                if self.observes_tool_events
-                else {
-                    "event": "native_search_unobserved",
-                    "message": (
-                        f"{self.display_name} reports no tool events, so "
-                        "whether the native-search target searched cannot be "
-                        "read off this call."
-                    ),
-                }
-            )
+        self._note_unseen_search(attempt, native_search)
+        if ended_on_accept and not usage:
+            _note_usage_unknown_after_accept(attempt, self.display_name)
         finish_attempt(usage)
         if done_by_runtime:
-            # The runtime already holds the artifact; the exit code, the
-            # final message and any stray tool use after the accept are
-            # audit material, not the call's verdict.
-            return AgentExecutionResult(
-                content=content,
-                reported_model=str(attempt["reported_model"]),
-                episode_id=capsule.episode_id,
-                execution_attempt=attempt,
-                normalized_events=tuple(normalized),
-                usage=usage,
-                conversation_handle=str(attempt.get("session_id") or ""),
-                turn_identity="",
+            return self._runtime_completed_result(
+                location, capsule, attempt, locator, completion,
+                content=content, normalized=normalized, usage=usage,
             )
         if process.returncode:
             error = self._nonzero_exit(capsule, process.returncode)
@@ -4067,10 +4510,7 @@ class LocalAgentDriver:
             )
             setattr(error, "_harness_execution_attempts", [attempt])
             raise error
-        if not content:
-            error = self._empty_answer_error(capsule)
-            setattr(error, "_harness_execution_attempts", [attempt])
-            raise error
+        self._settle_answer(capsule, content, attempt, tool_session=mcp_server is not None)
         returned_handle = _conversation_handle(normalized)
         if session_scope == "assignment":
             if (
@@ -4115,17 +4555,7 @@ class LocalAgentDriver:
             )
             + "\n",
         )
-        try:
-            self.capsules.remove(location, capsule)
-            attempt.pop("evidence_locator", None)
-        except (OSError, LocalAgentError) as exc:
-            attempt.setdefault("warnings", []).append(
-                {
-                    "event": "episode_cleanup_failed",
-                    "message": str(exc),
-                    "evidence_locator": locator,
-                }
-            )
+        self._settle_episode(location, capsule, attempt, locator, completion)
         return AgentExecutionResult(
             content=content,
             reported_model=str(attempt["reported_model"]),
@@ -4141,6 +4571,134 @@ class LocalAgentDriver:
             ),
         )
 
+    def _note_unseen_search(self, attempt: dict[str, Any], native_search: bool) -> None:
+        if not native_search or attempt["search_events"]:
+            return
+        attempt.setdefault("notes", []).append(
+            {
+                "event": "native_search_not_used",
+                # States what was observed, not why. The earlier wording
+                # ("completed without searching") reads as a choice the
+                # model made, and on 2026-08-30 that reading turned a
+                # denied-by-the-project-hook search into a reported
+                # "the model did not search" -- see
+                # docs/llm_local_agent_agy.md §6.1.
+                "message": (
+                    "No completed search was observed on this "
+                    "native-search call: either the model did not search, "
+                    "or a search it started never completed."
+                ),
+            }
+            if self.observes_tool_events
+            else {
+                "event": "native_search_unobserved",
+                "message": (
+                    f"{self.display_name} reports no tool events, so "
+                    "whether the native-search target searched cannot be "
+                    "read off this call."
+                ),
+            }
+        )
+
+    def _runtime_completed_result(
+        self,
+        location: AgentEpisodeLocation,
+        capsule: AgentCapsule,
+        attempt: dict[str, Any],
+        locator: Any,
+        completion: Callable[[], bool] | None,
+        *,
+        content: str,
+        normalized: Sequence[Mapping[str, Any]],
+        usage: Mapping[str, Any],
+    ) -> AgentExecutionResult:
+        """The call's result once the runtime already holds the artifact.
+
+        The exit code, the final message and any stray tool use after the
+        accept are audit material, not the call's verdict. A clean exit after
+        the accept is a success like any other and settles the same way --
+        returning before that used to leave every such capsule, unmarked, in
+        the transport-failure pool. A reclaimed or cut stream keeps its
+        capsule, raw original beside it (``raw_events_retained``).
+        """
+
+        if not attempt.get("raw_events_retained"):
+            self._settle_episode(location, capsule, attempt, locator, completion)
+        return AgentExecutionResult(
+            content=content,
+            reported_model=str(attempt["reported_model"]),
+            episode_id=capsule.episode_id,
+            execution_attempt=attempt,
+            normalized_events=tuple(normalized),
+            usage=usage,
+            conversation_handle=str(attempt.get("session_id") or ""),
+            turn_identity="",
+        )
+
+    def _settle_episode(
+        self,
+        location: AgentEpisodeLocation,
+        capsule: AgentCapsule,
+        attempt: dict[str, Any],
+        locator: Any,
+        completion: Callable[[], bool] | None,
+    ) -> None:
+        """Remove a clean episode -- unless it is a harness session nobody accepted.
+
+        A transport success removes its own capsule: the final text is the
+        artifact, the exchange records it, nothing here is still evidence. That
+        does not reach a harness session (``completion`` given) whose runtime
+        never accepted the work. Its CLI left cleanly, but its final text is not
+        its artifact and no exchange is written for a call the harness then
+        fails -- so removing the capsule took the only record of what the agent
+        did. Such an episode is marked and kept instead, in the rolling pool of
+        its own that ``prune`` counts (``RETAINED_UNACCEPTED_EPISODES``).
+
+        The runtime is asked once more here, after the process is gone, rather
+        than trusting the poll. The supervisor only polls while the CLI runs,
+        about once a second, so a CLI that submits and exits inside that second
+        is accepted without ever being observed so -- and keyed on the poll
+        alone that successful call would be kept as unaccepted. How often that
+        happens depends on the CLI: CodeBuddy measured 2026-09-16 left 4.6-11.7s
+        after its accept in ten of ten calls, so the poll caught every one. The
+        re-check costs one read and is what makes the answer not depend on it.
+        """
+
+        if completion is not None and not _completion_holds(completion):
+            try:
+                write_atomic(
+                    capsule.root / UNACCEPTED_EPISODE_MARKER,
+                    json.dumps(
+                        {"reason": "session left before its work was accepted", "at": _utc_now()}
+                    )
+                    + "\n",
+                )
+                attempt["retained_unaccepted"] = True
+            except OSError as exc:
+                # Still on disk, just unmarked: it falls into the failure pool.
+                attempt.setdefault("warnings", []).append(
+                    {
+                        "event": "episode_retention_failed",
+                        "message": str(exc),
+                        "evidence_locator": locator,
+                    }
+                )
+            return
+        if self.config.keep_episodes:
+            attempt["episode_kept_by_setting"] = True
+            return
+        try:
+            self.capsules.remove(location, capsule)
+            attempt.pop("evidence_locator", None)
+        except (OSError, LocalAgentError) as exc:
+            attempt.setdefault("warnings", []).append(
+                {
+                    "event": "episode_cleanup_failed",
+                    "message": str(exc),
+                    "evidence_locator": locator,
+                }
+            )
+
 
 class CodexLocalAgentDriver(LocalAgentDriver):
     driver_id = "codex"
@@ -4148,6 +4706,57 @@ class CodexLocalAgentDriver(LocalAgentDriver):
 
     def __init__(self, config: CodexDriverConfig | None = None) -> None:
         super().__init__(config or CodexDriverConfig())
+        # The user's connection settings for the call in flight on this
+        # thread: read once per call so argv, environment and audit record
+        # describe the same file, while a switch to or from a proxy takes
+        # effect on the next call.
+        self._call_local = threading.local()
+
+    def run(self, messages: Sequence[Mapping[str, Any]], **kwargs: Any) -> AgentExecutionResult:
+        local = self._call_local
+        local.carried = None
+        try:
+            local.connection = codex_connection.read_connection()
+            local.error = None
+        except codex_connection.CodexConnectionError as exc:
+            local.connection, local.error = None, exc
+        try:
+            return super().run(messages, **kwargs)
+        finally:
+            local.connection = local.error = local.carried = None
+
+    def _user_connection(self, probe: DriverProbe) -> codex_connection.CodexConnection | None:
+        """The settings to carry past `--ignore-user-config`; None when not isolating."""
+
+        if not probe.no_user_config:
+            return None
+        error = getattr(self._call_local, "error", None)
+        if error is not None:
+            raise LocalAgentProviderError(str(error)) from error
+        return getattr(self._call_local, "connection", None)
+
+    def _spawn_environment(
+        self,
+        *,
+        mcp_server: Mapping[str, Any] | None = None,
+        native_search: bool = False,
+    ) -> dict[str, str]:
+        env = super()._spawn_environment(
+            mcp_server=mcp_server, native_search=native_search
+        )
+        # Set by `_argv` only when the user's config is being ignored -- the
+        # one case where this driver, not the CLI, carries the connection.
+        connection = getattr(self._call_local, "carried", None)
+        if connection is not None:
+            env.update(connection.env)
+            # Names the user's own provider table reads its key from. Never
+            # one of FineSub's own credentials: those stay out of every
+            # child, and the pre-flight check then says which one is missing.
+            for name in connection.passthrough_env:
+                value = os.environ.get(name, "")
+                if value and name.upper() not in SENSITIVE_ENV_NAMES:
+                    env[name] = value
+        return env
 
     def _probe_driver(self) -> DriverProbe:
         self._resolved_command = _resolve_shell_free_command(self.config.command)
@@ -4168,6 +4777,7 @@ class CodexLocalAgentDriver(LocalAgentDriver):
                 timeout=15,
                 check=False,
                 env=_sanitized_environment(),
+                creationflags=no_window(),
             )
             help_result = subprocess.run(
                 [*self._resolved_command, "exec", "--help"],
@@ -4178,6 +4788,7 @@ class CodexLocalAgentDriver(LocalAgentDriver):
                 timeout=15,
                 check=False,
                 env=_sanitized_environment(),
+                creationflags=no_window(),
             )
             resume_help = subprocess.run(
                 [*self._resolved_command, "exec", "resume", "--help"],
@@ -4188,6 +4799,7 @@ class CodexLocalAgentDriver(LocalAgentDriver):
                 timeout=15,
                 check=False,
                 env=_sanitized_environment(),
+                creationflags=no_window(),
             )
             global_help = subprocess.run(
                 [*self._resolved_command, "--help"],
@@ -4198,6 +4810,7 @@ class CodexLocalAgentDriver(LocalAgentDriver):
                 timeout=15,
                 check=False,
                 env=_sanitized_environment(),
+                creationflags=no_window(),
             )
         except (OSError, subprocess.TimeoutExpired) as exc:
             self._probe = DriverProbe(False, error=str(exc))
@@ -4278,6 +4891,25 @@ class CodexLocalAgentDriver(LocalAgentDriver):
                     f"Codex config override is not allowlisted: {key or '<empty>'}"
                 )
             argv.extend(("--config", override))
+        connection = self._user_connection(probe)
+        # Read by `_spawn_environment` for this call; `run` clears it.
+        self._call_local.carried = connection
+        if connection is not None:
+            # Its own path, not `config_overrides`: these are the user's
+            # values, not FineSub knobs, and the allowlist above polices the
+            # latter.
+            for override in connection.overrides:
+                argv.extend(("--config", override))
+            try:
+                codex_connection.check_ready(
+                    connection,
+                    self._spawn_environment(
+                        mcp_server=mcp_server, native_search=native_search
+                    ),
+                    withheld=SENSITIVE_ENV_NAMES,
+                )
+            except codex_connection.CodexConnectionError as exc:
+                raise LocalAgentProviderError(str(exc)) from exc
         argv.extend(("--ask-for-approval", "never"))
         argv.extend(("--sandbox", "read-only"))
         if mcp_server is not None:
@@ -4295,7 +4927,9 @@ class CodexLocalAgentDriver(LocalAgentDriver):
         argv.append("exec")
         if conversation_handle:
             argv.append("resume")
-        if session_scope == "task":
+        if session_scope == "task" and not self.config.keep_episodes:
+            # Kept episodes keep Codex's own rollout too: it is the only
+            # per-request ledger this vendor writes.
             argv.append("--ephemeral")
         if not conversation_handle:
             if session_scope == "task":
@@ -4312,6 +4946,10 @@ class CodexLocalAgentDriver(LocalAgentDriver):
             argv.append(conversation_handle)
         if mcp_server is not None:
             argv.append(AGENT_TASK_PROMPT_TOOL_SESSION)
+        elif conversation_handle:
+            # `exec resume` reads stdin only as the prompt itself; the prompt
+            # travels in stdin instead (`_prepare_capsule_input`).
+            argv.append("-")
         else:
             argv.append(
                 AGENT_TASK_PROMPT_READABLE_CAPSULE
@@ -4320,6 +4958,33 @@ class CodexLocalAgentDriver(LocalAgentDriver):
             )
         return argv
 
+    def _prepare_capsule_input(
+        self, capsule: AgentCapsule, message_bytes: bytes, *, conversation_handle: str = ""
+    ) -> tuple[bytes, Mapping[str, Any]]:
+        """On a resumed capsule turn, the prompt and the task both go through stdin.
+
+        A fresh ``codex exec`` appends stdin to its prompt argument as a
+        ``<stdin>`` block. ``codex exec resume`` does not: it reads stdin only
+        when the prompt argument is ``-``. Passing the prompt text there left
+        every resumed turn without its task -- measured 2026-09-30 on
+        gpt-6-luna, each resumed window answered "no <stdin> JSON" until a
+        replacement round started a fresh session. So a resume sends ``-``
+        (``_argv``) and stdin carries the prompt with the task framed the way a
+        fresh call frames it. A tool session never resumes today, so only the
+        capsule prompt is framed here.
+        """
+
+        del capsule
+        if not conversation_handle:
+            return message_bytes, {}
+        framed = (
+            AGENT_TASK_PROMPT_STDIN_ONLY.encode("utf-8")
+            + b"\n\n<stdin>\n"
+            + message_bytes
+            + b"\n</stdin>\n"
+        )
+        return framed, {"resume_prompt_via_stdin": True}
+
     def _isolation_metadata(
         self, probe: DriverProbe, reasoning_effort: str
     ) -> dict[str, Any]:
@@ -4327,12 +4992,23 @@ class CodexLocalAgentDriver(LocalAgentDriver):
             override.partition("=")[0].strip().lower() == "model_reasoning_effort"
             for override in self.config.config_overrides
         )
+        connection = (
+            getattr(self._call_local, "connection", None) if probe.no_user_config else None
+        )
         return {
             "sandbox_kind": probe.sandbox_kind,
             "write_restriction": "process-level read-only sandbox",
             "session_persistence": "disabled",
-            "user_config": "ignored" if probe.no_user_config else "inherited",
-            "user_rules": "ignored" if probe.no_user_rules else "inherited",
+            "user_config": (
+                "ignored_except_connection" if probe.no_user_config else "inherited"
+            ),
+            "user_connection": connection.audit() if connection is not None else None,
+            # `--ignore-rules` is about execpolicy `.rules` files (command
+            # approval), not instruction files.
+            "execpolicy_rules": "ignored" if probe.no_user_rules else "inherited",
+            # `$CODEX_HOME/AGENTS.md` has no switch: neither flag above nor
+            # `project_doc_max_bytes=0` keeps it out (measured 2026-09-30).
+            "global_instructions": "injected",
             "unisolated_user_config_opt_in": (
                 self.config.allow_unisolated_user_config
                 and not (probe.no_user_config and probe.no_user_rules)
@@ -4425,6 +5101,7 @@ class ClaudeCodeLocalAgentDriver(LocalAgentDriver):
                 timeout=30,
                 check=False,
                 env=_sanitized_environment(),
+                creationflags=no_window(),
             )
             help_result = subprocess.run(
                 [*self._resolved_command, "--help"],
@@ -4435,6 +5112,7 @@ class ClaudeCodeLocalAgentDriver(LocalAgentDriver):
                 timeout=30,
                 check=False,
                 env=_sanitized_environment(),
+                creationflags=no_window(),
             )
         except (OSError, subprocess.TimeoutExpired) as exc:
             self._probe = DriverProbe(False, error=str(exc))
@@ -4561,6 +5239,9 @@ class ClaudeCodeLocalAgentDriver(LocalAgentDriver):
             "session_persistence": "disabled",
             "user_config": "ignored" if probe.no_user_config else "inherited",
             "user_rules": "ignored" if probe.no_user_rules else "inherited",
+            # `--setting-sources ""` is what keeps `~/.claude/CLAUDE.md` out,
+            # tool sessions included (measured 2026-09-30).
+            "global_instructions": "ignored" if probe.no_user_rules else "injected",
             "unisolated_user_config_opt_in": (
                 self.config.allow_unisolated_user_config
                 and not (probe.no_user_config and probe.no_user_rules)
@@ -4664,8 +5345,8 @@ class ClaudeCodeLocalAgentDriver(LocalAgentDriver):
         )
 
 
-class WorkBuddyLocalAgentDriver(LocalAgentDriver):
-    """Headless CodeBuddy Code, the CLI WorkBuddy's desktop app ships.
+class CodeBuddyLocalAgentDriver(LocalAgentDriver):
+    """Headless execution through the independent CodeBuddy Code CLI.
 
     A Claude Code fork, so the transport, the `stream-json` dialect and the
     `mcp__<server>__<tool>` naming are the same -- and everything below is
@@ -4701,7 +5382,7 @@ class WorkBuddyLocalAgentDriver(LocalAgentDriver):
     """
 
     driver_id = "codebuddy"
-    display_name = "WorkBuddy CodeBuddy Code CLI"
+    display_name = "CodeBuddy Code CLI"
     # Two of the five shared requirements are dropped, not faked: this CLI has
     # no "ignore the user's configuration" mode at all (docs/llm_local_agent.md
     # §11, and the same shape as dsh's `("can_restrict_tools",)`).
@@ -4711,8 +5392,8 @@ class WorkBuddyLocalAgentDriver(LocalAgentDriver):
         "can_restrict_tools",
     )
 
-    def __init__(self, config: WorkBuddyDriverConfig | None = None) -> None:
-        super().__init__(config or WorkBuddyDriverConfig())
+    def __init__(self, config: CodeBuddyDriverConfig | None = None) -> None:
+        super().__init__(config or CodeBuddyDriverConfig())
 
     def _spawn_environment(
         self,
@@ -4741,7 +5422,7 @@ class WorkBuddyLocalAgentDriver(LocalAgentDriver):
         if self._resolved_command is None:
             self._probe = DriverProbe(
                 False,
-                error="WorkBuddy CodeBuddy Code CLI not found "
+                error="Independent CodeBuddy Code CLI not found "
                 "(shell shims are rejected)",
                 failure_kind="missing",
             )
@@ -4756,6 +5437,7 @@ class WorkBuddyLocalAgentDriver(LocalAgentDriver):
                 timeout=30,
                 check=False,
                 env=_sanitized_environment(),
+                creationflags=no_window(),
             )
             help_result = subprocess.run(
                 [*self._resolved_command, "--help"],
@@ -4766,6 +5448,7 @@ class WorkBuddyLocalAgentDriver(LocalAgentDriver):
                 timeout=30,
                 check=False,
                 env=_sanitized_environment(),
+                creationflags=no_window(),
             )
         except (OSError, subprocess.TimeoutExpired) as exc:
             self._probe = DriverProbe(False, error=str(exc))
@@ -4802,7 +5485,7 @@ class WorkBuddyLocalAgentDriver(LocalAgentDriver):
             supports_mcp_config=(
                 "--mcp-config" in help_text and "--strict-mcp-config" in help_text
             ),
-            error="" if available else "WorkBuddy CLI probe command failed",
+            error="" if available else "CodeBuddy CLI probe command failed",
             failure_kind="" if available else "broken",
         )
         return self._probe
@@ -4820,7 +5503,7 @@ class WorkBuddyLocalAgentDriver(LocalAgentDriver):
     ) -> list[str]:
         if self._resolved_command is None:
             raise LocalAgentUnavailableError(
-                "WorkBuddy CLI command was not resolved by probe"
+                "CodeBuddy CLI command was not resolved by probe"
             )
         argv = [
             *self._resolved_command,
@@ -4838,7 +5521,7 @@ class WorkBuddyLocalAgentDriver(LocalAgentDriver):
         # not cover rule files, which is why the probe reports `no_user_rules`
         # False -- but a flag that removes one source is still worth sending.
         argv.extend(("--setting-sources", ""))
-        entitled = set(workbuddy_entitled_tools(native_search))
+        entitled = set(codebuddy_entitled_tools(native_search))
         if mcp_server is not None:
             argv.extend(
                 (
@@ -4904,7 +5587,7 @@ class WorkBuddyLocalAgentDriver(LocalAgentDriver):
         ceiling = int(getattr(self.config, "output_ceiling_hint", 0) or 0)
         argv.append(
             AGENT_TASK_PROMPT_TOOL_SESSION
-            + (workbuddy_output_ceiling_clause(ceiling) if ceiling > 0 else "")
+            + (codebuddy_output_ceiling_clause(ceiling) if ceiling > 0 else "")
         )
         return argv
 
@@ -4928,6 +5611,9 @@ class WorkBuddyLocalAgentDriver(LocalAgentDriver):
             "user_config": "inherited",
             "user_rules": "inherited",
             "rule_isolation": "fresh_capsule_cwd",
+            # The user-level CODEBUDDY.md: no switch keeps it out (measured
+            # 2026-09-30); the opening notice is the only answer.
+            "global_instructions": "injected",
             "unisolated_user_config_opt_in": (
                 self.config.allow_unisolated_user_config
             ),
@@ -4944,7 +5630,7 @@ class WorkBuddyLocalAgentDriver(LocalAgentDriver):
         max_bytes: int,
         extra_entitled: frozenset[str] = frozenset(),
     ) -> tuple[list[dict[str, Any]], dict[str, Any], list[str], str]:
-        normalized, usage, violations, content = _normalize_workbuddy_events(
+        normalized, usage, violations, content = _normalize_codebuddy_events(
             raw_path,
             native_search=native_search,
             max_bytes=max_bytes,
@@ -4987,11 +5673,11 @@ class WorkBuddyLocalAgentDriver(LocalAgentDriver):
         self._fallback_unsupported_reported = True
         current_reporter().warning(
             "agent-fallback-unsupported",
-            f"这台机器上的 WorkBuddy CLI 不认识 --fallback-model，"
+            f"这台机器上的 CodeBuddy CLI 不认识 --fallback-model，"
             f"{self.config.model or '该模型'} 的付费兜底 "
             f"{self.config.fallback_model} 这次不会生效",
-            impact="免费额度用光时会照旧报错并冻结该模型线两小时；升级 WorkBuddy "
-            "桌面端即可恢复",
+            impact="免费额度用光时会照旧报错并冻结该模型线两小时；升级独立 "
+            "CodeBuddy CLI 即可恢复",
         )
 
     def _stream_warnings(
@@ -4999,8 +5685,8 @@ class WorkBuddyLocalAgentDriver(LocalAgentDriver):
     ) -> list[str]:
         """One line per session when the paid twin took over.
 
-        Owner decision 2026-09-04: a spent free allowance on `hy3` /
-        `hy4-preview` should **switch and carry on**, not stop the run. The
+        Owner decision 2026-09-04: a spent free allowance on `hy3`
+        should **switch and carry on**, not stop the run. The
         switch is the CLI's own, so nothing here can veto it once it has
         happened -- which is exactly why it is worth saying out loud rather
         than filing quietly: the call is fine, the bill is not the one the
@@ -5027,11 +5713,11 @@ class WorkBuddyLocalAgentDriver(LocalAgentDriver):
         asked = self.config.model or "默认模型"
         if failed:
             return [
-                f"WorkBuddy 的 {asked} 没能应答，已按 catalog 的 fallback_model "
+                f"CodeBuddy 的 {asked} 没能应答，已按 catalog 的 fallback_model "
                 f"切到付费线 {expected}；这次调用计费，但本次会话仍然失败"
             ]
         return [
-            f"WorkBuddy 的 {asked} 这一轮没能应答，已按 catalog 的 fallback_model "
+            f"CodeBuddy 的 {asked} 这一轮没能应答，已按 catalog 的 fallback_model "
             f"切到付费线 {expected} 并完成本次会话；这次调用计费"
             f"（免费额度通常次日重置，不想自动切就清空该行的 fallback_model）"
         ]
@@ -5056,15 +5742,21 @@ class WorkBuddyLocalAgentDriver(LocalAgentDriver):
           every later call on the same line. ⚠ The *code* is what decides;
           `category` and the 429 are the same fact twice over, and the band is
           split by **window length** -- per-day is the allowance, per-second /
-          minute / hour is a rate limit (`_workbuddy_quota_exhausted`).
+          minute / hour is a rate limit (`_codebuddy_quota_exhausted`).
 
         Reading the vendor's typed fields is not the phrase-matching that
         docs/llm_local_agent.md §11.1 rules out: that is about guessing
         exhaustion from free text nobody can enumerate. These are fields the
         CLI emits, and the risk it warns about -- freezing a subscription that
         still works -- is answered twice: by the code table above, and by the
-        catalog, where every WorkBuddy row carries its own `quota_pool`
-        because the allowance is per model line.
+        catalog, where every CodeBuddy row states which allowance it draws on
+        (`quota_pool`; the free lines one each, everything payable one shared
+        credit balance).
+
+        ⚠ What this verdict does *not* say is *whose* allowance ran out. On a
+        row with a paid twin the CLI may have switched before failing, so the
+        caller has to establish attribution before acting on it -- see
+        `evaluate_agent_failure`'s `attribution_certain`.
         """
 
         for row in normalized:
@@ -5075,25 +5767,25 @@ class WorkBuddyLocalAgentDriver(LocalAgentDriver):
             lowered = detail.lower()
             if "is not supported" in lowered or "service info not found" in lowered:
                 return LocalAgentPolicyViolationError(
-                    "WorkBuddy rejected the configured model; the catalog row "
+                    "CodeBuddy rejected the configured model; the catalog row "
                     f"names a model this account cannot reach ({detail[:300]})"
                 )
             # Auth is checked before quota on purpose (§11.1): the two need
             # opposite fixes, and a freeze would hide the one the user can act
             # on. Note that this vendor labels the unreachable-model case
             # `category: "auth"` as well, which is why it is settled above.
-            if "not logged in" in lowered or "authenticate" in lowered:
+            if _codebuddy_authentication_required(lowered):
                 return LocalAgentUnavailableError(
-                    "WorkBuddy is not authenticated; sign in to the WorkBuddy "
-                    f"desktop app ({detail[:200]})"
+                    "CodeBuddy is not authenticated; run codebuddy and sign in "
+                    f"to the selected site ({detail[:200]})"
                 )
-            if _workbuddy_quota_exhausted(row):
+            if _codebuddy_quota_exhausted(row):
                 return LocalAgentQuotaError(
-                    "WorkBuddy reports this model line is out of allowance "
+                    "CodeBuddy reports this model line is out of allowance "
                     f"({detail[:300]})"
                 )
             return LocalAgentTransientError(
-                f"WorkBuddy terminated as {reason}: {detail[:200]}"
+                f"CodeBuddy terminated as {reason}: {detail[:200]}"
             )
         return None
 
@@ -5108,19 +5800,31 @@ class WorkBuddyLocalAgentDriver(LocalAgentDriver):
             stderr = ""
         evidence = f"capsule {capsule.episode_id}; inspect events/stderr.log"
         lowered = stderr.lower()
-        if "not logged in" in lowered or "authenticate" in lowered:
+        if _codebuddy_authentication_required(lowered):
             return LocalAgentUnavailableError(
-                "WorkBuddy is not authenticated; sign in to the WorkBuddy "
-                f"desktop app ({evidence})"
+                "CodeBuddy is not authenticated; run codebuddy and sign in "
+                f"to the selected site ({evidence})"
             )
         if "unknown option" in lowered or "unknown argument" in lowered:
             return LocalAgentUnavailableError(
-                "WorkBuddy CLI does not accept the required flags; update the "
-                f"desktop app ({evidence})"
+                "CodeBuddy CLI does not accept the required flags; update the "
+                f"independent CodeBuddy CLI ({evidence})"
             )
         return LocalAgentTransientError(
-            f"WorkBuddy CLI exited with status {return_code} ({evidence})"
+            f"CodeBuddy CLI exited with status {return_code} ({evidence})"
         )
+
+
+#: Set on every agy this driver starts. At most every 15 minutes agy checks
+#: for an update in a detached helper that runs `agy --version` in a console
+#: of its own -- a visible window flashing up, whatever the parent's console
+#: flags. Only "true" switches the check off; "1" does not (measured, agy
+#: 1.2.13, 2026-09-29). agy still updates when the owner runs it by hand.
+AGY_QUIET_ENV = {"AGY_CLI_DISABLE_AUTO_UPDATE": "true"}
+
+
+def _agy_environment() -> dict[str, str]:
+    return _sanitized_environment() | AGY_QUIET_ENV
 
 
 class AgyLocalAgentDriver(LocalAgentDriver):
@@ -5148,9 +5852,6 @@ class AgyLocalAgentDriver(LocalAgentDriver):
         # two driver instances counting from 0 each handed two tasks the same
         # `.finesub-tool-0` -- one task's CLI on the other's MCP server.
         self._tool_slot_local = threading.local()
-        # Whether this CLI takes `--add-dir`; set by the probe off `--help`.
-        # See `_workspace_arguments` for what the flag is doing here.
-        self._supports_add_dir = False
 
     def _tool_slot_pool(self) -> _ToolSlotPool:
         return _shared_tool_slot_pool(self.capsules.resolve_location().parent)
@@ -5158,6 +5859,16 @@ class AgyLocalAgentDriver(LocalAgentDriver):
     @property
     def agy_config(self) -> AgyDriverConfig:
         return self.config  # type: ignore[return-value]
+
+    def _spawn_environment(
+        self,
+        *,
+        mcp_server: Mapping[str, Any] | None = None,
+        native_search: bool = False,
+    ) -> dict[str, str]:
+        return super()._spawn_environment(
+            mcp_server=mcp_server, native_search=native_search
+        ) | AGY_QUIET_ENV
 
     def run(self, messages: Sequence[Mapping[str, Any]], **kwargs: Any) -> AgentExecutionResult:
         if kwargs.get("mcp_server") is None:
@@ -5240,40 +5951,6 @@ class AgyLocalAgentDriver(LocalAgentDriver):
                 record_path, json.dumps(record, ensure_ascii=False, indent=2) + "\n"
             )
 
-    def _workspace_arguments(self, roots: Sequence[Path]) -> list[str]:
-        """`--add-dir` for every directory this call is allowed to read.
-
-        agy 1.1.20 grants workspace-scoped reads by itself and prompts for
-        everything else -- and a prompt is fatal headless: `-p` soft-denies the
-        tool and ends the turn with no assistant message, which reaches the
-        router as a transient failure and drops the whole chain onto the next
-        target. The files FineSub hands the model live *outside* the registered
-        project (the tool protocol's assignment root, the native project's
-        sibling capsules), so without this the read is denied before the guard
-        hook is ever consulted.
-
-        This widens agy's *permission* view only. The read boundary is still
-        the project's PreToolUse hook, which denies every native tool but
-        `view_file` and every path outside the roots written for this call --
-        and a hook denial, unlike a permission prompt, comes back to the model
-        as a tool error the turn survives.
-
-        Skipped on a CLI whose `--help` does not list the flag: an unknown flag
-        is a pre-flight failure, and those classify as transient too.
-        """
-
-        if not self._supports_add_dir:
-            return []
-        arguments: list[str] = []
-        seen: set[str] = set()
-        for root in roots:
-            resolved = str(Path(root).resolve())
-            if resolved in seen:
-                continue
-            seen.add(resolved)
-            arguments.extend(("--add-dir", resolved))
-        return arguments
-
     def _tool_argv(
         self,
         capsule: AgentCapsule,
@@ -5325,13 +6002,10 @@ class AgyLocalAgentDriver(LocalAgentDriver):
         # The files this call's `view_file` may open: the assignment root
         # (its blocks). Rewritten every invocation, like the server entry,
         # so a slot never carries a previous call's roots.
-        view_roots = [
-            Path(str(item)).resolve() for item in mcp_server.get("view_roots") or ()
-        ]
         write_atomic(
             paths["view_roots"],
             json.dumps(
-                [str(root) for root in view_roots],
+                [str(Path(str(item)).resolve()) for item in mcp_server.get("view_roots") or ()],
                 ensure_ascii=False,
                 indent=2,
             )
@@ -5340,7 +6014,10 @@ class AgyLocalAgentDriver(LocalAgentDriver):
         self._grant_permissions(
             project_id,
             mcp_tools=[str(name) for name in mcp_server.get("tools") or ()],
-            rules=AGY_NATIVE_PERMISSION_RULES if native_search else (),
+            rules=(
+                *AGY_READ_PERMISSION_RULES,
+                *(AGY_NATIVE_PERMISSION_RULES if native_search else ()),
+            ),
         )
         try:
             messages = json.loads(capsule.messages_path.read_text(encoding="utf-8"))
@@ -5355,6 +6032,9 @@ class AgyLocalAgentDriver(LocalAgentDriver):
         ).strip()
         if not prompt:
             raise LocalAgentPolicyViolationError("Antigravity tool call has no text prompt")
+        # This path builds its prompt from the messages, not from the opening
+        # constants, so the notice is put in front here.
+        prompt = f"{AGENT_USER_RULES_NOTICE}\n\n{prompt}"
         argv = [
             *self._resolved_command,
             "--print",
@@ -5366,17 +6046,14 @@ class AgyLocalAgentDriver(LocalAgentDriver):
             project_id,
             "--agent",
             AGY_TOOL_NATIVE_AGENT_NAME if native_search else AGY_TOOL_AGENT_NAME,
-            # The blocks are files under the assignment root, which is not in
-            # the registered project: without this agy denies reading them.
-            *self._workspace_arguments(view_roots),
             "--sandbox",
             "--print-timeout",
             f"{self.config.timeout_seconds}s",
         ]
         if self.config.model:
             argv.extend(("--model", self.config.model))
-        effort = self.agy_config.effort or reasoning_effort
-        if effort and _agy_model_takes_effort(self.config.model):
+        effort = _agy_effort(self.agy_config.effort or reasoning_effort)
+        if effort:
             argv.extend(("--effort", effort))
         return argv
 
@@ -5417,7 +6094,8 @@ class AgyLocalAgentDriver(LocalAgentDriver):
                 errors="replace",
                 timeout=15,
                 check=False,
-                env=_sanitized_environment(),
+                env=_agy_environment(),
+                creationflags=no_window(),
             )
             help_result = subprocess.run(
                 [*self._resolved_command, "--help"],
@@ -5427,7 +6105,8 @@ class AgyLocalAgentDriver(LocalAgentDriver):
                 errors="replace",
                 timeout=15,
                 check=False,
-                env=_sanitized_environment(),
+                env=_agy_environment(),
+                creationflags=no_window(),
             )
         except (OSError, subprocess.TimeoutExpired) as exc:
             self._probe = DriverProbe(False, error=str(exc))
@@ -5444,7 +6123,6 @@ class AgyLocalAgentDriver(LocalAgentDriver):
             and "--new-project" in help_text
             and "--agent" in help_text
         )
-        self._supports_add_dir = "--add-dir" in help_text
         error = "" if available else "Antigravity probe command failed"
         if available and structured_events and can_restrict_tools:
             try:
@@ -5554,6 +6232,7 @@ class AgyLocalAgentDriver(LocalAgentDriver):
         project_id: str = "",
         create: bool = False,
         log_path: Path | None = None,
+        agent_name: str = "",
     ) -> subprocess.CompletedProcess[str]:
         if self._resolved_command is None:
             raise LocalAgentUnavailableError(
@@ -5567,17 +6246,20 @@ class AgyLocalAgentDriver(LocalAgentDriver):
             argv.append("--new-project")
         else:
             argv.extend(("--project", project_id))
+        if agent_name:
+            argv.extend(("--agent", agent_name))
         try:
             result = subprocess.run(
                 argv,
                 cwd=project_root,
-                env=_sanitized_environment(),
+                env=_agy_environment(),
                 capture_output=True,
                 text=True,
                 encoding="utf-8",
                 errors="replace",
                 timeout=self.agy_config.project_setup_timeout_seconds,
                 check=False,
+                creationflags=no_window(),
             )
         except (OSError, subprocess.TimeoutExpired) as exc:
             raise LocalAgentUnavailableError(
@@ -5645,6 +6327,83 @@ class AgyLocalAgentDriver(LocalAgentDriver):
                 "Antigravity project hook does not match the FineSub deny-by-default policy"
             )
 
+    @staticmethod
+    def _verify_agent_resolved(log_text: str, agent_name: str) -> None:
+        """agy drops an agent document it cannot use and runs its default
+        agent instead, with nothing but a log warning -- tool sessions ran that
+        way for six weeks (2026-08-21..10-06). Fail closed on that line.
+
+        The warning is the only signal, so its absence counts only in a log
+        agy demonstrably wrote for this run (its version line): a log that
+        went missing, empty or elsewhere must not read as "resolved"."""
+
+        if "Language server version:" not in log_text:
+            raise AgyAgentUnverifiableError(
+                "Antigravity /hooks left no readable log; cannot confirm the "
+                f"FineSub agent document {agent_name!r} resolved"
+            )
+        if f'Agent "{agent_name}" not found' in log_text:
+            raise LocalAgentPolicyViolationError(
+                f"Antigravity ignored the FineSub agent document {agent_name!r} "
+                "and would fall back to its default agent"
+            )
+
+    def _check_project(
+        self,
+        project_root: Path,
+        project_id: str,
+        paths: Mapping[str, Path],
+        *,
+        tool: bool = False,
+    ) -> None:
+        """`/hooks` on the exact project and agent a model call will use:
+        zero tokens; checks the hook list and that the agent resolved.
+
+        Only a tool project fails closed on the agent. A capsule project warns
+        and runs on (owner 2026-10-06): the hook, not the document, holds the
+        boundary, and agy is the only route for audio / video windows -- an agy
+        update that breaks document parsing must not take every agy call down
+        with it (the probe checks the capsule project too)."""
+
+        agent_name = paths["agent"].parent.name
+        log_path = paths["agents_root"] / f"check-{uuid.uuid4().hex}.log"
+        try:
+            checked = self._hooks_command(
+                project_root, project_id=project_id, log_path=log_path, agent_name=agent_name
+            )
+            self._verify_hook_output(checked.stdout, paths["hooks"])
+            try:
+                log_text = log_path.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                log_text = ""
+            try:
+                self._verify_agent_resolved(log_text, agent_name)
+            except AgyAgentUnverifiableError as exc:
+                if tool:
+                    raise
+                _warn_readiness_once(
+                    self,
+                    "agent-document-unverifiable",
+                    str(exc),
+                    impact="capsule calls may run on agy's default agent; the project hook still bounds them",
+                )
+            except LocalAgentPolicyViolationError as exc:
+                if tool:
+                    raise
+                _warn_readiness_once(
+                    self,
+                    "agent-document-ignored",
+                    str(exc),
+                    impact="capsule calls run on agy's default agent; the project hook still bounds them",
+                )
+        finally:
+            # Best effort: a handle agy's language server still holds must
+            # not replace the verdict above with an OSError.
+            try:
+                log_path.unlink(missing_ok=True)
+            except OSError:
+                pass
+
     def _ensure_project(
         self, project_root: Path, *, native: bool = False, tool: bool = False
     ) -> tuple[str, str]:
@@ -5670,13 +6429,12 @@ class AgyLocalAgentDriver(LocalAgentDriver):
                 )
                 if state_matches:
                     try:
-                        checked = self._hooks_command(
-                            project_root, project_id=project_id
-                        )
+                        self._check_project(project_root, project_id, paths, tool=tool)
+                    except AgyAgentUnverifiableError:
+                        raise
                     except LocalAgentUnavailableError:
                         project_id = ""
                     else:
-                        self._verify_hook_output(checked.stdout, paths["hooks"])
                         return project_id, digest
 
                 log_path = paths["agents_root"] / f"register-{uuid.uuid4().hex}.log"
@@ -5708,10 +6466,9 @@ class AgyLocalAgentDriver(LocalAgentDriver):
                     )
                     + "\n",
                 )
-                # The model invocation always uses the explicit id.  Verify
-                # that exact selection as the final setup step as well.
-                checked = self._hooks_command(project_root, project_id=project_id)
-                self._verify_hook_output(checked.stdout, paths["hooks"])
+                # The model invocation always uses the explicit id and agent.
+                # Verify that exact selection as the final setup step as well.
+                self._check_project(project_root, project_id, paths, tool=tool)
                 return project_id, digest
         except (OSError, LockUnavailable) as exc:
             raise LocalAgentUnavailableError(
@@ -5719,9 +6476,9 @@ class AgyLocalAgentDriver(LocalAgentDriver):
             ) from exc
 
     def _prepare_capsule_input(
-        self, capsule: AgentCapsule, message_bytes: bytes
+        self, capsule: AgentCapsule, message_bytes: bytes, *, conversation_handle: str = ""
     ) -> tuple[bytes, Mapping[str, Any]]:
-        del message_bytes
+        del message_bytes, conversation_handle
         try:
             messages = json.loads(capsule.messages_path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as exc:
@@ -5883,10 +6640,15 @@ class AgyLocalAgentDriver(LocalAgentDriver):
             project_root, native=native_search
         )
         # Same permission gate as the tool path: this project has no MCP
-        # server, but its entitled `read_url_content` still needs the grant or
-        # the first fetch ends the turn.
-        if native_search:
-            self._grant_permissions(project_id, rules=AGY_NATIVE_PERMISSION_RULES)
+        # server, but `view_file` and, when entitled, `read_url_content` still
+        # need their grants or the first refused call ends the turn.
+        self._grant_permissions(
+            project_id,
+            rules=(
+                *AGY_READ_PERMISSION_RULES,
+                *(AGY_NATIVE_PERMISSION_RULES if native_search else ()),
+            ),
+        )
         # The native project entitles two more tools, and the per-call prompt has
         # to say so: the agent document is the only other place that mentions
         # them, and a document is not a boundary -- it is advice the model
@@ -5922,11 +6684,6 @@ class AgyLocalAgentDriver(LocalAgentDriver):
             project_id,
             "--agent",
             AGY_NATIVE_AGENT_NAME if native_search else AGY_AGENT_NAME,
-            # The native project is rooted *below* the domain its guard
-            # bounds reads to, so its capsules are outside its own
-            # workspace; the media project is that domain and adds
-            # nothing.
-            *self._workspace_arguments([domain_root] if native_search else []),
             "--sandbox",
             "--print-timeout",
             f"{self.config.timeout_seconds}s",
@@ -5935,8 +6692,8 @@ class AgyLocalAgentDriver(LocalAgentDriver):
             argv.extend(("--conversation", conversation_handle))
         if self.config.model:
             argv.extend(("--model", self.config.model))
-        effort = self.agy_config.effort or reasoning_effort
-        if effort and _agy_model_takes_effort(self.config.model):
+        effort = _agy_effort(self.agy_config.effort or reasoning_effort)
+        if effort:
             argv.extend(("--effort", effort))
         return argv
 
@@ -5949,6 +6706,10 @@ class AgyLocalAgentDriver(LocalAgentDriver):
             "session_persistence": "provider-managed",
             "user_config": "inherited",
             "user_rules": "controlled project root outside repositories",
+            # `~/.gemini/GEMINI.md`: no published switch keeps it out, and the
+            # unpublished agent-document keys that do are not worth risking
+            # the project hook, this driver's read boundary, on.
+            "global_instructions": "injected",
             "unisolated_user_config_opt_in": False,
             "read_isolation": "realpath-bounded FineSub project",
             "process_tree": "windows_job" if os.name == "nt" else "posix_session",
@@ -6010,6 +6771,15 @@ class AgyLocalAgentDriver(LocalAgentDriver):
         return LocalAgentTransientError(
             f"Antigravity CLI exited with status {return_code} ({evidence})"
         )
+
+    def _answer_shape(self, content: str) -> str:
+        """``thought_leak``: agy ships its reasoning as the answer now and then
+        (docs/llm_local_agent_agy.md §7). Tagged here so a leak is countable;
+        the caller only sees a reply that failed its output contract."""
+
+        from ..output_protocol import LEAKED_THOUGHT_PREFIX
+
+        return "thought_leak" if content.lstrip().startswith(LEAKED_THOUGHT_PREFIX) else ""
 
     def _empty_answer_error(self, capsule: AgentCapsule) -> LocalAgentError:
         """One shape of empty turn agy has that is not worth another target.
@@ -6120,6 +6890,7 @@ def _dsh_dump_plugin_ids(
             timeout=30,
             check=False,
             env=_sanitized_environment(),
+            creationflags=no_window(),
         )
     except (OSError, subprocess.TimeoutExpired):
         return None
@@ -6221,6 +6992,12 @@ def _dsh_plugin_drift(
     )
 
 
+#: The longest prompt a dsh quota probe may put on the command line. The ping
+#: is one sentence; anything near this is a window that took a wrong turn,
+#: and refusing it keeps "tool protocol only" true for real work.
+DSH_INLINE_PROBE_MAX_CHARS = 2000
+
+
 class DshLocalAgentDriver(LocalAgentDriver):
     """DeepSeek Harness, tool-protocol only.
 
@@ -6292,6 +7069,7 @@ class DshLocalAgentDriver(LocalAgentDriver):
                 timeout=30,
                 check=False,
                 env=_sanitized_environment(),
+                creationflags=no_window(),
             )
             # The headless app's own help proves the profile is installed
             # here; the launcher would happily accept a name that is not.
@@ -6309,6 +7087,7 @@ class DshLocalAgentDriver(LocalAgentDriver):
                 timeout=60,
                 check=False,
                 env=_sanitized_environment(),
+                creationflags=no_window(),
             )
         except (OSError, subprocess.TimeoutExpired) as exc:
             self._probe = DriverProbe(False, error=str(exc), failure_kind="broken")
@@ -6469,7 +7248,7 @@ class DshLocalAgentDriver(LocalAgentDriver):
     def _patch_entries(
         self,
         *,
-        mcp_server: Mapping[str, Any],
+        mcp_server: Mapping[str, Any] | None,
         reasoning_effort: str,
         native_search: bool,
         session_root: Path,
@@ -6486,7 +7265,7 @@ class DshLocalAgentDriver(LocalAgentDriver):
 
         # Which route answers. dsh picks its model from a plugin's config, not
         # from a flag, so the catalog's `api_model_id` carries both halves as
-        # `<provider>/<model>` -- `deepseek-official/deepseek-v4-flash`, or a
+        # `<provider>/<model>` -- `deepseek-official/deepseek-flash`, or a
         # provider the user declared under `llm-pi-ai` in their own
         # `settings.yaml`. Without this the call would quietly run on whatever
         # the profile defaults to, and the catalog row would mean nothing.
@@ -6507,32 +7286,35 @@ class DshLocalAgentDriver(LocalAgentDriver):
         # The harness server. `failOnStartupError` is the difference between
         # "the model has no tools" and "this call never started": without it a
         # server that failed to spawn yields a confident answer made of
-        # nothing.
-        entries.append(
-            {
-                "insert": [
-                    {
-                        "id": "finesub-mcp",
-                        "name": "@deepseek-ai/dsh-mcp-client",
-                        "config": {
-                            "transport": "stdio",
-                            "serverName": MCP_SERVER_NAME,
-                            "command": str(mcp_server.get("command") or ""),
-                            "args": [
-                                str(item) for item in mcp_server.get("args") or ()
-                            ],
-                            "env": {
-                                str(key): str(value)
-                                for key, value in dict(
-                                    mcp_server.get("env") or {}
-                                ).items()
+        # nothing. Absent only on an inline probe (`_argv` admits no other
+        # call without it), which asks for a word and needs no tools.
+        if mcp_server is not None:
+            entries.append(
+                {
+                    "insert": [
+                        {
+                            "id": "finesub-mcp",
+                            "name": "@deepseek-ai/dsh-mcp-client",
+                            "config": {
+                                "transport": "stdio",
+                                "serverName": MCP_SERVER_NAME,
+                                "command": str(mcp_server.get("command") or ""),
+                                "args": [
+                                    str(item)
+                                    for item in mcp_server.get("args") or ()
+                                ],
+                                "env": {
+                                    str(key): str(value)
+                                    for key, value in dict(
+                                        mcp_server.get("env") or {}
+                                    ).items()
+                                },
+                                "failOnStartupError": True,
                             },
-                            "failOnStartupError": True,
-                        },
-                    }
-                ]
-            }
-        )
+                        }
+                    ]
+                }
+            )
 
         # The session log, redirected into this call's own capsule and left
         # uncompressed (2026-08-30). dsh prints only the final answer, which
@@ -6586,11 +7368,21 @@ class DshLocalAgentDriver(LocalAgentDriver):
         )
 
         disabled = list(config.disabled_tool_plugins)
+        disabled.extend(
+            name for name in config.disabled_instruction_plugins if name not in disabled
+        )
         if not native_search:
             # Left on only when the call is entitled to search: it is the
             # model's only web reach, and it bills a different credential than
             # the model does.
             disabled.append("tool-web")
+            # Its fetch backend goes with it, and only with it (dsh 0.1.5-rc.1
+            # split fetching out of `tool-web`). `dsh-tool-web` offers
+            # `web_fetch` by product switch whether or not a backend exists, so
+            # denying the backend alone would leave a native round a tool that
+            # fails every call. On a bundle that does not compose this id the
+            # patch engine skips the entry.
+            disabled.append("web-fetch-http")
         # Turn the deny list into an allowlist for anything it has not seen.
         # dsh offers no allowlist of its own, but it will enumerate what it
         # composed, and every id in that enumeration is deniable -- so the
@@ -6672,7 +7464,8 @@ class DshLocalAgentDriver(LocalAgentDriver):
         del probe, session_scope
         if self._resolved_command is None:
             raise LocalAgentUnavailableError("dsh command was not resolved by probe")
-        if mcp_server is None:
+        inline_probe = mcp_server is None and self.dsh_config.inline_probe
+        if mcp_server is None and not inline_probe:
             raise LocalAgentPolicyViolationError(
                 "dsh takes its task from its command line and has no other "
                 "input channel, so a whole window cannot be handed to it "
@@ -6683,6 +7476,13 @@ class DshLocalAgentDriver(LocalAgentDriver):
             raise LocalAgentPolicyViolationError(
                 "dsh headless starts a fresh session every call; there is no "
                 "conversation to resume"
+            )
+        task_text = self._bootstrap_text(capsule)
+        if inline_probe and len(task_text) > DSH_INLINE_PROBE_MAX_CHARS:
+            raise LocalAgentPolicyViolationError(
+                "a dsh probe asks for a word, not a window: "
+                f"{len(task_text)} characters is over the "
+                f"{DSH_INLINE_PROBE_MAX_CHARS}-character inline limit"
             )
         patch = self._write_patch(
             capsule,
@@ -6699,7 +7499,7 @@ class DshLocalAgentDriver(LocalAgentDriver):
             self.dsh_config.profile,
             "--patch",
             str(patch),
-            self._bootstrap_text(capsule),
+            task_text,
         ]
 
     def _spawn_environment(
@@ -6747,6 +7547,10 @@ class DshLocalAgentDriver(LocalAgentDriver):
             # the user's own settings file, because that is where the account
             # it runs on is configured.
             "reads_user_settings": True,
+            "global_instructions": (
+                "disabled" if "agent-instructions" in config.disabled_instruction_plugins
+                else "injected"
+            ),
             # The word dsh is actually handed, in the same precedence the
             # patch uses -- an audit record of "medium" would name a level no
             # dsh call ever ran on. On a route this package did not ship the

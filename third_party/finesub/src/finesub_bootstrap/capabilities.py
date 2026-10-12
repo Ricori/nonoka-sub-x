@@ -35,7 +35,7 @@ def required_capabilities(
     """On-demand resource ids for a run with these properties."""
 
     needed: list[str] = []
-    # The knowledge base is a SQLite store (docs/plans/knowledge-node-plan.md); no
+    # The knowledge base is a SQLite store (docs/archive/knowledge-node-plan.md); no
     # run needs git any more. `knowledge`/`stage` stay in the signature so the
     # callers' intent is still expressed and a future on-demand resource can
     # key on them without touching every call site.

@@ -115,8 +115,8 @@ interface ExecutionProvider {
   "artifact_schema": 1,
   "engine": {
     "name": "finesub",
-    "version": "0.5.1",
-    "commit": "b9b2f10c80abd58ddff739b60461624f51c0789c"
+    "version": "0.6.0",
+    "commit": "5caf422cbad36f0402c98eb565e4c29aee4ac197"
   },
   "features": {
     "raw_srt": true,
@@ -124,7 +124,7 @@ interface ExecutionProvider {
     "video_multimodal": true,
     "knowledge": true,
     "resume": true,
-    "diarization": false
+    "diarization": true
   },
   "devices": [
     {"id": "cuda:0", "name": "NVIDIA GPU", "memory_mb": 12288}
@@ -195,8 +195,8 @@ interface ExecutionProvider {
     "message": "正在转写"
   },
   "engine": {
-    "version": "0.5.1",
-    "commit": "b9b2f10c80abd58ddff739b60461624f51c0789c"
+    "version": "0.6.0",
+    "commit": "5caf422cbad36f0402c98eb565e4c29aee4ac197"
   },
   "requested_capabilities": {},
   "effective_capabilities": {},
@@ -281,8 +281,15 @@ interface Seg {
 | `zh` | annotated.csv / final.srt 翻译 | raw 模式时为空 |
 | `words` | annotated 的 `source_ids` 映射合并 | 关联 stable 词级时间 |
 | `low_conf` | annotated 的 `conf == low` | 标记需人工复核的段落 |
+| 所在轨道 | annotated 的 `spk` 列，缺省时 stable 的 `speaker` | 说话人分离的结果，只决定行落在哪条说话人轨，投影后不留在行上 |
 
 > **对齐断言**：当 annotated 与 final.srt 行数不一致时，Projector 必须判定失败并保留原始产物，禁止通过截断或模糊匹配猜测对齐。用户在编辑器中自定义增加的轨道属于 Nonoka X 文档本身，后台重投影时不得覆盖人工轨道。
+
+**说话人轨（FineSub 0.6.0 说话人分离）**：投影的顺序是「投影 → 有导入轴就按轴重排 → 否则按说话人
+分轨」。轴里标了说话人时以轴为准（一人一个 Style 比模型准）；轴没标说话人、或根本没有轴时，用引擎的
+说话人标签：发言最多的人留在主轨，其余每人一条 `diar<n>` 轨（名称「说话人 s1」，或人写的名字），
+没有标签的行留在主轨，最多 `MAX_SPEAKERS` 条。投影生成的轨道 id 以 `axis` / `diar` 开头，重投影时
+整组替换；用户在编辑器里建的轨道（`t…`）原样保留，主轨的样式也保留，只更新轨道名。
 
 ### 4.3 本地存储目录布局
 每个本地视频工程保存在数据目录下的 `documents/<video-id>/`：
@@ -334,8 +341,8 @@ ASS 样式表**跟着视频走**，整段 `[V4+ Styles]` 原文存在 `document.
 - **两种运行环境同源**：日文轴的翻译由 `nonoka_x.axis.translate_axis` 完成，桌面 worker 与云端 LLM 容器调用的是同一个函数（云端镜像把 `src/` 挂到 `/opt/nonoka-x`，与引擎并排）。云端这条路不提取也不上传音轨——识别那半条链整个用不上，传上去的字节没有任何一段会读它；轴文本本身当然要上传，那正是要翻译的东西。
 - **FineSub 没有「按给定轴识别」这回事**：`run_pipeline` 全部参数里没有任何时间轴入口，而引擎快照是哈希钉死的生成产物。空轴因此不进引擎，改由 Projector 在投影阶段重排——这条路对本地与云端一视同仁，轴只记在本机 `documents/<video-id>/axis.json`，从不上传。
 - **重排的口径**：输出的行数恒等于轴的行数，每行带着轴自己的时间，识别不到内容的行留空交给用户填。词级时间戳是原始 ASR 的，因此只在**未经 LLM 纠错**时用来切分原文；纠错后的一行跨了几行轴时整句落在重叠最多的那一行，绝不在猜出来的位置切开。
-- **说话人来自轴，不来自模型**：ASS 一人一个 Style 是这套轴的实际约定，人标的比 diarization 准，两个 Provider 也都声明 `features.diarization=false`。读出 ≥ 2 位说话人时按人分轨，`Default` / `JP` / `CN` / `origin` 这类排版样式不算人。
-- **两人同时说话是这条路唯一的失准点**：没有说话人识别，词只带「什么时候说的」而不带「谁说的」；重叠的两行都盖住同一批词，先开始的那行会把它们全拿走。刻意不改判据——没有说话人信息时换一种猜法只是另一种猜。解析器统计这类行数，弹窗据此提示需要人工校对；只有空轴会踩到（其余轴型的文字是用户自己写好的，不经识别）。
+- **说话人优先来自轴**：ASS 一人一个 Style 是这套轴的实际约定，人标的比 diarization 准。读出 ≥ 2 位说话人时按人分轨，`Default` / `JP` / `CN` / `origin` 这类排版样式不算人，此时转写对话框不再提供说话人分离。轴没标说话人时（空轴），本次运行若开了说话人分离，每一行取落在它上面发言最多的那位说话人，再按说话人分轨。
+- **两人同时说话是这条路唯一的失准点**：词只带「什么时候说的」而不带「谁说的」；重叠的两行都盖住同一批词，先开始的那行会把它们全拿走。刻意不改判据——说话人标签只决定一行归谁，不在行之间搬词，换一种猜法只是另一种猜。解析器统计这类行数，弹窗据此提示需要人工校对；只有空轴会踩到（其余轴型的文字是用户自己写好的，不经识别）。
 - **有文字不等于有内容**：真实空轴里常有打轴人留下的中文批注（"前压可以再紧紧"），靠重复度与真正的中文轴分开——批注翻来覆去就那几句，字幕几乎句句不同。
 
 ---

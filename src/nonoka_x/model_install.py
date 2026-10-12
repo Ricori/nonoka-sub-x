@@ -16,6 +16,11 @@ from typing import Any, Callable
 
 EventSink = Callable[[dict[str, Any]], None]
 PIPELINE_MODEL_IDS = ("separator", "whisper", "qwen-referee")
+#: Speaker diarization's default backend (FineSub 0.6.0 `nemotron3_backend`'s
+#: `HOSTED_MODEL` / `HOSTED_EMBEDDING`). Optional: only a run that asks for
+#: diarization needs them, so they are never part of the required set.
+DIARIZATION_MODEL_IDS = ("nemotron3", "speaker-embedding")
+INSTALLABLE_MODEL_IDS = (*PIPELINE_MODEL_IDS, *DIARIZATION_MODEL_IDS)
 
 
 def emit_event(event: dict[str, Any]) -> None:
@@ -49,7 +54,9 @@ def _fixed_manifest_file_present(path: Path, expected) -> bool:
         return False
 
 
-def missing_managed_models(models_root: Path) -> tuple[str, ...]:
+def missing_managed_models(
+    models_root: Path, model_ids: tuple[str, ...] = PIPELINE_MODEL_IDS
+) -> tuple[str, ...]:
     """Return missing models using the same managed cache paths Nonoka X runs.
 
     The shared FineSub helper may deliberately choose a conventional user HF
@@ -63,7 +70,7 @@ def missing_managed_models(models_root: Path) -> tuple[str, ...]:
     from finesub_bootstrap.model_manifest import entry_for
 
     missing: list[str] = []
-    for model_id in PIPELINE_MODEL_IDS:
+    for model_id in model_ids:
         entry = entry_for(model_id)
         if entry is None:
             missing.append(model_id)
@@ -201,6 +208,12 @@ def _install_huggingface(entry, model_id: str, models_root: Path, sink: EventSin
         "repo_id": entry.repo,
         "revision": entry.revision,
         "cache_dir": models_root / "huggingface" / "hub",
+        # A `listedOnly` entry pins a few files out of a larger repository
+        # (Nemotron's ships training checkpoints beside the one the backend
+        # reads); without this the whole repository would be fetched.
+        "allow_patterns": (
+            [wanted.name for wanted in entry.files] if getattr(entry, "listed_only", False) else None
+        ),
     }
     _stage(sink, model_id, "preparing", f"正在检查 {model_id} 模型缓存")
     dry_run = snapshot_download(**arguments, dry_run=True)
@@ -241,7 +254,7 @@ def install_model(model_id: str, models_root: Path, data_root: Path, *, sink: Ev
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--model", required=True, choices=("separator", "whisper", "qwen-referee"))
+    parser.add_argument("--model", required=True, choices=INSTALLABLE_MODEL_IDS)
     parser.add_argument("--models-root", required=True, type=Path)
     parser.add_argument("--data-root", required=True, type=Path)
     args = parser.parse_args(argv)

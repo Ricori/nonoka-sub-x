@@ -4,6 +4,9 @@
 serves three endpoint families over plain HTTP (TLS/domain belongs to
 Caddy or a tunnel, not here):
 
+- ``GET /identity`` → the corpus id clients key their local state on, so the
+  library can change address without their tokens, anchors and merge bases
+  falling on the floor. It seeds the hash chain, so it is verifiable.
 - ``POST /register`` → an anonymous contributor token (no GitHub/email).
 - ``GET /snapshot`` → the whole corpus keyed by canonical ids, with the
   integrity chain (``share_chain`` rows; head hash commits to every prior
@@ -25,7 +28,10 @@ so an approval (verdict CAS + bundle apply + chain append) is one transaction.
 from __future__ import annotations
 
 import argparse
+import hashlib
+import hmac
 import json
+import os
 import re
 import secrets
 import sqlite3
@@ -33,12 +39,13 @@ import sys
 import threading
 import time
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, Mapping
 
 from ..base import _match_normalize
+from ..node.model import LINK_RELS
 from ..node.store import KnowledgeStore, Transaction
 from .exchange import (
     bundle_claims,
@@ -49,21 +56,35 @@ from .exchange import (
     sanitize_payload,
     sanitize_text,
     snapshot_content,
+    snapshot_content_problems,
     threshold_report,
     unsatisfied_claims,
     validate_bundle,
 )
 
 SERVER_STORE_FILENAME = "share-server.sqlite"
+MAINTAINER_TOKEN_ENV = "FINESUB_SHARE_MAINTAINER_TOKEN"
 DEFAULT_LEASE_SECONDS = 900
+CORPUS_ID_META_KEY = "share:corpus_id"
 
 # Abuse bounds for anonymous, public-facing deployments (review 2026-08-27
 # round 7): the app layer is the backstop — proxy-level IP rate limiting is
 # additional (see deploy/share-server/Caddyfile).
 MAX_CONTRIBUTORS = 500
+#: The same two registration bounds the mailbox has (deploy/share-worker):
+#: without them one loop fills all MAX_CONTRIBUTORS seats for good.
+MAX_REGISTRATIONS_PER_DAY = 20
+#: A token registered this long ago that never had a pending or approved
+#: push gives its seat back. Rejected and expired pushes do not hold it: a
+#: junk push must not be what makes a seat permanent.
+UNUSED_TOKEN_DAYS = 7
 MAX_PENDING_PER_CONTRIBUTOR = 5
 MAX_PENDING_TOTAL = 200
 PENDING_EXPIRY_DAYS = 30
+#: How long a DECIDED queue item stays in full. Rejected/expired rows are
+#: deleted after this; approved ones keep their row (the digest tallies
+#: contributors from them) and lose only the redundant bundle text.
+PURGE_SETTLED_DAYS = 90
 TENTATIVE_REVIEW_DAYS = 90  # digest NOMINATES uncorroborated tentative for retire (plan §11.5)
 
 _STRICT_URL_RE = re.compile(r"https?://\S+")
@@ -80,7 +101,9 @@ _EXTRA_DDL = (
         verdict_version INTEGER NOT NULL DEFAULT 0,
         lease_token TEXT,
         lease_until REAL,
-        assigned TEXT NOT NULL DEFAULT '{}'
+        assigned TEXT NOT NULL DEFAULT '{}',
+        settled_at TEXT NOT NULL DEFAULT '',
+        bundle_digest TEXT NOT NULL DEFAULT ''
     )""",
     """CREATE TABLE IF NOT EXISTS contributors (
         token TEXT PRIMARY KEY,
@@ -100,13 +123,40 @@ class ShareError(ValueError):
         self.status = status
 
 
+def contributor_id(token: str) -> str:
+    """How a contributor is stored and named: the SHA-256 of their token.
+    Only the holder can present the token; the store, its backups and the
+    queue items the maintainer reads name contributors without letting anyone
+    act as them."""
+
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+_CONTRIBUTOR_IDS_META_KEY = "share:contributor_ids"
+#: What `contributor_id` returns; a minted token (24 random bytes, base64url)
+#: never looks like one.
+_CONTRIBUTOR_ID_RE = re.compile(r"[0-9a-f]{64}")
+
+
+def _same_secret(given: str, expected: str) -> bool:
+    return bool(given) and hmac.compare_digest(given.encode("utf-8"), expected.encode("utf-8"))
+
+
 class ShareService:
     """Storage + protocol logic, HTTP-free so tests drive it directly."""
 
     def __init__(
-        self, root: str | Path, *, maintainer_token: str, auto_tentative: bool = False
+        self,
+        root: str | Path,
+        *,
+        maintainer_token: str,
+        auto_tentative: bool = False,
+        signing_key: bytes | None = None,
     ) -> None:
         self.root = Path(root)
+        #: Ed25519 seed (``signing.py``); with it every snapshot carries the
+        #: maintainer's signature, without it snapshots go out unsigned.
+        self.signing_key = signing_key
         self.root.mkdir(parents=True, exist_ok=True)
         # One connection crossing HTTP handler threads; every request holds
         # ``lock`` for its whole store interaction (see _Handler._dispatch).
@@ -114,32 +164,156 @@ class ShareService:
         self.store = KnowledgeStore(self.root / SERVER_STORE_FILENAME, cross_thread=True)
         for statement in _EXTRA_DDL:
             self.store.conn.execute(statement)
+        self._add_missing_columns()
+        self._hash_stored_contributors()
+        #: (chain head, snapshot) of the last snapshot built: a pull of an
+        #: unchanged corpus must not rebuild it under the service lock.
+        self._snapshot_cache: tuple[str, dict[str, Any]] | None = None
         self.maintainer_token = maintainer_token
         # O12: the reputable-contributor auto-tentative path is WIRED but
         # ships OFF — with it off, an approve_tentative verdict from the
         # maintainer's review session is the only route into tentative.
         self.auto_tentative = auto_tentative
+        self.corpus_id = self._resolve_corpus_id()
         if self.store.conn.execute("SELECT COUNT(*) AS n FROM share_chain").fetchone()["n"] == 0:
             rev = self.store.current_rev()
             digest_value = content_digest(snapshot_content(self.store, rev))
             self.store.conn.execute(
                 "INSERT INTO share_chain(rev, content_digest, chain_hash) VALUES (?, ?, ?)",
-                (rev, digest_value, chain_hash("", digest_value)),
+                (rev, digest_value, chain_hash(self.corpus_id, digest_value)),
             )
+
+    #: Columns added to ``share_queue`` after the first build shipped.
+    #: ``CREATE TABLE IF NOT EXISTS`` does nothing to a table that already
+    #: exists, so a store made by an older build would answer "no such column"
+    #: to every review and every relay (reviewer, 2026-09-09 — the first
+    #: deployment missed this because its store was brand new). Migrating in
+    #: place is also what keeps the corpus id, and therefore every client's
+    #: anchors and merge bases, intact.
+    _QUEUE_COLUMNS = (
+        ("settled_at", "TEXT NOT NULL DEFAULT ''"),
+        ("bundle_digest", "TEXT NOT NULL DEFAULT ''"),
+    )
+
+    def _add_missing_columns(self) -> None:
+        present = {row["name"] for row in self.store.conn.execute("PRAGMA table_info(share_queue)")}
+        added = set()
+        for column, declaration in self._QUEUE_COLUMNS:
+            if column not in present:
+                self.store.conn.execute(
+                    f"ALTER TABLE share_queue ADD COLUMN {column} {declaration}"
+                )
+                added.add(column)
+        if "settled_at" in added:
+            # Rows decided before the column existed get *this* moment, not the
+            # empty string. Their real decision time is unknowable, but "we
+            # first saw it decided now" is both true and safe: the retention
+            # window starts at the upgrade instead of having already expired.
+            # Treating the blank as "older than any cutoff" would delete a
+            # verdict reached minutes earlier (reviewer, 2026-09-09).
+            self.store.conn.execute(
+                "UPDATE share_queue SET settled_at=? WHERE status<>'pending' AND settled_at=''",
+                (datetime.now(timezone.utc).isoformat(timespec="seconds"),),
+            )
+
+    def _hash_stored_contributors(self) -> None:
+        """A store written before contributor ids held tokens in the clear:
+        replace them (and every queue row's reference) with their hash, once."""
+
+        if self.store.meta(_CONTRIBUTOR_IDS_META_KEY) == "1":
+            return
+        conn = self.store.conn
+        # A value that already is an id stays one: an older relay kept what a
+        # new Worker sent (the token's hash) verbatim, and hashing it again
+        # would make that contributor a second voter.
+        for (token,) in conn.execute("SELECT token FROM contributors").fetchall():
+            if not _CONTRIBUTOR_ID_RE.fullmatch(token):
+                conn.execute("UPDATE contributors SET token=? WHERE token=?", (contributor_id(token), token))
+        for (token,) in conn.execute("SELECT DISTINCT contributor FROM share_queue").fetchall():
+            if not _CONTRIBUTOR_ID_RE.fullmatch(token):
+                conn.execute(
+                    "UPDATE share_queue SET contributor=? WHERE contributor=?", (contributor_id(token), token)
+                )
+        conn.execute(
+            "INSERT OR REPLACE INTO meta(key, value) VALUES (?, '1')", (_CONTRIBUTOR_IDS_META_KEY,)
+        )
+
+    def _resolve_corpus_id(self) -> str:
+        """The corpus identity, minted once and then immutable: clients key
+        every piece of local state on it instead of on the URL, so the library
+        can move (workers.dev → VPS, main site → mirror) without their tokens,
+        anti-rollback anchors, three-way merge bases and ledger verdicts all
+        silently falling on the floor.
+
+        It seeds the hash chain (``verify_snapshot``), so a store whose chain
+        predates the identity cannot be adopted: every link would have to be
+        recomputed, which is exactly what "the chain proves what the server
+        said" forbids. Such a store is refused rather than migrated — no
+        deployment exists yet, and a wrong genesis is unrecoverable later.
+        """
+
+        stored = self.store.meta(CORPUS_ID_META_KEY)
+        if stored:
+            return stored
+        chained = self.store.conn.execute("SELECT COUNT(*) AS n FROM share_chain").fetchone()["n"]
+        if chained:
+            raise ValueError(
+                f"{self.root}: share store has a hash chain but no corpus id — it predates"
+                " snapshot schema 2; start a fresh --root (the chain cannot be re-seeded)"
+            )
+        minted = uuid.uuid4().hex
+        self.store.conn.execute(
+            "INSERT OR REPLACE INTO meta(key, value) VALUES (?, ?)",
+            (CORPUS_ID_META_KEY, minted),
+        )
+        return minted
+
+    def identity(self) -> dict[str, Any]:
+        """Cheap, unauthenticated: the client needs the corpus id before it can
+        look up its own token, and making it pay for a whole snapshot to learn
+        one field would put a megabyte on every command. Unverified on its own
+        — a lying server only earns a wrong (empty) state key, and the pull
+        that follows verifies the id against the chain."""
+
+        head = self.store.conn.execute(
+            "SELECT rev, chain_hash FROM share_chain ORDER BY rev DESC LIMIT 1"
+        ).fetchone()
+        return {
+            "corpus_id": self.corpus_id,
+            "server_rev": head["rev"],
+            "chain_hash": head["chain_hash"],
+        }
 
     def close(self) -> None:
         self.store.close()
 
     # ---- contributors -------------------------------------------------
 
+    def _reclaim_unused_contributors(self) -> None:
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=UNUSED_TOKEN_DAYS)).isoformat(
+            timespec="seconds"
+        )
+        self.store.conn.execute(
+            "DELETE FROM contributors WHERE created_at < ? AND token NOT IN"
+            " (SELECT contributor FROM share_queue WHERE status IN ('pending', 'approved'))",
+            (cutoff,),
+        )
+
     def register(self) -> dict[str, Any]:
+        self._reclaim_unused_contributors()
+        since = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat(timespec="seconds")
+        today = self.store.conn.execute(
+            "SELECT COUNT(*) AS n FROM contributors WHERE created_at >= ?", (since,)
+        ).fetchone()["n"]
+        if today >= MAX_REGISTRATIONS_PER_DAY:
+            raise ShareError(429, "too many registrations today; try again tomorrow")
         count = self.store.conn.execute("SELECT COUNT(*) AS n FROM contributors").fetchone()["n"]
         if count >= MAX_CONTRIBUTORS:
             raise ShareError(429, "contributor registrations are full; contact the maintainer")
         token = secrets.token_urlsafe(24)
         self.store.conn.execute(
             "INSERT INTO contributors(token, created_at) VALUES (?, ?)",
-            (token, datetime.now(timezone.utc).isoformat(timespec="seconds")),
+            (contributor_id(token), datetime.now(timezone.utc).isoformat(timespec="seconds")),
         )
         return {"token": token}
 
@@ -151,9 +325,10 @@ class ShareService:
         cutoff = datetime.now(timezone.utc).timestamp() - PENDING_EXPIRY_DAYS * 86_400
         cutoff_iso = datetime.fromtimestamp(cutoff, timezone.utc).isoformat(timespec="seconds")
         self.store.conn.execute(
-            "UPDATE share_queue SET status='expired', lease_token=NULL, lease_until=NULL"
+            "UPDATE share_queue SET status='expired', settled_at=?,"
+            " lease_token=NULL, lease_until=NULL"
             " WHERE status='pending' AND received_at < ?",
-            (cutoff_iso,),
+            (datetime.now(timezone.utc).isoformat(timespec="seconds"), cutoff_iso),
         )
 
     def _check_quotas(self, contributor: str) -> None:
@@ -169,21 +344,144 @@ class ShareService:
         if pending_total >= MAX_PENDING_TOTAL:
             raise ShareError(429, "the review queue is full; try again later")
 
+    def _queue_digest(self, row: sqlite3.Row) -> str:
+        """What a queued item's content hashes to, for the idempotency check.
+
+        Read from the stored digest, not from the bundle: the purge blanks an
+        applied bundle's text (the content lives in the corpus by then), and a
+        retry that arrived afterwards used to hit ``json.loads('')`` and die
+        with a JSONDecodeError instead of being recognised as the duplicate it
+        is (reviewer, 2026-09-09). Rows written before the column existed are
+        backfilled here, on the one path that needs them.
+        """
+
+        stored = row["bundle_digest"] if "bundle_digest" in row.keys() else ""
+        if stored:
+            return str(stored)
+        if not row["bundle"]:
+            # Blanked with no digest: only reachable for a row an older build
+            # purged, which this build's purge never produces.
+            raise ShareError(409, "this queue item's content is no longer on file")
+        digest_value = bundle_content_digest(json.loads(row["bundle"]))
+        self.store.conn.execute(
+            "UPDATE share_queue SET bundle_digest=? WHERE queue_id=?",
+            (digest_value, row["queue_id"]),
+        )
+        return digest_value
+
+    def purge_settled(self, days: int = PURGE_SETTLED_DAYS) -> dict[str, int]:
+        """Retire the queue's archive of long-decided items.
+
+        The queue is otherwise append-only: rejected and expired rows sit there
+        forever holding the full text of submissions nobody accepted. Those go.
+
+        **Approved rows do not.** They are what the digest's cross-contributor
+        tally counts (``SELECT DISTINCT contributor ... WHERE status='approved'``,
+        plan §11.5), so deleting them would silently turn corroborated claims
+        back into single-vote ones. Their *bundle text* is redundant once
+        applied — the content lives in the corpus — so that is blanked and the
+        row (contributor, verdict, assignment map) stays.
+
+        ``days=0`` disables it. Never touches anything still pending: age is
+        measured from the decision, not from arrival.
+        """
+
+        if days <= 0:
+            return {"deleted": 0, "blanked": 0}
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat(timespec="seconds")
+        # `settled_at <> ''` guards every clause below. A blank means the
+        # decision time is UNKNOWN, and unknown is not "long ago" — reading the
+        # empty string as a very old timestamp is how a verdict reached minutes
+        # ago gets swept (reviewer, 2026-09-09). The migration stamps rows it
+        # finds already decided, so in practice nothing stays blank; this is
+        # the belt to that pair of braces.
+        deleted = self.store.conn.execute(
+            "DELETE FROM share_queue WHERE status IN ('rejected', 'expired')"
+            " AND settled_at <> '' AND settled_at < ?",
+            (cutoff,),
+        ).rowcount
+        # The digest has to outlive the text it summarises: a retry of an
+        # approved push still has to be recognised as the duplicate it is.
+        for row in self.store.conn.execute(
+            "SELECT queue_id, bundle, bundle_digest FROM share_queue"
+            " WHERE status='approved' AND bundle<>'' AND bundle_digest=''"
+            " AND settled_at <> '' AND settled_at < ?",
+            (cutoff,),
+        ).fetchall():
+            self.store.conn.execute(
+                "UPDATE share_queue SET bundle_digest=? WHERE queue_id=?",
+                (bundle_content_digest(json.loads(row["bundle"])), row["queue_id"]),
+            )
+        blanked = self.store.conn.execute(
+            "UPDATE share_queue SET bundle='' WHERE status='approved' AND bundle<>''"
+            " AND settled_at <> '' AND settled_at < ?",
+            (cutoff,),
+        ).rowcount
+        return {"deleted": int(deleted or 0), "blanked": int(blanked or 0)}
+
+    def adopt_contributor(self, token: str) -> str:
+        """Accept a contributor minted elsewhere — the relay's door.
+
+        In the mailbox deployment (plan B) the public endpoint hands out the
+        tokens, and this store only ever sees them second-hand. Keeping the
+        *same* token value on both sides is what preserves contributor identity
+        across the relay, and identity is not cosmetic: the digest's
+        cross-contributor tally counts distinct approved contributors (§11.5),
+        so collapsing everyone onto one relay identity would silently turn every
+        claim into a single vote.
+
+        The registration quota is deliberately not re-checked here: the public
+        side already enforced it when it minted the token, and refusing at this
+        point would strand content that was legitimately accepted.
+
+        What arrives is whatever the mailbox calls the contributor. The
+        current Worker sends the token's SHA-256 -- already a contributor id,
+        kept as is; an older one sent the token itself, which is hashed here.
+        Both land on the same id, so a contributor whose earlier pushes came
+        through an old Worker (and were hashed by the store migration) stays
+        one voter after the Worker is redeployed. Returns the id the relay
+        pushes under (``push_as``).
+        """
+
+        if not token or len(token) > 200:
+            raise ShareError(400, "unusable contributor token from the relay")
+        identity = token if _CONTRIBUTOR_ID_RE.fullmatch(token) else contributor_id(token)
+        self.store.conn.execute(
+            "INSERT OR IGNORE INTO contributors(token, created_at) VALUES (?, ?)",
+            (identity, datetime.now(timezone.utc).isoformat(timespec="seconds")),
+        )
+        return identity
+
     def _require_contributor(self, token: str) -> str:
+        """The contributor id behind ``token``."""
+
         row = self.store.conn.execute(
-            "SELECT token FROM contributors WHERE token=?", (token or "",)
+            "SELECT token FROM contributors WHERE token=?", (contributor_id(token or ""),)
         ).fetchone()
-        if row is None:
+        if not token or row is None:
             raise ShareError(401, "unknown contributor token; POST /register first")
         return row["token"]
 
+    def _is_maintainer(self, token: str) -> bool:
+        return _same_secret(token, self.maintainer_token)
+
     def _require_maintainer(self, token: str) -> None:
-        if not token or token != self.maintainer_token:
+        if not self._is_maintainer(token):
             raise ShareError(401, "maintainer token required")
 
     # ---- snapshot -----------------------------------------------------
 
     def snapshot(self) -> dict[str, Any]:
+        """The published corpus, rebuilt only when the chain head moved."""
+
+        head_hash = self.identity()["chain_hash"]
+        if self._snapshot_cache is not None and self._snapshot_cache[0] == head_hash:
+            return self._snapshot_cache[1]
+        snapshot = self._build_snapshot()
+        self._snapshot_cache = (head_hash, snapshot)
+        return snapshot
+
+    def _build_snapshot(self) -> dict[str, Any]:
         history = [
             {
                 "rev": row["rev"],
@@ -196,13 +494,30 @@ class ShareService:
         ]
         head = history[-1]
         content = snapshot_content(self.store, head["rev"])
-        return {
+        # The admission every client runs on a pull, run here first: a corpus
+        # that fails it (a row stored before a rule existed -- an entry name
+        # from before the file-name rule, say) would be signed, published and
+        # then refused by everyone, with nothing telling the maintainer why.
+        problems = snapshot_content_problems(content)
+        if problems:
+            raise ShareError(
+                500,
+                "this corpus would be refused by every client's pull admission; fix these first: "
+                + "; ".join(problems[:5]),
+            )
+        snapshot: dict[str, Any] = {
+            "corpus_id": self.corpus_id,
             "server_rev": head["rev"],
             "history": history,
             "content": content,
             "content_digest": content_digest(content),
             "chain_hash": head["chain_hash"],
         }
+        if self.signing_key is not None:
+            from .signing import sign_snapshot
+
+            snapshot["signature"] = sign_snapshot(snapshot, self.signing_key)
+        return snapshot
 
     # ---- push ---------------------------------------------------------
 
@@ -250,7 +565,12 @@ class ShareService:
                 raise ShareError(400, f"unknown canonical anchor {canonical!r}")
 
     def push(self, token: str, bundle: Mapping[str, Any]) -> dict[str, Any]:
-        contributor = self._require_contributor(token)
+        return self.push_as(self._require_contributor(token), bundle)
+
+    def push_as(self, contributor: str, bundle: Mapping[str, Any]) -> dict[str, Any]:
+        """``push`` for a contributor already identified: the relay's, whose
+        id came from ``adopt_contributor`` rather than from a token."""
+
         problems = validate_bundle(bundle)
         if problems:
             raise ShareError(400, "; ".join(problems[:5]))
@@ -265,14 +585,15 @@ class ShareService:
         if not key:
             raise ShareError(400, "idempotency_key did not survive sanitization")
         existing = self.store.conn.execute(
-            "SELECT queue_id, status, contributor, bundle FROM share_queue WHERE idempotency_key=?",
+            "SELECT queue_id, status, contributor, bundle, bundle_digest FROM share_queue"
+            " WHERE idempotency_key=?",
             (key,),
         ).fetchone()
         if existing is not None:
             # Idempotent retry: the same key never creates a second queue item
             # — but only for the same contributor pushing the same content.
-            if existing["contributor"] != contributor or bundle_content_digest(
-                json.loads(existing["bundle"])
+            if existing["contributor"] != contributor or self._queue_digest(
+                existing
             ) != bundle_content_digest(clean):
                 raise ShareError(409, "idempotency key already used by a different contributor or content")
             if existing["status"] != "expired":
@@ -283,7 +604,10 @@ class ShareService:
             # Falls through to the quota checks: a revival re-enters pending.
             self._check_quotas(contributor)
             self.store.conn.execute(
-                "UPDATE share_queue SET status='pending', received_at=?,"
+                # settled_at back to blank with it: "has a decision time" and
+                # "is decided" must not drift apart, or the next query that
+                # reads one as the other quietly gets the wrong answer.
+                "UPDATE share_queue SET status='pending', received_at=?, settled_at='',"
                 " lease_token=NULL, lease_until=NULL WHERE queue_id=?",
                 (datetime.now(timezone.utc).isoformat(timespec="seconds"), existing["queue_id"]),
             )
@@ -292,13 +616,14 @@ class ShareService:
         # already-queued push must return the duplicate, not a 429.
         self._check_quotas(contributor)
         cursor = self.store.conn.execute(
-            "INSERT INTO share_queue(idempotency_key, contributor, bundle, received_at)"
-            " VALUES (?, ?, ?, ?)",
+            "INSERT INTO share_queue(idempotency_key, contributor, bundle, received_at,"
+            " bundle_digest) VALUES (?, ?, ?, ?, ?)",
             (
                 key,
                 contributor,
                 json.dumps(clean, ensure_ascii=False),
                 datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                bundle_content_digest(clean),
             ),
         )
         return {"queue_id": int(cursor.lastrowid), "status": "pending", "duplicate": False}
@@ -312,8 +637,8 @@ class ShareService:
             raise ShareError(404, f"unknown queue item {queue_id}")
         # Queue ids are guessable; the status (verdict note, assignment map)
         # belongs to the contributor who pushed it — or the maintainer.
-        if maintainer != self.maintainer_token and (
-            not token or token != row["contributor"]
+        if not self._is_maintainer(maintainer) and not (
+            token and hmac.compare_digest(contributor_id(token), row["contributor"])
         ):
             raise ShareError(403, "this queue item belongs to a different contributor")
         return {
@@ -571,11 +896,18 @@ class ShareService:
         tentative = verdict == "approve_tentative"
         if verdict == "reject":
             updated = self.store.conn.execute(
-                "UPDATE share_queue SET status='rejected', verdict=?,"
+                "UPDATE share_queue SET status='rejected', verdict=?, settled_at=?,"
                 " verdict_version=verdict_version+1, lease_token=NULL, lease_until=NULL"
                 " WHERE queue_id=? AND status='pending' AND verdict_version=? AND lease_token=?"
                 " AND lease_until >= ?",
-                (sanitize_text(reason, max_chars=500), queue_id, expected_version, lease_token, time.time()),
+                (
+                    sanitize_text(reason, max_chars=500),
+                    datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                    queue_id,
+                    expected_version,
+                    lease_token,
+                    time.time(),
+                ),
             )
             if updated.rowcount == 0:
                 raise ShareError(409, "verdict CAS failed: stale version, lost lease, or already decided")
@@ -643,11 +975,18 @@ class ShareService:
         # One transaction: CAS + apply + chain append (see module docstring).
         with self.store.begin("share", task_id=f"share-queue-{queue_id}", note="share approve") as txn:
             claimed = txn.conn.execute(
-                "UPDATE share_queue SET status='approved', verdict=?,"
+                "UPDATE share_queue SET status='approved', verdict=?, settled_at=?,"
                 " verdict_version=verdict_version+1, lease_token=NULL, lease_until=NULL"
                 " WHERE queue_id=? AND status='pending' AND verdict_version=? AND lease_token=?"
                 " AND lease_until >= ?",
-                (note, queue_id, expected_version, lease_token, time.time()),
+                (
+                    note,
+                    datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                    queue_id,
+                    expected_version,
+                    lease_token,
+                    time.time(),
+                ),
             )
             if claimed.rowcount == 0:
                 raise ShareError(409, "verdict CAS failed: stale version, lost lease, or already decided")
@@ -1064,7 +1403,7 @@ def _apply_bundle(
         source = resolve(link.get("source"))
         target = resolve(link.get("target"))
         rel = str(link.get("rel") or "")
-        if source is None or target is None or rel not in ("see_also", "supersedes"):
+        if source is None or target is None or rel not in LINK_RELS:
             continue
         if any(
             l.rel == rel and l.target_id == target for l in store.links_from(source, txn.rev)
@@ -1079,19 +1418,32 @@ def _apply_bundle(
 # HTTP layer
 
 
+def _loopback_host(header: str) -> bool:
+    host = header.strip().lower()
+    host = host[1 : host.find("]")] if host.startswith("[") else host.rsplit(":", 1)[0]
+    return host in {"127.0.0.1", "localhost", "::1"}
+
+
 class _Handler(BaseHTTPRequestHandler):
     service: ShareService  # set by serve()
 
     def log_message(self, format: str, *args: Any) -> None:  # noqa: A002
         pass  # quiet; the CLI front end owns stdout
 
-    def _reply(self, status: int, payload: Mapping[str, Any]) -> None:
+    def _reply(self, status: int, payload: Mapping[str, Any], *, etag: str = "") -> None:
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
+        if etag:
+            self.send_header("ETag", f'"{etag}"')
         self.end_headers()
         self.wfile.write(body)
+
+    def _not_modified(self, etag: str) -> None:
+        self.send_response(304)
+        self.send_header("ETag", f'"{etag}"')
+        self.end_headers()
 
     MAX_BODY_BYTES = 2_000_000
 
@@ -1110,6 +1462,13 @@ class _Handler(BaseHTTPRequestHandler):
 
     def _dispatch(self) -> None:
         service = self.service
+        # The server only ever listens on loopback, and a browser page cannot
+        # make its own requests say so: a Host that is not loopback is a page
+        # that re-pointed its own name at 127.0.0.1 (DNS rebinding). Caddy is
+        # told to send the upstream's host (deploy/share-server/Caddyfile).
+        if not _loopback_host(self.headers.get("Host", "")):
+            self._reply(421, {"error": "requests must address this server as localhost"})
+            return
         # The body is read OUTSIDE the service lock: a slow or oversized
         # upload must stall its own connection, not every other request.
         try:
@@ -1127,8 +1486,16 @@ class _Handler(BaseHTTPRequestHandler):
             maintainer = self.headers.get("X-Maintainer-Token", "")
             if self.command == "POST" and path == "/register":
                 self._reply(200, service.register())
+            elif self.command == "GET" and path == "/identity":
+                self._reply(200, service.identity())
             elif self.command == "GET" and path == "/snapshot":
-                self._reply(200, service.snapshot())
+                # The chain head commits to the whole content, so it is the
+                # ETag; an unchanged corpus costs neither side a rebuild.
+                head = str(service.identity()["chain_hash"])
+                if self.headers.get("If-None-Match", "") == f'"{head}"':
+                    self._not_modified(head)
+                else:
+                    self._reply(200, service.snapshot(), etag=head)
             elif self.command == "POST" and path == "/push":
                 self._reply(200, service.push(token, body))
             elif self.command == "GET" and re.fullmatch(r"/push/\d+", path):
@@ -1196,11 +1563,21 @@ class _Handler(BaseHTTPRequestHandler):
 
 
 def serve(
-    root: str | Path, *, port: int, maintainer_token: str, auto_tentative: bool = False
+    root: str | Path,
+    *,
+    port: int,
+    maintainer_token: str,
+    auto_tentative: bool = False,
+    signing_key: bytes | None = None,
 ) -> ThreadingHTTPServer:
     """Bind and return the server (caller decides threading / serve_forever)."""
 
-    service = ShareService(root, maintainer_token=maintainer_token, auto_tentative=auto_tentative)
+    service = ShareService(
+        root,
+        maintainer_token=maintainer_token,
+        auto_tentative=auto_tentative,
+        signing_key=signing_key,
+    )
     handler = type("BoundHandler", (_Handler,), {"service": service})
     httpd = ThreadingHTTPServer(("127.0.0.1", port), handler)
     httpd.share_service = service  # type: ignore[attr-defined]
@@ -1211,13 +1588,18 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="python -m finesub.llm.knowledge.share.server",
         description="Local knowledge share server (plan §6; TLS belongs to Caddy/tunnel).",
+        # Without this, the removed `--maintainer-token <secret>` would still
+        # parse -- as an abbreviation of --maintainer-token-file.
+        allow_abbrev=False,
     )
     parser.add_argument("--root", required=True, help="data directory OUTSIDE the repo")
     parser.add_argument("--port", type=int, default=8787)
     parser.add_argument(
-        "--maintainer-token",
+        "--maintainer-token-file",
         default=None,
-        help="review-endpoint token (default: generated and printed once)",
+        help="file holding the review-endpoint token (default: the"
+        f" {MAINTAINER_TOKEN_ENV} environment variable). Never on the command"
+        " line: /proc/<pid>/cmdline is readable by every local user",
     )
     parser.add_argument(
         "--auto-tentative",
@@ -1225,11 +1607,35 @@ def main(argv: list[str] | None = None) -> int:
         help="digest auto-admits reputable contributors' new-term bundles as tentative"
         " (plan §11.5; DEFAULT OFF per O12 — the review session stays the only route)",
     )
+    parser.add_argument(
+        "--signing-key-file",
+        default=None,
+        help="sign every snapshot with this key (`share keygen`); clients pin it on first pull."
+        " It lives where this server runs, so it guards against a stolen maintainer token,"
+        " not against this machine",
+    )
     args = parser.parse_args(argv)
-    token = args.maintainer_token or secrets.token_urlsafe(24)
-    httpd = serve(args.root, port=args.port, maintainer_token=token, auto_tentative=args.auto_tentative)
-    if not args.maintainer_token:
-        print(f"maintainer token: {token}")
+    if args.maintainer_token_file:
+        token = Path(args.maintainer_token_file).read_text(encoding="utf-8").strip()
+    else:
+        token = os.environ.get(MAINTAINER_TOKEN_ENV, "").strip()
+    if not token:
+        parser.error(
+            f"no maintainer token: pass --maintainer-token-file or set {MAINTAINER_TOKEN_ENV}"
+            " (make one with: python -c \"import secrets; print(secrets.token_urlsafe(32))\")"
+        )
+    signing_key = None
+    if args.signing_key_file:
+        from .signing import load_private_key
+
+        signing_key = load_private_key(args.signing_key_file)
+    httpd = serve(
+        args.root,
+        port=args.port,
+        maintainer_token=token,
+        auto_tentative=args.auto_tentative,
+        signing_key=signing_key,
+    )
     print(f"share server on http://127.0.0.1:{args.port} (root: {args.root})")
     try:
         httpd.serve_forever()

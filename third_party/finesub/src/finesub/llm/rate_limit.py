@@ -266,15 +266,16 @@ class ModelRateLimiter:
 
     def limits_for(self, endpoint: ModelEndpoint) -> RateLimitLimits:
         # Merged facts, not the packaged catalog alone: a user-declared model
-        # has no ``model_catalog.psv`` row, so looking only there turned every
+        # is a row in the data root's catalog, not the packaged one, so looking
+        # only there turned every
         # real call to a custom provider into a ValueError (the limiter is
         # enabled on every production path).
         entry = runtime_fact_for(endpoint)
         if entry is None:
             raise ValueError(
                 f"No runtime fact for {endpoint.provider_tier} + "
-                f"{endpoint.api_model_id} (neither model_catalog.psv nor "
-                "config.toml [llm.models] declares it)"
+                f"{endpoint.api_model_id} (neither the packaged nor the data "
+                "root's model_catalog.psv declares it)"
             )
         factor = self.policy.safety_factor
         effective_tpm = -1 if entry.tpm < 0 else max(1, int(entry.tpm * factor))

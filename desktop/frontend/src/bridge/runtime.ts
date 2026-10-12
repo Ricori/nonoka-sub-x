@@ -8,7 +8,7 @@ export interface RuntimeItem {
   source?: "managed" | "system";
 }
 
-export type RuntimeInstallTarget = "media" | "runtime" | "models" | "all" | "yt-dlp" | "tokcount" | "aria2c" | "node" | "pot-provider" | "video-tools" | "optional-tools";
+export type RuntimeInstallTarget = "media" | "runtime" | "models" | "all" | "optional-models" | "yt-dlp" | "tokcount" | "aria2c" | "node" | "pot-provider" | "video-tools" | "optional-tools";
 export type RuntimeToolGroup = "video-tools" | "optional-tools";
 
 export interface RuntimeProvisionState {
@@ -25,6 +25,8 @@ export interface RuntimeProvisionState {
   runtime: RuntimeItem;
   resources: RuntimeItem[];
   models: RuntimeItem[];
+  /** 只有部分任务用得到的模型（目前是说话人分离的两个），可单独下载，从不阻断转写。 */
+  optional_models?: RuntimeItem[];
   job: {
     state: "idle" | "running" | "completed" | "cancelled" | "failed";
     target: string;

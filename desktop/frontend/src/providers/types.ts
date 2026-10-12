@@ -45,6 +45,10 @@ export interface Capabilities {
       issues: Array<{ code: string; message: string }>;
     }>;
     localAgent?: string;
+    /** 托管运行时的安装状态（本地 Provider 才有），这里只读用得到的那部分。 */
+    managed?: {
+      optional_models?: Array<{ id: string; state: string }>;
+    } | null;
   };
   settings?: { llm_key_configured: boolean };
 }
@@ -118,12 +122,26 @@ export interface TaskRequest {
     extra_info: string;
     extra_style: string;
   };
-  knowledge: "none" | "collect" | "update";
-  /** 最多 8 个。`collect` 可不选（由模型按内容挑选条目），`update` 至少一个。 */
+  /** FineSub 0.6.0 起 `collect` 更名为 `read`：只读取知识库，不再收集反馈。 */
+  knowledge: "none" | "read" | "update";
+  /** 最多 8 个。`read` 可不选（由模型按内容挑选条目），`update` 至少一个。 */
   knowledge_subjects?: KnowledgeSubject[];
+  /**
+   * 说话人分离（FineSub 0.6.0 `--diarize`），缺省即关闭。结果只决定每行放进哪条
+   * 说话人轨，不改变字幕本身；两档「裁判」在 LLM 纠错阶段复核，只在最终字幕下有效。
+   */
+  diarization?: DiarizationRequest;
   cleanup_intermediate: boolean;
   /** 只在日文轴上出现：worker 据它跳过识别，直接补译文。其余轴型不进任务请求 */
   axis?: TaskAxis;
+}
+
+export type DiarizationLevel = "off" | "acoustics" | "judge-text" | "judge-audio";
+
+export interface DiarizationRequest {
+  level: DiarizationLevel;
+  /** 上游建议不设：多出来的轨往往是嘉宾或背景人声，上限一紧只会被并进真人的轨里。 */
+  max_speakers?: number | null;
 }
 
 export interface TaskProgress {

@@ -23,8 +23,15 @@ from typing import Iterable
 from finesub.reporting import current_reporter
 
 from ..base import IndexEntry, _match_normalize, parse_index_text
+from .human_marks import line_marks
 from .importer import import_knowledge_root
-from .model import CATEGORIES, MATCHABLE_CATEGORIES, STANDALONE_CATEGORIES, NodeVersion
+from .model import NodeVersion, entry_name_problem
+from .presets import (
+    CATEGORIES,
+    MATCHABLE_CATEGORIES,
+    STANDALONE_CATEGORIES,
+    preset_for_category,
+)
 from .render import HandleMap, render_index, render_subject, subject_aliases
 from .store import KnowledgeStore
 
@@ -39,6 +46,51 @@ def _sha256(text: str) -> str:
     return hashlib.sha256(text.replace("\r\n", "\n").encode("utf-8")).hexdigest()
 
 
+#: The characters a file system reads as structure or rejects in a name, mapped
+#: to their full-width look-alikes: ``Re:ゼロ`` renders as ``Re：ゼロ.md``. Two
+#: names differing only there are one name to the store (NFKC folds them), so
+#: the mapping cannot make two live entries collide.
+_PATH_LOOKALIKES = str.maketrans({
+    "\\": "＼", "/": "／", ":": "：", "*": "＊", "?": "？", '"': "＂", "<": "＜", ">": "＞",
+})
+#: Windows opens these as devices whatever the extension (``CON.md`` is the console).
+_WINDOWS_RESERVED_NAMES = frozenset(
+    {"CON", "PRN", "AUX", "NUL"}
+    | {f"COM{n}" for n in (*range(1, 10), "¹", "²", "³")}
+    | {f"LPT{n}" for n in (*range(1, 10), "¹", "²", "³")}
+)
+
+
+def rendered_file_name(subject: NodeVersion) -> str:
+    """``<name>.md`` with path characters swapped for look-alikes, or
+    ``<local id>.md`` when even that is no file name: a path component, a
+    device name, too many bytes, or a row imported or pulled before entry
+    names were checked. The H1 inside always shows the real name, and the
+    harvest maps files back through the manifest, never through the name."""
+
+    surface = str(subject.payload.get("surface") or "")
+    stem = surface.translate(_PATH_LOOKALIKES)
+    # The name rule counts characters; ext4 and APFS cap a path component at
+    # 255 BYTES, and 100 CJK characters are 300 in UTF-8. A name that long
+    # is legal as a name and would still fail every refresh as a file name.
+    if (
+        entry_name_problem(surface) is None
+        and stem not in {".", ".."}
+        and stem.split(".", 1)[0].rstrip(" ").upper() not in _WINDOWS_RESERVED_NAMES
+        and len(stem.encode("utf-8")) <= _MAX_NAME_BYTES
+    ):
+        return f"{stem}.md"
+    return f"{subject.local_id}.md"
+
+
+#: Leaves room for ".md" (and an editor's swap suffix) under the 255-byte limit.
+_MAX_NAME_BYTES = 240
+
+
+def _is_inside(directory: Path, path: Path) -> bool:
+    return path.resolve().is_relative_to(directory.resolve())
+
+
 @dataclass
 class RenderedRefreshReport:
     written: list[str] = field(default_factory=list)
@@ -47,13 +99,13 @@ class RenderedRefreshReport:
 
 
 # `CATEGORIES` (every category that exists) and `MATCHABLE_CATEGORIES` (the ones
-# a name can be matched into from free text) both come from `model.py`. Which of
-# the two a call site wants is the question this module keeps answering, so
+# a name can be matched into from free text) both come from `presets.py`. Which
+# of the two a call site wants is the question this module keeps answering, so
 # neither is re-exported under a shorter name here.
-_INDEX_HEADERS = {
-    "streamer": "# 主播索引\n\n格式：`- key | 其他语言本名 | 别名 | 一句简介`（key = 源语言本名）",
-    "common": "# Common 索引\n\n格式：`- key [类型] | 其他语言本名 | 别名 | 一句简介`（key = 源语言本名；类型如 [游戏]、[动画]、[社区]、[其他]）",
-}
+#
+# The index headers used to sit here as a dict keyed on category -- the same
+# shape as the blurb dict in `render.py`, and the same failure. They are
+# `preset.index_header` now (2026-09-07).
 
 _registry: dict[tuple[str, int], "KnowledgeRepo"] = {}
 _registry_lock = threading.Lock()
@@ -67,7 +119,8 @@ class ResolvedEntry:
 
 
 #: Separates a category from a name in the human-facing lookup
-#: (``style/某字幕组``). Legal because entry keys may not contain it.
+#: (``style/某字幕组``). Entry names may contain ``/`` too, so only a prefix
+#: that is a known category counts (`resolve_qualified`).
 CATEGORY_SEPARATOR = "/"
 
 
@@ -177,21 +230,37 @@ class KnowledgeRepo:
             raise ValueError(f"no index for knowledge category {category!r}")
         if not self.subjects(category, rev):
             return ""
-        return render_index(self.store, category, rev=rev, header=_INDEX_HEADERS[category])
+        header = preset_for_category(category).index_header
+        return render_index(self.store, category, rev=rev, header=header)
 
-    def resolve(self, name: str, rev: int | None = None, *, category: str | None = None) -> ResolvedEntry | None:
+    def resolve(
+        self,
+        name: str,
+        rev: int | None = None,
+        *,
+        category: str | None = None,
+        exclude: str | None = None,
+    ) -> ResolvedEntry | None:
+        """``exclude`` skips one subject: a rename asks "does ANOTHER entry
+        answer to this name?", and the entry being renamed answers to its own
+        aliases, native names and script variants of its H1."""
+
         needle = _match_normalize(name)
         if not needle:
             return None
         for candidate in MATCHABLE_CATEGORIES if category is None else (category,):
             for subject in self.subjects(candidate, rev):
+                if exclude is not None and subject.local_id == exclude:
+                    continue
                 payload = subject.payload
                 terms = [payload.get("surface", ""), *payload.get("native_names", []), *subject_aliases(self.store, subject.local_id, rev)]
                 if needle in {_match_normalize(term) for term in terms if term}:
                     return ResolvedEntry(candidate, payload.get("surface", ""), subject.local_id)
         return None
 
-    def resolve_in(self, name: str, category: str, rev: int | None = None) -> ResolvedEntry | None:
+    def resolve_in(
+        self, name: str, category: str, rev: int | None = None, *, exclude: str | None = None
+    ) -> ResolvedEntry | None:
         """Uniqueness lookup: does `name` already exist in the namespace this
         category belongs to?
 
@@ -211,8 +280,8 @@ class KnowledgeRepo:
         exactly what `style` exists for."""
 
         if category in STANDALONE_CATEGORIES:
-            return self.resolve(name, rev, category=category)
-        return self.resolve(name, rev)
+            return self.resolve(name, rev, category=category, exclude=exclude)
+        return self.resolve(name, rev, exclude=exclude)
 
     def resolve_qualified(self, name: str, rev: int | None = None) -> ResolvedEntry | None:
         """Human-facing lookup (`knowledge show/edit/retire/ingest/repair`,
@@ -223,9 +292,9 @@ class KnowledgeRepo:
         design EXPECTS that: a style is usually named after the group or
         streamer it serves. So:
 
-        * ``style/某字幕组`` addresses one category explicitly. The separator is
-          safe because ``/`` is rejected in entry keys (`create_entry`), and a
-          prefix that is not a known category is treated as part of the name.
+        * ``style/某字幕组`` addresses one category explicitly. Only a prefix
+          that is a known category counts: entry names may contain ``/``
+          (``Fate/stay night``), and an unknown prefix is part of the name.
         * a bare name that exists in exactly one category resolves to it;
         * a bare name that exists in several raises `AmbiguousName`. Picking a
           side silently is the one thing this must not do — it would retire,
@@ -252,10 +321,15 @@ class KnowledgeRepo:
         cache, ``show`` and the editor round-trip. Never inject this into a
         model prompt — that is ``entry_injection_text`` (review round 12)."""
 
-        # FULL preview: rendered/ is what a human edits and what the update
-        # agent reads, so it carries every section, the preset guidance and an
-        # empty slot per core label (plan §11).
-        return render_subject(self.store, subject_id, rev=rev, mode="human", preview="full")
+        # FULL preview: rendered/ is what a human edits, so it carries every
+        # section, the preset guidance and an empty slot per core label (plan
+        # §11). The only exit that carries human-version marks: wherever the
+        # model moved a line away from what a human last endorsed, the human
+        # sees both (owner 2026-10-01, `human_marks.py`).
+        return render_subject(
+            self.store, subject_id, rev=rev, mode="human", preview="full",
+            marks=line_marks(self.store, subject_id, rev),
+        )
 
     def entry_injection_text(self, subject_id: str, rev: int | None = None) -> str:
         """PROMPT projection without handles: bare grammar lines, exactly what
@@ -263,10 +337,13 @@ class KnowledgeRepo:
 
         return render_subject(self.store, subject_id, rev=rev, mode="prompt")
 
-    def entry_prompt_text(self, subject_id: str, handles: HandleMap, rev: int | None = None) -> str:
+    def entry_prompt_text(
+        self, subject_id: str, handles: HandleMap, rev: int | None = None, *, alias_row_handle: bool = True
+    ) -> str:
         # the knowledge-update session decides where to write: full preview
         return render_subject(
-            self.store, subject_id, rev=rev, mode="prompt", handles=handles, preview="full"
+            self.store, subject_id, rev=rev, mode="prompt", handles=handles, preview="full",
+            alias_row_handle=alias_row_handle,
         )
 
     def load_entry_texts(self, names: Iterable[str], rev: int | None = None) -> tuple[dict[str, str], list[str]]:
@@ -306,7 +383,9 @@ class KnowledgeRepo:
         dirty: list[tuple[str, Path, str]] = []
         for rel, entry in self.rendered_manifest().get("files", {}).items():
             path = out / rel
-            if not path.is_file():
+            if not _is_inside(out, path) or not path.is_file():
+                # A manifest written before entry names were checked may list
+                # a file outside rendered/; it is nobody's edit to harvest.
                 continue
             if _sha256(path.read_text(encoding="utf-8")) != entry.get("sha256"):
                 dirty.append((rel, path, str(entry.get("subject", ""))))
@@ -332,13 +411,24 @@ class KnowledgeRepo:
             if category in MATCHABLE_CATEGORIES:
                 wanted.add("index.md")
                 (directory / "index.md").write_text(
-                    self.index_text(category) or f"{_INDEX_HEADERS[category]}\n", encoding="utf-8"
+                    self.index_text(category)
+                    or f"{preset_for_category(category).index_header}\n",
+                    encoding="utf-8",
                 )
+            taken = {name.casefold() for name in wanted}
             for subject in self.subjects(category):
-                name = f"{subject.payload.get('surface', subject.local_id)}.md"
+                name = rendered_file_name(subject)
+                if name.casefold() in taken:
+                    # The category's `index.md`, or two names a file system
+                    # cannot tell apart that slipped past the name dedupe (a
+                    # legacy row): the later one keeps its id for a file name.
+                    name = f"{subject.local_id}.md"
+                taken.add(name.casefold())
                 wanted.add(name)
                 rel = f"{category}/{name}"
                 path = directory / name
+                if not _is_inside(directory, path):
+                    raise RuntimeError(f"rendered path escapes {directory}: {name!r}")
                 target = self.entry_text(subject.local_id)
                 entry = old_files.get(rel)
                 disk = path.read_text(encoding="utf-8") if path.is_file() else None

@@ -4,17 +4,10 @@
 <task_summary>
 $task_summary
 </task_summary>
-
-本次纠错使用的 prompt 版本（`add_mistake` 的 `prompt_version` 字段用它）：$task_prompt_version
 $chunk_notice
 知识库索引（新建词条前必须对照）：
 <kb_index>
-<streamer_index>
-$streamer_index
-</streamer_index>
-<common_index>
-$common_index
-</common_index>
+$knowledge_indexes
 </kb_index>
 
 全局背景调查（覆盖全部窗口，可能为空）：
@@ -40,4 +33,4 @@ $kb_entries
 按纠错窗口分组的字幕材料：
 $window_packs
 
-最后提醒（读完以上全部输入后）：$final_reminder
+最后提醒（读完以上全部输入后）：先以一个 `<reasoning>` 块开头；随后输出有且仅有一个 `<knowledge_proposals>` 块（可为空块）$style_marks_reminder；除上述块外不要输出任何其他文字。

@@ -133,7 +133,18 @@ class DocumentStore:
         *,
         artifacts: Mapping[str, Any] | None = None,
         replace_default: bool = False,
+        generated_track_prefixes: tuple[str, ...] = (),
     ) -> dict[str, Any]:
+        """Write a projection as the video's document.
+
+        Replacing an existing one keeps what the person made of it -- their
+        tracks, effects and styles -- around the new subtitles. Tracks whose id
+        starts with one of `generated_track_prefixes` are the projection's own
+        (speaker tracks from an axis or from diarization): those are replaced
+        by the incoming ones, since keeping the old ones beside the new main
+        lane would show every line twice, or a stale split of them.
+        """
+
         with self._lock(video_id):
             directory = self.directory(video_id)
             path = directory / "document.json"
@@ -145,8 +156,21 @@ class DocumentStore:
                 if not replace_default:
                     raise DocumentError(f"document {video_id!r} already exists")
                 current = self.read(video_id)
-                incoming["tracks"] = copy.deepcopy(current.get("tracks", []))
-                incoming["track_meta"] = copy.deepcopy(current.get("track_meta", incoming.get("track_meta")))
+                current_tracks = copy.deepcopy(current.get("tracks", []))
+                current_meta = copy.deepcopy(current.get("track_meta", incoming.get("track_meta")))
+                if generated_track_prefixes:
+                    kept = [
+                        track for track in current_tracks
+                        if not str(track.get("id") or "").startswith(generated_track_prefixes)
+                    ]
+                    incoming["tracks"] = kept + list(incoming.get("tracks") or [])
+                    # The main lane's styles are the person's; its name says
+                    # whose lines it now holds.
+                    if isinstance(current_meta, dict) and isinstance(incoming.get("track_meta"), Mapping):
+                        current_meta["name"] = incoming["track_meta"].get("name", current_meta.get("name"))
+                else:
+                    incoming["tracks"] = current_tracks
+                incoming["track_meta"] = current_meta
                 incoming["effects"] = copy.deepcopy(current.get("effects", incoming.get("effects", [])))
                 # 样式表跟着视频走，重新投影只换字幕内容，不该把用户调好的样式冲掉
                 styles = current.get("styles", incoming.get("styles"))

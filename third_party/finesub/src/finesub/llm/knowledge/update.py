@@ -20,12 +20,10 @@ import argparse
 import hashlib
 from contextlib import ExitStack
 import json
-import os
 from pathlib import Path
 import sys
 from typing import Any, Dict, List, Mapping, Sequence
 
-from finesub.paths import is_linked_worktree
 from finesub.reporting import current_reporter
 
 from ..client import (
@@ -48,8 +46,9 @@ from .base import (
     DEFAULT_KNOWLEDGE_ROOT,
     append_task_artifact,
     knowledge_write_lock,
-    load_index_text,
+    load_index_texts,
     parse_knowledge_proposals_jsonl,
+    worktree_blocks_knowledge_write,
 )
 from .entries import (
     EntrySelection,
@@ -85,8 +84,10 @@ DEFAULT_KNOWLEDGE_UPDATE_PARSE_RETRIES = 1
 def _validate_knowledge_update_jsonl(text: str) -> None:
     """Raise ValueError if the knowledge proposal JSONL is syntactically invalid.
 
-    One block since the style entry took over from the mistake ledger: both
-    variants now emit `<knowledge_proposals>` and nothing else.
+    Only the `<knowledge_proposals>` block is checked. The answer may carry
+    other blocks -- `<reasoning>`, and `<style_marks>` in a refined update
+    with a pinned style -- which are read elsewhere (`style_marks.py`) and
+    never make the answer invalid here.
     """
 
     parse_knowledge_proposals_jsonl(text)
@@ -283,6 +284,7 @@ def repair_knowledge_conflicts(
         knowledge_root,
         count_tokens=counter.count_text,
         rev=current_rev,
+        ask_to_compress=False,
     )
     messages = build_knowledge_conflict_repair_messages(
         task_summary=task_summary,
@@ -314,6 +316,7 @@ def repair_knowledge_conflicts(
                 "kb_handle_bindings": handles.bindings(),
                 "kb_signal_task": task_id or "manual",
                 "kb_signal_window": "conflict-repair",
+                "kb_size_notice": False,
             },
             **dict(sampling),
         )
@@ -425,7 +428,7 @@ def _chunk_input_hash(
     without it here the second run is skipped as already-applied and B never
     receives a single proposal (review 2026-09-02). This is the knowledge
     task's identity only — correction windows still do not invalidate on a
-    style change (`translation-style-plan.md` §2.5).
+    style change (`docs/llm_harness_behavior.md`, 「纠错窗口中途 resume」).
     """
 
     payload: dict[str, Any] = {
@@ -586,11 +589,6 @@ def _split_chunk(chunk: KnowledgeChunk) -> List[KnowledgeChunk]:
     ]
 
 
-def _worktree_writes_allowed() -> bool:
-    configured = os.environ.get("FINESUB_KNOWLEDGE_WRITE", "")
-    return configured.strip().lower() in {"1", "true", "yes", "on"}
-
-
 def run_knowledge_update(**kwargs: Any) -> Dict[str, Any]:
     """Book this task's agent slot account, then run the update.
 
@@ -650,11 +648,7 @@ def _run_knowledge_update(
     touching the knowledge base.
     """
 
-    if execute and apply and is_linked_worktree() and not _worktree_writes_allowed():
-        # Worktrees share the main checkout's knowledge base on purpose, which
-        # also means a throwaway experiment in one would commit into the real
-        # thing. Ask first: set FINESUB_KNOWLEDGE_WRITE=1 for a run that is
-        # meant to update it.
+    if execute and apply and worktree_blocks_knowledge_write(knowledge_root):
         message = (
             "当前在 git worktree 中运行，已跳过知识库更新以免写入主仓的知识库；"
             "确需更新请设 FINESUB_KNOWLEDGE_WRITE=1 后重跑（ledger 未推进）。"
@@ -722,30 +716,7 @@ def _run_knowledge_update(
         Path(refined_srt).expanduser().read_text(encoding="utf-8") if refined_srt else ""
     )
     if refined and execute and apply:
-        # Deterministic evidence write-back (plan §5.4): the refined SRT
-        # keeping/overturning a misheard-attributed correction confirms/refutes
-        # exactly that claim. Runs before the LLM chunks — it reads only the
-        # aligned materials — and is fail-soft, idempotent telemetry; the
-        # the style half of the feedback travels as ordinary entry
-        # proposals into the pinned style entry.
-        try:
-            from .node.signals import refined_alignment_evidence
-
-            confirmed, refuted = refined_alignment_evidence(
-                KnowledgeRepo.open(knowledge_root).store,
-                (
-                    (window.chunk_id, window.raw_csv, window.final_csv, window.refined_csv)
-                    for chunk in materials.chunks
-                    for window in chunk.windows
-                ),
-                task_id=task_id or "knowledge-update",
-            )
-            if confirmed or refuted:
-                current_reporter().debug(
-                    f"refined alignment evidence: {confirmed} confirmed, {refuted} refuted"
-                )
-        except Exception as exc:  # telemetry must never sink the update
-            current_reporter().debug(f"refined alignment evidence skipped: {exc}")
+        _book_refined_alignment_evidence(knowledge_root, materials, task_id)
     task_fingerprint = _task_fingerprint(
         mode=materials.mode,
         task_summary=task_summary,
@@ -911,8 +882,10 @@ def _run_knowledge_update(
             # v17: the update model must see the live index before proposing
             # create_entry; reload per chunk so entries created/renamed by the
             # previous chunk's apply are visible.
-            streamer_index_text = load_index_text(knowledge_root, "streamer", rev=working_rev)
-            common_index_text = load_index_text(knowledge_root, "common", rev=working_rev)
+            knowledge_index_texts = load_index_texts(knowledge_root, rev=working_rev)
+            style_subject_id, style_marks_section = _style_marks_target(
+                knowledge_root, writable_style_keys if refined else [], working_rev
+            )
             messages = build_knowledge_update_messages(
                 refined=refined,
                 task_summary=task_summary,
@@ -921,11 +894,11 @@ def _run_knowledge_update(
                 research_feedback=materials.feedback.research_slice_text(),
                 aggregated_feedback=aggregated_feedback,
                 kb_entries=kb_entries_block.text,
-                streamer_index=streamer_index_text,
-                common_index=common_index_text,
+                knowledge_indexes=knowledge_index_texts,
                 chunk_index=chunk_no,
                 multi_chunk=multi_chunk,
                 window_range=_chunk_window_range(chunk),
+                style_marks_section=style_marks_section,
             )
             prompt_tokens = counter.count_texts(
                 str(message.get("content", "")) for message in messages
@@ -1231,6 +1204,11 @@ def _run_knowledge_update(
                 committed = knowledge_report.get("rev") is not None
                 knowledge_report["committed"] = committed
                 chunk_result["knowledge_report"] = knowledge_report
+                if style_marks_section:
+                    chunk_result["style_marks"] = _book_style_marks(
+                        knowledge_root, result.content, kb_handles, style_subject_id,
+                        chunk, working_rev, task_id or "knowledge-update", chunk_no,
+                    )
                 for category, entry in _applied_entry_pairs(knowledge_report):
                     applied_entries.add((category, entry))
                 ledger_record = {
@@ -1255,6 +1233,7 @@ def _run_knowledge_update(
                     payload={
                         "chunk": chunk_no,
                         "knowledge_report": knowledge_report,
+                        **{k: v for k, v in chunk_result.items() if k == "style_marks"},
                     },
                 )
             results.append(chunk_result)
@@ -1269,6 +1248,94 @@ def _run_knowledge_update(
         "warnings": list(materials.warnings),
         "ledger_path": str(ledger_path),
     }
+
+
+def _book_refined_alignment_evidence(
+    knowledge_root: str | Path, materials: KnowledgeMaterials, task_id: str
+) -> None:
+    """Deterministic evidence write-back (plan §5.4): the refined SRT
+    keeping/overturning a misheard-attributed correction confirms/refutes
+    exactly that claim. Runs before the LLM chunks -- it reads only the
+    aligned materials -- and is fail-soft, idempotent telemetry; the style
+    half of the feedback travels as ordinary entry proposals into the pinned
+    style entry, plus the `<style_marks>` judgements (`_book_style_marks`)."""
+
+    try:
+        from .node.signals import refined_alignment_evidence
+
+        confirmed, refuted = refined_alignment_evidence(
+            KnowledgeRepo.open(knowledge_root).store,
+            (
+                (window.chunk_id, window.raw_csv, window.final_csv, window.refined_csv)
+                for chunk in materials.chunks
+                for window in chunk.windows
+            ),
+            task_id=task_id or "knowledge-update",
+        )
+        if confirmed or refuted:
+            current_reporter().debug(
+                f"refined alignment evidence: {confirmed} confirmed, {refuted} refuted"
+            )
+    except Exception as exc:  # telemetry must never sink the update
+        current_reporter().debug(f"refined alignment evidence skipped: {exc}")
+
+
+def _style_marks_target(
+    knowledge_root: str | Path, writable_style_keys: Sequence[str], rev: int
+) -> tuple[str, str | None]:
+    """``(style subject id, convention section)`` the refined-alignment marks
+    are asked for at this rev, or ``("", None)`` when no style is pinned (or
+    it is not readable at ``rev``)."""
+
+    if not writable_style_keys:
+        return "", None
+    from .style import STYLE_CATEGORY
+    from .style_marks import convention_section
+
+    resolved = KnowledgeRepo.open(knowledge_root).resolve(
+        writable_style_keys[0], rev, category=STYLE_CATEGORY
+    )
+    if resolved is None:
+        return "", None
+    return resolved.subject_id, convention_section(STYLE_CATEGORY)
+
+
+def _book_style_marks(
+    knowledge_root: str | Path,
+    content: str,
+    handles: Any,
+    style_subject_id: str,
+    chunk: KnowledgeChunk,
+    read_rev: int,
+    task_id: str,
+    chunk_no: int,
+) -> Dict[str, Any]:
+    """Check and book the chunk's `<style_marks>` (`style_marks.py`) against
+    the refined rows THIS call rendered. Fail-soft telemetry like the
+    deterministic refined evidence: a failure here is reported, never raised
+    past an update that already committed."""
+
+    from .style_marks import book_style_marks, refined_start_times
+
+    try:
+        report = book_style_marks(
+            KnowledgeRepo.open(knowledge_root).store,
+            content,
+            handles=handles,
+            style_subject_id=style_subject_id,
+            refined_starts=refined_start_times(w.refined_csv for w in chunk.windows),
+            read_rev=read_rev,
+            task_id=task_id,
+        )
+    except Exception as exc:  # telemetry must never sink the update
+        current_reporter().debug(f"style marks skipped (chunk {chunk_no}): {exc}")
+        return {"booked": 0, "duplicates": 0, "dropped": [], "error": str(exc)}
+    if report["dropped"]:
+        current_reporter().debug(
+            f"style marks: chunk {chunk_no} dropped {len(report['dropped'])}",
+            {"dropped": report["dropped"]},
+        )
+    return report
 
 
 # ---------------------------------------------------------------------------
@@ -1339,11 +1406,17 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Use gemini-3.5-flash-lite for model calls.",
     )
+    from ..routing.model_routes import add_routing_arguments
+
+    add_routing_arguments(parser)
     return parser.parse_args()
 
 
 def main() -> int:
     args = parse_args()
+    from ..routing.model_routes import install_runtime_routing
+
+    install_runtime_routing(args)
     task_id = args.task_id or Path(args.final_srt).stem
     try:
         report = run_knowledge_update(

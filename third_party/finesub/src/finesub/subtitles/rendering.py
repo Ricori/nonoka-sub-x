@@ -174,7 +174,8 @@ def convert_json_to_srt(
         srt_text = render_segment_srt(segments)
 
     if validate:
-        warn_on_invalid_srt(srt_text, where=str(output_path))
+        # Not a pipeline stage: this is the standalone json -> srt converter.
+        warn_on_invalid_srt(srt_text, where=str(output_path), budget_stage="SRT")
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(srt_text, encoding="utf-8")
     # Intermediate artifacts are not announced; the delivered one is, once,

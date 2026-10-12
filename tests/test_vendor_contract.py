@@ -95,7 +95,7 @@ class VendorContractTests(unittest.TestCase):
         """
 
         from nonoka_x.local_provider import LLM_ROLES, PIPELINE_TARGETS
-        from nonoka_x.llm_worker import ROLES
+        from nonoka_x.llm_worker import ENGINE_ROLES, ROLES
 
         stages = _assignment(DEFAULT_VENDOR / "src/finesub/stages.py", "PIPELINE_STAGE_ORDER")
         self.assertEqual(
@@ -103,8 +103,30 @@ class VendorContractTests(unittest.TestCase):
             {key.value for key in stages.keys},
         )
         roles = _enum_members(DEFAULT_VENDOR / "src/finesub/llm/routing/config.py", "LLMRole")
-        self.assertTrue(set(LLM_ROLES) <= roles, f"{set(LLM_ROLES) - roles} are not engine roles")
+        engine_roles = set(ENGINE_ROLES.values())
+        self.assertTrue(engine_roles <= roles, f"{engine_roles - roles} are not engine roles")
         self.assertEqual(set(ROLES), set(LLM_ROLES))
+        self.assertEqual(set(ENGINE_ROLES), set(ROLES))
+
+    def test_desktop_restates_the_engine_switch_values(self) -> None:
+        """The knowledge modes and diarization levels the provider validates.
+
+        Both are checked before a task is queued, on an interpreter that cannot
+        import FineSub; a value the provider accepts and the engine rejects
+        fails only after recognition has already run.
+        """
+
+        from nonoka_x.local_provider import DIARIZE_LEVELS, KNOWLEDGE_MODES
+
+        engine = DEFAULT_VENDOR / "src/finesub"
+        self.assertEqual(
+            KNOWLEDGE_MODES,
+            ast.literal_eval(_assignment(engine / "llm/routing/profiles.py", "KNOWLEDGE_MODES")),
+        )
+        self.assertEqual(
+            DIARIZE_LEVELS,
+            ast.literal_eval(_assignment(engine / "stages.py", "DIARIZE_LEVELS")),
+        )
 
     def test_nonoka_x_macos_media_manifests_are_packaged(self) -> None:
         resources = Path(__file__).resolve().parents[1] / "src/nonoka_x/resources"

@@ -74,17 +74,25 @@ def _bundle_text(bundle: Mapping[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def pending_claims(item: Mapping[str, Any]) -> dict[str, Mapping[str, Any]]:
+    """The claims the session is asked to corroborate, by a short per-session
+    handle (``@v1``…). The verdict names a claim by its handle and the harness
+    maps it back to ``(node, field_path, value_hash)``: copying a 64-hex hash
+    and two path fields per row was a pure error surface (owner 2026-10-03,
+    cold read Q14), and the hash is no use to the reader of the prompt."""
+
+    rows = [row for row in threshold_report(item.get("bundle") or {}) if row["needs_external"]]
+    return {f"@v{index + 1}": row for index, row in enumerate(rows)}
+
+
 def render_review_prompt(item: Mapping[str, Any]) -> str:
     bundle = item.get("bundle") or {}
-    thresholds = threshold_report(bundle)
     pending = []
-    for row in thresholds:
-        if not row["needs_external"]:
-            continue
+    for handle, row in pending_claims(item).items():
         # label and self-reported sources are contributor text — quoted like
         # the bundle lines so an embedded newline cannot fabricate rows in
-        # this trusted-looking section (round 12); node/field_path/value_hash/
-        # slot are grammar-checked at admission.
+        # this trusted-looking section (round 12); node/field_path/slot are
+        # grammar-checked at admission.
         notes = []
         if row.get("self_reported_refined"):
             notes.append("贡献者自述有精修印证——不可核实，仅参考")
@@ -98,13 +106,15 @@ def render_review_prompt(item: Mapping[str, Any]) -> str:
             )
         label = json.dumps(str(row["label"]), ensure_ascii=False)
         pending.append(
-            f"- {row['node']}（{label}）{row['field_path']} value_hash={row['value_hash']}"
+            f"- {handle}：{row['node']}（{label}）{row['field_path']}"
             f" [{row['slot']}]" + ("（" + "；".join(notes) + "）" if notes else "")
         )
     if not pending:
         pending = ["（无——所有 claim 已过门槛或属人工槽位）"]
     claims = [
-        json.dumps(claim, ensure_ascii=False, sort_keys=True)
+        # The hash identifies the claim for the harness only; the reader names
+        # claims by handle (`pending_claims`), so it is left out here too.
+        json.dumps({k: v for k, v in claim.items() if k != "value_hash"}, ensure_ascii=False, sort_keys=True)
         for claim in bundle.get("claim_summaries") or []
     ] or ["（无 claim 摘要——注意：claim 摘要是贡献者自述，不作为任何门槛依据）"]
     hints = [
@@ -123,8 +133,11 @@ def render_review_prompt(item: Mapping[str, Any]) -> str:
     )
 
 
-def parse_review_verdict(text: str) -> dict[str, Any]:
-    """The session's ``<review_verdict>`` block, shape-checked."""
+def parse_review_verdict(text: str, claims: Mapping[str, Mapping[str, Any]]) -> dict[str, Any]:
+    """The session's ``<review_verdict>`` block, shape-checked; each
+    ``external_evidence`` row's ``claim`` handle resolves through ``claims``
+    (`pending_claims`). A row with an unknown handle is dropped and counted in
+    ``unknown_claims`` -- like a row without a URL, it corroborates nothing."""
 
     data = parse_json_tag_block(text, "review_verdict")
     verdict = str(data.get("verdict") or "")
@@ -141,14 +154,20 @@ def parse_review_verdict(text: str) -> dict[str, Any]:
     if not isinstance(evidence, list):
         raise ValueError("external_evidence must be a list")
     rows = []
+    unknown: list[str] = []
     for entry in evidence:
         if not isinstance(entry, Mapping) or not str(entry.get("url") or "").startswith("http"):
             continue  # a corroboration without a URL is not external evidence
+        handle = str(entry.get("claim") or "")
+        claim = claims.get(handle)
+        if claim is None:
+            unknown.append(handle or "(missing)")
+            continue
         rows.append(
             {
-                "node": str(entry.get("node") or ""),
-                "field_path": str(entry.get("field_path") or ""),
-                "value_hash": str(entry.get("value_hash") or ""),
+                "node": str(claim["node"]),
+                "field_path": str(claim["field_path"]),
+                "value_hash": str(claim["value_hash"]),
                 "url": str(entry.get("url")),
                 "note": str(entry.get("note") or "")[:500],
             }
@@ -158,7 +177,15 @@ def parse_review_verdict(text: str) -> dict[str, Any]:
         "merge": dict(merge),
         "reason": str(data.get("reason") or "")[:500],
         "external_evidence": rows,
+        "unknown_claims": unknown,
     }
+
+
+class UnusableReviewReply(ValueError):
+    """The session answered, but not with a verdict this module can read.
+
+    Raised only from parsing the reply, so the review loop can skip that one
+    item without also swallowing a configuration error on the way to the call."""
 
 
 def run_review_session(item: Mapping[str, Any], *, client) -> dict[str, Any]:  # type: ignore[no-untyped-def]
@@ -177,4 +204,7 @@ def run_review_session(item: Mapping[str, Any], *, client) -> dict[str, Any]:  #
         retrieval="native",
         task_group="research",
     )
-    return parse_review_verdict(result.content)
+    try:
+        return parse_review_verdict(result.content, pending_claims(item))
+    except ValueError as exc:
+        raise UnusableReviewReply(str(exc)) from exc

@@ -42,7 +42,6 @@ from ...token_budget import TokenCounter
 from ...web_search import WebSearchClient
 from .commit import _append_window_cache, _load_window_cache, _window_input_hash
 from .metadata import _window_audio_label
-from .query_round import QueryRoundProduct
 
 
 @dataclass
@@ -137,18 +136,15 @@ class WindowGeometry:
     #: is wrong, and halving again just spends quota on the same failure.
     #: Past the cap the task stops with a RuntimeError.
     #:
-    #: **Owner decision, 2026-09-02: 2. Changed to 1 on 2026-09-03.** One
-    #: measured consequence of the smaller cap: the deepest leaf production can
-    #: now reach is a half, whose worst *correct* discard ratio is 43.8% rather
-    #: than the quarter's 61.9% (`bench-baselines.md` 二十五).
+    #: **Owner decision, 2026-09-02: 2. Changed to 1 on 2026-09-03.**
     MAX_SPLITS = 1
 
     @staticmethod
     def split_depth(window: SubtitleWindow) -> int:
         """How many times this window has already been halved.
 
-        The rule lives on `SubtitleWindow` -- the output validator needs the
-        same answer -- and this stays as the name the retry loop reads.
+        The rule lives on `SubtitleWindow`; this stays as the name the retry
+        loop reads.
         """
 
         return window.split_depth
@@ -281,7 +277,6 @@ class WindowMedia:
     video_path: Path | None
     audio_label: str
     #: Uploads the caller already has (fast mode's round-1 clip), by chunk id.
-    file_ref_seed: Mapping[str, UploadedFileRef]
     audio_clips: WindowClipPrefetcher | None = None
     video_clips: WindowClipPrefetcher | None = None
     #: Cuts an `.aac` on demand when a video-incapable target answers a video
@@ -300,24 +295,7 @@ class WindowMedia:
         return self.audio_clips if self.profile.correction_use_audio else None
 
     def correction_ref(self, window: SubtitleWindow) -> UploadedFileRef | None:
-        seeded = self.file_ref_seed.get(window.chunk_id)
-        if seeded is not None:
-            return seeded
         prefetcher = self.correction_clips
-        return prefetcher.get_ref(window) if prefetcher is not None else None
-
-    def query_ref(self, window: SubtitleWindow) -> UploadedFileRef | None:
-        """The query round's clip follows ``planning_media``."""
-
-        if not self.profile.planning_use_audio:
-            return None
-        if self.profile.planning_media == self.profile.correction_media:
-            # Same kind as the correction round: share its clip (and any
-            # fast-mode seeded upload) instead of cutting a second one.
-            return self.correction_ref(window)
-        prefetcher = (
-            self.video_clips if self.profile.planning_use_video else self.audio_clips
-        )
         return prefetcher.get_ref(window) if prefetcher is not None else None
 
     def correction_label(self, window: SubtitleWindow) -> str:
@@ -329,18 +307,6 @@ class WindowMedia:
             self.audio_label,
             window,
             clip_suffix=CLIP_VIDEO_SUFFIX if use_video else CLIP_AUDIO_SUFFIX,
-        )
-
-    def query_label(self, window: SubtitleWindow) -> str:
-        return _window_audio_label(
-            self.video_path if self.profile.planning_use_video else self.audio_path,
-            self.audio_label,
-            window,
-            clip_suffix=(
-                CLIP_VIDEO_SUFFIX
-                if self.profile.planning_use_video
-                else CLIP_AUDIO_SUFFIX
-            ),
         )
 
     def ladder_audio_ref(self, window: SubtitleWindow) -> UploadedFileRef | None:
@@ -371,6 +337,39 @@ class WindowMedia:
 
 
 
+@dataclass(frozen=True)
+class RequestTurnProduct:
+    """Everything a window's request turn produces for its delivery turn.
+
+    ``requested_entry_keys`` (v17) are the canonical primary keys of the
+    turn's resolved entry requests; the window loop merges them with the
+    transfer set and renders the union once before the delivery turn.
+    ``keep_entry_keys`` are carried entries the turn confirms as still
+    relevant; merged into the transfer set for subsequent windows.
+    """
+
+    search_results: str = ""
+    window_notes: str = ""
+    requested_entry_keys: tuple[str, ...] = ()
+    keep_entry_keys: tuple[str, ...] = ()
+    #: The model's own request turn, replayed verbatim as the assistant
+    #: message before the fill turn; "" = no turn ran, or the turn delivered
+    #: (then ``delivered`` holds it and the conversation has no fill turn).
+    request_reply: str = ""
+    #: What the opening message showed as ``<entry_details>`` (the carried
+    #: entries), so the delivery turn recomposes the exact same opening.
+    carried_entries_text: str = ""
+    requested_search: bool = False
+    requested_entries: bool = False
+    #: The request turn already delivered the window: the attempt loop
+    #: validates this ``LLMCallResult`` as attempt 0 instead of calling.
+    delivered: Any = None
+    #: `--style auto` on the fast window: the recorded `StyleChoice` and the
+    #: picked style's full block, which rides in the fill turn.
+    style_choice: Any = None
+    style_fill_block: str = ""
+
+
 @dataclass
 class CorrectionRun:
     """One correction run's shared state, from planning to the final SRT.
@@ -393,7 +392,7 @@ class CorrectionRun:
     task_update_feedback: bool
     test_profile: bool
     resume: bool
-    # Two-tier retry (docs/llm_followups.md "两档重试"): repairs within one
+    # Two-tier retry (docs/llm_harness_behavior.md 「重试与拼接」): repairs within one
     # session chain, then fresh-session replacements; total calls per window
     # are the product of the two (n+1) forms.
     max_retries_per_window: int
@@ -402,12 +401,9 @@ class CorrectionRun:
     parallel_window_limit: int
     task_artifact_dir: str | Path | None
     task_id: str
-    #: Fast mode's pre-rendered entry block: when set, no window renders its
-    #: own and the knowledge machinery below only records what was injected.
-    entry_details: str
-    evidence_pack_mode: bool
-    #: ``retrieval`` is not ``none``: only then does a window run a query round
-    #: or receive harness-side search results.
+    #: ``retrieval=local``: harness-side search runs and its results are
+    #: injected. Whether a window may *request* is ``request_channel`` /
+    #: ``agent_fetches`` (`task_graph.window_flow`).
     external_injection: bool
     #: How many knowledge keys the transfer chain may carry between windows.
     transfer_cap: int
@@ -420,8 +416,7 @@ class CorrectionRun:
     session_checkpoint_store: SessionCheckpointStore
     planning_limits: ModelLimits
     content_filter_blacklist: set[str]
-    streamer_index_text: str
-    common_index_text: str
+    knowledge_index_texts: Mapping[str, str]
 
     # --- per-window helpers --------------------------------------------
     media: WindowMedia
@@ -436,7 +431,28 @@ class CorrectionRun:
     # --- what the windows accumulate ------------------------------------
     #: Query-round products keyed by *base* chunk id, so -a/-b split halves
     #: and validation retries reuse one round.
-    query_round_cache: Dict[str, QueryRoundProduct] = field(default_factory=dict)
+    request_turn_cache: Dict[str, RequestTurnProduct] = field(default_factory=dict)
+    #: Task flow (plan §3), batched: the window asks for its inputs inside the
+    #: correction task -- search where `retrieval=local`, entries where the
+    #: base is readable (`task_graph.window_flow`).
+    request_channel: bool = False
+    #: Task flow, agentic strategy (stage C): the executor's tool session
+    #: fetches for itself -- no harness request turn, no legacy query round.
+    agent_fetches: bool = False
+    #: A dropped entry can be asked for again -- by the request turn or by the
+    #: executor itself (`task_graph.WindowFlow.window_requests`). Carried as
+    #: the flow's own answer, never re-derived from the channels: a channel
+    #: that is open only for the style pick asks for no entry, and reading it
+    #: as "can ask back" would prune the transfer chain for nothing.
+    window_requests: bool = False
+    #: `--style auto` on a fast run whose window still has to pick
+    #: (`knowledge.style.StyleCatalog`, auto-style-gaps plan A): batched, the
+    #: request turn picks; agentic, the delivery does, and the first valid
+    #: pick clears this and pins the style into ``style_block`` for any later
+    #: half of a split window. None when the pick was made earlier (normal
+    #: mode: the preparation task; a recorded pick on resume), when there is
+    #: nothing to choose, or auto is off.
+    style_catalog: Any = None
     token_rows: List[Dict[str, Any]] = field(default_factory=list)
     rendered_segments: List[TranslatedCsvSegment] = field(default_factory=list)
     #: One warning per window, not one per retry-loop pass.

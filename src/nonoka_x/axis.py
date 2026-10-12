@@ -15,7 +15,8 @@ and lets the user overrule that call. They take three different routes:
 
 Speakers ride along on every route: an axis that names who is talking (one ASS
 style per person) is better evidence than any diarization model, so those rows
-are split into editor tracks rather than re-derived.
+are split into editor tracks rather than re-derived. Only when nothing names
+the speakers do the engine's diarization labels decide (`split_diarized_tracks`).
 """
 
 from __future__ import annotations
@@ -37,6 +38,13 @@ MAX_AXIS_ROWS = 200_000
 #: Two speakers get a track each. Beyond this the styles are almost certainly
 #: typesetting rather than people, which is the same call `assAxis.ts` makes.
 MAX_SPEAKERS = 10
+
+#: Track id prefixes of the tracks a projection generates, as opposed to the
+#: ones a person made in the editor (`t…`). A re-projection replaces these and
+#: keeps the rest (`DocumentStore.create`).
+AXIS_TRACK_PREFIX = "axis"
+DIARIZATION_TRACK_PREFIX = "diar"
+GENERATED_TRACK_PREFIXES = (AXIS_TRACK_PREFIX, DIARIZATION_TRACK_PREFIX)
 
 
 class AxisError(ValueError):
@@ -153,8 +161,8 @@ def translate_axis(
     A source-text axis has everything separation, VAD and ASR would produce, so
     the whole speech half of the pipeline is skipped -- no GPU, no models, no
     audio decode. Stable JSON is the LLM stage's own input format, so writing
-    one is the entire adaptation; `run_full_correction` is the same call
-    `finesub.pipeline` makes for a normal run's second half.
+    one is the entire adaptation; `run_correction_task` is the same task
+    `run_pipeline`'s LLM stage runs for a normal run's second half.
 
     Shared by both execution modes: the desktop worker passes the media file so
     an audio or video correction reference stays available, the cloud passes
@@ -164,7 +172,8 @@ def translate_axis(
 
     import json
 
-    from finesub.llm.correction_translation import run_full_correction
+    from finesub.llm.correction_request import CorrectionRequest
+    from finesub.llm.correction_translation import run_correction_task
     from finesub.llm.routing.profiles import resolve_profile
 
     output = Path(output_path)
@@ -195,15 +204,15 @@ def translate_axis(
     )
     extra: dict[str, Any] = {} if knowledge_root is None else {"knowledge_root": knowledge_root}
     if knowledge_subjects:
-        extra["knowledge_subjects"] = list(knowledge_subjects)
-    final_srt = Path(run_full_correction(
+        extra["knowledge_subjects"] = tuple(knowledge_subjects)
+    outcome = run_correction_task(CorrectionRequest(
         stable_json=stable_json,
         output_path=output,
         # A text reference reads nothing but the stable JSON, so the media file
         # is not opened at all -- which is what lets the cloud run this without
         # ever receiving one.
-        audio_path=source_path if media != "text" else None,
-        video_path=video_path,
+        audio_path=Path(source_path) if source_path is not None and media != "text" else None,
+        video_path=Path(video_path) if video_path else None,
         profile=profile,
         fast=resolve_request_fast(correction, warn=on_notice),
         extra_info=str(correction.get("extra_info") or ""),
@@ -211,10 +220,13 @@ def translate_axis(
         knowledge=knowledge,
         task_id=task_id,
         task_summary=task_summary,
-        task_artifact_dir=task_artifact_dir,
+        task_artifact_dir=Path(task_artifact_dir),
         resume=True,
         **extra,
     ))
+    if outcome.result is None:
+        raise RuntimeError("the correction task produced no subtitle file")
+    final_srt = Path(outcome.result)
     return AxisTranslation(
         stable_json=stable_json,
         final_srt=final_srt,
@@ -226,9 +238,11 @@ def _track_meta(name: str) -> dict[str, Any]:
     return {"name": name, "ja": {"hidden": False, "style": "origin"}, "zh": {"hidden": False, "style": "cn"}}
 
 
-def _new_track(index: int, name: str, segments: list[dict[str, Any]]) -> dict[str, Any]:
+def _new_track(
+    index: int, name: str, segments: list[dict[str, Any]], prefix: str = AXIS_TRACK_PREFIX
+) -> dict[str, Any]:
     return {
-        "id": f"axis{index}",
+        "id": f"{prefix}{index}",
         "name": name,
         # Same shape as a track the editor creates itself: translation shown in
         # cn, source lane in origin but hidden (origin/cn are the only two styles
@@ -245,30 +259,89 @@ def _new_track(index: int, name: str, segments: list[dict[str, Any]]) -> dict[st
 def split_speaker_tracks(
     segments: Sequence[Mapping[str, Any]],
     rows: Sequence[Mapping[str, Any]],
+    *,
+    speakers: Sequence[str] | None = None,
+    prefix: str = AXIS_TRACK_PREFIX,
+    label: Callable[[str], str] = str,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]:
     """Deal row-aligned segments out to one track per named speaker.
 
     `segments` is positionally aligned with `rows` -- every caller here builds
     it that way. The busiest speaker keeps the document's own lane because that
     is the one the editor opens on; unlabelled rows join them rather than
-    forming a nameless track.
+    forming a nameless track, and so do the rows of any speaker beyond the
+    given list. `label` turns a speaker id into the track's display name.
     """
 
-    speakers = axis_speakers(rows)
+    speakers = list(axis_speakers(rows) if speakers is None else speakers)
     if not speakers:
-        return list(segments), [], _track_meta("默认轨")
+        return [_without_speaker(segment) for segment in segments], [], _track_meta("默认轨")
     main, *others = speakers
     buckets: dict[str, list[dict[str, Any]]] = {name: [] for name in others}
     primary: list[dict[str, Any]] = []
     for segment, row in zip(segments, rows):
         speaker = str(row.get("spk") or "")
-        buckets.get(speaker, primary).append(dict(segment))
+        buckets.get(speaker, primary).append(_without_speaker(segment))
     tracks = [
-        _new_track(index, name, buckets[name])
+        _new_track(index, label(name), buckets[name], prefix)
         for index, name in enumerate(others, start=1)
         if buckets[name]
     ]
-    return primary, tracks, _track_meta(main)
+    return primary, tracks, _track_meta(label(main))
+
+
+def _without_speaker(segment: Mapping[str, Any]) -> dict[str, Any]:
+    """The segment as the editor stores it: who said it is told by its track."""
+
+    return {key: value for key, value in segment.items() if key != "spk"}
+
+
+def diarized_speakers(segments: Sequence[Mapping[str, Any]]) -> list[str]:
+    """The diarization speakers that get a track, by descending airtime.
+
+    Unlike an axis (where more than `MAX_SPEAKERS` styles means typesetting),
+    many tracks here are real -- guests, background voices -- so the busiest
+    `MAX_SPEAKERS` get one and the rest share the main lane.
+    """
+
+    airtime: dict[str, float] = {}
+    for segment in segments:
+        speaker = str(segment.get("spk") or "")
+        if speaker:
+            airtime[speaker] = airtime.get(speaker, 0.0) + (float(segment["t1"]) - float(segment["t0"]))
+    ordered = sorted(airtime.items(), key=lambda item: (-item[1], item[0]))
+    return [] if len(ordered) < 2 else [name for name, _ in ordered[:MAX_SPEAKERS]]
+
+
+def diarized_track_name(speaker: str) -> str:
+    """`s3` is a track number, only meaningful within this run; a name is a person."""
+
+    return f"说话人 {speaker}" if speaker[:1] == "s" and speaker[1:].isdigit() else speaker
+
+
+def split_diarized_tracks(projection: Mapping[str, Any]) -> dict[str, Any]:
+    """Split a projection by the engine's speaker labels (`spk` on each line).
+
+    One track per speaker, the busiest on the document's own lane, so that two
+    people talking over each other stay two lines instead of one lane's
+    overlap trim eating one of them. Lines without a label stay on the main
+    lane. Without at least two labelled speakers nothing is split, and the
+    labels are dropped either way: the track is the speaker.
+    """
+
+    segments = list(projection.get("subtitles") or [])
+    rows = [{"t0": segment.get("t0", 0.0), "t1": segment.get("t1", 0.0), "spk": segment.get("spk", "")}
+            for segment in segments]
+    speakers = diarized_speakers(segments)
+    subtitles, tracks, meta = split_speaker_tracks(
+        segments, rows, speakers=speakers, prefix=DIARIZATION_TRACK_PREFIX, label=diarized_track_name
+    )
+    split = dict(projection)
+    split["subtitles"] = subtitles
+    if speakers:
+        split["tracks"] = tracks
+        split["track_meta"] = meta
+    return split
 
 
 def axis_projection(
@@ -365,18 +438,20 @@ def conform_to_axis(projection: Mapping[str, Any], rows: Sequence[Mapping[str, A
     segment says, and a corrected line that spans several axis rows is seated
     whole on the one it overlaps most instead of being cut at a guessed point.
 
-    The one place this cannot be right is simultaneous speech. The engine does
-    no diarization (`features.diarization=false` on both providers), so a word
-    carries when it was said and nothing about who said it; where two axis rows
+    The one place this cannot be right is simultaneous speech. A word carries
+    when it was said and nothing about who said it; where two axis rows
     overlap, both cover the same words and whichever starts first takes them.
-    Left as it is deliberately -- without speaker labels on the audio, every
-    other tie-break is a different guess, not a better answer. The parser counts
-    those rows (`assAxis.parseAxisFile`) so the UI can say they need a human.
+    Left as it is deliberately -- every other tie-break is a different guess,
+    not a better answer. The parser counts those rows (`assAxis.parseAxisFile`)
+    so the UI can say they need a human. Diarization labels, when the run made
+    them, only decide the speaker of a line (and only for an axis that names
+    nobody); they do not move words between rows.
     """
 
     segments = list(projection.get("subtitles") or [])
     lanes = [
-        {"t0": float(row["t0"]), "t1": float(row["t1"]), "ja": [], "zh": [], "words": [], "low": False}
+        {"t0": float(row["t0"]), "t1": float(row["t1"]), "ja": [], "zh": [], "words": [], "low": False,
+         "spk": {}}
         for row in rows
     ]
     if not lanes:
@@ -410,6 +485,10 @@ def conform_to_axis(projection: Mapping[str, Any], rows: Sequence[Mapping[str, A
             lanes[home]["zh"].append(translation)
         if segment.get("low_conf"):
             lanes[home]["low"] = True
+        speaker = str(segment.get("spk") or "")
+        if speaker:
+            votes = lanes[home]["spk"]
+            votes[speaker] = votes.get(speaker, 0.0) + max(0.0, t1 - t0)
 
     projected: list[dict[str, Any]] = []
     for lane in lanes:
@@ -426,8 +505,14 @@ def conform_to_axis(projection: Mapping[str, Any], rows: Sequence[Mapping[str, A
             item["words"] = sorted(lane["words"], key=lambda word: word["start"])
         if lane["low"]:
             item["low_conf"] = True
+        if lane["spk"]:
+            # An axis that names nobody still gets the diarization speakers:
+            # the line goes to whoever spoke most of what landed on it.
+            item["spk"] = max(lane["spk"].items(), key=lambda vote: (vote[1], vote[0]))[0]
         projected.append(item)
 
+    if not axis_speakers(rows):
+        return split_diarized_tracks({**projection, "subtitles": projected})
     subtitles, tracks, meta = split_speaker_tracks(projected, rows)
     conformed = dict(projection)
     conformed["subtitles"] = subtitles

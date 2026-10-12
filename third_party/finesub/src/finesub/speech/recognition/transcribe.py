@@ -36,6 +36,8 @@ from ...text import (
     detect_abnormal_asr_words,
     words_to_text,
 )
+from ..runtime.cuda_libs import missing_asr_backend_message
+from . import asr_backend
 from . import segments as segment_ops
 from . import checkpoint as checkpoint_store
 from . import word_starts
@@ -136,6 +138,50 @@ def collecting_stats() -> Iterator[Counter]:
             del _stats_local.counter
         else:
             _stats_local.counter = previous
+
+
+@contextmanager
+def collecting_coverage() -> Iterator[List[Dict[str, object]]]:
+    """Accumulate per-group ASR coverage for one stage run.
+
+    Separate from `collecting_stats` because these are measurements, not
+    counts: the counter answers "how often did the ladder fire", this answers
+    "how much of each group's speech did the output actually claim" -- which
+    `_coverage_shortfall` computes for every group and, until now, threw away
+    whenever the group passed. A missing subtitle inside an otherwise healthy
+    group left nothing behind to look at afterwards.
+    """
+
+    previous = getattr(_stats_local, "coverage", None)
+    records: List[Dict[str, object]] = []
+    _stats_local.coverage = records
+    try:
+        yield records
+    finally:
+        if previous is None:
+            del _stats_local.coverage
+        else:
+            _stats_local.coverage = previous
+
+
+def _record_coverage(record: Dict[str, object]) -> None:
+    records = getattr(_stats_local, "coverage", None)
+    if records is not None:
+        records.append(record)
+
+
+def _restore_coverage(records: object) -> None:
+    """Put a checkpoint's coverage ledger back before the run continues.
+
+    The ledger is part of the checkpoint schema (`checkpoint.SCHEMA_VERSION`),
+    so a checkpoint that loads at all carries one; a partial written before
+    the ledger existed is stale and never reaches here.
+    """
+
+    sink = getattr(_stats_local, "coverage", None)
+    if sink is None or not isinstance(records, list):
+        return
+    sink[:0] = [record for record in records if isinstance(record, dict)]
 
 
 def _report_progress(completed: int, total: int, groups_done: int) -> None:
@@ -1070,15 +1116,23 @@ def _build_transcribe_kwargs(
     language: Optional[str],
 ) -> Dict[str, object]:
     # Greedy at a single temperature is what keeps alignment on the one-pass
-    # trace; beam search and temperature fallback both leave it.
-    kwargs: Dict[str, object] = {
-        "beam_size": None,
-        "best_of": None,
-        "temperature": 0.0,
-    }
+    # trace; beam search and temperature fallback both leave it. Greedy is the
+    # absence of beam options, not beam_size=None: a backend without the beam
+    # capability refuses those names outright (asr_backend).
+    kwargs: Dict[str, object] = asr_backend.decode_options(temperature=0.0)
     if language:
-        kwargs["language"] = language
+        kwargs.update(asr_backend.decode_options(language=language))
     return kwargs
+
+
+def _signal_options() -> Dict[str, object]:
+    """The refine-signal switches every decode of the alignment loop carries."""
+
+    return asr_backend.decode_options(
+        detect_disfluencies=FW_REFINE_DETECT_DISFLUENCIES,
+        collect_refine_signals=FW_REFINE_COLLECT_PATH_SIGNALS,
+        collect_attention_signals=FW_REFINE_COLLECT_BOUNDARY_SIGNALS,
+    )
 
 
 def _issues_summary(issues: List[str]) -> str:
@@ -1211,7 +1265,8 @@ def _transcribe_with_teacher_force_fallback(
         )
     try:
         return model.transcribe_wt(
-            combined, **{**transcribe_kwargs, "force_teacher_force": True}
+            combined,
+            **{**transcribe_kwargs, **asr_backend.decode_options(force_teacher_force=True)},
         )
     except Exception as exc:
         _warn(
@@ -1351,13 +1406,7 @@ class DecodePrefetch:
                 f"language={effective_language})"
             )
             kwargs = _build_transcribe_kwargs(language=effective_language)
-            kwargs.update(
-                {
-                    "detect_disfluencies": FW_REFINE_DETECT_DISFLUENCIES,
-                    "collect_refine_signals": FW_REFINE_COLLECT_PATH_SIGNALS,
-                    "collect_attention_signals": FW_REFINE_COLLECT_BOUNDARY_SIGNALS,
-                }
-            )
+            kwargs.update(_signal_options())
             requests.append((self._key(combined, kwargs), combined, kwargs))
         # A re-plan after a handed-back tail keeps the groups that did not
         # change: their decodes are still valid and must not be bought twice.
@@ -1452,15 +1501,9 @@ def _transcribe_group_candidate(
         )
 
     transcribe_kwargs = _build_transcribe_kwargs(language=effective_language)
-    transcribe_kwargs.update(
-        {
-            "detect_disfluencies": FW_REFINE_DETECT_DISFLUENCIES,
-            "collect_refine_signals": FW_REFINE_COLLECT_PATH_SIGNALS,
-            "collect_attention_signals": FW_REFINE_COLLECT_BOUNDARY_SIGNALS,
-        }
-    )
+    transcribe_kwargs.update(_signal_options())
     if decode_options:
-        transcribe_kwargs.update(decode_options)
+        transcribe_kwargs.update(asr_backend.decode_options(**decode_options))
     prefetch = getattr(_stats_local, "prefetch", None)
     result = (
         prefetch.take(combined, transcribe_kwargs) if prefetch is not None else None
@@ -1593,10 +1636,10 @@ def _rescue_decode_options() -> Dict[str, object]:
     patched fw-refine backend retains one-pass winner lineage.
     """
 
-    return {
-        "beam_size": ASR_RESCUE_BEAM_SIZE,
-        "best_of": ASR_RESCUE_BEAM_SIZE,
-    }
+    return asr_backend.decode_options(
+        beam_size=ASR_RESCUE_BEAM_SIZE,
+        best_of=ASR_RESCUE_BEAM_SIZE,
+    )
 
 
 def _intervals_speech_seconds(intervals: List[Dict[str, object]]) -> float:
@@ -1634,22 +1677,36 @@ def _covered_speech_seconds(
     return total
 
 
+def _coverage_of(
+    intervals: List[Dict[str, object]],
+    segments: List[Dict[str, object]],
+) -> Tuple[float, float, float]:
+    """(speech_sec, covered_sec, required_sec) for one batch.
+
+    Split out from the verdict below so the numbers survive a group that
+    passes: the judgement needs only "is it short", but an audit asking why a
+    line went missing needs the actual ratio, and a group that never triggered
+    the rescue is exactly the case with nothing else to look at.
+
+    ``required`` is max(0, ratio * speech - tolerance), which exempts batches
+    shorter than tolerance/ratio outright, so single small intervals never
+    trigger."""
+
+    speech = _intervals_speech_seconds(intervals)
+    required = max(0.0, ASR_COVERAGE_MIN_RATIO * speech - ASR_COVERAGE_TOLERANCE_SEC)
+    covered = _covered_speech_seconds(intervals, segments)
+    return speech, covered, required
+
+
 def _coverage_shortfall(
     intervals: List[Dict[str, object]],
     segments: List[Dict[str, object]],
 ) -> Optional[Tuple[float, float, float]]:
     """Return (speech_sec, covered_sec, required_sec) when the batch output
-    covers too little of its interval speech time, else None.
+    covers too little of its interval speech time, else None."""
 
-    The threshold max(0, ratio * speech - tolerance) exempts batches shorter
-    than tolerance/ratio outright, so single small intervals never trigger."""
-
-    speech = _intervals_speech_seconds(intervals)
-    required = max(0.0, ASR_COVERAGE_MIN_RATIO * speech - ASR_COVERAGE_TOLERANCE_SEC)
-    if required <= 0.0:
-        return None
-    covered = _covered_speech_seconds(intervals, segments)
-    if covered >= required:
+    speech, covered, required = _coverage_of(intervals, segments)
+    if required <= 0.0 or covered >= required:
         return None
     return speech, covered, required
 
@@ -2264,33 +2321,27 @@ def _align_group_consume_all(
     return out
 
 
-def _rescue_low_coverage(
+def _beam_rescue(
     model,
     group: List[Dict[str, object]],
-    segments: List[Dict[str, object]],
     audio: Optional[np.ndarray],
     sr: int,
     gap_sec: float,
     *,
+    shortfall: Tuple[float, float, float],
+    group_start: float,
     language: Optional[str],
-    auto_language_history: Optional[List[str]] = None,
-    audio_loader: Optional[AudioBlockLoader] = None,
-    tail_real_limit_sec: float = GAP_KEEP_REAL_MAX_SEC,
-) -> List[Dict[str, object]]:
-    """Rescue ladder for window-skipped batches (see coverage tunables).
+    language_history: List[str],
+    audio_loader: Optional[AudioBlockLoader],
+    tail_real_limit_sec: float,
+) -> Optional[List[Dict[str, object]]]:
+    """Step 1 of the coverage rescue: one beam decode of the whole batch.
 
-    Step 1: beam decode of the whole batch; accepted when clean and no
-    longer coverage-low. Step 2+: peel the first interval into its own
-    greedy window and re-decode the rest as one window, repeating while the
-    rear window stays coverage-low (converges to interval-by-interval).
-    The rescue result replaces the original only when it covers more."""
+    Returns the finalized segments when they are clean and no longer
+    coverage-low, None otherwise (the ladder then splits the group).
+    """
 
-    shortfall = _coverage_shortfall(group, segments)
-    if shortfall is None:
-        return segments
-    language_history = auto_language_history if auto_language_history is not None else []
     speech, covered, required = shortfall
-    group_start = float(group[0].get("start", 0.0)) if group else 0.0
     _note(
         "low ASR coverage; trying beam rescue "
         f"(start={group_start:.3f}s, covered={covered:.3f}s, "
@@ -2339,6 +2390,58 @@ def _rescue_low_coverage(
                     language_history, beam_finalized
                 )
             return beam_finalized
+    return None
+
+
+def _rescue_low_coverage(
+    model,
+    group: List[Dict[str, object]],
+    segments: List[Dict[str, object]],
+    audio: Optional[np.ndarray],
+    sr: int,
+    gap_sec: float,
+    *,
+    language: Optional[str],
+    auto_language_history: Optional[List[str]] = None,
+    audio_loader: Optional[AudioBlockLoader] = None,
+    tail_real_limit_sec: float = GAP_KEEP_REAL_MAX_SEC,
+) -> List[Dict[str, object]]:
+    """Rescue ladder for window-skipped batches (see coverage tunables).
+
+    Step 1: beam decode of the whole batch; accepted when clean and no
+    longer coverage-low. Step 2+: peel the first interval into its own
+    greedy window and re-decode the rest as one window, repeating while the
+    rear window stays coverage-low (converges to interval-by-interval).
+    The rescue result replaces the original only when it covers more."""
+
+    shortfall = _coverage_shortfall(group, segments)
+    if shortfall is None:
+        return segments
+    language_history = auto_language_history if auto_language_history is not None else []
+    group_start = float(group[0].get("start", 0.0)) if group else 0.0
+    if asr_backend.supports(model, asr_backend.BEAM):
+        accepted = _beam_rescue(
+            model,
+            group,
+            audio,
+            sr,
+            gap_sec,
+            shortfall=shortfall,
+            group_start=group_start,
+            language=language,
+            language_history=language_history,
+            audio_loader=audio_loader,
+            tail_real_limit_sec=tail_real_limit_sec,
+        )
+        if accepted is not None:
+            return accepted
+    else:
+        # The declared degrade path (asr_backend.DECODE_OPTIONS): no beam rung.
+        _note(
+            "low ASR coverage; backend has no beam search, going straight to the "
+            f"split rung (start={group_start:.3f}s)",
+            count="beam_rescue_skipped",
+        )
 
     if len(group) <= 1:
         return segments
@@ -2458,6 +2561,7 @@ def _align_intervals_group(
     # rescue save", which is the decodes it triggers, not its own bookkeeping.
     # Those decodes are also counted under `asr.decode`; `phase_timing`'s
     # exclusive column is what keeps the two from double-counting the total.
+    before = _coverage_of(consumed, aligned)
     with phase_timing.phase("asr.rescue_coverage"):
         aligned = _rescue_low_coverage(
             model,
@@ -2471,9 +2575,46 @@ def _align_intervals_group(
             audio_loader=audio_loader,
             tail_real_limit_sec=tail_real_limit_sec,
         )
+    _record_group_coverage(consumed, before, _coverage_of(consumed, aligned))
     if auto_language_history is not None and not language:
         _collapse_group_language_entries(auto_language_history, history_mark)
     return _sort_segments_by_time(aligned), unconsumed
+
+
+def _record_group_coverage(
+    intervals: List[Dict[str, object]],
+    before: Tuple[float, float, float],
+    after: Tuple[float, float, float],
+) -> None:
+    """One record per decode group: how much of its speech the output claimed.
+
+    Both sides of the rescue, because they answer different questions -- what
+    the first decode produced, and whether the ladder changed it. ⚠ Neither is
+    the gap a viewer sees: stabilize still drops segments downstream, so a
+    group healthy here can still lose a line. That measurement belongs to the
+    stable artifact, not to this one.
+    """
+
+    speech, covered, required = before
+    if speech <= 0.0:
+        return
+    starts = [coerce_optional_float(item.get("start")) for item in intervals]
+    ends = [coerce_optional_float(item.get("end")) for item in intervals]
+    known_starts = [value for value in starts if value is not None]
+    known_ends = [value for value in ends if value is not None]
+    _record_coverage(
+        {
+            "start": round(min(known_starts), 3) if known_starts else None,
+            "end": round(max(known_ends), 3) if known_ends else None,
+            "intervals": len(intervals),
+            "speech_sec": round(speech, 3),
+            "covered_sec": round(covered, 3),
+            "ratio": round(covered / speech, 4),
+            "required_sec": round(required, 3),
+            "rescued_covered_sec": round(after[1], 3),
+            "rescued_ratio": round(after[1] / speech, 4),
+        }
+    )
 
 
 def _majority_language(langs: List[object]) -> Optional[str]:
@@ -2656,6 +2797,12 @@ def align_segments(
                 lang_redecode.restore_observations(
                     resumed.get("lang_observations")
                 )
+            # Same reason, same shape: the per-group coverage ledger is run
+            # state. Without this a resumed run's `asr_coverage` covers only
+            # the groups decoded after the resume -- and says nothing about
+            # the missing half, which is the exact failure mode that makes an
+            # absent counter get read as "never happened".
+            _restore_coverage(resumed.get("asr_coverage"))
             remaining = list(intervals[processed_intervals:])
             _note(
                 "resuming ASR from checkpoint "
@@ -2671,7 +2818,9 @@ def align_segments(
     # candidate deep inside the call chain asks for it without threading a
     # parameter through every rescue and recall path.
     prefetch = (
-        DecodePrefetch(model, decode_batch) if int(decode_batch or 1) > 1 else None
+        DecodePrefetch(model, decode_batch)
+        if int(decode_batch or 1) > 1 and asr_backend.supports(model, asr_backend.BATCH_DECODE)
+        else None
     )
     _stats_local.prefetch = prefetch
     while remaining:
@@ -2858,6 +3007,9 @@ def align_segments(
                     "fingerprint": fingerprint,
                     "processed_intervals": processed_intervals,
                     "group_idx": group_idx,
+                    "asr_coverage": list(
+                        getattr(_stats_local, "coverage", None) or []
+                    ),
                     "segments": out,
                     "prev_tail_segments": prev_tail_segments,
                     "auto_language_history": auto_language_history,
@@ -2938,7 +3090,7 @@ def main() -> int:
             return 1
 
         # The same CT2 backend the stage uses, so the same oracle: torch is
-        # not what decodes here (docs/plans/stage-device-plan.md). This CLI has no
+        # not what decodes here (docs/gpu-profiles.md). This CLI has no
         # `--gpu-tier`, so there is no policy layer to fold in.
         device = resolve_asr_device(args.device or DEFAULT_DEVICE)
         device_for_usage = device
@@ -2970,12 +3122,10 @@ def main() -> int:
 
         try:
             from .fw_refine_backend import RefinedWhisperModel
-        except Exception:
-            print(
-                "Missing dependency: faster-whisper plus the patched CTranslate2 "
-                'runtime. Install with `pip install -e ".[asr]"`.',
-                file=sys.stderr,
-            )
+        except Exception as exc:
+            # Same reason as the stage's wrapper, and worse here: this path
+            # printed a fixed sentence and dropped the cause entirely.
+            print(missing_asr_backend_message(exc), file=sys.stderr)
             return 1
 
         t0 = time.perf_counter()

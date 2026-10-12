@@ -13,6 +13,7 @@ tail   | 251.8 | 1.8 | いっぱい時間をかけて
 </input>
 
 <output>
+# {ref:filler}「えっと」无独立残值，拆开会切断同一语义单元；合计 {calc:span:head,tail}s，未越三明治上限
 sub | head,filler,tail | AUTO | AUTO | 世界に溶けこもうとその子はいっぱい時間をかけて | 为了融入世界，那孩子花了大量时间 | median | AUTO | filler三明治，合计{calc:span:head,tail}s，未越 ≤{thr:sandwich_max_seconds}s/{thr:sandwich_max_chars}字
 </output>
 

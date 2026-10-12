@@ -16,9 +16,9 @@ $judgment
 审核门槛（按槽位）：
 $threshold_table
 
-以下 claim 需要你联网核实（外部印证 = 你找到具体网页佐证该字段的值）。对核实到的，
-在 `external_evidence` 里逐条给出出处 URL；找不到佐证的 claim 不算通过门槛，若它是
-该 bundle 的主要内容则应 reject：
+以下 claim 需要你联网核实（外部印证 = 你找到具体网页佐证该字段的值）。每条开头的 `@v…` 是它的句柄；对核实到的，
+在 `external_evidence` 里逐条写句柄和出处 URL；找不到佐证的 claim 不算通过门槛，若它是
+该 bundle 的主要内容则应 reject（符合 `approve_tentative` 条件的纯新建术语包除外，那一档就是给「暂无外部佐证」的）：
 $pending_claims
 
 注意：
@@ -47,7 +47,8 @@ $merge_hints_text
  "merge": {"<handle>": "<canonical_id>", ...},
  "reason": "一句话理由",
  "external_evidence": [
-   {"node": "<handle>", "field_path": "payload.zh 或 items/iN", "value_hash": "<claim 里的 value_hash>",
-    "url": "https://…", "note": "该页面如何佐证"}
+   {"claim": "@v1", "url": "https://…", "note": "该页面如何佐证"}
  ]}
 </review_verdict>
+
+没有要并入的节点时 `merge` 写 `{}`；一条都没核实到时 `external_evidence` 写 `[]`。
