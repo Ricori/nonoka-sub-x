@@ -90,30 +90,12 @@ const LLM_KEY_HINT = "尚未配置模型提供商：请到设置里选择提供�
 const RETRIEVAL_KEY_HINT = "需要 Exa、Tavily 或 Gemini 免费池 Key 才能进行本地联网检索。";
 const NATIVE_SEARCH_HINT = "请在设置里将「纠错与翻译」和「背景准备与资料研究」设为支持原生检索的模型，并配置对应 Key 或本地 CLI；可使用本地 Codex、CodeBuddy、Antigravity 的 Gemini 模型或支持搜索的 Gemini API 模型。";
 
-// 说话人分离（FineSub 0.6.0）。上次的选择记在本机，下次打开对话框沿用；读写失败就当没记过。
-const DIARIZATION_STORAGE_KEY = "nonoka:diarization-level";
-const DIARIZATION_LEVELS: DiarizationLevel[] = ["off", "acoustics", "judge-text", "judge-audio"];
+// 说话人分离。每次打开对话框都从关闭开始，不沿用上次的选择。
 // 与 `nonoka_x.model_install.DIARIZATION_MODEL_IDS` 一致：两个模型都就绪才能分离。
 const DIARIZATION_MODEL_IDS = ["nemotron3", "speaker-embedding"];
 // 复核不用单独的模型，用的就是「纠错与翻译」那一格：每个纠错窗多一次调用。
 const DIARIZATION_JUDGE_HINT = "实验功能：由 LLM 模型复核说话人，每个窗口多一次调用；只在生成最终字幕时可用";
 
-function rememberedDiarization(): DiarizationLevel {
-  try {
-    const value = localStorage.getItem(DIARIZATION_STORAGE_KEY) as DiarizationLevel | null;
-    return value && DIARIZATION_LEVELS.includes(value) ? value : "off";
-  } catch {
-    return "off";
-  }
-}
-
-function rememberDiarization(level: DiarizationLevel) {
-  try {
-    localStorage.setItem(DIARIZATION_STORAGE_KEY, level);
-  } catch {
-    // 只是个便利项，存不下不影响本次任务
-  }
-}
 
 type Step = "axis" | "mode" | "settings";
 
@@ -255,7 +237,7 @@ export function TranscriptionDialog(props: TranscriptionDialogProps) {
   const devices = localCapabilities?.devices ?? [];
   const cpuOnly = (localCapabilities?.runtime?.warnings ?? []).some((warning) => warning.code === "missing_gpu");
   const speakers = axisParse && axisParse.speakers.length >= 2 ? axisParse.speakers : [];
-  const [diarizationChoice, setDiarizationChoice] = useState<DiarizationLevel>(rememberedDiarization);
+  const [diarizationChoice, setDiarizationChoice] = useState<DiarizationLevel>("off");
 
   const limitsFor = useCallback((target: ExecutionMode): KeyLimits => {
     // 云端运行的凭据由 Nonoka Cloud 管理；读不到本地设置时也不做限制，避免误锁死。
@@ -299,10 +281,6 @@ export function TranscriptionDialog(props: TranscriptionDialogProps) {
   const diarizationNote = diarizationAvailable && diarizationModelsMissing ? "说话人分离模型尚未安装（约 450MB），需要先在运行环境页的「可选模型」中下载"
     : diarization === "off" ? ""
       : diarizationOnCpu ? "本次在 CPU 上运行，约为音频时长的五分之一" : "";
-  const chooseDiarization = (level: DiarizationLevel) => {
-    setDiarizationChoice(level);
-    rememberDiarization(level);
-  };
 
   /** 音视频不可用时，说清是哪一格挡住的——两格用的可能不是同一个模型。 */
   const mediaHint = useCallback((capability: MediaCapability): string => {
@@ -658,7 +636,7 @@ export function TranscriptionDialog(props: TranscriptionDialogProps) {
                 { value: "acoustics" as const, label: "按声音区分说话人" },
                 { value: "judge-text" as const, label: "声音 + 文本复核（实验）", disabled: !judgeTextAllowed, hint: DIARIZATION_JUDGE_HINT },
                 { value: "judge-audio" as const, label: "声音 + 音频复核（实验）", disabled: !judgeAudioAllowed, hint: mode === "cloud" ? "云端的纠错只读文本，无法边听边复核" : finalOutput && !limits.audio ? mediaHint("supportsAudio") : DIARIZATION_JUDGE_HINT },
-              ]} onChange={chooseDiarization} /></label>}
+              ]} onChange={setDiarizationChoice} /></label>}
             </section>}
             {diarizationNote && <p className="transcription-note">{diarizationNote}{diarizationModelsMissing && <button type="button" className="inline-link" onClick={onOpenRuntime}>前往下载</button>}</p>}
 

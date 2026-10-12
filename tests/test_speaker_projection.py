@@ -97,6 +97,10 @@ class DiarizedProjectionTests(unittest.TestCase):
         self.assertEqual([track["id"] for track in split["tracks"]], ["diar1"])
         self.assertEqual(split["tracks"][0]["name"], "说话人 s1")
         self.assertEqual([item["ja"] for item in split["tracks"][0]["segs"]], ["行2"])
+        # Unlike an editor-made track, a speaker's source lane is shown: a
+        # source-only run has nothing else to export for them.
+        self.assertFalse(split["tracks"][0]["ja"]["hidden"])
+        self.assertFalse(split["track_meta"]["ja"]["hidden"])
         # The track is the speaker; nothing keeps the label on the line.
         self.assertFalse(any("spk" in item for item in split["subtitles"]))
 

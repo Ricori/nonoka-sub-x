@@ -239,16 +239,21 @@ def _track_meta(name: str) -> dict[str, Any]:
 
 
 def _new_track(
-    index: int, name: str, segments: list[dict[str, Any]], prefix: str = AXIS_TRACK_PREFIX
+    index: int,
+    name: str,
+    segments: list[dict[str, Any]],
+    prefix: str = AXIS_TRACK_PREFIX,
+    *,
+    source_hidden: bool = True,
 ) -> dict[str, Any]:
     return {
         "id": f"{prefix}{index}",
         "name": name,
         # Same shape as a track the editor creates itself: translation shown in
-        # cn, source lane in origin but hidden (origin/cn are the only two styles
-        # guaranteed to resolve in any document's sheet). Whether a lane is output is
-        # decided by `hidden` alone.
-        "ja": {"hidden": True, "style": "origin"},
+        # cn, source lane in origin and hidden by default (origin/cn are the only
+        # two styles guaranteed to resolve in any document's sheet). Whether a lane
+        # is output is decided by `hidden` alone.
+        "ja": {"hidden": source_hidden, "style": "origin"},
         "zh": {"hidden": False, "style": "cn"},
         "hja": 44,
         "hzh": 44,
@@ -263,6 +268,7 @@ def split_speaker_tracks(
     speakers: Sequence[str] | None = None,
     prefix: str = AXIS_TRACK_PREFIX,
     label: Callable[[str], str] = str,
+    source_hidden: bool = True,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]:
     """Deal row-aligned segments out to one track per named speaker.
 
@@ -270,7 +276,8 @@ def split_speaker_tracks(
     it that way. The busiest speaker keeps the document's own lane because that
     is the one the editor opens on; unlabelled rows join them rather than
     forming a nameless track, and so do the rows of any speaker beyond the
-    given list. `label` turns a speaker id into the track's display name.
+    given list. `label` turns a speaker id into the track's display name;
+    `source_hidden` decides whether the extra tracks' source lanes start hidden.
     """
 
     speakers = list(axis_speakers(rows) if speakers is None else speakers)
@@ -283,7 +290,7 @@ def split_speaker_tracks(
         speaker = str(row.get("spk") or "")
         buckets.get(speaker, primary).append(_without_speaker(segment))
     tracks = [
-        _new_track(index, label(name), buckets[name], prefix)
+        _new_track(index, label(name), buckets[name], prefix, source_hidden=source_hidden)
         for index, name in enumerate(others, start=1)
         if buckets[name]
     ]
@@ -326,7 +333,9 @@ def split_diarized_tracks(projection: Mapping[str, Any]) -> dict[str, Any]:
     people talking over each other stay two lines instead of one lane's
     overlap trim eating one of them. Lines without a label stay on the main
     lane. Without at least two labelled speakers nothing is split, and the
-    labels are dropped either way: the track is the speaker.
+    labels are dropped either way: the track is the speaker. Every speaker's
+    source lane stays visible like the main lane's: a source-only run has no
+    translation, so a hidden source lane would drop that speaker from the export.
     """
 
     segments = list(projection.get("subtitles") or [])
@@ -334,7 +343,8 @@ def split_diarized_tracks(projection: Mapping[str, Any]) -> dict[str, Any]:
             for segment in segments]
     speakers = diarized_speakers(segments)
     subtitles, tracks, meta = split_speaker_tracks(
-        segments, rows, speakers=speakers, prefix=DIARIZATION_TRACK_PREFIX, label=diarized_track_name
+        segments, rows, speakers=speakers, prefix=DIARIZATION_TRACK_PREFIX, label=diarized_track_name,
+        source_hidden=False,
     )
     split = dict(projection)
     split["subtitles"] = subtitles
