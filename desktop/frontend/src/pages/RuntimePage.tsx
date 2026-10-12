@@ -77,6 +77,10 @@ const assetLabels: Record<string, string> = {
   "pot-provider": "PO Token Provider",
 };
 
+const compactAssetLabels: Record<string, string> = {
+  diarization: "说话人分离",
+};
+
 const toolPurposes: Record<string, string> = {
   nemotron3: "说话人分离：判断谁在说话",
   "speaker-embedding": "说话人分离：按声音归人",
@@ -182,14 +186,17 @@ function AssetTile({ item, optional = false, action }: {
     : ready && item.source === "system" ? "系统已安装" : assetStateLabels[item.state] ?? item.state;
   const purpose = toolPurposes[item.id];
   const label = assetLabels[item.id] ?? item.id;
+  // 未装好的按需项自带按钮时，按钮已说明状态；只留短名，给按钮腾地方。
+  const compact = optional && !ready && Boolean(action);
+  const shownLabel = compact ? compactAssetLabels[item.id] ?? label : label;
   const title = [label, stateLabel, item.version, purpose, item.detail].filter(Boolean).join(" · ");
   return (
     <div className={[optional && "optional-asset-tile", action && "has-action"].filter(Boolean).join(" ") || undefined} title={title || undefined} aria-label={`${label}：${stateLabel}${purpose ? `，${purpose}` : ""}`}>
       <span className={ready ? "asset-ready" : optional ? "asset-optional" : "asset-missing"}>{ready ? "✓" : optional ? "○" : "↓"}</span>
       <div>
         <span className="asset-title-row">
-          <strong>{label}</strong>
-          <small className="asset-state">{stateLabel}</small>
+          <strong>{shownLabel}</strong>
+          {!compact && <small className="asset-state">{stateLabel}</small>}
         </span>
         {purpose && <small className="asset-purpose">{purpose}</small>}
       </div>

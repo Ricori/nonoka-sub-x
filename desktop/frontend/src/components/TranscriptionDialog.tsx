@@ -133,6 +133,12 @@ const clock = (seconds: number) => {
 // 没有 N 卡的机器上 sidecar 只报一个 `cpu`，所以这里不必单独判断「有没有显卡」
 function requestFor(mode: ExecutionMode, entry: MediaEntry, capabilities: Capabilities | null): TaskRequest {
   const request = mode === "local" ? localTaskRequest(entry) : cloudTaskRequest(entry);
+  // 第 3 步默认选「最终字幕」，与点选那张卡的效果一致；缺 LLM Key 时 withinLimits 会退回原始字幕。
+  if (mode === "local") {
+    request.target = "final-srt";
+    request.correction.enabled = true;
+    request.knowledge = "read";
+  }
   const device = capabilities?.devices[0]?.id;
   if (mode === "local" && device) {
     request.device = device;
@@ -273,21 +279,22 @@ export function TranscriptionDialog(props: TranscriptionDialogProps) {
 
   // 说话人分离：轴里已经标了说话人时以轴为准，不再分离；日文轴不跑识别，也就无从分离。
   const diarizationAvailable = !translateOnly && speakers.length === 0 && selectedCapabilities?.features.diarization === true;
+  // 本地模型没下载时不让选：先到运行环境页的「可选模型」下载。
+  const diarizationModels = localCapabilities?.runtime?.managed?.optional_models ?? [];
+  const diarizationModelsMissing = mode === "local" && diarizationModels.some((item) => item.state !== "ready");
+  const diarizationSelectable = diarizationAvailable && !diarizationModelsMissing;
   // 裁判在 LLM 纠错阶段运行；音频裁判还要「纠错与翻译」那一格的模型能听音频，云端的纠错只走文本。
   const judgeTextAllowed = finalOutput;
   const judgeAudioAllowed = finalOutput && mode === "local" && limits.audio;
-  const diarization: DiarizationLevel = !diarizationAvailable ? "off"
+  const diarization: DiarizationLevel = !diarizationSelectable ? "off"
     : diarizationChoice === "judge-audio" && !judgeAudioAllowed ? (judgeTextAllowed ? "judge-text" : "acoustics")
       : diarizationChoice === "judge-text" && !judgeTextAllowed ? "acoustics"
         : diarizationChoice;
   const diarizationOnCpu = mode === "local" && (cpuOnly || request.device === "cpu");
-  // 本地模型没下载也能开跑（引擎会在分离阶段自己下载），这里只是让人知道要等，并给出提前下载的入口。
-  const diarizationModels = localCapabilities?.runtime?.managed?.optional_models ?? [];
-  const diarizationModelsMissing = mode === "local" && diarizationModels.some((item) => item.state !== "ready");
-  const diarizationNote = diarization === "off" ? ""
+  const diarizationNote = diarizationAvailable && diarizationModelsMissing ? "说话人分离模型尚未安装（约 450MB），需要先在运行环境页的「可选模型」中下载"
+    : diarization === "off" ? ""
     : [
       "按说话人把字幕拆成不同轨道，不改变字幕文本与时间",
-      diarizationModelsMissing ? "说话人分离模型尚未下载（约 450MB），开始后会在分离阶段自动下载，也可先到运行环境页的「可选模型」下载" : "",
       diarizationOnCpu ? "本次在 CPU 上运行，约为音频时长的五分之一" : "",
     ].filter(Boolean).join("；");
   const chooseDiarization = (level: DiarizationLevel) => {
@@ -644,7 +651,7 @@ export function TranscriptionDialog(props: TranscriptionDialogProps) {
               {mode === "local" && <label>计算设备<CustomSelect value={request.device} options={deviceOptions(devices)} onChange={(device) => setRequest((current) => ({ ...current, device, gpu_tier: device === "cpu" ? "cpu" : current.gpu_tier === "cpu" ? "auto" : current.gpu_tier }))} /></label>}
               {mode === "local" && <label>显卡档位<CustomSelect value={request.gpu_tier} options={GPU_TIER_OPTIONS} onChange={(gpu_tier) => setRequest((current) => ({ ...current, gpu_tier }))} /></label>}
               {mode === "local" && <label>人声分离<CustomSelect value={request.separate ? "on" : "off"} options={[{ value: "on", label: "开启" }, { value: "off", label: "关闭（输入已是纯人声）", hint: SKIP_SEPARATION_HINT }]} onChange={(value) => setRequest((current) => ({ ...current, separate: value === "on" }))} /></label>}
-              {diarizationAvailable && <label>说话人分离<CustomSelect value={diarization} options={[
+              {diarizationAvailable && <label>说话人分离<CustomSelect value={diarization} disabled={!diarizationSelectable} options={[
                 { value: "off" as const, label: "关闭" },
                 { value: "acoustics" as const, label: "按声音区分说话人" },
                 { value: "judge-text" as const, label: "声音 + 文本复核（实验）", disabled: !judgeTextAllowed, hint: DIARIZATION_JUDGE_HINT },
