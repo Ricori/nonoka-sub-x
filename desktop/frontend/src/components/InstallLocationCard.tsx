@@ -59,8 +59,8 @@ export function InstallLocationCard(props: InstallLocationCardProps) {
                 : "运行环境文件较大，建议先选好安装位置"}
           </h3>
           <p>
-            完整的本地运行环境约需 {formatStorageBytes(location.estimated)}（Python 运行时、转写与人声分离模型、下载缓存）。
-            {settled ? "之后仍可在「设置 → 磁盘占用与位置」里调整。" : "现在改位置不会复制任何文件；装完之后再搬，就得跨盘挪十几 GB。"}
+            完整的本地 AI 运行环境约需 {formatStorageBytes(location.estimated)}。
+            {settled ? "之后仍可在「设置 → 磁盘占用与位置」里调整。" : "现在改位置不会复制任何文件；装完之后再搬，就得跨盘挪几 GB。"}
           </p>
         </div>
       </div>

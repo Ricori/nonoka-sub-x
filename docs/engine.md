@@ -144,4 +144,4 @@ FineSub `0.6.0` 的 `fw-refine` 后端深度依赖 CTranslate2 解码器内部�
 ### 4.2 镜像构建与验证
 构建环境拉取源码、应用 13 个补丁并以 `-DWITH_FLASH_ATTN=ON` 编译 Linux CUDA wheel。构建末尾断言 `return_refine_paths`、`return_refine_weights` 与 `flash_attention_available()`，确保运行时能力完备。
 
-flash attention 只在 compute capability ≥ 8.0 的卡上生效：云端 GPU worker 是 T4（sm_75），引擎的 `auto` 会自动关掉它，产物与不开时相同；本地 RTX 30 及更新的 N 卡默认开启（个别字幕边界可能移动，最大约 0.8 秒），排查时设 `FINESUB_CT2_FLASH_ATTENTION=off`。是否把云端换到 L4 由 `modal_backend/nonoka_x_modal/testing/gpu_class_benchmark.py` 的实测决定。
+flash attention 只在 compute capability ≥ 8.0 的卡上生效。
