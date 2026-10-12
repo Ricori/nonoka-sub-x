@@ -252,16 +252,16 @@ nonoka-x/
 ## 📄 开源协议
 
 本项目采用 **[GPL-3.0](./LICENSE)** 开源许可证。
-底层的 FineSub 算法代码采用 **GPL-3.0-or-later** 许可证（0.5.0 起，此前为 MIT），Prompt 模板遵循 **CC BY-SA 4.0** 许可。
+FineSub 算法代码采用 **GPL-3.0-or-later** 许可证（0.5.0 起，此前为 MIT），Prompt 模板遵循 **CC BY-SA 4.0** 许可。
 
-说话人分离首次使用时自动下载的模型（均可商用）：
+说话人分离使用的模型（均可商用）：
 
 | 组成部分 | 来源 | 许可 |
 | :--- | :--- | :--- |
-| 说话人活动模型 Nemotron-3-Diarization | [nvidia/Nemotron-3-Diarization](https://huggingface.co/nvidia/Nemotron-3-Diarization) | OpenMDW-1.1 |
-| 声纹模型 WeSpeaker ResNet34 | [pyannote/wespeaker-voxceleb-resnet34-LM](https://huggingface.co/pyannote/wespeaker-voxceleb-resnet34-LM)（Wang 等，ICASSP 2023） | CC BY 4.0 |
+| 说话人活动模型 Nemotron-3-Diarization | [nvidia/Nemotron-3-Diarization](https://huggingface.co/nvidia/Nemotron-3-Diarization) | OpenMDW |
+| 声纹模型 WeSpeaker ResNet34 | [pyannote/wespeaker-voxceleb-resnet34-LM](https://huggingface.co/pyannote/wespeaker-voxceleb-resnet34-LM)（ICASSP 2023） | CC BY 4.0 |
 | PLDA 参数 | [pyannote/speaker-diarization-community-1](https://huggingface.co/pyannote/speaker-diarization-community-1) | CC BY 4.0 |
-| 后两者的转换版 | [spurtcarl/finesub-speaker-embedding](https://huggingface.co/spurtcarl/finesub-speaker-embedding)（格式转换，未重新训练） | CC BY 4.0 |
+
 
 <div align="center">
   <br>
