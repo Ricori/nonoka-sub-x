@@ -24,6 +24,10 @@ func downloadProxy() string {
 	return systemProxy()
 }
 
+// SystemProxy is the proxy set under the system's internet options (what
+// browsers use), as a URL, or "" when none is enabled.
+func SystemProxy() string { return systemProxy() }
+
 // parseSystemProxy turns the registry's ProxyServer value into a proxy URL.
 // Windows stores either one "host:port" for every protocol, or a per-protocol
 // list such as "http=host:port;https=host:port;socks=host:port". A PAC script

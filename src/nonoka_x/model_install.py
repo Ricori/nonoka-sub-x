@@ -258,6 +258,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--models-root", required=True, type=Path)
     parser.add_argument("--data-root", required=True, type=Path)
     args = parser.parse_args(argv)
+    from nonoka_x.download_route import install_proxy_route_policy
+
+    install_proxy_route_policy()
     install_model(args.model, args.models_root.expanduser().resolve(), args.data_root.expanduser().resolve())
     return 0
 

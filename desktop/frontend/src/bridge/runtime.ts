@@ -35,6 +35,8 @@ export interface RuntimeProvisionState {
     message: string;
     progress: { completed: number; total: number; unit: string; bytes_per_second?: number } | null;
     error: { code: string; message: string } | null;
+    /** 本次安装下载所经过的代理，例如“本地代理 127.0.0.1:7890”；直连时为空。 */
+    proxy?: string;
   };
 }
 
@@ -46,6 +48,8 @@ export interface PythonBootstrapState {
   stage: string;
   message: string;
   python?: string;
+  /** 本次安装下载所经过的代理；直连时为空。 */
+  proxy?: string;
   progress: { completed: number; total: number; unit: string; bytes_per_second?: number } | null;
 }
 

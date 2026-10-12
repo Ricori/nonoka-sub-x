@@ -30,6 +30,7 @@ var bundledFontNames = []string{"FZZhunYuan.woff2", "JingNanBoBoHei.woff2"}
 
 func init() {
 	application.RegisterEvent[[]string]("files:dropped")
+	application.RegisterEvent[bool]("files:dragging")
 	application.RegisterEvent[[]library.Entry]("library:changed")
 	application.RegisterEvent[string]("editor:request-close")
 	application.RegisterEvent[string]("export:ready")
@@ -205,6 +206,7 @@ func Run(assets fs.FS) error {
 	home.OnWindowEvent(events.Common.WindowFilesDropped, func(event *application.WindowEvent) {
 		applicationInstance.Event.Emit("files:dropped", event.Context().DroppedFiles())
 	})
+	attachFileDrop(applicationInstance, home)
 	runErr := applicationInstance.Run()
 	shutdownContext, cancel := context.WithTimeout(context.Background(), lifecycleTimeout)
 	stopErr := manager.Stop(shutdownContext)

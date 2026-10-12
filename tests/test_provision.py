@@ -280,6 +280,6 @@ def test_a_runtime_built_for_an_older_lock_is_outdated_not_missing(tmp_path: Pat
     assert state["state"] == "outdated"
     assert "更新" in state["detail"]
 
-    # No marker at all is a runtime that was never installed.
-    runtime.marker_path.unlink()
+    # A runtime directory that lost its interpreter is damage, not an upgrade.
+    runtime.python_executable.unlink()
     assert provisioner.status()["runtime"]["state"] == "missing"

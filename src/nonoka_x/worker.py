@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from .axis import AxisTranslation, translate_axis as translate_rows
+from .download_route import install_proxy_route_policy
 from .fast_mode import resolve_request_fast
 from .gpu_tier import resolve_request_gpu_tier
 
@@ -518,6 +519,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         request = json.loads(sys.stdin.readline())
+        install_proxy_route_policy()
         install_llm_model_override(request)
         emit_request_notices(request)
         source = request["source"]

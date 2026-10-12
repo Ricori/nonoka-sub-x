@@ -78,7 +78,8 @@ func bootstrapUVAssetForHost() (bootstrapUVAsset, bool) {
 	return asset, ok
 }
 
-// Tried in order after the official URL. mirror.ghproxy.com used to be here and
+// Tried after the official URL, or before it when the route prefers mirrors
+// (mainland exit, no proxy). mirror.ghproxy.com used to be here and
 // was dropped once it stopped answering at all -- a dead mirror is not a free
 // extra attempt, it is one download timeout the user waits through before the
 // next candidate is tried.
@@ -87,7 +88,7 @@ var defaultGitHubMirrorPrefixes = []string{
 	"https://gh-proxy.com/",
 }
 
-func gitHubDownloadURLs(rawURL string) []string {
+func gitHubDownloadURLs(rawURL string, preferMirror bool) []string {
 	var urls []string
 	if custom := strings.TrimSpace(os.Getenv("NONOKA_GITHUB_PROXY")); custom != "" {
 		if !strings.HasSuffix(custom, "/") {
@@ -101,13 +102,17 @@ func gitHubDownloadURLs(rawURL string) []string {
 		urls = append(urls, customFine+rawURL)
 	}
 
-	urls = append(urls, rawURL)
-
+	if !preferMirror {
+		urls = append(urls, rawURL)
+	}
 	for _, prefix := range defaultGitHubMirrorPrefixes {
 		mirrorURL := prefix + rawURL
 		if !containsString(urls, mirrorURL) {
 			urls = append(urls, mirrorURL)
 		}
+	}
+	if preferMirror {
+		urls = append(urls, rawURL)
 	}
 	return urls
 }
@@ -137,6 +142,8 @@ type pythonBootstrapState struct {
 	Message   string             `json:"message"`
 	Progress  *bootstrapProgress `json:"progress"`
 	Python    string             `json:"python,omitempty"`
+	// Proxy names the local proxy this install downloads through, or "".
+	Proxy string `json:"proxy"`
 }
 
 // PythonBootstrap installs only the small launcher environment needed to run
@@ -245,6 +252,7 @@ func (b *PythonBootstrap) Install() (map[string]any, error) {
 	b.state.Stage = "preparing"
 	b.state.Message = "正在准备 Python 下载"
 	b.state.Progress = nil
+	b.state.Proxy = ""
 	result := b.stateMapLocked()
 	b.mu.Unlock()
 	go b.install()
@@ -256,7 +264,7 @@ func (b *PythonBootstrap) stateMapLocked() map[string]any {
 		"schema": b.state.Schema, "platform": b.state.Platform,
 		"supported": b.state.Supported, "state": b.state.State,
 		"stage": b.state.Stage, "message": b.state.Message,
-		"progress": nil, "python": b.state.Python,
+		"progress": nil, "python": b.state.Python, "proxy": b.state.Proxy,
 	}
 	if b.state.Progress != nil {
 		result["progress"] = map[string]any{
@@ -337,9 +345,15 @@ func (b *PythonBootstrap) installPython() error {
 	if err := os.MkdirAll(downloads, 0o700); err != nil {
 		return fmt.Errorf("创建 Python 下载目录失败：%w", err)
 	}
+	b.update("preparing", "正在选择下载线路", nil)
+	route := resolveBootstrapRoute()
+	b.client = &http.Client{Timeout: 30 * time.Minute, Transport: route.transport()}
+	b.mu.Lock()
+	b.state.Proxy = proxyLabel(route.Proxy)
+	b.mu.Unlock()
 	uvArchive := filepath.Join(downloads, bootstrapUVVersion+"-"+b.uv.Name)
 	if !fileMatches(uvArchive, b.uv.Size, b.uv.SHA256) {
-		candidateURLs := gitHubDownloadURLs(b.uv.URL())
+		candidateURLs := gitHubDownloadURLs(b.uv.URL(), route.Mirror)
 		if err := b.downloadWithFallback(candidateURLs, uvArchive, b.uv.Size, b.uv.SHA256); err != nil {
 			return err
 		}
@@ -364,17 +378,22 @@ func (b *PythonBootstrap) installPython() error {
 		"UV_PYTHON_INSTALL_DIR="+filepath.Join(root, "python-installations"),
 		"UV_NO_PROGRESS=1",
 	)
-	if os.Getenv("UV_PYTHON_INSTALL_MIRROR") == "" {
+	environment = append(environment, route.environment()...)
+	// The mainland mirrors only on a route that prefers them; through a proxy
+	// or outside the mainland, uv's official sources are the fast ones.
+	pythonMirrorSet := route.Mirror && os.Getenv("UV_PYTHON_INSTALL_MIRROR") == ""
+	if pythonMirrorSet {
 		environment = append(environment, "UV_PYTHON_INSTALL_MIRROR="+bootstrapPythonMirror)
 	}
-	if os.Getenv("UV_DEFAULT_INDEX") == "" && os.Getenv("UV_INDEX_URL") == "" && os.Getenv("PIP_INDEX_URL") == "" {
+	indexSet := route.Mirror && os.Getenv("UV_DEFAULT_INDEX") == "" && os.Getenv("UV_INDEX_URL") == "" && os.Getenv("PIP_INDEX_URL") == ""
+	if indexSet {
 		environment = append(environment, "UV_DEFAULT_INDEX="+bootstrapPyPIIndex)
 	}
 
 	b.update("installing_python", "正在下载并安装 Python "+bootstrapPythonVersion, nil)
 	if output, err := runBootstrapCommand(uv, environment, "venv", staging, "--python", bootstrapPythonVersion, "--managed-python", "--no-project"); err != nil {
 		// If mirror failed, retry once with standard environment without mirror variable
-		if os.Getenv("UV_PYTHON_INSTALL_MIRROR") == "" {
+		if pythonMirrorSet {
 			_ = os.RemoveAll(staging)
 			cleanEnv := make([]string, 0, len(environment))
 			for _, envItem := range environment {
@@ -395,7 +414,7 @@ func (b *PythonBootstrap) installPython() error {
 	b.update("installing_dependencies", "正在安装本地服务基础依赖", nil)
 	if output, err := runBootstrapCommand(uv, environment, "pip", "install", "--python", stagingPython, "--require-hashes", "-r", b.requirements); err != nil {
 		// If custom index failed, retry once with standard index
-		if os.Getenv("UV_DEFAULT_INDEX") == "" {
+		if indexSet {
 			cleanEnv := make([]string, 0, len(environment))
 			for _, envItem := range environment {
 				if !strings.HasPrefix(envItem, "UV_DEFAULT_INDEX=") {
@@ -426,22 +445,29 @@ func (b *PythonBootstrap) installPython() error {
 func (b *PythonBootstrap) downloadWithFallback(candidateURLs []string, destination string, size int64, digest string) error {
 	var attempts []string
 
+	official := b.uv.URL()
 	for i, candidateURL := range candidateURLs {
 		sourceLabel := "官方源"
-		if i > 0 {
+		if candidateURL != official {
 			sourceLabel = "加速镜像"
 			if parsed, err := url.Parse(candidateURL); err == nil && parsed.Host != "" {
 				sourceLabel = parsed.Host
 			}
 		}
 
-		progressMsg := "正在下载 Python 安装器"
+		progressMsg := fmt.Sprintf("正在从%s下载 Python 安装器", sourceLabel)
 		if i > 0 {
-			progressMsg = fmt.Sprintf("官方下载失败，正在切换至加速镜像 (%s)", sourceLabel)
+			progressMsg = fmt.Sprintf("上一来源下载失败，正在改从%s下载 Python 安装器", sourceLabel)
+		}
+		b.mu.RLock()
+		proxy := b.state.Proxy
+		b.mu.RUnlock()
+		if proxy != "" {
+			progressMsg += "（通过" + proxy + "）"
 		}
 		b.update("downloading", progressMsg, &bootstrapProgress{Total: size, Unit: "bytes"})
 
-		err := b.downloadSingle(candidateURL, destination, size, digest)
+		err := b.downloadSingle(candidateURL, destination, size, digest, progressMsg)
 		if err == nil {
 			return nil
 		}
@@ -450,7 +476,6 @@ func (b *PythonBootstrap) downloadWithFallback(candidateURLs []string, destinati
 		time.Sleep(500 * time.Millisecond)
 	}
 
-	official := b.uv.URL()
 	primaryMirror := defaultGitHubMirrorPrefixes[0] + official
 	return fmt.Errorf("下载 Python 安装器失败（已尝试官方及所有加速镜像）。\n"+
 		"您可以手动下载该文件并放入指定目录后重试：\n"+
@@ -461,7 +486,7 @@ func (b *PythonBootstrap) downloadWithFallback(candidateURLs []string, destinati
 		official, primaryMirror, destination, strings.Join(attempts, "；"))
 }
 
-func (b *PythonBootstrap) downloadSingle(urlStr, destination string, size int64, digest string) error {
+func (b *PythonBootstrap) downloadSingle(urlStr, destination string, size int64, digest, message string) error {
 	partial := destination + ".part"
 	_ = os.Remove(partial)
 
@@ -502,7 +527,7 @@ func (b *PythonBootstrap) downloadSingle(urlStr, destination string, size int64,
 			}
 			completed += int64(count)
 			seconds := time.Since(started).Seconds()
-			b.update("downloading", "正在下载 Python 安装器", &bootstrapProgress{
+			b.update("downloading", message, &bootstrapProgress{
 				Completed: completed, Total: size, Unit: "bytes", BytesPerSecond: float64(completed) / max(seconds, 0.001),
 			})
 		}

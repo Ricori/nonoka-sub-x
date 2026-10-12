@@ -206,7 +206,7 @@ func TestGitHubDownloadURLsOrderAndEnvironment(t *testing.T) {
 	raw := "https://github.com/example/repo/releases/download/v1.0/file.zip"
 
 	// Default without environment override: official URL first, followed by default mirrors
-	urls := gitHubDownloadURLs(raw)
+	urls := gitHubDownloadURLs(raw, false)
 	if len(urls) < 2 {
 		t.Fatalf("expected multiple URLs, got %d", len(urls))
 	}
@@ -220,9 +220,15 @@ func TestGitHubDownloadURLsOrderAndEnvironment(t *testing.T) {
 		}
 	}
 
+	// A route that prefers mirrors tries them first and the official URL last
+	mirrored := gitHubDownloadURLs(raw, true)
+	if mirrored[0] != defaultGitHubMirrorPrefixes[0]+raw || mirrored[len(mirrored)-1] != raw {
+		t.Fatalf("mirror-first order wrong: %#v", mirrored)
+	}
+
 	// With NONOKA_GITHUB_PROXY environment variable
 	t.Setenv("NONOKA_GITHUB_PROXY", "https://custom-proxy.example.com")
-	urlsCustom := gitHubDownloadURLs(raw)
+	urlsCustom := gitHubDownloadURLs(raw, false)
 	if len(urlsCustom) == 0 || urlsCustom[0] != "https://custom-proxy.example.com/"+raw {
 		t.Fatalf("custom proxy not prioritized: %#v", urlsCustom)
 	}

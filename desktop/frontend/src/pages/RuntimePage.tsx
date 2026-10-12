@@ -1,5 +1,5 @@
 import type { Snapshot as SidecarSnapshot } from "../../bindings/github.com/Ricori/nonoka-x/desktop/internal/sidecar/models.js";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import type { PythonBootstrapState, RuntimeInstallTarget, RuntimeItem, RuntimeProvisionState, RuntimeToolGroup } from "../bridge/runtime.ts";
 import type { RelocationProgress, StorageDestination, StorageStatus, StorageTarget } from "../bridge/storage.ts";
 import { InstallLocationCard } from "../components/InstallLocationCard.tsx";
@@ -57,6 +57,8 @@ const optionalToolIds = new Set(["yt-dlp", "tokcount", "aria2c", "node", "pot-pr
 // 提供 YouTube 要的 PO token。所以它们作为一件事呈现，也作为一件事安装。
 const videoToolIds = new Set(["yt-dlp", "aria2c", "node", "pot-provider"]);
 
+const diarizationIds: ReadonlySet<string> = new Set(["diarization"]);
+
 const assetLabels: Record<string, string> = {
   python: "Python / CUDA",
   uv: "uv",
@@ -67,6 +69,7 @@ const assetLabels: Record<string, string> = {
   "qwen-referee": "Qwen 复核模型",
   nemotron3: "说话人活动模型",
   "speaker-embedding": "声纹模型",
+  diarization: "说话人分离模型",
   "yt-dlp": "yt-dlp",
   tokcount: "tokcount",
   aria2c: "aria2c",
@@ -83,6 +86,19 @@ const toolPurposes: Record<string, string> = {
   node: "运行 JavaScript 挑战",
   "pot-provider": "生成 YouTube PO Token",
 };
+
+// 说话人分离的两个模型只能一起用、一起装，所以在「AI模型」里合成一项展示。
+function combineDiarization(models: RuntimeItem[]): RuntimeItem | null {
+  if (!models.length) return null;
+  const states = models.map((item) => item.state);
+  const state: RuntimeItem["state"] = states.includes("downloading") ? "downloading"
+    : states.includes("failed") ? "failed"
+      : states.includes("outdated") ? "outdated"
+        : states.every((value) => value === "ready") ? "ready"
+          : "missing";
+  const detail = models.map((item) => `${assetLabels[item.id] ?? item.id}：${assetStateLabels[item.state] ?? item.state}`).join("；");
+  return { id: "diarization", state, detail };
+}
 
 const stageOrder: Record<string, number> = {
   preparing: 0,
@@ -111,6 +127,7 @@ interface ProgressJob {
   stage: string;
   message: string;
   progress: { completed: number; total: number; unit: string; bytes_per_second?: number } | null;
+  proxy?: string;
 }
 
 function ProvisionProgress({ job, onCancel, cancellable = true }: { job: ProgressJob; onCancel: () => Promise<void>; cancellable?: boolean }) {
@@ -135,6 +152,7 @@ function ProvisionProgress({ job, onCancel, cancellable = true }: { job: Progres
         <b>{progress?.total ? `${Math.round(percentage)}%` : "处理中"}</b>
         {cancellable && <button className="cancel-button" onClick={() => void onCancel()} type="button">取消</button>}
       </div>
+      {job.proxy && <p className="provision-proxy">已检测到{job.proxy}，所有下载将通过该代理进行</p>}
       <div className={`provision-progress-track ${progress?.total ? "" : "indeterminate"}`}>
         <span style={progress?.total ? { width: `${percentage}%` } : undefined} />
       </div>
@@ -153,9 +171,10 @@ function ProvisionProgress({ job, onCancel, cancellable = true }: { job: Progres
   );
 }
 
-function AssetTile({ item, optional = false }: {
+function AssetTile({ item, optional = false, action }: {
   item: RuntimeItem;
   optional?: boolean;
+  action?: ReactNode;
 }) {
   const ready = item.state === "ready";
   const stateLabel = optional && !ready
@@ -165,7 +184,7 @@ function AssetTile({ item, optional = false }: {
   const label = assetLabels[item.id] ?? item.id;
   const title = [label, stateLabel, item.version, purpose, item.detail].filter(Boolean).join(" · ");
   return (
-    <div className={optional ? "optional-asset-tile" : undefined} title={title || undefined} aria-label={`${label}：${stateLabel}${purpose ? `，${purpose}` : ""}`}>
+    <div className={[optional && "optional-asset-tile", action && "has-action"].filter(Boolean).join(" ") || undefined} title={title || undefined} aria-label={`${label}：${stateLabel}${purpose ? `，${purpose}` : ""}`}>
       <span className={ready ? "asset-ready" : optional ? "asset-optional" : "asset-missing"}>{ready ? "✓" : optional ? "○" : "↓"}</span>
       <div>
         <span className="asset-title-row">
@@ -174,14 +193,19 @@ function AssetTile({ item, optional = false }: {
         </span>
         {purpose && <small className="asset-purpose">{purpose}</small>}
       </div>
+      {action}
     </div>
   );
 }
 
-function AssetGroup({ title, items, optional = false, target, installing, blocked, removable = false, confirmingRemove = false, onInstall, onRemove, onCancelRemove }: {
+function AssetGroup({ title, items, optional = false, optionalIds, itemActions, target, installing, blocked, removable = false, confirmingRemove = false, onInstall, onRemove, onCancelRemove }: {
   title: string;
   items: RuntimeItem[];
   optional?: boolean;
+  /** 混排分组里按需安装的那几项。 */
+  optionalIds?: ReadonlySet<string>;
+  /** 自带安装按钮的项；分组按钮不管它们。 */
+  itemActions?: Record<string, ReactNode>;
   target: RuntimeInstallTarget;
   installing: boolean;
   blocked: string;
@@ -192,9 +216,10 @@ function AssetGroup({ title, items, optional = false, target, installing, blocke
   onCancelRemove?: () => void;
 }) {
   const readyCount = items.filter((item) => item.state === "ready").length;
-  const allReady = items.length > 0 && readyCount === items.length;
+  const groupItems = items.filter((item) => !itemActions?.[item.id]);
+  const allReady = groupItems.length > 0 && groupItems.every((item) => item.state === "ready");
   // 已装好、只是依赖锁变了的运行时：动作是「更新」，不是「下载缺失项」。
-  const needsUpdate = items.some((item) => item.state === "outdated");
+  const needsUpdate = groupItems.some((item) => item.state === "outdated");
   const disabledReason = blocked
     || (!items.length ? "当前平台没有可安装的项目。" : "")
     || (allReady ? "该分组已全部安装并通过校验。" : "");
@@ -238,10 +263,32 @@ function AssetGroup({ title, items, optional = false, target, installing, blocke
         </div>
       </div>
       <div className="asset-grid">
-        {items.map((item) => <AssetTile item={item} key={`${item.id}:${item.version ?? ""}`} optional={optional} />)}
+        {items.map((item) => <AssetTile item={item} key={`${item.id}:${item.version ?? ""}`} optional={optional || optionalIds?.has(item.id)} action={itemActions?.[item.id]} />)}
         {!items.length && <p className="asset-group-empty">当前平台没有可用项目</p>}
       </div>
     </section>
+  );
+}
+
+function DiarizationAction({ item, installing, blocked, onInstall }: {
+  item: RuntimeItem;
+  installing: boolean;
+  blocked: string;
+  onInstall: () => void;
+}) {
+  const ready = item.state === "ready";
+  const needsUpdate = item.state === "outdated";
+  const disabledReason = blocked || (ready ? "说话人分离模型已安装并通过校验。" : "");
+  return (
+    <button
+      className="quiet-button asset-tile-action"
+      disabled={disabledReason !== ""}
+      onClick={onInstall}
+      title={disabledReason || (needsUpdate ? "更新说话人分离模型" : "下载说话人分离模型")}
+      type="button"
+    >
+      {installing ? needsUpdate ? "更新中…" : "下载中…" : ready ? "已安装" : needsUpdate ? "更新" : "下载"}
+    </button>
   );
 }
 
@@ -280,7 +327,8 @@ export function RuntimePage({ capabilities, message, provisionMessage, provision
     ...resources.filter((item) => !optionalToolIds.has(item.id)),
   ];
   const requiredModels = provision?.models ?? [];
-  const optionalModels = provision?.optional_models ?? [];
+  const diarization = combineDiarization(provision?.optional_models ?? []);
+  const aiModels = diarization ? [...requiredModels, diarization] : requiredModels;
   const runtimeTarget: RuntimeInstallTarget = provision?.runtime_supported ? "runtime" : "media";
   // Every control below is gated on provision state. Without a reason attached
   // the panel greys out silently — on a first launch, or whenever the sidecar
@@ -309,9 +357,11 @@ export function RuntimePage({ capabilities, message, provisionMessage, provision
     ? `托管运行时暂不支持 ${provision.platform}。`
     : "";
   const runtimeBlocked = connectionBlocked || runtimeUnavailable || jobBlocked;
+  const requiredRuntimeReady = requiredRuntimeAssets.length > 0 && requiredRuntimeAssets.every((item) => item.state === "ready");
   const allBlocked = connectionBlocked
     || (provision && !provision.runtime_supported ? `本地 GPU 环境暂不支持 ${provision.platform}。` : "")
-    || jobBlocked;
+    || jobBlocked
+    || (requiredRuntimeReady ? "必备运行时已齐全。" : "");
   const modelsBlocked = connectionBlocked
     || (provision && !provision.runtime_supported ? `本地模型暂不支持 ${provision.platform}。` : "")
     || jobBlocked
@@ -349,9 +399,9 @@ export function RuntimePage({ capabilities, message, provisionMessage, provision
         </div>
         <div className="stage-list">
           {stages.map((stage) => (
-            <div className={stage.ready ? "stage-ready" : "stage-blocked"} key={stage.id}>
+            <div className={stage.ready ? "stage-ready" : "stage-blocked"} key={stage.id} title={stage.ready ? undefined : stage.issues[0]?.message}>
               <span>{stage.ready ? "✓" : "!"}</span>
-              <div><strong>{stage.label}</strong>{!stage.ready && <small>{stage.issues[0]?.message}</small>}</div>
+              <div><strong>{stage.label}</strong></div>
             </div>
           ))}
           {!stages.length && <p className="success-copy">连接桌面执行服务后，将分别检测媒体准备、ASR、LLM、知识库和视频多模态环节。</p>}
@@ -412,6 +462,7 @@ export function RuntimePage({ capabilities, message, provisionMessage, provision
             stage: pythonBootstrap.stage,
             message: pythonBootstrap.message,
             progress: pythonBootstrap.progress,
+            proxy: pythonBootstrap.proxy,
           }} onCancel={async () => undefined} cancellable={false} />}
         </section>}
         {locationView.visible && runtimeLocation && (
@@ -445,19 +496,19 @@ export function RuntimePage({ capabilities, message, provisionMessage, provision
             onInstall={requestInstall}
           />
           <AssetGroup
-            title="必备模型"
-            items={requiredModels}
+            title="AI模型"
+            items={aiModels}
+            optionalIds={diarizationIds}
+            itemActions={diarization ? { diarization: (
+              <DiarizationAction
+                item={diarization}
+                installing={jobRunning && job?.target === "optional-models"}
+                blocked={modelsBlocked}
+                onInstall={() => void requestInstall("optional-models")}
+              />
+            ) } : undefined}
             target="models"
             installing={jobRunning && job?.target === "models"}
-            blocked={modelsBlocked}
-            onInstall={requestInstall}
-          />
-          <AssetGroup
-            title="可选模型 · 说话人分离"
-            items={optionalModels}
-            optional
-            target="optional-models"
-            installing={jobRunning && job?.target === "optional-models"}
             blocked={modelsBlocked}
             onInstall={requestInstall}
           />

@@ -67,6 +67,13 @@ export function WindowDropOverlay({ onFilesDropped }: WindowDropOverlayProps) {
     };
   }, []);
 
+  // On Windows the composition-hosted webview never sees an Explorer drag, so
+  // the Go-side drop target reports enter/leave instead of DOM drag events.
+  useEffect(() => Events.On("files:dragging", (event) => {
+    depth.current = 0;
+    setActive(event.data === true);
+  }), []);
+
   useEffect(() => Events.On("files:dropped", (event) => {
     const paths = payloadPaths(event.data);
     if (!paths.length) return;

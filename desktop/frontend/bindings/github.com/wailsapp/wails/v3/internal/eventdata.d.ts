@@ -24,6 +24,7 @@ declare module "@wailsio/runtime" {
             "editor:request-close": string;
             "export:ready": string;
             "export:request-close": string;
+            "files:dragging": boolean;
             "files:dropped": string[] | null;
             "home:refresh": boolean;
             "library:changed": library$0.Entry[] | null;

@@ -15,6 +15,8 @@ from collections import deque
 from pathlib import Path
 from typing import Any
 
+from nonoka_x.download_route import apply_proxy_environment, live_proxy, proxy_label
+
 #: Where the installer's own two assets sit inside the FineSub snapshot. They
 #: used to live under `resources/` and `runtime/`; upstream 0.5.0 made them
 #: package data, resolved by `finesub_bootstrap.resources` and `.environment`
@@ -187,6 +189,9 @@ class RuntimeProvisioner:
             from finesub_bootstrap.resources import ResourceManager
             from finesub_bootstrap.shell import resource_specs
 
+            from nonoka_x.download_route import install_proxy_route_policy
+
+            install_proxy_route_policy()
             self.paths = AppPaths.for_root(
                 install_root,
                 data_root=self.data_dir / "finesub-data",
@@ -231,6 +236,7 @@ class RuntimeProvisioner:
             "message": "",
             "progress": None,
             "error": None,
+            "proxy": "",
         }
 
     @staticmethod
@@ -338,20 +344,16 @@ class RuntimeProvisioner:
         """Whether the runtime is installed but was built from an older lock.
 
         `RuntimeEnvironment.status` reports both that and a runtime that was
-        never installed as `missing`; only the marker tells them apart. A
-        marker that matches the lock means the runtime is damaged instead, and
-        that stays `missing` with the engine's own explanation.
+        never installed as `missing`; upstream's `condition()` tells them
+        apart (`absent` / `outdated` / `damaged`). A damaged runtime stays
+        `missing`, with the engine's own explanation.
         """
 
-        runtime = self.runtime
-        if runtime is None or getattr(runtime, "development_python", None) is not None:
+        if self.runtime is None:
             return False
         try:
-            if not runtime.python_executable.is_file() or not runtime.marker_path.is_file():
-                return False
-            marker = json.loads(runtime.marker_path.read_text(encoding="utf-8"))
-            return not runtime._marker_is_current(marker)
-        except (OSError, ValueError, AttributeError):
+            return self.runtime.condition() == "outdated"
+        except OSError:
             return False
 
     def start(self, target: str) -> dict[str, Any]:
@@ -378,6 +380,10 @@ class RuntimeProvisioner:
                 "message": START_MESSAGES[target],
                 "progress": None,
                 "error": None,
+                # Shown beside the progress: which local proxy, if any, this
+                # job's downloads go through. Every download in it follows the
+                # same route -- see `nonoka_x.download_route`.
+                "proxy": proxy_label(live_proxy()),
             }
         thread = threading.Thread(target=self._run, args=(target,), name="nonoka-runtime-provision", daemon=True)
         thread.start()
@@ -800,4 +806,5 @@ class RuntimeProvisioner:
             environment["PYTHONPATH"] = os.pathsep.join(
                 part for part in (yt_dlp_path, environment.get("PYTHONPATH", "")) if part
             )
+        apply_proxy_environment(environment)
         return environment

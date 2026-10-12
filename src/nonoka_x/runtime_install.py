@@ -1,9 +1,12 @@
-"""Observable installation of the large wheels in FineSub's runtime lock."""
+"""Observable installation of the large wheels in FineSub's runtime lock,
+and in-place updates of a runtime whose lock moved on."""
 
 from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+import json
+import os
 from pathlib import Path
 import tomllib
 from typing import Any
@@ -19,7 +22,11 @@ from finesub_bootstrap.environment import (
     RuntimeEnvironment,
     _is_retryable_from_mirror,
 )
+from finesub_bootstrap.http_client import apply_network_environment
 from finesub_bootstrap.models import DownloadAsset, DownloadProgress
+from finesub_bootstrap.runtime_health import site_packages_of
+
+from nonoka_x.download_route import live_proxy, proxy_label
 
 
 # PyTorch's package index does not publish wheel sizes, so uv cannot put them
@@ -77,12 +84,46 @@ def large_wheels_from_lock(lock: Path) -> list[LockedWheel]:
     return result
 
 
+def _normalized(name: str) -> str:
+    return name.lower().replace("-", "_").replace(".", "_")
+
+
+def wheel_installed(wheel: LockedWheel, site_packages: Path) -> bool:
+    """Whether this exact distribution is already installed in `site_packages`.
+
+    Read from the wheel's own filename (`name-version-tags.whl`) against the
+    `name-version.dist-info` directory pip and uv leave behind, so a runtime
+    being updated in place does not fetch a multi-GB wheel it already holds.
+    """
+
+    parts = wheel.filename.split("-")
+    if len(parts) < 2 or not site_packages.is_dir():
+        return False
+    name, version = _normalized(parts[0]), parts[1].lower()
+    for entry in site_packages.glob("*.dist-info"):
+        installed_name, _, installed_version = entry.name.removesuffix(".dist-info").rpartition("-")
+        if entry.is_dir() and _normalized(installed_name) == name and installed_version.lower() == version:
+            return True
+    return False
+
+
 def _format_size(size: int) -> str:
     return f"{size / 1024**3:.1f} GiB" if size >= 1024**3 else f"{size / 1024**2:.0f} MiB"
 
 
 class ProgressRuntimeEnvironment(RuntimeEnvironment):
-    """Prefetch very large wheels with byte progress before invoking uv."""
+    """Prefetch very large wheels with byte progress before invoking uv, and
+    update an outdated runtime in place instead of rebuilding it.
+
+    Upstream rebuilds a runtime whose dependency lock changed from scratch in a
+    staging tree. That is cheap for upstream -- uv fetched every wheel by URL,
+    so the rebuild finds them in its cache -- but not here: the largest wheels
+    are fetched by this class, by file, and uv's cache cannot find a file-path
+    entry again by URL. So an outdated runtime is first brought up to the new
+    lock where it stands (only the packages that changed are installed), and
+    only if that fails does the staging rebuild run. The prefetched wheels are
+    also kept, so a rebuild that does happen finds them on disk.
+    """
 
     def __init__(self, *, download_progress: ProgressCallback, **values: Any) -> None:
         super().__init__(**values)
@@ -99,15 +140,23 @@ class ProgressRuntimeEnvironment(RuntimeEnvironment):
     ) -> None:
         regional = self.regional_lock()
         selected = regional or self.runtime_lock
+        proxy = proxy_label(live_proxy())
+        # A wheel the target already holds needs neither a download nor a
+        # reinstall: true of every unchanged large wheel in an in-place update,
+        # never of a fresh staging tree.
+        installed_in = site_packages_of(staging_python)
         try:
             local_wheels = self._prefetch_large_wheels(
                 selected,
                 stage_message=(
                     "正在从中国大陆镜像下载 {package}（{size}）"
                     if regional is not None
+                    else f"正在通过{proxy} 下载 {{package}}（{{size}}）"
+                    if proxy
                     else "正在下载 {package}（{size}）"
                 ),
                 should_pause=should_pause,
+                installed_in=installed_in,
             )
         except Exception as error:
             mirror_can_retry = isinstance(error, (DigestMismatch, SizeMismatch)) or _is_retryable_from_mirror(error)
@@ -122,6 +171,7 @@ class ProgressRuntimeEnvironment(RuntimeEnvironment):
                 self.runtime_lock,
                 stage_message="正在从官方源下载 {package}（{size}）",
                 should_pause=should_pause,
+                installed_in=installed_in,
             )
 
         if local_wheels:
@@ -145,23 +195,18 @@ class ProgressRuntimeEnvironment(RuntimeEnvironment):
                 should_pause=should_pause,
             )
 
-        try:
-            super()._install_dependencies(
-                uv,
-                staging_python,
-                environment,
-                log=log,
-                should_pause=should_pause,
-            )
-        except Exception:
-            # Keep completed wheels after a later dependency failure so retrying
-            # does not spend another multi-gigabyte download.
-            raise
-        else:
-            # uv now owns an extracted cache entry. The source wheel is no
-            # longer needed and retaining it would cost another 2.6 GiB.
-            for wheel in local_wheels:
-                wheel.unlink(missing_ok=True)
+        # The prefetched wheels stay where they are, deliberately. uv's cache
+        # entry for them is keyed by this file path, so with the file gone the
+        # next rebuild -- any engine upgrade that changes the lock -- would
+        # download the multi-GB wheel again; kept, the downloader finds it and
+        # verifies its digest instead. "删除环境" removes the cache with the rest.
+        super()._install_dependencies(
+            uv,
+            staging_python,
+            environment,
+            log=log,
+            should_pause=should_pause,
+        )
 
     def _prefetch_large_wheels(
         self,
@@ -169,8 +214,13 @@ class ProgressRuntimeEnvironment(RuntimeEnvironment):
         *,
         stage_message: str,
         should_pause,
+        installed_in: Path | None = None,
     ) -> list[Path]:
-        wheels = large_wheels_from_lock(lock)
+        wheels = [
+            wheel
+            for wheel in large_wheels_from_lock(lock)
+            if installed_in is None or not wheel_installed(wheel, installed_in)
+        ]
         if not wheels:
             return []
 
@@ -232,3 +282,74 @@ class ProgressRuntimeEnvironment(RuntimeEnvironment):
             )
         finally:
             self._progress_stage = None
+
+    def _install_locked(self, uv: Path, *, stage, log, should_pause, force: bool = False,
+                        verify_hashes: bool = False, holds_lease: bool = False):
+        """Update an outdated runtime in place; rebuild it when that fails.
+
+        Runs under upstream's install lock and after its in-use check, like the
+        rebuild it stands in front of. The fallback is safe from any point:
+        the rebuild builds a separate staging tree and never reads the live one.
+        A pause is the user's cancellation and is not turned into a rebuild --
+        the marker is still the old one, so the next attempt updates again.
+        """
+
+        if not force and self.condition() == "outdated":
+            try:
+                return self._update_in_place(
+                    uv, stage=stage, log=log, should_pause=should_pause, verify_hashes=verify_hashes
+                )
+            except DownloadPaused:
+                raise
+            except Exception as error:  # noqa: BLE001 - any failure falls back to the rebuild
+                if log is not None:
+                    log(f"增量更新未能完成，改为完整重建运行环境：{error}")
+        return super()._install_locked(
+            uv,
+            stage=stage,
+            log=log,
+            should_pause=should_pause,
+            force=force,
+            verify_hashes=verify_hashes,
+            holds_lease=holds_lease,
+        )
+
+    def _update_in_place(self, uv: Path, *, stage, log, should_pause, verify_hashes: bool):
+        """Bring the live runtime to the current lock, installing only what changed.
+
+        The same three steps that make a staging tree acceptable -- install
+        from the lock, hold every file to it (`_verify_staging` mends what
+        fails), import-probe it -- and then the marker, written last, so a run
+        that stops part-way is still `outdated` and is retried, not trusted.
+        """
+
+        python = self.python_executable
+        environment = os.environ.copy()
+        environment.update(
+            {
+                "UV_CACHE_DIR": str(self.paths.cache / "uv"),
+                "UV_PYTHON_INSTALL_DIR": str(self.paths.runtime / "python-builds"),
+                "PYTHONUTF8": "1",
+                "UV_SYSTEM_PYTHON": "1",
+            }
+        )
+        apply_network_environment(environment)
+        if stage is not None:
+            stage("installing_dependencies", "正在更新运行环境：只安装有变化的依赖")
+        self._install_dependencies(uv, python, environment, log=log, should_pause=should_pause)
+        self._verify_staging(
+            uv, python, environment, verify_hashes=verify_hashes, log=log, should_pause=should_pause
+        )
+        healthy, detail = self.runtime_validator(python)
+        if not healthy:
+            raise RuntimeError(detail or "FineSub runtime dependency validation failed")
+        if should_pause is not None and should_pause():
+            raise DownloadPaused("Python environment update paused")
+        if stage is not None:
+            stage("activating", "正在校验并启用 Python 环境")
+        self.marker_path.write_text(
+            json.dumps(self._marker(), ensure_ascii=False, sort_keys=True, separators=(",", ":")),
+            encoding="utf-8",
+            newline="\n",
+        )
+        return self.status()
