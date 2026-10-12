@@ -258,8 +258,8 @@ FineSub 算法代码采用 **GPL-3.0-or-later** 许可证（0.5.0 起，此前�
 
 | 组成部分 | 来源 | 许可 |
 | :--- | :--- | :--- |
-| 说话人活动模型 Nemotron-3-Diarization | [nvidia/Nemotron-3-Diarization](https://huggingface.co/nvidia/Nemotron-3-Diarization) | OpenMDW |
-| 声纹模型 WeSpeaker ResNet34 | [pyannote/wespeaker-voxceleb-resnet34-LM](https://huggingface.co/pyannote/wespeaker-voxceleb-resnet34-LM)（ICASSP 2023） | CC BY 4.0 |
+| Nemotron-3-Diarization | [nvidia/Nemotron-3-Diarization](https://huggingface.co/nvidia/Nemotron-3-Diarization) | OpenMDW |
+| WeSpeaker ResNet34 | [pyannote/wespeaker-voxceleb-resnet34-LM](https://huggingface.co/pyannote/wespeaker-voxceleb-resnet34-LM) | CC BY 4.0 |
 | PLDA 参数 | [pyannote/speaker-diarization-community-1](https://huggingface.co/pyannote/speaker-diarization-community-1) | CC BY 4.0 |
 
 
