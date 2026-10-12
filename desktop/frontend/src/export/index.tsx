@@ -5,6 +5,7 @@ import { applyTheme, initialTheme } from '../app/theme.ts';
 import { mediaLibrary } from '../bridge/library.ts';
 import { desktopWindows } from '../bridge/windows.ts';
 import { installScrollbarHover } from '../app/scrollbars.ts';
+import { installDragGuard } from '../app/dragGuard.ts';
 import type { VideoExportDraft } from '../../bindings/github.com/Ricori/nonoka-x/desktop/internal/app/models.ts';
 import './Export.css';
 
@@ -213,4 +214,5 @@ function ExportWindow() {
 const root = document.getElementById('root');
 if (!root) throw new Error('Nonoka X export root element is missing');
 installScrollbarHover();
+installDragGuard();
 createRoot(root).render(<ExportWindow />);

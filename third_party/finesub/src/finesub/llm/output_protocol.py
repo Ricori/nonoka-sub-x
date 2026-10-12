@@ -1106,6 +1106,39 @@ LEAKED_THOUGHT_ERROR = (
     "The previous reply was your reasoning, not the answer. Return only the "
     "answer, in the required blocks."
 )
+#: Cells a model writes when it probes the submit channel instead of answering.
+#: 2026-10-13: an agy window whose real answers the tool guard kept refusing
+#: submitted `text|text` on all 52 rows, and the structure-only checks took it.
+PLACEHOLDER_CELLS = frozenset({"text", "test", "placeholder", "todo", "tbd"})
+#: From this many rows on, one line repeated on every row is not a subtitle.
+UNIFORM_ROWS_MIN = 5
+
+
+def _placeholder_answer_errors(segments: Sequence[TranslatedCsvSegment]) -> list[str]:
+    """A structurally valid reply that is not an answer: every row the same
+    text, or most rows a placeholder word. Both are judged on the whole window,
+    never on one row -- a single short line may well be any of these."""
+
+    cells = [(item.corrected_text.strip(), item.translation.strip()) for item in segments]
+    if len(cells) >= UNIFORM_ROWS_MIN and len(set(cells)) == 1:
+        corrected, translation = cells[0]
+        return [
+            f"All {len(cells)} rows carry the same text ({corrected!r} / "
+            f"{translation!r}). Write each row's own correction and translation."
+        ]
+    placeholders = sum(
+        1
+        for corrected, translation in cells
+        if corrected.casefold() in PLACEHOLDER_CELLS
+        or translation.casefold() in PLACEHOLDER_CELLS
+    )
+    if placeholders * 2 > len(cells):
+        return [
+            f"{placeholders} of {len(cells)} rows carry placeholder text such as "
+            "'text' or 'test' instead of a correction and translation. Never "
+            "submit a placeholder or a test value."
+        ]
+    return []
 
 
 def validate_correction_output_text(
@@ -1138,6 +1171,12 @@ def validate_correction_output_text(
     # part of the product (owner 2026-10-01).
     if not result.ok and text.lstrip().startswith(LEAKED_THOUGHT_PREFIX):
         return replace(result, errors=[LEAKED_THOUGHT_ERROR, *result.errors])
+    # Only once the structure holds: a placeholder reply is well-formed by
+    # construction, and a malformed one already has its repair errors.
+    if result.ok:
+        placeholder_errors = _placeholder_answer_errors(result.segments)
+        if placeholder_errors:
+            return replace(result, ok=False, errors=placeholder_errors)
     return result
 
 

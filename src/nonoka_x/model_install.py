@@ -44,7 +44,16 @@ def _cached_manifest_file_present(path: Path, expected) -> bool:
     # they do, the blob name gives us the digest check for free. On systems
     # where symlinks are unavailable the Hub copies files into the snapshot;
     # those were fully hashed by install_model before this status check.
-    return target.parent.name != "blobs" or target.name == expected.sha256
+    if target.parent.name != "blobs" or target.name == expected.sha256:
+        return True
+    # Small files live in git rather than LFS (Nemotron's config.json), and
+    # the Hub names their blob by the git object id -- a SHA-1 that says
+    # nothing about the SHA-256 we pin. They are tiny, so hash them instead.
+    if len(target.name) == 40:
+        from finesub_bootstrap.model_manifest import file_matches
+
+        return file_matches(target, expected)
+    return False
 
 
 def _fixed_manifest_file_present(path: Path, expected) -> bool:

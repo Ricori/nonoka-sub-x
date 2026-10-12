@@ -29,6 +29,8 @@ MODAL_BACKEND_ROOT = REPOSITORY_ROOT / "modal_backend"
 if str(MODAL_BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(MODAL_BACKEND_ROOT))
 
+from nonoka_x_modal.record_store import record_relative_path  # noqa: E402
+
 
 class ApiError(RuntimeError):
     def __init__(self, status: int, body: str) -> None:
@@ -400,6 +402,17 @@ def main() -> int:
             except ApiError as exc:
                 if exc.status != 404:
                     print(f"[e2e] upload cleanup warning: {exc}", flush=True)
+        # The API files a Volume copy of every key and library record it
+        # writes, and the daily reconcile puts any copy the Dict lacks back
+        # into it -- so the copies go first, or this run's key would come back.
+        filed = [record_relative_path("keys", owner_id)]
+        if task_id:
+            filed.append(record_relative_path("videos", task_id))
+        for relative in filed:
+            try:
+                artifacts.remove_file(relative)
+            except Exception:
+                pass
         if task_id:
             videos.pop(task_id, None)
             controls.pop(task_id, None)

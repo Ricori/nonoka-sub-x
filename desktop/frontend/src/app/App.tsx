@@ -39,11 +39,11 @@ import { TasksPage } from "../pages/TasksPage.tsx";
 import { LibraryPage } from "../pages/LibraryPage.tsx";
 import { PluginManagerPage } from "../plugins/PluginManagerPage.tsx";
 import { PluginPageHost } from "../plugins/PluginPageHost.tsx";
-import { parseTaskHistory } from "./format.ts";
+import { parseTaskHistory, taskStateLabel } from "./format.ts";
 import { reconcileTaskHistory } from "./taskHistory.ts";
 import { applyTheme, initialTheme } from "./theme.ts";
 import type { DialogState, ExecutionMode, LibraryFilter, LibraryItem, LoadState, NavigationSection, Section, SortMode, TaskHistoryEntry, Theme, ViewMode } from "./types.ts";
-import { activeStates, taskHistoryLimit } from "./types.ts";
+import { activeStates, recoverableStates, taskHistoryLimit } from "./types.ts";
 
 const taskPollIntervalMs = 10_000;
 // Reconnect attempts while the local sidecar is not answering.
@@ -878,7 +878,23 @@ export default function App() {
         : rawSnapshot;
       setTaskHistory((current) => current.map((record) => record.taskId === item.taskId ? { ...record, snapshot } : record));
     } catch (value) {
-      setTaskHistoryMessage(warnNotice(value instanceof Error ? value.message : String(value)));
+      const detail = value instanceof Error ? value.message : String(value);
+      if (action !== "resume") {
+        setTaskHistoryMessage(warnNotice(detail));
+        return;
+      }
+      // A row stops polling once it ends, so the provider may have moved on
+      // since -- restarted elsewhere, or completed by a local result synced
+      // over it -- and refused the restart for that reason. Show the state it
+      // is actually in instead of the stale failure or the optimistic "queued".
+      const fresh = await taskProvider.status(item.taskId).catch(() => null);
+      const snapshot = fresh
+        ? { ...fresh, started_at: fresh.started_at || item.snapshot.started_at }
+        : item.snapshot;
+      setTaskHistory((current) => current.map((record) => record.taskId === item.taskId ? { ...record, snapshot } : record));
+      setTaskHistoryMessage(warnNotice(fresh && !recoverableStates.has(fresh.state)
+        ? `该任务当前已是「${taskStateLabel(fresh.state)}」，无需继续；列表已按最新状态刷新。`
+        : detail));
     }
   }, [cloudProvider, controller, localProvider, pipeline.snapshot?.task_id]);
 

@@ -3,6 +3,8 @@ from __future__ import annotations
 import sys
 from types import ModuleType, SimpleNamespace
 
+import pytest
+
 from nonoka_x.model_install import ByteProgressReporter, _install_huggingface, emit_event, missing_managed_models
 
 
@@ -134,3 +136,32 @@ def test_managed_model_status_ignores_orphan_incomplete_files(monkeypatch, tmp_p
 
     (tmp_path / "huggingface" / "hub" / "models--owner--qwen" / "snapshots" / "qwen-revision" / "model.safetensors").unlink()
     assert missing_managed_models(tmp_path) == ("qwen-referee",)
+
+
+def test_managed_model_status_hashes_git_blobs(monkeypatch, tmp_path) -> None:
+    # A non-LFS file's blob is named by its git SHA-1, not the pinned SHA-256.
+    import hashlib
+
+    import finesub_bootstrap.model_manifest as manifest
+
+    content = b'{"model": "nemotron3"}'
+    wanted = SimpleNamespace(
+        name="config.json", size=len(content), sha256=hashlib.sha256(content).hexdigest(), is_verifiable=True
+    )
+    entry = SimpleNamespace(repo="owner/diar", revision="rev", files=(wanted,))
+    monkeypatch.setattr(manifest, "entry_for", {"nemotron3": entry}.get)
+    repository = tmp_path / "huggingface" / "hub" / "models--owner--diar"
+    blob = repository / "blobs" / ("d" * 40)
+    blob.parent.mkdir(parents=True)
+    blob.write_bytes(content)
+    snapshot = repository / "snapshots" / "rev"
+    snapshot.mkdir(parents=True)
+    try:
+        (snapshot / "config.json").symlink_to(blob)
+    except OSError:
+        pytest.skip("symlinks unavailable")
+
+    assert missing_managed_models(tmp_path, ("nemotron3",)) == ()
+
+    blob.write_bytes(content.replace(b"3", b"4"))
+    assert missing_managed_models(tmp_path, ("nemotron3",)) == ("nemotron3",)

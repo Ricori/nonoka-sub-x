@@ -93,7 +93,10 @@ const NATIVE_SEARCH_HINT = "请在设置里将「纠错与翻译」和「背景�
 // 说话人分离（FineSub 0.6.0）。上次的选择记在本机，下次打开对话框沿用；读写失败就当没记过。
 const DIARIZATION_STORAGE_KEY = "nonoka:diarization-level";
 const DIARIZATION_LEVELS: DiarizationLevel[] = ["off", "acoustics", "judge-text", "judge-audio"];
-const DIARIZATION_JUDGE_HINT = "实验功能：在 LLM 纠错阶段按窗口复核说话人，会额外调用模型；只在生成最终字幕时可用";
+// 与 `nonoka_x.model_install.DIARIZATION_MODEL_IDS` 一致：两个模型都就绪才能分离。
+const DIARIZATION_MODEL_IDS = ["nemotron3", "speaker-embedding"];
+// 复核不用单独的模型，用的就是「纠错与翻译」那一格：每个纠错窗多一次调用。
+const DIARIZATION_JUDGE_HINT = "实验功能：由 LLM 模型复核说话人，每个窗口多一次调用；只在生成最终字幕时可用";
 
 function rememberedDiarization(): DiarizationLevel {
   try {
@@ -280,8 +283,10 @@ export function TranscriptionDialog(props: TranscriptionDialogProps) {
   // 说话人分离：轴里已经标了说话人时以轴为准，不再分离；日文轴不跑识别，也就无从分离。
   const diarizationAvailable = !translateOnly && speakers.length === 0 && selectedCapabilities?.features.diarization === true;
   // 本地模型没下载时不让选：先到运行环境页的「可选模型」下载。
-  const diarizationModels = localCapabilities?.runtime?.managed?.optional_models ?? [];
-  const diarizationModelsMissing = mode === "local" && diarizationModels.some((item) => item.state !== "ready");
+  // 没报 optional_models 的旧版 sidecar 无从判断，按已安装处理，不在这里拦。
+  const optionalModels = localCapabilities?.runtime?.managed?.optional_models ?? [];
+  const diarizationModelsMissing = mode === "local" && optionalModels.length > 0
+    && DIARIZATION_MODEL_IDS.some((id) => optionalModels.find((item) => item.id === id)?.state !== "ready");
   const diarizationSelectable = diarizationAvailable && !diarizationModelsMissing;
   // 裁判在 LLM 纠错阶段运行；音频裁判还要「纠错与翻译」那一格的模型能听音频，云端的纠错只走文本。
   const judgeTextAllowed = finalOutput;
@@ -293,10 +298,7 @@ export function TranscriptionDialog(props: TranscriptionDialogProps) {
   const diarizationOnCpu = mode === "local" && (cpuOnly || request.device === "cpu");
   const diarizationNote = diarizationAvailable && diarizationModelsMissing ? "说话人分离模型尚未安装（约 450MB），需要先在运行环境页的「可选模型」中下载"
     : diarization === "off" ? ""
-    : [
-      "按说话人把字幕拆成不同轨道，不改变字幕文本与时间",
-      diarizationOnCpu ? "本次在 CPU 上运行，约为音频时长的五分之一" : "",
-    ].filter(Boolean).join("；");
+      : diarizationOnCpu ? "本次在 CPU 上运行，约为音频时长的五分之一" : "";
   const chooseDiarization = (level: DiarizationLevel) => {
     setDiarizationChoice(level);
     rememberDiarization(level);
@@ -655,7 +657,7 @@ export function TranscriptionDialog(props: TranscriptionDialogProps) {
                 { value: "off" as const, label: "关闭" },
                 { value: "acoustics" as const, label: "按声音区分说话人" },
                 { value: "judge-text" as const, label: "声音 + 文本复核（实验）", disabled: !judgeTextAllowed, hint: DIARIZATION_JUDGE_HINT },
-                { value: "judge-audio" as const, label: "声音 + 音频复核（实验）", disabled: !judgeAudioAllowed, hint: mode === "cloud" ? "云端的纠错只读文本，无法边听边复核" : DIARIZATION_JUDGE_HINT },
+                { value: "judge-audio" as const, label: "声音 + 音频复核（实验）", disabled: !judgeAudioAllowed, hint: mode === "cloud" ? "云端的纠错只读文本，无法边听边复核" : finalOutput && !limits.audio ? mediaHint("supportsAudio") : DIARIZATION_JUDGE_HINT },
               ]} onChange={chooseDiarization} /></label>}
             </section>}
             {diarizationNote && <p className="transcription-note">{diarizationNote}{diarizationModelsMissing && <button type="button" className="inline-link" onClick={onOpenRuntime}>前往下载</button>}</p>}

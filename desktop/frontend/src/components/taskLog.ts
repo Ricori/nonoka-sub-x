@@ -1,6 +1,6 @@
 import type { ProviderID, TaskEvent } from "../providers/types.ts";
 
-const OPERATOR_ONLY_WARNINGS = ["routing-", "srt-line-budget"];
+const OPERATOR_ONLY_WARNINGS = ["routing-", "srt-line-budget", "unverified-accelerator", "resource-budget"];
 
 function value(payload: Record<string, unknown>, key: string): string {
   return String(payload[key] ?? "");
@@ -35,7 +35,8 @@ export function visibleTaskEvents(events: TaskEvent[], provider: ProviderID): Ta
     // literal the SRT validator keeps to itself.  Both are intentionally
     // absent from the customer-facing cloud task log; the worker already
     // withholds them, and this also hides them in tasks recorded before it
-    // did.
+    // did.  unverified-accelerator and resource-budget describe the cloud's
+    // own hardware choice and calibration, not anything the user can act on.
     if (event.type === "warning" && OPERATOR_ONLY_WARNINGS.some((code) => value(event.payload, "code").startsWith(code))) continue;
 
     const previous = visible.at(-1);

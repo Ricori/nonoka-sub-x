@@ -1,0 +1,62 @@
+Subject: [PATCH 8/9] Read the agy guard hook payload as UTF-8 bytes
+
+Reason: The PreToolUse guards (`guard_view_file.py`, all three templates)
+read their payload with `json.load(sys.stdin)`. agy writes it in UTF-8, but a
+text stdin decodes with the locale code page -- cp936 on Chinese Windows.
+There a CJK run with an odd number of UTF-8 bytes right before an escaped
+quote pairs its last byte with the backslash, the quote closes the string,
+and the guard dies with `JSONDecodeError`. agy treats the dead hook as a
+refusal, so a correction `submit` whose CSV or task feedback carries
+`...不明确\"` is refused and the model rewrites the whole answer. One window
+on 2026-10-13 was refused five times (625 s, 790k input tokens); an earlier
+run only got through on an all-ASCII `text|text` placeholder answer. The agy
+logs show the same failure since 2026-09 on 1.2.2, so it is not agy-version
+specific.
+
+`json.loads` on `sys.stdin.buffer.read()` detects UTF-8 itself and never
+consults the code page. The script text changes, so each FineSub agy project
+re-registers once (its hook digest moves).
+
+Removal: Delete once upstream's guards read bytes, or agy stops being the
+hook writer on Windows.
+
+diff --git a/src/finesub/llm/agent/local_agent.py b/src/finesub/llm/agent/local_agent.py
+index 1c9cee2..bd54873 100644
+--- a/src/finesub/llm/agent/local_agent.py
++++ b/src/finesub/llm/agent/local_agent.py
+@@ -332,7 +332,10 @@ import os
+ import sys
+ 
+ 
+-payload = json.load(sys.stdin)
++# Bytes, not text: agy writes UTF-8, and a text stdin decodes with the locale
++# code page (cp936 on Chinese Windows), which can swallow the backslash of an
++# escaped quote after CJK text and break the JSON.
++payload = json.loads(sys.stdin.buffer.read())
+ tool_call = payload.get("toolCall") or {}
+ args = tool_call.get("args") or {}
+ raw_path = args.get("AbsolutePath")
+@@ -453,7 +456,10 @@ import os
+ import sys
+ 
+ 
+-payload = json.load(sys.stdin)
++# Bytes, not text: agy writes UTF-8, and a text stdin decodes with the locale
++# code page (cp936 on Chinese Windows), which can swallow the backslash of an
++# escaped quote after CJK text and break the JSON.
++payload = json.loads(sys.stdin.buffer.read())
+ tool_call = payload.get("toolCall") or {}
+ name = tool_call.get("name")
+ args = tool_call.get("args") or {}
+@@ -595,7 +601,10 @@ import os
+ import sys
+ 
+ 
+-payload = json.load(sys.stdin)
++# Bytes, not text: agy writes UTF-8, and a text stdin decodes with the locale
++# code page (cp936 on Chinese Windows), which can swallow the backslash of an
++# escaped quote after CJK text and break the JSON.
++payload = json.loads(sys.stdin.buffer.read())
+ tool_call = payload.get("toolCall") or {}
+ name = tool_call.get("name")
+ args = tool_call.get("args") or {}

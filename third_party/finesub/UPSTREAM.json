@@ -1,10 +1,10 @@
 {
   "archive_sha256": "e76340e70a214412facdb7b7288b5532886ff9e6bab0b3519bfb54ed1cc257ae",
   "commit": "5caf422cbad36f0402c98eb565e4c29aee4ac197",
-  "content_sha256": "1b9fcc0ccf90e95a62226fe2f9552375c4b4ac2922f3fa217764961c200820d7",
+  "content_sha256": "b41417a9bdac7e10d8ba084189bd4d0d6265e2ab0bc25354a7459482a58aa3ce",
   "engine_bundle_id": "finesub-0.6.0+5caf422cbad3",
   "engine_version": "0.6.0",
-  "files_manifest_sha256": "b604a15b780d72a207dae0c579274a9532999cfba18fc8f4dbb0b18840d937de",
+  "files_manifest_sha256": "5b3edec1d7bb123c9d5180d0da965a070043aebaff539a3a2ee4cbda5f0a2729",
   "patches": [
     {
       "path": "0001-qwen-tail-entry-point.patch",
@@ -29,6 +29,18 @@
     {
       "path": "0006-pinned-knowledge-subjects.patch",
       "sha256": "8f31416c3d80e16308f69effe839576c0e5cf7a1966fd3a227c101b5204aacf3"
+    },
+    {
+      "path": "0007-agy-project-fallback-reregister.patch",
+      "sha256": "57c476c615fe5a25842f64af7fa700a773c41879bcfc066faa7ba196858837dd"
+    },
+    {
+      "path": "0008-agy-guard-utf8-stdin.patch",
+      "sha256": "09b41d564f5eed2fb132e0aa452eaa6fafbe5a295d613b6a333e1641a19b212e"
+    },
+    {
+      "path": "0009-reject-placeholder-correction.patch",
+      "sha256": "595f66ce3760d65f4e7dcd813dd3ef60fe55e83e23c8c869ceca9bebdfdda432"
     }
   ],
   "ref": "v0.6.0",

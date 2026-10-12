@@ -208,6 +208,25 @@ class PurelyAdditiveTests(unittest.TestCase):
                 "src/finesub/llm/knowledge/update.py",
                 "src/finesub/stages.py",
             ],
+            # Local-agent setup, not transcription: agy 1.3 silently swaps an
+            # unknown `--project` id for its default project, and the check
+            # now notices and re-registers. Only the local agy driver runs
+            # it; the cloud never starts a local agent CLI.
+            "0007-agy-project-fallback-reregister.patch": [
+                "src/finesub/llm/agent/local_agent.py",
+            ],
+            # Local-agent plumbing too: the agy guard hook reads its payload
+            # as UTF-8 bytes rather than through the Windows code page. Only
+            # agy runs these scripts, and only on the local machine.
+            "0008-agy-guard-utf8-stdin.patch": [
+                "src/finesub/llm/agent/local_agent.py",
+            ],
+            # A validation the cloud shares, and stricter only: a reply whose
+            # rows are one repeated line or mostly a placeholder word becomes
+            # a repair round. Any reply it refuses was never a correction.
+            "0009-reject-placeholder-correction.patch": [
+                "src/finesub/llm/output_protocol.py",
+            ],
         }
         for name in names:
             with self.subTest(patch=name):

@@ -7,6 +7,7 @@ import "./styles.css";
 import App from "./app/App.tsx";
 import { installWindowsTitlebar } from "./bridge/window.ts";
 import { installScrollbarHover } from "./app/scrollbars.ts";
+import { installDragGuard } from "./app/dragGuard.ts";
 
 const root = document.getElementById("root");
 if (!root) throw new Error("Nonoka X root element is missing");
@@ -14,4 +15,5 @@ if (!root) throw new Error("Nonoka X root element is missing");
 createRoot(root).render(<App />);
 
 installScrollbarHover();
+installDragGuard();
 void installWindowsTitlebar();

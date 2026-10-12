@@ -304,6 +304,10 @@ AGY_AGENT_NAME = "finesub-media"
 _AGY_PROJECT_ID_RE = re.compile(
     r"created project .*?\(id=([0-9a-fA-F-]{36})\)", re.IGNORECASE
 )
+# The project agy actually opened for the run. Since 1.3 an unknown
+# `--project` id falls back to `default-cli-project` with exit status 0, so
+# this line is the only sign that the id FineSub kept is gone.
+_AGY_CONVERSATION_PROJECT_RE = re.compile(r"Conversation using project ID: (\S+)")
 
 AGY_HOOKS_DOCUMENT = {
     AGY_HOOK_NAME: {
@@ -328,7 +332,10 @@ import os
 import sys
 
 
-payload = json.load(sys.stdin)
+# Bytes, not text: agy writes UTF-8, and a text stdin decodes with the locale
+# code page (cp936 on Chinese Windows), which can swallow the backslash of an
+# escaped quote after CJK text and break the JSON.
+payload = json.loads(sys.stdin.buffer.read())
 tool_call = payload.get("toolCall") or {}
 args = tool_call.get("args") or {}
 raw_path = args.get("AbsolutePath")
@@ -449,7 +456,10 @@ import os
 import sys
 
 
-payload = json.load(sys.stdin)
+# Bytes, not text: agy writes UTF-8, and a text stdin decodes with the locale
+# code page (cp936 on Chinese Windows), which can swallow the backslash of an
+# escaped quote after CJK text and break the JSON.
+payload = json.loads(sys.stdin.buffer.read())
 tool_call = payload.get("toolCall") or {}
 name = tool_call.get("name")
 args = tool_call.get("args") or {}
@@ -591,7 +601,10 @@ import os
 import sys
 
 
-payload = json.load(sys.stdin)
+# Bytes, not text: agy writes UTF-8, and a text stdin decodes with the locale
+# code page (cp936 on Chinese Windows), which can swallow the backslash of an
+# escaped quote after CJK text and break the JSON.
+payload = json.loads(sys.stdin.buffer.read())
 tool_call = payload.get("toolCall") or {}
 name = tool_call.get("name")
 args = tool_call.get("args") or {}
@@ -6348,6 +6361,26 @@ class AgyLocalAgentDriver(LocalAgentDriver):
                 "and would fall back to its default agent"
             )
 
+    @staticmethod
+    def _verify_project_resolved(log_text: str, project_id: str) -> None:
+        """agy 1.3 opens `default-cli-project` for a `--project` id it no
+        longer has (its record under `~/.gemini/config/projects` is gone),
+        still exiting 0 and still listing the cwd's hooks -- so the state file
+        kept passing the check, and the call died later on the missing record
+        with nothing to re-register it (2026-10-13, 1.2.2 -> 1.3.3).
+
+        Raised as plain unavailability, which the project-setup fast path
+        answers by registering afresh; right after a registration it fails
+        closed. A log without the line proves nothing either way: older
+        builds and a missing log are left to the agent check above."""
+
+        opened = _AGY_CONVERSATION_PROJECT_RE.findall(log_text)
+        if opened and opened[-1] != project_id:
+            raise LocalAgentUnavailableError(
+                f"Antigravity opened project {opened[-1]!r} instead of "
+                f"{project_id!r}; the registered project is gone"
+            )
+
     def _check_project(
         self,
         project_root: Path,
@@ -6357,7 +6390,8 @@ class AgyLocalAgentDriver(LocalAgentDriver):
         tool: bool = False,
     ) -> None:
         """`/hooks` on the exact project and agent a model call will use:
-        zero tokens; checks the hook list and that the agent resolved.
+        zero tokens; checks the hook list, that agy opened that very project,
+        and that the agent resolved.
 
         Only a tool project fails closed on the agent. A capsule project warns
         and runs on (owner 2026-10-06): the hook, not the document, holds the
@@ -6376,6 +6410,10 @@ class AgyLocalAgentDriver(LocalAgentDriver):
                 log_text = log_path.read_text(encoding="utf-8", errors="replace")
             except OSError:
                 log_text = ""
+            # Before the agent check: on a fallback project the agent verdict
+            # is about the wrong project, and only this one is fixable by
+            # registering again.
+            self._verify_project_resolved(log_text, project_id)
             try:
                 self._verify_agent_resolved(log_text, agent_name)
             except AgyAgentUnverifiableError as exc:

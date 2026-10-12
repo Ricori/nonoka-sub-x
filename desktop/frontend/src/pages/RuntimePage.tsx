@@ -283,18 +283,18 @@ function DiarizationAction({ item, installing, blocked, onInstall }: {
   blocked: string;
   onInstall: () => void;
 }) {
-  const ready = item.state === "ready";
+  // 已就绪时卡片上的「已就绪」标签就够了，不再放一个禁用的按钮。
+  if (item.state === "ready" && !installing) return null;
   const needsUpdate = item.state === "outdated";
-  const disabledReason = blocked || (ready ? "说话人分离模型已安装并通过校验。" : "");
   return (
     <button
       className="quiet-button asset-tile-action"
-      disabled={disabledReason !== ""}
+      disabled={blocked !== ""}
       onClick={onInstall}
-      title={disabledReason || (needsUpdate ? "更新说话人分离模型" : "下载说话人分离模型")}
+      title={blocked || (needsUpdate ? "更新说话人分离模型" : "下载说话人分离模型")}
       type="button"
     >
-      {installing ? needsUpdate ? "更新中…" : "下载中…" : ready ? "已安装" : needsUpdate ? "更新" : "下载"}
+      {installing ? needsUpdate ? "更新中…" : "下载中…" : needsUpdate ? "更新" : "下载"}
     </button>
   );
 }

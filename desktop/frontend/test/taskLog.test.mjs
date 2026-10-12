@@ -15,11 +15,13 @@ test("cloud task log keeps key events and hides operator diagnostics", () => {
     event(4, "warning", { code: "routing-preset", message: "unused audio binding" }),
     event(7, "warning", { code: "routing-profile", message: "provider calibration" }),
     event(8, "warning", { code: "srt-line-budget", message: "/__modal/volumes/vo-x/tasks/vid_test/subtitle.srt: Segment 1 line has 25.5 weighted characters; limit is 25." }),
-    event(5, "warning", { code: "resource-budget", message: "内存接近上限" }),
+    event(5, "warning", { code: "resource-budget", message: "peak_mem exceeds the standard_large_vram tier limit" }),
+    event(9, "warning", { code: "unverified-accelerator", message: "ASR runs on Tesla T4" }),
+    event(10, "warning", { code: "nemotron3-download", message: "首次使用：正在下载说话人分离模型" }),
     event(6, "completed"),
   ];
 
-  assert.deepEqual(visibleTaskEvents(input, "cloud").map(({ cursor }) => cursor), [1, 3, 5, 6]);
+  assert.deepEqual(visibleTaskEvents(input, "cloud").map(({ cursor }) => cursor), [1, 3, 10, 6]);
 });
 
 test("unchanged consecutive cloud progress heartbeats occupy one line", () => {

@@ -76,19 +76,28 @@ export function TaskLogPanel({ taskId, active, provider, source }: { taskId: str
   // from the last cursor seen rather than re-read from the beginning.
   useEffect(() => {
     let cancelled = false;
+    // A slow response (a cold API container can take longer than the poll
+    // interval) must not overlap the next pull: both would ask from the same
+    // cursor, and the later one to land appended its events a second time.
+    let inFlight = false;
     cursorRef.current = 0;
     setEvents([]);
     setError("");
     const pull = async () => {
+      if (inFlight) return;
+      inFlight = true;
       try {
         const page = await source(taskId, cursorRef.current);
         if (cancelled) return;
         setError("");
-        if (page.events.length === 0) return;
-        cursorRef.current = page.events[page.events.length - 1].cursor;
-        setEvents((current) => [...current, ...page.events].slice(-logLineLimit));
+        const fresh = page.events.filter((event) => event.cursor > cursorRef.current);
+        if (fresh.length === 0) return;
+        cursorRef.current = fresh[fresh.length - 1].cursor;
+        setEvents((current) => [...current, ...fresh].slice(-logLineLimit));
       } catch (value) {
         if (!cancelled) setError(value instanceof Error ? value.message : String(value));
+      } finally {
+        inFlight = false;
       }
     };
     void pull();
