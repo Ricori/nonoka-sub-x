@@ -5,6 +5,7 @@ import { buildAss, outputLines } from './assBuild';
 import { getStyleMap } from '../ass';
 import { loadFontMetrics } from '../../subtitles/metrics';
 import { subCanvas, video } from './media';
+import { systemFontFile } from '../../bridge/systemFonts';
 import JASSUB from "jassub";
 import workerUrl from "jassub/dist/worker/worker.js?worker&url";
 import webViewWorkerUrl from "../vendor/jassub-worker.js?url";
@@ -35,6 +36,32 @@ const isWebView2 = !!(window as Window & { chrome?: { webview?: unknown } }).chr
 let jassub: JASSUB | null = null;         // 就绪前所有绘制请求直接丢掉
 let jassubLoad: Promise<JASSUB> | null = null;
 let lastAss = "";               // 上次喂给 libass 的 ASS：内容没变就只重画，不重建 track
+/** 已向当前实例交过（或正在交）的系统字体，小写族名。换实例时清空 */
+let claimedFonts = new Set<string>();
+
+/** 随包字体已经在 fonts[] 里了；同一个字体只交一次，免得一份几十 MB 的 CJK 字体重复进 WASM 内存 */
+function claimSystemFont(name: string): boolean {
+  const key = name.trim().toLowerCase();
+  if (!key || bundledFontUrl(key) || claimedFonts.has(key)) return false;
+  claimedFonts.add(key);
+  return true;
+}
+
+/**
+ * WASM 里的 libass 看不到系统字体。JASSUB 缺字时会回调 _getLocalFont，原版走
+ * queryLocalFonts()，WebView2 里要权限、还拿不到中文族名；改成找 Go 端按族名要文件。
+ * 这条路兜的是正文里 n 换的字体——样式用到的由 loadSystemFonts 主动加载，
+ * 因为缺字回调是异步的，这一帧已经按回退字体画完了。
+ */
+class SystemFontJASSUB extends JASSUB {
+  override async _getLocalFont(font: string) {
+    if (!claimSystemFont(font)) return undefined;
+    const data = await systemFontFile(font);
+    // worker 拿到文件后才 addFont + reloadFonts，与这里的重画请求不在同一条消息通道上，留点余量再画
+    if (data) setTimeout(drawSubs, 120);
+    return data ?? undefined;
+  }
+}
 
 /** 加载遮罩期间先取资源并启动 worker/WASM，字幕数据回来后只需换入正式 track */
 export function preloadSubtitles(): Promise<any> {
@@ -42,14 +69,15 @@ export function preloadSubtitles(): Promise<any> {
     lastAss = ASS_SCRIPT_INFO + ASS_EVENTS_HEAD;
     const canvas = subCanvas();
     if (!canvas) throw new Error("字幕预览画布尚未挂载");
-    const inst = new JASSUB({
+    claimedFonts = new Set();
+    const inst = new SystemFontJASSUB({
       canvas,
       subContent: lastAss,
       workerUrl: isWebView2 ? webViewWorkerUrl : workerUrl,
       wasmUrl, modernWasmUrl: wasmUrl,
       fonts: bundledFontUrls,
       defaultFont: "方正准圆_gbk",
-      queryFonts: false,
+      queryFonts: "local",
     });
     await inst.ready;
     jassub = inst;
@@ -101,7 +129,24 @@ export async function refreshFontMetrics() {
     const style = styleMap[line.style];
     if (style?.font) fonts.add(String(style.font).trim());
   }
-  if (await loadFontMetrics(fonts, bundledFontUrl).catch(() => false)) syncSubs();
+  const [metricsChanged, fontsAdded] = await Promise.all([
+    loadFontMetrics(fonts, bundledFontUrl).catch(() => false),
+    loadSystemFonts(fonts).catch(() => false),
+  ]);
+  if (metricsChanged) syncSubs();
+  else if (fontsAdded) drawSubs();
+}
+
+/** 样式里用到的系统字体交给 libass；返回是否真加了新字体（加了要重画） */
+async function loadSystemFonts(fonts: Set<string>): Promise<boolean> {
+  const inst = jassub ?? await jassubLoad?.catch(() => null);
+  if (!inst || inst !== jassub) return false;
+  const files = await Promise.all([...fonts].filter(claimSystemFont).map(systemFontFile));
+  const found = files.filter((data): data is Uint8Array<ArrayBuffer> => !!data);
+  // 等字体的工夫可能已经换了实例（关掉又打开了编辑器）
+  if (!found.length || inst !== jassub) return false;
+  await inst.renderer.addFonts(found);
+  return true;
 }
 
 // 文本框逐字输入也会改字幕内容，但每敲一个字符就 setTrack 等于让 libass 把整份 ASS

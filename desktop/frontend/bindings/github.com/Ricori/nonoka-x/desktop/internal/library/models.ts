@@ -53,6 +53,19 @@ export interface ExportResult {
     "size": number;
 }
 
+/**
+ * ExportSource describes the stream the export window encodes from, so it can
+ * guess the output size before the encode starts. Zero means unknown.
+ */
+export interface ExportSource {
+    "width": number;
+    "height": number;
+    "fps": number;
+    "videoKbps": number;
+    "audioKbps": number;
+    "hasAudio": boolean;
+}
+
 export interface FilmstripTileResult {
     "url": string;
     "start": number;

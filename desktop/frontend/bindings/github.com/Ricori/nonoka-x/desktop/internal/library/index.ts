@@ -11,6 +11,7 @@ export type {
     Clip,
     Entry,
     ExportResult,
+    ExportSource,
     FilmstripTileResult,
     ImportFailure,
     ImportResult,

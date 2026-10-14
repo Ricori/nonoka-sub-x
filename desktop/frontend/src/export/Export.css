@@ -70,12 +70,14 @@ header p { margin: 0; color: var(--muted); white-space: nowrap; overflow: hidden
 .status.success { color: var(--ok); }
 .status.error { color: var(--warn); }
 .status-line { display: flex; justify-content: space-between; gap: 12px; }
-.status-line strong { color: var(--text); font-variant-numeric: tabular-nums; }
+.status-line strong { flex-shrink: 0; color: var(--text); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .progress { height: 6px; margin-top: 9px; overflow: hidden; border-radius: 99px; background: var(--raised); }
 .progress i { display: block; height: 100%; background: var(--accent); transition: width .15s linear; }
 .link { display: block; max-width: 100%; margin-top: 7px; padding: 0; overflow: hidden; color: inherit; background: none; border: 0; text-align: left; text-decoration: underline; text-overflow: ellipsis; white-space: nowrap; }
 
-footer { margin-top: auto; display: flex; justify-content: flex-end; gap: 10px; }
+footer { margin-top: auto; display: flex; justify-content: flex-end; align-items: center; gap: 10px; }
+footer .estimate { margin-right: auto; color: var(--muted); white-space: nowrap; cursor: help; }
+footer .estimate strong { color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; }
 footer button { min-width: 96px; height: 36px; padding: 0 16px; border: 1px solid var(--line); border-radius: 8px; font-weight: 600; }
 footer .secondary { background: var(--panel); }
 footer .primary { color: var(--on-accent); border-color: var(--accent); background: var(--accent); }

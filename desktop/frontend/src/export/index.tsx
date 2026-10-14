@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Events } from '@wailsio/runtime';
 import { applyTheme, initialTheme } from '../app/theme.ts';
@@ -7,6 +7,7 @@ import { desktopWindows } from '../bridge/windows.ts';
 import { installScrollbarHover } from '../app/scrollbars.ts';
 import { installDragGuard } from '../app/dragGuard.ts';
 import type { VideoExportDraft } from '../../bindings/github.com/Ricori/nonoka-x/desktop/internal/app/models.ts';
+import { estimateExportBytes, formatBytes } from './estimate.ts';
 import './Export.css';
 
 const PRESETS = [
@@ -16,10 +17,19 @@ const PRESETS = [
 ];
 const X264 = ['ultrafast', 'superfast', 'veryfast', 'faster', 'fast', 'medium', 'slow', 'slower', 'veryslow'];
 
+type ProgressStart = { at: number; done: number };
 type Phase = 'loading' | 'ready' | 'running' | 'cancelling' | 'success' | 'error';
 
 const errorText = (error: unknown) => String((error as { message?: string })?.message || error || '未知错误')
   .replace(/^Error:\s*/, '');
+/** 时长写成“3 分 20 秒”；十分钟以上只到分钟，免得数字跳个不停 */
+const formatDuration = (seconds: number) => {
+  const total = Math.max(1, Math.round(seconds));
+  if (total < 60) return `${total} 秒`;
+  if (total < 600) return `${Math.floor(total / 60)} 分 ${total % 60} 秒`;
+  const minutes = Math.round(total / 60);
+  return minutes < 60 ? `${minutes} 分钟` : `${Math.floor(minutes / 60)} 小时 ${minutes % 60} 分`;
+};
 const isCancellation = (error: unknown) => {
   const text = errorText(error).toLowerCase();
   return text.includes('已取消') || text.includes('cancelled') || text.includes('canceled');
@@ -31,6 +41,9 @@ function ExportWindow() {
   const [phase, setPhase] = useState<Phase>('loading');
   const [message, setMessage] = useState('正在准备导出…');
   const [pct, setPct] = useState(0);
+  const [remaining, setRemaining] = useState<number | null>(null);
+  // 第一条进度到达的时刻与位置：保存对话框和 ffmpeg 启动的时间不算进压制速度
+  const progressStart = useRef<ProgressStart | null>(null);
   const [crf, setCrf] = useState('21');
   const [preset, setPreset] = useState('medium');
   const [presetIndex, setPresetIndex] = useState(1);
@@ -42,6 +55,9 @@ function ExportWindow() {
   const busy = phase === 'running' || phase === 'cancelling';
   // 剪辑成片要把几段拼起来，拼出来的音轨是新的，没有源音轨可复制
   const joined = (draft?.pieces?.length ?? 0) > 1;
+  const estimate = useMemo(() => draft?.source ? estimateExportBytes({
+    source: draft.source, pieces: draft.pieces, crf: Number(crf), preset, scaleH: Number(scale), abr, joined,
+  }) : null, [draft, crf, preset, scale, abr, joined]);
 
   useEffect(() => {
     applyTheme(initialTheme('dark'));
@@ -62,7 +78,18 @@ function ExportWindow() {
   useEffect(() => Events.On('media:progress', (event) => {
     const progress = event.data as { id?: string; stage?: string; done?: number; total?: number };
     if (progress.stage !== 'export' || progress.id !== draft?.progressId || !progress.total) return;
-    setPct(Math.max(0, Math.min(100, Math.round((progress.done || 0) / progress.total * 100))));
+    const done = progress.done || 0;
+    setPct(Math.max(0, Math.min(100, Math.round(done / progress.total * 100))));
+    const now = performance.now();
+    const start = progressStart.current;
+    if (!start) {
+      progressStart.current = { at: now, done };
+      return;
+    }
+    // 按开始以来的平均速度外推；头三秒样本太少，先不报
+    const elapsed = (now - start.at) / 1000;
+    const rate = (done - start.done) / elapsed;
+    if (elapsed >= 3 && rate > 0) setRemaining(Math.max(0, progress.total - done) / rate);
   }), [draft?.progressId]);
 
   useEffect(() => Events.On('export:request-close', (event) => {
@@ -86,6 +113,8 @@ function ExportWindow() {
     setPhase('running');
     setMessage('正在压制字幕；你可以切换到主窗口继续工作。');
     setPct(0);
+    setRemaining(null);
+    progressStart.current = null;
     setResult(null);
     try {
       const value = await desktopWindows.runVideoExport(jobID, Number(crf), preset, Number(scale), abr);
@@ -97,7 +126,10 @@ function ExportWindow() {
       setPct(100);
       setResult(value);
       setPhase('success');
-      setMessage(`导出完成 · ${(value.size / 1024 ** 2).toFixed(0)} MB`);
+      // 进度回调在 await 期间改写了它，TS 看不到，这里显式放宽类型
+      const start = progressStart.current as ProgressStart | null;
+      const took = start ? ` · 用时 ${formatDuration((performance.now() - start.at) / 1000)}` : '';
+      setMessage(`导出完成 · ${(value.size / 1024 ** 2).toFixed(0)} MB${took}`);
     } catch (error) {
       if (isCancellation(error)) {
         setPhase('ready');
@@ -175,7 +207,10 @@ function ExportWindow() {
       )}
 
       <section className={`status ${phase}`} aria-live="polite">
-        <div className="status-line"><span>{message}</span>{busy && <strong>{pct}%</strong>}</div>
+        <div className="status-line"><span>{message}</span>{busy && <strong>
+          {phase === 'running' && pct > 0 && (remaining === null ? '正在估算剩余时间 · ' : `剩余约 ${formatDuration(remaining)} · `)}
+          {pct}%
+        </strong>}</div>
         <div className="progress" hidden={!busy}><i style={{ width: `${pct}%` }} /></div>
         {result && <button type="button" className="link" onClick={() => void mediaLibrary.revealInFolder(result.path)}>
           {result.path} · 打开所在文件夹
@@ -183,6 +218,11 @@ function ExportWindow() {
       </section>
 
       <footer>
+        {estimate !== null && (
+          <span className="estimate" title="按源视频码率与当前参数估算；实际体积取决于画面复杂度，可能相差三成左右">
+            预计大小 <strong>约 {formatBytes(estimate)}</strong>
+          </span>
+        )}
         {busy ? (
           <button type="button" className="secondary" disabled={phase === 'cancelling'} onClick={() => void cancelExport()}>
             {phase === 'cancelling' ? '正在取消…' : '取消导出'}

@@ -18,6 +18,7 @@ import (
 	"github.com/Ricori/nonoka-x/desktop/internal/provider"
 	"github.com/Ricori/nonoka-x/desktop/internal/selfupdate"
 	"github.com/Ricori/nonoka-x/desktop/internal/sidecar"
+	"github.com/Ricori/nonoka-x/desktop/internal/sysfonts"
 	"github.com/Ricori/nonoka-x/desktop/internal/taskhistory"
 	"github.com/Ricori/nonoka-x/desktop/internal/telemetry"
 	"github.com/wailsapp/wails/v3/pkg/application"
@@ -139,6 +140,7 @@ func Run(assets fs.FS) error {
 	}
 	windowService := NewWindowService(preferencesService, libraryService)
 	storageService := NewStorageService(dataDirectory, manager, libraryService)
+	systemFontService := sysfonts.New()
 	updateService, err := selfupdate.New(dataDirectory)
 	if err != nil {
 		return err
@@ -154,6 +156,7 @@ func Run(assets fs.FS) error {
 			application.NewService(pluginService),
 			application.NewService(preferencesService),
 			application.NewService(assStyleService),
+			application.NewService(systemFontService),
 			application.NewService(taskHistoryService),
 			application.NewService(windowService),
 			application.NewService(storageService),
@@ -161,6 +164,8 @@ func Run(assets fs.FS) error {
 		},
 		Assets: application.AssetOptions{
 			Handler: application.AssetFileServerFS(assets),
+			// The subtitle preview runs libass as WASM; it fetches system fonts here.
+			Middleware: sysfonts.Middleware(systemFontService),
 		},
 		Mac: application.MacOptions{
 			ApplicationShouldTerminateAfterLastWindowClosed: true,

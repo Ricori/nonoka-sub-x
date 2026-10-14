@@ -121,6 +121,11 @@ export interface VideoExportDraft {
     "pieces": library$0.Range[] | null;
     "rangeLabel": string;
     "missingFonts": string[] | null;
+
+    /**
+     * Source lets the window estimate the output size as the knobs change.
+     */
+    "source": library$0.ExportSource;
 }
 
 export interface VideoExportResult {

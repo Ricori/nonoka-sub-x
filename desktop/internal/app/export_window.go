@@ -23,6 +23,8 @@ type VideoExportDraft struct {
 	Pieces       []library.Range `json:"pieces"`
 	RangeLabel   string          `json:"rangeLabel"`
 	MissingFonts []string        `json:"missingFonts"`
+	// Source lets the window estimate the output size as the knobs change.
+	Source library.ExportSource `json:"source"`
 }
 
 type VideoExportResult struct {
@@ -41,6 +43,8 @@ func (s *WindowService) OpenVideoExport(mediaID, defaultName, ass string, pieces
 	if _, err := s.library.Get(mediaID); err != nil {
 		return err
 	}
+	// Probed before taking the lock: ffprobe takes a moment on a cold disk.
+	source := library.ProbeExportSource(s.library, mediaID)
 
 	s.mu.Lock()
 	if s.app == nil {
@@ -65,6 +69,7 @@ func (s *WindowService) OpenVideoExport(mediaID, defaultName, ass string, pieces
 		MediaID: mediaID, DefaultName: defaultName,
 		Pieces: append([]library.Range(nil), pieces...), RangeLabel: rangeLabel,
 		MissingFonts: append([]string(nil), missingFonts...),
+		Source:       source,
 	}
 	options, deferredState := deferWindowStart(exportWindowOptions(s.preferences, jobID, defaultName))
 	window := s.app.Window.NewWithOptions(options)

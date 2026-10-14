@@ -13,7 +13,8 @@ import {
 import { DEFAULT_EFFECT_TRACK_ID } from '../../../subtitles/effects';
 import { bindStyle } from '../../lib/edits';
 import { docStore } from '../../store/docStore';
-import { askModal, modalStore, toast } from '../../store/uiStore';
+import { modalStore, toast } from '../../store/uiStore';
+import { systemFonts } from '../../../bridge/systemFonts';
 import { PropRow, Segmented, SideSection, SliderField, ToggleChip } from '../ui/fields';
 import { ColorField } from '../ui/ColorField';
 import { StyleSelect } from '../SideTrackPanel';
@@ -34,8 +35,6 @@ const num = (fields: Record<string, string>, key: string, fallback = 0) => {
 const flag = (fields: Record<string, string>, key: string) => num(fields, key) !== 0;
 /** Aegisub 写 -1，libass 认非零；写 -1 是为了样式表在 Aegisub 里打开时干净 */
 const flagValue = (on: boolean) => (on ? -1 : 0);
-
-const OTHER_FONT = "__other_font__";
 
 /** ASS 的 Alignment 是小键盘方位（1–9），拆成水平 × 垂直两组按钮更好点 */
 const H_ALIGN = [
@@ -58,6 +57,7 @@ export function StyleBar({ lane }: { lane: LaneRef }) {
   const { styles, version } = docStore.use(
     s => ({ styles: s.styles, version: s.version }), shallowEqual);
   const [missing, setMissing] = useState<string[]>([]);
+  const [installed, setInstalled] = useState<string[]>([]);
 
   const box = trackId ? boxForLane({ trackId, lang }) : null;
   const name = box?.styleName ?? "";
@@ -87,14 +87,25 @@ export function StyleBar({ lane }: { lane: LaneRef }) {
     return () => { alive = false; };
   }, [fontName]);
 
+  useEffect(() => {
+    let alive = true;
+    void systemFonts().then(list => { if (alive) setInstalled(list); });
+    return () => { alive = false; };
+  }, []);
+
+  // 随包字体和样式表里用到的排前面，系统字体接在后面；族名不分大小写去重
   const fontOptions = useMemo(() => {
-    const names = [...new Set([...BUNDLED_FONTS, fontName, ...Object.values(parseSheet(styles).fields)
-      .map(style => style.fontname)].filter(Boolean))];
-    return [
-      ...names.map(font => ({ value: font, label: font })),
-      { value: OTHER_FONT, label: "其他字体…", hint: "输入系统里已安装的字体名" },
-    ];
-  }, [styles, fontName]);
+    const seen = new Set<string>();
+    const names = [...BUNDLED_FONTS, fontName, ...Object.values(parseSheet(styles).fields)
+      .map(style => style.fontname), ...installed]
+      .filter(font => {
+        const key = font?.toLowerCase();
+        if (!key || seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+    return names.map(font => ({ value: font, label: font }));
+  }, [styles, fontName, installed]);
 
   if (!box || !fields) {
     return <div className="side-empty">在画面里点选一行字幕，或在上方切换轨道</div>;
@@ -118,11 +129,6 @@ export function StyleBar({ lane }: { lane: LaneRef }) {
       kind: "track" as const,
       ti: docStore.get().tracks.findIndex((track, index) => (track.id || `track-${index + 1}`) === box.trackId),
     };
-
-  async function pickOtherFont() {
-    const typed = await askModal({ title: "使用其他字体", hint: "填系统里已安装的字体名", value: fontName, okLabel: "使用" });
-    if (typeof typed === "string" && typed.trim()) set({ fontname: typed.trim() });
-  }
 
   return (
     <div className="style-bar">
@@ -158,8 +164,8 @@ export function StyleBar({ lane }: { lane: LaneRef }) {
       <SideSection title="基础">
         <PropRow label="字体" title={missing.length ? "系统里没装这个字体，预览会用回退字体" : undefined}>
           <CustomSelect className={"sd-select" + (missing.length ? " bad" : "")} ariaLabel="字体"
-            value={fontName} options={fontOptions}
-            onChange={value => { if (value === OTHER_FONT) void pickOtherFont(); else set({ fontname: value }); }} />
+            value={fontName} options={fontOptions} menuMaxHeight={320}
+            onChange={value => set({ fontname: value })} />
         </PropRow>
         <SliderField label="字号" value={num(fields, "fontsize", 70)} min={8} max={400} rangeMax={200}
           onInput={value => set({ fontsize: value })} />
