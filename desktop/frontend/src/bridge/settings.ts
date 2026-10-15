@@ -77,8 +77,23 @@ export interface FineSubBaseUrlState {
   customized: boolean;
 }
 
+export interface FineSubModelTestResult {
+  content: string;
+  model: string;
+  backend: string;
+  fallback_used: boolean;
+}
+
 export const fineSubSettings = {
   read: () => ProviderService.Settings() as Promise<unknown> as Promise<FineSubSettingsState>,
   saveKeys: (keys: Record<string, string | null>) =>
     ProviderService.SaveKeys(keys) as Promise<unknown> as Promise<FineSubSettingsState>,
+  // 用已保存的全局模型发一次最小请求。输出预算留宽一些：推理模型会先花掉
+  // 一部分 token 在思考上，太紧会拿到空回复。
+  testModel: () =>
+    ProviderService.LLMComplete({
+      role: "general_capable",
+      messages: [{ role: "user", content: "Reply with the single word: OK" }],
+      max_tokens: 1024,
+    }) as Promise<unknown> as Promise<FineSubModelTestResult>,
 };

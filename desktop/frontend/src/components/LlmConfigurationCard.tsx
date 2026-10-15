@@ -1,6 +1,7 @@
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
 import type { FineSubBaseUrlState, FineSubKeyState, FineSubModelProvider, FineSubModelRoute, FineSubModelRoutingState } from "../bridge/settings.ts";
+import { fineSubSettings } from "../bridge/settings.ts";
 import type { ProviderChoice } from "./llmRouting.ts";
 import { choiceIdOf, effectiveRoute, hasDraft, loadModelMemory, pickModelForProvider, preferredMember, providerChoices, routeSettingName, saveModelMemory } from "./llmRouting.ts";
 import { Mark } from "./Mark.tsx";
@@ -205,6 +206,33 @@ export function LlmConfigurationCard({ keys, baseUrls, modelRouting, drafts, bus
     );
   };
 
+  // 测试走 sidecar 里已保存的配置，所以有未保存的更改时不放行，免得测的
+  // 不是眼前这一份。
+  // 结果记下测的是哪一条路由：保存成别的模型以后，旧结果就不再显示。
+  const [testState, setTestState] = useState<{ status: "running" | "ok" | "failed"; text: string; route: string } | null>(null);
+  const savedProvider = modelRouting.providers.find((item) => item.id === modelRouting.defaultRoute.provider);
+  const savedReady = Boolean(savedProvider && modelRouting.defaultRoute.model && isConfigured(savedProvider));
+  const savedRouteKey = `${modelRouting.defaultRoute.provider}/${modelRouting.defaultRoute.model}`;
+  const dirty = Object.keys(updates).length > 0;
+  const shownTest = testState && !dirty && testState.route === savedRouteKey ? testState : null;
+  const runTest = async () => {
+    const route = savedRouteKey;
+    setTestState({ status: "running", text: "正在测试…", route });
+    const started = performance.now();
+    try {
+      const result = await fineSubSettings.testModel();
+      const seconds = ((performance.now() - started) / 1000).toFixed(1);
+      const reply = result.content.trim().replace(/\s+/g, " ").slice(0, 40);
+      setTestState({
+        status: "ok",
+        text: `连接正常 · ${result.model || modelRouting.defaultRoute.model} · ${seconds}s${reply ? ` · 回复「${reply}」` : ""}${result.fallback_used ? " · 注意：由备用模型应答" : ""}`,
+        route,
+      });
+    } catch (error) {
+      setTestState({ status: "failed", text: `测试失败：${error instanceof Error ? error.message : String(error)}`, route });
+    }
+  };
+
   const maskedKey = selectedKey?.masked.length
     ? selectedKey.masked.map((entry) => `${entry.name ? `${entry.name} · ` : ""}${entry.value}`).join("，")
     : (selectedKey?.configured ? `${selectedKey.count} 个已配置` : "未配置");
@@ -302,8 +330,19 @@ export function LlmConfigurationCard({ keys, baseUrls, modelRouting, drafts, bus
       </section>
 
       <div className="llm-config-footer">
-        <span>{blocker || (Object.keys(updates).length ? "有未保存的更改" : "已保存")}</span>
-        <button className="primary-button" disabled={busy || !globalReady || Object.keys(updates).length === 0} onClick={() => void onSave(updates, "模型配置")}>{busy ? "正在保存…" : "保存"}</button>
+        <span className={shownTest ? `llm-test-${shownTest.status}` : undefined} title={shownTest?.text}>{shownTest?.text || blocker || (dirty ? "有未保存的更改" : "已保存")}</span>
+        <div className="llm-config-actions">
+          <button
+            type="button"
+            className="secondary-button"
+            disabled={busy || dirty || !savedReady || testState?.status === "running"}
+            title={dirty ? "请先保存，测试使用已保存的配置" : "向全局模型发送一次简单请求"}
+            onClick={() => void runTest()}
+          >
+            {testState?.status === "running" ? "测试中…" : "测试"}
+          </button>
+          <button className="primary-button" disabled={busy || !globalReady || !dirty} onClick={() => void onSave(updates, "模型配置")}>{busy ? "正在保存…" : "保存"}</button>
+        </div>
       </div>
     </article>
   );

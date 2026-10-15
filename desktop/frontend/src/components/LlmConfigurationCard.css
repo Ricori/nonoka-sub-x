@@ -226,8 +226,36 @@
 }
 
 .llm-config-footer span {
+   min-width: 0;
+   overflow: hidden;
    color: var(--mut);
    font-size: 11px;
+   text-overflow: ellipsis;
+   white-space: nowrap;
+}
+
+.llm-config-footer span.llm-test-ok {
+   color: var(--ok);
+}
+
+.llm-config-footer span.llm-test-failed {
+   color: var(--warn);
+}
+
+.llm-config-actions {
+   display: flex;
+   flex: 0 0 auto;
+   gap: 8px;
+}
+
+.llm-config-footer .secondary-button {
+   border: 1px solid var(--line);
+   background: transparent;
+   color: var(--text);
+}
+
+.llm-config-footer .secondary-button:hover:not(:disabled) {
+   border-color: var(--accent-border);
 }
 
 .llm-config-footer button {
@@ -269,5 +297,9 @@
    .llm-config-footer {
       align-items: stretch;
       flex-direction: column;
+   }
+
+   .llm-config-actions>button {
+      flex: 1;
    }
 }

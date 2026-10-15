@@ -724,6 +724,17 @@ class LLMCallTests(ProviderFixture):
         provider.shutdown()
         self.assertIsNone(provider._llm_process)
 
+    def test_saving_keys_retires_the_worker_holding_the_old_ones(self) -> None:
+        provider = self.llm_provider()
+        provider._settings = SimpleNamespace(update_keys=lambda updates: {"saved": dict(updates)})
+        provider.llm_complete(self.call("one"))
+        started = provider._llm_process
+        provider.update_keys({"OPENAI_KEYS": "new-secret"})
+        self.assertEqual(provider.llm_complete(self.call("two"))["content"], "answered two as lightweight")
+        self.assertIsNot(provider._llm_process, started)
+        self.assertIsNotNone(started.poll())
+        provider.shutdown()
+
     def test_a_worker_that_died_between_calls_is_replaced(self) -> None:
         provider = self.llm_provider()
         provider.llm_complete(self.call("one"))

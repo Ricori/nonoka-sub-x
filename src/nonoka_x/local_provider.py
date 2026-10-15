@@ -767,6 +767,10 @@ class LocalProvider:
         self._llm_process: subprocess.Popen[str] | None = None
         self._llm_lock = threading.Lock()
         self._llm_idle_timer: threading.Timer | None = None
+        # Set when keys or routes are saved. The worker read both when it was
+        # spawned, so the next call must start a fresh one -- otherwise a model
+        # test right after saving a new key would still use the old one.
+        self._llm_config_stale = False
         # Set once by `shutdown`. Without it, killing the worker out from under
         # an in-flight call reads as "the worker died" and the retry starts a
         # new one -- an orphan process, spawned while the app is closing.
@@ -908,9 +912,11 @@ class LocalProvider:
         if not isinstance(updates, Mapping):
             raise ProviderError("invalid_request", "keys must be an object")
         try:
-            return self._settings.update_keys(updates)
+            result = self._settings.update_keys(updates)
         except ValueError as exc:
             raise ProviderError("invalid_settings", str(exc)) from exc
+        self._llm_config_stale = True
+        return result
 
     def start(self, request: Mapping[str, Any]) -> dict[str, Any]:
         try:
@@ -1249,8 +1255,10 @@ class LocalProvider:
         if self._closed:
             raise ProviderError("llm_unavailable", "The application is shutting down", http_status=503)
         process = self._llm_process
-        if process is not None and process.poll() is None:
+        if process is not None and process.poll() is None and not self._llm_config_stale:
             return process
+        self._stop_llm_worker()
+        self._llm_config_stale = False
         kwargs: dict[str, Any] = {
             "stdin": subprocess.PIPE,
             "stdout": subprocess.PIPE,
