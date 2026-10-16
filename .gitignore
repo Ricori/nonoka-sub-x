@@ -9,7 +9,7 @@ node_modules/
 !desktop/frontend/dist/
 desktop/frontend/dist/*
 !desktop/frontend/dist/.gitkeep
-modal_backend/*
+modal_backend/
 docs/modal-*.md
 docs/cloud-*.md
 desktop/bin/
