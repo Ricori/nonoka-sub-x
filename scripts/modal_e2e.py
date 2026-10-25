@@ -169,7 +169,7 @@ def main() -> int:
     login_key = "e2e_" + secrets.token_urlsafe(32)
     owner_id = login_key
     keys = modal.Dict.from_name("nonoka-x-keys")
-    videos = modal.Dict.from_name("nonoka-x-videos")
+    jobs = modal.Dict.from_name("nonoka-x-task-runtime")
     uploads = modal.Dict.from_name("nonoka-x-uploads")
     controls = modal.Dict.from_name("nonoka-x-task-controls")
     artifacts = modal.Volume.from_name("nonoka-x-artifacts")
@@ -359,17 +359,30 @@ def main() -> int:
             task_listing = request_json(endpoint, "GET", "/v1/tasks?limit=100", key=login_key)
             if final_session.get("remaining") != 0:
                 raise RuntimeError(f"resume spent quota or initial task did not: {final_session}")
-            if not any(item.get("id") == task_id and item.get("status") == "completed" for item in library.get("videos", [])):
-                raise RuntimeError("completed task missing from cloud library")
+            # The job is not a library entry. Nothing synced one, so the
+            # library has to be empty -- a job leaking into it is exactly the
+            # coupling this checks against.
+            if library.get("videos"):
+                raise RuntimeError(f"recognition job reached the cloud library: {library}")
             if not any(item.get("snapshot", {}).get("task_id") == task_id and item.get("snapshot", {}).get("state") == "completed" for item in task_listing.get("tasks", [])):
-                raise RuntimeError("completed task missing from cloud task listing")
+                raise RuntimeError("completed job missing from cloud task listing")
             if uploads.get(object_id) is not None:
-                raise RuntimeError("completed task did not clear its upload marker")
+                raise RuntimeError("completed job did not clear its upload marker")
             print(
                 f"[e2e] completed with artifacts={sorted(artifact_names)} events={len(events)}",
                 flush=True,
             )
-            print("[e2e] quota, library sync and R2 marker cleanup passed", flush=True)
+
+            # Collecting it is how a job ends: the desktop says it has the file
+            # and the cloud forgets everything it was holding.
+            request_json(endpoint, "DELETE", f"/v1/tasks/{task_id}", key=login_key)
+            if jobs.get(task_id) is not None:
+                raise RuntimeError("deleting the job left its record behind")
+            remaining_jobs = request_json(endpoint, "GET", "/v1/tasks?limit=100", key=login_key)
+            if any(item.get("snapshot", {}).get("task_id") == task_id for item in remaining_jobs.get("tasks", [])):
+                raise RuntimeError("deleted job still listed")
+            task_id = ""
+            print("[e2e] quota, job delivery and cleanup passed", flush=True)
         return 0
     finally:
         if task_id:
@@ -400,20 +413,19 @@ def main() -> int:
         # The API files a Volume copy of every key and library record it
         # writes, and the daily reconcile puts any copy the Dict lacks back
         # into it -- so the copies go first, or this run's key would come back.
+        # Only the key has a filed copy: a job lives in its Dict alone.
         filed = [record_relative_path("keys", owner_id)]
-        if task_id:
-            filed.append(record_relative_path("videos", task_id))
         for relative in filed:
             try:
                 artifacts.remove_file(relative)
             except Exception:
                 pass
         if task_id:
-            videos.pop(task_id, None)
+            jobs.pop(task_id, None)
             controls.pop(task_id, None)
             for relative in (
                 f"tasks/{task_id}",
-                f"library/{owner_id}/{task_id}",
+                f"jobs/{owner_id}/{task_id}",
             ):
                 try:
                     artifacts.remove_file(relative, recursive=True)
