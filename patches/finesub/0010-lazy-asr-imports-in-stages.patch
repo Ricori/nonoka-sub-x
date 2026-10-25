@@ -1,0 +1,85 @@
+Subject: [PATCH 10/10] Import recognition and separation where their stages run
+
+Reason: `finesub.stages` imported `transcribe`, `vad_asr_stage` and the
+separator at module level, and all three load numpy and torch on import. A
+run that resumes from an existing stable.json reaches neither stage --
+`aligned_required` is false and the vocal stage never starts -- yet importing
+`run_pipeline` at all demanded the whole ASR runtime. That is exactly the run
+Nonoka X makes when the cloud has recognised the media and the desktop
+continues with its own LLM: the launcher carries `[harness]` and nothing
+else, and the run failed on `import torch` before reaching a line it needed.
+
+The three modules are now imported inside the two stages that use them.
+`run_pipeline`'s `model_name` and `gap_sec` defaulted to `transcribe`'s
+constants, which evaluated that import at definition time; they default to
+`None` and resolve to the same constants where recognition runs, so the
+values stay single-sourced. Every other path behaves as upstream: a run that
+recognises imports the same modules, one stage later.
+
+Removal: Delete once upstream's `finesub.stages` imports without torch.
+
+diff --git a/src/finesub/stages.py b/src/finesub/stages.py
+index 6542770..3553adc 100644
+--- a/src/finesub/stages.py
++++ b/src/finesub/stages.py
+@@ -26,7 +26,6 @@ from typing import Any, Mapping, NamedTuple, Optional, Sequence
+ 
+ from . import settings
+ from .reporting import current_reporter
+-from .speech.recognition import transcribe as asr_align
+ from .speech.postprocessing import stabilization as asr_stabilize
+ from .speech.runtime.resources import AUTO_GPU_TIER
+ from .run_metadata import (
+@@ -36,8 +35,11 @@ from .run_metadata import (
+     update_run_metadata,
+ )
+ from .subtitles import rendering as to_srt
+-from .speech.recognition import vad_asr_stage as vad_asr
+-from .speech.preprocessing.separator import separation as vocal_separation
++
++# Recognition and separation are imported where their stages run, not here:
++# both pull in numpy and torch at import time, and a run that resumes from an
++# existing stable.json reaches neither. Imported at the top, they made every
++# such run -- the LLM half alone -- need the whole ASR runtime installed.
+ 
+ 
+ class PipelinePaths(NamedTuple):
+@@ -707,6 +709,8 @@ def _run_vocal_stage(
+                 detail="" if vocal_status != "skipped" else "跳过分离，直接转出 ASR 轨",
+             )
+             vocal_t0 = _stage_clock()
++            from .speech.preprocessing.separator import separation as vocal_separation
++
+             separator_metadata: dict[str, Any] = {}
+             if vocal_existed:
+                 reporter.debug(
+@@ -801,10 +805,13 @@ def run_pipeline(
+     input_path: str | Path,
+     *,
+     output_path: str | Path | None = None,
+-    model_name: str = asr_align.DEFAULT_MODEL,
++    # None = `transcribe.DEFAULT_MODEL`, resolved where recognition runs so
++    # the default does not import it.
++    model_name: str | None = None,
+     device: str | None = "cuda",
+     language: Optional[str] = None,
+-    gap_sec: float = asr_align.DEFAULT_GAP_SEC,
++    # None = `transcribe.DEFAULT_GAP_SEC`, for the same reason.
++    gap_sec: float | None = None,
+     # `auto` = ask the card. A tier names what CLASS of card this is, not a
+     # cap on what the pipeline may use; `resolve_gpu_tier` owns the answer.
+     gpu_tier: str = AUTO_GPU_TIER,
+@@ -1059,6 +1066,13 @@ def run_pipeline(
+                 paths.metadata_json, {"asr_context": asr_context_report}
+             )
+         asr_t0 = _stage_clock()
++        from .speech.recognition import transcribe as asr_align
++        from .speech.recognition import vad_asr_stage as vad_asr
++
++        if model_name is None:
++            model_name = asr_align.DEFAULT_MODEL
++        if gap_sec is None:
++            gap_sec = asr_align.DEFAULT_GAP_SEC
+         _use_or_create(
+             paths.aligned_json,
+             "VAD-ASR",

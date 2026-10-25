@@ -1,5 +1,5 @@
 {
-  "content_sha256": "b41417a9bdac7e10d8ba084189bd4d0d6265e2ab0bc25354a7459482a58aa3ce",
+  "content_sha256": "57a6736528b778ff6e5b36d97d05d35d0eff4a9076f445580d4e1bad2b026ae7",
   "files": [
     {
       "bytes": 35149,
@@ -1807,9 +1807,9 @@
       "sha256": "7121e6790996530bf57ea4035ad814c7da36971eae28837690fabdbd5a93cb51"
     },
     {
-      "bytes": 65696,
+      "bytes": 66340,
       "path": "src/finesub/stages.py",
-      "sha256": "6ea2935a621d9fc62b5acf05bbf36a362c1f2bd80f48a0f5de1bf4794a8b312a"
+      "sha256": "9e1fba7b6d6a48a722bc03e77f6247caa9f513b562310740d4fa4b13f9866cb2"
     },
     {
       "bytes": 4323,

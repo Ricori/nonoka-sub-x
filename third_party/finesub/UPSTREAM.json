@@ -1,10 +1,10 @@
 {
   "archive_sha256": "e76340e70a214412facdb7b7288b5532886ff9e6bab0b3519bfb54ed1cc257ae",
   "commit": "5caf422cbad36f0402c98eb565e4c29aee4ac197",
-  "content_sha256": "b41417a9bdac7e10d8ba084189bd4d0d6265e2ab0bc25354a7459482a58aa3ce",
+  "content_sha256": "57a6736528b778ff6e5b36d97d05d35d0eff4a9076f445580d4e1bad2b026ae7",
   "engine_bundle_id": "finesub-0.6.0+5caf422cbad3",
   "engine_version": "0.6.0",
-  "files_manifest_sha256": "5b3edec1d7bb123c9d5180d0da965a070043aebaff539a3a2ee4cbda5f0a2729",
+  "files_manifest_sha256": "b02614c66a86fdc426c705af54a1c6f8c2f0b1788bc73db74463c6beec9bae0e",
   "patches": [
     {
       "path": "0001-qwen-tail-entry-point.patch",
@@ -41,6 +41,10 @@
     {
       "path": "0009-reject-placeholder-correction.patch",
       "sha256": "595f66ce3760d65f4e7dcd813dd3ef60fe55e83e23c8c869ceca9bebdfdda432"
+    },
+    {
+      "path": "0010-lazy-asr-imports-in-stages.patch",
+      "sha256": "2963043325b7f6f45276f4c804dac39fffe886e49e2d8cc9948ea2f1d3f8c3b9"
     }
   ],
   "ref": "v0.6.0",

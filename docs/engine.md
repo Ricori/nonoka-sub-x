@@ -35,7 +35,7 @@ third_party/finesub/
         └── pylock.win-py312.cn.toml # 同上，国内镜像路由
 
 patches/finesub/
-├── 0001-*.patch … 0009-*.patch   # 补丁栈，按文件名顺序应用（当前 9 个）
+├── 0001-*.patch … 0010-*.patch   # 补丁栈，按文件名顺序应用（当前 10 个）
 └── BASELINE_FILES.json           # 未打补丁的上游基线文件哈希
 ```
 
@@ -87,6 +87,7 @@ patches/finesub/
 | `0007-agy-project-fallback-reregister.patch` | `src/finesub/llm/agent` | agy 1.3 起，`--project` 指向一个它已不认识的 id（`~/.gemini/config/projects` 下的记录没了）时会静默改开 `default-cli-project`，退出码仍为 0、仍列出 cwd 的 hooks。引擎的 `/hooks` 项目检查因此一直通过，缓存的 `finesub-project.json` 永不失效，每次工具调用都死在 `_grant_permissions`（"project record ... is not readable"）。本补丁让 `_check_project` 从本次日志读出 agy 实际打开的项目（`Conversation using project ID:`），不一致即视为不可用，交给既有的快速路径重新注册；刚注册完仍不一致则直接失败，不会每次调用都注册一个新项目。日志里没有这一行时不做判断，行为与上游一致 | 上游自行核对实际打开的项目，或 agy 对未知 `--project` 改为报错 |
 | `0008-agy-guard-utf8-stdin.patch` | `src/finesub/llm/agent` | agy 的 PreToolUse 守卫脚本（`guard_view_file.py`，三个模板）用 `json.load(sys.stdin)` 读载荷。agy 写的是 UTF-8，文本 stdin 却按系统代码页解码，中文 Windows 上是 cp936：转义引号前若是奇数个 UTF-8 字节的中日文，最后一个字节会和反斜杠拼成一个 GBK 字符，`\"` 失去转义，JSON 解析失败，钩子崩溃即被 agy 当作拒绝。纠错 `submit` 的内容里一旦有 `…不明确\"` 这类片段就会被拒，模型只能整份重写（2026-10-13 一个窗口被拒 5 次，耗时 625 秒；更早一次只能靠全 ASCII 的 `text` 占位答案通过）。9 月起 agy 1.2.2 的日志里就有同样的崩溃，与 agy 版本无关。改为 `json.loads(sys.stdin.buffer.read())`，由 `json` 自行识别 UTF-8。脚本内容变化会让 hook digest 改变，FineSub 的 agy 项目各重新注册一次 | 上游守卫改为按字节读取 |
 | `0009-reject-placeholder-correction.patch` | `src/finesub/llm` | 纠错校验只看结构（覆盖、位置、列数、单元格非空）。2026-10-13 一个 agy 窗口在真答案被守卫拒绝后（见 0008），提交了 52 行全是 `text|text` 的试探答案并被采纳，最终字幕每行都是 "text"。`validate_correction_output_text` 在结构通过后再整窗判断一次：5 行及以上每行完全相同，或过半行是占位词（`text`、`test`、`placeholder`、`todo`、`tbd`），即作为可修复错误打回重写。单独一行短句、或短窗口里重复的「うん」不受影响。续跑与回放走同一个函数，缓存里的占位答案不会再被复用。只会更严，云端共用无妨 | 上游拒绝占位式纠错答复 |
+| `0010-lazy-asr-imports-in-stages.patch` | `src/finesub` | 桌面端从云端交付的 `stable.json` 续跑时，`run_pipeline` 的 `aligned_required` 为假、人声与识别阶段都不会启动，但 `finesub.stages` 在模块顶层导入了 `transcribe`、`vad_asr_stage` 与分离器，三者一导入就加载 numpy 和 torch，于是只装了 `[harness]` 的启动环境连 `run_pipeline` 都导入不了。本补丁把这三个模块挪到各自阶段内部导入；`model_name` 与 `gap_sec` 原本以 `transcribe` 的常量为默认值（定义时就要导入它），改为默认 `None`、在识别阶段内解析成同样的常量，仍然只有一处定义。需要识别的运行导入同样的模块，只是晚一个阶段，算出来的东西不变；云端共用无妨 | 上游 `finesub.stages` 不再在导入时依赖 torch |
 
 > 上游 **0.6.0** 又收走了四条，本仓库删掉它们并把编号重排为 0001–0006：
 > **旧 0003**（agy 工作区读取授权）——上游给自己的 agy project 授予 `read_file(*)`

@@ -227,6 +227,13 @@ class PurelyAdditiveTests(unittest.TestCase):
             "0009-reject-placeholder-correction.patch": [
                 "src/finesub/llm/output_protocol.py",
             ],
+            # Import placement only: recognition and separation load where
+            # their stages run, so resuming from a stable.json needs no torch.
+            # A run that recognises imports the same modules a stage later,
+            # with the same defaults; nothing it computes changes.
+            "0010-lazy-asr-imports-in-stages.patch": [
+                "src/finesub/stages.py",
+            ],
         }
         for name in names:
             with self.subTest(patch=name):
