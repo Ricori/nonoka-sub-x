@@ -248,20 +248,13 @@ def main() -> int:
                         "fingerprint": fingerprint,
                         "duration": duration,
                     },
-                    "target": "final-srt",
+                    # Recognition is the whole of what the cloud sells; the
+                    # correction and translation switches that used to ride
+                    # here are the desktop's, and the API drops them.
+                    "target": "stable",
                     "language": "ja",
                     "device": "cuda",
                     "gpu_tier": "standard",
-                    "correction": {
-                        "enabled": True,
-                        "media": "text",
-                        "retrieval": "none",
-                        "difficulty": "efficiency",
-                        "fast": "auto",
-                        "extra_info": "端到端测试音频。",
-                        "extra_style": "简体中文，忠实简洁。",
-                    },
-                    "knowledge": "none",
                     "cleanup_intermediate": False,
                 },
                 timeout=120,
@@ -328,16 +321,18 @@ def main() -> int:
                 endpoint, "GET", f"/v1/tasks/{task_id}/artifacts", key=login_key
             )
             artifact_names = set((manifest.get("artifacts") or {}).keys())
-            if not {"raw_srt", "stable_json", "final_srt"}.issubset(artifact_names):
-                raise RuntimeError(f"artifact manifest incomplete: {artifact_names}")
-            _status, final_srt = request(
+            if artifact_names != {"stable_json"}:
+                raise RuntimeError(f"unexpected artifact manifest: {artifact_names}")
+            _status, stable_json = request(
                 endpoint,
                 "GET",
-                f"/v1/tasks/{task_id}/artifacts/final_srt",
+                f"/v1/tasks/{task_id}/artifacts/stable_json",
                 key=login_key,
             )
-            if b"-->" not in final_srt or len(final_srt) < 40:
-                raise RuntimeError("downloaded final SRT is empty or invalid")
+            # The desktop continues from these segments, so the check is that
+            # the file is the stable shape rather than merely non-empty.
+            if b'"segments"' not in stable_json or len(stable_json) < 40:
+                raise RuntimeError("downloaded stable JSON is empty or invalid")
 
             page = request_json(
                 endpoint,
@@ -419,7 +414,6 @@ def main() -> int:
             for relative in (
                 f"tasks/{task_id}",
                 f"library/{owner_id}/{task_id}",
-                f"knowledge/{owner_id}",
             ):
                 try:
                     artifacts.remove_file(relative, recursive=True)
