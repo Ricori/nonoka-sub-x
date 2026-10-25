@@ -95,7 +95,7 @@ function PluginToolIcon() {
 }
 
 export default function App() {
-  // 当前（或最近一次）任务用的转写引擎：活动任务的控制器跟着它走，转写对话框也默认选它。
+  // 当前（或最近一次）任务用的转写引擎：活动任务的控制器跟着它走。
   // 不再有全局的本机 / 云端开关，引擎在每次转写时单独选。
   const [activeEngine, setActiveEngine] = useState<ExecutionMode>("local");
   const localProvider = useMemo(() => new LocalExecutionProvider(localProviderBridge), []);
@@ -1770,7 +1770,6 @@ export default function App() {
       {dialog && <MediaDialog dialog={dialog} busy={dialogBusy} setDialog={setDialog} onSubmit={submitDialog} />}
       {transcriptionMedia && <TranscriptionDialog
         entry={transcriptionMedia}
-        initialEngine={activeEngine}
         localReady={runtimeReady}
         localCapabilities={capabilities}
         cloudCapabilities={cloudCapabilities}

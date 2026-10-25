@@ -17,8 +17,6 @@ import "./TranscriptionDialog.css";
 
 interface TranscriptionDialogProps {
   entry: MediaEntry;
-  /** 上一次用的转写引擎；就绪时默认选它。 */
-  initialEngine: ExecutionMode;
   localReady: boolean;
   localCapabilities: Capabilities | null;
   cloudCapabilities: Capabilities | null;
@@ -178,10 +176,12 @@ const SKIP_SEPARATION_HINT = "仅在输入本身就是纯人声（已分离的�
 
 // 云端只把识别和声学说话人区分做到 stable.json，复核在纠错阶段、要读说话人时间线，而云端不交付它。
 const CLOUD_JUDGE_HINT = "云端转写只做按声音区分；需要 LLM 复核说话人时请选本机转写";
+// 云端的分离按时长自动分档、总是开启，没有关闭这一档；显示出来但不让改，免得选了不生效。
+const CLOUD_SEPARATION_HINT = "云端转写总是先做人声分离；输入已是纯人声时请选本机转写";
 
 export function TranscriptionDialog(props: TranscriptionDialogProps) {
   const {
-    entry, initialEngine, localReady, localCapabilities, cloudCapabilities, settings, localIssue, cloudAuthenticated,
+    entry, localReady, localCapabilities, cloudCapabilities, settings, localIssue, cloudAuthenticated,
     cloudRemaining, busy, error, onClose, onOpenRuntime, onOpenAccount, onOpenKeys, onImport, onStart,
   } = props;
   const [step, setStep] = useState<Step>("axis");
@@ -229,10 +229,8 @@ export function TranscriptionDialog(props: TranscriptionDialogProps) {
       : harnessIssue ? `云端识别结果要回到本机继续处理：${harnessIssue}` : "";
   const engineIssue = (engine: ExecutionMode) => engine === "local" ? localUnavailable : cloudUnavailable;
 
-  const [engine, setEngine] = useState<ExecutionMode>(() => {
-    const other: ExecutionMode = initialEngine === "local" ? "cloud" : "local";
-    return !engineIssue(initialEngine) ? initialEngine : !engineIssue(other) ? other : initialEngine;
-  });
+  // 默认本机；本机转写不了而云端可以时才改选云端。
+  const [engine, setEngine] = useState<ExecutionMode>(() => !localUnavailable || cloudUnavailable ? "local" : "cloud");
   const [request, setRequest] = useState<TaskRequest>(() => initialRequest(entry, localCapabilities));
   const [knowledgeEntries, setKnowledgeEntries] = useState<KnowledgeEntry[]>([]);
   const [pickedSubjects, setPickedSubjects] = useState<PickedSubject[]>([]);
@@ -602,22 +600,17 @@ export function TranscriptionDialog(props: TranscriptionDialogProps) {
             <section className="transcription-block" aria-labelledby="transcription-block-asr">
               <header className="transcription-block-head">
                 <span className="transcription-block-index" aria-hidden="true">1</span>
-                <span>
-                  <strong id="transcription-block-asr">转写</strong>
-                  <small>{translateOnly ? "导入的轴已经带着原文，这一步跳过" : "把语音识别成带时间轴的原文，可在本机或云端完成"}</small>
-                </span>
+                <strong id="transcription-block-asr">转写</strong>
               </header>
               {translateOnly ? (
-                <p className="transcription-note">这份轴的原文已经齐了：不做识别，每一行的时间原样保留，直接在本机补中文译文。</p>
+                <p className="transcription-note">已导入原文，跳过转写。</p>
               ) : <>
                 <div className="option-cards two-columns engine-cards" role="radiogroup" aria-label="转写引擎">
                   <button role="radio" aria-checked={engine === "local"} className={`${engine === "local" ? "selected" : ""} ${localUnavailable ? "unavailable" : ""}`.trim()} aria-disabled={Boolean(localUnavailable) || undefined} title={localUnavailable || undefined} onClick={() => chooseEngine("local")}>
                     <span className="engine-card-head"><span className="execution-icon local" aria-hidden="true">⌁</span><strong>本机</strong><em>{localBadge}</em></span>
-                    <small>{cpuOnly ? "原视频不离开电脑；没有可用显卡，将以 CPU 运行，耗时通常是音频时长的十几到几十倍" : "使用本机的 GPU 和模型，原视频不离开电脑"}</small>
                   </button>
                   <button role="radio" aria-checked={engine === "cloud"} className={`${engine === "cloud" ? "selected" : ""} ${cloudUnavailable ? "unavailable" : ""}`.trim()} aria-disabled={Boolean(cloudUnavailable) || undefined} title={cloudUnavailable || undefined} onClick={() => chooseEngine("cloud")}>
                     <span className="engine-card-head"><span className="execution-icon cloud" aria-hidden="true">☁</span><strong>云端</strong><em>{cloudBadge}</em></span>
-                    <small>只上传音轨，由 Nonoka Cloud 识别；本机无需显卡，识别结果回到本机继续处理</small>
                   </button>
                 </div>
                 {chosenIssue && <p className="option-unavailable">{chosenIssue}{engine === "cloud" && !cloudAuthenticated
@@ -625,29 +618,25 @@ export function TranscriptionDialog(props: TranscriptionDialogProps) {
                   : <button onClick={onOpenRuntime}>检查运行环境</button>}</p>}
 
                 <div className="form-grid transcription-block-fields">
-                  <label>原始语言<CustomSelect value={request.language} options={languageOptions.map(([value, label]) => ({ value, label }))} onChange={(language) => setRequest((current) => ({ ...current, language }))} /></label>
                   {engine === "local" && <label>计算设备<CustomSelect value={request.device} options={deviceOptions(devices)} onChange={(device) => setRequest((current) => ({ ...current, device, gpu_tier: device === "cpu" ? "cpu" : current.gpu_tier === "cpu" ? "auto" : current.gpu_tier }))} /></label>}
                   {engine === "local" && <label>显卡档位<CustomSelect value={request.gpu_tier} options={GPU_TIER_OPTIONS} onChange={(gpu_tier) => setRequest((current) => ({ ...current, gpu_tier }))} /></label>}
-                  {engine === "local" && <label>人声分离<CustomSelect value={request.separate ? "on" : "off"} options={[{ value: "on", label: "开启" }, { value: "off", label: "关闭（输入已是纯人声）", hint: SKIP_SEPARATION_HINT }]} onChange={(value) => setRequest((current) => ({ ...current, separate: value === "on" }))} /></label>}
-                  {diarizationAvailable && <label>说话人分离<CustomSelect value={diarization} disabled={!diarizationSelectable} options={[
+                  <label>原始语言<CustomSelect value={request.language} options={languageOptions.map(([value, label]) => ({ value, label }))} onChange={(language) => setRequest((current) => ({ ...current, language }))} /></label>
+                  <label title={engine === "cloud" ? CLOUD_SEPARATION_HINT : undefined}>人声分离<CustomSelect value={engine === "cloud" || request.separate ? "on" : "off"} disabled={engine === "cloud"} options={[{ value: "on", label: "开启" }, { value: "off", label: "关闭（输入已是纯人声）", hint: SKIP_SEPARATION_HINT }]} onChange={(value) => setRequest((current) => ({ ...current, separate: value === "on" }))} /></label>
+                  <label>说话人分离<CustomSelect value={diarization} disabled={!diarizationSelectable} options={[
                     { value: "off" as const, label: "关闭" },
                     { value: "acoustics" as const, label: "按声音区分说话人" },
                     { value: "judge-text" as const, label: "声音 + 文本复核（实验）", disabled: !judgeTextAllowed, hint: engine === "cloud" ? CLOUD_JUDGE_HINT : DIARIZATION_JUDGE_HINT },
                     { value: "judge-audio" as const, label: "声音 + 音频复核（实验）", disabled: !judgeAudioAllowed, hint: engine === "cloud" ? CLOUD_JUDGE_HINT : finalOutput && !limits.audio ? mediaHint("supportsAudio") : DIARIZATION_JUDGE_HINT },
-                  ]} onChange={setDiarizationChoice} /></label>}
+                  ]} onChange={setDiarizationChoice} /></label>
                 </div>
                 {diarizationNote && <p className="transcription-note">{diarizationNote}{diarizationModelsMissing && <button type="button" className="inline-link" onClick={onOpenRuntime}>前往下载</button>}</p>}
-                {engine === "local" && <label className="cleanup-check"><input type="checkbox" checked={request.cleanup_intermediate} onChange={(event) => setRequest((current) => ({ ...current, cleanup_intermediate: event.target.checked }))} /><span><strong>任务完成后清理中间文件</strong></span></label>}
               </>}
             </section>
 
             <section className={`transcription-block ${finalOutput ? "" : "collapsed"}`.trim()} aria-labelledby="transcription-block-llm">
               <header className="transcription-block-head">
                 <span className="transcription-block-index" aria-hidden="true">2</span>
-                <span>
-                  <strong id="transcription-block-llm">纠错与翻译</strong>
-                  <small>{translateOnly ? "补译文就是这一份轴要做的事" : "用本机配置的 LLM 纠正识别错误并翻译成中文；关闭则只输出原始字幕"}</small>
-                </span>
+                <strong id="transcription-block-llm">纠错与翻译</strong>
                 <label className="block-switch" title={correctionIssue || undefined}>
                   <input type="checkbox" role="switch" aria-label="纠错与翻译" checked={finalOutput} disabled={translateOnly || !correctionAvailable} onChange={(event) => setCorrection(event.target.checked)} />
                   <i aria-hidden="true" />

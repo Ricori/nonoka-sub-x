@@ -510,11 +510,12 @@
   padding-block: 15px;
 }
 
+/* 与 .form-grid 同一套两等分栏，选择框和上面的下拉框等宽对齐。 */
 .knowledge-subject-picker {
   display: grid;
-  grid-template-columns: minmax(240px, .9fr) minmax(0, 1.1fr);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   align-items: end;
-  gap: 14px;
+  gap: 12px;
 }
 
 .knowledge-subject-picker>p {
@@ -887,20 +888,9 @@
   gap: 12px;
 }
 
-.transcription-block-head>span:nth-child(2) {
-  display: grid;
-  gap: 3px;
-}
-
 .transcription-block-head strong {
   color: var(--text);
   font-size: 14px;
-}
-
-.transcription-block-head small {
-  color: var(--mut);
-  font-size: 11px;
-  line-height: 1.5;
 }
 
 .transcription-block-index {
@@ -937,14 +927,6 @@
 .transcription-block .knowledge-context-card {
   margin-top: 14px;
   padding: 14px;
-}
-
-.transcription-block .cleanup-check {
-  padding-top: 14px;
-}
-
-.engine-cards button {
-  gap: 7px;
 }
 
 .engine-card-head {
