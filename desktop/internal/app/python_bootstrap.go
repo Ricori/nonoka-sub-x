@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"os"
@@ -412,23 +413,8 @@ func (b *PythonBootstrap) installPython() error {
 	}
 	stagingPython := managedtools.VenvPython(staging)
 	b.update("installing_dependencies", "正在安装本地服务基础依赖", nil)
-	if output, err := runBootstrapCommand(uv, environment, "pip", "install", "--python", stagingPython, "--require-hashes", "-r", b.requirements); err != nil {
-		// If custom index failed, retry once with standard index
-		if indexSet {
-			cleanEnv := make([]string, 0, len(environment))
-			for _, envItem := range environment {
-				if !strings.HasPrefix(envItem, "UV_DEFAULT_INDEX=") {
-					cleanEnv = append(cleanEnv, envItem)
-				}
-			}
-			if retryOutput, retryErr := runBootstrapCommand(uv, cleanEnv, "pip", "install", "--python", stagingPython, "--require-hashes", "-r", b.requirements); retryErr == nil {
-				output = retryOutput
-				err = nil
-			}
-		}
-		if err != nil {
-			return fmt.Errorf("安装 Python 基础依赖失败：%w%s", err, commandDetail(output))
-		}
+	if err := installLauncherRequirements(uv, environment, indexSet, stagingPython, b.requirements); err != nil {
+		return err
 	}
 	if output, err := runBootstrapCommand(stagingPython, environment, "-I", "-c", "import httpx, pydantic"); err != nil {
 		return fmt.Errorf("验证 Python 启动环境失败：%w%s", err, commandDetail(output))
@@ -440,6 +426,78 @@ func (b *PythonBootstrap) installPython() error {
 		return fmt.Errorf("启用 Python 启动环境失败：%w", err)
 	}
 	return nil
+}
+
+// installLauncherRequirements installs the hash-pinned launcher requirements
+// into python, retrying once on uv's own index when the mirror failed.
+func installLauncherRequirements(uv string, environment []string, indexSet bool, python, requirements string) error {
+	output, err := runBootstrapCommand(uv, environment, "pip", "install", "--python", python, "--require-hashes", "-r", requirements)
+	if err != nil && indexSet {
+		cleanEnv := make([]string, 0, len(environment))
+		for _, envItem := range environment {
+			if !strings.HasPrefix(envItem, "UV_DEFAULT_INDEX=") {
+				cleanEnv = append(cleanEnv, envItem)
+			}
+		}
+		if retryOutput, retryErr := runBootstrapCommand(uv, cleanEnv, "pip", "install", "--python", python, "--require-hashes", "-r", requirements); retryErr == nil {
+			output = retryOutput
+			err = nil
+		}
+	}
+	if err != nil {
+		return fmt.Errorf("安装 Python 基础依赖失败：%w%s", err, commandDetail(output))
+	}
+	return nil
+}
+
+// harnessProbeScript imports what the launcher gained so it can continue a
+// cloud task from its stable.json without the managed runtime: FineSub's
+// `[harness]` extra, less `cryptography`. tzdata is Windows-only, as in the
+// requirements' marker.
+const harnessProbeScript = "import sys, httpx, opencc; sys.platform != 'win32' or __import__('tzdata')"
+
+// TopUpLauncher installs requirements an existing launcher predates. The
+// install path above only runs on a launcher that is missing or broken, so a
+// launcher from before the harness packages would otherwise never get them,
+// and every cloud task's local leg would fail on it until the user rebuilt the
+// environment by hand. Best-effort and quiet: it needs the uv the original
+// install left behind, and any failure leaves the launcher as it was -- the
+// runtime page still names the missing packages.
+func (b *PythonBootstrap) TopUpLauncher() {
+	b.mu.RLock()
+	ready := b.state.State == "ready"
+	b.mu.RUnlock()
+	python := managedtools.BootstrapPython(b.dataDir)
+	if !ready || runBootstrapProbe(python, harnessProbeScript) == nil {
+		return
+	}
+	uvName := "uv"
+	if runtime.GOOS == "windows" {
+		uvName = "uv.exe"
+	}
+	root := filepath.Join(b.dataDir, "bootstrap")
+	uv := filepath.Join(root, "tools", uvName)
+	if info, err := os.Stat(uv); err != nil || info.IsDir() {
+		return
+	}
+	route := resolveBootstrapRoute()
+	environment := append(os.Environ(), "UV_CACHE_DIR="+filepath.Join(root, "cache"), "UV_NO_PROGRESS=1")
+	environment = append(environment, route.environment()...)
+	indexSet := route.Mirror && os.Getenv("UV_DEFAULT_INDEX") == "" && os.Getenv("UV_INDEX_URL") == "" && os.Getenv("PIP_INDEX_URL") == ""
+	if indexSet {
+		environment = append(environment, "UV_DEFAULT_INDEX="+bootstrapPyPIIndex)
+	}
+	if err := installLauncherRequirements(uv, environment, indexSet, python, b.requirements); err != nil {
+		log.Printf("python bootstrap: top-up failed: %v", err)
+	}
+}
+
+func runBootstrapProbe(python, script string) error {
+	probeContext, cancel := context.WithTimeout(context.Background(), interpreterProbeTimeout)
+	defer cancel()
+	command := exec.CommandContext(probeContext, python, "-I", "-c", script)
+	configureBootstrapProcess(command)
+	return command.Run()
 }
 
 func (b *PythonBootstrap) downloadWithFallback(candidateURLs []string, destination string, size int64, digest string) error {
