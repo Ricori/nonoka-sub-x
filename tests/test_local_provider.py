@@ -997,7 +997,15 @@ class CloudStableContinuationTests(ProviderFixture):
             local["target"] = "final-srt"
             with self.assertRaisesRegex(ProviderError, "torch"):
                 provider.start(local)
+            # A source-text axis recognises nothing either: it clears the
+            # same tiers as a continuation.
+            translated = self.request()
+            translated["target"] = "final-srt"
+            translated["knowledge"] = "none"
+            translated["axis"] = {"kind": "ja", "rows": [{"t0": 0.0, "t1": 1.0, "ja": "x"}]}
+            axis_task = provider.start(translated)
         wait_state(provider, task["task_id"], {"completed"})
+        wait_state(provider, axis_task["task_id"], {"completed", "failed"})
 
 
 if __name__ == "__main__":

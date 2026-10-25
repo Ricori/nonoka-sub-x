@@ -260,10 +260,25 @@ func New(dataDirectory string, provider providerCaller, resolvers ...mediaResolv
 	return service, nil
 }
 
+// Capabilities are the relay's, not the backend's. The backend declares what
+// it runs -- recognition, and nothing past stable.json -- and the relay hands
+// the rest to the local provider, so correction, translation, the knowledge
+// base and video correction are all things a cloud task does. Whether this
+// machine can actually run them is the local provider's runtime report.
 func (s *Service) Capabilities() (map[string]any, error) {
 	var result map[string]any
-	err := s.authenticatedDo(context.Background(), http.MethodGet, "/v1/capabilities", nil, &result)
-	return result, err
+	if err := s.authenticatedDo(context.Background(), http.MethodGet, "/v1/capabilities", nil, &result); err != nil {
+		return nil, err
+	}
+	features, _ := result["features"].(map[string]any)
+	if features == nil {
+		features = map[string]any{}
+	}
+	for _, name := range []string{"translation", "video_multimodal", "knowledge", "resume"} {
+		features[name] = true
+	}
+	result["features"] = features
+	return result, nil
 }
 
 func SetTelemetry(s *Service, t *telemetry.Service) {

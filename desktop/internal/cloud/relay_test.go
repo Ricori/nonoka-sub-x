@@ -595,3 +595,38 @@ func TestTelemetryReadsTheRelayRecord(t *testing.T) {
 		t.Fatalf("failure not recorded from the relay: %s", data)
 	}
 }
+
+// The backend declares what it runs; the relay declares what a cloud task
+// does, and everything past stable.json is done by the local leg.
+func TestCapabilitiesAreTheRelays(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writer.Header().Set("Content-Type", "application/json")
+		switch request.URL.Path {
+		case "/v1/session":
+			_, _ = writer.Write([]byte(`{"authenticated":true}`))
+		case "/v1/capabilities":
+			_, _ = writer.Write([]byte(`{"provider":"cloud","features":{"raw_srt":true,"translation":false,"video_multimodal":false,"knowledge":false,"resume":true,"diarization":true}}`))
+		default:
+			http.NotFound(writer, request)
+		}
+	}))
+	defer server.Close()
+	service, err := New(t.TempDir(), fakeProvider{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(service.Close)
+	if _, err := service.Login(server.URL, "login-key"); err != nil {
+		t.Fatal(err)
+	}
+	capabilities, err := service.Capabilities()
+	if err != nil {
+		t.Fatal(err)
+	}
+	features := capabilities["features"].(map[string]any)
+	for _, name := range []string{"translation", "video_multimodal", "knowledge", "diarization"} {
+		if features[name] != true {
+			t.Fatalf("features[%s] = %v", name, features[name])
+		}
+	}
+}

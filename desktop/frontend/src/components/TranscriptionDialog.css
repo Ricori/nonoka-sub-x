@@ -469,7 +469,8 @@
   gap: 12px;
 }
 
-.transcription-section label {
+.transcription-section label,
+.transcription-block label:not(.block-switch):not(.cleanup-check) {
   display: grid;
   gap: 7px;
   color: var(--mut);
@@ -477,7 +478,9 @@
 }
 
 .transcription-section textarea,
-.transcription-section input {
+.transcription-section input,
+.transcription-block textarea,
+.transcription-block input:not([type="checkbox"]) {
   width: 100%;
   border: 1px solid var(--line);
   border-radius: 9px;
@@ -489,12 +492,15 @@
 }
 
 .transcription-section textarea:focus,
-.transcription-section input:focus {
+.transcription-section input:focus,
+.transcription-block textarea:focus,
+.transcription-block input:not([type="checkbox"]):focus {
   border-color: var(--accent-border);
   box-shadow: 0 0 0 3px var(--accent-dim);
 }
 
-.transcription-section textarea {
+.transcription-section textarea,
+.transcription-block textarea {
   min-height: 78px;
   resize: vertical;
   line-height: 1.55;
@@ -858,5 +864,189 @@
     width: 100%;
     animation: none;
     opacity: .72;
+  }
+}
+
+/* 第 2 步的两个分区：① 转写（选引擎），② 纠错与翻译（可选，标题右侧开关）。 */
+.transcription-block {
+  margin-top: 16px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 16px 16px 18px;
+  background: color-mix(in srgb, var(--bg) 40%, var(--panel));
+}
+
+.transcription-block.collapsed {
+  padding-bottom: 16px;
+}
+
+.transcription-block-head {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+}
+
+.transcription-block-head>span:nth-child(2) {
+  display: grid;
+  gap: 3px;
+}
+
+.transcription-block-head strong {
+  color: var(--text);
+  font-size: 14px;
+}
+
+.transcription-block-head small {
+  color: var(--mut);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.transcription-block-index {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  background: var(--accent-dim);
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.transcription-block.collapsed .transcription-block-index {
+  background: var(--raised);
+  color: var(--faint);
+}
+
+.transcription-block>.option-cards,
+.transcription-block-fields {
+  margin-top: 14px;
+}
+
+.transcription-block .transcription-note {
+  margin-top: 12px;
+}
+
+.transcription-block .transcription-section {
+  padding: 14px 0 0;
+  border-bottom: 0;
+}
+
+.transcription-block .knowledge-context-card {
+  margin-top: 14px;
+  padding: 14px;
+}
+
+.transcription-block .cleanup-check {
+  padding-top: 14px;
+}
+
+.engine-cards button {
+  gap: 7px;
+}
+
+.engine-card-head {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.engine-card-head .execution-icon {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  font-size: 14px;
+}
+
+.engine-card-head strong {
+  flex: 1;
+  font-size: 13px;
+}
+
+.engine-card-head em {
+  border-radius: 999px;
+  padding: 3px 7px;
+  background: var(--raised);
+  color: var(--mut);
+  font-size: 10px;
+  font-style: normal;
+  white-space: nowrap;
+}
+
+.engine-cards button.selected .engine-card-head em {
+  background: color-mix(in srgb, var(--accent) 14%, var(--panel));
+  color: var(--accent);
+}
+
+/* 分区开关：原生 checkbox 保留语义与键盘操作，外观画成拨动开关。 */
+.block-switch {
+  position: relative;
+  display: inline-flex;
+  width: 38px;
+  height: 22px;
+  cursor: pointer;
+}
+
+.block-switch input {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  opacity: 0;
+  cursor: inherit;
+}
+
+.block-switch i {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--raised);
+  box-shadow: inset 0 0 0 1px var(--line);
+  transition: background .16s ease;
+  pointer-events: none;
+}
+
+.block-switch i::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  background: var(--mut);
+  transition: transform .16s ease, background .16s ease;
+}
+
+.block-switch input:checked+i {
+  background: var(--accent);
+  box-shadow: none;
+}
+
+.block-switch input:checked+i::after {
+  background: #fff;
+  transform: translateX(16px);
+}
+
+.block-switch input:focus-visible+i {
+  outline: 2px solid var(--accent-border);
+  outline-offset: 2px;
+}
+
+.block-switch input:disabled+i {
+  opacity: .5;
+}
+
+.block-switch:has(input:disabled) {
+  cursor: not-allowed;
+}
+
+@media (max-width: 640px) {
+  .transcription-block .form-grid,
+  .transcription-block .prompt-grid,
+  .engine-cards {
+    grid-template-columns: minmax(0, 1fr);
   }
 }

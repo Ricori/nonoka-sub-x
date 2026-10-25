@@ -95,12 +95,14 @@ function PluginToolIcon() {
 }
 
 export default function App() {
-  const [executionMode, setExecutionMode] = useState<ExecutionMode>("local");
+  // 当前（或最近一次）任务用的转写引擎：活动任务的控制器跟着它走，转写对话框也默认选它。
+  // 不再有全局的本机 / 云端开关，引擎在每次转写时单独选。
+  const [activeEngine, setActiveEngine] = useState<ExecutionMode>("local");
   const localProvider = useMemo(() => new LocalExecutionProvider(localProviderBridge), []);
   const cloudProvider = useMemo(() => new CloudExecutionProvider(cloudAccount), []);
   const localController = useMemo(() => new PipelineController(localProvider, reportStartFailure), [localProvider]);
   const cloudController = useMemo(() => new PipelineController(cloudProvider, reportStartFailure), [cloudProvider]);
-  const controller = executionMode === "local" ? localController : cloudController;
+  const controller = activeEngine === "local" ? localController : cloudController;
   const [section, setSection] = useState<Section>("library");
   const [plugins, setPlugins] = useState<InstalledPlugin[]>([]);
   const [activePluginTool, setActivePluginTool] = useState<{ pluginId: string; toolId: string } | null>(null);
@@ -986,20 +988,20 @@ export default function App() {
     }
   }, [loadCacheStatus, loadLibrary, transcriptionMedia]);
 
-  const confirmTranscription = useCallback(async (mode: ExecutionMode, request: TaskRequest, axis: TaskAxis | null) => {
+  const confirmTranscription = useCallback(async (engine: ExecutionMode, request: TaskRequest, axis: TaskAxis | null) => {
     if (!transcriptionMedia) return;
     setTranscriptionBusy(true);
     setTranscriptionError("");
     try {
-      if (mode === "cloud" && !cloudSession?.authenticated) {
+      if (engine === "cloud" && !cloudSession?.authenticated) {
         throw new Error("请先使用 Key 登录云端账户");
       }
       // 投影是消费这条轴的一方，云端任务的产物也在本机投影，所以两种运行环境都记在
       // 本地文档旁边。没有轴时也要写一次：上一次导入留下的轴不该改变这一次的结果。
       if (axis) await documents.setAxis(transcriptionMedia.id, axis);
       else await documents.setAxis(transcriptionMedia.id, null).catch(() => undefined);
-      const taskController = mode === "local" ? localController : cloudController;
-      setExecutionMode(mode);
+      const taskController = engine === "local" ? localController : cloudController;
+      setActiveEngine(engine);
       const rawSnapshot = await taskController.start(request);
       const snapshot: TaskSnapshot = {
         ...rawSnapshot,
@@ -1559,17 +1561,21 @@ export default function App() {
           </button>
         </nav>
         <div className="sidebar-spacer" />
-        <section className="sidebar-provider" aria-label="执行位置">
+        <section className="sidebar-provider" aria-label="转写引擎状态">
+          {/* 两种转写引擎的状态并排给出；用哪一个在每次转写时选，这里不再切换。 */}
           <div className="sidebar-provider-status">
-            <span className={`status-dot ${executionMode === "cloud" ? "online" : sidecar?.running ? "local" : ""}`} />
+            <span className={`status-dot ${sidecar?.running ? "local" : ""}`} />
             <div>
-              <strong>{executionMode === "cloud" ? "Nonoka Cloud" : "本地运行"}</strong>
-              <small>{executionMode === "cloud" ? cloudSession?.admin ? "管理员 · 不限次" : `剩余 ${cloudSession?.remaining ?? "—"} 次` : runtimeReady ? "引擎已就绪" : "需要检查环境"}</small>
+              <strong>本机</strong>
+              <small>{runtimeReady ? "转写引擎已就绪" : "需要检查环境"}</small>
             </div>
           </div>
-          <div className="sidebar-provider-switch">
-            <button className={executionMode === "local" ? "active" : ""} disabled={taskActive} onClick={() => setExecutionMode("local")}>本机</button>
-            <button className={executionMode === "cloud" ? "active" : ""} disabled={taskActive} onClick={() => cloudSession?.authenticated ? setExecutionMode("cloud") : setSection("account")}>云端</button>
+          <div className="sidebar-provider-status">
+            <span className={`status-dot ${cloudSession?.authenticated ? "online" : ""}`} />
+            <div>
+              <strong>Nonoka Cloud</strong>
+              <small>{!cloudSession?.authenticated ? "未登录" : cloudSession.admin ? "管理员 · 不限次" : `转写剩余 ${cloudSession.remaining ?? "—"} 次`}</small>
+            </div>
           </div>
         </section>
         <button className="sidebar-account" aria-busy={cloudLoading} disabled={cloudLoading} onClick={() => setSection("account")} title="云端账户">
@@ -1764,7 +1770,7 @@ export default function App() {
       {dialog && <MediaDialog dialog={dialog} busy={dialogBusy} setDialog={setDialog} onSubmit={submitDialog} />}
       {transcriptionMedia && <TranscriptionDialog
         entry={transcriptionMedia}
-        initialMode={executionMode}
+        initialEngine={activeEngine}
         localReady={runtimeReady}
         localCapabilities={capabilities}
         cloudCapabilities={cloudCapabilities}

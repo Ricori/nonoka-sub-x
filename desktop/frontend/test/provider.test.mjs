@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { cloudTaskRequest, localTaskRequest } from "../src/home/defaultRequest.ts";
+import { defaultTaskRequest, requestForEngine } from "../src/home/defaultRequest.ts";
 import { cloudAcceptsDuration } from "../src/home/executionAvailability.ts";
 import { PipelineController } from "../src/home/pipelineController.ts";
 import { CloudExecutionProvider } from "../src/providers/cloudProvider.ts";
@@ -241,20 +241,20 @@ test("CloudExecutionProvider delegates the local media id to the native upload b
     async taskArtifacts() { return { schema: 1, task_id: taskId, engine_commit: "fixture", artifacts: {} }; },
   };
   const provider = new CloudExecutionProvider(bridge);
-  const value = cloudTaskRequest({
+  const media = {
     id: "loc_0123456789ab", sourcePath: "/video.mp4", title: "clip", size: 100,
     duration: 12, width: 1920, height: 1080, fingerprint: "fp", addedAt: 0,
     lastAccess: 0, thumbnailAvailable: false, available: true, documentAvailable: false,
-  });
+  };
+  const value = requestForEngine("cloud", defaultTaskRequest(media), media);
   assert.equal((await provider.capabilities()).features.video_multimodal, false);
-  assert.equal(value.knowledge, "none");
   assert.equal((await provider.start(value)).provider, "cloud");
   assert.equal(calls[0][0], "loc_0123456789ab");
   assert.equal(calls[0][1].source.kind, "uploaded_audio");
 });
 
 test("default local request contains a trusted path and no upload transport", () => {
-  const value = localTaskRequest({
+  const value = defaultTaskRequest({
     id: "loc_0123456789ab",
     sourcePath: "C:\\media\\clip.mp4",
     title: "clip",
@@ -284,13 +284,57 @@ test("default local request contains a trusted path and no upload transport", ()
 });
 
 
+// One set of settings for both engines: the cloud recognises, and everything
+// after stable.json runs here, so only the source and the separator tier differ.
+test("requestForEngine changes who recognises and nothing else", () => {
+  const media = {
+    id: "loc_0123456789ab", sourcePath: "C:\\media\\clip.mp4", title: "clip", size: 100,
+    duration: 12, width: 1920, height: 1080, fingerprint: "fp", addedAt: 0,
+    lastAccess: 0, thumbnailAvailable: false, available: true, documentAvailable: false,
+  };
+  const settings = {
+    ...defaultTaskRequest(media),
+    knowledge: "update",
+    correction: { ...defaultTaskRequest(media).correction, media: "audio", retrieval: "local" },
+  };
+  const local = requestForEngine("local", settings, media);
+  const cloud = requestForEngine("cloud", settings, media);
+  assert.equal(local.provider, "local");
+  assert.equal(local.source.kind, "local_file");
+  assert.equal(local.vocal_profile, "quality");
+  assert.equal(cloud.provider, "cloud");
+  assert.deepEqual(cloud.source, { kind: "uploaded_audio", object_id: "loc_0123456789ab", title: "clip", fingerprint: "fp", duration: 12 });
+  assert.equal(cloud.vocal_profile, "cost");
+  for (const value of [local, cloud]) {
+    assert.equal(value.target, "final-srt");
+    assert.equal(value.knowledge, "update");
+    assert.equal(value.correction.media, "audio");
+    assert.equal(value.correction.retrieval, "local");
+  }
+});
+
+// `runtime.ready` is the recognition tier. A source-text axis recognises
+// nothing, so it must not be refused for a missing ASR runtime -- the provider
+// checks the tier it does need when it starts the task.
+test("PipelineController lets a source-text axis through without the ASR runtime", async () => {
+  let started = false;
+  const provider = {
+    async capabilities() { return capabilities({ runtime: { ready: false, issues: [{ code: "missing_runtime", message: "AI 运行时缺失" }] } }); },
+    async start() { started = true; return snapshot("queued"); },
+  };
+  const controller = new PipelineController(provider);
+  await controller.start({ ...request(), target: "final-srt", axis: { kind: "ja", filename: "a.ass", rows: [] } });
+  assert.equal(started, true);
+  await assert.rejects(() => new PipelineController(provider).start(request()), /AI 运行时缺失/);
+});
+
 test("preflight telemetry reports only a fixed code before refusing a start", async () => {
   const reported = [];
   const controller = new PipelineController({
     async capabilities() { return capabilities({runtime: {ready: false, issues: [{message: "private file path"}]}}); },
     async start() { throw new Error("must not start"); },
   }, (provider, code) => reported.push({provider, code}));
-  await assert.rejects(() => controller.start({provider: "local", correction: {media: "text"}}), /private file path/);
+  await assert.rejects(() => controller.start({provider: "local", source: {kind: "local_file"}, correction: {media: "text"}}), /private file path/);
   assert.deepEqual(reported, [{provider: "local", code: "runtime_not_ready"}]);
 });
 

@@ -1855,39 +1855,8 @@ html.wails-fullscreen #wails-window-controls {
   font-size: 11px;
 }
 
-.sidebar-provider-switch {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 4px;
-  padding: 4px;
+.sidebar-provider-status + .sidebar-provider-status {
   border-top: 1px solid var(--line-soft);
-}
-
-.sidebar-provider-switch button {
-  border: 0;
-  border-radius: 7px;
-  padding: 6px 4px;
-  background: transparent;
-  color: var(--faint);
-  font-size: 11px;
-  cursor: pointer;
-}
-
-.sidebar-provider-switch button.active {
-  color: var(--accent);
-  background: var(--accent-dim);
-  font-weight: 700;
-}
-
-body:not(.light) .sidebar-provider-switch button.active {
-  color: #dfe4ff;
-  background: color-mix(in srgb, var(--accent) 21%, var(--raised));
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 28%, transparent);
-}
-
-.sidebar-provider-switch button:disabled {
-  opacity: .42;
-  cursor: not-allowed;
 }
 
 .sidebar-account {
@@ -1981,7 +1950,6 @@ body:not(.light) .sidebar-provider-switch button.active {
 .sidebar-collapsed .nav-text,
 .sidebar-collapsed .nav-count,
 .sidebar-collapsed .sidebar-provider-status div,
-.sidebar-collapsed .sidebar-provider-switch,
 .sidebar-collapsed .account-copy {
   display: none;
 }

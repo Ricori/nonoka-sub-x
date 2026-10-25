@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Service } from "../../bindings/github.com/Ricori/nonoka-x/desktop/internal/provider/index.js";
 import type { MediaEntry } from "../bridge/library.ts";
-import { cloudTaskRequest, localTaskRequest } from "../home/defaultRequest.ts";
+import { defaultTaskRequest, requestForEngine } from "../home/defaultRequest.ts";
 import { cloudAcceptsDuration } from "../home/executionAvailability.ts";
 import { GPU_TIERS } from "../providers/types.ts";
 import type { Capabilities, DiarizationLevel, GpuTier, KnowledgeSubject, TaskAxis, TaskRequest } from "../providers/types.ts";
@@ -17,7 +17,8 @@ import "./TranscriptionDialog.css";
 
 interface TranscriptionDialogProps {
   entry: MediaEntry;
-  initialMode: ExecutionMode;
+  /** 上一次用的转写引擎；就绪时默认选它。 */
+  initialEngine: ExecutionMode;
   localReady: boolean;
   localCapabilities: Capabilities | null;
   cloudCapabilities: Capabilities | null;
@@ -32,7 +33,7 @@ interface TranscriptionDialogProps {
   onOpenAccount: () => void;
   onOpenKeys: () => void;
   onImport: (axis: TaskAxis) => Promise<void>;
-  onStart: (mode: ExecutionMode, request: TaskRequest, axis: TaskAxis | null) => Promise<void>;
+  onStart: (engine: ExecutionMode, request: TaskRequest, axis: TaskAxis | null) => Promise<void>;
 }
 
 const languageOptions = [
@@ -97,7 +98,7 @@ const DIARIZATION_MODEL_IDS = ["nemotron3", "speaker-embedding"];
 const DIARIZATION_JUDGE_HINT = "实验功能：由 LLM 模型复核说话人，每个窗口多一次调用；只在生成最终字幕时可用";
 
 
-type Step = "axis" | "mode" | "settings";
+type Step = "axis" | "settings";
 
 interface KeyLimits {
   llm: boolean;
@@ -116,16 +117,10 @@ const clock = (seconds: number) => {
 };
 
 // 没有 N 卡的机器上 sidecar 只报一个 `cpu`，所以这里不必单独判断「有没有显卡」
-function requestFor(mode: ExecutionMode, entry: MediaEntry, capabilities: Capabilities | null): TaskRequest {
-  const request = mode === "local" ? localTaskRequest(entry) : cloudTaskRequest(entry);
-  // 第 3 步默认选「最终字幕」，与点选那张卡的效果一致；缺 LLM Key 时 withinLimits 会退回原始字幕。
-  if (mode === "local") {
-    request.target = "final-srt";
-    request.correction.enabled = true;
-    request.knowledge = "read";
-  }
+function initialRequest(entry: MediaEntry, capabilities: Capabilities | null): TaskRequest {
+  const request = defaultTaskRequest(entry);
   const device = capabilities?.devices[0]?.id;
-  if (mode === "local" && device) {
+  if (device) {
     request.device = device;
     // `auto` 会去探测一张不存在的卡，然后按显卡档位算资源预算——跑出来的结果没错
     // （设备意图优先），但预算是假的。选定 CPU 就把档位一起说清楚。
@@ -143,9 +138,9 @@ function deviceOptions(devices: Capabilities["devices"]): Array<{ value: string;
     : { value: device.id, label: `${device.name} · ${Math.round(device.memory_mb / 1024)} GB` });
 }
 
-/** 把缺少 Key 的选项拉回可用值；无需改动时返回原对象。 */
-function withinLimits(request: TaskRequest, limits: KeyLimits): TaskRequest {
-  const target = request.target === "final-srt" && !limits.llm ? "raw-srt" : request.target;
+/** 把用不了的选项拉回可用值；无需改动时返回原对象。`correction` 是第二个分区整体能不能开。 */
+function withinLimits(request: TaskRequest, limits: KeyLimits, correction: boolean): TaskRequest {
+  const target = request.target === "final-srt" && !correction ? "raw-srt" : request.target;
   const media = (request.correction.media === "audio" && !limits.audio) || (request.correction.media === "video" && !limits.video)
     ? "text"
     : request.correction.media;
@@ -157,7 +152,6 @@ function withinLimits(request: TaskRequest, limits: KeyLimits): TaskRequest {
     ...request,
     target,
     correction: { ...request.correction, enabled: target === "final-srt", media, retrieval },
-    knowledge: target === "final-srt" ? request.knowledge : "none",
   };
 }
 
@@ -182,12 +176,14 @@ const CPU_DEVICE_HINT = "无显卡时的运行方式；整条流水线仍然完�
 // 关掉分离不会报错，只会让识别质量整体塌掉——所以这里说清它是给什么输入用的。
 const SKIP_SEPARATION_HINT = "仅在输入本身就是纯人声（已分离的人声轨、录音棚干声）时关闭；该分离而没分离不会报错，只是识别质量整体下降";
 
+// 云端只把识别和声学说话人区分做到 stable.json，复核在纠错阶段、要读说话人时间线，而云端不交付它。
+const CLOUD_JUDGE_HINT = "云端转写只做按声音区分；需要 LLM 复核说话人时请选本机转写";
+
 export function TranscriptionDialog(props: TranscriptionDialogProps) {
   const {
-    entry, initialMode, localReady, localCapabilities, cloudCapabilities, settings, localIssue, cloudAuthenticated,
-    cloudRemaining, busy, error, onClose, onOpenRuntime, onOpenKeys, onImport, onStart,
+    entry, initialEngine, localReady, localCapabilities, cloudCapabilities, settings, localIssue, cloudAuthenticated,
+    cloudRemaining, busy, error, onClose, onOpenRuntime, onOpenAccount, onOpenKeys, onImport, onStart,
   } = props;
-  // `onOpenAccount` 仍在 props 上、App 也仍在传，只是它唯一的用处——未登录时那条
   const [step, setStep] = useState<Step>("axis");
   const [axisOn, setAxisOn] = useState(false);
   const [axisFile, setAxisFile] = useState("");
@@ -204,46 +200,61 @@ export function TranscriptionDialog(props: TranscriptionDialogProps) {
     () => axisOn && axisParse ? { kind: axisKind, filename: axisFile, rows: recolumn(axisParse, axisKind) } : null,
     [axisFile, axisKind, axisOn, axisParse],
   );
-  // 中文轴 / 双语轴什么都不必算，连运行环境都不用问；日文轴两种环境都跑得了，
-  // 但两边都只做翻译那一段。
+  // 中文轴 / 双语轴什么都不必算，连运行环境都不用问；日文轴不跑识别，只在本机补译文。
   const importOnly = axis !== null && (axis.kind === "zh" || axis.kind === "bi");
   const translateOnly = axis?.kind === "ja";
   const axisBlocked = axisOn && axisParse === null;
-  const totalSteps = importOnly ? 1 : 3;
-  const stepIndex = step === "axis" ? 1 : step === "mode" ? 2 : 3;
-  const cloudDurationExceeded = !cloudAcceptsDuration(entry.duration);
-  const cloudReady = cloudAuthenticated && !cloudDurationExceeded;
+  const totalSteps = importOnly ? 1 : 2;
+  const stepIndex = step === "axis" ? 1 : 2;
 
-  // 只用来定第 2 步一开始选中哪张卡（轴要到第 1 步选完才存在，所以这里无须看它）
-  const preferredMode = initialMode === "local"
-    ? localReady ? "local" : cloudReady ? "cloud" : "local"
-    : cloudReady ? "cloud" : localReady ? "local" : "cloud";
-  const [mode, setMode] = useState<ExecutionMode>(preferredMode);
-  const [request, setRequest] = useState<TaskRequest>(() => requestFor(preferredMode, entry, localCapabilities));
+  // 各段能不能跑，都从本机的分档就绪状态读：纠错与翻译永远在本机，云端转写的结果
+  // 也要回到本机续跑（至少要渲染成字幕），所以本机的「续跑」档是云端转写的前提。
+  const localStages = localCapabilities?.runtime?.stages ?? [];
+  const stageIssue = (id: string): string => {
+    const stage = localStages.find((item) => item.id === id);
+    return stage && !stage.ready ? stage.issues[0]?.message || "尚未就绪" : "";
+  };
+  const localUnavailable = !localCapabilities
+    ? "本地服务尚未启动"
+    : localReady ? "" : localIssue || "本地运行环境尚未就绪";
+  // 不报分档的旧版 sidecar：只能拿整体就绪状态兜底。
+  const harnessIssue = !localCapabilities
+    ? "本地服务尚未启动"
+    : localStages.some((item) => item.id === "harness") ? stageIssue("harness") : localUnavailable;
+  const cloudDurationExceeded = !cloudAcceptsDuration(entry.duration);
+  const cloudUnavailable = !cloudAuthenticated
+    ? "需要先登录云端账户"
+    : cloudDurationExceeded
+      ? `视频时长 ${clock(entry.duration)}，超过云端 2 小时上限`
+      : harnessIssue ? `云端识别结果要回到本机继续处理：${harnessIssue}` : "";
+  const engineIssue = (engine: ExecutionMode) => engine === "local" ? localUnavailable : cloudUnavailable;
+
+  const [engine, setEngine] = useState<ExecutionMode>(() => {
+    const other: ExecutionMode = initialEngine === "local" ? "cloud" : "local";
+    return !engineIssue(initialEngine) ? initialEngine : !engineIssue(other) ? other : initialEngine;
+  });
+  const [request, setRequest] = useState<TaskRequest>(() => initialRequest(entry, localCapabilities));
   const [knowledgeEntries, setKnowledgeEntries] = useState<KnowledgeEntry[]>([]);
   const [pickedSubjects, setPickedSubjects] = useState<PickedSubject[]>([]);
   const draftCounter = useRef(0);
   const [knowledgeLoading, setKnowledgeLoading] = useState(false);
   const [knowledgeLoaded, setKnowledgeLoaded] = useState(false);
   const [knowledgeLoadError, setKnowledgeLoadError] = useState("");
-  const selectedReady = mode === "local" ? localReady : cloudReady;
-  const selectedCapabilities = mode === "local" ? localCapabilities : cloudCapabilities;
-  const supportsVideo = selectedCapabilities?.features.video_multimodal === true;
-  const supportsKnowledge = selectedCapabilities?.features.knowledge === true;
+  const engineCapabilities = engine === "local" ? localCapabilities : cloudCapabilities;
+  // 纠错相关的能力看本机：无论谁转写，纠错、翻译和知识库都在本机跑。
+  const supportsVideo = localCapabilities?.features.video_multimodal === true;
+  const supportsKnowledge = localCapabilities?.features.knowledge === true;
   const finalOutput = request.target === "final-srt";
-  // 主体只在本地读得到（列表来自本机知识库），云端不出现这一块。
-  const knowledgeActive = mode === "local" && supportsKnowledge && finalOutput && request.knowledge !== "none";
+  const knowledgeActive = supportsKnowledge && finalOutput && request.knowledge !== "none";
   const knowledgeWrites = knowledgeActive && request.knowledge === "update";
   const devices = localCapabilities?.devices ?? [];
   const cpuOnly = (localCapabilities?.runtime?.warnings ?? []).some((warning) => warning.code === "missing_gpu");
   const speakers = axisParse && axisParse.speakers.length >= 2 ? axisParse.speakers : [];
   const [diarizationChoice, setDiarizationChoice] = useState<DiarizationLevel>("off");
 
-  const limitsFor = useCallback((target: ExecutionMode): KeyLimits => {
-    // 纠错与翻译无论哪种运行环境都在本机、用本机配置的模型跑（云端只做到 stable.json），
-    // 所以两边都看本地设置；读不到本地设置时不做限制，避免误锁死。
+  const limits = useMemo((): KeyLimits => {
+    // 读不到本地设置时不做限制，避免误锁死；真不能跑时任务会在启动那一刻被本机拒绝。
     const keys = settings;
-    const video = (target === "local" ? localCapabilities : cloudCapabilities)?.features.video_multimodal === true;
     // 音视频窗看的是「谁来答」，而自引擎 0.5.0 起答的人只有一个：钉住的模型组
     // 替换整条链，后面不再挂任何兜底。所以这里问的是选中的那个模型自己收不收，
     // 与有没有 Gemini Key 无关。引擎 0.6.0 起只剩纠错窗读媒体：本地检索的请求轮
@@ -254,32 +265,37 @@ export function TranscriptionDialog(props: TranscriptionDialogProps) {
       llm: !keys || keys.llmReady,
       nativeSearch: !keys || ["correction", "research"].every((routeID) => routeServesNativeSearch(keys.modelRouting, routeID)),
       retrieval: !keys || keys.retrievalKeyConfigured,
-      audio: target === "local" && serves("supportsAudio"),
+      audio: serves("supportsAudio"),
       // 纯音频素材没有画面可看；引擎遇到也会自己降级成音频，这里提前拦住免得白选。
-      video: video && serves("supportsVideo") && !entry.audioOnly,
+      video: supportsVideo && serves("supportsVideo") && !entry.audioOnly,
     };
-  }, [cloudCapabilities, entry.audioOnly, localCapabilities, settings]);
-  const limits = useMemo(
-    () => limitsFor(mode),
-    [limitsFor, mode],
-  );
+  }, [entry.audioOnly, settings, supportsVideo]);
+
+  // 第二个分区能不能打开：先看模型配了没有，再看本机的纠错档（含续跑依赖）是否就绪。
+  const correctionIssue = !limits.llm
+    ? LLM_KEY_HINT
+    : localStages.some((item) => item.id === "final-srt") ? stageIssue("final-srt") : !localCapabilities ? "本地服务尚未启动" : "";
+  const correctionAvailable = correctionIssue === "";
+  // 缺的是模型配置就去设置页，其余（续跑依赖等）去运行环境页。
+  const correctionNeedsKeys = !limits.llm
+    || localStages.find((item) => item.id === "final-srt")?.issues.some((issue) => issue.code === "missing_llm_key") === true;
 
   // 说话人分离：轴里已经标了说话人时以轴为准，不再分离；日文轴不跑识别，也就无从分离。
-  const diarizationAvailable = !translateOnly && speakers.length === 0 && selectedCapabilities?.features.diarization === true;
-  // 本地模型没下载时不让选：先到运行环境页的「可选模型」下载。
+  const diarizationAvailable = !translateOnly && speakers.length === 0 && engineCapabilities?.features.diarization === true;
+  // 本地模型没下载时不让选：先到运行环境页的「可选模型」下载。云端的模型在云端。
   // 没报 optional_models 的旧版 sidecar 无从判断，按已安装处理，不在这里拦。
   const optionalModels = localCapabilities?.runtime?.managed?.optional_models ?? [];
-  const diarizationModelsMissing = mode === "local" && optionalModels.length > 0
+  const diarizationModelsMissing = engine === "local" && optionalModels.length > 0
     && DIARIZATION_MODEL_IDS.some((id) => optionalModels.find((item) => item.id === id)?.state !== "ready");
   const diarizationSelectable = diarizationAvailable && !diarizationModelsMissing;
-  // 裁判在 LLM 纠错阶段运行；音频裁判还要「纠错与翻译」那一格的模型能听音频，云端的纠错只走文本。
-  const judgeTextAllowed = finalOutput;
-  const judgeAudioAllowed = finalOutput && mode === "local" && limits.audio;
+  // 裁判在 LLM 纠错阶段运行，要读说话人时间线；云端不交付它，所以只有本机转写能复核。
+  const judgeTextAllowed = finalOutput && engine === "local";
+  const judgeAudioAllowed = judgeTextAllowed && limits.audio;
   const diarization: DiarizationLevel = !diarizationSelectable ? "off"
     : diarizationChoice === "judge-audio" && !judgeAudioAllowed ? (judgeTextAllowed ? "judge-text" : "acoustics")
       : diarizationChoice === "judge-text" && !judgeTextAllowed ? "acoustics"
         : diarizationChoice;
-  const diarizationOnCpu = mode === "local" && (cpuOnly || request.device === "cpu");
+  const diarizationOnCpu = engine === "local" && (cpuOnly || request.device === "cpu");
   const diarizationNote = diarizationAvailable && diarizationModelsMissing ? "说话人分离模型尚未安装（约 450MB），需要先在运行环境页的「可选模型」中下载"
     : diarization === "off" ? ""
       : diarizationOnCpu ? "本次在 CPU 上运行，约为音频时长的五分之一" : "";
@@ -305,15 +321,15 @@ export function TranscriptionDialog(props: TranscriptionDialogProps) {
 
   const summary = useMemo(() => {
     if (axis && importOnly) return `直接导入 ${axis.rows.length} 条字幕，不做任何处理`;
-    if (axis && translateOnly) return `按你的轴补中文译文，不做识别（${axis.rows.length} 条）`;
-    const output = finalOutput ? "AI 纠错与翻译后的最终字幕" : "识别与断句后的原始字幕";
+    if (axis && translateOnly) return `按你的轴在本机补中文译文，不做识别（${axis.rows.length} 条）`;
+    const where = engine === "local" ? "本机转写" : "云端转写";
+    const output = finalOutput ? "本机 AI 纠错与翻译" : "只输出原始字幕";
     const source = request.language === "auto" ? "自动检测语言" : languageOptions.find(([id]) => id === request.language)?.[1] ?? request.language;
-    return `${source} · ${output}${axis ? " · 按导入的轴重排" : ""}${diarization !== "off" ? " · 区分说话人" : ""}`;
-  }, [axis, diarization, finalOutput, importOnly, request.language, translateOnly]);
+    return `${source} · ${where} · ${output}${axis ? " · 按导入的轴重排" : ""}${diarization !== "off" ? " · 区分说话人" : ""}`;
+  }, [axis, diarization, engine, finalOutput, importOnly, request.language, translateOnly]);
 
   const back = useCallback(() => {
-    if (step === "settings") setStep("mode");
-    else if (step === "mode") setStep("axis");
+    if (step === "settings") setStep("axis");
     else onClose();
   }, [onClose, step]);
 
@@ -346,8 +362,8 @@ export function TranscriptionDialog(props: TranscriptionDialogProps) {
   }, [step]);
 
   useEffect(() => {
-    setRequest((current) => withinLimits(current, limits));
-  }, [limits]);
+    setRequest((current) => withinLimits(current, limits, correctionAvailable));
+  }, [correctionAvailable, limits]);
 
   // 读取与写回共用一份列表：在两者间切换不重新拉取，也就不会冲掉已选的主体和草稿。
   useEffect(() => {
@@ -379,26 +395,18 @@ export function TranscriptionDialog(props: TranscriptionDialogProps) {
     }
   }, [knowledgeEntries.length, knowledgeLoaded, knowledgeWrites]);
 
-  /** 换运行环境就换一整份默认请求：两边的 source 形态、目标和显存项都不一样。 */
-  const applyMode = useCallback((nextMode: ExecutionMode) => {
-    setMode(nextMode);
-    const next = requestFor(nextMode, entry, localCapabilities);
-    setRequest(withinLimits(next, limitsFor(nextMode)));
-  }, [entry, limitsFor, localCapabilities]);
-
-  // 日文轴只有翻译这一件事可做。钉在这里而不是选运行环境时，是因为轴型可以在第 1
-  // 步改回来——退两步换成日文轴再走回来，请求里若还留着 raw-srt，任务会被两端一致地
-  // 以 invalid_axis 拒掉。
+  // 日文轴只有翻译这一件事可做。钉在这里而不是选轴时，是因为轴型可以在第 1 步改回来——
+  // 退回去换成日文轴再走回来，请求里若还留着 raw-srt，任务会以 invalid_axis 被拒。
   useEffect(() => {
     if (!translateOnly) return;
     setRequest((current) => current.target === "final-srt" ? current : {
       ...current,
       target: "final-srt",
       // 纠错参考默认退回纯文本：原文是人写的、已经校对过，再切一遍音频窗只是
-      // 多花钱多花时间，需要时用户自己往上加（云端本就只有纯文本这一档）。
+      // 多花钱多花时间，需要时用户自己往上加。
       correction: { ...current.correction, enabled: true, media: "text" },
     });
-  }, [mode, translateOnly]);
+  }, [translateOnly]);
 
   const readAxisFile = async (file: File) => {
     setAxisFile(file.name);
@@ -420,8 +428,8 @@ export function TranscriptionDialog(props: TranscriptionDialogProps) {
     }
   };
 
-  // 卡片只负责选中，翻页一律走「下一步」：这几张卡的差别（跑不跑识别、上不上云）
-  // 大到值得让用户看清选中态再确认，点一下就跳走会翻错页。
+  // 卡片只负责选中，翻页一律走「下一步」：这两张卡的差别（跑不跑识别）大到值得让
+  // 用户看清选中态再确认，点一下就跳走会翻错页。
   const chooseNoAxis = () => {
     // 解析结果留着：改主意再回来时不必重挑一次文件，`axis` 本来就只在选中时才成立。
     setAxisOn(false);
@@ -430,25 +438,20 @@ export function TranscriptionDialog(props: TranscriptionDialogProps) {
   // 选了「我已有轴」
   const chooseAxis = () => {
     setAxisOn(true);
-    // if (!axisParse && !axisReading) fileInput.current?.click();
   };
 
-  const chooseMode = (nextMode: ExecutionMode) => {
-    const ready = nextMode === "local" ? localReady : cloudAuthenticated;
-    // 重选同一张卡不该把设置清回默认：从第 3 步退回来再确认是常见动作。
-    if (!ready || nextMode === mode) return;
-    applyMode(nextMode);
+  // 换引擎不动其余设置：两边共用一份，只是「谁来识别」不同。
+  const chooseEngine = (next: ExecutionMode) => {
+    if (engineIssue(next)) return;
+    setEngine(next);
   };
 
-  const setTarget = (target: TaskRequest["target"]) => {
-    if (target === "final-srt" && !limits.llm) return;
+  const setCorrection = (on: boolean) => {
+    if (on && !correctionAvailable) return;
     setRequest((current) => ({
       ...current,
-      target,
-      correction: { ...current.correction, enabled: target === "final-srt" },
-      knowledge: target === "raw-srt" || mode === "cloud"
-        ? "none"
-        : current.knowledge === "none" ? "read" : current.knowledge,
+      target: on ? "final-srt" : "raw-srt",
+      correction: { ...current.correction, enabled: on },
     }));
   };
 
@@ -485,25 +488,34 @@ export function TranscriptionDialog(props: TranscriptionDialogProps) {
   const subjectsFull = knowledgeSubjects.length >= MAX_KNOWLEDGE_SUBJECTS;
   const subjectOptions = knowledgeEntries.filter((entry) => !pickedSubjects.some((item) => item.key === entry.id));
 
-  // 日文轴不跑识别，target 已经被钉死；本地缺 LLM 时它整条路都走不通（云端的模型
-  // 由 Nonoka Cloud 提供，limits.llm 在那一侧恒为 true）。
+  // 日文轴不跑识别，引擎无从谈起，只看纠错能不能开；其余情况先要选中的引擎能转写。
   // 写回必须有目标：至少一个主体，且每条新建草稿都填了名称。
   const knowledgeSubjectMissing = knowledgeWrites && (
     !knowledgeLoaded || knowledgeSubjects.length === 0 || knowledgeSubjects.some((item) => !item.subject.trim())
   );
-  const startBlocked = busy || !selectedReady || (translateOnly && !limits.llm) || knowledgeSubjectMissing;
-  const startRequest: TaskRequest = {
+  const runsOn: ExecutionMode = translateOnly ? "local" : engine;
+  const startBlocked = busy
+    || (translateOnly ? !correctionAvailable : engineIssue(engine) !== "")
+    || (finalOutput && !correctionAvailable)
+    || knowledgeSubjectMissing;
+  const startRequest: TaskRequest = requestForEngine(runsOn, {
     ...request,
+    knowledge: finalOutput ? request.knowledge : "none",
     knowledge_subjects: knowledgeSubjects,
     ...(diarization !== "off" ? { diarization: { level: diarization } } : {}),
-  };
-  const uploadingCloudAudio = busy && mode === "cloud" && !translateOnly;
+  }, entry);
+  const uploadingCloudAudio = busy && runsOn === "cloud";
   const coverage = axisParse ? clock(Math.max(...axisParse.rows.map((row) => row.t1))) : "";
   const notes = axisParse && axisParse.skipped > 0 ? `跳过 ${axisParse.skipped} 条注释或无效行` : "";
   // 只有空轴会经过识别，所以只有它会踩到这件事：转写引擎不区分说话人，重叠区间里
   // 每个词落在哪一行只能按时间判，两人同时说话时必然有一边串台。其余轴型的文字是
   // 用户自己写好的，重叠再多也无害。
   const overlaps = axisParse && axisKind === "empty" ? axisParse.overlaps : 0;
+
+  const localBadge = localUnavailable ? "未就绪" : cpuOnly ? "可用 · CPU" : "可用";
+  const cloudBadge = !cloudAuthenticated ? "未登录" : cloudDurationExceeded ? "时长超限" : harnessIssue ? "需本机环境"
+    : cloudRemaining === undefined ? "已登录" : `剩余 ${cloudRemaining} 次`;
+  const chosenIssue = engineIssue(engine);
 
   return (
     <div className="modal-backdrop transcription-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) onClose(); }}>
@@ -517,10 +529,8 @@ export function TranscriptionDialog(props: TranscriptionDialogProps) {
                 ))}
               </span>
               <span className="eyebrow">{`第 ${stepIndex} 步，共 ${totalSteps} 步`}</span>
-              {/* 第 1 步选完就离开视野，可它决定了后面两步的形态，得一直看得见 */}
-              {/* {step !== "axis" && axis && <span className="axis-chip" title={axis.filename}>{`${AXIS_KIND_SHORT[axis.kind]} · ${axis.filename}`}</span>} */}
             </div>
-            <h2 id="transcription-title">{step === "axis" ? "选择已有产物" : step === "mode" ? "选择运行环境" : "转写设置"}</h2>
+            <h2 id="transcription-title">{step === "axis" ? "选择已有产物" : "转写设置"}</h2>
             <p title={entry.sourcePath}>{entry.title}</p>
           </div>
           <button type="button" className="transcription-close" aria-label="关闭" disabled={busy} onClick={onClose}>×</button>
@@ -587,133 +597,137 @@ export function TranscriptionDialog(props: TranscriptionDialogProps) {
             {axis && importOnly && <div className="transcription-summary"><span>将要执行</span><strong>{summary}</strong></div>}
             {error && <p className="transcription-error" role="alert">{error}</p>}
           </div>
-        ) : step === "mode" ? (
-          <div className="execution-picker">
-            <button className={`execution-card ${mode === "local" && localReady ? "chosen" : ""}`} disabled={!localReady} onClick={() => chooseMode("local")}>
-              <span className="execution-icon local">⌁</span>
-              <span><strong>本地运行</strong><small>{cpuOnly ? "原视频不离开电脑；本机没有可用显卡，将以 CPU 运行，耗时通常是音频时长的十几到几十倍" : "使用本机的 GPU 和模型"}</small></span>
-              <em>{localReady ? cpuOnly ? "可用 · CPU" : "可用" : "未就绪"}</em>
-            </button>
-            {!localReady && <p className="execution-unavailable">{localIssue || "本地运行环境尚未就绪"}<button onClick={onOpenRuntime}>检查运行环境</button></p>}
-
-            <button className={`execution-card ${mode === "cloud" && cloudReady ? "chosen" : ""}`} disabled={!cloudReady} onClick={() => chooseMode("cloud")}>
-              <span className="execution-icon cloud">☁</span>
-              <span><strong>云端运行</strong><small>{cloudDurationExceeded ? `视频时长 ${clock(entry.duration)}，超过云端 2 小时上限` : translateOnly ? "把这轴交给 Nonoka Cloud 补译文" : "使用 Nonoka Cloud 的资源"}</small></span>
-              <em>{cloudDurationExceeded ? "时长超限" : cloudAuthenticated ? cloudRemaining === undefined ? "已登录" : `剩余 ${cloudRemaining} 次` : "未登录"}</em>
-            </button>
-            {cloudDurationExceeded && <p className="execution-unavailable">云端仅接受最长 2 小时的媒体，请改用本地运行。</p>}
-            {/* {!cloudAuthenticated && <p className="execution-unavailable">需要先登录云端账户<button onClick={onOpenAccount}>前往登录</button></p>} */}
-          </div>
         ) : (
           <div className="transcription-settings">
-            {translateOnly ? (
-              <section className="transcription-section">
-                <div className="transcription-section-title"><strong>输出内容</strong><span>{mode === "local" ? "本地运行" : "云端运行"}</span></div>
-                <p className="transcription-note">{mode === "local"
-                  ? "这份轴的原文已经齐了：不做识别，只补中文译文，每一行的时间原样保留。"
-                  : "这份轴的原文已经齐了：只补中文译文，每一行的时间原样保留。"}</p>
-                {!limits.llm && <p className="option-unavailable">{LLM_KEY_HINT}<button onClick={onOpenKeys}>前往配置</button></p>}
-              </section>
-            ) : (
-              <section className="transcription-section">
-                <div className="transcription-section-title"><strong>输出内容</strong><span>{mode === "local" ? "本地运行" : "云端运行"}</span></div>
-                <div className="option-cards two-columns">
-                  <button className={request.target === "raw-srt" ? "selected" : ""} onClick={() => setTarget("raw-srt")}><strong>原始字幕</strong><small>只进行打轴与原文识别</small></button>
-                  <button className={`${request.target === "final-srt" ? "selected" : ""} ${limits.llm ? "" : "unavailable"}`.trim()} aria-disabled={!limits.llm || undefined} title={limits.llm ? undefined : LLM_KEY_HINT} onClick={() => setTarget("final-srt")}><strong>最终字幕</strong><small>继续进行纠错、翻译</small></button>
+            <section className="transcription-block" aria-labelledby="transcription-block-asr">
+              <header className="transcription-block-head">
+                <span className="transcription-block-index" aria-hidden="true">1</span>
+                <span>
+                  <strong id="transcription-block-asr">转写</strong>
+                  <small>{translateOnly ? "导入的轴已经带着原文，这一步跳过" : "把语音识别成带时间轴的原文，可在本机或云端完成"}</small>
+                </span>
+              </header>
+              {translateOnly ? (
+                <p className="transcription-note">这份轴的原文已经齐了：不做识别，每一行的时间原样保留，直接在本机补中文译文。</p>
+              ) : <>
+                <div className="option-cards two-columns engine-cards" role="radiogroup" aria-label="转写引擎">
+                  <button role="radio" aria-checked={engine === "local"} className={`${engine === "local" ? "selected" : ""} ${localUnavailable ? "unavailable" : ""}`.trim()} aria-disabled={Boolean(localUnavailable) || undefined} title={localUnavailable || undefined} onClick={() => chooseEngine("local")}>
+                    <span className="engine-card-head"><span className="execution-icon local" aria-hidden="true">⌁</span><strong>本机</strong><em>{localBadge}</em></span>
+                    <small>{cpuOnly ? "原视频不离开电脑；没有可用显卡，将以 CPU 运行，耗时通常是音频时长的十几到几十倍" : "使用本机的 GPU 和模型，原视频不离开电脑"}</small>
+                  </button>
+                  <button role="radio" aria-checked={engine === "cloud"} className={`${engine === "cloud" ? "selected" : ""} ${cloudUnavailable ? "unavailable" : ""}`.trim()} aria-disabled={Boolean(cloudUnavailable) || undefined} title={cloudUnavailable || undefined} onClick={() => chooseEngine("cloud")}>
+                    <span className="engine-card-head"><span className="execution-icon cloud" aria-hidden="true">☁</span><strong>云端</strong><em>{cloudBadge}</em></span>
+                    <small>只上传音轨，由 Nonoka Cloud 识别；本机无需显卡，识别结果回到本机继续处理</small>
+                  </button>
                 </div>
-                {!limits.llm && <p className="option-unavailable">{LLM_KEY_HINT}<button onClick={onOpenKeys}>前往配置</button></p>}
-                {/* 空轴只保证「行落在你的时间上」。纠错阶段会合并被切碎的句子，合并后的一行
-                    只能落在它重叠最多的那一行——要求逐行严格对应时得选原始字幕。 */}
-                {/* {axis && finalOutput && <p className="transcription-note">AI 纠错会合并被切碎的句子，合并后的整句落在与它重叠最多的那一行上；要每一行都严格对应你的轴，请选「原始字幕」。</p>} */}
-              </section>
-            )}
+                {chosenIssue && <p className="option-unavailable">{chosenIssue}{engine === "cloud" && !cloudAuthenticated
+                  ? <button onClick={onOpenAccount}>前往登录</button>
+                  : <button onClick={onOpenRuntime}>检查运行环境</button>}</p>}
 
-            {!translateOnly && <section className="transcription-section form-grid">
-              <label>原始语言<CustomSelect value={request.language} options={languageOptions.map(([value, label]) => ({ value, label }))} onChange={(language) => setRequest((current) => ({ ...current, language }))} /></label>
-              {mode === "local" && <label>计算设备<CustomSelect value={request.device} options={deviceOptions(devices)} onChange={(device) => setRequest((current) => ({ ...current, device, gpu_tier: device === "cpu" ? "cpu" : current.gpu_tier === "cpu" ? "auto" : current.gpu_tier }))} /></label>}
-              {mode === "local" && <label>显卡档位<CustomSelect value={request.gpu_tier} options={GPU_TIER_OPTIONS} onChange={(gpu_tier) => setRequest((current) => ({ ...current, gpu_tier }))} /></label>}
-              {mode === "local" && <label>人声分离<CustomSelect value={request.separate ? "on" : "off"} options={[{ value: "on", label: "开启" }, { value: "off", label: "关闭（输入已是纯人声）", hint: SKIP_SEPARATION_HINT }]} onChange={(value) => setRequest((current) => ({ ...current, separate: value === "on" }))} /></label>}
-              {diarizationAvailable && <label>说话人分离<CustomSelect value={diarization} disabled={!diarizationSelectable} options={[
-                { value: "off" as const, label: "关闭" },
-                { value: "acoustics" as const, label: "按声音区分说话人" },
-                { value: "judge-text" as const, label: "声音 + 文本复核（实验）", disabled: !judgeTextAllowed, hint: DIARIZATION_JUDGE_HINT },
-                { value: "judge-audio" as const, label: "声音 + 音频复核（实验）", disabled: !judgeAudioAllowed, hint: mode === "cloud" ? "云端的纠错只读文本，无法边听边复核" : finalOutput && !limits.audio ? mediaHint("supportsAudio") : DIARIZATION_JUDGE_HINT },
-              ]} onChange={setDiarizationChoice} /></label>}
-            </section>}
-            {diarizationNote && <p className="transcription-note">{diarizationNote}{diarizationModelsMissing && <button type="button" className="inline-link" onClick={onOpenRuntime}>前往下载</button>}</p>}
-
-            {finalOutput && <>
-              <section className="transcription-section form-grid">
-                <label>纠错参考<CustomSelect value={request.correction.media} options={[{ value: "text", label: "仅识别文本" }, ...(mode === "local" ? [{ value: "audio" as const, label: "音频", disabled: !limits.audio, hint: limits.audio ? undefined : mediaHint("supportsAudio") }] : []), ...(supportsVideo ? [{ value: "video" as const, label: "视频多模态", disabled: !limits.video, hint: limits.video ? undefined : entry.audioOnly ? "纯音频素材没有画面" : mediaHint("supportsVideo") }] : [])]} onChange={(media) => setRequest((current) => ({ ...current, correction: { ...current.correction, media } }))} /></label>
-                <label>处理质量<CustomSelect value={request.correction.difficulty} options={[{ value: "efficiency", label: "效率优先" }, { value: "intermediate", label: "均衡" }, { value: "quality", label: "质量优先" }]} onChange={(difficulty) => setRequest((current) => ({ ...current, correction: { ...current.correction, difficulty } }))} /></label>
-                <label>快速模式<CustomSelect value={request.correction.fast} options={[{ value: "auto", label: "自动", hint: "字幕放得进单个窗口时一次完成，放不下时自动改走正常流程" }, { value: "off", label: "关闭" }]} onChange={(fast) => setRequest((current) => ({ ...current, correction: { ...current.correction, fast } }))} /></label>
-                {mode === "local" && <label>资料检索<CustomSelect value={request.correction.retrieval} options={[{ value: "none", label: "不检索" }, { value: "local", label: "本地检索", disabled: !limits.retrieval, hint: limits.retrieval ? undefined : RETRIEVAL_KEY_HINT }, { value: "native", label: "模型原生检索", disabled: !limits.nativeSearch, hint: limits.nativeSearch ? undefined : NATIVE_SEARCH_HINT }]} onChange={(retrieval) => setRequest((current) => ({ ...current, correction: { ...current.correction, retrieval } }))} /></label>}
-                {supportsKnowledge && <label>知识库<CustomSelect value={request.knowledge} options={[{ value: "none", label: "不使用" }, { value: "read", label: "读取知识库" }, { value: "update", label: "读取知识库并自动更新", disabled: mode === "cloud" }]} onChange={setKnowledge} /></label>}
-              </section>
-
-              {knowledgeActive && <section className="transcription-section knowledge-subject-section">
-                <div className="knowledge-subject-picker">
-                  <label>知识主体<CustomSelect
-                    value={ADD_KNOWLEDGE_SUBJECT}
-                    disabled={knowledgeLoading || subjectsFull}
-                    options={[
-                      { value: ADD_KNOWLEDGE_SUBJECT, label: knowledgeLoading ? "正在读取知识库…" : subjectsFull ? `最多选择 ${MAX_KNOWLEDGE_SUBJECTS} 个` : "添加知识主体…", disabled: true },
-                      ...subjectOptions.map((entry) => ({ value: entry.id, label: entryLabel(entry), hint: entry.intro || undefined })),
-                      ...(knowledgeWrites ? [{ value: NEW_KNOWLEDGE_SUBJECT, label: "＋ 新建知识主体" }] : []),
-                    ]}
-                    onChange={addKnowledgeSubject}
-                  /></label>
-
+                <div className="form-grid transcription-block-fields">
+                  <label>原始语言<CustomSelect value={request.language} options={languageOptions.map(([value, label]) => ({ value, label }))} onChange={(language) => setRequest((current) => ({ ...current, language }))} /></label>
+                  {engine === "local" && <label>计算设备<CustomSelect value={request.device} options={deviceOptions(devices)} onChange={(device) => setRequest((current) => ({ ...current, device, gpu_tier: device === "cpu" ? "cpu" : current.gpu_tier === "cpu" ? "auto" : current.gpu_tier }))} /></label>}
+                  {engine === "local" && <label>显卡档位<CustomSelect value={request.gpu_tier} options={GPU_TIER_OPTIONS} onChange={(gpu_tier) => setRequest((current) => ({ ...current, gpu_tier }))} /></label>}
+                  {engine === "local" && <label>人声分离<CustomSelect value={request.separate ? "on" : "off"} options={[{ value: "on", label: "开启" }, { value: "off", label: "关闭（输入已是纯人声）", hint: SKIP_SEPARATION_HINT }]} onChange={(value) => setRequest((current) => ({ ...current, separate: value === "on" }))} /></label>}
+                  {diarizationAvailable && <label>说话人分离<CustomSelect value={diarization} disabled={!diarizationSelectable} options={[
+                    { value: "off" as const, label: "关闭" },
+                    { value: "acoustics" as const, label: "按声音区分说话人" },
+                    { value: "judge-text" as const, label: "声音 + 文本复核（实验）", disabled: !judgeTextAllowed, hint: engine === "cloud" ? CLOUD_JUDGE_HINT : DIARIZATION_JUDGE_HINT },
+                    { value: "judge-audio" as const, label: "声音 + 音频复核（实验）", disabled: !judgeAudioAllowed, hint: engine === "cloud" ? CLOUD_JUDGE_HINT : finalOutput && !limits.audio ? mediaHint("supportsAudio") : DIARIZATION_JUDGE_HINT },
+                  ]} onChange={setDiarizationChoice} /></label>}
                 </div>
-                {pickedExisting.length > 0 && <ul className="knowledge-subject-chips" aria-label="已选知识主体">
-                  {pickedExisting.map((item) => (
-                    <li key={item.key} title={item.subject.description || undefined}>
-                      <span>{entryLabel({ category: item.subject.kind === "streamer" ? "streamer" : "common", name: item.subject.subject })}</span>
-                      <button type="button" aria-label={`移除 ${item.subject.subject}`} onClick={() => removeKnowledgeSubject(item.key)}>×</button>
-                    </li>
-                  ))}
-                </ul>}
-                {knowledgeLoadError && <p className="knowledge-load-warning">{knowledgeWrites ? `知识库列表读取失败，仍可新建主体：${knowledgeLoadError}` : `知识库列表读取失败：${knowledgeLoadError}`}</p>}
-                {knowledgeWrites && knowledgeLoaded && knowledgeSubjects.length === 0 && <p className="knowledge-required-hint">请至少选择或新建一个知识主体，作为新知识的写回目标。</p>}
-              </section>}
+                {diarizationNote && <p className="transcription-note">{diarizationNote}{diarizationModelsMissing && <button type="button" className="inline-link" onClick={onOpenRuntime}>前往下载</button>}</p>}
+                {engine === "local" && <label className="cleanup-check"><input type="checkbox" checked={request.cleanup_intermediate} onChange={(event) => setRequest((current) => ({ ...current, cleanup_intermediate: event.target.checked }))} /><span><strong>任务完成后清理中间文件</strong></span></label>}
+              </>}
+            </section>
 
-              {pickedDrafts.map((item) => {
-                const draft = item.subject;
-                return <section key={item.key} className="transcription-section knowledge-context-card">
-                  <div className="knowledge-context-head">
-                    <span className="knowledge-context-icon" aria-hidden="true">⌁</span>
-                    <span>
-                      <strong>新建知识主体</strong>
-                      <small>任务开始前建好词条，引导模型把新发现归到正确主体</small>
-                    </span>
-                    <span className="knowledge-context-actions">
-                      <em>名称必填</em>
-                      <button type="button" className="knowledge-context-remove" aria-label="移除这个新建主体" onClick={() => removeKnowledgeSubject(item.key)}>×</button>
-                    </span>
+            <section className={`transcription-block ${finalOutput ? "" : "collapsed"}`.trim()} aria-labelledby="transcription-block-llm">
+              <header className="transcription-block-head">
+                <span className="transcription-block-index" aria-hidden="true">2</span>
+                <span>
+                  <strong id="transcription-block-llm">纠错与翻译</strong>
+                  <small>{translateOnly ? "补译文就是这一份轴要做的事" : "用本机配置的 LLM 纠正识别错误并翻译成中文；关闭则只输出原始字幕"}</small>
+                </span>
+                <label className="block-switch" title={correctionIssue || undefined}>
+                  <input type="checkbox" role="switch" aria-label="纠错与翻译" checked={finalOutput} disabled={translateOnly || !correctionAvailable} onChange={(event) => setCorrection(event.target.checked)} />
+                  <i aria-hidden="true" />
+                </label>
+              </header>
+              {!correctionAvailable && <p className="option-unavailable">{correctionIssue}{correctionNeedsKeys
+                ? <button onClick={onOpenKeys}>前往配置</button>
+                : <button onClick={onOpenRuntime}>检查运行环境</button>}</p>}
+
+              {finalOutput && <>
+                <div className="form-grid transcription-block-fields">
+                  <label>纠错参考<CustomSelect value={request.correction.media} options={[{ value: "text", label: "仅识别文本" }, { value: "audio" as const, label: "音频", disabled: !limits.audio, hint: limits.audio ? undefined : mediaHint("supportsAudio") }, ...(supportsVideo ? [{ value: "video" as const, label: "视频多模态", disabled: !limits.video, hint: limits.video ? undefined : entry.audioOnly ? "纯音频素材没有画面" : mediaHint("supportsVideo") }] : [])]} onChange={(media) => setRequest((current) => ({ ...current, correction: { ...current.correction, media } }))} /></label>
+                  <label>处理质量<CustomSelect value={request.correction.difficulty} options={[{ value: "efficiency", label: "效率优先" }, { value: "intermediate", label: "均衡" }, { value: "quality", label: "质量优先" }]} onChange={(difficulty) => setRequest((current) => ({ ...current, correction: { ...current.correction, difficulty } }))} /></label>
+                  <label>快速模式<CustomSelect value={request.correction.fast} options={[{ value: "auto", label: "自动", hint: "字幕放得进单个窗口时一次完成，放不下时自动改走正常流程" }, { value: "off", label: "关闭" }]} onChange={(fast) => setRequest((current) => ({ ...current, correction: { ...current.correction, fast } }))} /></label>
+                  <label>资料检索<CustomSelect value={request.correction.retrieval} options={[{ value: "none", label: "不检索" }, { value: "local", label: "本地检索", disabled: !limits.retrieval, hint: limits.retrieval ? undefined : RETRIEVAL_KEY_HINT }, { value: "native", label: "模型原生检索", disabled: !limits.nativeSearch, hint: limits.nativeSearch ? undefined : NATIVE_SEARCH_HINT }]} onChange={(retrieval) => setRequest((current) => ({ ...current, correction: { ...current.correction, retrieval } }))} /></label>
+                  {supportsKnowledge && <label>知识库<CustomSelect value={request.knowledge} options={[{ value: "none", label: "不使用" }, { value: "read", label: "读取知识库" }, { value: "update", label: "读取知识库并自动更新" }]} onChange={setKnowledge} /></label>}
+                </div>
+
+                {knowledgeActive && <section className="transcription-section knowledge-subject-section">
+                  <div className="knowledge-subject-picker">
+                    <label>知识主体<CustomSelect
+                      value={ADD_KNOWLEDGE_SUBJECT}
+                      disabled={knowledgeLoading || subjectsFull}
+                      options={[
+                        { value: ADD_KNOWLEDGE_SUBJECT, label: knowledgeLoading ? "正在读取知识库…" : subjectsFull ? `最多选择 ${MAX_KNOWLEDGE_SUBJECTS} 个` : "添加知识主体…", disabled: true },
+                        ...subjectOptions.map((entry) => ({ value: entry.id, label: entryLabel(entry), hint: entry.intro || undefined })),
+                        ...(knowledgeWrites ? [{ value: NEW_KNOWLEDGE_SUBJECT, label: "＋ 新建知识主体" }] : []),
+                      ]}
+                      onChange={addKnowledgeSubject}
+                    /></label>
                   </div>
-                  <div className="knowledge-context-grid">
-                    <label>主体类型<CustomSelect value={draft.kind} options={knowledgeKindOptions} onChange={(kind) => updateDraftSubject(item.key, { kind })} /></label>
-                    <label>知识主体名称<input required maxLength={120} aria-invalid={!draft.subject.trim() || undefined} placeholder={draft.kind === "streamer" ? "例如：主播或频道的官方名称" : draft.kind === "work" ? "例如：作品、系列或节目名" : "例如：组织、游戏或专题名称"} value={draft.subject} onChange={(event) => updateDraftSubject(item.key, { subject: event.target.value })} /></label>
-                    <label>别名 / 常用译名<input maxLength={300} placeholder="多个名称可用顿号或逗号分隔（可选）" value={draft.aliases} onChange={(event) => updateDraftSubject(item.key, { aliases: event.target.value })} /></label>
-                    <label className="knowledge-context-description">主体说明<textarea rows={2} maxLength={1200} placeholder="频道定位、所属团体、作品背景等（可选）" value={draft.description} onChange={(event) => updateDraftSubject(item.key, { description: event.target.value })} /></label>
-                  </div>
-                  {!draft.subject.trim() && <p className="knowledge-required-hint">填写知识主体名称后才能开始任务。</p>}
-                </section>;
-              })}
+                  {pickedExisting.length > 0 && <ul className="knowledge-subject-chips" aria-label="已选知识主体">
+                    {pickedExisting.map((item) => (
+                      <li key={item.key} title={item.subject.description || undefined}>
+                        <span>{entryLabel({ category: item.subject.kind === "streamer" ? "streamer" : "common", name: item.subject.subject })}</span>
+                        <button type="button" aria-label={`移除 ${item.subject.subject}`} onClick={() => removeKnowledgeSubject(item.key)}>×</button>
+                      </li>
+                    ))}
+                  </ul>}
+                  {knowledgeLoadError && <p className="knowledge-load-warning">{knowledgeWrites ? `知识库列表读取失败，仍可新建主体：${knowledgeLoadError}` : `知识库列表读取失败：${knowledgeLoadError}`}</p>}
+                  {knowledgeWrites && knowledgeLoaded && knowledgeSubjects.length === 0 && <p className="knowledge-required-hint">请至少选择或新建一个知识主体，作为新知识的写回目标。</p>}
+                </section>}
 
-              <section className="transcription-section prompt-grid">
-                <label>背景信息<textarea rows={3} maxLength={4000} placeholder="人物、节目、专有名词等（可选）" value={request.correction.extra_info} onChange={(event) => setRequest((current) => ({ ...current, correction: { ...current.correction, extra_info: event.target.value } }))} /></label>
-                <label>翻译风格<textarea rows={3} maxLength={4000} placeholder="例如：简洁自然，保留角色名英文（可选）" value={request.correction.extra_style} onChange={(event) => setRequest((current) => ({ ...current, correction: { ...current.correction, extra_style: event.target.value } }))} /></label>
-              </section>
-            </>}
+                {pickedDrafts.map((item) => {
+                  const draft = item.subject;
+                  return <section key={item.key} className="transcription-section knowledge-context-card">
+                    <div className="knowledge-context-head">
+                      <span className="knowledge-context-icon" aria-hidden="true">⌁</span>
+                      <span>
+                        <strong>新建知识主体</strong>
+                        <small>任务开始前建好词条，引导模型把新发现归到正确主体</small>
+                      </span>
+                      <span className="knowledge-context-actions">
+                        <em>名称必填</em>
+                        <button type="button" className="knowledge-context-remove" aria-label="移除这个新建主体" onClick={() => removeKnowledgeSubject(item.key)}>×</button>
+                      </span>
+                    </div>
+                    <div className="knowledge-context-grid">
+                      <label>主体类型<CustomSelect value={draft.kind} options={knowledgeKindOptions} onChange={(kind) => updateDraftSubject(item.key, { kind })} /></label>
+                      <label>知识主体名称<input required maxLength={120} aria-invalid={!draft.subject.trim() || undefined} placeholder={draft.kind === "streamer" ? "例如：主播或频道的官方名称" : draft.kind === "work" ? "例如：作品、系列或节目名" : "例如：组织、游戏或专题名称"} value={draft.subject} onChange={(event) => updateDraftSubject(item.key, { subject: event.target.value })} /></label>
+                      <label>别名 / 常用译名<input maxLength={300} placeholder="多个名称可用顿号或逗号分隔（可选）" value={draft.aliases} onChange={(event) => updateDraftSubject(item.key, { aliases: event.target.value })} /></label>
+                      <label className="knowledge-context-description">主体说明<textarea rows={2} maxLength={1200} placeholder="频道定位、所属团体、作品背景等（可选）" value={draft.description} onChange={(event) => updateDraftSubject(item.key, { description: event.target.value })} /></label>
+                    </div>
+                    {!draft.subject.trim() && <p className="knowledge-required-hint">填写知识主体名称后才能开始任务。</p>}
+                  </section>;
+                })}
 
-            {mode === "local" && <label className="cleanup-check"><input type="checkbox" checked={request.cleanup_intermediate} onChange={(event) => setRequest((current) => ({ ...current, cleanup_intermediate: event.target.checked }))} /><span><strong>任务完成后清理中间文件</strong></span></label>}
-            {busy && mode === "cloud" && <div className="cloud-submit-progress" role="status" aria-live="polite" aria-busy="true">
+                <div className="prompt-grid transcription-block-fields">
+                  <label>背景信息<textarea rows={3} maxLength={4000} placeholder="人物、节目、专有名词等（可选）" value={request.correction.extra_info} onChange={(event) => setRequest((current) => ({ ...current, correction: { ...current.correction, extra_info: event.target.value } }))} /></label>
+                  <label>翻译风格<textarea rows={3} maxLength={4000} placeholder="例如：简洁自然，保留角色名英文（可选）" value={request.correction.extra_style} onChange={(event) => setRequest((current) => ({ ...current, correction: { ...current.correction, extra_style: event.target.value } }))} /></label>
+                </div>
+              </>}
+            </section>
+
+            {uploadingCloudAudio && <div className="cloud-submit-progress" role="status" aria-live="polite" aria-busy="true">
               <div>
                 <span className="cloud-submit-icon" aria-hidden="true">☁</span>
                 <span>
-                  <strong>{uploadingCloudAudio ? "正在准备并上传音轨…" : "正在提交云端任务…"}</strong>
-                  <small>{uploadingCloudAudio ? "视频越长，上传所需时间越久；完成后会自动进入任务页面。" : "正在发送字幕与任务设置，完成后会自动进入任务页面。"}</small>
+                  <strong>正在准备并上传音轨…</strong>
+                  <small>视频越长，上传所需时间越久；完成后会自动进入任务页面。</small>
                 </span>
               </div>
               <span className="cloud-submit-track" aria-hidden="true"><i /></span>
@@ -727,9 +741,8 @@ export function TranscriptionDialog(props: TranscriptionDialogProps) {
           <button disabled={busy} onClick={back}>{step === "axis" ? "取消" : "上一步"}</button>
           {step === "axis" && (axis && importOnly
             ? <button ref={primaryAction} className="primary-button" disabled={busy} onClick={() => void onImport(axis)}>{busy ? "正在导入…" : "导入"}</button>
-            : <button ref={primaryAction} className="primary-button" disabled={busy || axisBlocked} onClick={() => setStep("mode")}>下一步</button>)}
-          {step === "mode" && <button ref={primaryAction} className="primary-button" disabled={busy || !selectedReady} onClick={() => setStep("settings")}>下一步</button>}
-          {step === "settings" && <button ref={primaryAction} className="primary-button" disabled={startBlocked} onClick={() => void onStart(mode, translateOnly && axis ? { ...startRequest, axis } : startRequest, axis)}>{busy ? uploadingCloudAudio ? "上传中…" : "正在启动…" : "开始任务"}</button>}
+            : <button ref={primaryAction} className="primary-button" disabled={busy || axisBlocked} onClick={() => setStep("settings")}>下一步</button>)}
+          {step === "settings" && <button ref={primaryAction} className="primary-button" disabled={startBlocked} onClick={() => void onStart(runsOn, translateOnly && axis ? { ...startRequest, axis } : startRequest, axis)}>{busy ? uploadingCloudAudio ? "上传中…" : "正在启动…" : "开始任务"}</button>}
         </footer>
       </section>
     </div>

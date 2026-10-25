@@ -51,7 +51,10 @@ export class PipelineController {
       this.reportStartFailure?.(request.provider, request.provider === "local" ? "sidecar_unavailable" : "unknown");
       throw error;
     });
-    if (!capabilities.runtime?.ready) {
+    // `runtime.ready` 说的是识别那一档。日文轴不识别，只要纠错那一档；Provider 启动时
+    // 会按目标逐档检查并给出具体原因，这里只拦确定要在本地识别、却连识别档都没就绪的。
+    const recognises = request.source.kind === "local_file" && !request.axis;
+    if (recognises && !capabilities.runtime?.ready) {
       this.reportStartFailure?.(request.provider, "runtime_not_ready");
       const issue = capabilities.runtime?.issues[0];
       throw new Error(issue?.message ?? "Selected provider runtime is not ready");

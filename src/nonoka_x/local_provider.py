@@ -1031,9 +1031,11 @@ class LocalProvider:
             issue = self._issues[0]
             raise ProviderError(issue["code"], issue["message"], http_status=503)
         if not self._issues_override:
+            # A source-text axis replaces recognition the way a cloud stable.json
+            # does, so it clears the same tiers: the LLM half, not the ASR one.
             readiness = (
                 CONTINUATION_READINESS
-                if validated["source"]["kind"] == "cloud_stable"
+                if validated["source"]["kind"] == "cloud_stable" or "axis" in validated
                 else TARGET_READINESS
             )
             stages = {
