@@ -40,8 +40,23 @@ export function CancelTask(taskID: string): $CancellablePromise<{ [_ in string]?
     return $Call.ByID(482745783, taskID);
 }
 
+/**
+ * Capabilities are the relay's, not the backend's. The backend declares what
+ * it runs -- recognition, and nothing past stable.json -- and the relay hands
+ * the rest to the local provider, so correction, translation, the knowledge
+ * base and video correction are all things a cloud task does. Whether this
+ * machine can actually run them is the local provider's runtime report.
+ */
 export function Capabilities(): $CancellablePromise<{ [_ in string]?: any } | null> {
     return $Call.ByID(3696689414);
+}
+
+/**
+ * Close stops every relay driver. Their state is on disk; the next launch
+ * resumes each from the leg it was in.
+ */
+export function Close(): $CancellablePromise<void> {
+    return $Call.ByID(2902547332);
 }
 
 export function CreateAdminKey(name: string, key: string, remaining: number): $CancellablePromise<$models.IssuedAdminKey> {
@@ -60,6 +75,11 @@ export function Library(): $CancellablePromise<$models.Entry[] | null> {
     return $Call.ByID(400144379);
 }
 
+/**
+ * ListTasks lists this desktop's relays. The backend's own listing only knows
+ * jobs still waiting to be collected, with no media attached; the relay record
+ * is what names the media and outlives the job.
+ */
 export function ListTasks(): $CancellablePromise<{ [_ in string]?: any } | null> {
     return $Call.ByID(3120945530);
 }
@@ -88,6 +108,13 @@ export function Session(): $CancellablePromise<$models.Session> {
     return $Call.ByID(4056801900);
 }
 
+/**
+ * StartTask starts a relay: the cloud recognises the media up to stable.json,
+ * and this desktop continues from it with the user's own models once the file
+ * is collected (relay.go). Returns the relay's snapshot, which is what the
+ * renderer tracks; the cloud job behind it is an implementation detail that is
+ * deleted as soon as its result is on disk.
+ */
 export function StartTask(localID: string, options: { [_ in string]?: any } | null): $CancellablePromise<{ [_ in string]?: any } | null> {
     return $Call.ByID(3091747049, localID, options);
 }
@@ -100,6 +127,10 @@ export function SyncLocalTask(taskID: string, localID: string, fingerprint: stri
     return $Call.ByID(136260295, taskID, localID, fingerprint, title, duration);
 }
 
+/**
+ * TaskArtifacts reports a finished relay's subtitles. The local leg projected
+ * them into the document already; this is the manifest of what it wrote.
+ */
 export function TaskArtifacts(taskID: string): $CancellablePromise<{ [_ in string]?: any } | null> {
     return $Call.ByID(2425747392, taskID);
 }
