@@ -111,6 +111,7 @@ interface ExecutionProvider {
     "stages": [                    // 分阶段就绪，用于精确到目标的拦截
       { "id": "media",            "label": "媒体探测与音频准备",     "ready": true, "issues": [] },
       { "id": "raw-srt",          "label": "VAD、ASR 与原始字幕",     "ready": true, "issues": [] },
+      { "id": "harness",          "label": "云端识别后本地续跑",      "ready": true, "issues": [] },
       { "id": "final-srt",        "label": "LLM 纠错、翻译与最终字幕", "ready": true, "issues": [] },
       { "id": "knowledge",        "label": "知识库收集与更新",        "ready": true, "issues": [] },
       { "id": "video-multimodal", "label": "视频多模态纠错",          "ready": true, "issues": [] }
@@ -122,6 +123,8 @@ interface ExecutionProvider {
 ```
 
 > **`runtime.ready` 的语义**：宿主在 `start()` 之前会读取 `capabilities()`，`runtime.ready === false` 时直接以 `issues[0].message` 报错并阻止提交。Provider 若不提供 `runtime`，前端将视为未就绪。
+
+> **分档互不继承**：`raw-srt` 是识别档（平台、ASR 运行时、模型）；`harness` 是从 stable.json 往后所需的一切（FFmpeg 与 FineSub `[harness]` 依赖，不含 torch）；`final-srt` 是 `harness` 加上已配置的模型。本地 Provider 从媒体跑 LLM 目标时要同时过 `raw-srt` 与 `final-srt`，从 `cloud_stable` 续跑时只看 `harness`（`raw-srt` 目标）或 `final-srt`。
 
 ### 4.2 TaskRequest
 
@@ -222,6 +225,17 @@ interface LocalSource {
   duration?: number;     // 秒
 }
 
+// 云端识别结果：本地 Provider 从云端交付的 stable.json 续跑，不再分离、不再识别
+interface CloudStableSource {
+  kind: "cloud_stable";
+  path: string;          // 媒体本身，绝对路径且真实存在：纠错要从中切音视频片段，编辑器要画波形
+  stable_json: string;   // 云端 stable.json 的本地副本，绝对路径；须为带 segments 数组的 JSON 对象
+  title: string;
+  fingerprint?: string;
+  video_id?: string;
+  duration?: number;
+}
+
 // 已上传音频：远端 Provider 使用，不传递任何本地绝对路径
 interface UploadedAudioSource {
   kind: "uploaded_audio";
@@ -231,6 +245,8 @@ interface UploadedAudioSource {
   duration?: number;
 }
 ```
+
+`cloud_stable` 只接受 `raw-srt` / `translated-srt` / `final-srt` 三个目标，其余以 `unsupported_target` 拒绝；不能与 `axis` 同用（`invalid_axis`）。云端那一程的字段在这里没有意义：`vocal_profile` 与 `diarization` 被丢弃——说话人标签已由云端写在 stable.json 上，原样渲染；云端不交付说话人时间轴，judge 级别无从复核。
 
 自定义 Provider 可新增 `kind`，但必须在自身文档中声明，并保证宿主构造请求时可提供所需字段。
 

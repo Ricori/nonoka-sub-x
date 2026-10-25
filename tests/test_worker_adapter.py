@@ -4,6 +4,7 @@ import contextlib
 import io
 import json
 import os
+import subprocess
 import sys
 import tempfile
 import types
@@ -258,6 +259,104 @@ class WorkerAdapterTests(unittest.TestCase):
                 set(manifest["artifacts"]), {"vocal_audio", "stable_json", "raw_srt"}
             )
             self.assertEqual(len(manifest["artifacts"]["stable_json"]["sha256"]), 64)
+
+    def test_a_cloud_stable_is_seeded_under_the_engine_name_only_once(self) -> None:
+        """The continuation is a file in the right place, and nothing else.
+
+        `run_pipeline` resumes from whatever stable.json sits under its own
+        name, so the seed has to land exactly there -- and a retry must find
+        the copy its first attempt rendered from, not a fresh one.
+        """
+
+        sys.path.insert(0, str(ROOT / "third_party/finesub/src"))
+        from finesub.stages import default_pipeline_paths
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            cloud = root / "cloud.stable.json"
+            cloud.write_text('{"segments": [{"text": "first"}]}', encoding="utf-8")
+            media = root / "media.m4a"
+            output = root / "task" / "workspace" / "片子.srt"
+            output.parent.mkdir(parents=True)
+            request = {"source": {"kind": "cloud_stable", "path": str(media), "stable_json": str(cloud)}}
+
+            seeded = worker.seed_cloud_stable(request, output)
+            self.assertEqual(seeded, Path(default_pipeline_paths(media, output).stable_json))
+            self.assertEqual(seeded.read_text(encoding="utf-8"), cloud.read_text(encoding="utf-8"))
+            self.assertEqual(sorted(path.name for path in output.parent.iterdir()), [seeded.name])
+
+            cloud.write_text('{"segments": [{"text": "second"}]}', encoding="utf-8")
+            worker.seed_cloud_stable(request, output)
+            self.assertIn("first", seeded.read_text(encoding="utf-8"))
+
+            local = {"source": {"kind": "local_file", "path": str(media)}}
+            self.assertIsNone(worker.seed_cloud_stable(local, root / "other" / "x.srt"))
+
+    def test_a_continuation_runs_without_any_module_of_the_asr_stack(self) -> None:
+        """The reason the launcher can continue a cloud task at all.
+
+        Run in a child whose import system refuses torch, numpy and the rest:
+        a module-level import anywhere between `nonoka_x.worker` and the raw
+        SRT -- vendor patch 0010 is what removed the last ones -- fails this
+        rather than the first user without the managed runtime.
+        """
+
+        script = """
+import importlib.abc, sys
+BLOCKED = {"torch", "torchaudio", "numpy", "soundfile", "faster_whisper", "ctranslate2", "transformers", "audio_separator"}
+class Refuse(importlib.abc.MetaPathFinder):
+    def find_spec(self, name, path=None, target=None):
+        if name.split(".")[0] in BLOCKED:
+            raise ImportError("blocked for this test: " + name)
+        return None
+sys.meta_path.insert(0, Refuse())
+from nonoka_x import worker
+raise SystemExit(worker.main(sys.argv[1:]))
+"""
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            cloud = root / "cloud.stable.json"
+            cloud.write_bytes((ROOT / "tests/fixtures/finesub/sample-stable.json").read_bytes())
+            media = root / "media.mp4"
+            media.write_bytes(b"media")
+            request = {
+                "schema": 1,
+                "provider": "local",
+                "source": {"kind": "cloud_stable", "path": str(media), "stable_json": str(cloud), "title": "片子"},
+                "target": "raw-srt",
+                "language": "ja",
+                "device": "cpu",
+                "correction": {},
+                "knowledge": "none",
+            }
+            environment = dict(os.environ)
+            environment["PYTHONPATH"] = os.pathsep.join(
+                [str(ROOT / "src"), str(ROOT / "third_party/finesub/src")]
+            )
+            environment["PYTHONIOENCODING"] = "utf-8"
+            environment["FINESUB_HOME"] = str(root / "finesub-home")
+            result = subprocess.run(
+                [
+                    sys.executable, "-c", script,
+                    "--task-id", "cont", "--task-dir", str(root / "task"),
+                    "--vendor", str(ROOT / "third_party/finesub"),
+                ],
+                input=json.dumps(request, ensure_ascii=False) + "\n",
+                capture_output=True, text=True, encoding="utf-8", env=environment, timeout=120,
+            )
+            events = [json.loads(line) for line in result.stdout.splitlines() if line.startswith("{")]
+            self.assertEqual(result.returncode, 0, result.stderr[-2000:])
+            completed = next(event for event in events if event["type"] == "completed")
+            self.assertEqual(
+                set(completed["payload"]["artifacts"]["artifacts"]),
+                {"stable_json", "raw_srt", "metadata_json"},
+            )
+            reused = {
+                event["payload"]["stage"]
+                for event in events
+                if event["type"] == "stage" and event["payload"].get("reused")
+            }
+            self.assertTrue({"vocal", "aligned", "stable"} <= reused)
 
     def test_source_text_axis_skips_recognition_and_only_runs_the_llm_stage(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

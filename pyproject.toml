@@ -10,7 +10,13 @@ requires-python = ">=3.12"
 license = { file = "LICENSE" }
 dependencies = [
   "httpx>=0.27,<1",
+  # FineSub's `[harness]` extra, less `cryptography` (imported only to sign a
+  # knowledge-share snapshot). With these the launcher can continue a cloud
+  # task from its stable.json without the managed ASR runtime: the LLM layer
+  # resolves America/Los_Angeles at import, and Windows has no tz database.
+  "opencc-python-reimplemented",
   "pydantic>=2,<3",
+  "tzdata ; platform_system == 'Windows'",
 ]
 
 [project.scripts]

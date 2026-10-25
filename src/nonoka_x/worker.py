@@ -8,6 +8,7 @@ import json
 import logging
 import os
 import re
+import shutil
 import sys
 import traceback
 from pathlib import Path
@@ -331,6 +332,29 @@ def translate_axis(
     )
 
 
+def seed_cloud_stable(request: Mapping[str, Any], output: Path) -> Path | None:
+    """Put the cloud's recognition where the engine looks for its own.
+
+    `run_pipeline` skips every stage whose artifact is on disk, and skips
+    separation and recognition altogether once stable.json is there -- so a
+    copy under the engine's own name is the whole continuation, with no second
+    entry point to keep in step with the first. Only ever copied when absent:
+    a retry resumes on the bytes its first attempt rendered from.
+    """
+
+    source = request["source"]
+    if source.get("kind") != "cloud_stable":
+        return None
+    from finesub.stages import default_pipeline_paths
+
+    seeded = Path(default_pipeline_paths(source["path"], output).stable_json)
+    if not seeded.exists():
+        partial = seeded.with_name(f".{seeded.name}.part")
+        shutil.copyfile(source["stable_json"], partial)
+        os.replace(partial, seeded)
+    return seeded
+
+
 def diarization_kwargs(request: Mapping[str, Any]) -> dict[str, Any]:
     """`run_pipeline`'s speaker keys for this request; empty when it asks for none.
 
@@ -560,6 +584,8 @@ def main(argv: list[str] | None = None) -> int:
         else:
             from finesub.stages import run_pipeline
 
+            if seed_cloud_stable(request, output) is not None:
+                emit("log", {"message": "从云端识别结果续跑：跳过人声分离与识别"})
             reporter = NonokaXReporter()
             gpu_tier = resolve_request_gpu_tier(
                 request,

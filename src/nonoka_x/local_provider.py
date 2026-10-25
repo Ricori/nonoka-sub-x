@@ -58,16 +58,35 @@ _MAX_STYLES_BYTES = 1 << 20
 # changes the engine's stage list has to change this one; `tests/
 # test_vendor_contract.py` is where that pairing is checked.
 PIPELINE_TARGETS = ("vocal", "aligned", "stable", "raw-srt", "translated-srt", "final-srt")
-# Which readiness stage of `runtime_report` a target has to clear. Everything
-# up to the raw SRT is ASR work; the two LLM stages need a configured model.
+# Which readiness stages of `runtime_report` a target has to clear. Everything
+# up to the raw SRT is ASR work; the two LLM stages need a configured model on
+# top of it, since a run from media has to recognise before it can correct.
 TARGET_READINESS = {
-    "vocal": "raw-srt",
-    "aligned": "raw-srt",
-    "stable": "raw-srt",
-    "raw-srt": "raw-srt",
-    "translated-srt": "final-srt",
-    "final-srt": "final-srt",
+    "vocal": ("raw-srt",),
+    "aligned": ("raw-srt",),
+    "stable": ("raw-srt",),
+    "raw-srt": ("raw-srt",),
+    "translated-srt": ("raw-srt", "final-srt"),
+    "final-srt": ("raw-srt", "final-srt"),
 }
+# The same, for a run that continues from a stable.json the cloud recognised.
+# Nothing here transcribes, so none of it needs the ASR runtime: the raw SRT
+# is rendered by the harness alone, and the LLM stages add the model.
+CONTINUATION_READINESS = {
+    "raw-srt": ("harness",),
+    "translated-srt": ("final-srt",),
+    "final-srt": ("final-srt",),
+}
+# What FineSub's `[harness]` extra brings that the launcher must have to run
+# the LLM half: (distribution, module) pairs. `cryptography` is left out -- it
+# is imported only to sign a knowledge-share snapshot, which no task does.
+HARNESS_MODULES = (
+    ("httpx", "httpx"),
+    ("opencc-python-reimplemented", "opencc"),
+)
+# `finesub.llm.rate_limit` resolves America/Los_Angeles at import, and Windows
+# ships no tz database for zoneinfo to find it in.
+HARNESS_WINDOWS_MODULES = (("tzdata", "tzdata"),)
 # The text-only roles plugins may ask for, mapped onto engine roles by
 # `nonoka_x.llm_worker.ENGINE_ROLES`. The multimodal role is omitted
 # deliberately: it exists to put a clip in front of a model, and this entry
@@ -264,7 +283,26 @@ def runtime_report(settings: FineSubSettings | None = None, provisioner: Runtime
         ),
         "",
     ) or next((name for name in ("codex", "claude", "agy") if shutil.which(name)), "")
-    llm_issues = list(asr_issues)
+    # From stable.json onward the worker runs FineSub's LLM layer and nothing
+    # of the ASR stack, so a run continuing from the cloud's recognition needs
+    # neither the GPU platform, nor torch, nor the models -- only the harness.
+    # The worker runs on the managed runtime once it is ready, whose lock
+    # carries `[harness]`; until then it runs on this very interpreter, so this
+    # is the one to ask.
+    harness_issues = list(media_issues)
+    if not managed_runtime_ready:
+        wanted = HARNESS_MODULES + (HARNESS_WINDOWS_MODULES if sys.platform == "win32" else ())
+        missing_harness = [
+            distribution for distribution, module in wanted
+            if importlib.util.find_spec(module) is None
+        ]
+        if missing_harness:
+            harness_issues.append(_issue(
+                "missing_harness",
+                "本地续跑依赖缺失：" + "、".join(missing_harness)
+                + "；请在「运行环境」页重建 Python 启动环境，或安装完整运行环境",
+            ))
+    llm_issues = list(harness_issues)
     # 装了 CLI 不等于配好了模型：只有设置里保存下来的全局模型（提供商 + 模型，
     # 且凭据或 CLI 到位）才放行 LLM 环节。
     if not settings_snapshot.get("llmReady"):
@@ -281,6 +319,7 @@ def runtime_report(settings: FineSubSettings | None = None, provisioner: Runtime
     stages = [
         stage("media", "媒体探测", media_issues),
         stage("raw-srt", "生成原始字幕", asr_issues),
+        stage("harness", "云端识别后本地续跑", harness_issues),
         stage("final-srt", "纠错与翻译", llm_issues),
         stage("knowledge", "知识库更新", knowledge_issues),
         stage("video-multimodal", "视频多模态纠错", llm_issues),
@@ -460,8 +499,10 @@ def validate_request(value: Mapping[str, Any]) -> dict[str, Any]:
     if request.get("provider") != "local":
         raise ProviderError("unsupported_provider", "Local Provider only accepts provider=local")
     source = request.get("source")
-    if not isinstance(source, dict) or source.get("kind") != "local_file":
-        raise ProviderError("invalid_source", "Local Provider requires source.kind=local_file")
+    if not isinstance(source, dict) or source.get("kind") not in SOURCE_KINDS:
+        raise ProviderError(
+            "invalid_source", "Local Provider requires source.kind=local_file or cloud_stable"
+        )
     path_value = source.get("path")
     if not isinstance(path_value, str) or not Path(path_value).is_absolute():
         raise ProviderError("invalid_source", "Local source path must be absolute")
@@ -476,6 +517,9 @@ def validate_request(value: Mapping[str, Any]) -> dict[str, Any]:
         raise ProviderError(
             "unsupported_target", "target must be one of: " + ", ".join(PIPELINE_TARGETS)
         )
+    continuation = source["kind"] == "cloud_stable"
+    if continuation:
+        _validate_cloud_stable(request)
     # Whether a finished run turns into the editable subtitle document. The
     # default is the app's own behaviour and the reason this is a field at all
     # is the other value: projection replaces the video's default document, so
@@ -524,8 +568,12 @@ def validate_request(value: Mapping[str, Any]) -> dict[str, Any]:
         isinstance(key, str) and isinstance(value, str) for key, value in llm_model.items()
     ):
         raise ProviderError("invalid_request", "llm_model entries must be strings")
-    vocal_profile = request.setdefault("vocal_profile", "quality")
-    if vocal_profile != "quality":
+    if continuation:
+        # The cloud separated with its own profile -- `cost` by default -- and
+        # nothing here separates again, so whatever the request carries over
+        # from the cloud leg describes a stage that already ran.
+        request.pop("vocal_profile", None)
+    elif request.setdefault("vocal_profile", "quality") != "quality":
         raise ProviderError(
             "invalid_request", "Local Provider only supports vocal_profile=quality"
         )
@@ -556,6 +604,10 @@ def validate_request(value: Mapping[str, Any]) -> dict[str, Any]:
         raise ProviderError("invalid_axis", str(exc)) from exc
     if axis is None:
         request.pop("axis", None)
+    elif continuation:
+        raise ProviderError(
+            "invalid_axis", "a source-text axis replaces recognition; it cannot continue a cloud run"
+        )
     elif axis["kind"] != "ja":
         raise ProviderError(
             "invalid_axis", f"axis.kind={axis['kind']} does not start a task; import it instead"
@@ -567,11 +619,56 @@ def validate_request(value: Mapping[str, Any]) -> dict[str, Any]:
     diarization = normalize_diarization(
         request.get("diarization"), target=request["target"], has_axis="axis" in request
     )
+    if continuation:
+        # The cloud wrote its acoustic labels onto the stable.json, and those
+        # render as they are. It ships no speaker timeline or evidence, so the
+        # judge levels have nothing to judge here; asking for them again would
+        # only rerun the acoustic stage, which needs the ASR runtime.
+        diarization = None
     if diarization is None:
         request.pop("diarization", None)
     else:
         request["diarization"] = diarization
     return request
+
+
+#: Where a task's input comes from. `local_file` is media this machine
+#: recognises itself; `cloud_stable` is media the cloud has already recognised,
+#: delivered as the stable.json the run continues from.
+SOURCE_KINDS = ("local_file", "cloud_stable")
+#: A cloud job stops at stable, so these are what is left to run here.
+CONTINUATION_TARGETS = ("raw-srt", "translated-srt", "final-srt")
+
+
+def _validate_cloud_stable(request: dict[str, Any]) -> None:
+    """Check what a continuation carries beyond a local run's fields.
+
+    `source.path` is still the media -- the correction cuts audio and video
+    clips from it, and the editor draws its waveform -- and was checked with
+    every other source. What is new is `source.stable_json`, the cloud's
+    recognition, which the worker seeds into the task's workspace so the
+    engine resumes from it instead of transcribing.
+    """
+
+    source = request["source"]
+    if request["target"] not in CONTINUATION_TARGETS:
+        raise ProviderError(
+            "unsupported_target",
+            "a cloud_stable source continues to one of: " + ", ".join(CONTINUATION_TARGETS),
+        )
+    value = source.get("stable_json")
+    if not isinstance(value, str) or not Path(value).is_absolute():
+        raise ProviderError("invalid_source", "source.stable_json must be an absolute path")
+    stable_path = Path(value).expanduser().resolve()
+    try:
+        document = json.loads(stable_path.read_text(encoding="utf-8"))
+    except FileNotFoundError as exc:
+        raise ProviderError("source_not_found", f"stable.json does not exist: {stable_path}") from exc
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ProviderError("invalid_source", f"stable.json is unreadable: {exc}") from exc
+    if not isinstance(document, dict) or not isinstance(document.get("segments"), list):
+        raise ProviderError("invalid_source", "stable.json has no segments list")
+    source["stable_json"] = str(stable_path)
 
 
 # FineSub's `stages.DIARIZE_LEVELS`, restated for the same reason as
@@ -934,16 +1031,21 @@ class LocalProvider:
             issue = self._issues[0]
             raise ProviderError(issue["code"], issue["message"], http_status=503)
         if not self._issues_override:
-            stage_id = TARGET_READINESS[validated["target"]]
-            if validated.get("knowledge") == "update" and stage_id == "final-srt":
-                stage_id = "knowledge"
-            stage = next(
-                item for item in runtime_report(self._settings, self._provisioner)["stages"]
-                if item["id"] == stage_id
+            readiness = (
+                CONTINUATION_READINESS
+                if validated["source"]["kind"] == "cloud_stable"
+                else TARGET_READINESS
             )
-            if not stage["ready"]:
-                issue = stage["issues"][0]
-                raise ProviderError(issue["code"], issue["message"], http_status=503)
+            stages = {
+                item["id"]: item
+                for item in runtime_report(self._settings, self._provisioner)["stages"]
+            }
+            for stage_id in readiness[validated["target"]]:
+                if validated.get("knowledge") == "update" and stage_id == "final-srt":
+                    stage_id = "knowledge"
+                if not stages[stage_id]["ready"]:
+                    issue = stages[stage_id]["issues"][0]
+                    raise ProviderError(issue["code"], issue["message"], http_status=503)
         task_id = uuid.uuid4().hex
         now = utc_now()
         snapshot = {

@@ -3,7 +3,9 @@
 # uv pip compile --generate-hashes emits every published wheel of each pinned
 # version, so the macOS wheels of pydantic-core are already covered and
 # --require-hashes verifies whichever one the platform resolves to.
-# Regenerate with uv pip compile pyproject.toml --generate-hashes for Python 3.12.
+# Regenerate with uv pip compile pyproject.toml --generate-hashes --universal
+# --python-version 3.12 -o bootstrap-requirements.py312.txt; --universal keeps
+# tzdata's Windows-only marker instead of resolving it away for the host.
 annotated-types==0.8.0 \
     --hash=sha256:13b2beaad985e05e2d6407ee4c4f35590b11f8d693a258a561055cac8f64cab7 \
     --hash=sha256:f072f4d804ea359e4eaf198b1af7a8b0943881a87f31bb764f8bf219bb9419e0
@@ -36,6 +38,10 @@ idna==3.19 \
     # via
     #   anyio
     #   httpx
+opencc-python-reimplemented==0.1.7 \
+    --hash=sha256:41b3b92943c7bed291f448e9c7fad4b577c8c2eae30fcfe5a74edf8818493aa6 \
+    --hash=sha256:4f777ea3461a25257a7b876112cfa90bb6acabc6dfb843bf4d11266e43579dee
+    # via nonoka-x (pyproject.toml)
 pydantic==2.13.4 \
     --hash=sha256:45a282cde31d808236fd7ea9d919b128653c8b38b393d1c4ab335c62924d9aba \
     --hash=sha256:c40756b57adaa8b1efeeced5c196f3f3b7c435f90e84ea7f443901bec8099ef6
@@ -174,3 +180,7 @@ typing-inspection==0.4.4 \
     --hash=sha256:547274fa6b0a561ccf549cc9524b999a578e737d015d8709d021f9d0d13bea47 \
     --hash=sha256:65b8397ba37ccbce054456aaccddfc91e6e3083c92824df348d96ca832f3f147
     # via pydantic
+tzdata==2026.5 ; sys_platform == 'win32' \
+    --hash=sha256:8cc73c0a0bfca7dbfa59235d60b2eff82231dee33f53d206db1acd9173cfc0a7 \
+    --hash=sha256:b683bd1b6659ddcd810ff02ad09ba821d4bf1065072805063eb35c49617905ac
+    # via nonoka-x (pyproject.toml)

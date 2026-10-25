@@ -655,11 +655,15 @@ class PipelineTargetTests(ProviderFixture):
         demanded a configured LLM -- a stage that never calls one.
         """
 
-        from nonoka_x.local_provider import TARGET_READINESS
+        from nonoka_x.local_provider import CONTINUATION_READINESS, TARGET_READINESS
 
-        self.assertEqual(TARGET_READINESS["vocal"], "raw-srt")
-        self.assertEqual(TARGET_READINESS["stable"], "raw-srt")
-        self.assertEqual(TARGET_READINESS["translated-srt"], "final-srt")
+        self.assertEqual(TARGET_READINESS["vocal"], ("raw-srt",))
+        self.assertEqual(TARGET_READINESS["stable"], ("raw-srt",))
+        # From media, the LLM stages recognise first: both gates apply.
+        self.assertEqual(TARGET_READINESS["translated-srt"], ("raw-srt", "final-srt"))
+        # From the cloud's stable.json, nothing recognises: the ASR gate never does.
+        self.assertEqual(CONTINUATION_READINESS["raw-srt"], ("harness",))
+        self.assertEqual(CONTINUATION_READINESS["final-srt"], ("final-srt",))
 
     def test_projection_defaults_to_writing_the_document(self) -> None:
         from nonoka_x.local_provider import validate_request
@@ -830,6 +834,170 @@ class LLMCallTests(ProviderFixture):
                     provider.llm_complete(payload)
         self.assertIsNone(provider._llm_process)
         provider.shutdown()
+
+
+class HarnessReadinessTests(unittest.TestCase):
+    """The LLM half stands on its own tier, not on the ASR one.
+
+    `final-srt` used to inherit every ASR issue, so a machine without the
+    managed runtime -- or not on Windows at all -- could not correct a
+    subtitle the cloud had already recognised.
+    """
+
+    def report(self, *, runtime_state: str, platform: str = "win32", missing: set[str] = frozenset()):
+        media_tool = Path(__file__)
+
+        class Provisioner:
+            def status(self) -> dict:
+                return {"runtime": {"state": runtime_state}, "resources": [], "models": []}
+
+            def tool_path(self, _name: str) -> Path:
+                return media_tool
+
+        class Settings:
+            def snapshot(self) -> dict:
+                return {"llmReady": True, "retrievalKeyConfigured": False}
+
+        # Every module is present but the ones named: the launcher running
+        # these tests has whatever it has, and the report must not depend on it.
+        def find_spec(name, *_args, **_kwargs):
+            return None if name in missing else object()
+
+        with (
+            patch("nonoka_x.local_provider.sys.platform", platform),
+            patch("nonoka_x.local_provider.shutil.which", return_value=str(media_tool)),
+            patch("nonoka_x.local_provider.local_agent_executable", return_value=None),
+            patch("nonoka_x.local_provider.importlib.util.find_spec", side_effect=find_spec),
+        ):
+            report = runtime_report(settings=Settings(), provisioner=Provisioner())
+        return {stage["id"]: stage for stage in report["stages"]}
+
+    def test_correction_is_ready_where_recognition_is_not(self) -> None:
+        stages = self.report(runtime_state="missing", missing={"torch"})
+        self.assertFalse(stages["raw-srt"]["ready"])
+        self.assertTrue(stages["harness"]["ready"])
+        self.assertTrue(stages["final-srt"]["ready"])
+        self.assertTrue(stages["knowledge"]["ready"])
+
+    def test_an_unsupported_platform_blocks_recognition_only(self) -> None:
+        stages = self.report(runtime_state="missing", platform="darwin")
+        self.assertIn("unsupported_platform", {issue["code"] for issue in stages["raw-srt"]["issues"]})
+        self.assertTrue(stages["final-srt"]["ready"])
+
+    def test_a_launcher_without_the_harness_says_which_packages(self) -> None:
+        stages = self.report(runtime_state="missing", missing={"opencc", "tzdata"})
+        issue = stages["harness"]["issues"][0]
+        self.assertEqual(issue["code"], "missing_harness")
+        self.assertIn("opencc-python-reimplemented", issue["message"])
+        self.assertIn("tzdata", issue["message"])
+        self.assertFalse(stages["final-srt"]["ready"])
+
+    def test_tzdata_is_only_wanted_on_windows(self) -> None:
+        stages = self.report(runtime_state="missing", platform="darwin", missing={"tzdata"})
+        self.assertTrue(stages["harness"]["ready"])
+
+    def test_a_ready_runtime_is_trusted_to_carry_the_harness(self) -> None:
+        # The worker runs on the managed interpreter then, whose lock includes
+        # `[harness]`; the launcher's own packages are beside the point.
+        stages = self.report(runtime_state="ready", missing={"opencc"})
+        self.assertTrue(stages["harness"]["ready"])
+
+
+class CloudStableContinuationTests(ProviderFixture):
+    """A task that starts where the cloud's recognition stopped."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.stable = self.root / "cloud.stable.json"
+        self.stable.write_bytes((ROOT / "tests/fixtures/finesub/sample-stable.json").read_bytes())
+
+    def continuation(self, target: str = "final-srt") -> dict:
+        request = self.request()
+        request["source"] = {
+            "kind": "cloud_stable",
+            "path": str(self.source),
+            "stable_json": str(self.stable),
+            "title": "success",
+        }
+        request["target"] = target
+        return request
+
+    def test_the_cloud_legs_own_fields_are_dropped(self) -> None:
+        from nonoka_x.local_provider import validate_request
+
+        request = self.continuation()
+        request["vocal_profile"] = "cost"
+        request["diarization"] = {"level": "judge-text"}
+        validated = validate_request(request)
+        self.assertNotIn("vocal_profile", validated)
+        self.assertNotIn("diarization", validated)
+        self.assertEqual(validated["source"]["stable_json"], str(self.stable.resolve()))
+        # The cost profile is still refused for a run that separates here.
+        local = self.request()
+        local["vocal_profile"] = "cost"
+        with self.assertRaisesRegex(ProviderError, "vocal_profile"):
+            validate_request(local)
+
+    def test_only_the_stages_after_stable_continue(self) -> None:
+        from nonoka_x.local_provider import validate_request
+
+        for target in ("raw-srt", "translated-srt", "final-srt"):
+            with self.subTest(target):
+                self.assertEqual(validate_request(self.continuation(target))["target"], target)
+        for target in ("vocal", "aligned", "stable"):
+            with self.subTest(target), self.assertRaisesRegex(ProviderError, "continues to"):
+                validate_request(self.continuation(target))
+
+    def test_a_missing_or_unusable_stable_json_is_refused(self) -> None:
+        from nonoka_x.local_provider import validate_request
+
+        cases = {
+            "relative": ("cloud.stable.json", "absolute path"),
+            "missing": (str(self.root / "gone.json"), "does not exist"),
+        }
+        broken = self.root / "broken.json"
+        broken.write_text("{", encoding="utf-8")
+        cases["broken"] = (str(broken), "unreadable")
+        shapeless = self.root / "shapeless.json"
+        shapeless.write_text('{"lines": []}', encoding="utf-8")
+        cases["shapeless"] = (str(shapeless), "no segments")
+        for label, (value, expected) in cases.items():
+            with self.subTest(label):
+                request = self.continuation()
+                request["source"]["stable_json"] = value
+                with self.assertRaisesRegex(ProviderError, expected):
+                    validate_request(request)
+
+    def test_an_axis_cannot_continue_a_cloud_run(self) -> None:
+        from nonoka_x.local_provider import validate_request
+
+        request = self.continuation()
+        request["axis"] = {"kind": "ja", "rows": [{"t0": 0.0, "t1": 1.0, "ja": "x"}]}
+        with self.assertRaisesRegex(ProviderError, "cannot continue a cloud run"):
+            validate_request(request)
+
+    def test_a_continuation_starts_where_the_asr_runtime_is_missing(self) -> None:
+        provider = LocalProvider(
+            self.root / "tasks", ROOT / "third_party/finesub", worker_command=self.command
+        )
+        self.providers.append(provider)
+        blocked = {"code": "missing_runtime", "message": "AI 运行时缺失：torch"}
+
+        def report(*_args, **_kwargs) -> dict:
+            return {"stages": [
+                {"id": "raw-srt", "ready": False, "issues": [blocked]},
+                {"id": "harness", "ready": True, "issues": []},
+                {"id": "final-srt", "ready": True, "issues": []},
+                {"id": "knowledge", "ready": True, "issues": []},
+            ]}
+
+        with patch("nonoka_x.local_provider.runtime_report", side_effect=report):
+            task = provider.start(self.continuation("raw-srt"))
+            local = self.request()
+            local["target"] = "final-srt"
+            with self.assertRaisesRegex(ProviderError, "torch"):
+                provider.start(local)
+        wait_state(provider, task["task_id"], {"completed"})
 
 
 if __name__ == "__main__":
