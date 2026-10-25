@@ -98,6 +98,9 @@ func Run(assets fs.FS) error {
 	config, configErr := SidecarConfig()
 	manager := sidecar.New(config)
 	pythonBootstrap := NewPythonBootstrap(dataDirectory, manager)
+	// A launcher from before the harness packages gets them in the
+	// background; the sidecar keeps running on it meanwhile.
+	go pythonBootstrap.TopUpLauncher()
 	if configErr != nil {
 		log.Printf("sidecar configuration: %v", configErr)
 	}
@@ -213,6 +216,10 @@ func Run(assets fs.FS) error {
 	})
 	attachFileDrop(applicationInstance, home)
 	runErr := applicationInstance.Run()
+	// Relays first: a driver polling a sidecar that is shutting down would
+	// count that as the sidecar being away. Their state is on disk, and the
+	// next launch resumes each one.
+	cloudService.Close()
 	shutdownContext, cancel := context.WithTimeout(context.Background(), lifecycleTimeout)
 	stopErr := manager.Stop(shutdownContext)
 	cancel()

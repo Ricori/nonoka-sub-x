@@ -8,7 +8,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -20,7 +19,6 @@ import (
 	"time"
 
 	"github.com/Ricori/nonoka-x/desktop/internal/library"
-	"github.com/Ricori/nonoka-x/desktop/internal/telemetry"
 )
 
 func TestStartFailureCategories(t *testing.T) {
@@ -41,59 +39,6 @@ func TestStartFailureCategories(t *testing.T) {
 		if got := startFailureCode(fmt.Errorf("wrapped: %w", test.err)); got != test.want {
 			t.Errorf("%T: got %s, want %s", test.err, got, test.want)
 		}
-	}
-}
-
-func TestRetryCollectsFailureBeforeRemoteStateChanges(t *testing.T) {
-	root := t.TempDir()
-	id := "vid_0123456789abcdef01234567"
-	gets := 0
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		if r.Method == http.MethodGet {
-			gets++
-			if strings.HasSuffix(r.URL.Path, "/events") {
-				if r.URL.Query().Get("after") != "100" {
-					t.Error("event tail cursor missing")
-				}
-				fmt.Fprint(w, `{"events":[{"type":"started","payload":{"stage":"queued"}},{"type":"stage","payload":{"stage":"asr"}},{"type":"failed","payload":{"stage":"failed"}}]}`)
-			} else {
-				fmt.Fprint(w, `{"state":"failed","stage":"failed","last_cursor":600,"error":{"code":"engine_failed"}}`)
-			}
-		} else {
-			if gets != 2 {
-				t.Error("retry replaced failure before collection")
-			}
-			fmt.Fprint(w, `{"state":"queued"}`)
-		}
-	}))
-	defer server.Close()
-	s, err := New(root, fakeProvider{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	s.session = storedSession{Backend: server.URL, Key: "fixture"}
-	diagnostic, err := telemetry.New(root, "0.4.2", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	SetTelemetry(s, diagnostic)
-	diagnostic.TrackCloud(id)
-	if _, err := s.RetryTask(id); err != nil {
-		t.Fatal(err)
-	}
-	data, err := os.ReadFile(filepath.Join(root, "telemetry-desktop.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	var state struct {
-		Pending []telemetry.Event `json:"pending"`
-	}
-	if err := json.Unmarshal(data, &state); err != nil {
-		t.Fatal(err)
-	}
-	if len(state.Pending) != 1 || state.Pending[0].Error.Stage != "asr" {
-		t.Fatalf("failure not preserved: %s", data)
 	}
 }
 
@@ -235,8 +180,6 @@ func TestLoginLibraryAndArtifactSync(t *testing.T) {
 			_, _ = writer.Write([]byte(`{"authenticated":true,"remaining":3,"running":0}`))
 		case "/v1/library":
 			_, _ = writer.Write([]byte(`{"videos":[]}`))
-		case "/v1/tasks":
-			_, _ = writer.Write([]byte(`{"schema":1,"tasks":[{"snapshot":{"task_id":"vid_0123456789abcdef01234567","provider":"cloud","state":"completed"},"media_id":"","title":"demo"}]}`))
 		case "/v1/library/sync":
 			var body syncRequest
 			if err := json.NewDecoder(request.Body).Decode(&body); err != nil || body.Artifacts["final_srt"] == "" {
@@ -271,7 +214,8 @@ func TestLoginLibraryAndArtifactSync(t *testing.T) {
 	if library, err := service.Library(); err != nil || len(library) != 0 {
 		t.Fatalf("library = %#v, %v", library, err)
 	}
-	if tasks, err := service.ListTasks(); err != nil || len(tasks["tasks"].([]any)) != 1 {
+	// Tasks are this desktop's relays; none has run here.
+	if tasks, err := service.ListTasks(); err != nil || len(tasks["tasks"].([]map[string]any)) != 0 {
 		t.Fatalf("tasks = %#v, %v", tasks, err)
 	}
 	entry, err := service.SyncLocalTask(taskID, "loc_1", "fp", "demo", 1)
@@ -710,133 +654,6 @@ func TestStartTaskKeepsUploadUnlessBackendRefusedTask(t *testing.T) {
 	}
 }
 
-func TestCloudTaskUploadsAudioPollsCancelsAndProjectsArtifacts(t *testing.T) {
-	root := t.TempDir()
-	source := filepath.Join(root, "video.mp4")
-	if err := os.WriteFile(source, []byte("video"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	const taskID = "vid_0123456789abcdef01234567"
-	const uploadID = "upl_0123456789abcdef0123456789abcdef"
-	uploaded := false
-	var cover []byte
-	declaredThumbnail := false
-	var server *httptest.Server
-	server = httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		writer.Header().Set("Content-Type", "application/json")
-		if request.Method == http.MethodPut && request.URL.Path == "/upload" {
-			payload, _ := io.ReadAll(request.Body)
-			uploaded = string(payload) == "audio-fixture"
-			writer.WriteHeader(http.StatusNoContent)
-			return
-		}
-		if request.Method == http.MethodPut && request.URL.Path == "/upload-thumb" {
-			cover, _ = io.ReadAll(request.Body)
-			if request.Header.Get("Content-Type") != "image/jpeg" {
-				http.Error(writer, `{"detail":"cover must be jpeg"}`, http.StatusBadRequest)
-				return
-			}
-			writer.WriteHeader(http.StatusNoContent)
-			return
-		}
-		if request.Header.Get("Authorization") != "Bearer login-key" {
-			http.Error(writer, `{"detail":"unauthorized"}`, http.StatusUnauthorized)
-			return
-		}
-		switch {
-		case request.URL.Path == "/v1/session":
-			_, _ = writer.Write([]byte(`{"authenticated":true,"remaining":2,"running":0}`))
-		case request.URL.Path == "/v1/capabilities":
-			_, _ = writer.Write([]byte(`{"provider":"cloud","adapter_schema":1,"artifact_schema":1}`))
-		case request.URL.Path == "/v1/uploads/init":
-			_, _ = writer.Write([]byte(`{"objectId":"` + uploadID + `","uploadUrl":"` + server.URL + `/upload","contentType":"audio/mp4","thumbUploadUrl":"` + server.URL + `/upload-thumb"}`))
-		case request.Method == http.MethodGet && request.URL.Path == "/v1/library/"+taskID+"/thumbnail":
-			writer.Header().Set("Content-Type", "image/jpeg")
-			_, _ = writer.Write(cover)
-		case request.Method == http.MethodPost && request.URL.Path == "/v1/tasks":
-			var body map[string]any
-			_ = json.NewDecoder(request.Body).Decode(&body)
-			source := body["source"].(map[string]any)
-			correction := body["correction"].(map[string]any)
-			if source["kind"] != "uploaded_audio" || source["object_id"] != uploadID || source["fingerprint"] != "fingerprint" {
-				http.Error(writer, `{"detail":"invalid source"}`, http.StatusBadRequest)
-				return
-			}
-			declaredThumbnail = source["thumbnail"] == true
-			if correction["media"] != "text" || correction["retrieval"] != "none" {
-				http.Error(writer, `{"detail":"cloud correction must be text-only without retrieval"}`, http.StatusBadRequest)
-				return
-			}
-			_, _ = writer.Write([]byte(`{"schema":1,"task_id":"` + taskID + `","provider":"cloud","state":"queued"}`))
-		case request.Method == http.MethodGet && request.URL.Path == "/v1/tasks/"+taskID:
-			_, _ = writer.Write([]byte(`{"schema":1,"task_id":"` + taskID + `","provider":"cloud","state":"completed"}`))
-		case request.Method == http.MethodGet && request.URL.Path == "/v1/tasks/"+taskID+"/events":
-			_, _ = writer.Write([]byte(`{"schema":1,"task_id":"` + taskID + `","events":[],"next_cursor":0,"state":"completed"}`))
-		case request.Method == http.MethodPost && request.URL.Path == "/v1/tasks/"+taskID+"/cancel":
-			_, _ = writer.Write([]byte(`{"schema":1,"task_id":"` + taskID + `","provider":"cloud","state":"cancelled"}`))
-		case request.Method == http.MethodGet && request.URL.Path == "/v1/tasks/"+taskID+"/artifacts":
-			_, _ = writer.Write([]byte(`{"schema":1,"task_id":"` + taskID + `","engine_commit":"commit","artifacts":{"stable_json":{"uri":"/v1/tasks/` + taskID + `/artifacts/stable_json","sha256":"97bfe45dfecd80477bc6cafdd457b5f23045d8715fbdc98f6da175f6f2ec6b4f","bytes":58}}}`))
-		case request.Method == http.MethodGet && request.URL.Path == "/v1/tasks/"+taskID+"/artifacts/stable_json":
-			writer.Header().Set("Content-Type", "application/json")
-			_, _ = writer.Write([]byte(`{"segments":[{"id":1,"start":0,"end":1,"text":"fixture"}]}`))
-		default:
-			http.NotFound(writer, request)
-		}
-	}))
-	defer server.Close()
-
-	projector := &projectingProvider{}
-	service, err := New(root, projector, fakeMedia{path: source, thumbnail: "cover-fixture"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	service.extractor = func(_ context.Context, _, output string) error {
-		return os.WriteFile(output, []byte("audio-fixture"), 0o600)
-	}
-	if _, err := service.Login(server.URL, "login-key"); err != nil {
-		t.Fatal(err)
-	}
-	if capabilities, err := service.Capabilities(); err != nil || capabilities["provider"] != "cloud" {
-		t.Fatalf("capabilities = %#v, %v", capabilities, err)
-	}
-	snapshot, err := service.StartTask("loc_0123456789ab", map[string]any{"target": "raw-srt"})
-	if err != nil || snapshot["task_id"] != taskID || !uploaded {
-		t.Fatalf("start = %#v, uploaded=%v, err=%v", snapshot, uploaded, err)
-	}
-	// The cover goes up beside the audio, and the task declares it: a library
-	// that trusted the flag without the upload would render a broken image on
-	// every cloud-only card.
-	if string(cover) != "cover-fixture" || !declaredThumbnail {
-		t.Fatalf("cover = %q, declared = %v", cover, declaredThumbnail)
-	}
-	thumbnail, err := service.ThumbnailDataURL(taskID)
-	if err != nil || thumbnail != "data:image/jpeg;base64,"+base64.StdEncoding.EncodeToString([]byte("cover-fixture")) {
-		t.Fatalf("thumbnail = %q, %v", thumbnail, err)
-	}
-	if data, err := os.ReadFile(filepath.Join(root, "cloud-thumbnails", taskID+".jpg")); err != nil || string(data) != "cover-fixture" {
-		t.Fatalf("cached cover = %q, %v", data, err)
-	}
-	if status, err := service.TaskStatus(taskID); err != nil || status["state"] != "completed" {
-		t.Fatalf("status = %#v, %v", status, err)
-	}
-	if _, err := service.TaskEvents(taskID, 0); err != nil {
-		t.Fatal(err)
-	}
-	if cancelled, err := service.CancelTask(taskID); err != nil || cancelled["state"] != "cancelled" {
-		t.Fatalf("cancel = %#v, %v", cancelled, err)
-	}
-	manifest, err := service.TaskArtifacts(taskID)
-	if err != nil || manifest["engine_commit"] != "commit" {
-		t.Fatalf("artifacts = %#v, %v", manifest, err)
-	}
-	if projector.projected == nil || projector.projected["video_id"] != "loc_0123456789ab" {
-		t.Fatalf("projection = %#v", projector.projected)
-	}
-	if projector.projected["relaxed_srt"] != true {
-		t.Fatalf("cloud projection must bypass SRT validation: %#v", projector.projected)
-	}
-}
-
 // Media transcribed on another machine reaches this one as a fingerprint match
 // and nothing more: the card merges, reports the cloud copy, and still offers
 // to transcribe the video again because no local document exists. Adoption is
@@ -863,9 +680,9 @@ func TestAdoptLibraryEntryProjectsSubtitlesTranscribedElsewhere(t *testing.T) {
 		case request.URL.Path == "/v1/library/"+taskID+"/thumbnail":
 			writer.Header().Set("Content-Type", "image/jpeg")
 			_, _ = writer.Write([]byte(cover))
-		case request.URL.Path == "/v1/tasks/"+taskID+"/artifacts":
-			_, _ = writer.Write([]byte(`{"schema":1,"task_id":"` + taskID + `","engine_commit":"commit","artifacts":{"stable_json":{"uri":"/v1/tasks/` + taskID + `/artifacts/stable_json","sha256":"97bfe45dfecd80477bc6cafdd457b5f23045d8715fbdc98f6da175f6f2ec6b4f","bytes":58}}}`))
-		case request.URL.Path == "/v1/tasks/"+taskID+"/artifacts/stable_json":
+		case request.URL.Path == "/v1/library/"+taskID+"/artifacts":
+			_, _ = writer.Write([]byte(`{"schema":1,"task_id":"` + taskID + `","engine_commit":"commit","artifacts":{"stable_json":{"uri":"/v1/library/` + taskID + `/artifacts/stable_json","sha256":"97bfe45dfecd80477bc6cafdd457b5f23045d8715fbdc98f6da175f6f2ec6b4f","bytes":58}}}`))
+		case request.URL.Path == "/v1/library/"+taskID+"/artifacts/stable_json":
 			_, _ = writer.Write([]byte(subtitles))
 		default:
 			http.NotFound(writer, request)
@@ -882,7 +699,6 @@ func TestAdoptLibraryEntryProjectsSubtitlesTranscribedElsewhere(t *testing.T) {
 	if _, err := service.Login(server.URL, "login-key"); err != nil {
 		t.Fatal(err)
 	}
-	// No StartTask ran here, so there is no task link to resolve the media by.
 	if err := service.AdoptLibraryEntry(taskID, "loc_0123456789ab"); err != nil {
 		t.Fatal(err)
 	}
@@ -1029,9 +845,9 @@ func TestAdoptLibraryEntryServesSubtitlesWhileANewAttemptIsUnfinished(t *testing
 			_, _ = writer.Write([]byte(`{"videos":[` +
 				`{"id":"` + taskID + `","title":"demo","fingerprint":"fingerprint","duration":60,"status":"failed","source":"cloud_audio","artifactNames":["stable_json"]},` +
 				`{"id":"` + emptyID + `","title":"never ran","fingerprint":"fingerprint","duration":60,"status":"failed","source":"cloud_audio"}]}`))
-		case request.URL.Path == "/v1/tasks/"+taskID+"/artifacts":
-			_, _ = writer.Write([]byte(`{"schema":1,"task_id":"` + taskID + `","engine_commit":"commit","artifacts":{"stable_json":{"uri":"/v1/tasks/` + taskID + `/artifacts/stable_json","sha256":"97bfe45dfecd80477bc6cafdd457b5f23045d8715fbdc98f6da175f6f2ec6b4f","bytes":58}}}`))
-		case request.URL.Path == "/v1/tasks/"+taskID+"/artifacts/stable_json":
+		case request.URL.Path == "/v1/library/"+taskID+"/artifacts":
+			_, _ = writer.Write([]byte(`{"schema":1,"task_id":"` + taskID + `","engine_commit":"commit","artifacts":{"stable_json":{"uri":"/v1/library/` + taskID + `/artifacts/stable_json","sha256":"97bfe45dfecd80477bc6cafdd457b5f23045d8715fbdc98f6da175f6f2ec6b4f","bytes":58}}}`))
+		case request.URL.Path == "/v1/library/"+taskID+"/artifacts/stable_json":
 			_, _ = writer.Write([]byte(subtitles))
 		default:
 			http.NotFound(writer, request)
@@ -1152,9 +968,9 @@ func TestSessionCarriesTheLibraryAndDropsTheExtraRequests(t *testing.T) {
 // A zero-byte cloud-sync-suppressions.json took the whole desktop down with
 // "unexpected end of JSON input" before main() drew a window. The writer cannot
 // produce that file -- it marshals at least `{}`, writes a temporary and
-// renames -- so the damage arrives from outside the app, and none of the three
-// files is worth refusing to start over: the session is a key the user can
-// enter again, and the links and suppressions rebuild from use.
+// renames -- so the damage arrives from outside the app, and neither file is
+// worth refusing to start over: the session is a key the user can enter again,
+// and the suppressions rebuild from use.
 func TestDamagedStateFilesDoNotBlockStartup(t *testing.T) {
 	for _, testCase := range []struct {
 		name string
@@ -1163,8 +979,6 @@ func TestDamagedStateFilesDoNotBlockStartup(t *testing.T) {
 	}{
 		{"empty suppressions", "cloud-sync-suppressions.json", ""},
 		{"truncated suppressions", "cloud-sync-suppressions.json", `{"fingerprint":`},
-		{"empty links", "cloud-tasks.json", ""},
-		{"links of the wrong shape", "cloud-tasks.json", `["not","a","map"]`},
 		{"empty session", "cloud-session.json", ""},
 		{"session with no key", "cloud-session.json", `{"backend":"https://example.test"}`},
 		{"session with a rejected backend", "cloud-session.json", `{"backend":"ftp://example.test","key":"k"}`},
@@ -1181,10 +995,10 @@ func TestDamagedStateFilesDoNotBlockStartup(t *testing.T) {
 			if service.Session().Authenticated {
 				t.Fatal("damaged state must not authenticate a session")
 			}
-			// Usable, not merely constructed: the maps have to be the empty
-			// ones the rest of the service writes into, never nil.
-			if service.links == nil || service.syncSuppressions == nil {
-				t.Fatalf("links=%#v suppressions=%#v, want empty maps", service.links, service.syncSuppressions)
+			// Usable, not merely constructed: the map has to be the empty one
+			// the rest of the service writes into, never nil.
+			if service.syncSuppressions == nil {
+				t.Fatalf("suppressions = %#v, want an empty map", service.syncSuppressions)
 			}
 		})
 	}

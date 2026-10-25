@@ -240,8 +240,9 @@ export function TranscriptionDialog(props: TranscriptionDialogProps) {
   const [diarizationChoice, setDiarizationChoice] = useState<DiarizationLevel>("off");
 
   const limitsFor = useCallback((target: ExecutionMode): KeyLimits => {
-    // 云端运行的凭据由 Nonoka Cloud 管理；读不到本地设置时也不做限制，避免误锁死。
-    const keys = target === "local" ? settings : null;
+    // 纠错与翻译无论哪种运行环境都在本机、用本机配置的模型跑（云端只做到 stable.json），
+    // 所以两边都看本地设置；读不到本地设置时不做限制，避免误锁死。
+    const keys = settings;
     const video = (target === "local" ? localCapabilities : cloudCapabilities)?.features.video_multimodal === true;
     // 音视频窗看的是「谁来答」，而自引擎 0.5.0 起答的人只有一个：钉住的模型组
     // 替换整条链，后面不再挂任何兜底。所以这里问的是选中的那个模型自己收不收，

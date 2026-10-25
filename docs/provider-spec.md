@@ -35,6 +35,21 @@ Provider 只负责**「把一个媒体源变成一组字幕产物」**，其余�
 
 两种形态对外暴露的**数据契约完全一致**，本规范第 3–8 节对两者同时生效。
 
+### 2.3 内置 Cloud Provider：两段式 relay
+
+内置的 Cloud Provider 是形态 A，但它的一个任务跨两段执行：云端只把媒体识别到 `stable.json`，桌面端取回后交给本地 Provider，用本机配置的模型完成纠错与翻译。前端看到的仍是一个任务——`provider: "cloud"`、一个 `rly_` 开头的 id、一条连续的事件流；两段的拼接全在 Go 侧（`desktop/internal/cloud/relay.go`）。
+
+| 阶段 | 做什么 | 失败后「重试」做什么 |
+| :--- | :--- | :--- |
+| 云端（`cloud`） | 上传音频、提交 `target=stable` 的作业，轮询状态并复制事件 | 作业还在就 `/retry` / `/resume`；作业已被清扫（404）就重新上传并提交，同一素材由票据免扣次 |
+| 取回（`fetch`） | 下载 `stable.json`，按云端公布的 sha256 校验，落盘后才 `DELETE` 云端作业 | 重新下载；校验不过不会删除云端作业 |
+| 本地（`local`） | 以 `source.kind=cloud_stable` 启动本地任务（见 4.2.1），复制其事件 | 本地任务已存在就 retry / resume（用引擎自己的断点）；本地拒绝启动（如未配置模型）就重新启动 |
+
+- **事件**：relay 把两段的事件重新编号成一条连续的游标序列，存在本机 `cloud-relays/<id>/events.jsonl`；云端作业删除后日志仍可读。云端自己的 `completed` 与本地任务的 `started`、以及本地对 vocal / aligned / stable 的「已有结果，跳过」不进入日志，交接处由 relay 写两条 `handoff`。
+- **快照**：`stage` 在云端段跟随作业；取回与等待本地启动期间为 `handoff`；本地段只在 `raw-srt` / `translated-srt` / `final-srt` 时跟随本地任务，进度条不会倒退。`requested_capabilities.target` 始终是用户要的最终目标。
+- **产物与同步**：本地段完成时已把文档投影好，`artifacts()` 返回本地任务的清单（`task_id` 换成 relay id）；云端库条目由完成后的同步（`/v1/library/sync`）创建，与本地任务一致。
+- **重启**：relay 记录与事件文件即状态；应用重启后每个未结束的 relay 从所在阶段继续。旧版的 `vid_` 云端任务 id 不再可查，统一报为失败（`legacy_cloud_task`）。
+
 ---
 
 ## 3. ExecutionProvider 接口定义
@@ -516,6 +531,7 @@ kind|position|duration|gap|corrected|translation|conf|chars|note               �
 | `postprocess-queued` | 等待字幕处理 | 等待 CPU 后处理资源 |
 | `stable` | 整理识别结果 | 稳定化，产出 `stable_json` |
 | `diarize` | 说话人分离 | 产出说话人时间线并写进 `stable_json` |
+| `handoff` | 取回识别结果 | 两段式任务的交接：取回云端 `stable_json`、等待本地续跑启动 |
 | `raw-srt` | 生成字幕 | 产出 `raw_srt` |
 | `llm-queued` | 等待纠错与翻译 | 等待 LLM 资源 |
 | `translated-srt` | 纠错与翻译 | 产出 `annotated_csv` |

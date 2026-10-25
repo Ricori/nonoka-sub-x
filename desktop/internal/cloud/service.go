@@ -42,7 +42,7 @@ const (
 )
 
 var validTaskID = regexp.MustCompile(`^[0-9a-f]{32}$`)
-var validCloudTaskID = regexp.MustCompile(`^vid_[0-9a-f]{24}$`)
+var validLibraryID = regexp.MustCompile(`^vid_[0-9a-f]{24}$`)
 var validUploadID = regexp.MustCompile(`^upl_[0-9a-f]{32}$`)
 var validLocalMediaID = regexp.MustCompile(`^loc_[0-9a-f]{12}$`)
 var validPlaintextKey = regexp.MustCompile(`^[A-Za-z0-9._~-]{1,256}$`)
@@ -186,16 +186,11 @@ type remoteArtifactManifest struct {
 	} `json:"artifacts"`
 }
 
-type taskLink struct {
-	LocalID string `json:"localId"`
-}
-
 type Service struct {
 	telemetry            *telemetry.Service
 	mu                   sync.RWMutex
 	syncMu               sync.Mutex
 	configPath           string
-	linksPath            string
 	syncSuppressionsPath string
 	root                 string
 	thumbRoot            string
@@ -207,8 +202,20 @@ type Service struct {
 	download             *http.Client
 	extractor            func(context.Context, string, string) error
 	session              storedSession
-	links                map[string]taskLink
 	syncSuppressions     map[string]int64
+
+	// Relays (relay.go). relayMu guards the records and the driver table;
+	// relayActionMu serialises the renderer's cancel and restart, which stop
+	// a relay's driver and act on the relay as its only writer.
+	relayRoot     string
+	relayPoll     time.Duration
+	relayMu       sync.RWMutex
+	relayActionMu sync.Mutex
+	relays        map[string]*relayRecord
+	drivers       map[string]*relayDriver
+	relayWG       sync.WaitGroup
+	lifetime      context.Context
+	stopRelays    context.CancelFunc
 }
 
 func New(dataDirectory string, provider providerCaller, resolvers ...mediaResolver) (*Service, error) {
@@ -221,7 +228,6 @@ func New(dataDirectory string, provider providerCaller, resolvers ...mediaResolv
 	}
 	service := &Service{
 		configPath:           filepath.Join(root, "cloud-session.json"),
-		linksPath:            filepath.Join(root, "cloud-tasks.json"),
 		syncSuppressionsPath: filepath.Join(root, "cloud-sync-suppressions.json"),
 		root:                 root,
 		thumbRoot:            filepath.Join(root, "cloud-thumbnails"),
@@ -233,13 +239,24 @@ func New(dataDirectory string, provider providerCaller, resolvers ...mediaResolv
 		extractor: func(ctx context.Context, source, output string) error {
 			return extractAudioWithRoot(ctx, root, source, output)
 		},
-		links:            map[string]taskLink{},
 		syncSuppressions: map[string]int64{},
+		relayRoot:        filepath.Join(root, "cloud-relays"),
+		relayPoll:        2 * time.Second,
+		relays:           map[string]*relayRecord{},
+		drivers:          map[string]*relayDriver{},
 	}
+	service.lifetime, service.stopRelays = context.WithCancel(context.Background())
 	if len(resolvers) > 0 {
 		service.media = resolvers[0]
 	}
 	service.load()
+	service.loadRelays()
+	// Every relay that was mid-flight when the app last closed picks up in
+	// the leg it was in. A driver waits out a sidecar or a session that is
+	// not there yet, so starting them this early is safe.
+	for id := range service.relays {
+		service.startRelayDriver(id)
+	}
 	return service, nil
 }
 
@@ -251,21 +268,23 @@ func (s *Service) Capabilities() (map[string]any, error) {
 
 func SetTelemetry(s *Service, t *telemetry.Service) {
 	s.telemetry = t
-	t.SetCloudStatus(func(ctx context.Context, id string) (map[string]any, error) {
-		var result map[string]any
-		err := s.authenticatedDo(ctx, http.MethodGet, "/v1/tasks/"+id, nil, &result)
-		if err == nil && result["state"] == "failed" {
-			// Existing deployments replace the terminal stage; recover it from recent events.
-			cursor, _ := result["last_cursor"].(float64)
-			var page map[string]any
-			if s.authenticatedDo(ctx, http.MethodGet, fmt.Sprintf("/v1/tasks/%s/events?after=%d", id, max(0, int(cursor)-500)), nil, &page) == nil {
-				result["events"] = page["events"]
-			}
+	// Answered from the relay record, not the backend: the cloud job is
+	// deleted once its result is collected, and the stage a relay failed in
+	// may be one that ran on this machine.
+	t.SetCloudStatus(func(_ context.Context, id string) (map[string]any, error) {
+		record, err := s.relay(id)
+		if err != nil {
+			return nil, err
 		}
-		return result, err
+		return record.snapshot(), nil
 	})
 }
 
+// StartTask starts a relay: the cloud recognises the media up to stable.json,
+// and this desktop continues from it with the user's own models once the file
+// is collected (relay.go). Returns the relay's snapshot, which is what the
+// renderer tracks; the cloud job behind it is an implementation detail that is
+// deleted as soon as its result is on disk.
 func (s *Service) StartTask(localID string, options map[string]any) (result map[string]any, err error) {
 	submitted := false
 	defer func() {
@@ -283,100 +302,130 @@ func (s *Service) StartTask(localID string, options map[string]any) (result map[
 			s.telemetry.StartFailure("cloud", startFailureCode(err))
 		}
 	}()
+	if !validLocalMediaID.MatchString(localID) {
+		return nil, errors.New("invalid media id")
+	}
+	if options == nil {
+		options = map[string]any{}
+	}
+	// A source-text axis is already the recognition result, so a relay would
+	// have nothing to send the cloud. The backend refuses it too; saying so here
+	// spares the upload.
+	if axisOption(options) != nil {
+		return nil, errors.New("导入的日文轴不需要云端识别，请选择本机运行")
+	}
 	if s.media == nil {
 		return nil, errors.New("media library is unavailable")
 	}
-	path, title, fingerprint, duration, err := s.media.ResolveMedia(localID)
+	_, title, fingerprint, duration, err := s.media.ResolveMedia(localID)
 	if err != nil {
 		return nil, err
 	}
+	target := "final-srt"
+	if value, _ := options["target"].(string); value == "raw-srt" {
+		target = value
+	}
+	id, err := newRelayID()
+	if err != nil {
+		return nil, err
+	}
+	jobID, err := s.submitCloudJobTracked(localID, options, &submitted)
+	if err != nil {
+		return nil, err
+	}
+	now := relayNow()
+	record := &relayRecord{
+		Schema: 1, ID: id, LocalID: localID, Title: title, Fingerprint: fingerprint, Duration: duration,
+		Target: target, Options: options, Phase: relayPhaseCloud, CloudJobID: jobID,
+		State: "queued", Stage: "queued", CreatedAt: now, StartedAt: now, UpdatedAt: now,
+	}
+	s.relayMu.Lock()
+	err = s.appendRelayLinesLocked(record, []relayLine{relayNote("started", "已提交云端识别，等待 GPU 调度")})
+	if err == nil {
+		err = s.saveRelayLocked(record)
+	}
+	if err == nil {
+		s.relays[id] = record
+	}
+	s.relayMu.Unlock()
+	if err != nil {
+		// The job is paid for and running; only this desktop lost track of
+		// it. The backend sweeps it, and the ticket makes a resubmission free.
+		return nil, fmt.Errorf("云端识别已提交，但本机记录任务失败：%w", err)
+	}
+	s.startRelayDriver(id)
+	return record.clone().snapshot(), nil
+}
+
+func (s *Service) submitCloudJob(localID string, options map[string]any) (string, error) {
+	submitted := false
+	return s.submitCloudJobTracked(localID, options, &submitted)
+}
+
+// submitCloudJobTracked extracts the audio, uploads it and submits the
+// recognition job. `submitted` turns true once the job request has been sent,
+// which is where a failure stops being proof that nothing was created.
+func (s *Service) submitCloudJobTracked(localID string, options map[string]any, submitted *bool) (string, error) {
+	if s.media == nil {
+		return "", errors.New("media library is unavailable")
+	}
+	path, title, fingerprint, duration, err := s.media.ResolveMedia(localID)
+	if err != nil {
+		return "", err
+	}
 	if duration <= 0 || duration > 2*time.Hour.Seconds() {
-		return nil, errors.New("cloud audio duration must be between 0 and 2 hours")
+		return "", errors.New("cloud audio duration must be between 0 and 2 hours")
 	}
 	uploadRoot := filepath.Join(s.root, "cloud-uploads")
 	if err := os.MkdirAll(uploadRoot, 0o700); err != nil {
-		return nil, err
+		return "", err
 	}
 	work, err := os.MkdirTemp(uploadRoot, "task-")
 	if err != nil {
-		return nil, err
+		return "", err
 	}
 	defer os.RemoveAll(work)
-	// A source-text axis is the recognition result: the cloud runs only the LLM
-	// leg over it and never opens an audio file, so extracting and shipping one
-	// would be minutes and hundreds of megabytes spent on bytes nothing reads.
-	// The upload slot is still claimed -- it carries ownership, the library's
-	// cover, and the id the task record is keyed by.
-	axis := axisOption(options)
-	audio := ""
-	var audioBytes int64
-	if axis == nil {
-		audio = filepath.Join(work, "source.m4a")
-		if err := s.extractor(context.Background(), path, audio); err != nil {
-			return nil, err
-		}
-		stat, err := os.Stat(audio)
-		if err != nil {
-			return nil, err
-		}
-		audioBytes = stat.Size()
+	audio := filepath.Join(work, "source.m4a")
+	if err := s.extractor(context.Background(), path, audio); err != nil {
+		return "", err
+	}
+	stat, err := os.Stat(audio)
+	if err != nil {
+		return "", err
 	}
 	var initialized struct {
-		ObjectID       string `json:"objectId"`
-		UploadURL      string `json:"uploadUrl"`
-		ContentType    string `json:"contentType"`
-		ThumbUploadURL string `json:"thumbUploadUrl"`
+		ObjectID    string `json:"objectId"`
+		UploadURL   string `json:"uploadUrl"`
+		ContentType string `json:"contentType"`
 	}
-	if err := s.authenticatedDo(context.Background(), http.MethodPost, "/v1/uploads/init", map[string]any{"filename": filepath.Base(path) + ".m4a", "bytes": audioBytes}, &initialized); err != nil {
-		return nil, err
+	if err := s.authenticatedDo(context.Background(), http.MethodPost, "/v1/uploads/init", map[string]any{"filename": filepath.Base(path) + ".m4a", "bytes": stat.Size()}, &initialized); err != nil {
+		return "", err
 	}
 	if !validUploadID.MatchString(initialized.ObjectID) {
-		return nil, errors.New("cloud returned an invalid upload object id")
+		return "", errors.New("cloud returned an invalid upload object id")
 	}
-	if audio != "" {
-		if err := s.putAudio(context.Background(), initialized.UploadURL, initialized.ContentType, audio, audioBytes); err != nil {
-			s.abortUpload(initialized.ObjectID)
-			return nil, err
-		}
+	if err := s.putAudio(context.Background(), initialized.UploadURL, initialized.ContentType, audio, stat.Size()); err != nil {
+		s.abortUpload(initialized.ObjectID)
+		return "", err
 	}
-	// Best-effort, unlike the audio: a cover is decoration, and a source with
-	// no video stream or a missing ffmpeg legitimately has none. The declared
-	// flag below is what stops the library from later asking the backend for a
-	// frame that was never uploaded.
-	thumbnailUploaded := s.putThumbnail(context.Background(), initialized.ThumbUploadURL, localID) == nil
-	target := "final-srt"
-	if value, ok := options["target"].(string); ok && value == "raw-srt" {
-		target = value
-	}
-	// An axis only reaches here in its source-text shape (the desktop refuses
-	// the others before this call), and that shape has nothing to recognize --
-	// only a translation to add.
-	if axis != nil {
-		target = "final-srt"
-	}
+	// Recognition only: the cloud stops at stable.json, and correction,
+	// translation and the knowledge base belong to the local leg. No cover
+	// goes up beside the audio any more -- a job is not a library entry, and
+	// the sync after the relay completes carries the cover with the subtitles.
 	request := map[string]any{
 		"schema":               1,
 		"provider":             "cloud",
-		"source":               map[string]any{"kind": "uploaded_audio", "object_id": initialized.ObjectID, "title": title, "fingerprint": fingerprint, "duration": duration, "thumbnail": thumbnailUploaded},
-		"target":               target,
+		"source":               map[string]any{"kind": "uploaded_audio", "object_id": initialized.ObjectID, "title": title, "fingerprint": fingerprint, "duration": duration},
+		"target":               "stable",
 		"language":             stringOption(options, "language", "ja"),
 		"device":               "cuda",
 		"gpu_tier":             stringOption(options, "gpu_tier", "auto"),
 		"vocal_profile":        "cost",
-		"correction":           map[string]any{"enabled": target == "final-srt", "media": "text", "retrieval": "none", "difficulty": "quality", "fast": "auto", "extra_info": "", "extra_style": ""},
-		"knowledge":            stringOption(options, "knowledge", "update"),
 		"cleanup_intermediate": false,
 	}
-	if axis != nil {
-		request["axis"] = axis
-	}
-	// FineSub 0.6.0 renamed the read-only knowledge mode; a request built
-	// before the upgrade may still carry the old name.
-	if request["knowledge"] == "collect" {
-		request["knowledge"] = "read"
-	}
 	// Speaker diarization: only the level and an optional cap cross over, and
-	// only when the run asks for something; the backend validates both.
+	// only when the run asks for something. The backend runs the acoustic
+	// level whichever judge level was asked: judging is LLM work.
 	if diarization, ok := options["diarization"].(map[string]any); ok {
 		if level, ok := diarization["level"].(string); ok && level != "" && level != "off" {
 			cleaned := map[string]any{"level": level}
@@ -386,42 +435,26 @@ func (s *Service) StartTask(localID string, options map[string]any) (result map[
 			request["diarization"] = cleaned
 		}
 	}
-	if correction, ok := options["correction"].(map[string]any); ok {
-		cleaned := request["correction"].(map[string]any)
-		for _, key := range []string{"difficulty", "fast", "extra_info", "extra_style"} {
-			if value, exists := correction[key]; exists {
-				cleaned[key] = value
-			}
-		}
-	}
 	var snapshot map[string]any
-	submitted = true
+	*submitted = true
 	if err := s.authenticatedDo(context.Background(), http.MethodPost, "/v1/tasks", request, &snapshot); err != nil {
-		// Only a refusal proves no task holds the upload. A timeout, a dropped
-		// connection or a 5xx can arrive after the backend already reserved and
-		// dispatched the task -- deleting the audio then failed that task with a
-		// 404 on its first download, and a 502 dispatch failure leaves an
-		// interrupted task whose /resume needs the same object. An upload no task
-		// ever claimed is reclaimed by the backend's upload sweep instead.
+		// Only a refusal proves no job holds the upload. A timeout, a dropped
+		// connection or a 5xx can arrive after the backend already reserved
+		// and dispatched the job -- deleting the audio then failed it with a
+		// 404 on its first download. An upload no job ever claimed is
+		// reclaimed by the backend's upload sweep instead.
 		var status *httpStatusError
 		if errors.As(err, &status) && status.Status >= 400 && status.Status < 500 {
 			s.abortUpload(initialized.ObjectID)
-			return nil, err
+			return "", err
 		}
-		return nil, fmt.Errorf("%w (the cloud task may still have been created; refresh the task list before submitting again)", err)
+		return "", fmt.Errorf("%w (the cloud job may still have been created; it is swept if nothing collects it, and resubmitting the same media does not charge again)", err)
 	}
-	taskID, _ := snapshot["task_id"].(string)
-	if !validCloudTaskID.MatchString(taskID) {
-		return nil, errors.New("cloud returned an invalid task id")
+	jobID, _ := snapshot["task_id"].(string)
+	if !validJobID.MatchString(jobID) {
+		return "", errors.New("cloud returned an invalid job id")
 	}
-	s.mu.Lock()
-	s.links[taskID] = taskLink{LocalID: localID}
-	err = s.saveLinksLocked()
-	s.mu.Unlock()
-	if err != nil {
-		return nil, err
-	}
-	return snapshot, nil
+	return jobID, nil
 }
 
 func (s *Service) abortUpload(objectID string) {
@@ -432,46 +465,38 @@ func (s *Service) abortUpload(objectID string) {
 }
 
 func (s *Service) TaskStatus(taskID string) (map[string]any, error) {
-	return s.taskGet(taskID, "")
-}
-
-func (s *Service) ListTasks() (map[string]any, error) {
-	var result map[string]any
-	err := s.authenticatedDo(context.Background(), http.MethodGet, "/v1/tasks?limit=100", nil, &result)
+	if isLegacyCloudTask(taskID) {
+		return legacyCloudSnapshot(taskID), nil
+	}
+	record, err := s.relay(taskID)
 	if err != nil {
 		return nil, err
 	}
-	s.mu.RLock()
-	links := make(map[string]taskLink, len(s.links))
-	for taskID, link := range s.links {
-		links[taskID] = link
-	}
-	s.mu.RUnlock()
-	if tasks, ok := result["tasks"].([]any); ok {
-		for _, value := range tasks {
-			record, ok := value.(map[string]any)
-			if !ok {
-				continue
-			}
-			snapshot, _ := record["snapshot"].(map[string]any)
-			taskID, _ := snapshot["task_id"].(string)
-			if link, exists := links[taskID]; exists {
-				record["media_id"] = link.LocalID
-			}
-		}
-	}
-	return result, nil
+	return record.snapshot(), nil
+}
+
+// ListTasks lists this desktop's relays. The backend's own listing only knows
+// jobs still waiting to be collected, with no media attached; the relay record
+// is what names the media and outlives the job.
+func (s *Service) ListTasks() (map[string]any, error) {
+	return map[string]any{"schema": 1, "tasks": s.relayList(100)}, nil
 }
 
 func (s *Service) TaskEvents(taskID string, afterCursor int) (map[string]any, error) {
 	if afterCursor < 0 {
 		return nil, errors.New("event cursor must not be negative")
 	}
-	return s.taskGet(taskID, "events?after="+fmt.Sprint(afterCursor))
+	if isLegacyCloudTask(taskID) {
+		return map[string]any{"schema": 1, "task_id": taskID, "events": []any{}, "next_cursor": afterCursor, "state": "failed"}, nil
+	}
+	return s.relayEvents(taskID, afterCursor)
 }
 
 func (s *Service) CancelTask(taskID string) (map[string]any, error) {
-	return s.taskAction(taskID, "cancel")
+	if isLegacyCloudTask(taskID) {
+		return legacyCloudSnapshot(taskID), nil
+	}
+	return s.cancelRelay(taskID)
 }
 
 func (s *Service) RetryTask(taskID string) (map[string]any, error) {
@@ -483,10 +508,13 @@ func (s *Service) ResumeTask(taskID string) (map[string]any, error) {
 }
 
 func (s *Service) restartWithTelemetry(taskID, action string) (map[string]any, error) {
+	if isLegacyCloudTask(taskID) {
+		return nil, errors.New("旧版云端任务无法继续，请重新提交")
+	}
 	if s.telemetry != nil {
 		s.telemetry.CollectCloud(taskID)
 	}
-	result, err := s.taskAction(taskID, action)
+	result, err := s.restartRelay(taskID, action)
 	if s.telemetry != nil {
 		if err == nil {
 			s.telemetry.TrackCloud(taskID)
@@ -538,21 +566,10 @@ func startFailureCode(err error) string {
 	return "unknown"
 }
 
+// TaskArtifacts reports a finished relay's subtitles. The local leg projected
+// them into the document already; this is the manifest of what it wrote.
 func (s *Service) TaskArtifacts(taskID string) (map[string]any, error) {
-	if !validCloudTaskID.MatchString(taskID) {
-		return nil, errors.New("invalid cloud task id")
-	}
-	s.mu.RLock()
-	link, exists := s.links[taskID]
-	s.mu.RUnlock()
-	if !exists {
-		return nil, errors.New("cloud task has no local media link")
-	}
-	target, err := s.resolveTarget(link.LocalID)
-	if err != nil {
-		return nil, err
-	}
-	return s.projectRemoteArtifacts(taskID, target)
+	return s.relayArtifacts(taskID)
 }
 
 func (s *Service) resolveTarget(localID string) (mediaTarget, error) {
@@ -572,7 +589,7 @@ func (s *Service) resolveTarget(localID string) (mediaTarget, error) {
 // relinked here. Without it the card correctly reports the cloud copy while
 // still offering to transcribe the media all over again.
 func (s *Service) AdoptLibraryEntry(videoID, localID string) error {
-	if !validCloudTaskID.MatchString(videoID) {
+	if !validLibraryID.MatchString(videoID) {
 		return errors.New("invalid cloud library entry id")
 	}
 	if !validLocalMediaID.MatchString(localID) {
@@ -605,7 +622,7 @@ func (s *Service) AdoptLibraryEntry(videoID, localID string) error {
 // the same entry in while retaining the subtitle record's identity. Returns the
 // local media id to open.
 func (s *Service) AdoptCloudEntry(videoID string) (string, error) {
-	if !validCloudTaskID.MatchString(videoID) {
+	if !validLibraryID.MatchString(videoID) {
 		return "", errors.New("invalid cloud library entry id")
 	}
 	if s.media == nil {
@@ -634,11 +651,7 @@ func (s *Service) adopt(entry Entry, target mediaTarget) error {
 		return err
 	}
 	s.adoptThumbnail(entry, target.localID)
-	s.mu.Lock()
-	s.links[entry.ID] = taskLink{LocalID: target.localID}
-	err := s.saveLinksLocked()
-	s.mu.Unlock()
-	return err
+	return nil
 }
 
 // adoptThumbnail hands the cloud's cover to the local library so an adopted
@@ -686,13 +699,13 @@ func (s *Service) finishedLibraryEntry(videoID string) (Entry, error) {
 	return Entry{}, errors.New("cloud library has no such entry")
 }
 
-// projectRemoteArtifacts downloads one finished cloud task's subtitles, keeps
+// projectRemoteArtifacts downloads one cloud library entry's subtitles, keeps
 // a local copy under the task root and hands the set to the local provider as a
 // document for the target. Retrieval deliberately does not reject old cloud
 // artifacts for digest or SRT-format differences.
 func (s *Service) projectRemoteArtifacts(taskID string, target mediaTarget) (map[string]any, error) {
 	var remote remoteArtifactManifest
-	if err := s.authenticatedDo(context.Background(), http.MethodGet, "/v1/tasks/"+taskID+"/artifacts", nil, &remote); err != nil {
+	if err := s.authenticatedDo(context.Background(), http.MethodGet, "/v1/library/"+taskID+"/artifacts", nil, &remote); err != nil {
 		return nil, err
 	}
 	directory := filepath.Join(s.tasksRoot, "cloud", taskID)
@@ -798,7 +811,7 @@ func localFileURI(path string) string {
 }
 
 func (s *Service) taskGet(taskID, suffix string) (map[string]any, error) {
-	if !validCloudTaskID.MatchString(taskID) {
+	if !validLibraryID.MatchString(taskID) {
 		return nil, errors.New("invalid cloud task id")
 	}
 	endpoint := "/v1/tasks/" + taskID
@@ -811,7 +824,7 @@ func (s *Service) taskGet(taskID, suffix string) (map[string]any, error) {
 }
 
 func (s *Service) taskAction(taskID, action string) (map[string]any, error) {
-	if !validCloudTaskID.MatchString(taskID) {
+	if !validLibraryID.MatchString(taskID) {
 		return nil, errors.New("invalid cloud task id")
 	}
 	var result map[string]any
@@ -894,7 +907,7 @@ func (s *Service) Library() ([]Entry, error) {
 }
 
 func (s *Service) DeleteLibraryEntry(identifier string) error {
-	if !validCloudTaskID.MatchString(identifier) {
+	if !validLibraryID.MatchString(identifier) {
 		return errors.New("invalid cloud library entry id")
 	}
 	s.syncMu.Lock()
@@ -1005,6 +1018,15 @@ func (s *Service) DeleteAdminKey(identifier string) error {
 // SyncLocalTask reads only artifacts reported by the Local Provider and only
 // when their resolved paths remain under Nonoka X's task root.
 func (s *Service) SyncLocalTask(taskID, localID, fingerprint, title string, duration float64) (Entry, error) {
+	// A finished relay syncs what its local leg produced: the cloud library
+	// is only ever filled from this desktop, whichever machine recognised.
+	if validRelayID.MatchString(taskID) {
+		localTask, err := s.relayLocalTask(taskID)
+		if err != nil {
+			return Entry{}, err
+		}
+		taskID = localTask
+	}
 	if !validTaskID.MatchString(taskID) {
 		return Entry{}, errors.New("invalid local task id")
 	}
@@ -1333,40 +1355,8 @@ func (s *Service) putAudio(ctx context.Context, uploadURL, contentType, path str
 	return nil
 }
 
-// putThumbnail sends the frame the local library already drew for this media
-// to the cover slot beside the freshly uploaded audio. Callers treat every
-// failure as "no cover", so nothing here is worth retrying.
-func (s *Service) putThumbnail(ctx context.Context, uploadURL, localID string) error {
-	if uploadURL == "" {
-		return errors.New("cloud backend offers no thumbnail slot")
-	}
-	if err := validUploadTarget(uploadURL); err != nil {
-		return err
-	}
-	image := s.localCover(localID)
-	if len(image) == 0 {
-		return errors.New("no local cover to upload")
-	}
-	request, err := http.NewRequestWithContext(ctx, http.MethodPut, uploadURL, bytes.NewReader(image))
-	if err != nil {
-		return err
-	}
-	request.ContentLength = int64(len(image))
-	request.Header.Set("Content-Type", "image/jpeg")
-	response, err := s.upload.Do(request)
-	if err != nil {
-		return fmt.Errorf("upload cloud thumbnail: %w", err)
-	}
-	defer response.Body.Close()
-	_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 1<<20))
-	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return fmt.Errorf("upload cloud thumbnail: HTTP %d", response.StatusCode)
-	}
-	return nil
-}
-
 // localCover is the frame the local library drew for this media, as the JPEG
-// bytes both upload paths send. Best-effort by design: a source with no video
+// bytes the library sync sends. Best-effort by design: a source with no video
 // stream, a missing ffmpeg, or a placeholder that has no file to draw from all
 // leave the entry without a cover rather than failing the work it rides along
 // with.
@@ -1390,7 +1380,7 @@ func (s *Service) localCover(localID string) []byte {
 // The bytes are cached on disk: a cover never changes for a given upload, and
 // the cloud library is re-read on every refresh.
 func (s *Service) ThumbnailDataURL(videoID string) (string, error) {
-	if !validCloudTaskID.MatchString(videoID) {
+	if !validLibraryID.MatchString(videoID) {
 		return "", errors.New("invalid cloud library entry id")
 	}
 	cached := filepath.Join(s.thumbRoot, videoID+".jpg")
@@ -1467,7 +1457,7 @@ func newDownloadClient() *http.Client {
 
 func (s *Service) authenticatedText(ctx context.Context, endpoint string) ([]byte, error) {
 	parsed, err := url.Parse(endpoint)
-	if err != nil || parsed.IsAbs() || parsed.Host != "" || !strings.HasPrefix(parsed.Path, "/v1/tasks/") {
+	if err != nil || parsed.IsAbs() || parsed.Host != "" || !(strings.HasPrefix(parsed.Path, "/v1/tasks/") || strings.HasPrefix(parsed.Path, "/v1/library/")) {
 		return nil, errors.New("cloud returned an invalid artifact URI")
 	}
 	s.mu.RLock()
@@ -1660,8 +1650,8 @@ func validBackend(value string) (string, error) {
 // damaged all mean the same thing here -- no state -- and `value` is left as
 // the caller initialised it.
 //
-// Nothing these three files hold is irreplaceable: the session is a key the
-// user can enter again, and the links and suppressions rebuild from use. What
+// Nothing these files hold is irreplaceable: the session is a key the user
+// can enter again, and the suppressions rebuild from use. What
 // refusing to start over one of them costs is the whole desktop, which is how
 // a zero-byte `cloud-sync-suppressions.json` turned into `unexpected end of
 // JSON input` before main() had drawn a window. The writer cannot produce that
@@ -1696,12 +1686,6 @@ func (s *Service) load() {
 			log.Printf("cloud: ignoring invalid stored session in %s", filepath.Base(s.configPath))
 		}
 	}
-	// Decoded aside and adopted only whole. `json.Unmarshal` can populate part
-	// of a map before it fails, and half a link table is worse than none.
-	links := map[string]taskLink{}
-	if readState(s.linksPath, &links) && links != nil {
-		s.links = links
-	}
 	suppressions := map[string]int64{}
 	if readState(s.syncSuppressionsPath, &suppressions) && suppressions != nil {
 		s.syncSuppressions = suppressions
@@ -1722,26 +1706,6 @@ func (s *Service) saveLocked() error {
 		return err
 	}
 	if err := os.Rename(temporary, s.configPath); err != nil {
-		_ = os.Remove(temporary)
-		return err
-	}
-	return nil
-}
-
-func (s *Service) saveLinksLocked() error {
-	data, err := json.Marshal(s.links)
-	if err != nil {
-		return err
-	}
-	data = append(data, '\n')
-	if err := os.MkdirAll(filepath.Dir(s.linksPath), 0o700); err != nil {
-		return err
-	}
-	temporary := s.linksPath + ".tmp"
-	if err := os.WriteFile(temporary, data, 0o600); err != nil {
-		return err
-	}
-	if err := os.Rename(temporary, s.linksPath); err != nil {
 		_ = os.Remove(temporary)
 		return err
 	}

@@ -39,7 +39,7 @@ export interface Capabilities {
     /** 不阻断运行、但会改变结果或耗时的情况，比如没有 N 卡因而只能走 CPU。 */
     warnings?: Array<{ code: string; message: string }>;
     stages?: Array<{
-      id: "media" | "raw-srt" | "final-srt" | "knowledge" | "video-multimodal";
+      id: "media" | "raw-srt" | "harness" | "final-srt" | "knowledge" | "video-multimodal";
       label: string;
       ready: boolean;
       issues: Array<{ code: string; message: string }>;

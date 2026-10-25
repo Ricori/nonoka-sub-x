@@ -21,6 +21,12 @@ export interface CloudProviderBridge {
   taskArtifacts(taskID: string): Promise<unknown>;
 }
 
+/** 云端任务现在都是 relay：云端识别到 stable.json，本机接着跑完。旧版的 `vid_` 任务
+ *  不再可查，Go 侧会把它们报成失败。 */
+export function isRelayTaskId(taskId: string): boolean {
+  return /^rly_[0-9a-f]{24}$/.test(taskId);
+}
+
 function object(value: unknown, label: string): Record<string, unknown> {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     throw new TypeError(`${label} must be an object`);

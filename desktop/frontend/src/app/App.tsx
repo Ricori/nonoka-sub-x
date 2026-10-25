@@ -19,7 +19,7 @@ import type { InstalledPlugin, MountedPluginTool } from "../bridge/plugins.ts";
 import { desktopWindows } from "../bridge/windows.ts";
 import { localProviderBridge, sidecarStatus } from "../bridge/wails.ts";
 import { PipelineController } from "../home/pipelineController.ts";
-import { CloudExecutionProvider } from "../providers/cloudProvider.ts";
+import { CloudExecutionProvider, isRelayTaskId } from "../providers/cloudProvider.ts";
 import type { PipelineState } from "../home/pipelineController.ts";
 import { LocalExecutionProvider } from "../providers/localProvider.ts";
 import type { Capabilities, TaskAxis, TaskRequest, TaskSnapshot } from "../providers/types.ts";
@@ -1168,7 +1168,9 @@ export default function App() {
     if (!cloudSession?.authenticated || cloudLoading) return;
     const latestByFingerprint = new Map<string, { item: TaskHistoryEntry; entry: MediaEntry }>();
     for (const item of taskHistory) {
-      if (item.provider !== "local" || item.snapshot.state !== "completed" || syncedTasks.current.has(item.taskId)) continue;
+      // 云端任务的字幕也是本机续跑出来的（relay），同样要同步；Go 侧按 relay 找到本地那一段。
+      const syncable = item.provider === "local" || isRelayTaskId(item.taskId);
+      if (!syncable || item.snapshot.state !== "completed" || syncedTasks.current.has(item.taskId)) continue;
       const entry = media.find((candidate) => candidate.id === item.mediaId);
       if (!entry?.documentAvailable || !entry.fingerprint) continue;
       const existing = latestByFingerprint.get(entry.fingerprint);
