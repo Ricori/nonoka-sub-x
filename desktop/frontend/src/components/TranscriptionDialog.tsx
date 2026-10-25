@@ -528,7 +528,7 @@ export function TranscriptionDialog(props: TranscriptionDialogProps) {
               </span>
               <span className="eyebrow">{`第 ${stepIndex} 步，共 ${totalSteps} 步`}</span>
             </div>
-            <h2 id="transcription-title">{step === "axis" ? "选择已有产物" : "转写设置"}</h2>
+            <h2 id="transcription-title">{step === "axis" ? "选择已有产物" : "任务设置"}</h2>
             <p title={entry.sourcePath}>{entry.title}</p>
           </div>
           <button type="button" className="transcription-close" aria-label="关闭" disabled={busy} onClick={onClose}>×</button>
