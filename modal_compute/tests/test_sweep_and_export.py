@@ -6,6 +6,11 @@ import json
 import os
 
 from nonoka_x_compute.migrate.export_legacy import (
+    COVER_MAX_BYTES,
+    DEFAULT_TARGET_BUCKET,
+    cover_candidates,
+    cover_target,
+    find_cover,
     library_files,
     merge_records,
     read_envelopes,
@@ -107,3 +112,54 @@ def test_files_filed_under_another_directory_are_still_found(tmp_path) -> None:
     assert path == entry / "annotated_csv.annotated.csv"
     assert key == "library/key-new/vid_9/annotated_csv.annotated.csv"
     assert library_files(tmp_path, "key-new", "vid_missing") == []
+
+
+def test_covers_are_looked_up_in_the_legacy_order_and_land_under_the_vid() -> None:
+    assert cover_candidates({"id": "vid_1", "objectId": "upl_9"}) == [
+        "nonoka-thumbs/upl_9.jpg",
+        "nonoka-thumbs/vid_1.jpg",
+        "uploads/upl_9.jpg",
+    ]
+    assert cover_candidates({"id": "vid_1"}) == ["nonoka-thumbs/vid_1.jpg"]
+    assert cover_target("vid_1") == "nonoka-thumbs/vid_1.jpg"
+    assert DEFAULT_TARGET_BUCKET == "nonoka-x-cloud"
+
+
+class FakeS3:
+    class Missing(Exception):
+        response = {"Error": {"Code": "404"}}
+
+    def __init__(self, sizes: dict[str, int]) -> None:
+        self.sizes = sizes
+        self.heads: list[str] = []
+
+    def head_object(self, *, Bucket, Key):
+        self.heads.append(Key)
+        if Key not in self.sizes:
+            raise self.Missing()
+        return {"ContentLength": self.sizes[Key]}
+
+
+def test_the_first_cover_found_wins_unless_it_is_too_big() -> None:
+    candidates = ["nonoka-thumbs/upl_9.jpg", "nonoka-thumbs/vid_1.jpg", "uploads/upl_9.jpg"]
+    s3 = FakeS3({"nonoka-thumbs/vid_1.jpg": 100, "uploads/upl_9.jpg": 50})
+    assert find_cover(s3, "old", candidates) == "nonoka-thumbs/vid_1.jpg"
+    assert s3.heads == candidates[:2]
+
+    s3 = FakeS3({"nonoka-thumbs/upl_9.jpg": COVER_MAX_BYTES + 1, "uploads/upl_9.jpg": 50})
+    assert find_cover(s3, "old", candidates) == "uploads/upl_9.jpg"
+    assert find_cover(FakeS3({}), "old", candidates) is None
+
+
+def test_a_bucket_error_other_than_missing_is_not_swallowed() -> None:
+    class Denied(Exception):
+        response = {"Error": {"Code": "AccessDenied"}}
+
+    class S3:
+        def head_object(self, **kwargs):
+            raise Denied()
+
+    import pytest
+
+    with pytest.raises(Denied):
+        find_cover(S3(), "old", ["nonoka-thumbs/vid_1.jpg"])

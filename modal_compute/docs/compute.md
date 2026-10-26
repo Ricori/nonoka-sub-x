@@ -168,21 +168,27 @@ Worker 用 `Authorization: Bearer <CONTROL_TOKEN>` 调用（客户端在 `nonoka
 
 ## 从旧 app 迁移数据（`migrate/export_legacy.py`）
 
-一次性脚本，是本工程里唯一碰旧资源的代码，而且只读：Dict `nonoka-x-keys`、`nonoka-x-videos`，Volume `nonoka-x-artifacts`（只读挂载），Secret `r2`（用来把库产物写进 Worker 用的那个桶）。
+一次性脚本，是本工程里唯一碰旧资源的代码，对旧资源只读：Dict `nonoka-x-keys`、`nonoka-x-videos`，Volume `nonoka-x-artifacts`（只读挂载），以及 `r2` Secret 的 `R2_BUCKET` 指向的旧桶（只用来读封面）。所有写入都进新业务专用的桶 `nonoka-x-cloud`，可以用 `--target-bucket` 或环境变量 `TARGET_R2_BUCKET` 改。目标桶和旧桶同名时脚本直接报错。
+
+**`r2` Secret 里的 token 必须能读旧桶、写新桶。** 两个桶在同一个 Cloudflare 账号下，签一把同时授权这两个桶的 token 即可。
 
 ```bash
 cd modal_compute
-uv run modal run -m nonoka_x_compute.migrate.export_legacy --dry-run          # 只导出记录，不上传
+uv run modal run -m nonoka_x_compute.migrate.export_legacy --dry-run          # 只导出记录、统计封面，不往 R2 写任何东西
 uv run modal run -m nonoka_x_compute.migrate.export_legacy --out legacy-dump.json
+uv run modal run -m nonoka_x_compute.migrate.export_legacy --target-bucket nonoka-x-cloud-staging --out staging-dump.json
 ```
 
-做三件事：
+做四件事：
 
 1. 合并 Dict 和 `records/{keys,videos}/*.json` 信封里的全部 Key 与库记录。两边都有时以 Dict 为准，Dict 已过期丢失的由信封补上。
-2. 把每个库条目的 `library/<owner>/<vid>/<name><suffix>`（后缀 `.stable.json`、`.raw.srt`、`.annotated.csv`、`.srt`）上传到 R2 的同名键。owner 取记录上的 `ownerId`，没有就取 `video_ids` 里列着它的那个 Key，都没有就是 `admin`。这和 `import-legacy.ts` 写 D1 时的规则一致。
-3. 在本地写出 `{keys:[...], videos:[...]}`（原始记录），作为 `nonoka-cloud-cf/scripts/import-legacy.ts` 的输入。
+2. 把 Volume 上每个库条目的 `library/<owner>/<vid>/<name><suffix>`（后缀 `.stable.json`、`.raw.srt`、`.annotated.csv`、`.srt`）上传到新桶的同名键。owner 取记录上的 `ownerId`，没有就取 `video_ids` 里列着它的那个 Key，都没有就是 `admin`。这和 `import-legacy.ts` 写 D1 时的规则一致。
+3. 封面：在旧桶里依次找 `nonoka-thumbs/<objectId>.jpg`、`nonoka-thumbs/<vid>.jpg`、`uploads/<objectId>.jpg`，把第一个找到且不超过 5 MiB 的复制到新桶的 `nonoka-thumbs/<vid>.jpg`，并在导出的记录上设 `thumbnailAvailable: true`。找不到就保留原值。导入脚本会丢掉 `objectId`，所以封面必须放在 `vid` 键下。dry run 只统计，不改这个标记。
+4. 在本地写出 `{keys:[...], videos:[...]}`，作为 `nonoka-cloud-cf/scripts/import-legacy.ts` 的输入。
 
-可以重复执行：上传会覆盖，导入是 `INSERT OR REPLACE`。**`legacy-dump.json` 里有明文 Key**（已加入 `.gitignore`），导入 D1 后请删除。
+不复制任何 `uploads/*.m4a` 音频，运行中的作业不迁移。
+
+可以重复执行：复制会覆盖，导入是 `INSERT OR REPLACE`。**`legacy-dump.json` 里有明文 Key**（已加入 `.gitignore`），导入 D1 后请删除。
 
 注意：`nonoka-cloud-cf/docs/cloud-api.md` 写的是 `modal run modal_compute/migrate/export_legacy.py`，实际入口以本节为准（模块在包内，需要在 `modal_compute/` 下用 `-m` 运行）。
 
@@ -201,6 +207,6 @@ uv run pytest
 - `test_phases.py`：各段向 Worker 发布的内容、`source_rejected`、产物（`diar_json` 只在要求时交付）；
 - `test_source_contract.py`：从旧 `test_modal_task_runtime.py` 移植过来的、仍然有意义的源码断言；
 - `test_vocal_policy.py`、`test_gpu_metrics.py`：从旧工程原样移植；
-- `test_sweep_and_export.py`：清扫计划、导出的合并与 owner 规则。
+- `test_sweep_and_export.py`：清扫计划，导出的合并、owner 规则和封面查找顺序。
 
 旧工程 `testing/` 下的基准与校验脚本（`verify_container`、`gpu_class_benchmark` 等）没有迁移，需要时再移植。
