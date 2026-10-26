@@ -78,7 +78,7 @@ func New(dataDirectory string) (*Service, error) {
 // progress events onto the service status. Package level so the method set
 // bound to the renderer stays limited to the four calls below.
 func Attach(s *Service, app *application.App) error {
-	provider, err := endpoint.New(endpoint.Config{URL: manifestURL(), Channel: "stable"})
+	provider, err := endpoint.New(endpoint.Config{URL: manifestURL(), Channel: "stable", HTTPClient: newHTTPClient(stallTimeout)})
 	if err != nil {
 		return err
 	}
@@ -179,7 +179,11 @@ func (s *Service) check(ctx context.Context) {
 		s.mu.Unlock()
 	}()
 
-	release, err := app.Updater.Check(ctx)
+	// The client has no overall deadline so the installer can take as long as
+	// it needs; the manifest is small and keeps a firm one.
+	checkContext, cancel := context.WithTimeout(ctx, manifestTimeout)
+	release, err := app.Updater.Check(checkContext)
+	cancel()
 	if err != nil {
 		s.retryOrIdle()
 		return
