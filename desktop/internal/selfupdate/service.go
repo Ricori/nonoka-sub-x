@@ -31,7 +31,7 @@ const (
 	manifestEnvironment = "NONOKA_UPDATE_MANIFEST"
 	baseEnvironment     = "NONOKA_UPDATE_URL"
 	disableEnvironment  = "NONOKA_DISABLE_UPDATE"
-	defaultUpdateBase   = "https://livestream.nonoka.online/nonoka-x-updates"
+	defaultUpdateBase   = "https://cloudfile.nonoka.online/desktop-updates"
 	checkInterval       = 4 * time.Hour
 	retryInterval       = time.Minute
 )
@@ -161,7 +161,7 @@ func manifestURL() string {
 	if base == "" {
 		base = defaultUpdateBase
 	}
-	return strings.TrimRight(base, "/") + "/wails/latest.json"
+	return strings.TrimRight(base, "/") + "/latest.json"
 }
 
 func (s *Service) check(ctx context.Context) {

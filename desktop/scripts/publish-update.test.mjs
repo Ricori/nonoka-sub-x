@@ -118,8 +118,8 @@ test("publishes the renamed release to the legacy update path only when requeste
     ["--publish-legacy-update-path-once"],
   );
   const urls = result.requests.map(request => request.url);
-  assert.equal(urls.filter(url => url.includes("nonoka-x-updates/wails")).length, 3);
-  assert.equal(urls.filter(url => url.includes("finoka-updates/wails")).length, 3);
+  assert.equal(urls.filter(url => url.startsWith("/test-bucket/desktop-updates/")).length, 3);
+  assert.equal(urls.filter(url => url.startsWith("/youtube-live-cache/nonoka-x-updates/wails/")).length, 3);
 });
 
 function artifactKey(value) {

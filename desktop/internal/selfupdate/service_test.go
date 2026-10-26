@@ -37,7 +37,7 @@ func TestNewerVersion(t *testing.T) {
 
 func TestManifestURLPrefersExplicitOverride(t *testing.T) {
 	t.Setenv(baseEnvironment, "https://example.test/updates/")
-	if got := manifestURL(); got != "https://example.test/updates/wails/latest.json" {
+	if got := manifestURL(); got != "https://example.test/updates/latest.json" {
 		t.Fatalf("manifestURL() = %q", got)
 	}
 	t.Setenv(manifestEnvironment, "https://example.test/pinned.json")

@@ -6,11 +6,13 @@ import { GetObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3
 
 const scriptsDir = path.dirname(fileURLToPath(import.meta.url));
 const root = path.dirname(scriptsDir);
-// Nonoka X shares the release bucket with other desktop apps, so its manifest
-// and artifacts live under their own prefix. The legacy prefix is only used
-// when explicitly requested for the first renamed release.
-const DEFAULT_PREFIX = "nonoka-x-updates/wails/";
-const LEGACY_PREFIX = "finoka-updates/wails/";
+// Releases live under their own prefix in the nonoka-x-cloud bucket, served
+// publicly as cloudfile.nonoka.online/desktop-updates/. Clients up to 0.5.0
+// still poll the old bucket, so the first release after the move is also
+// written there when explicitly requested.
+const DEFAULT_PREFIX = "desktop-updates/";
+const LEGACY_BUCKET = "youtube-live-cache";
+const LEGACY_PREFIX = "nonoka-x-updates/wails/";
 
 function readArgument(name) {
   const index = process.argv.indexOf(name);
@@ -119,9 +121,9 @@ const client = new S3Client({
   },
 });
 
-async function publishToPrefix(targetPrefix) {
+async function publishToPrefix(bucket, targetPrefix) {
   const manifestKey = `${targetPrefix}latest.json`;
-  const remoteManifest = await readRemoteManifest(client, process.env.R2_BUCKET, manifestKey);
+  const remoteManifest = await readRemoteManifest(client, bucket, manifestKey);
   const publishedManifest = mergeSameVersion(localManifest, remoteManifest);
 
   for (const artifact of localManifest.artifacts) {
@@ -129,7 +131,7 @@ async function publishToPrefix(targetPrefix) {
     const size = statSync(file).size;
     process.stdout.write(`Uploading ${targetPrefix}${artifact.url} (${(size / 1024 ** 2).toFixed(1)} MB)... `);
     await client.send(new PutObjectCommand({
-      Bucket: process.env.R2_BUCKET,
+      Bucket: bucket,
       Key: `${targetPrefix}${artifact.url}`,
       Body: readFileSync(file),
       ContentLength: size,
@@ -141,19 +143,20 @@ async function publishToPrefix(targetPrefix) {
 
   const manifestBody = Buffer.from(`${JSON.stringify(publishedManifest, null, 2)}\n`);
   await client.send(new PutObjectCommand({
-    Bucket: process.env.R2_BUCKET,
+    Bucket: bucket,
     Key: manifestKey,
     Body: manifestBody,
     ContentLength: manifestBody.length,
     ContentType: "application/json",
     CacheControl: "no-cache",
   }));
-  console.log(`Published v${publishedManifest.version} to r2://${process.env.R2_BUCKET}/${targetPrefix}`);
+  console.log(`Published v${publishedManifest.version} to r2://${bucket}/${targetPrefix}`);
   return manifestBody;
 }
 
-const manifestBody = await publishToPrefix(prefix);
+const manifestBody = await publishToPrefix(process.env.R2_BUCKET, prefix);
 writeFileSync(manifestPath, manifestBody);
-if (publishLegacyPathOnce && prefix !== LEGACY_PREFIX) {
-  await publishToPrefix(LEGACY_PREFIX);
+const legacyBucket = process.env.R2_LEGACY_BUCKET || LEGACY_BUCKET;
+if (publishLegacyPathOnce && !(process.env.R2_BUCKET === legacyBucket && prefix === LEGACY_PREFIX)) {
+  await publishToPrefix(legacyBucket, LEGACY_PREFIX);
 }

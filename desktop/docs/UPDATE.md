@@ -5,15 +5,17 @@ Nonoka Sub X 桌面端的发布分为两条互不冲突的通道：GitHub Releas
 | 通道 | 产物 | 更新说明 | 执行方 |
 | --- | --- | --- | --- |
 | GitHub Releases | Windows amd64 免安装 exe、macOS universal zip | 仓库根目录 `CHANGELOG.md` | GitHub Actions 自动执行 |
-| 应用内自动更新 | R2 上的 `latest.json`、Windows exe、macOS zip | 仓库根目录 `CHANGELOG.md` | 本地 PowerShell/Node.js 脚本手动执行 |
+| 应用内自动更新 | R2 `nonoka-x-cloud` 桶 `desktop-updates/` 下的 `latest.json`、Windows exe、macOS zip | 仓库根目录 `CHANGELOG.md` | 本地 PowerShell/Node.js 脚本手动执行 |
 
 ## 1. 应用内更新机制
 
-正式构建使用 Wails Updater 检查以下默认清单：
+正式构建使用 Wails Updater 检查以下默认清单（`cloudfile.nonoka.online` 是 `nonoka-x-cloud` 桶绑定的公网域名）：
 
 ```text
-https://livestream.nonoka.online/nonoka-x-updates/wails/latest.json
+https://cloudfile.nonoka.online/desktop-updates/latest.json
 ```
+
+0.5.0 及更早的客户端读取的是旧地址 `https://livestream.nonoka.online/nonoka-x-updates/wails/latest.json`（`youtube-live-cache` 桶），见第 6 节的一次性迁移开关。
 
 客户端启动后立即检查一次，此后每 4 小时检查一次。检查到新版本后会在后台下载、校验并暂存安装包：
 
@@ -35,7 +37,7 @@ $env:NONOKA_UPDATE_MANIFEST = "http://127.0.0.1:8080/latest.json"
 | 变量 | 作用 |
 | --- | --- |
 | `NONOKA_UPDATE_MANIFEST` | 直接覆盖完整清单 URL；开发构建设置后也会启用更新检查 |
-| `NONOKA_UPDATE_URL` | 覆盖更新根地址，客户端会追加 `/wails/latest.json` |
+| `NONOKA_UPDATE_URL` | 覆盖更新根地址，客户端会追加 `/latest.json` |
 | `NONOKA_DISABLE_UPDATE=1` | 完全禁用自动更新 |
 
 主要实现位于：
@@ -177,20 +179,28 @@ npm install
 R2_ACCOUNT_ID=...
 R2_ACCESS_KEY_ID=...
 R2_SECRET_ACCESS_KEY=...
-R2_BUCKET=...
+R2_BUCKET=nonoka-x-cloud
 ```
+
+R2 API 令牌需要对 `nonoka-x-cloud` 有对象读写权限；发布一次性迁移版本时还需要对 `youtube-live-cache` 有读写权限。
 
 可选配置：
 
 | 变量 | 默认值 | 作用 |
 | --- | --- | --- |
-| `R2_WAILS_PREFIX` | `nonoka-x-updates/wails/` | R2 对象前缀 |
+| `R2_WAILS_PREFIX` | `desktop-updates/` | R2 对象前缀 |
+| `R2_LEGACY_BUCKET` | `youtube-live-cache` | 一次性迁移开关写入的旧桶 |
 | `R2_ENDPOINT` | `https://<R2_ACCOUNT_ID>.r2.cloudflarestorage.com` | S3 兼容端点 |
 | `R2_FORCE_PATH_STYLE=1` | 未启用 | 为兼容的 S3 服务启用 path-style 请求 |
 
 发布器在上传前会再次验证清单格式、平台、文件名和摘要。更新包使用长期 immutable 缓存，`latest.json` 使用 `no-cache`。发布单个平台时，如果远端清单已经是相同版本，脚本会保留远端另一平台的产物并合并清单；不同版本的产物不会被合并。
 
-`-PublishLegacyUpdatePathOnce` 会把同一组改名后的产物和清单额外发布到旧客户端使用的更新前缀。该开关只用于首个 Nonoka X 版本；后续版本省略它，发布器就只写入 `nonoka-x-updates/wails/`。
+`-PublishLegacyUpdatePathOnce` 会把同一组产物和清单额外发布到旧客户端使用的位置 `youtube-live-cache` 桶的 `nonoka-x-updates/wails/`。0.5.0 及更早的客户端只认这个地址，所以迁移到新桶后的第一个版本必须带上该开关，让旧客户端先升级到读取新地址的版本；之后的版本省略它，发布器就只写入 `nonoka-x-cloud` 桶的 `desktop-updates/`。
+
+```powershell
+# 迁移后的首个版本：同时写入新桶和旧地址
+.\scripts\release-update.ps1 -Version 0.5.1 -Platform windows -Publish -PublishLegacyUpdatePathOnce
+```
 
 > `.env.release` 包含敏感凭证，已被 `desktop/.gitignore` 忽略，禁止提交到 Git。
 
