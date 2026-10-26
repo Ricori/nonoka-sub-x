@@ -135,12 +135,12 @@ python scripts/sync_finesub.py sync --ref v0.6.0
 FineSub `0.6.0` 的 `fw-refine` 后端深度依赖 CTranslate2 解码器内部的 attention、beam winner lineage、终止事件与 chosen logprob 接口，原生 CTranslate2 不具备此能力。桌面端的托管运行时直接安装上游 CI 构建的 Windows wheel（`ct2-4.8.1+finesub0.6.0`，见运行时锁）；云端镜像从源码编译同一套补丁。
 
 ### 4.1 补丁序列
-补丁源码位于 `modal_compute/ct2_patches/`，基于上游 `v4.8.1 / 0d8bcd36`：
+补丁源码位于 nonoka-sub-cloud 仓库的 `modal_compute/ct2_patches/`，基于上游 `v4.8.1 / 0d8bcd36`：
 - `0001`–`0004`：WT alignment 控制与 attention 后处理。
 - `0005`–`0008`：Decoded prefix、单遍 trace/refine path 与 unfinished span。
 - `0009`–`0010`：Beam winner lineage 与 disfluency weights。
 - `0011`：逐样本 `real_audio_frames` 支持。
-- `0012`–`0013`（FineSub 0.6.0）：flash attention 只作用于 Whisper encoder，并暴露 `flash_attention_available()`；构建只编 encoder 用得到的那一份 kernel。上游原样复制，哈希由 `modal_compute/tests/test_ct2_source_build.py` 钉住。
+- `0012`–`0013`（FineSub 0.6.0）：flash attention 只作用于 Whisper encoder，并暴露 `flash_attention_available()`；构建只编 encoder 用得到的那一份 kernel。上游原样复制，哈希由 nonoka-sub-cloud 仓库的 `modal_compute/tests/test_ct2_source_build.py` 钉住。
 
 ### 4.2 镜像构建与验证
 构建环境拉取源码、应用 13 个补丁并以 `-DWITH_FLASH_ATTN=ON` 编译 Linux CUDA wheel。构建末尾断言 `return_refine_paths`、`return_refine_weights` 与 `flash_attention_available()`，确保运行时能力完备。
