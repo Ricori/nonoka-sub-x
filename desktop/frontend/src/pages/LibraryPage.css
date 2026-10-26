@@ -6,6 +6,14 @@
 .library-toolbar > button.active { border-color: var(--accent-line); background: var(--accent-dim); color: var(--accent); font-weight: 700; }
 .library-toolbar > button span { min-width: 14px; margin-left: 4px; border-radius: 999px; padding: 1px 4px; background: color-mix(in srgb, currentColor 9%, transparent); color: currentColor; font-size: 11px; }
 .toolbar-spacer { flex: 1; }
+.library-toolbar > .library-sync-button { display: inline-flex; align-items: center; gap: 6px; color: var(--faint); font-size: 11.5px; white-space: nowrap; }
+.library-toolbar > .library-sync-button:disabled { cursor: default; }
+.library-toolbar > .library-sync-button:disabled:hover { border-color: transparent; background: transparent; color: var(--faint); }
+.library-toolbar > .library-sync-button.offline { color: var(--warn); }
+/* Scoped under the toolbar so the filter buttons' count-badge span rule does not reach the dot. */
+.library-toolbar .library-sync-button .library-sync-dot { flex: none; width: 7px; height: 7px; min-width: 0; margin: 0; padding: 0; border-radius: 50%; background: var(--accent); }
+.library-toolbar .library-sync-button.offline .library-sync-dot { background: var(--warn); }
+.library-toolbar .library-sync-button .library-sync-dot.spinning { box-sizing: border-box; width: 11px; height: 11px; border: 1.5px solid var(--line); border-top-color: var(--accent); background: transparent; animation: library-sync-spin .8s linear infinite; }
 .view-switch { display: flex; gap: 2px; border: 1px solid var(--line-soft); border-radius: 9px; padding: 3px; background: var(--panel); }
 .view-switch button { display: grid; place-items: center; width: 26px; height: 24px; border: 0; border-radius: 6px; background: transparent; color: var(--faint); cursor: pointer; }
 .view-switch button:hover { color: var(--text); }
@@ -73,6 +81,9 @@
 .card-menu-popover button:hover { background: var(--raised); color: var(--text); }
 .card-menu-popover button.danger { color: var(--warn); }
 .card-menu-popover button:disabled { opacity: .42; cursor: not-allowed; }
+.card-menu-popover button.checkable { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.card-menu-check { color: var(--ok); font-size: 12px; }
+.card-menu-separator { height: 1px; margin: 4px 6px; background: var(--line-soft); }
 
 .media-card-actions { display: flex; gap: 7px; margin-top: auto; padding-top: 6px; }
 .media-card-actions button { flex: 1; min-height: 31px; border-radius: 9px; padding: 7px 9px; font-size: 11px; cursor: pointer; transition: filter .13s, transform .13s; }

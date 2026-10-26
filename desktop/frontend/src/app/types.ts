@@ -11,15 +11,28 @@ export type SortMode = "recent" | "name" | "duration";
 export type ViewMode = "grid" | "list";
 export type Theme = "dark" | "light";
 
+/** Which copy of a media's subtitles 删除字幕 removes. */
+export type SubtitleDeleteScope = "local" | "cloud" | "both";
+
 export type DialogState =
   | { kind: "rename"; entry: MediaEntry; value: string }
-  | { kind: "delete-subtitles"; entry: MediaEntry }
+  | { kind: "delete-subtitles"; entry: MediaEntry; cloudEntry?: CloudEntry; scope: SubtitleDeleteScope }
   | { kind: "remove"; entry: MediaEntry }
   | { kind: "cloud-remove"; entry: CloudEntry };
 
 export type LibraryItem =
   | { kind: "local"; entry: MediaEntry }
   | { kind: "cloud"; entry: CloudEntry };
+
+/** Where the cloud half of the library stands. `offline` keeps the last
+    listing on screen; `syncedAt` is 0 until a listing has arrived. */
+export interface CloudSyncState {
+  /** A key is stored on this machine, so the library is kept in sync. */
+  linked: boolean;
+  phase: "idle" | "syncing" | "offline";
+  syncedAt: number;
+  error: string;
+}
 
 export interface TaskHistoryEntry {
   taskId: string;

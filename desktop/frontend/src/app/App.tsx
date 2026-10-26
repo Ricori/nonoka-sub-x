@@ -42,12 +42,26 @@ import { PluginPageHost } from "../plugins/PluginPageHost.tsx";
 import { parseTaskHistory, taskStateLabel } from "./format.ts";
 import { reconcileTaskHistory } from "./taskHistory.ts";
 import { applyTheme, initialTheme } from "./theme.ts";
-import type { DialogState, ExecutionMode, LibraryFilter, LibraryItem, LoadState, NavigationSection, Section, SortMode, TaskHistoryEntry, Theme, ViewMode } from "./types.ts";
+import type { CloudSyncState, DialogState, ExecutionMode, LibraryFilter, LibraryItem, LoadState, NavigationSection, Section, SortMode, TaskHistoryEntry, Theme, ViewMode } from "./types.ts";
 import { activeStates, recoverableStates, taskHistoryLimit } from "./types.ts";
 
 const taskPollIntervalMs = 10_000;
 // Reconnect attempts while the local sidecar is not answering.
 const sidecarRetryIntervalMs = 4_000;
+// Cloud library revalidation: a quiet background listing while the window is
+// visible, sooner while the account has work running or the backend is
+// unreachable, and on focus once the last attempt is this old.
+const cloudPollIntervalMs = 60_000;
+const cloudBusyPollIntervalMs = 20_000;
+const cloudOfflinePollIntervalMs = 15_000;
+const focusRevalidateMs = 10_000;
+// Attempts per cloud cover before it is left blank for the session.
+const cloudCoverAttemptLimit = 3;
+
+const errorText = (value: unknown) => value instanceof Error ? value.message : String(value ?? "");
+// What a local cover was cut from: a relink or a re-import changes it, and only
+// then is the cached data URL out of date.
+const coverVersion = (entry: MediaEntry) => `${entry.sourcePath}|${entry.size}`;
 
 /** Page notices carry their own tone so a completed action does not read as a
     warning. The helpers are module level, keeping setState callers dependency free. */
@@ -155,6 +169,8 @@ export default function App() {
   const [cloudMedia, setCloudMedia] = useState<CloudEntry[]>([]);
   const [cloudCapabilities, setCloudCapabilities] = useState<Capabilities | null>(null);
   const [cloudLoading, setCloudLoading] = useState(true);
+  const [cloudSync, setCloudSync] = useState<CloudSyncState>({ linked: false, phase: "idle", syncedAt: 0, error: "" });
+  const [syncDisabled, setSyncDisabled] = useState<ReadonlySet<string>>(() => new Set());
   const [loginKey, setLoginKey] = useState("");
   const [accountBusy, setAccountBusy] = useState(false);
   const [accountMessage, setAccountMessage] = useState("");
@@ -165,7 +181,21 @@ export default function App() {
   const [transcriptionBusy, setTranscriptionBusy] = useState(false);
   const [transcriptionError, setTranscriptionError] = useState("");
   const selfUpdate = useSelfUpdate();
-  const cloudThumbnailsTried = useRef(new Set<string>());
+  const cloudCoverAttempts = useRef(new Map<string, number>());
+  const cloudCoversInFlight = useRef(new Set<string>());
+  const thumbnailVersions = useRef(new Map<string, string>());
+  // Bumped by every list() and every library:changed snapshot, so a list() that
+  // was overtaken while in flight drops its older answer.
+  const libraryVersion = useRef(0);
+  const libraryRevalidatedAt = useRef(0);
+  // Cloud listing: one in flight at a time, at most one more queued behind it.
+  // Login and logout bump the sequence so a listing they overtook is dropped.
+  const cloudSyncFlight = useRef<Promise<void> | null>(null);
+  const cloudSyncQueued = useRef(false);
+  const cloudSyncSeq = useRef(0);
+  const cloudSyncStartedAt = useRef(0);
+  const cloudListed = useRef(false);
+  const cloudCapabilitiesKnown = useRef(false);
   const adoptedCloudEntries = useRef(new Set<string>());
   const syncedTasks = useRef(new Set<string>());
   const reconciledLocalTasks = useRef(new Set<string>());
@@ -320,47 +350,77 @@ export default function App() {
     }
   }, [localProvider]);
 
+  // Incremental: every library:changed snapshot passes through here, and
+  // reading every cover back across the bridge for each of them is what made
+  // a large library stutter on each change. Only covers that are new or were
+  // cut from a different file are fetched; one that fails keeps the image it
+  // had and is tried again on the next snapshot.
   const hydrateThumbnails = useCallback(async (entries: MediaEntry[]) => {
-    const pairs = await Promise.all(
-      entries
-        .filter((entry) => entry.thumbnailAvailable)
-        .map(async (entry) => {
-          try {
-            return [entry.id, await mediaLibrary.thumbnail(entry.id)] as const;
-          } catch {
-            return null;
-          }
-        }),
-    );
-    setThumbnails(Object.fromEntries(pairs.filter((pair) => pair !== null)));
+    const versions = thumbnailVersions.current;
+    const wanted = new Map(entries.filter((entry) => entry.thumbnailAvailable).map((entry) => [entry.id, coverVersion(entry)]));
+    const removed = [...versions.keys()].filter((id) => !wanted.has(id));
+    removed.forEach((id) => versions.delete(id));
+    const changed = [...wanted].filter(([id, version]) => versions.get(id) !== version);
+    // Marked before the fetch so an overlapping snapshot does not ask again.
+    changed.forEach(([id, version]) => versions.set(id, version));
+    const pairs = await Promise.all(changed.map(async ([id]) => {
+      try {
+        return [id, await mediaLibrary.thumbnail(id)] as const;
+      } catch {
+        versions.delete(id);
+        return null;
+      }
+    }));
+    const resolved = pairs.filter((pair) => pair !== null);
+    if (removed.length === 0 && resolved.length === 0) return;
+    setThumbnails((current) => {
+      const next = { ...current, ...Object.fromEntries(resolved) };
+      removed.forEach((id) => delete next[id]);
+      return next;
+    });
   }, []);
 
   // Cloud-only entries have no local file to draw a frame from, so their cover
-  // comes from the bucket the task uploaded it to. Each id is attempted once
-  // per session: an entry started by a desktop that had no cover to send will
-  // never grow one, and retrying on every library refresh only costs requests.
+  // comes from the bucket the task uploaded it to. A failed fetch is tried
+  // again on later listings, a few times at most: an entry started by a desktop
+  // that had no cover to send never grows one. An entry that gains one later
+  // flips thumbnailAvailable on a background listing and is picked up then.
   useEffect(() => {
-    const pending = cloudMedia.filter((entry) => entry.thumbnailAvailable && !cloudThumbnailsTried.current.has(entry.id));
+    const attempts = cloudCoverAttempts.current;
+    const inFlight = cloudCoversInFlight.current;
+    const pending = cloudMedia.filter((entry) => entry.thumbnailAvailable
+      && !inFlight.has(entry.id)
+      && (attempts.get(entry.id) ?? 0) < cloudCoverAttemptLimit);
     if (pending.length === 0) return;
-    pending.forEach((entry) => cloudThumbnailsTried.current.add(entry.id));
-    // Not cancelled on re-run either: the ids are already marked as tried, so
-    // a teardown mid-fetch would lose those covers for the rest of the session.
+    pending.forEach((entry) => {
+      inFlight.add(entry.id);
+      attempts.set(entry.id, (attempts.get(entry.id) ?? 0) + 1);
+    });
+    // Not cancelled on re-run either: the in-flight set already holds these
+    // ids, so a teardown mid-fetch would strand them.
     void Promise.all(pending.map(async (entry) => {
       try {
-        return [entry.id, await cloudAccount.thumbnail(entry.id)] as const;
+        const cover = await cloudAccount.thumbnail(entry.id);
+        attempts.set(entry.id, cloudCoverAttemptLimit);
+        return [entry.id, cover] as const;
       } catch {
         return null;
+      } finally {
+        inFlight.delete(entry.id);
       }
     })).then((pairs) => {
       const resolved = pairs.filter((pair) => pair !== null);
       if (resolved.length === 0) return;
       setCloudThumbnails((current) => ({ ...current, ...Object.fromEntries(resolved) }));
     });
-  }, [cloudMedia]);
+  }, [cloudMedia, cloudSync.syncedAt]);
 
   const loadLibrary = useCallback(async () => {
+    const version = ++libraryVersion.current;
+    libraryRevalidatedAt.current = Date.now();
     try {
       const entries = await mediaLibrary.list();
+      if (version !== libraryVersion.current) return;
       setMedia(entries);
       await hydrateThumbnails(entries);
     } catch (value) {
@@ -383,12 +443,14 @@ export default function App() {
       // pipeline projects the result the moment the task finishes, and both
       // paths would otherwise download the same artifacts at once.
       .filter((entry) => entry.available && !entry.documentAvailable && !entry.documentRemoved && entry.fingerprint && entry.id !== activeMedia?.id)
+      // Switched off: the cloud copy stays where it is until asked for by hand.
+      .filter((entry) => !syncDisabled.has(entry.fingerprint))
       .flatMap((entry) => {
         const remote = cloudMedia.find((item) => hasCloudSubtitles(item) && item.fingerprint === entry.fingerprint);
         return remote ? [{ key: `${remote.id}:${entry.id}`, localID: entry.id, videoID: remote.id }] : [];
       })
       .filter((pair) => !adoptFailed.has(pair.key));
-  }, [activeMedia?.id, adoptFailed, cloudMedia, cloudSession?.authenticated, media]);
+  }, [activeMedia?.id, adoptFailed, cloudMedia, cloudSession?.authenticated, media, syncDisabled]);
   const adoptingMedia = useMemo(() => new Set([
     ...pendingAdoptions.map((pair) => pair.localID),
     ...manualAdoptingMedia,
@@ -550,20 +612,44 @@ export default function App() {
     }
   }, [applyStorageAction]);
 
-  const loadCloud = useCallback(async () => {
-    setCloudLoading(true);
+  // One listing of the cloud library. A background run is stale-while-
+  // revalidate: the cards on screen stay put and only change if the answer
+  // differs. A failure that is not the backend refusing the key keeps the last
+  // listing and reports offline; it used to sign the account out on screen and
+  // wipe every cloud card over a single dropped request.
+  const syncCloudOnce = useCallback(async (background: boolean) => {
+    const seq = cloudSyncSeq.current;
+    const stale = () => seq !== cloudSyncSeq.current;
+    cloudSyncStartedAt.current = Date.now();
+    if (!background) setCloudLoading(true);
+    setCloudSync((current) => ({ ...current, phase: "syncing" }));
+    let linked = false;
     try {
       const cached = await cloudAccount.session();
-      const session = cached.authenticated ? await cloudAccount.refreshSession() : cached;
-      setCloudSession(session);
+      linked = cached.authenticated;
+      const session = linked ? await cloudAccount.refreshSession() : cached;
+      const videos = session.authenticated ? await cloudLibraryOf(session) : [];
+      if (stale()) return;
+      const changed = (current: unknown, next: unknown) => JSON.stringify(current) !== JSON.stringify(next);
+      setCloudSession((current) => changed(current, session) ? session : current);
+      setCloudMedia((current) => changed(current, videos) ? videos : current);
+      cloudListed.current = session.authenticated;
+      setCloudSync({ linked: session.authenticated, phase: "idle", syncedAt: Date.now(), error: "" });
       if (!session.authenticated) {
-        setCloudMedia([]);
+        cloudCapabilitiesKnown.current = false;
         setCloudCapabilities(null);
         return;
       }
-      setCloudMedia(await cloudLibraryOf(session));
-      setCloudCapabilities(await cloudProvider.capabilities().catch(() => null));
-      if (session.synced || session.syncFailed || session.syncError) {
+      if (!cloudCapabilitiesKnown.current) {
+        const nextCapabilities = await cloudProvider.capabilities().catch(() => null);
+        if (stale()) return;
+        cloudCapabilitiesKnown.current = nextCapabilities !== null;
+        setCloudCapabilities(nextCapabilities);
+      }
+      // A background pass reports only what it actually did: a document that
+      // fails to upload fails again on every poll, and repeating that notice
+      // each minute would bring it back however often it is dismissed.
+      if (session.synced || (!background && (session.syncFailed || session.syncError))) {
         setAccountMessage(
           session.syncError
             ? `已登录，但自动同步检查失败：${session.syncError}`
@@ -571,15 +657,50 @@ export default function App() {
         );
       }
     } catch (value) {
-      setCloudSession({ authenticated: false, running: 0, videos: [] });
-      setCloudMedia([]);
-      setCloudCapabilities(null);
-      const detail = value instanceof Error ? value.message : String(value ?? "");
-      if (detail && !detail.includes("Wails")) setAccountMessage(detail);
+      if (stale()) return;
+      const detail = errorText(value);
+      const refused = /cloud HTTP (401|403)\b/.test(detail);
+      if (refused || !cloudListed.current) {
+        // Nothing trustworthy to keep showing: a refused key, or a first
+        // listing that never arrived. Polling carries on in the latter case
+        // (the key is still stored), so the library fills in once it answers.
+        cloudListed.current = false;
+        cloudCapabilitiesKnown.current = false;
+        setCloudSession({ authenticated: false, running: 0, videos: [] });
+        setCloudMedia([]);
+        setCloudCapabilities(null);
+        if (detail && !detail.includes("Wails") && (refused || !background)) setAccountMessage(detail);
+      }
+      setCloudSync((current) => ({
+        linked: linked && !refused,
+        phase: refused ? "idle" : "offline",
+        syncedAt: current.syncedAt,
+        error: detail,
+      }));
     } finally {
-      setCloudLoading(false);
+      if (!background && !stale()) setCloudLoading(false);
     }
   }, [cloudProvider]);
+
+  // Single flight: a refresh asked for while one is running runs once more
+  // after it instead of racing it, and every caller awaits that rerun too, so
+  // "await loadCloud()" after a mutation still sees the mutation.
+  const loadCloud = useCallback(({ background = false }: { background?: boolean } = {}): Promise<void> => {
+    if (cloudSyncFlight.current) {
+      cloudSyncQueued.current = true;
+      return cloudSyncFlight.current;
+    }
+    const flight = (async () => {
+      do {
+        cloudSyncQueued.current = false;
+        await syncCloudOnce(background);
+      } while (cloudSyncQueued.current);
+    })().finally(() => {
+      cloudSyncFlight.current = null;
+    });
+    cloudSyncFlight.current = flight;
+    return flight;
+  }, [syncCloudOnce]);
 
   const acceptImport = useCallback(async (result: ImportResult) => {
     const failures = result.failed ?? [];
@@ -624,6 +745,50 @@ export default function App() {
   useEffect(() => {
     void Promise.all([refresh(), loadLibrary(), loadCloud(), loadCacheStatus(), loadStorageStatus()]);
   }, [loadCacheStatus, loadCloud, loadLibrary, loadStorageStatus, refresh]);
+
+  // Keep the cloud library current the way a streaming app's library does:
+  // a quiet listing on an interval while the window is visible, none while it
+  // is hidden, and one as soon as the user comes back or the network does.
+  const cloudLinked = cloudSync.linked;
+  const cloudPollMs = cloudSync.phase === "offline"
+    ? cloudOfflinePollIntervalMs
+    : (cloudSession?.running ?? 0) > 0 ? cloudBusyPollIntervalMs : cloudPollIntervalMs;
+  useEffect(() => {
+    if (!cloudLinked) return;
+    const timer = window.setInterval(() => {
+      if (!document.hidden) void loadCloud({ background: true });
+    }, cloudPollMs);
+    return () => window.clearInterval(timer);
+  }, [cloudLinked, cloudPollMs, loadCloud]);
+
+  // Focus also rereads the local library: List() re-checks every source file,
+  // so media moved or deleted in Explorer shows as 文件丢失 without a restart.
+  // Focus and visibilitychange usually fire together; the age check makes
+  // that one refresh, not two.
+  useEffect(() => {
+    const revalidate = () => {
+      if (document.hidden) return;
+      const now = Date.now();
+      if (now - libraryRevalidatedAt.current >= focusRevalidateMs) void loadLibrary();
+      if (cloudLinked && now - cloudSyncStartedAt.current >= focusRevalidateMs) void loadCloud({ background: true });
+    };
+    const reconnect = () => {
+      if (cloudLinked) void loadCloud({ background: true });
+    };
+    window.addEventListener("focus", revalidate);
+    document.addEventListener("visibilitychange", revalidate);
+    window.addEventListener("online", reconnect);
+    return () => {
+      window.removeEventListener("focus", revalidate);
+      document.removeEventListener("visibilitychange", revalidate);
+      window.removeEventListener("online", reconnect);
+    };
+  }, [cloudLinked, loadCloud, loadLibrary]);
+
+  const syncLibraryNow = useCallback(() => {
+    void loadLibrary();
+    void loadCloud({ background: true });
+  }, [loadCloud, loadLibrary]);
 
   useEffect(() => controller.subscribe((state) => setPipeline({ ...state })), [controller]);
 
@@ -670,6 +835,7 @@ export default function App() {
   useEffect(() => {
     const offChanged = Events.On("library:changed", (event) => {
       const entries = Array.isArray(event.data) ? (event.data as MediaEntry[]) : [];
+      libraryVersion.current += 1;
       setMedia(entries);
       void hydrateThumbnails(entries);
     });
@@ -833,11 +999,8 @@ export default function App() {
       return state ? { ...entry, status: state } : entry;
     }));
     if (!cloudSession?.authenticated) return;
-    void cloudAccount.refreshSession().then(async (session) => {
-      setCloudSession(session);
-      setCloudMedia(await cloudLibraryOf(session));
-    }).catch(() => undefined);
-  }, [cloudSession?.authenticated, taskHistory]);
+    void loadCloud({ background: true });
+  }, [cloudSession?.authenticated, loadCloud, taskHistory]);
 
   const actOnHistoryTask = useCallback(async (item: TaskHistoryEntry, action: "cancel" | "resume") => {
     const taskProvider = item.provider === "local" ? localProvider : cloudProvider;
@@ -1166,15 +1329,18 @@ export default function App() {
   // repairs a completed run discovered after restart. A remote local-sync entry
   // newer than the task is treated as its acknowledgement so reopening the app
   // does not upload the same historical result over and over.
+  // Only against a listing that actually arrived and is current: judged
+  // against an empty or offline one, every finished task looks unacknowledged.
+  const cloudReachable = cloudSync.syncedAt > 0 && cloudSync.phase !== "offline";
   useEffect(() => {
-    if (!cloudSession?.authenticated || cloudLoading) return;
+    if (!cloudSession?.authenticated || cloudLoading || !cloudReachable) return;
     const latestByFingerprint = new Map<string, { item: TaskHistoryEntry; entry: MediaEntry }>();
     for (const item of taskHistory) {
       // 云端任务的字幕也是本机续跑出来的（relay），同样要同步；Go 侧按 relay 找到本地那一段。
       const syncable = item.provider === "local" || isRelayTaskId(item.taskId);
       if (!syncable || item.snapshot.state !== "completed" || syncedTasks.current.has(item.taskId)) continue;
       const entry = media.find((candidate) => candidate.id === item.mediaId);
-      if (!entry?.documentAvailable || !entry.fingerprint) continue;
+      if (!entry?.documentAvailable || !entry.fingerprint || syncDisabled.has(entry.fingerprint)) continue;
       const existing = latestByFingerprint.get(entry.fingerprint);
       if (!existing || Date.parse(item.snapshot.updated_at) > Date.parse(existing.item.snapshot.updated_at)) {
         latestByFingerprint.set(entry.fingerprint, { item, entry });
@@ -1198,7 +1364,7 @@ export default function App() {
           const result = await cloudAccount.syncLocalTask(item.taskId, entry.id, entry.fingerprint, entry.title, entry.duration);
           if (result.status === "suppressed") suppressed += 1;
         }
-        setCloudMedia(await cloudAccount.library());
+        void loadCloud({ background: true });
         const uploaded = candidates.length - suppressed;
         setAccountMessage(uploaded === 0
           ? "已保留云端删除设置，本机字幕不会自动重新上传。"
@@ -1210,7 +1376,7 @@ export default function App() {
         setAccountMessage(`自动同步失败：${value instanceof Error ? value.message : String(value)}`);
       }
     })();
-  }, [cloudLoading, cloudMedia, cloudSession?.authenticated, media, taskHistory]);
+  }, [cloudLoading, cloudMedia, cloudReachable, cloudSession?.authenticated, loadCloud, media, syncDisabled, taskHistory]);
 
   const renameMedia = useCallback((entry: MediaEntry) => {
     setDialog({ kind: "rename", entry, value: entry.title });
@@ -1220,9 +1386,36 @@ export default function App() {
     setDialog({ kind: "remove", entry });
   }, []);
 
-  const deleteLocalSubtitles = useCallback((entry: MediaEntry) => {
-    setDialog({ kind: "delete-subtitles", entry });
+  const deleteSubtitles = useCallback((entry: MediaEntry, cloudEntry?: CloudEntry) => {
+    setDialog({ kind: "delete-subtitles", entry, cloudEntry, scope: entry.documentAvailable ? "local" : "cloud" });
   }, []);
+
+  // The switch is a local setting, read from disk, so it needs no network and
+  // holds whichever key is signed in.
+  useEffect(() => {
+    void cloudAccount.syncDisabled().then((listed) => setSyncDisabled(new Set(listed))).catch(() => undefined);
+  }, []);
+
+  const toggleCloudSync = useCallback(async (entry: MediaEntry) => {
+    if (!entry.fingerprint) return;
+    const enable = syncDisabled.has(entry.fingerprint);
+    try {
+      await cloudAccount.setSyncEnabled(entry.fingerprint, enable);
+      setSyncDisabled((current) => {
+        const next = new Set(current);
+        if (enable) next.delete(entry.fingerprint);
+        else next.add(entry.fingerprint);
+        return next;
+      });
+      setLibraryMessage(okNotice(enable
+        ? `已恢复“${entry.title}”的云端同步。`
+        : `“${entry.title}”不再与云端同步，云端已有的字幕保持不动。`));
+      // Back on: the refresh is what uploads what the cloud is missing.
+      if (enable) void loadCloud({ background: true });
+    } catch (value) {
+      setLibraryMessage(warnNotice(value instanceof Error ? value.message : String(value)));
+    }
+  }, [loadCloud, syncDisabled]);
 
   const deleteCloudMedia = useCallback((entry: CloudEntry) => {
     setDialog({ kind: "cloud-remove", entry });
@@ -1242,22 +1435,38 @@ export default function App() {
       } else if (dialog.kind === "remove") {
         await mediaLibrary.remove(dialog.entry.id, false);
       } else if (dialog.kind === "delete-subtitles") {
-        // Same predicate the auto-adoption loop above matches on: suppressing
-        // an entry it would not have picked up leaves the deleted subtitles
-        // being pulled straight back down.
-        const remote = cloudMedia.find((entry) => hasCloudSubtitles(entry) && entry.fingerprint === dialog.entry.fingerprint);
-        if (remote) {
-          const key = `${remote.id}:${dialog.entry.id}`;
-          adoptedCloudEntries.current.add(key);
-          setAdoptFailed((current) => new Set([...current, key]));
+        const { entry, cloudEntry, scope } = dialog;
+        // The cloud copy first: if that refusal comes back, the local one the
+        // user can still see is untouched.
+        if (scope !== "local" && cloudEntry) {
+          await cloudAccount.deleteLibraryEntry(cloudEntry.id);
+          setCloudMedia((current) => current.filter((item) => item.id !== cloudEntry.id));
+          setTaskHistory((current) => current.filter((item) => item.taskId !== cloudEntry.id));
         }
-        await mediaLibrary.deleteDocument(dialog.entry.id);
+        if (scope !== "cloud" && entry.documentAvailable) {
+          // Same predicate the auto-adoption loop above matches on: suppressing
+          // an entry it would not have picked up leaves the deleted subtitles
+          // being pulled straight back down.
+          const remote = cloudMedia.find((item) => hasCloudSubtitles(item) && item.fingerprint === entry.fingerprint);
+          if (remote) {
+            const key = `${remote.id}:${entry.id}`;
+            adoptedCloudEntries.current.add(key);
+            setAdoptFailed((current) => new Set([...current, key]));
+          }
+          await mediaLibrary.deleteDocument(entry.id);
+        }
       } else {
         await cloudAccount.deleteLibraryEntry(dialog.entry.id);
+        // Gone at once rather than after the listing below comes back.
+        setCloudMedia((current) => current.filter((entry) => entry.id !== dialog.entry.id));
         setTaskHistory((current) => current.filter((item) => item.taskId !== dialog.entry.id));
       }
       setDialog(null);
-      await (dialog.kind === "cloud-remove" ? loadCloud() : loadLibrary());
+      const touchedCloud = dialog.kind === "cloud-remove" || (dialog.kind === "delete-subtitles" && dialog.scope !== "local");
+      await Promise.all([
+        dialog.kind !== "cloud-remove" ? loadLibrary() : null,
+        touchedCloud ? loadCloud({ background: true }) : null,
+      ]);
     } catch (value) {
       setLibraryMessage(warnNotice(value instanceof Error ? value.message : String(value)));
       setDialog(null);
@@ -1298,12 +1507,17 @@ export default function App() {
     setAccountBusy(true);
     setCloudLoading(true);
     setAccountMessage("");
+    cloudSyncSeq.current += 1;
     try {
       const session = await cloudAccount.login(DEFAULT_CLOUD_BACKEND, loginKey);
       setCloudSession(session);
       setLoginKey("");
       setCloudMedia(await cloudLibraryOf(session));
-      setCloudCapabilities(await cloudProvider.capabilities().catch(() => null));
+      cloudListed.current = true;
+      setCloudSync({ linked: true, phase: "idle", syncedAt: Date.now(), error: "" });
+      const nextCapabilities = await cloudProvider.capabilities().catch(() => null);
+      cloudCapabilitiesKnown.current = nextCapabilities !== null;
+      setCloudCapabilities(nextCapabilities);
       setAccountMessage(
         session.syncError
           ? `登录成功，但自动同步检查失败：${session.syncError}`
@@ -1320,6 +1534,10 @@ export default function App() {
 
   const logout = useCallback(async () => {
     await cloudAccount.logout();
+    cloudSyncSeq.current += 1;
+    cloudListed.current = false;
+    cloudCapabilitiesKnown.current = false;
+    setCloudSync({ linked: false, phase: "idle", syncedAt: 0, error: "" });
     setCloudSession({ authenticated: false, running: 0, videos: [] });
     setCloudMedia([]);
     setCloudCapabilities(null);
@@ -1644,6 +1862,8 @@ export default function App() {
               runningProgress={pipeline.snapshot?.progress?.total ? Math.min(100, pipeline.snapshot.progress.completed / pipeline.snapshot.progress.total * 100) : 8}
               taskActive={taskActive}
               syncing={cloudLoading}
+              cloudSync={cloudSync}
+              onSync={syncLibraryNow}
               setFilter={setLibraryFilter}
               setSort={setSortMode}
               setView={setViewMode}
@@ -1653,7 +1873,9 @@ export default function App() {
               onStart={startMedia}
               onCancel={cancelActiveTask}
               onRename={renameMedia}
-              onDeleteSubtitles={deleteLocalSubtitles}
+              onDeleteSubtitles={deleteSubtitles}
+              syncDisabled={syncDisabled}
+              onToggleSync={toggleCloudSync}
               onRemove={removeMedia}
               onAdoptCloud={adoptLocalSubtitles}
               onEditCloud={editCloudEntry}

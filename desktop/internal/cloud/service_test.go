@@ -454,6 +454,208 @@ func TestLoginMergesExistingLocalDocumentsAndSkipsRemoteFingerprints(t *testing.
 	}
 }
 
+// A fingerprint that was on the previous listing and is gone from this one
+// was deleted by another device. The background refresh must not put it back,
+// but subtitles produced here after that listing are new work and still go up.
+func TestRefreshDoesNotUndoADeletionMadeElsewhere(t *testing.T) {
+	root := t.TempDir()
+	taskID := "0123456789abcdef0123456789abcdef"
+	localID := "loc_0123456789ab"
+	artifactRoot := filepath.Join(root, "tasks", taskID, "workspace")
+	if err := os.MkdirAll(artifactRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	artifactPath := filepath.Join(artifactRoot, "final.srt")
+	if err := os.WriteFile(artifactPath, []byte("1\n00:00:00,000 --> 00:00:01,000\n字幕\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	past := time.Now().Add(-time.Hour)
+	if err := os.Chtimes(artifactPath, past, past); err != nil {
+		t.Fatal(err)
+	}
+	manifest := artifactManifest{
+		TaskID: taskID, EngineCommit: "commit",
+		Artifacts: map[string]struct {
+			URI string `json:"uri"`
+		}{"final_srt": {URI: localFileURI(artifactPath)}},
+	}
+	documentRoot := filepath.Join(root, "documents", localID)
+	if err := os.MkdirAll(documentRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	encodedManifest, _ := json.Marshal(manifest)
+	if err := os.WriteFile(filepath.Join(documentRoot, "artifacts.json"), encodedManifest, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(documentRoot, "document.json"), []byte(`{"schema":1}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	remote := []Entry{{ID: "vid_000000000000000000000001", Fingerprint: "fingerprint", Status: "completed", Source: "local_sync", CreatedAt: "now", UpdatedAt: "now"}}
+	syncCalls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writer.Header().Set("Content-Type", "application/json")
+		switch request.URL.Path {
+		case "/v1/session":
+			_ = json.NewEncoder(writer).Encode(map[string]any{"authenticated": true, "running": 0, "videos": remote})
+		case "/v1/library":
+			_ = json.NewEncoder(writer).Encode(map[string]any{"videos": remote})
+		case "/v1/library/sync":
+			syncCalls++
+			entry := Entry{ID: "vid_000000000000000000000002", Fingerprint: "fingerprint", Status: "completed", Source: "local_sync", CreatedAt: "now", UpdatedAt: "now"}
+			remote = append(remote, entry)
+			_ = json.NewEncoder(writer).Encode(entry)
+		default:
+			http.NotFound(writer, request)
+		}
+	}))
+	defer server.Close()
+
+	catalog := fakeCatalog{
+		fakeMedia: fakeMedia{path: artifactPath},
+		entries: []library.Entry{{
+			ID: localID, Title: "demo.mp4", Fingerprint: "fingerprint", Duration: 60,
+			DocumentAvailable: true, Available: true,
+		}},
+	}
+	service, err := New(root, fakeProvider{}, catalog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if session, err := service.Login(server.URL, "login-key"); err != nil || session.SyncSkipped != 1 || syncCalls != 0 {
+		t.Fatalf("login = %#v, calls=%d, err=%v", session, syncCalls, err)
+	}
+
+	// Deleted on another device. A restart in between must not forget that
+	// the entry was there: the snapshot lives on disk.
+	remote = []Entry{}
+	service, err = New(root, fakeProvider{}, catalog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for range 2 {
+		session, err := service.RefreshSession()
+		if err != nil || session.Synced != 0 || session.SyncSkipped != 1 || syncCalls != 0 {
+			t.Fatalf("refresh after remote delete = %#v, calls=%d, err=%v", session, syncCalls, err)
+		}
+	}
+
+	// Transcribed again here afterwards: that result is not what was deleted.
+	future := time.Now().Add(time.Minute)
+	if err := os.Chtimes(artifactPath, future, future); err != nil {
+		t.Fatal(err)
+	}
+	if session, err := service.RefreshSession(); err != nil || session.Synced != 1 || syncCalls != 1 {
+		t.Fatalf("refresh after a new local run = %#v, calls=%d, err=%v", session, syncCalls, err)
+	}
+}
+
+// Another key's listing says nothing about this one's library.
+func TestRemoteSnapshotBelongsToOneAccount(t *testing.T) {
+	first := accountTag(storedSession{Backend: "https://example.test", Key: "a"})
+	second := accountTag(storedSession{Backend: "https://example.test", Key: "b"})
+	if first == second || first == "" {
+		t.Fatalf("account tags %q and %q must differ", first, second)
+	}
+}
+
+// Switching sync off for a media keeps its subtitles on this machine through
+// refreshes and new runs alike, survives a restart, and switching it back on
+// uploads them on the next refresh.
+func TestSyncSwitchHoldsSubtitlesBackUntilSwitchedOn(t *testing.T) {
+	root := t.TempDir()
+	taskID := "0123456789abcdef0123456789abcdef"
+	localID := "loc_0123456789ab"
+	artifactRoot := filepath.Join(root, "tasks", taskID, "workspace")
+	if err := os.MkdirAll(artifactRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	artifactPath := filepath.Join(artifactRoot, "final.srt")
+	if err := os.WriteFile(artifactPath, []byte("1\n00:00:00,000 --> 00:00:01,000\n字幕\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	manifest := artifactManifest{
+		TaskID: taskID, EngineCommit: "commit",
+		Artifacts: map[string]struct {
+			URI string `json:"uri"`
+		}{"final_srt": {URI: localFileURI(artifactPath)}},
+	}
+	documentRoot := filepath.Join(root, "documents", localID)
+	if err := os.MkdirAll(documentRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	encodedManifest, _ := json.Marshal(manifest)
+	if err := os.WriteFile(filepath.Join(documentRoot, "artifacts.json"), encodedManifest, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(documentRoot, "document.json"), []byte(`{"schema":1}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	remote := []Entry{}
+	syncCalls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writer.Header().Set("Content-Type", "application/json")
+		switch request.URL.Path {
+		case "/v1/session":
+			_ = json.NewEncoder(writer).Encode(map[string]any{"authenticated": true, "running": 0, "videos": remote})
+		case "/v1/library":
+			_ = json.NewEncoder(writer).Encode(map[string]any{"videos": remote})
+		case "/v1/library/sync":
+			syncCalls++
+			entry := Entry{ID: "vid_000000000000000000000001", Fingerprint: "fingerprint", Status: "completed", Source: "local_sync", CreatedAt: "now", UpdatedAt: "now"}
+			remote = append(remote, entry)
+			_ = json.NewEncoder(writer).Encode(entry)
+		default:
+			http.NotFound(writer, request)
+		}
+	}))
+	defer server.Close()
+
+	catalog := fakeCatalog{
+		fakeMedia: fakeMedia{path: artifactPath},
+		entries: []library.Entry{{
+			ID: localID, Title: "demo.mp4", Fingerprint: "fingerprint", Duration: 60,
+			DocumentAvailable: true, Available: true,
+		}},
+	}
+	service, err := New(root, fakeProvider{}, catalog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := service.SetSyncEnabled("fingerprint", false); err != nil {
+		t.Fatal(err)
+	}
+	if session, err := service.Login(server.URL, "login-key"); err != nil || session.Synced != 0 || syncCalls != 0 {
+		t.Fatalf("login with sync off = %#v, calls=%d, err=%v", session, syncCalls, err)
+	}
+	// A new run does not lapse the switch the way it lapses a suppression.
+	future := time.Now().Add(time.Minute)
+	if err := os.Chtimes(artifactPath, future, future); err != nil {
+		t.Fatal(err)
+	}
+	if entry, err := service.syncArtifactManifest(manifest, localID, "fingerprint", "demo.mp4", 60); err != nil || entry.Status != "suppressed" || syncCalls != 0 {
+		t.Fatalf("task sync with sync off = %#v, calls=%d, err=%v", entry, syncCalls, err)
+	}
+
+	service, err = New(root, fakeProvider{}, catalog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if disabled := service.SyncDisabled(); len(disabled) != 1 || disabled[0] != "fingerprint" {
+		t.Fatalf("disabled after restart = %#v", disabled)
+	}
+	if err := service.SetSyncEnabled("fingerprint", true); err != nil {
+		t.Fatal(err)
+	}
+	if session, err := service.RefreshSession(); err != nil || session.Synced != 1 || syncCalls != 1 {
+		t.Fatalf("refresh after switching on = %#v, calls=%d, err=%v", session, syncCalls, err)
+	}
+	if disabled := service.SyncDisabled(); len(disabled) != 0 {
+		t.Fatalf("disabled after switching on = %#v", disabled)
+	}
+}
+
 func TestRealModalLoginMergesAnIsolatedLocalLibrary(t *testing.T) {
 	keyPath := os.Getenv("NONOKA_MODAL_TEST_KEY_FILE")
 	if keyPath == "" {

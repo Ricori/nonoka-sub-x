@@ -7,6 +7,13 @@
 .dialog-field input:focus { border-color: var(--accent-border); box-shadow: 0 0 0 3px var(--accent-dim); }
 .dialog-check { display: flex; align-items: center; gap: 9px; border: 1px solid var(--line-soft); border-radius: 10px; padding: 11px; color: var(--mut); font-size: 12px; }
 .dialog-check input { accent-color: var(--accent); }
+.dialog-choices { display: grid; gap: 8px; margin-top: -4px; }
+.dialog-choice { display: flex; align-items: flex-start; gap: 10px; border: 1px solid var(--line-soft); border-radius: 10px; padding: 11px 12px; cursor: pointer; }
+.dialog-choice input { margin: 2px 0 0; accent-color: var(--accent); }
+.dialog-choice strong { display: block; color: var(--text); font-size: 13px; font-weight: 600; }
+.dialog-choice small { display: block; margin-top: 3px; color: var(--mut); font-size: 12px; line-height: 1.5; }
+.dialog-choice.selected { border-color: var(--accent-border); background: var(--accent-dim); }
+.dialog-choice.disabled { opacity: .5; cursor: not-allowed; }
 .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 23px; }
 .dialog-actions button { border: 1px solid var(--line); border-radius: 9px; padding: 8px 12px; background: var(--raised); color: var(--mut); cursor: pointer; }
 .dialog-actions .primary-button { border: 0; background: var(--grad); color: var(--on-grad); }

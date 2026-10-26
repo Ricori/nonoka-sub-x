@@ -16,14 +16,18 @@ interface LocalMediaCardProps {
   runningProgress: number;
   cloudEntry?: CloudEntry;
   canStart: boolean;
+  /** A cloud key is stored, so 同步到云端 means something for this card. */
+  cloudLinked: boolean;
+  syncEnabled: boolean;
   onOpen: (entry: MediaEntry) => void;
   onStart: (entry: MediaEntry) => Promise<void>;
   onCancel: () => Promise<void>;
   onRename: (entry: MediaEntry) => void;
-  onDeleteSubtitles: (entry: MediaEntry) => void;
+  /** One entry point for both copies: the dialog asks which one goes. */
+  onDeleteSubtitles: (entry: MediaEntry, cloudEntry?: CloudEntry) => void;
+  onToggleSync: (entry: MediaEntry) => Promise<void>;
   onRemove: (entry: MediaEntry) => void;
   onAdoptCloud: (entry: MediaEntry, cloudEntry: CloudEntry) => Promise<void>;
-  onDeleteCloud: (entry: CloudEntry) => void;
   onRelink: (entry: MediaEntry) => Promise<void>;
 }
 
@@ -31,10 +35,26 @@ interface MenuAction {
   label: string;
   danger?: boolean;
   disabled?: boolean;
+  /** Set for a switch: rendered as a checkable item with its state. */
+  checked?: boolean;
   onSelect: () => void;
 }
 
-function CardMenu({ actions }: { actions: MenuAction[] }) {
+// Groups are separated by "separator"; groups that end up empty collapse, so
+// callers can list every group unconditionally.
+type MenuItem = MenuAction | "separator";
+
+function tidySeparators(items: MenuItem[]): MenuItem[] {
+  const result: MenuItem[] = [];
+  for (const item of items) {
+    if (item === "separator" && (result.length === 0 || result[result.length - 1] === "separator")) continue;
+    result.push(item);
+  }
+  if (result[result.length - 1] === "separator") result.pop();
+  return result;
+}
+
+function CardMenu({ actions }: { actions: MenuItem[] }) {
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null);
 
@@ -60,14 +80,18 @@ function CardMenu({ actions }: { actions: MenuAction[] }) {
         <span /><span /><span />
       </button>
       {open && <div className="card-menu-popover" role="menu">
-        {actions.map((action) => <button key={action.label} type="button" role="menuitem" className={action.danger ? "danger" : ""} disabled={action.disabled} onClick={() => { setOpen(false); action.onSelect(); }}>{action.label}</button>)}
+        {tidySeparators(actions).map((action, index) => action === "separator"
+          ? <span key={`separator-${index}`} className="card-menu-separator" role="separator" />
+          : action.checked !== undefined
+            ? <button key={action.label} type="button" role="menuitemcheckbox" aria-checked={action.checked} className="checkable" disabled={action.disabled} onClick={() => { setOpen(false); action.onSelect(); }}>{action.label}<span className="card-menu-check" aria-hidden="true">{action.checked ? "✓" : ""}</span></button>
+            : <button key={action.label} type="button" role="menuitem" className={action.danger ? "danger" : ""} disabled={action.disabled} onClick={() => { setOpen(false); action.onSelect(); }}>{action.label}</button>)}
       </div>}
     </div>
   );
 }
 
 export function LocalMediaCard(props: LocalMediaCardProps) {
-  const { entry, thumbnail, running, adopting, runningProgress, cloudEntry, canStart, onOpen, onStart, onCancel, onRename, onDeleteSubtitles, onRemove, onAdoptCloud, onDeleteCloud, onRelink } = props;
+  const { entry, thumbnail, running, adopting, runningProgress, cloudEntry, canStart, cloudLinked, syncEnabled, onOpen, onStart, onCancel, onRename, onDeleteSubtitles, onToggleSync, onRemove, onAdoptCloud, onRelink } = props;
   // Subtitles adopted from the cloud before the video reached this machine.
   // The entry is unavailable like a missing file, but nothing was lost, so it
   // reads as "no video yet" rather than "文件丢失".
@@ -81,13 +105,15 @@ export function LocalMediaCard(props: LocalMediaCardProps) {
       setCancelling(false);
     }
   };
-  const menuActions: MenuAction[] = [
+  const menuActions: MenuItem[] = [
     { label: "重命名", onSelect: () => onRename(entry) },
-    ...(entry.documentAvailable && entry.available ? [{ label: "重跑任务", disabled: !canStart || adopting, onSelect: () => void onStart(entry) }] : []),
     ...(entry.available ? [{ label: "在文件夹中显示", onSelect: () => void mediaLibrary.revealInFolder(entry.sourcePath) }] : []),
-    ...(entry.documentAvailable ? [{ label: "删除本地字幕", danger: true, onSelect: () => onDeleteSubtitles(entry) }] : []),
-    ...(cloudEntry ? [{ label: "删除云端字幕", danger: true, disabled: cloudEntry.status === "queued" || cloudEntry.status === "running", onSelect: () => onDeleteCloud(cloudEntry) }] : []),
-    { label: "从媒体库移除视频", danger: true, onSelect: () => onRemove(entry) },
+    ...(entry.documentAvailable && entry.available ? [{ label: "重跑任务", disabled: !canStart || adopting, onSelect: () => void onStart(entry) }] : []),
+    "separator",
+    ...(cloudLinked && entry.fingerprint ? [{ label: "同步到云端", checked: syncEnabled, onSelect: () => void onToggleSync(entry) }] : []),
+    "separator",
+    ...(entry.documentAvailable || cloudEntry ? [{ label: "删除字幕…", danger: true, onSelect: () => onDeleteSubtitles(entry, cloudEntry) }] : []),
+    { label: "从媒体库移除…", danger: true, onSelect: () => onRemove(entry) },
   ];
   return (
     <article className={`media-card local-card ${!entry.available ? "missing-media" : ""}`}>
@@ -103,7 +129,7 @@ export function LocalMediaCard(props: LocalMediaCardProps) {
           <CardMenu actions={menuActions} />
         </div>
         <span className="media-meta">{entry.width > 0 ? `${entry.width}×${entry.height} · ${formatSize(entry.size)} · ` : entry.audioOnly ? `纯音频 · ${formatSize(entry.size)} · ` : ""}{formatDate(entry.lastAccess || entry.addedAt)}</span>
-        <div className="media-chips"><small>{entry.available ? "本机文件" : subtitleOnly ? "尚未关联视频" : "源文件离线"}</small>{cloudEntry && <small className="cloud-badge">☁ 字幕已同步</small>}</div>
+        <div className="media-chips"><small>{entry.available ? "本机文件" : subtitleOnly ? "尚未关联视频" : "源文件离线"}</small>{cloudLinked && !syncEnabled ? <small>不同步云端</small> : cloudEntry && <small className="cloud-badge">☁ 字幕已同步</small>}</div>
         <div className="media-card-actions">
           {entry.documentAvailable && <button className="secondary-card-action" onClick={() => onOpen(entry)}>编辑字幕</button>}
           {!entry.available ? (
@@ -129,7 +155,7 @@ export function CloudMediaCard({ entry, thumbnail, adopting, onEdit, onAssociate
     <article className="media-card cloud-card">
       <div className="media-thumb cloud-thumb">{thumbnail ? <img src={thumbnail} alt="" /> : <span>☁</span>}<small className="duration-badge">{formatDuration(entry.duration)}</small><strong className="state-badge cloud">仅云端字幕</strong></div>
       <div className="media-card-copy">
-        <div className="media-title-row"><strong title={entry.title}>{entry.title}</strong><CardMenu actions={[{ label: "删除云端字幕", danger: true, disabled: entry.status === "queued" || entry.status === "running", onSelect: () => onDelete(entry) }]} /></div>
+        <div className="media-title-row"><strong title={entry.title}>{entry.title}</strong><CardMenu actions={[{ label: "删除云端字幕…", danger: true, disabled: entry.status === "queued" || entry.status === "running", onSelect: () => onDelete(entry) }]} /></div>
         <span className="media-meta">{entry.status} · {formatDate(entry.updatedAt)}</span>
         <div className="media-chips"><small className="cloud-badge">{entry.source === "local_sync" ? "由本机自动同步" : "云端容器任务"}</small>{entry.ownerName && <small className="cloud-badge">{entry.ownerName}</small>}</div>
         <div className="media-card-actions">

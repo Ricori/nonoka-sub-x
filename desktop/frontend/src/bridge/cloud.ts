@@ -32,6 +32,11 @@ export const cloudAccount = {
   adoptLibraryEntry: CloudService.AdoptLibraryEntry,
   adoptCloudEntry: CloudService.AdoptCloudEntry,
   syncLocalTask: CloudService.SyncLocalTask,
+  /** Fingerprints the user switched 同步到云端 off for. */
+  async syncDisabled(): Promise<string[]> {
+    return (await CloudService.SyncDisabled()) ?? [];
+  },
+  setSyncEnabled: CloudService.SetSyncEnabled,
   capabilities: CloudService.Capabilities,
   listTasks: CloudService.ListTasks,
   startTask: CloudService.StartTask,

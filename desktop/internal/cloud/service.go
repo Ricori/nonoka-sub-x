@@ -20,6 +20,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -144,6 +145,22 @@ type IssuedAdminKey struct {
 	Generated bool   `json:"generated"`
 }
 
+// remoteSeenState is the fingerprint set of the last library listing this
+// desktop received, and when. It is what tells "never reached the cloud" apart
+// from "deleted there by another device": both look the same in a listing, but
+// only the first may be uploaded again. Account is a digest of the backend and
+// key, so signing in with another key starts from an empty set.
+type remoteSeenState struct {
+	Account      string   `json:"account"`
+	ListedAt     int64    `json:"listedAt"`
+	Fingerprints []string `json:"fingerprints"`
+}
+
+func accountTag(session storedSession) string {
+	sum := sha256.Sum256([]byte(session.Backend + "\x00" + session.Key))
+	return hex.EncodeToString(sum[:8])
+}
+
 type syncRequest struct {
 	LocalID      string            `json:"localId"`
 	Fingerprint  string            `json:"fingerprint"`
@@ -192,6 +209,8 @@ type Service struct {
 	syncMu               sync.Mutex
 	configPath           string
 	syncSuppressionsPath string
+	remoteSeenPath       string
+	syncDisabledPath     string
 	root                 string
 	thumbRoot            string
 	tasksRoot            string
@@ -203,6 +222,11 @@ type Service struct {
 	extractor            func(context.Context, string, string) error
 	session              storedSession
 	syncSuppressions     map[string]int64
+	remoteSeen           remoteSeenState
+	// Fingerprints the user switched cloud sync off for. Unlike a suppression
+	// this does not lapse when the media is transcribed again: it holds until
+	// the user switches it back on.
+	syncDisabled map[string]bool
 
 	// Relays (relay.go). relayMu guards the records and the driver table;
 	// relayActionMu serialises the renderer's cancel and restart, which stop
@@ -229,6 +253,9 @@ func New(dataDirectory string, provider providerCaller, resolvers ...mediaResolv
 	service := &Service{
 		configPath:           filepath.Join(root, "cloud-session.json"),
 		syncSuppressionsPath: filepath.Join(root, "cloud-sync-suppressions.json"),
+		remoteSeenPath:       filepath.Join(root, "cloud-sync-remote.json"),
+		syncDisabledPath:     filepath.Join(root, "cloud-sync-disabled.json"),
+		syncDisabled:         map[string]bool{},
 		root:                 root,
 		thumbRoot:            filepath.Join(root, "cloud-thumbnails"),
 		tasksRoot:            filepath.Join(root, "tasks"),
@@ -1059,8 +1086,11 @@ func (s *Service) syncArtifactManifest(manifest artifactManifest, localID, finge
 	if !validTaskID.MatchString(manifest.TaskID) {
 		return Entry{}, errors.New("invalid local task id in artifact manifest")
 	}
-	contents := map[string]string{}
-	total := int64(0)
+	// Paths and ages first, contents only once the upload is decided: every
+	// library refresh walks the suppressed entries, and reading their
+	// subtitles just to discard them made each background poll cost a full
+	// read of every deleted entry's artifacts.
+	paths := map[string]string{}
 	newestArtifact := int64(0)
 	for _, name := range []string{"stable_json", "raw_srt", "annotated_csv", "final_srt"} {
 		item, ok := manifest.Artifacts[name]
@@ -1071,28 +1101,41 @@ func (s *Service) syncArtifactManifest(manifest artifactManifest, localID, finge
 		if err != nil {
 			return Entry{}, fmt.Errorf("%s: %w", name, err)
 		}
+		info, err := os.Stat(path)
+		if err != nil {
+			return Entry{}, err
+		}
+		if info.ModTime().UnixMilli() > newestArtifact {
+			newestArtifact = info.ModTime().UnixMilli()
+		}
+		paths[name] = path
+	}
+	if len(paths) == 0 {
+		return Entry{}, errors.New("local task has no syncable artifacts")
+	}
+	s.mu.Lock()
+	suppressedAt := s.syncSuppressions[fingerprint]
+	if s.syncDisabled[fingerprint] || (suppressedAt > 0 && newestArtifact <= suppressedAt) {
+		s.mu.Unlock()
+		return Entry{Fingerprint: fingerprint, Status: "suppressed", Source: "local_sync"}, nil
+	}
+	s.mu.Unlock()
+	contents := map[string]string{}
+	total := int64(0)
+	for name, path := range paths {
 		data, err := os.ReadFile(path)
 		if err != nil {
 			return Entry{}, err
 		}
 		total += int64(len(data))
-		if info, statErr := os.Stat(path); statErr == nil && info.ModTime().UnixMilli() > newestArtifact {
-			newestArtifact = info.ModTime().UnixMilli()
-		}
 		if total > maxArtifactBytes {
 			return Entry{}, errors.New("local task artifacts exceed the sync limit")
 		}
 		contents[name] = string(data)
 	}
-	if len(contents) == 0 {
-		return Entry{}, errors.New("local task has no syncable artifacts")
-	}
 	s.mu.Lock()
-	suppressedAt := s.syncSuppressions[fingerprint]
-	if suppressedAt > 0 && newestArtifact <= suppressedAt {
-		s.mu.Unlock()
-		return Entry{Fingerprint: fingerprint, Status: "suppressed", Source: "local_sync"}, nil
-	}
+	// Re-read under the lock it is cleared under: the files were read without it.
+	suppressedAt = s.syncSuppressions[fingerprint]
 	if suppressedAt > 0 {
 		delete(s.syncSuppressions, fingerprint)
 		if err := s.saveSyncSuppressionsLocked(); err != nil {
@@ -1137,19 +1180,40 @@ func (s *Service) mergeLocalLibrary(session *Session) {
 		remote = fetched
 		session.Videos = fetched
 	}
+	listedAt := time.Now().UnixMilli()
 	remoteFingerprints := make(map[string]struct{}, len(remote))
 	for _, entry := range remote {
 		if entry.Fingerprint != "" {
 			remoteFingerprints[entry.Fingerprint] = struct{}{}
 		}
 	}
+	s.mu.RLock()
+	account := accountTag(s.session)
+	previous := s.remoteSeen
+	s.mu.RUnlock()
+	seenBefore := map[string]struct{}{}
+	if previous.Account == account {
+		for _, fingerprint := range previous.Fingerprints {
+			seenBefore[fingerprint] = struct{}{}
+		}
+	}
 	for _, entry := range catalog.List() {
 		if !entry.DocumentAvailable || entry.Fingerprint == "" || !validLocalMediaID.MatchString(entry.ID) {
 			continue
 		}
-		if _, exists := remoteFingerprints[entry.Fingerprint]; exists {
+		if _, exists := remoteFingerprints[entry.Fingerprint]; exists || s.syncDisabledFor(entry.Fingerprint) {
 			session.SyncSkipped++
 			continue
+		}
+		if _, seen := seenBefore[entry.Fingerprint]; seen {
+			// On the previous listing and gone from this one: another device
+			// deleted it. Uploading it again would undo that deletion on every
+			// machine, so it is held back like a deletion made here -- as of
+			// that listing, so subtitles produced here since still go up.
+			if err := s.suppressSync(entry.Fingerprint, previous.ListedAt); err != nil {
+				session.SyncFailed++
+				continue
+			}
 		}
 		data, readErr := os.ReadFile(filepath.Join(s.root, "documents", entry.ID, "artifacts.json"))
 		if readErr != nil {
@@ -1182,6 +1246,45 @@ func (s *Service) mergeLocalLibrary(session *Session) {
 			session.Videos = refreshed
 			session.CloudVideos = len(refreshed)
 		}
+	}
+	s.rememberRemote(account, listedAt, remoteFingerprints)
+}
+
+// suppressSync holds a fingerprint's local subtitles back from the cloud for
+// everything produced up to at. An existing later suppression wins.
+func (s *Service) suppressSync(fingerprint string, at int64) error {
+	if at <= 0 {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	previous, existed := s.syncSuppressions[fingerprint]
+	if previous >= at {
+		return nil
+	}
+	s.syncSuppressions[fingerprint] = at
+	if err := s.saveSyncSuppressionsLocked(); err != nil {
+		if existed {
+			s.syncSuppressions[fingerprint] = previous
+		} else {
+			delete(s.syncSuppressions, fingerprint)
+		}
+		return err
+	}
+	return nil
+}
+
+func (s *Service) rememberRemote(account string, listedAt int64, fingerprints map[string]struct{}) {
+	listed := make([]string, 0, len(fingerprints))
+	for fingerprint := range fingerprints {
+		listed = append(listed, fingerprint)
+	}
+	sort.Strings(listed)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.remoteSeen = remoteSeenState{Account: account, ListedAt: listedAt, Fingerprints: listed}
+	if err := s.saveRemoteSeenLocked(); err != nil {
+		log.Printf("cloud: cannot save the remote library snapshot: %v", err)
 	}
 }
 
@@ -1729,6 +1832,16 @@ func (s *Service) load() {
 	if readState(s.syncSuppressionsPath, &suppressions) && suppressions != nil {
 		s.syncSuppressions = suppressions
 	}
+	var seen remoteSeenState
+	if readState(s.remoteSeenPath, &seen) {
+		s.remoteSeen = seen
+	}
+	var disabled []string
+	if readState(s.syncDisabledPath, &disabled) {
+		for _, fingerprint := range disabled {
+			s.syncDisabled[fingerprint] = true
+		}
+	}
 }
 
 func (s *Service) saveLocked() error {
@@ -1765,6 +1878,98 @@ func (s *Service) saveSyncSuppressionsLocked() error {
 		return err
 	}
 	if err := os.Rename(temporary, s.syncSuppressionsPath); err != nil {
+		_ = os.Remove(temporary)
+		return err
+	}
+	return nil
+}
+
+// SyncDisabled lists the fingerprints cloud sync is switched off for.
+func (s *Service) SyncDisabled() []string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	listed := make([]string, 0, len(s.syncDisabled))
+	for fingerprint := range s.syncDisabled {
+		listed = append(listed, fingerprint)
+	}
+	sort.Strings(listed)
+	return listed
+}
+
+func (s *Service) syncDisabledFor(fingerprint string) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.syncDisabled[fingerprint]
+}
+
+// SetSyncEnabled switches cloud sync for one media on or off. Off keeps this
+// desktop from uploading its subtitles; the renderer also stops pulling the
+// cloud copy down. Nothing already in the cloud is deleted.
+func (s *Service) SetSyncEnabled(fingerprint string, enabled bool) error {
+	fingerprint = strings.TrimSpace(fingerprint)
+	if fingerprint == "" || len(fingerprint) > 256 {
+		return errors.New("media fingerprint is required")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.syncDisabled[fingerprint] == !enabled {
+		return nil
+	}
+	if enabled {
+		delete(s.syncDisabled, fingerprint)
+	} else {
+		s.syncDisabled[fingerprint] = true
+	}
+	if err := s.saveSyncDisabledLocked(); err != nil {
+		if enabled {
+			s.syncDisabled[fingerprint] = true
+		} else {
+			delete(s.syncDisabled, fingerprint)
+		}
+		return err
+	}
+	return nil
+}
+
+func (s *Service) saveSyncDisabledLocked() error {
+	listed := make([]string, 0, len(s.syncDisabled))
+	for fingerprint := range s.syncDisabled {
+		listed = append(listed, fingerprint)
+	}
+	sort.Strings(listed)
+	data, err := json.Marshal(listed)
+	if err != nil {
+		return err
+	}
+	data = append(data, '\n')
+	if err := os.MkdirAll(filepath.Dir(s.syncDisabledPath), 0o700); err != nil {
+		return err
+	}
+	temporary := s.syncDisabledPath + ".tmp"
+	if err := os.WriteFile(temporary, data, 0o600); err != nil {
+		return err
+	}
+	if err := os.Rename(temporary, s.syncDisabledPath); err != nil {
+		_ = os.Remove(temporary)
+		return err
+	}
+	return nil
+}
+
+func (s *Service) saveRemoteSeenLocked() error {
+	data, err := json.Marshal(s.remoteSeen)
+	if err != nil {
+		return err
+	}
+	data = append(data, '\n')
+	if err := os.MkdirAll(filepath.Dir(s.remoteSeenPath), 0o700); err != nil {
+		return err
+	}
+	temporary := s.remoteSeenPath + ".tmp"
+	if err := os.WriteFile(temporary, data, 0o600); err != nil {
+		return err
+	}
+	if err := os.Rename(temporary, s.remoteSeenPath); err != nil {
 		_ = os.Remove(temporary)
 		return err
 	}

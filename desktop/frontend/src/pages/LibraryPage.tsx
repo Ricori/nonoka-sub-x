@@ -1,10 +1,11 @@
+import { useEffect, useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
 import type { CloudEntry } from "../bridge/cloud.ts";
 import type { MediaEntry } from "../bridge/library.ts";
 import { CloudMediaCard, LocalMediaCard } from "../components/MediaCard.tsx";
 import { CustomSelect } from "../components/CustomSelect.tsx";
 import { Mascot } from "../components/Mascot.tsx";
-import type { LibraryFilter, LibraryItem, SortMode, ViewMode } from "../app/types.ts";
+import type { CloudSyncState, LibraryFilter, LibraryItem, SortMode, ViewMode } from "../app/types.ts";
 import "./LibraryPage.css";
 import { Notice } from "../components/Notice.tsx";
 import type { NoticeTone } from "../components/Notice.tsx";
@@ -27,7 +28,10 @@ interface LibraryPageProps {
   adoptingCloud: ReadonlySet<string>;
   runningProgress: number;
   taskActive: boolean;
+  /** The first cloud listing (or a login) is still out: the empty library shows a spinner. */
   syncing: boolean;
+  cloudSync: CloudSyncState;
+  onSync: () => void;
   setFilter: Dispatch<SetStateAction<LibraryFilter>>;
   setSort: Dispatch<SetStateAction<SortMode>>;
   setView: Dispatch<SetStateAction<ViewMode>>;
@@ -37,7 +41,10 @@ interface LibraryPageProps {
   onStart: (entry: MediaEntry) => Promise<void>;
   onCancel: () => Promise<void>;
   onRename: (entry: MediaEntry) => void;
-  onDeleteSubtitles: (entry: MediaEntry) => void;
+  onDeleteSubtitles: (entry: MediaEntry, cloudEntry?: CloudEntry) => void;
+  /** Fingerprints 同步到云端 is switched off for. */
+  syncDisabled: ReadonlySet<string>;
+  onToggleSync: (entry: MediaEntry) => Promise<void>;
   onRemove: (entry: MediaEntry) => void;
   onAdoptCloud: (entry: MediaEntry, cloudEntry: CloudEntry) => Promise<void>;
   onEditCloud: (entry: CloudEntry) => Promise<void>;
@@ -47,8 +54,59 @@ interface LibraryPageProps {
   onDismissMessage: () => void;
 }
 
+function syncedAgo(syncedAt: number, now: number) {
+  const minutes = Math.floor((now - syncedAt) / 60_000);
+  if (minutes < 1) return "刚刚";
+  if (minutes < 60) return `${minutes} 分钟前`;
+  return `${Math.floor(minutes / 60)} 小时前`;
+}
+
+// The cloud half of the library refreshes on its own; this says how fresh it
+// is and lets the user ask for a listing now. Deliberately not a live region:
+// it changes on every background poll, and announcing each one is noise.
+function SyncIndicator({ state, onSync }: { state: CloudSyncState; onSync: () => void }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 30_000);
+    return () => window.clearInterval(timer);
+  }, []);
+  // A background pass must not make the label flicker every minute: once a
+  // listing is on screen it keeps reading 已同步 until the new one lands, and
+  // only a click (or the very first listing) shows the spinner.
+  const [requested, setRequested] = useState(false);
+  useEffect(() => {
+    if (state.phase !== "syncing") setRequested(false);
+  }, [state.phase]);
+  const syncing = state.phase === "syncing" && (requested || state.syncedAt === 0);
+  const offline = state.phase === "offline";
+  const label = syncing
+    ? "同步中…"
+    : offline
+      ? "离线 · 重试"
+      : state.syncedAt > 0 ? `已同步 · ${syncedAgo(state.syncedAt, now)}` : "同步";
+  const title = offline
+    ? `无法连接云端，显示的是上次同步的内容${state.error ? `：${state.error}` : ""}。点击重试。`
+    : "从云端重新同步媒体库";
+  return (
+    <button
+      className={`library-sync-button${offline ? " offline" : ""}`}
+      title={title}
+      aria-label={`${label}。${title}`}
+      aria-busy={syncing}
+      disabled={syncing}
+      onClick={() => {
+        setRequested(true);
+        onSync();
+      }}
+    >
+      {syncing ? <span className="library-sync-dot spinning" aria-hidden="true" /> : <span className="library-sync-dot" aria-hidden="true" />}
+      {label}
+    </button>
+  );
+}
+
 export function LibraryPage(props: LibraryPageProps) {
-  const { items, visibleItems, thumbnails, cloudThumbnails, remoteByFingerprint, filter, filterCounts, sort, view, busy, message, messageTone, localRunningID, adoptingMedia, adoptingCloud, runningProgress, taskActive, syncing, setFilter, setSort, setView, onClearQuery, onImport, onOpen, onStart, onCancel, onRename, onDeleteSubtitles, onRemove, onAdoptCloud, onEditCloud, onAssociateCloud, onDeleteCloud, onRelink, onDismissMessage } = props;
+  const { items, visibleItems, thumbnails, cloudThumbnails, remoteByFingerprint, filter, filterCounts, sort, view, busy, message, messageTone, localRunningID, adoptingMedia, adoptingCloud, runningProgress, taskActive, syncing, cloudSync, onSync, setFilter, setSort, setView, onClearQuery, onImport, onOpen, onStart, onCancel, onRename, onDeleteSubtitles, syncDisabled, onToggleSync, onRemove, onAdoptCloud, onEditCloud, onAssociateCloud, onDeleteCloud, onRelink, onDismissMessage } = props;
   // A local card's cover comes from the library's own thumbnail directory, which
   // adoption now fills for media this machine has no file of. Entries adopted
   // before it did -- and media whose frame ffmpeg never produced -- fall back to
@@ -63,6 +121,7 @@ export function LibraryPage(props: LibraryPageProps) {
           <button className={filter === value ? "active" : ""} key={value} onClick={() => setFilter(value)}>{label} <span>{filterCounts[value]}</span></button>
         ))}
         <span className="toolbar-spacer" />
+        {cloudSync.linked && <SyncIndicator state={cloudSync} onSync={onSync} />}
         <CustomSelect<SortMode>
           ariaLabel="媒体排序"
           compact
@@ -85,7 +144,7 @@ export function LibraryPage(props: LibraryPageProps) {
       ) : (
         <div className={`media-grid ${view === "list" ? "list-view" : ""}`}>
           {visibleItems.map((item) => item.kind === "local" ? (
-            <LocalMediaCard key={`local:${item.entry.id}`} entry={item.entry} thumbnail={coverOf(item.entry)} running={item.entry.id === localRunningID} adopting={adoptingMedia.has(item.entry.id)} runningProgress={runningProgress} cloudEntry={remoteByFingerprint.get(item.entry.fingerprint)} canStart={item.entry.available && !taskActive} onOpen={onOpen} onStart={onStart} onCancel={onCancel} onRename={onRename} onDeleteSubtitles={onDeleteSubtitles} onRemove={onRemove} onAdoptCloud={onAdoptCloud} onDeleteCloud={onDeleteCloud} onRelink={onRelink} />
+            <LocalMediaCard key={`local:${item.entry.id}`} entry={item.entry} thumbnail={coverOf(item.entry)} running={item.entry.id === localRunningID} adopting={adoptingMedia.has(item.entry.id)} runningProgress={runningProgress} cloudEntry={remoteByFingerprint.get(item.entry.fingerprint)} canStart={item.entry.available && !taskActive} cloudLinked={cloudSync.linked} syncEnabled={!syncDisabled.has(item.entry.fingerprint)} onOpen={onOpen} onStart={onStart} onCancel={onCancel} onRename={onRename} onDeleteSubtitles={onDeleteSubtitles} onToggleSync={onToggleSync} onRemove={onRemove} onAdoptCloud={onAdoptCloud} onRelink={onRelink} />
           ) : <CloudMediaCard key={`cloud:${item.entry.id}`} entry={item.entry} thumbnail={cloudThumbnails[item.entry.id]} adopting={adoptingCloud.has(item.entry.id)} onEdit={onEditCloud} onAssociate={onAssociateCloud} onDelete={onDeleteCloud} />)}
         </div>
       )}

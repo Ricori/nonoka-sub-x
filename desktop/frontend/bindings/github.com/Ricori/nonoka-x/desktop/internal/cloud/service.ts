@@ -109,6 +109,15 @@ export function Session(): $CancellablePromise<$models.Session> {
 }
 
 /**
+ * SetSyncEnabled switches cloud sync for one media on or off. Off keeps this
+ * desktop from uploading its subtitles; the renderer also stops pulling the
+ * cloud copy down. Nothing already in the cloud is deleted.
+ */
+export function SetSyncEnabled(fingerprint: string, enabled: boolean): $CancellablePromise<void> {
+    return $Call.ByID(4221123024, fingerprint, enabled);
+}
+
+/**
  * StartTask starts a relay: the cloud recognises the media up to stable.json,
  * and this desktop continues from it with the user's own models once the file
  * is collected (relay.go). Returns the relay's snapshot, which is what the
@@ -117,6 +126,13 @@ export function Session(): $CancellablePromise<$models.Session> {
  */
 export function StartTask(localID: string, options: { [_ in string]?: any } | null): $CancellablePromise<{ [_ in string]?: any } | null> {
     return $Call.ByID(3091747049, localID, options);
+}
+
+/**
+ * SyncDisabled lists the fingerprints cloud sync is switched off for.
+ */
+export function SyncDisabled(): $CancellablePromise<string[] | null> {
+    return $Call.ByID(1784629323);
 }
 
 /**
