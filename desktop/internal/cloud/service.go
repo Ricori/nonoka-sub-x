@@ -438,17 +438,12 @@ func (s *Service) submitCloudJobTracked(localID string, options map[string]any, 
 		"vocal_profile":        "cost",
 		"cleanup_intermediate": false,
 	}
-	// Speaker diarization: only the level and an optional cap cross over, and
-	// only when the run asks for something. The backend runs the acoustic
-	// level whichever judge level was asked: judging is LLM work.
-	if diarization, ok := options["diarization"].(map[string]any); ok {
-		if level, ok := diarization["level"].(string); ok && level != "" && level != "off" {
-			cleaned := map[string]any{"level": level}
-			if limit, exists := diarization["max_speakers"]; exists && limit != nil {
-				cleaned["max_speakers"] = limit
-			}
-			request["diarization"] = cleaned
-		}
+	// Speaker diarization: the level the user chose and an optional cap, only
+	// when the run asks for something. The backend computes the acoustic
+	// timeline whichever level was asked and records the request; the judge
+	// levels run in the local leg, from the timeline it hands back.
+	if diarization := diarizationOption(options); diarization != nil {
+		request["diarization"] = diarization
 	}
 	var snapshot map[string]any
 	*submitted = true
@@ -1647,6 +1642,17 @@ func numberOption(options map[string]any, key string, fallback int) int {
 	return fallback
 }
 
+// cloudBackend is where the cloud lives; the renderer's DEFAULT_CLOUD_BACKEND
+// says the same.
+const cloudBackend = "https://cloud.nonoka.online"
+
+// retiredBackend reports a session saved against the Modal app the backend
+// moved away from.
+func retiredBackend(backend string) bool {
+	parsed, err := url.Parse(backend)
+	return err == nil && strings.HasSuffix(strings.ToLower(parsed.Hostname()), ".modal.run")
+}
+
 func validBackend(value string) (string, error) {
 	parsed, err := url.Parse(strings.TrimSpace(value))
 	if err != nil || parsed.Host == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" {
@@ -1695,6 +1701,14 @@ func (s *Service) load() {
 		if backendErr == nil && strings.TrimSpace(stored.Key) != "" {
 			stored.Backend = backend
 			s.session = stored
+			if retiredBackend(backend) {
+				// The key outlives the move to the Cloudflare backend, so a
+				// signed-in user follows it instead of signing in again.
+				s.session.Backend = cloudBackend
+				if err := s.saveLocked(); err != nil {
+					log.Printf("cloud: cannot save the migrated session: %v", err)
+				}
+			}
 		} else if stored != (storedSession{}) {
 			// A stored session that no longer passes the backend rules is a
 			// logged-out start, not a dead app: the user signs in again.
@@ -1745,6 +1759,24 @@ func (s *Service) saveSyncSuppressionsLocked() error {
 		return err
 	}
 	return nil
+}
+
+// diarizationOption is the dialog's speaker diarization as both legs send it:
+// the level unchanged and an optional cap, or nil when it asks for none.
+func diarizationOption(options map[string]any) map[string]any {
+	diarization, ok := options["diarization"].(map[string]any)
+	if !ok {
+		return nil
+	}
+	level, ok := diarization["level"].(string)
+	if !ok || level == "" || level == "off" {
+		return nil
+	}
+	cleaned := map[string]any{"level": level}
+	if limit, exists := diarization["max_speakers"]; exists && limit != nil {
+		cleaned["max_speakers"] = limit
+	}
+	return cleaned
 }
 
 // axisOption returns the imported axis a cloud task must run over, or nil.

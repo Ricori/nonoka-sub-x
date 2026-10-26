@@ -174,8 +174,6 @@ const CPU_DEVICE_HINT = "无显卡时的运行方式；整条流水线仍然完�
 // 关掉分离不会报错，只会让识别质量整体塌掉——所以这里说清它是给什么输入用的。
 const SKIP_SEPARATION_HINT = "仅在输入本身就是纯人声（已分离的人声轨、录音棚干声）时关闭；该分离而没分离不会报错，只是识别质量整体下降";
 
-// 云端只把识别和声学说话人区分做到 stable.json，复核在纠错阶段、要读说话人时间线，而云端不交付它。
-const CLOUD_JUDGE_HINT = "云端转写只做按声音区分；需要 LLM 复核说话人时请选本机转写";
 // 云端的分离按时长自动分档、总是开启，没有关闭这一档；显示出来但不让改，免得选了不生效。
 const CLOUD_SEPARATION_HINT = "云端转写总是先做人声分离；输入已是纯人声时请选本机转写";
 
@@ -286,8 +284,9 @@ export function TranscriptionDialog(props: TranscriptionDialogProps) {
   const diarizationModelsMissing = engine === "local" && optionalModels.length > 0
     && DIARIZATION_MODEL_IDS.some((id) => optionalModels.find((item) => item.id === id)?.state !== "ready");
   const diarizationSelectable = diarizationAvailable && !diarizationModelsMissing;
-  // 裁判在 LLM 纠错阶段运行，要读说话人时间线；云端不交付它，所以只有本机转写能复核。
-  const judgeTextAllowed = finalOutput && engine === "local";
+  // 裁判在 LLM 纠错阶段运行，要读说话人时间线；云端转写会把时间线连同 stable.json 一起交回本机，
+  // 所以两种引擎都能复核。
+  const judgeTextAllowed = finalOutput;
   const judgeAudioAllowed = judgeTextAllowed && limits.audio;
   const diarization: DiarizationLevel = !diarizationSelectable ? "off"
     : diarizationChoice === "judge-audio" && !judgeAudioAllowed ? (judgeTextAllowed ? "judge-text" : "acoustics")
@@ -625,8 +624,8 @@ export function TranscriptionDialog(props: TranscriptionDialogProps) {
                   <label>说话人分离<CustomSelect value={diarization} disabled={!diarizationSelectable} options={[
                     { value: "off" as const, label: "关闭" },
                     { value: "acoustics" as const, label: "按声音区分说话人" },
-                    { value: "judge-text" as const, label: "声音 + 文本复核（实验）", disabled: !judgeTextAllowed, hint: engine === "cloud" ? CLOUD_JUDGE_HINT : DIARIZATION_JUDGE_HINT },
-                    { value: "judge-audio" as const, label: "声音 + 音频复核（实验）", disabled: !judgeAudioAllowed, hint: engine === "cloud" ? CLOUD_JUDGE_HINT : finalOutput && !limits.audio ? mediaHint("supportsAudio") : DIARIZATION_JUDGE_HINT },
+                    { value: "judge-text" as const, label: "声音 + 文本复核（实验）", disabled: !judgeTextAllowed, hint: DIARIZATION_JUDGE_HINT },
+                    { value: "judge-audio" as const, label: "声音 + 音频复核（实验）", disabled: !judgeAudioAllowed, hint: finalOutput && !limits.audio ? mediaHint("supportsAudio") : DIARIZATION_JUDGE_HINT },
                   ]} onChange={setDiarizationChoice} /></label>
                 </div>
                 {diarizationNote && <p className="transcription-note">{diarizationNote}{diarizationModelsMissing && <button type="button" className="inline-link" onClick={onOpenRuntime}>前往下载</button>}</p>}

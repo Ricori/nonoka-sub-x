@@ -33,11 +33,15 @@ type relayBackend struct {
 	polls   map[string]int
 	missing map[string]bool
 	// The digest the manifest publishes; empty means the true one.
-	digest    string
-	submitted []map[string]any
-	deleted   []string
-	cancelled []string
-	retried   []string
+	digest string
+	// The speaker timeline a diarized job publishes beside stable.json, and
+	// the digest for it; no diar means a job that ran no diarization.
+	diar       string
+	diarDigest string
+	submitted  []map[string]any
+	deleted    []string
+	cancelled  []string
+	retried    []string
 }
 
 func newRelayBackend(t *testing.T) *relayBackend {
@@ -117,9 +121,22 @@ func (b *relayBackend) serve(writer http.ResponseWriter, request *http.Request) 
 			sum := sha256.Sum256([]byte(relayStable))
 			digest = hex.EncodeToString(sum[:])
 		}
-		_, _ = fmt.Fprintf(writer, `{"schema":1,"task_id":"%s","engine_commit":"cloud","artifacts":{"stable_json":{"uri":"/v1/tasks/%s/artifacts/stable_json","sha256":"%s","bytes":%d}}}`, job, job, digest, len(relayStable))
+		diar := ""
+		if b.diar != "" {
+			diarDigest := b.diarDigest
+			if diarDigest == "" {
+				sum := sha256.Sum256([]byte(b.diar))
+				diarDigest = hex.EncodeToString(sum[:])
+			}
+			diar = fmt.Sprintf(`,"diar_json":{"uri":"/v1/tasks/%s/artifacts/diar_json","sha256":"%s","bytes":%d}`, job, diarDigest, len(b.diar))
+		}
+		// An artifact this desktop does not know rides along too: newer
+		// manifests may carry more than it reads.
+		_, _ = fmt.Fprintf(writer, `{"schema":1,"task_id":"%s","engine_commit":"cloud","artifacts":{"stable_json":{"uri":"/v1/tasks/%s/artifacts/stable_json","sha256":"%s","bytes":%d}%s,"future_json":{"uri":"/v1/tasks/%s/artifacts/future_json","sha256":"%s","bytes":1}}}`, job, job, digest, len(relayStable), diar, job, strings.Repeat("0", 64))
 	case request.Method == http.MethodGet && suffix == "/artifacts/stable_json":
 		_, _ = writer.Write([]byte(relayStable))
+	case request.Method == http.MethodGet && suffix == "/artifacts/diar_json" && b.diar != "":
+		_, _ = writer.Write([]byte(b.diar))
 	case request.Method == http.MethodDelete && suffix == "":
 		b.deleted = append(b.deleted, job)
 		b.missing[job] = true
@@ -153,6 +170,7 @@ type relayLocal struct {
 	mu       sync.Mutex
 	started  []map[string]any
 	stable   string
+	diar     string
 	refusal  error
 	state    string
 	actions  []string
@@ -179,6 +197,13 @@ func (p *relayLocal) DoJSON(_ context.Context, method, endpoint string, body any
 			return err
 		}
 		p.stable = string(data)
+		if path, ok := source["diar_json"].(string); ok {
+			data, err := os.ReadFile(path)
+			if err != nil {
+				return err
+			}
+			p.diar = string(data)
+		}
 		return respond(map[string]any{"schema": 1, "task_id": relayLocalTask, "provider": "local", "state": "queued"})
 	case method == http.MethodGet && endpoint == "/v1/tasks/"+relayLocalTask:
 		state := p.state
@@ -291,6 +316,10 @@ func TestRelayRecognisesInTheCloudAndContinuesHere(t *testing.T) {
 	if len(submitted) != 1 || submitted[0]["target"] != "stable" || submitted[0]["vocal_profile"] != "cost" {
 		t.Fatalf("cloud request = %#v", submitted)
 	}
+	// The level crosses over as the user chose it; the cloud records it.
+	if diarization, _ := submitted[0]["diarization"].(map[string]any); diarization["level"] != "judge-text" {
+		t.Fatalf("cloud diarization = %#v", submitted[0]["diarization"])
+	}
 	for _, key := range []string{"correction", "knowledge", "knowledge_subjects"} {
 		if _, exists := submitted[0][key]; exists {
 			t.Fatalf("cloud request carries %s: %#v", key, submitted[0])
@@ -319,8 +348,13 @@ func TestRelayRecognisesInTheCloudAndContinuesHere(t *testing.T) {
 	if correction := request["correction"].(map[string]any); correction["media"] != "audio" {
 		t.Fatalf("local correction = %#v", correction)
 	}
+	// A job that published no speaker timeline leaves nothing to judge: asking
+	// for diarization here would rerun the acoustic stage without the vocals.
 	if _, exists := request["diarization"]; exists {
-		t.Fatalf("diarization belongs to the cloud leg: %#v", request)
+		t.Fatalf("diarization without a cloud timeline: %#v", request)
+	}
+	if _, exists := source["diar_json"]; exists {
+		t.Fatalf("diar_json without a cloud timeline: %#v", source)
 	}
 
 	events := relayEventList(t, service, id)
@@ -628,5 +662,72 @@ func TestCapabilitiesAreTheRelays(t *testing.T) {
 		if features[name] != true {
 			t.Fatalf("features[%s] = %v", name, features[name])
 		}
+	}
+}
+
+// A diarized job publishes its speaker timeline beside stable.json. The local
+// leg gets both, and the level the user chose, so the judge runs here exactly
+// as it does after a local recognition.
+func TestRelayHandsTheCloudSpeakerTimelineToTheLocalLeg(t *testing.T) {
+	local := &relayLocal{}
+	service, backend, _ := newRelayService(t, local)
+	backend.diar = `{"backend":"cloud","tracks":[]}`
+	options := map[string]any{
+		"target": "final-srt", "language": "ja",
+		"diarization": map[string]any{"level": "judge-audio", "max_speakers": 3},
+	}
+	snapshot, err := service.StartTask("loc_0123456789ab", options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := snapshot["task_id"].(string)
+	if completed := waitRelay(t, service, id, "completed", "failed"); completed["state"] != "completed" {
+		t.Fatalf("relay ended %#v", completed)
+	}
+	local.mu.Lock()
+	started, diar := local.started, local.diar
+	local.mu.Unlock()
+	if len(started) != 1 || diar != backend.diar {
+		t.Fatalf("local leg = %#v, diar = %q", started, diar)
+	}
+	request := started[0]
+	source := request["source"].(map[string]any)
+	if source["diar_json"] != service.relayDiarPath(id) {
+		t.Fatalf("local source = %#v", source)
+	}
+	diarization, _ := request["diarization"].(map[string]any)
+	if diarization["level"] != "judge-audio" || fmt.Sprint(diarization["max_speakers"]) != "3" {
+		t.Fatalf("local diarization = %#v, want the level the user chose", request["diarization"])
+	}
+}
+
+// The timeline is held to the published digest like stable.json, and a
+// mismatch keeps the relay from moving on rather than seeding a wrong file.
+func TestRelayRefusesASpeakerTimelineThatFailsItsDigest(t *testing.T) {
+	local := &relayLocal{}
+	service, backend, _ := newRelayService(t, local)
+	backend.diar = `{"backend":"cloud","tracks":[]}`
+	backend.diarDigest = strings.Repeat("a", 64)
+	snapshot, err := service.StartTask("loc_0123456789ab", map[string]any{
+		"target": "final-srt", "diarization": map[string]any{"level": "acoustics"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := snapshot["task_id"].(string)
+	failed := waitRelay(t, service, id, "completed", "failed")
+	if failed["state"] != "failed" {
+		t.Fatalf("relay ended %#v, want a failed fetch", failed)
+	}
+	if message := fmt.Sprint(failed["error"]); !strings.Contains(message, "subtitle-diar.json") {
+		t.Fatalf("error = %s", message)
+	}
+	for _, path := range []string{service.relayStablePath(id), service.relayDiarPath(id)} {
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Fatalf("%s was written despite the bad digest: %v", filepath.Base(path), err)
+		}
+	}
+	if _, deleted, _, _ := backend.snapshot(); len(deleted) != 0 {
+		t.Fatalf("job collected despite the failed fetch: %v", deleted)
 	}
 }

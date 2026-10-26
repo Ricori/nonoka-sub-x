@@ -17,7 +17,7 @@ export function hasCloudSubtitles(entry: CloudEntry | null | undefined): entry i
   return (entry?.artifactNames?.length ?? 0) > 0;
 }
 
-export const DEFAULT_CLOUD_BACKEND = "https://ricori--nonoka-x-cloud-api.modal.run";
+export const DEFAULT_CLOUD_BACKEND = "https://cloud.nonoka.online";
 
 export const cloudAccount = {
   session: CloudService.Session,

@@ -938,6 +938,45 @@ class CloudStableContinuationTests(ProviderFixture):
         with self.assertRaisesRegex(ProviderError, "vocal_profile"):
             validate_request(local)
 
+    def test_a_cloud_speaker_timeline_keeps_the_chosen_level(self) -> None:
+        from nonoka_x.local_provider import validate_request
+
+        timeline = self.root / "cloud.diar.json"
+        timeline.write_text('{"backend": "cloud", "tracks": []}', encoding="utf-8")
+        request = self.continuation()
+        request["source"]["diar_json"] = str(timeline)
+        request["diarization"] = {"level": "judge-audio", "max_speakers": 3}
+        validated = validate_request(request)
+        self.assertEqual(validated["source"]["diar_json"], str(timeline.resolve()))
+        self.assertEqual(validated["diarization"], {"level": "judge-audio", "max_speakers": 3})
+        # A run that stops before the correction still gets the acoustic labels.
+        request = self.continuation("raw-srt")
+        request["source"]["diar_json"] = str(timeline)
+        request["diarization"] = {"level": "judge-text"}
+        self.assertEqual(
+            validate_request(request)["diarization"],
+            {"level": "acoustics", "max_speakers": None, "requested_level": "judge-text"},
+        )
+
+    def test_a_missing_or_unusable_speaker_timeline_is_refused(self) -> None:
+        from nonoka_x.local_provider import validate_request
+
+        broken = self.root / "broken.diar.json"
+        broken.write_text("[", encoding="utf-8")
+        listed = self.root / "listed.diar.json"
+        listed.write_text("[]", encoding="utf-8")
+        cases = {
+            "relative": ("cloud.diar.json", "absolute path"),
+            "missing": (str(self.root / "gone.diar.json"), "does not exist"),
+            "broken": (str(broken), "unreadable"),
+            "not a timeline": (str(listed), "speaker timeline"),
+        }
+        for name, (value, message) in cases.items():
+            with self.subTest(name), self.assertRaisesRegex(ProviderError, message):
+                request = self.continuation()
+                request["source"]["diar_json"] = value
+                validate_request(request)
+
     def test_only_the_stages_after_stable_continue(self) -> None:
         from nonoka_x.local_provider import validate_request
 

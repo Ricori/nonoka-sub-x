@@ -619,11 +619,12 @@ def validate_request(value: Mapping[str, Any]) -> dict[str, Any]:
     diarization = normalize_diarization(
         request.get("diarization"), target=request["target"], has_axis="axis" in request
     )
-    if continuation:
+    if continuation and "diar_json" not in request["source"]:
         # The cloud wrote its acoustic labels onto the stable.json, and those
-        # render as they are. It ships no speaker timeline or evidence, so the
-        # judge levels have nothing to judge here; asking for them again would
-        # only rerun the acoustic stage, which needs the ASR runtime.
+        # render as they are. With no speaker timeline beside it the judge
+        # levels have nothing to judge, and asking for them again would only
+        # rerun the acoustic stage, which needs the ASR runtime. With one, the
+        # engine reuses it and the level runs as it does after a local run.
         diarization = None
     if diarization is None:
         request.pop("diarization", None)
@@ -647,7 +648,8 @@ def _validate_cloud_stable(request: dict[str, Any]) -> None:
     clips from it, and the editor draws its waveform -- and was checked with
     every other source. What is new is `source.stable_json`, the cloud's
     recognition, which the worker seeds into the task's workspace so the
-    engine resumes from it instead of transcribing.
+    engine resumes from it instead of transcribing -- and, when the cloud ran
+    diarization, `source.diar_json`, its speaker timeline, seeded the same way.
     """
 
     source = request["source"]
@@ -669,6 +671,22 @@ def _validate_cloud_stable(request: dict[str, Any]) -> None:
     if not isinstance(document, dict) or not isinstance(document.get("segments"), list):
         raise ProviderError("invalid_source", "stable.json has no segments list")
     source["stable_json"] = str(stable_path)
+    timeline = source.get("diar_json")
+    if timeline is None:
+        source.pop("diar_json", None)
+        return
+    if not isinstance(timeline, str) or not Path(timeline).is_absolute():
+        raise ProviderError("invalid_source", "source.diar_json must be an absolute path")
+    timeline_path = Path(timeline).expanduser().resolve()
+    try:
+        document = json.loads(timeline_path.read_text(encoding="utf-8"))
+    except FileNotFoundError as exc:
+        raise ProviderError("source_not_found", f"diar.json does not exist: {timeline_path}") from exc
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ProviderError("invalid_source", f"diar.json is unreadable: {exc}") from exc
+    if not isinstance(document, dict):
+        raise ProviderError("invalid_source", "diar.json is not a speaker timeline")
+    source["diar_json"] = str(timeline_path)
 
 
 # FineSub's `stages.DIARIZE_LEVELS`, restated for the same reason as

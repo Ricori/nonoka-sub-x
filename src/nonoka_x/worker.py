@@ -340,6 +340,11 @@ def seed_cloud_stable(request: Mapping[str, Any], output: Path) -> Path | None:
     copy under the engine's own name is the whole continuation, with no second
     entry point to keep in step with the first. Only ever copied when absent:
     a retry resumes on the bytes its first attempt rendered from.
+
+    The cloud's speaker timeline, when it ran diarization, goes under the
+    engine's `-diar.json` name the same way: the diarize stage then reuses it
+    instead of recomputing, and the judge levels run from it as they do after
+    a local recognition.
     """
 
     source = request["source"]
@@ -347,12 +352,19 @@ def seed_cloud_stable(request: Mapping[str, Any], output: Path) -> Path | None:
         return None
     from finesub.stages import default_pipeline_paths
 
-    seeded = Path(default_pipeline_paths(source["path"], output).stable_json)
+    paths = default_pipeline_paths(source["path"], output)
+    seeded = Path(paths.stable_json)
+    _seed_once(Path(source["stable_json"]), seeded)
+    if source.get("diar_json"):
+        _seed_once(Path(source["diar_json"]), Path(paths.diar_json))
+    return seeded
+
+
+def _seed_once(origin: Path, seeded: Path) -> None:
     if not seeded.exists():
         partial = seeded.with_name(f".{seeded.name}.part")
-        shutil.copyfile(source["stable_json"], partial)
+        shutil.copyfile(origin, partial)
         os.replace(partial, seeded)
-    return seeded
 
 
 def diarization_kwargs(request: Mapping[str, Any]) -> dict[str, Any]:

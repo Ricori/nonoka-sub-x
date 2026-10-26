@@ -1,0 +1,226 @@
+From 956b2f3983154594b8834caf56c6764adade9ec9 Mon Sep 17 00:00:00 2001
+From: caca2331 <spurtcarl@gmail.com>
+Date: Sat, 10 Oct 2026 20:08:28 +0000
+Subject: [PATCH 13/13] build(flash-attn): compile only the kernels the Whisper
+ encoder runs
+
+WITH_FLASH_ATTN compiles 32 kernel files (head dimensions 32-256, fp16 and
+bf16, split and not), each expanding into dozens of kernels per GPU
+architecture over causal, even_MN, even_K, local, return_softmax and alibi
+(and split, append_KV). Even with head dimension 64 alone the DLL grew from
+79.3 MB to 192.4 MB, and every file costs minutes and gigabytes to compile
+per architecture.
+
+Keep the one variant family the Whisper encoder's self-attention runs:
+head dimension exactly 64, fp16, no split-KV (the encoder's query blocks
+fill the GPU, so the heuristic never splits there; the KV-cache path that
+needs it is the decoder's, which does not use flash), and the upstream
+FLASHATTENTION_DISABLE_ALIBI/LOCAL/UNEVEN_K switches. What is left out
+raises a readable error instead of a missing symbol -- including a sliding
+window, which the disabled local switch would otherwise ignore silently.
+---
+ CMakeLists.txt                                | 70 +++----------------
+ .../ops/flash-attention/static_switch.h       | 37 ++++------
+ src/ops/flash_attention_gpu.cu                | 14 +++-
+ 3 files changed, 32 insertions(+), 89 deletions(-)
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 027d0942..b85d6122 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -607,74 +607,20 @@ if (WITH_CUDA)
+   endif()
+   if (WITH_FLASH_ATTN)
+     add_definitions(-DCT2_WITH_FLASH_ATTN)
++    # Only what the Whisper encoder's self-attention runs: head dimension 64,
++    # fp16, no split-KV, no ALiBi / local window / uneven head dimension (see
++    # static_switch.h and flash_attention_gpu.cu). Each kernel file costs
++    # minutes and gigabytes per GPU architecture, and the full set grew the
++    # DLL by 113 MB.
++    add_definitions(-DFLASHATTENTION_DISABLE_ALIBI
++                    -DFLASHATTENTION_DISABLE_LOCAL
++                    -DFLASHATTENTION_DISABLE_UNEVEN_K)
+     list(APPEND SOURCES
+-      src/ops/flash-attention/flash_fwd_hdim32_bf16_sm80.cu
+-      src/ops/flash-attention/flash_fwd_hdim32_fp16_sm80.cu
+-      src/ops/flash-attention/flash_fwd_hdim64_bf16_sm80.cu
+       src/ops/flash-attention/flash_fwd_hdim64_fp16_sm80.cu
+-      src/ops/flash-attention/flash_fwd_hdim96_bf16_sm80.cu
+-      src/ops/flash-attention/flash_fwd_hdim96_fp16_sm80.cu
+-      src/ops/flash-attention/flash_fwd_hdim128_bf16_sm80.cu
+-      src/ops/flash-attention/flash_fwd_hdim128_fp16_sm80.cu
+-      src/ops/flash-attention/flash_fwd_hdim160_bf16_sm80.cu
+-      src/ops/flash-attention/flash_fwd_hdim160_fp16_sm80.cu
+-      src/ops/flash-attention/flash_fwd_hdim192_bf16_sm80.cu
+-      src/ops/flash-attention/flash_fwd_hdim192_fp16_sm80.cu
+-      src/ops/flash-attention/flash_fwd_hdim224_bf16_sm80.cu
+-      src/ops/flash-attention/flash_fwd_hdim224_fp16_sm80.cu
+-      src/ops/flash-attention/flash_fwd_hdim256_bf16_sm80.cu
+-      src/ops/flash-attention/flash_fwd_hdim256_fp16_sm80.cu
+-      src/ops/flash-attention/flash_fwd_split_hdim32_bf16_sm80.cu
+-      src/ops/flash-attention/flash_fwd_split_hdim32_fp16_sm80.cu
+-      src/ops/flash-attention/flash_fwd_split_hdim64_bf16_sm80.cu
+-      src/ops/flash-attention/flash_fwd_split_hdim64_fp16_sm80.cu
+-      src/ops/flash-attention/flash_fwd_split_hdim96_bf16_sm80.cu
+-      src/ops/flash-attention/flash_fwd_split_hdim96_fp16_sm80.cu
+-      src/ops/flash-attention/flash_fwd_split_hdim128_bf16_sm80.cu
+-      src/ops/flash-attention/flash_fwd_split_hdim128_fp16_sm80.cu
+-      src/ops/flash-attention/flash_fwd_split_hdim160_bf16_sm80.cu
+-      src/ops/flash-attention/flash_fwd_split_hdim160_fp16_sm80.cu
+-      src/ops/flash-attention/flash_fwd_split_hdim192_bf16_sm80.cu
+-      src/ops/flash-attention/flash_fwd_split_hdim192_fp16_sm80.cu
+-      src/ops/flash-attention/flash_fwd_split_hdim224_bf16_sm80.cu
+-      src/ops/flash-attention/flash_fwd_split_hdim224_fp16_sm80.cu
+-      src/ops/flash-attention/flash_fwd_split_hdim256_bf16_sm80.cu
+-      src/ops/flash-attention/flash_fwd_split_hdim256_fp16_sm80.cu
+     )
+ 
+     set_source_files_properties(
+-      src/ops/flash-attention/flash_fwd_hdim32_bf16_sm80.cu
+-      src/ops/flash-attention/flash_fwd_hdim32_fp16_sm80.cu
+-      src/ops/flash-attention/flash_fwd_hdim64_bf16_sm80.cu
+       src/ops/flash-attention/flash_fwd_hdim64_fp16_sm80.cu
+-      src/ops/flash-attention/flash_fwd_hdim96_bf16_sm80.cu
+-      src/ops/flash-attention/flash_fwd_hdim96_fp16_sm80.cu
+-      src/ops/flash-attention/flash_fwd_hdim128_bf16_sm80.cu
+-      src/ops/flash-attention/flash_fwd_hdim128_fp16_sm80.cu
+-      src/ops/flash-attention/flash_fwd_hdim160_bf16_sm80.cu
+-      src/ops/flash-attention/flash_fwd_hdim160_fp16_sm80.cu
+-      src/ops/flash-attention/flash_fwd_hdim192_bf16_sm80.cu
+-      src/ops/flash-attention/flash_fwd_hdim192_fp16_sm80.cu
+-      src/ops/flash-attention/flash_fwd_hdim224_bf16_sm80.cu
+-      src/ops/flash-attention/flash_fwd_hdim224_fp16_sm80.cu
+-      src/ops/flash-attention/flash_fwd_hdim256_bf16_sm80.cu
+-      src/ops/flash-attention/flash_fwd_hdim256_fp16_sm80.cu
+-      src/ops/flash-attention/flash_fwd_split_hdim32_bf16_sm80.cu
+-      src/ops/flash-attention/flash_fwd_split_hdim32_fp16_sm80.cu
+-      src/ops/flash-attention/flash_fwd_split_hdim64_bf16_sm80.cu
+-      src/ops/flash-attention/flash_fwd_split_hdim64_fp16_sm80.cu
+-      src/ops/flash-attention/flash_fwd_split_hdim96_bf16_sm80.cu
+-      src/ops/flash-attention/flash_fwd_split_hdim96_fp16_sm80.cu
+-      src/ops/flash-attention/flash_fwd_split_hdim128_bf16_sm80.cu
+-      src/ops/flash-attention/flash_fwd_split_hdim128_fp16_sm80.cu
+-      src/ops/flash-attention/flash_fwd_split_hdim160_bf16_sm80.cu
+-      src/ops/flash-attention/flash_fwd_split_hdim160_fp16_sm80.cu
+-      src/ops/flash-attention/flash_fwd_split_hdim192_bf16_sm80.cu
+-      src/ops/flash-attention/flash_fwd_split_hdim192_fp16_sm80.cu
+-      src/ops/flash-attention/flash_fwd_split_hdim224_bf16_sm80.cu
+-      src/ops/flash-attention/flash_fwd_split_hdim224_fp16_sm80.cu
+-      src/ops/flash-attention/flash_fwd_split_hdim256_bf16_sm80.cu
+-      src/ops/flash-attention/flash_fwd_split_hdim256_fp16_sm80.cu
+       PROPERTIES COMPILE_FLAGS "--use_fast_math")
+   endif()
+   set(CUDA_LINK_LIBRARIES_KEYWORD PRIVATE)
+diff --git a/include/ctranslate2/ops/flash-attention/static_switch.h b/include/ctranslate2/ops/flash-attention/static_switch.h
+index 7b38de2d..8e5cdcd2 100644
+--- a/include/ctranslate2/ops/flash-attention/static_switch.h
++++ b/include/ctranslate2/ops/flash-attention/static_switch.h
+@@ -3,6 +3,8 @@
+ // and https://github.com/pytorch/pytorch/blob/master/aten/src/ATen/Dispatch.h
+ 
+ #pragma once
++#include <stdexcept>
++#include <string>
+ #include <cutlass/numeric_types.h>
+ 
+ /// @param COND       - a boolean expression to switch by
+@@ -67,42 +69,27 @@
+   #define LOCAL_SWITCH BOOL_SWITCH
+ #endif
+ 
++// Only the fp16 kernels are compiled (the Whisper encoder runs in float16).
+ #define FP16_SWITCH(COND, ...)               \
+   [&] {                                      \
+     if (COND) {                              \
+       using elem_type = cutlass::half_t;     \
+       return __VA_ARGS__();                  \
+-    } else {                                 \
+-      using elem_type = cutlass::bfloat16_t; \
+-      return __VA_ARGS__();                  \
+     }                                        \
++    throw std::invalid_argument(             \
++      "FlashAttention is built for float16 only"); \
+   }()
+ 
++// Only the head dimension 64 kernels are compiled (every Whisper size uses
++// 64). Exactly 64: FLASHATTENTION_DISABLE_UNEVEN_K makes the kernel assume
++// d == kHeadDim, so a smaller dimension would be computed wrongly, not padded.
+ #define HEADDIM_SWITCH(HEADDIM, ...)   \
+   [&] {                                    \
+-    if (HEADDIM <= 32) {                   \
+-      constexpr static int kHeadDim = 32;  \
+-      return __VA_ARGS__();                \
+-    } else if (HEADDIM <= 64) {            \
++    if (HEADDIM == 64) {                   \
+       constexpr static int kHeadDim = 64;  \
+       return __VA_ARGS__();                \
+-    } else if (HEADDIM <= 96) {            \
+-      constexpr static int kHeadDim = 96;  \
+-      return __VA_ARGS__();                \
+-    } else if (HEADDIM <= 128) {           \
+-      constexpr static int kHeadDim = 128; \
+-      return __VA_ARGS__();                \
+-    } else if (HEADDIM <= 160) {           \
+-      constexpr static int kHeadDim = 160; \
+-      return __VA_ARGS__();                \
+-    } else if (HEADDIM <= 192) {           \
+-      constexpr static int kHeadDim = 192; \
+-      return __VA_ARGS__();                \
+-    } else if (HEADDIM <= 224) {           \
+-      constexpr static int kHeadDim = 224; \
+-      return __VA_ARGS__();                \
+-    } else if (HEADDIM <= 256) {           \
+-      constexpr static int kHeadDim = 256; \
+-      return __VA_ARGS__();                \
+     }                                      \
++    throw std::invalid_argument(           \
++      "FlashAttention is built for head dimension 64 only, got " \
++      + std::to_string(HEADDIM));          \
+   }()
+diff --git a/src/ops/flash_attention_gpu.cu b/src/ops/flash_attention_gpu.cu
+index 24bcbf87..eaa99814 100644
+--- a/src/ops/flash_attention_gpu.cu
++++ b/src/ops/flash_attention_gpu.cu
+@@ -180,10 +180,14 @@ namespace ctranslate2 {
+     void run_mha_fwd(Flash_fwd_params &params, cudaStream_t stream, bool force_split_kernel=false) {
+       FP16_SWITCH(!params.is_bf16, [&] {
+         HEADDIM_SWITCH(params.d, [&] {
++          // The split-KV kernels are not compiled: they serve the KV cache
++          // (offset > 0, a decoder) and under-occupied GPUs, neither of which
++          // the Whisper encoder is.
+           if (params.num_splits <= 1 && !force_split_kernel) {  // If we don't set it num_splits == 0
+             run_mha_fwd_<elem_type, kHeadDim>(params, stream);
+           } else {
+-            run_mha_fwd_splitkv_dispatch<elem_type, kHeadDim>(params, stream);
++            throw std::invalid_argument("FlashAttention is built without the split-KV kernels "
++                                        "(no KV cache: encoder self-attention only)");
+           }
+         });
+       });
+@@ -209,6 +213,8 @@ namespace ctranslate2 {
+       const Device device = queries.device();
+       const DataType dtype = queries.dtype();
+ 
++      if (_sliding_window > 0)
++        throw std::invalid_argument("FlashAttention is built without local (sliding window) attention");
+       dim_t window_size_left = _sliding_window > 0 ? _sliding_window : -1;
+       dim_t window_size_right = _sliding_window > 0 ? 0 : -1;
+ 
+@@ -287,9 +293,13 @@ namespace ctranslate2 {
+                          window_size_right);
+ 
+         // set params splitkv
++        // One split: the split-KV kernels are not compiled. The heuristic
++        // would pick one here anyway -- it splits only when batch * heads *
++        // ceil(seqlen_q / 64) is under 80% of the SM count, and the Whisper
++        // encoder (20 heads x 24 blocks for large) is far above it.
+         set_params_splitkv(params, batch_size, num_heads,
+                            head_size, seqlen_k, seqlen_q,
+-                           head_size_rounded, /*num_splits*/0, &dprops);
++                           head_size_rounded, /*num_splits*/1, &dprops);
+       }
+       else {
+         const int page_block_size = 1;
+-- 
+2.43.0
+

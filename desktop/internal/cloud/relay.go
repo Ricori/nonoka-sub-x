@@ -177,6 +177,12 @@ func (s *Service) relayStablePath(id string) string {
 	return filepath.Join(s.relayDirectory(id), "stable.json")
 }
 
+// relayDiarPath is the cloud's speaker timeline, the engine's
+// subtitle-diar.json, when the job ran diarization.
+func (s *Service) relayDiarPath(id string) string {
+	return filepath.Join(s.relayDirectory(id), "diar.json")
+}
+
 // loadRelays reads every relay on disk and recovers each leg's read position
 // from its event file. A damaged record is skipped with a log line, the way
 // the other state files are: one bad task must not keep the app from starting.
@@ -578,19 +584,36 @@ func (s *Service) collectStable(ctx context.Context, record *relayRecord) error 
 	if !ok {
 		return errors.New("cloud job published no stable.json")
 	}
-	content, err := s.authenticatedText(ctx, item.URI)
+	// The speaker timeline first: stable.json on disk is what moves the relay
+	// on, so it must not land before the timeline it is labelled from. A job
+	// that ran no diarization publishes none, and a timeline an earlier job of
+	// this relay left behind must not be seeded for this one.
+	diarPath := s.relayDiarPath(record.ID)
+	if diar, ok := manifest.Artifacts["diar_json"]; ok {
+		if err := s.collectArtifact(ctx, diar.URI, diar.SHA256, diarPath, "subtitle-diar.json"); err != nil {
+			return err
+		}
+	} else if err := os.Remove(diarPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	return s.collectArtifact(ctx, item.URI, item.SHA256, s.relayStablePath(record.ID), "stable.json")
+}
+
+// collectArtifact downloads one artifact of a job, checks it against the
+// digest the backend published, and only then puts it in place.
+func (s *Service) collectArtifact(ctx context.Context, uri, digest, path, label string) error {
+	content, err := s.authenticatedText(ctx, uri)
 	if err != nil {
 		return err
 	}
-	verified, _, ok := verifyArtifactContent(content, item.SHA256)
+	verified, _, ok := verifyArtifactContent(content, digest)
 	if !ok {
-		return errors.New("stable.json does not match the digest the cloud published")
+		return fmt.Errorf("%s does not match the digest the cloud published", label)
 	}
-	path := s.relayStablePath(record.ID)
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}
-	temporary, err := os.CreateTemp(filepath.Dir(path), ".stable-*.part")
+	temporary, err := os.CreateTemp(filepath.Dir(path), ".artifact-*.part")
 	if err != nil {
 		return err
 	}
@@ -774,6 +797,18 @@ func (s *Service) continuationRequest(record *relayRecord) (map[string]any, erro
 		"schema": 1, "provider": "local", "source": source, "target": record.Target,
 		"language": stringOption(options, "language", "ja"), "projection": "document",
 		"cleanup_intermediate": false, "knowledge": "none", "correction": map[string]any{},
+	}
+	// The cloud computed the speaker timeline and labelled stable.json with it.
+	// Handing the timeline over with the level the user chose lets the local
+	// leg reuse it and run the judge levels the way a local run does. Without
+	// a timeline there is nothing to continue from, and asking for diarization
+	// would rerun the acoustic stage, which needs the vocal track the cloud
+	// kept.
+	if _, err := os.Stat(s.relayDiarPath(record.ID)); err == nil {
+		if diarization := diarizationOption(options); diarization != nil {
+			source["diar_json"] = s.relayDiarPath(record.ID)
+			request["diarization"] = diarization
+		}
 	}
 	if record.Target == "final-srt" {
 		if correction, ok := options["correction"].(map[string]any); ok {

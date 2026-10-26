@@ -11,11 +11,17 @@ import types
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from urllib.parse import urlparse
+from urllib.request import url2pathname
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from nonoka_x import worker
+
+
+def file_of(uri: str) -> Path:
+    return Path(url2pathname(urlparse(uri).path))
 
 
 class WorkerAdapterTests(unittest.TestCase):
@@ -292,6 +298,35 @@ class WorkerAdapterTests(unittest.TestCase):
             local = {"source": {"kind": "local_file", "path": str(media)}}
             self.assertIsNone(worker.seed_cloud_stable(local, root / "other" / "x.srt"))
 
+    def test_a_cloud_speaker_timeline_is_seeded_beside_the_stable(self) -> None:
+        """The diarize stage reuses a timeline under the engine's own name."""
+
+        sys.path.insert(0, str(ROOT / "third_party/finesub/src"))
+        from finesub.stages import default_pipeline_paths
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            cloud = root / "cloud.stable.json"
+            cloud.write_text('{"segments": []}', encoding="utf-8")
+            timeline = root / "cloud.diar.json"
+            timeline.write_text('{"backend": "first"}', encoding="utf-8")
+            media = root / "media.m4a"
+            output = root / "task" / "workspace" / "subtitle.srt"
+            output.parent.mkdir(parents=True)
+            request = {"source": {
+                "kind": "cloud_stable", "path": str(media),
+                "stable_json": str(cloud), "diar_json": str(timeline),
+            }}
+
+            worker.seed_cloud_stable(request, output)
+            seeded = Path(default_pipeline_paths(media, output).diar_json)
+            self.assertEqual(seeded.name, "subtitle-diar.json")
+            self.assertEqual(seeded.read_text(encoding="utf-8"), timeline.read_text(encoding="utf-8"))
+
+            timeline.write_text('{"backend": "second"}', encoding="utf-8")
+            worker.seed_cloud_stable(request, output)
+            self.assertIn("first", seeded.read_text(encoding="utf-8"))
+
     def test_a_continuation_runs_without_any_module_of_the_asr_stack(self) -> None:
         """The reason the launcher can continue a cloud task at all.
 
@@ -301,6 +336,61 @@ class WorkerAdapterTests(unittest.TestCase):
         rather than the first user without the managed runtime.
         """
 
+        with tempfile.TemporaryDirectory() as temp:
+            events = self.continue_without_the_asr_stack(Path(temp), {}, {})
+            completed = next(event for event in events if event["type"] == "completed")
+            self.assertEqual(
+                set(completed["payload"]["artifacts"]["artifacts"]),
+                {"stable_json", "raw_srt", "metadata_json"},
+            )
+            reused = {
+                event["payload"]["stage"]
+                for event in events
+                if event["type"] == "stage" and event["payload"].get("reused")
+            }
+            self.assertTrue({"vocal", "aligned", "stable"} <= reused)
+
+    def test_a_cloud_speaker_timeline_labels_the_continuation_without_the_asr_stack(self) -> None:
+        """The diarize stage reuses the cloud's timeline instead of recomputing it.
+
+        The cloud delivers stable.json already labelled from that timeline, so
+        the stage has nothing to run and a diarized cloud task continues on the
+        launcher, which has neither the models nor numpy.
+        """
+
+        sys.path.insert(0, str(ROOT / "third_party/finesub/src"))
+        from finesub.speech.diarization.segments import TrackSegment
+        from finesub.speech.diarization.stage import DiarizationResult, write_timeline
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            timeline = write_timeline(
+                DiarizationResult(
+                    tracks=(TrackSegment(0, 0.0, 30.0), TrackSegment(1, 30.0, 600.0)),
+                    frame_seconds=0.08, overlap=0.0,
+                ),
+                root / "cloud.diar.json",
+            )
+            stable = json.loads((ROOT / "tests/fixtures/finesub/sample-stable.json").read_text(encoding="utf-8"))
+            stable.setdefault("metadata", {})["speaker"] = json.loads(timeline.read_text(encoding="utf-8"))["metadata"]
+            events = self.continue_without_the_asr_stack(
+                root, {"diar_json": str(timeline)}, {"diarization": {"level": "acoustics", "max_speakers": None}},
+                stable=stable,
+            )
+            completed = next(event for event in events if event["type"] == "completed")
+            artifacts = completed["payload"]["artifacts"]["artifacts"]
+            self.assertIn("diar_json", artifacts)
+            self.assertEqual(file_of(artifacts["diar_json"]["uri"]).name, "片子-diar.json")
+            stable = json.loads(file_of(artifacts["stable_json"]["uri"]).read_text(encoding="utf-8"))
+            self.assertIn("speaker", stable["metadata"])
+            self.assertTrue(any(
+                event["type"] == "stage" and event["payload"].get("stage") == "diarize"
+                and event["payload"].get("reused") for event in events
+            ))
+
+    def continue_without_the_asr_stack(
+        self, root: Path, source: dict, request: dict, *, stable: dict | None = None
+    ) -> list[dict]:
         script = """
 import importlib.abc, sys
 BLOCKED = {"torch", "torchaudio", "numpy", "soundfile", "faster_whisper", "ctranslate2", "transformers", "audio_separator"}
@@ -313,50 +403,41 @@ sys.meta_path.insert(0, Refuse())
 from nonoka_x import worker
 raise SystemExit(worker.main(sys.argv[1:]))
 """
-        with tempfile.TemporaryDirectory() as temp:
-            root = Path(temp)
-            cloud = root / "cloud.stable.json"
+        cloud = root / "cloud.stable.json"
+        if stable is None:
             cloud.write_bytes((ROOT / "tests/fixtures/finesub/sample-stable.json").read_bytes())
-            media = root / "media.mp4"
-            media.write_bytes(b"media")
-            request = {
-                "schema": 1,
-                "provider": "local",
-                "source": {"kind": "cloud_stable", "path": str(media), "stable_json": str(cloud), "title": "片子"},
-                "target": "raw-srt",
-                "language": "ja",
-                "device": "cpu",
-                "correction": {},
-                "knowledge": "none",
-            }
-            environment = dict(os.environ)
-            environment["PYTHONPATH"] = os.pathsep.join(
-                [str(ROOT / "src"), str(ROOT / "third_party/finesub/src")]
-            )
-            environment["PYTHONIOENCODING"] = "utf-8"
-            environment["FINESUB_HOME"] = str(root / "finesub-home")
-            result = subprocess.run(
-                [
-                    sys.executable, "-c", script,
-                    "--task-id", "cont", "--task-dir", str(root / "task"),
-                    "--vendor", str(ROOT / "third_party/finesub"),
-                ],
-                input=json.dumps(request, ensure_ascii=False) + "\n",
-                capture_output=True, text=True, encoding="utf-8", env=environment, timeout=120,
-            )
-            events = [json.loads(line) for line in result.stdout.splitlines() if line.startswith("{")]
-            self.assertEqual(result.returncode, 0, result.stderr[-2000:])
-            completed = next(event for event in events if event["type"] == "completed")
-            self.assertEqual(
-                set(completed["payload"]["artifacts"]["artifacts"]),
-                {"stable_json", "raw_srt", "metadata_json"},
-            )
-            reused = {
-                event["payload"]["stage"]
-                for event in events
-                if event["type"] == "stage" and event["payload"].get("reused")
-            }
-            self.assertTrue({"vocal", "aligned", "stable"} <= reused)
+        else:
+            cloud.write_text(json.dumps(stable, ensure_ascii=False), encoding="utf-8")
+        media = root / "media.mp4"
+        media.write_bytes(b"media")
+        request = {
+            "schema": 1,
+            "provider": "local",
+            "source": {"kind": "cloud_stable", "path": str(media), "stable_json": str(cloud), "title": "片子", **source},
+            "target": "raw-srt",
+            "language": "ja",
+            "device": "cpu",
+            "correction": {},
+            "knowledge": "none",
+            **request,
+        }
+        environment = dict(os.environ)
+        environment["PYTHONPATH"] = os.pathsep.join(
+            [str(ROOT / "src"), str(ROOT / "third_party/finesub/src")]
+        )
+        environment["PYTHONIOENCODING"] = "utf-8"
+        environment["FINESUB_HOME"] = str(root / "finesub-home")
+        result = subprocess.run(
+            [
+                sys.executable, "-c", script,
+                "--task-id", "cont", "--task-dir", str(root / "task"),
+                "--vendor", str(ROOT / "third_party/finesub"),
+            ],
+            input=json.dumps(request, ensure_ascii=False) + "\n",
+            capture_output=True, text=True, encoding="utf-8", env=environment, timeout=120,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr[-2000:])
+        return [json.loads(line) for line in result.stdout.splitlines() if line.startswith("{")]
 
     def test_source_text_axis_skips_recognition_and_only_runs_the_llm_stage(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

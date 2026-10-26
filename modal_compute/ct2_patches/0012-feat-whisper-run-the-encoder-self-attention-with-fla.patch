@@ -1,0 +1,198 @@
+From 7c84f248708245317eee49331869411a0892c0b0 Mon Sep 17 00:00:00 2001
+From: caca2331 <spurtcarl@gmail.com>
+Date: Sat, 10 Oct 2026 20:08:28 +0000
+Subject: [PATCH 12/13] feat(whisper): run the encoder self-attention with
+ flash attention
+
+Whisper's flash_attention option reached only the decoder: WhisperEncoder
+built its layers without it, while WhisperDecoder inherited
+TransformerDecoder's reading of model.use_flash_attention() and swapped its
+self-attention (and its cache layout) for FlashMultiHeadAttention. The cost
+it targets is the encoder's self-attention over 1500 frames.
+
+Pass the option to the encoder layers and keep the decoder on the standard
+attention, so turning it on changes the encoder only. FlashMultiHeadAttention
+also built its op with the default is_causal=true whatever the layer, which
+in an encoder masks each frame to the frames before it; make it causal only
+in a decoder. Also expose flash_attention_available(), whether the build
+has WITH_FLASH_ATTN: a build without it accepts the option and fails only
+at the first encode.
+---
+ include/ctranslate2/layers/transformer.h | 6 +++++-
+ include/ctranslate2/layers/whisper.h     | 8 +++++++-
+ include/ctranslate2/utils.h              | 2 ++
+ python/cpp/module.cc                     | 3 +++
+ python/cpp/whisper.cc                    | 3 ++-
+ python/ctranslate2/__init__.py           | 1 +
+ src/layers/flash_attention.cc            | 4 +++-
+ src/layers/transformer.cc                | 6 ++++--
+ src/layers/whisper.cc                    | 3 ++-
+ src/utils.cc                             | 8 ++++++++
+ 10 files changed, 37 insertions(+), 7 deletions(-)
+
+diff --git a/include/ctranslate2/layers/transformer.h b/include/ctranslate2/layers/transformer.h
+index 81e8f344..96e69e83 100644
+--- a/include/ctranslate2/layers/transformer.h
++++ b/include/ctranslate2/layers/transformer.h
+@@ -170,7 +170,11 @@ namespace ctranslate2 {
+     class TransformerDecoder : public Decoder
+     {
+     public:
+-      TransformerDecoder(const models::Model& model, const std::string& scope);
++      // allow_flash_attention=false keeps the standard self-attention even when the
++      // model was loaded with flash attention (Whisper uses it only in its encoder).
++      TransformerDecoder(const models::Model& model,
++                         const std::string& scope,
++                         bool allow_flash_attention = true);
+ 
+       DecoderState initial_state(bool iterative_decoding = true) const override;
+       bool replicate_state(const std::string& name) const override;
+diff --git a/include/ctranslate2/layers/whisper.h b/include/ctranslate2/layers/whisper.h
+index 45036135..961ba41f 100644
+--- a/include/ctranslate2/layers/whisper.h
++++ b/include/ctranslate2/layers/whisper.h
+@@ -52,9 +52,15 @@ namespace ctranslate2 {
+       const LayerNorm _output_norm;
+     };
+ 
++    // Flash attention applies to the encoder only: its self-attention over the
++    // 1500 audio frames is where the cost is, while the decoder keeps the
++    // standard attention (and its cache layout) the refine trace is built on.
+     class WhisperDecoder : public TransformerDecoder {
+     public:
+-      using TransformerDecoder::TransformerDecoder;
++      WhisperDecoder(const models::Model& model, const std::string& scope)
++        : TransformerDecoder(model, scope, /*allow_flash_attention=*/false)
++      {
++      }
+ 
+       bool return_normalized_attention() const override {
+         return false;
+diff --git a/include/ctranslate2/utils.h b/include/ctranslate2/utils.h
+index f1c122d7..f811f6b1 100644
+--- a/include/ctranslate2/utils.h
++++ b/include/ctranslate2/utils.h
+@@ -12,6 +12,8 @@ namespace ctranslate2 {
+ 
+   void log_system_config();
+   int get_gpu_count();
++  // Whether this build was compiled with WITH_FLASH_ATTN.
++  bool flash_attention_available();
+   void set_num_threads(size_t num_threads);
+ 
+   bool ends_with(const std::string& str, const std::string& suffix);
+diff --git a/python/cpp/module.cc b/python/cpp/module.cc
+index 550aea5b..ad88faf5 100644
+--- a/python/cpp/module.cc
++++ b/python/cpp/module.cc
+@@ -56,6 +56,9 @@ PYBIND11_MODULE(_ext, m)
+   m.def("get_cuda_device_count", &ctranslate2::get_gpu_count,
+         "Returns the number of visible GPU devices.");
+ 
++  m.def("flash_attention_available", &ctranslate2::flash_attention_available,
++        "Returns True if this build was compiled with Flash Attention 2 (WITH_FLASH_ATTN).");
++
+   m.def("get_supported_compute_types", &get_supported_compute_types,
+         py::arg("device"),
+         py::arg("device_index")=0,
+diff --git a/python/cpp/whisper.cc b/python/cpp/whisper.cc
+index f7013b64..83977526 100644
+--- a/python/cpp/whisper.cc
++++ b/python/cpp/whisper.cc
+@@ -286,7 +286,8 @@ namespace ctranslate2 {
+                    max_queued_batches: Maximum numbers of batches in the worker queue (-1 for unlimited,
+                      0 for an automatic value). When the queue is full, future requests will block
+                      until a free slot is available.
+-                   flash_attention: run model with flash attention 2 for self-attention layer
++                   flash_attention: run the encoder self-attention with flash attention 2
++                     (the decoder keeps the standard attention)
+                    tensor_parallel: run model with tensor parallel mode
+                    files: Load model files from the memory. This argument is a dictionary mapping
+                      file names to file contents as file-like or bytes objects. If this is set,
+diff --git a/python/ctranslate2/__init__.py b/python/ctranslate2/__init__.py
+index 1b0e1aa0..e8e850d2 100644
+--- a/python/ctranslate2/__init__.py
++++ b/python/ctranslate2/__init__.py
+@@ -39,6 +39,7 @@ try:
+         TranslationResult,
+         Translator,
+         contains_model,
++        flash_attention_available,
+         get_cuda_device_count,
+         get_supported_compute_types,
+         set_random_seed,
+diff --git a/src/layers/flash_attention.cc b/src/layers/flash_attention.cc
+index fb13b90f..328fde5d 100644
+--- a/src/layers/flash_attention.cc
++++ b/src/layers/flash_attention.cc
+@@ -110,7 +110,9 @@ namespace ctranslate2 {
+ 
+       // init output
+       StorageView context(dtype, device);
+-      ops::FlashAttention fl_attn_ops(_queries_scale, _sliding_window);
++      // Causal only in a decoder: the default is_causal=true would mask an
++      // encoder's self-attention to the frames before each query.
++      ops::FlashAttention fl_attn_ops(_queries_scale, _sliding_window, /*is_causal=*/_is_decoder);
+       fl_attn_ops(queries_proj, keys_proj, values_proj, context, cached_keys, cached_values, attention,
+                   return_normalized_attention, rotary_cos, rotary_sin, rotary_interleaved, nullptr/*alibli*/, offset);
+ 
+diff --git a/src/layers/transformer.cc b/src/layers/transformer.cc
+index 758b2c24..e1b73b05 100644
+--- a/src/layers/transformer.cc
++++ b/src/layers/transformer.cc
+@@ -484,7 +484,9 @@ namespace ctranslate2 {
+       return std::make_unique<Alibi>(use_positive_positions, scale_alibi);
+     }
+ 
+-    TransformerDecoder::TransformerDecoder(const models::Model& model, const std::string& scope)
++    TransformerDecoder::TransformerDecoder(const models::Model& model,
++                                           const std::string& scope,
++                                           bool allow_flash_attention)
+       : Decoder(model.device())
+       , _num_heads(model.get_attribute_with_default<int32_t>(scope + "/num_heads", 8))
+       , _compute_type(model.effective_compute_type())
+@@ -497,7 +499,7 @@ namespace ctranslate2 {
+       , _project_in(build_optional_layer<Dense>(model, scope + "/project_in"))
+       , _project_out(build_optional_layer<Dense>(model, scope + "/project_out"))
+       , _alibi(make_alibi(model, scope))
+-      , _use_flash_attention(model.use_flash_attention())
++      , _use_flash_attention(allow_flash_attention && model.use_flash_attention())
+       , _layers(build_layers_list<const TransformerDecoderLayer>(
+                   model,
+                   scope + "/layer",
+diff --git a/src/layers/whisper.cc b/src/layers/whisper.cc
+index 401c1467..763b47b2 100644
+--- a/src/layers/whisper.cc
++++ b/src/layers/whisper.cc
+@@ -17,7 +17,8 @@ namespace ctranslate2 {
+                                                                  scope + "/layer",
+                                                                  _num_heads,
+                                                                  /*pre_norm=*/true,
+-                                                                 ops::ActivationType::GELU))
++                                                                 ops::ActivationType::GELU,
++                                                                 model.use_flash_attention()))
+       , _output_norm(model, scope + "/layer_norm")
+     {
+     }
+diff --git a/src/utils.cc b/src/utils.cc
+index 4f8bde57..745ca9e0 100644
+--- a/src/utils.cc
++++ b/src/utils.cc
+@@ -74,6 +74,14 @@ namespace ctranslate2 {
+     return get_device_count(Device::CUDA);
+   }
+ 
++  bool flash_attention_available() {
++#ifdef CT2_WITH_FLASH_ATTN
++    return true;
++#else
++    return false;
++#endif
++  }
++
+   static inline size_t get_default_num_threads() {
+     constexpr size_t default_num_threads = 4;
+     const size_t max_num_threads = std::thread::hardware_concurrency();
+-- 
+2.43.0
+

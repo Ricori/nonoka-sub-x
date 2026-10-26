@@ -1024,3 +1024,24 @@ func TestIntactStateIsStillLoaded(t *testing.T) {
 		t.Fatalf("suppressions = %#v, want the stored one", service.syncSuppressions)
 	}
 }
+
+// A session saved against the retired Modal app moves to the Cloudflare
+// backend on load, key and all, and the file says so from then on.
+func TestRetiredModalSessionMovesToTheCloudBackend(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "cloud-session.json")
+	if err := os.WriteFile(path, []byte(`{"backend":"https://ricori--nonoka-x-cloud-api.modal.run","key":"login-key"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	service, err := New(root, fakeProvider{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if session := service.Session(); !session.Authenticated || session.Backend != cloudBackend {
+		t.Fatalf("session = %#v, want the stored key on %s", session, cloudBackend)
+	}
+	var saved storedSession
+	if !readState(path, &saved) || saved != (storedSession{Backend: cloudBackend, Key: "login-key"}) {
+		t.Fatalf("saved session = %#v, want the migrated one", saved)
+	}
+}
