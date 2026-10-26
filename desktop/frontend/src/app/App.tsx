@@ -854,16 +854,16 @@ export default function App() {
         setTaskHistory((current) => current.map((record) =>
           record.taskId === item.taskId
             ? {
-                ...record,
-                snapshot: {
-                  ...record.snapshot,
-                  state: "queued",
-                  stage: "queued",
-                  started_at: nowIso,
-                  error: null,
-                  progress: null,
-                },
-              }
+              ...record,
+              snapshot: {
+                ...record.snapshot,
+                state: "queued",
+                stage: "queued",
+                started_at: nowIso,
+                error: null,
+                progress: null,
+              },
+            }
             : record,
         ));
       }

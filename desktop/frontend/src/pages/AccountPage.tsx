@@ -45,8 +45,6 @@ export function AccountPage({ session, media, loginKey, busy, message, onLoginKe
         <h2>同步规则</h2>
         <ul>
           <li>登录后按媒体指纹合并本地和云端记录</li>
-          <li>本机任务完成后自动同步字幕产物，不上传原视频</li>
-          <li>本地字幕同步不扣云端转写次数</li>
           <li>云端容器只接受最长 2 小时的纯音频</li>
         </ul>
       </article>

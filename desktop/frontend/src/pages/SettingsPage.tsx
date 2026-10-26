@@ -69,7 +69,6 @@ export function SettingsPage(props: SettingsPageProps) {
       <article className="panel keys-intro">
         <span className="eyebrow">LLM & service credentials</span>
         <h2>模型与服务密钥</h2>
-        <p><span className="keys-intro-cloud" aria-hidden="true">☁</span>使用 Nonoka Cloud 时无需配置，以下仅用于本地处理</p>
       </article>
 
       {modelRouting && <LlmConfigurationCard keys={keys} baseUrls={baseUrls} modelRouting={modelRouting} drafts={drafts} busy={busy} setDrafts={setDrafts} onSave={onSaveKey} />}
