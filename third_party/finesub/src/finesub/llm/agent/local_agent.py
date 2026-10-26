@@ -6381,6 +6381,26 @@ class AgyLocalAgentDriver(LocalAgentDriver):
                 f"{project_id!r}; the registered project is gone"
             )
 
+    def _verify_project_record(self, project_id: str) -> None:
+        """agy 1.4 no longer logs the project a `/hooks` run opened, so the
+        check above has nothing to read; the record itself is what is left.
+        A records directory holding other records but not this one means the
+        project is gone (2026-10-25, 1.4.5 migrated the records and dropped a
+        tool project's), answered like the fallback above.
+
+        A missing directory proves nothing: agy may have moved its records,
+        and only the tool path needs them (`_grant_permissions` fails closed
+        there on its own)."""
+
+        records_dir = self.agy_project_records_dir()
+        if not records_dir.is_dir():
+            return
+        if not (records_dir / f"{project_id}.json").is_file():
+            raise LocalAgentUnavailableError(
+                f"Antigravity has no record for project {project_id!r}; "
+                "the registered project is gone"
+            )
+
     def _check_project(
         self,
         project_root: Path,
@@ -6390,8 +6410,8 @@ class AgyLocalAgentDriver(LocalAgentDriver):
         tool: bool = False,
     ) -> None:
         """`/hooks` on the exact project and agent a model call will use:
-        zero tokens; checks the hook list, that agy opened that very project,
-        and that the agent resolved.
+        zero tokens; checks the hook list, that agy opened that very project
+        and still keeps its record, and that the agent resolved.
 
         Only a tool project fails closed on the agent. A capsule project warns
         and runs on (owner 2026-10-06): the hook, not the document, holds the
@@ -6414,6 +6434,7 @@ class AgyLocalAgentDriver(LocalAgentDriver):
             # is about the wrong project, and only this one is fixable by
             # registering again.
             self._verify_project_resolved(log_text, project_id)
+            self._verify_project_record(project_id)
             try:
                 self._verify_agent_resolved(log_text, agent_name)
             except AgyAgentUnverifiableError as exc:

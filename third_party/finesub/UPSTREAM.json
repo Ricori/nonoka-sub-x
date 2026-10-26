@@ -1,10 +1,10 @@
 {
   "archive_sha256": "e76340e70a214412facdb7b7288b5532886ff9e6bab0b3519bfb54ed1cc257ae",
   "commit": "5caf422cbad36f0402c98eb565e4c29aee4ac197",
-  "content_sha256": "57a6736528b778ff6e5b36d97d05d35d0eff4a9076f445580d4e1bad2b026ae7",
+  "content_sha256": "53c6e0dc293091e6d1cba7d0ea1c97ae8aca43f81ca5a9f1fe899d4fad6801d6",
   "engine_bundle_id": "finesub-0.6.0+5caf422cbad3",
   "engine_version": "0.6.0",
-  "files_manifest_sha256": "b02614c66a86fdc426c705af54a1c6f8c2f0b1788bc73db74463c6beec9bae0e",
+  "files_manifest_sha256": "b6862eae385fb5980340f33134f72984bf72ed491d037afad180fc2d8e9002e3",
   "patches": [
     {
       "path": "0001-qwen-tail-entry-point.patch",
@@ -32,7 +32,7 @@
     },
     {
       "path": "0007-agy-project-fallback-reregister.patch",
-      "sha256": "57c476c615fe5a25842f64af7fa700a773c41879bcfc066faa7ba196858837dd"
+      "sha256": "0b31c383a4e18551de7987972843aa802119cbf526df2a05a9cd557cb8fe3297"
     },
     {
       "path": "0008-agy-guard-utf8-stdin.patch",

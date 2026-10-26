@@ -17,11 +17,19 @@ project agy cannot open never turns into one registration per call. A log
 without the line is no verdict: older builds and a missing log behave as
 before.
 
+agy 1.4 no longer logs that line for `/hooks`, so the check had nothing to
+read again: after 1.4.5 migrated the records on 2026-10-25 and dropped the
+tool project's, every tool call died on the missing record once more. The
+check now also requires the kept id's record under
+`~/.gemini/config/projects`; a missing record is the same unavailability, a
+missing records directory is no verdict (agy may have moved it, and only
+the tool path needs it).
+
 Removal: Delete once upstream verifies the opened project, or agy fails an
 unknown `--project` id instead of falling back.
 
 diff --git a/src/finesub/llm/agent/local_agent.py b/src/finesub/llm/agent/local_agent.py
-index 1c940dd..1c9cee2 100644
+index 1c940dd..fa893d6 100644
 --- a/src/finesub/llm/agent/local_agent.py
 +++ b/src/finesub/llm/agent/local_agent.py
 @@ -304,6 +304,10 @@ AGY_AGENT_NAME = "finesub-media"
@@ -35,7 +43,7 @@ index 1c940dd..1c9cee2 100644
  
  AGY_HOOKS_DOCUMENT = {
      AGY_HOOK_NAME: {
-@@ -6348,6 +6352,26 @@ class AgyLocalAgentDriver(LocalAgentDriver):
+@@ -6348,6 +6352,46 @@ class AgyLocalAgentDriver(LocalAgentDriver):
                  "and would fall back to its default agent"
              )
  
@@ -59,20 +67,40 @@ index 1c940dd..1c9cee2 100644
 +                f"{project_id!r}; the registered project is gone"
 +            )
 +
++    def _verify_project_record(self, project_id: str) -> None:
++        """agy 1.4 no longer logs the project a `/hooks` run opened, so the
++        check above has nothing to read; the record itself is what is left.
++        A records directory holding other records but not this one means the
++        project is gone (2026-10-25, 1.4.5 migrated the records and dropped a
++        tool project's), answered like the fallback above.
++
++        A missing directory proves nothing: agy may have moved its records,
++        and only the tool path needs them (`_grant_permissions` fails closed
++        there on its own)."""
++
++        records_dir = self.agy_project_records_dir()
++        if not records_dir.is_dir():
++            return
++        if not (records_dir / f"{project_id}.json").is_file():
++            raise LocalAgentUnavailableError(
++                f"Antigravity has no record for project {project_id!r}; "
++                "the registered project is gone"
++            )
++
      def _check_project(
          self,
          project_root: Path,
-@@ -6357,7 +6381,8 @@ class AgyLocalAgentDriver(LocalAgentDriver):
+@@ -6357,7 +6401,8 @@ class AgyLocalAgentDriver(LocalAgentDriver):
          tool: bool = False,
      ) -> None:
          """`/hooks` on the exact project and agent a model call will use:
 -        zero tokens; checks the hook list and that the agent resolved.
-+        zero tokens; checks the hook list, that agy opened that very project,
-+        and that the agent resolved.
++        zero tokens; checks the hook list, that agy opened that very project
++        and still keeps its record, and that the agent resolved.
  
          Only a tool project fails closed on the agent. A capsule project warns
          and runs on (owner 2026-10-06): the hook, not the document, holds the
-@@ -6376,6 +6401,10 @@ class AgyLocalAgentDriver(LocalAgentDriver):
+@@ -6376,6 +6421,11 @@ class AgyLocalAgentDriver(LocalAgentDriver):
                  log_text = log_path.read_text(encoding="utf-8", errors="replace")
              except OSError:
                  log_text = ""
@@ -80,6 +108,7 @@ index 1c940dd..1c9cee2 100644
 +            # is about the wrong project, and only this one is fixable by
 +            # registering again.
 +            self._verify_project_resolved(log_text, project_id)
++            self._verify_project_record(project_id)
              try:
                  self._verify_agent_resolved(log_text, agent_name)
              except AgyAgentUnverifiableError as exc:

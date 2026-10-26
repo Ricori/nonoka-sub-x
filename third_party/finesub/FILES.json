@@ -1,5 +1,5 @@
 {
-  "content_sha256": "57a6736528b778ff6e5b36d97d05d35d0eff4a9076f445580d4e1bad2b026ae7",
+  "content_sha256": "53c6e0dc293091e6d1cba7d0ea1c97ae8aca43f81ca5a9f1fe899d4fad6801d6",
   "files": [
     {
       "bytes": 35149,
@@ -132,9 +132,9 @@
       "sha256": "a1ac8afca7a4cc0f19b3184fd810e483dd3808482ad711f5be7b743e4a45a3f3"
     },
     {
-      "bytes": 338083,
+      "bytes": 339132,
       "path": "src/finesub/llm/agent/local_agent.py",
-      "sha256": "d7d06cfb6470964dc389fa356418bbaa4bf4908fb5a1b18cb79c84dcb68c4493"
+      "sha256": "590e6b11e6093adbb63927ccffc30a700fed6940ffa06bba648c66ce545ffbbf"
     },
     {
       "bytes": 33425,
