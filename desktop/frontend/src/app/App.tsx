@@ -1806,7 +1806,7 @@ export default function App() {
             <span className={`status-dot ${sidecar?.running ? "local" : ""}`} />
             <div>
               <strong>本机</strong>
-              <small>{runtimeReady ? "转写引擎已就绪" : "需要检查环境"}</small>
+              <small>{runtimeReady ? "引擎已就绪" : "需要检查环境"}</small>
             </div>
           </div>
           {/* The cloud row doubles as the account entry, so the login state is shown once. */}
@@ -1820,7 +1820,7 @@ export default function App() {
             {cloudLoading ? <span className="account-spinner" aria-hidden="true" /> : <span className={`status-dot ${cloudSession?.authenticated ? "online" : ""}`} />}
             <div>
               <strong>Nonoka Cloud</strong>
-              <small>{cloudLoading ? "正在验证账户" : !cloudSession?.authenticated ? "未登录 · 点击登录" : `${cloudSession.name || "未命名 Key"} · ${cloudSession.admin ? "不限次" : `剩余 ${cloudSession.remaining ?? "—"} 次`}`}</small>
+              <small>{cloudLoading ? "正在验证账户" : !cloudSession?.authenticated ? "未登录 · 点击登录" : `${cloudSession.name || "未命名 Key"}`}</small>
             </div>
           </button>
         </section>
