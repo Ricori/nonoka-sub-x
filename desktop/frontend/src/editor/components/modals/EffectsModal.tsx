@@ -97,7 +97,7 @@ export function EffectsModal() {
       const zhTarget: SubtitleEffectTarget = { scope: "lane", trackId, lang: "zh" };
       values.push(
         { key: effectTargetKey(trackTarget), group: name, label: "整条轨道（双语）", target: trackTarget },
-        { key: effectTargetKey(jaTarget), group: name, label: "日语原文轴", target: jaTarget },
+        { key: effectTargetKey(jaTarget), group: name, label: "原文轴", target: jaTarget },
         { key: effectTargetKey(zhTarget), group: name, label: "中文译文轴", target: zhTarget },
       );
     };
