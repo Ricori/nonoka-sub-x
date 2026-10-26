@@ -98,8 +98,11 @@ function Filmstrip({ height, left, w, pps }: { height: number; left: number; w: 
       const cached = starts.map(at => filmCache.get(filmKey(src, at, step, tilePlan(at, step, duration).frames)))
         .filter((t): t is FilmTile => !!t);
       setTiles(cur => keep([...cur.filter(t => !cached.includes(t)), ...cached]));
+      // 由视口中间往两边补：跳到远处时先出眼前那几张，边上预取的排在后面。
+      // 视口一变这一轮就作废（disposed），没开始的那些不会再去排后端的队
+      const queue = [...starts].sort((x, y) => Math.abs(x + span / 2 - center) - Math.abs(y + span / 2 - center));
       let failure: unknown;
-      for (const at of starts) {
+      for (const at of queue) {
         const plan = tilePlan(at, step, duration);
         if (filmCache.has(filmKey(src, at, step, plan.frames))) continue;
         try {
@@ -112,7 +115,7 @@ function Filmstrip({ height, left, w, pps }: { height: number; left: number; w: 
         }
       }
       if (!disposed) setMessage(failure ? "缩略图生成失败：" + errText(failure) : "");
-    }, 120);
+    }, 200);
     return () => { disposed = true; clearTimeout(timer); };
   }, [left, w, step, src, audioOnly, duration, t0, pieces, focus]);
 

@@ -192,6 +192,12 @@ func piecesFilterGraph(pieces []Range, offset float64, hasAudio bool, subtitles 
 
 // FilmstripTile renders frames evenly spread over [start, start+duration) as
 // one horizontal JPEG strip, cached per range and frame count.
+//
+// A heavy source (see needsProxy) is sampled from its editing proxy once that
+// is built. Until then only its keyframes are decoded: an exact frame of 4K60
+// AV1 can sit seconds of decoding past the keyframe before it, which made one
+// strip cost tens of seconds of every core, while a strip of keyframes costs
+// a few. Thumbnails this small do not show the difference.
 func (s *Service) FilmstripTile(id string, start, duration float64, frames int) (FilmstripTileResult, error) {
 	if !validID(id) || !finite(start) || !finite(duration) || start < 0 || duration < .1 || duration > 6000 ||
 		frames < 1 || frames > maxFilmstripFrames {
@@ -204,9 +210,15 @@ func (s *Service) FilmstripTile(id string, start, duration float64, frames int) 
 	if entry.AudioOnly {
 		return FilmstripTileResult{}, errors.New("纯音频素材没有画面")
 	}
-	source := s.cachedPath(id)
+	source, kind := s.readyProxy(id), "p"
 	if source == "" {
-		source = entry.SourcePath
+		source, kind = s.cachedPath(id), ""
+		if source == "" {
+			source = entry.SourcePath
+		}
+		if needsProxy(entry) {
+			kind = "k"
+		}
 	}
 	if !fileExists(source) {
 		return FilmstripTileResult{}, errors.New("filmstrip requires local media")
@@ -225,18 +237,17 @@ func (s *Service) FilmstripTile(id string, start, duration float64, frames int) 
 	if err := os.MkdirAll(directory, 0o700); err != nil {
 		return FilmstripTileResult{}, err
 	}
-	output := filepath.Join(directory, fmt.Sprintf("v1-%d-%d-%d.jpg", int64(start*1000), int64(duration*1000), frames))
-	s.cacheMu.Lock()
-	defer s.cacheMu.Unlock()
-	if !fileExists(output) {
-		command := exec.Command(ffmpeg, filmstripArgs(source, output, start, duration, entry.Duration, frames)...)
-		configureMediaCommand(command)
+	// The kind is part of the name: keyframe strips give way to exact ones once
+	// the proxy exists, and plain v1 names stay valid for light sources.
+	output := filepath.Join(directory, fmt.Sprintf("v1%s-%d-%d-%d.jpg", kind, int64(start*1000), int64(duration*1000), frames))
+	data, err := s.renderTile(output, func(part string) error {
+		command := exec.Command(ffmpeg, filmstripArgs(source, part, start, duration, entry.Duration, frames, kind == "k")...)
+		configureBackgroundCommand(command)
 		if result, runErr := command.CombinedOutput(); runErr != nil {
-			_ = os.Remove(output)
-			return FilmstripTileResult{}, fmt.Errorf("generate filmstrip: %s", strings.TrimSpace(string(result)))
+			return fmt.Errorf("generate filmstrip: %s", strings.TrimSpace(string(result)))
 		}
-	}
-	data, err := os.ReadFile(output)
+		return nil
+	})
 	if err != nil {
 		return FilmstripTileResult{}, err
 	}
@@ -246,17 +257,46 @@ func (s *Service) FilmstripTile(id string, start, duration float64, frames int) 
 	}, nil
 }
 
+// renderTile returns the tile cached at output, rendering it first when it is
+// missing. Renders run one at a time under tileMu; reading a finished tile
+// never waits for one, and a tile is installed by rename so no reader sees
+// half of it.
+func (s *Service) renderTile(output string, render func(part string) error) ([]byte, error) {
+	if data, err := os.ReadFile(output); err == nil {
+		return data, nil
+	}
+	s.tileMu.Lock()
+	defer s.tileMu.Unlock()
+	if data, err := os.ReadFile(output); err == nil {
+		return data, nil
+	}
+	extension := filepath.Ext(output)
+	part := strings.TrimSuffix(output, extension) + ".part" + extension
+	if err := render(part); err != nil {
+		_ = os.Remove(part)
+		return nil, err
+	}
+	if err := os.Rename(part, output); err != nil {
+		_ = os.Remove(part)
+		return nil, err
+	}
+	return os.ReadFile(output)
+}
+
 // filmstripArgs samples the middle of each of frames equal slots. Wide slots
 // open the source once per frame with a fast input seek and stack the frames;
 // narrow ones decode the range once and let fps pick the frames. A range that
 // runs past the end of the media always seeks per frame: fps would run out of
 // input before the last slot and tile would never emit, while the seek path
 // pulls late samples back inside the media.
-func filmstripArgs(source, output string, start, duration, mediaDuration float64, frames int) []string {
+//
+// keyframes takes the keyframe at or before each sample instead of the exact
+// frame and always seeks per frame, so the decoder can skip everything else.
+func filmstripArgs(source, output string, start, duration, mediaDuration float64, frames int, keyframes bool) []string {
 	step := duration / float64(frames)
 	scale := fmt.Sprintf("scale=-2:%d,setsar=1", filmstripFrameHeight)
 	args := []string{"-v", "error"}
-	if step < filmstripSeekStep && start+duration <= mediaDuration {
+	if !keyframes && step < filmstripSeekStep && start+duration <= mediaDuration {
 		args = append(args,
 			"-ss", formatFloat(start+step/2), "-t", formatFloat(duration), "-i", source,
 			"-an", "-sn", "-vf", fmt.Sprintf("fps=1/%s,%s,tile=%dx1", formatFloat(step), scale, frames),
@@ -266,8 +306,16 @@ func filmstripArgs(source, output string, start, duration, mediaDuration float64
 		for index := 0; index < frames; index++ {
 			// A seek past the last frame yields nothing and hstack would stall.
 			at := math.Min(start+step*(float64(index)+.5), math.Max(0, mediaDuration-.1))
+			trim := "trim=end_frame=1"
+			if keyframes {
+				// Without accurate seek the keyframe keeps its timestamp from
+				// before the seek point; zero it or hstack never lines the
+				// inputs up. Two decoder threads each: there are up to 32 inputs.
+				args = append(args, "-threads", "2", "-skip_frame", "nokey", "-noaccurate_seek")
+				trim = "setpts=0," + trim
+			}
 			args = append(args, "-ss", formatFloat(at), "-i", source)
-			fmt.Fprintf(&graph, "[%d:v]trim=end_frame=1,%s[f%d];", index, scale, index)
+			fmt.Fprintf(&graph, "[%d:v]%s,%s[f%d];", index, trim, scale, index)
 			fmt.Fprintf(&stack, "[f%d]", index)
 		}
 		if frames == 1 {

@@ -3,6 +3,7 @@ import { Events } from "@wailsio/runtime";
 import { desktopUpdate } from "../../bridge/update.ts";
 import { AUTOSAVE_MS } from "../constants";
 import { promptMandatoryUpdate } from "../lib/closeFlow";
+import { proxyFailed, switchToProxy } from "../lib/videoSource";
 import { getVid, isLeaving, reportBootError } from "../session";
 import { flushLayout } from "../store/layoutStore";
 import { editDirty, saveStore, startAutosave } from "../store/saveStore";
@@ -59,5 +60,16 @@ export function useDesktopEvents() {
         transcodePct: `${pct}%（${fmt(progress.done || 0)} / ${fmt(progress.total)}）`,
       });
     }
+    if (progress.stage === "proxy" && progress.id === getVid() && progress.total) {
+      const pct = Math.max(0, Math.min(100, Math.round((progress.done || 0) / progress.total * 100)));
+      videoStore.set({ badge: `生成预览代理 ${pct}%` });
+    }
+  }), []);
+
+  useEffect(() => Events.On("media:proxy", (event) => {
+    const result = event.data as { id?: string; ok?: boolean; error?: string };
+    if (result.id !== getVid()) return;
+    if (result.ok) void switchToProxy().catch(() => videoStore.set({ badge: null }));
+    else proxyFailed(result.error || "未知错误");
   }), []);
 }

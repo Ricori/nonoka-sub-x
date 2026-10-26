@@ -15,6 +15,7 @@ export type {
     FilmstripTileResult,
     ImportFailure,
     ImportResult,
+    PreviewSource,
     Range,
     SpectrogramTileResult,
     TranscodeResult,

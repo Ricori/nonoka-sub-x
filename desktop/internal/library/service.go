@@ -143,6 +143,14 @@ type Service struct {
 	activeMedia      string
 	exportCancels    map[string]context.CancelFunc
 	transcodeCancels map[string]context.CancelFunc
+	proxyCancels     map[string]context.CancelFunc
+	// proxySlot admits one proxy build at a time; proxyPipeline names the
+	// encoder pipeline that last succeeded (see proxy.go).
+	proxySlot     chan struct{}
+	proxyPipeline string
+	// tileMu serialises filmstrip and spectrogram renders. Reading a tile that
+	// is already on disk never takes it.
+	tileMu sync.Mutex
 }
 
 func New(dataDirectory string) (*Service, error) {
@@ -166,6 +174,8 @@ func newService(dataDirectory string, tools commandMediaTools) (*Service, error)
 		cacheConfig:      defaultCacheConfig(),
 		exportCancels:    map[string]context.CancelFunc{},
 		transcodeCancels: map[string]context.CancelFunc{},
+		proxyCancels:     map[string]context.CancelFunc{},
+		proxySlot:        make(chan struct{}, 1),
 	}
 	if err := os.MkdirAll(service.thumbnailDir, 0o755); err != nil {
 		return nil, err

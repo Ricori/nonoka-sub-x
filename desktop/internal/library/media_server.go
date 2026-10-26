@@ -26,10 +26,12 @@ type loopbackMediaServer struct {
 	server   *http.Server
 	path     string
 	baseURL  string
-	source   func(string) string
+	// source resolves an id to the file to serve; proxy asks for the editing
+	// proxy instead of the original (see proxy.go).
+	source func(id string, proxy bool) string
 }
 
-func newLoopbackMediaServer(source func(string) string) (*loopbackMediaServer, error) {
+func newLoopbackMediaServer(source func(id string, proxy bool) string) (*loopbackMediaServer, error) {
 	tokenBytes := make([]byte, 24)
 	if _, err := rand.Read(tokenBytes); err != nil {
 		return nil, err
@@ -46,6 +48,10 @@ func newLoopbackMediaServer(source func(string) string) (*loopbackMediaServer, e
 }
 
 func (s *loopbackMediaServer) URL(id string) string { return s.baseURL + "?id=" + id }
+
+// ProxyURL differs from URL so a player never sees one file swapped for the
+// other under an address it already has open.
+func (s *loopbackMediaServer) ProxyURL(id string) string { return s.baseURL + "?id=" + id + "&proxy=1" }
 
 func (s *loopbackMediaServer) Close() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
@@ -64,7 +70,7 @@ func (s *loopbackMediaServer) handler() http.Handler {
 			http.NotFound(writer, request)
 			return
 		}
-		path := s.source(id)
+		path := s.source(id, request.URL.Query().Get("proxy") == "1")
 		file, err := os.Open(path)
 		if err != nil {
 			http.NotFound(writer, request)

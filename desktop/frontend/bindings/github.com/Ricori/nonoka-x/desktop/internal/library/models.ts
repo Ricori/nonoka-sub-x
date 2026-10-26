@@ -84,6 +84,20 @@ export interface ImportResult {
     "failed": ImportFailure[] | null;
 }
 
+export interface PreviewSource {
+    "url": string;
+
+    /**
+     * Proxy reports that URL plays the editing proxy rather than the original.
+     */
+    "proxy": boolean;
+
+    /**
+     * Heavy reports a source that warrants a proxy, built or not.
+     */
+    "heavy": boolean;
+}
+
 /**
  * Range is a half-open span of source media time in seconds.
  */

@@ -43,18 +43,28 @@ func TestPiecesFilterGraph(t *testing.T) {
 }
 
 func TestFilmstripArgsPicksSamplingMode(t *testing.T) {
-	dense := strings.Join(filmstripArgs("in.mp4", "out.jpg", 10, 8, 100, 8), " ")
+	dense := strings.Join(filmstripArgs("in.mp4", "out.jpg", 10, 8, 100, 8, false), " ")
 	if !strings.Contains(dense, "-ss 10.500 -t 8.000 -i in.mp4") || !strings.Contains(dense, "fps=1/1.000,scale=-2:54,setsar=1,tile=8x1") {
 		t.Fatalf("dense args = %s", dense)
 	}
 	// A dense range that overruns the media seeks per frame and pulls the tail back in.
-	tail := strings.Join(filmstripArgs("in.mp4", "out.jpg", 96, 8, 100, 8), " ")
+	tail := strings.Join(filmstripArgs("in.mp4", "out.jpg", 96, 8, 100, 8, false), " ")
 	if strings.Contains(tail, "fps=") || !strings.Contains(tail, "-ss 99.900 -i in.mp4") {
 		t.Fatalf("tail args = %s", tail)
 	}
-	sparse := strings.Join(filmstripArgs("in.mp4", "out.jpg", 90, 20, 100, 2), " ")
+	sparse := strings.Join(filmstripArgs("in.mp4", "out.jpg", 90, 20, 100, 2, false), " ")
 	// The second slot's middle (105s) lies past the media end and is pulled back.
 	if !strings.Contains(sparse, "-ss 95.000 -i in.mp4 -ss 99.900 -i in.mp4") || !strings.Contains(sparse, "[f0][f1]hstack=inputs=2") {
 		t.Fatalf("sparse args = %s", sparse)
+	}
+}
+
+func TestFilmstripArgsKeyframesSeekPerFrame(t *testing.T) {
+	// Even a dense range seeks per frame and decodes only keyframes.
+	args := strings.Join(filmstripArgs("in.mp4", "out.jpg", 10, 2, 100, 2, true), " ")
+	if strings.Contains(args, "fps=") ||
+		!strings.Contains(args, "-threads 2 -skip_frame nokey -noaccurate_seek -ss 10.500 -i in.mp4") ||
+		!strings.Contains(args, "[1:v]setpts=0,trim=end_frame=1,scale=-2:54,setsar=1[f1];") {
+		t.Fatalf("keyframe args = %s", args)
 	}
 }

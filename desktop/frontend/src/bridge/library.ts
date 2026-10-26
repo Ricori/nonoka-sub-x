@@ -20,6 +20,9 @@ export const mediaLibrary = {
   remove: LibraryService.Remove,
   relink: LibraryService.PickRelink,
   mediaURL: LibraryService.MediaURL,
+  /** 编辑器播放器要挂的地址：重素材的预览代理做好后给代理，original 强制原片 */
+  previewURL: LibraryService.PreviewURL,
+  buildProxy: LibraryService.BuildProxy,
   saveSubtitle: LibraryService.SaveSubtitle,
   exportVideo: LibraryService.ExportVideo,
   exportVideoRange: LibraryService.ExportVideoRange,

@@ -330,9 +330,7 @@ func (s *Service) SpectrogramTile(id string, start, duration float64) (Spectrogr
 		return SpectrogramTileResult{}, err
 	}
 	output := filepath.Join(directory, fmt.Sprintf("v1-%d-%d.png", int64(start*1000), int64(duration*1000)))
-	s.cacheMu.Lock()
-	defer s.cacheMu.Unlock()
-	if !fileExists(output) {
+	data, err := s.renderTile(output, func(part string) error {
 		filter := fmt.Sprintf(
 			"showspectrumpic=s=%dx%d:legend=disabled:mode=combined:color=green:scale=log:fscale=log:gain=2:drange=78,"+
 				"lutrgb=r='33+0.870588*val':g='19+0.92549*val':b='63+0.752941*val'",
@@ -340,15 +338,14 @@ func (s *Service) SpectrogramTile(id string, start, duration float64) (Spectrogr
 		)
 		command := exec.Command(ffmpeg,
 			"-v", "error", "-ss", formatFloat(start), "-t", formatFloat(duration), "-i", source,
-			"-lavfi", filter, "-frames:v", "1", "-y", output,
+			"-lavfi", filter, "-frames:v", "1", "-y", part,
 		)
-		configureMediaCommand(command)
+		configureBackgroundCommand(command)
 		if result, runErr := command.CombinedOutput(); runErr != nil {
-			_ = os.Remove(output)
-			return SpectrogramTileResult{}, fmt.Errorf("generate spectrogram: %s", strings.TrimSpace(string(result)))
+			return fmt.Errorf("generate spectrogram: %s", strings.TrimSpace(string(result)))
 		}
-	}
-	data, err := os.ReadFile(output)
+		return nil
+	})
 	if err != nil {
 		return SpectrogramTileResult{}, err
 	}

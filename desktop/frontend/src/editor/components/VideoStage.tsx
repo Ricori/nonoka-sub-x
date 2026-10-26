@@ -80,6 +80,8 @@ export function VideoStage() {
       relayout();
       if (syncZoomRange()) saveLayout();   // 时长变了，全览这一档跟着变
       if (smoke) v.currentTime = Math.min(v.duration * .75, v.duration - .25);
+      // 换了源（原片 → 预览代理、转码副本）新 video 从 0 开始：对回播放头，别让画面和播放头错开
+      else if (playStore.get().t > 0) v.currentTime = Math.min(playStore.get().t, v.duration);
     };
     const onSeeked = () => {
       if (!smoke) return;
@@ -132,7 +134,8 @@ export function VideoStage() {
           if (stageRef.current) onStageDoubleClick(event, stageRef.current);
         }}>
         <video id="video" ref={videoRef} playsInline preload="auto" src={vs.src || undefined} />
-        <video id="video-b" ref={video2Ref} playsInline preload="auto" muted src={vs.src || undefined} />
+        {/* 待命的只在成片接力时才被 seek：平时别让它跟前台抢着缓冲、解码同一个源 */}
+        <video id="video-b" ref={video2Ref} playsInline preload="metadata" muted src={vs.src || undefined} />
         <div className="vid-cache" id="vid-cache" hidden={!vs.badge}>{vs.badge}</div>
         <div className="vid-fallback" id="vid-fallback" hidden={!vs.fallbackOpen}>
           <div className={"vf-card" + (vs.collapsed && !vs.retrieving && !vs.transcoding ? " collapsed" : "")} id="vf-card">

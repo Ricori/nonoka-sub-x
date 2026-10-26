@@ -222,6 +222,11 @@ func (s *Service) Relink(id, path string) (Entry, error) {
 		}
 		entry := s.entries[index]
 		s.mu.Unlock()
+		// A different file makes the old proxy and filmstrips show the wrong
+		// picture; the same file moved elsewhere keeps them.
+		if fingerprint != previous.Fingerprint {
+			s.dropPreviewDerivatives(id)
+		}
 		_ = s.thumbnailer.Generate(context.Background(), absolute, s.thumbnailPath(id), thumbnailDuration(metadata))
 		s.emitChanged()
 		return entry, nil
@@ -249,7 +254,10 @@ func (s *Service) MediaURL(id string) (string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.media == nil {
-		server, err := newLoopbackMediaServer(func(mediaID string) string {
+		server, err := newLoopbackMediaServer(func(mediaID string, proxy bool) string {
+			if proxy {
+				return s.readyProxy(mediaID)
+			}
 			cached := s.cachedPath(mediaID)
 			if cached != "" {
 				return cached

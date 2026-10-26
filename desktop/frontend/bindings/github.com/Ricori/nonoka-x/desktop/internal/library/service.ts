@@ -20,6 +20,16 @@ export function AddPlaceholder(title: string, fingerprint: string, duration: num
 }
 
 /**
+ * BuildProxy starts building the editing proxy in the background and returns
+ * at once. It does nothing for a source that does not need one, has one, or is
+ * already being built. Progress arrives as media:progress with stage "proxy",
+ * the outcome as media:proxy.
+ */
+export function BuildProxy(id: string): $CancellablePromise<void> {
+    return $Call.ByID(2506430590, id);
+}
+
+/**
  * CacheMedia creates a disposable working copy for task execution. Importing a
  * video remains fast and does not duplicate it until the media is actually used.
  */
@@ -91,6 +101,12 @@ export function ExportVideoRange(id: string, defaultName: string, ass: string, t
 /**
  * FilmstripTile renders frames evenly spread over [start, start+duration) as
  * one horizontal JPEG strip, cached per range and frame count.
+ * 
+ * A heavy source (see needsProxy) is sampled from its editing proxy once that
+ * is built. Until then only its keyframes are decoded: an exact frame of 4K60
+ * AV1 can sit seconds of decoding past the keyframe before it, which made one
+ * strip cost tens of seconds of every core, while a strip of keyframes costs
+ * a few. Thumbnails this small do not show the difference.
  */
 export function FilmstripTile(id: string, start: number, duration: number, frames: number): $CancellablePromise<$models.FilmstripTileResult> {
     return $Call.ByID(1259351694, id, start, duration, frames);
@@ -122,6 +138,14 @@ export function PickAndImport(): $CancellablePromise<$models.ImportResult> {
 
 export function PickRelink(id: string): $CancellablePromise<$models.Entry> {
     return $Call.ByID(762336050, id);
+}
+
+/**
+ * PreviewURL is the address the editor's player loads: the proxy once it is
+ * built, unless original asks for the source itself.
+ */
+export function PreviewURL(id: string, original: boolean): $CancellablePromise<$models.PreviewSource> {
+    return $Call.ByID(2396912167, id, original);
 }
 
 export function Relink(id: string, path: string): $CancellablePromise<$models.Entry> {

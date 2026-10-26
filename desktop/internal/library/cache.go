@@ -140,6 +140,14 @@ func (s *Service) ClearVideoCache() (CacheStatus, error) {
 			removeErr = errors.Join(removeErr, os.Remove(filepath.Join(s.cacheDirectory(), entry.Name())))
 		}
 	}
+	for _, path := range s.proxyFiles() {
+		id := proxyFileID(filepath.Base(path))
+		if active != "" && id == active {
+			continue
+		}
+		s.cancelProxy(id)
+		removeErr = errors.Join(removeErr, os.Remove(path))
+	}
 	status := s.cacheStatusLocked()
 	s.cacheMu.Unlock()
 	s.emitChanged()
@@ -172,12 +180,29 @@ func (s *Service) removeCachedMedia(id string) error {
 			result = errors.Join(result, os.Remove(filepath.Join(s.cacheDirectory(), entry.Name())))
 		}
 	}
+	return errors.Join(result, s.dropPreviewDerivatives(id))
+}
+
+// dropPreviewDerivatives removes what the editor's preview derived from the
+// source: its proxy (cancelling a build in progress) and its filmstrips.
+func (s *Service) dropPreviewDerivatives(id string) error {
+	s.cancelProxy(id)
+	var result error
+	if err := os.Remove(s.proxyPath(id)); err != nil && !errors.Is(err, os.ErrNotExist) {
+		result = err
+	}
+	if err := os.RemoveAll(filepath.Join(s.root, "temporary", "filmstrip", id)); err != nil {
+		result = errors.Join(result, err)
+	}
 	return result
 }
 
+// cachedPath reads the cache directory without cacheMu. Every cache file is
+// installed by rename, so a reader sees either the old file or the new one,
+// and a lookup must never wait on a cache operation: the media server calls
+// this for each range request the player makes, and CacheMedia can hold the
+// lock for minutes while it copies a large source.
 func (s *Service) cachedPath(id string) string {
-	s.cacheMu.Lock()
-	defer s.cacheMu.Unlock()
 	return s.cachedPathLocked(id)
 }
 
@@ -235,6 +260,12 @@ func (s *Service) cacheStatusLocked() CacheStatus {
 			continue
 		}
 		if info, err := entry.Info(); err == nil {
+			status.Bytes += info.Size()
+			status.Files++
+		}
+	}
+	for _, path := range s.proxyFiles() {
+		if info, err := os.Stat(path); err == nil {
 			status.Bytes += info.Size()
 			status.Files++
 		}
@@ -331,6 +362,21 @@ func (s *Service) convergeCacheLocked() error {
 		candidates = append(candidates, candidate)
 		total += candidate.size
 	}
+	// Proxies share the budget and the media's last access: an idle video's
+	// proxy goes as readily as its cache copy.
+	for _, path := range s.proxyFiles() {
+		info, statErr := os.Stat(path)
+		if statErr != nil {
+			continue
+		}
+		id := proxyFileID(filepath.Base(path))
+		access := lastAccess[id]
+		if access == 0 {
+			access = info.ModTime().UnixMilli()
+		}
+		candidates = append(candidates, cacheCandidate{path: path, size: info.Size(), lastAccess: access, active: id == active})
+		total += info.Size()
+	}
 	limit := cacheLimitBytes(s.cacheConfig.LimitGB)
 	sort.SliceStable(candidates, func(i, j int) bool { return candidates[i].lastAccess < candidates[j].lastAccess })
 	for _, candidate := range candidates {
@@ -373,3 +419,20 @@ func samePath(left, right string) bool {
 	}
 	return filepath.Clean(left) == filepath.Clean(right)
 }
+
+// proxyFiles lists finished proxies; a build's .part file is not one yet.
+func (s *Service) proxyFiles() []string {
+	entries, err := os.ReadDir(s.proxyDirectory())
+	if err != nil {
+		return nil
+	}
+	var paths []string
+	for _, entry := range entries {
+		if !entry.IsDir() && strings.EqualFold(filepath.Ext(entry.Name()), ".mp4") && validID(proxyFileID(entry.Name())) {
+			paths = append(paths, filepath.Join(s.proxyDirectory(), entry.Name()))
+		}
+	}
+	return paths
+}
+
+func proxyFileID(name string) string { return strings.TrimSuffix(name, filepath.Ext(name)) }
