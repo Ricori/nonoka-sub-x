@@ -164,7 +164,7 @@ export function StyleBar({ lane }: { lane: LaneRef }) {
       <SideSection title="基础">
         <PropRow label="字体" title={missing.length ? "系统里没装这个字体，预览会用回退字体" : undefined}>
           <CustomSelect className={"sd-select" + (missing.length ? " bad" : "")} ariaLabel="字体"
-            value={fontName} options={fontOptions} menuMaxHeight={320}
+            value={fontName} options={fontOptions} menuMaxHeight={320} searchable
             onChange={value => set({ fontname: value })} />
         </PropRow>
         <SliderField label="字号" value={num(fields, "fontsize", 70)} min={8} max={400} rangeMax={200}

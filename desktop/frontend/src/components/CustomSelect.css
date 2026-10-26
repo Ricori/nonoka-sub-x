@@ -106,6 +106,57 @@
   to { opacity: 1; transform: translateY(0) scale(1); }
 }
 
+.custom-select-menu.searchable {
+  align-content: start;
+  padding-top: 0;
+}
+
+.custom-select-search {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0 -5px 3px;
+  padding: 7px 10px 6px;
+  border-bottom: 1px solid var(--line-soft, var(--line));
+  background: inherit;
+}
+
+.custom-select-search svg {
+  flex: 0 0 auto;
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: var(--faint);
+  stroke-width: 1.6;
+  stroke-linecap: round;
+}
+
+.custom-select-search input {
+  flex: 1;
+  min-width: 0;
+  height: 26px;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--text);
+  outline: none;
+  font: inherit;
+  font-size: 12px;
+}
+
+.custom-select-search input::placeholder {
+  color: var(--faint);
+}
+
+.custom-select-empty {
+  padding: 10px 9px;
+  color: var(--faint);
+  font-size: 12px;
+}
+
 .custom-select-option {
   display: flex;
   align-items: center;
