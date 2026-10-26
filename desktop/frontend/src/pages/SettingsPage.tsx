@@ -1,3 +1,4 @@
+import { useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
 import type { FineSubSettingsState } from "../bridge/settings.ts";
 import type { CacheStatus } from "../bridge/library.ts";
@@ -28,6 +29,7 @@ interface SettingsPageProps {
   onRelocateStorage: (target: StorageTarget, destination: string) => Promise<void>;
   onResetStorage: (target: StorageTarget) => Promise<void>;
   onCancelStorage: () => Promise<void>;
+  onOpenStorage: (target: StorageTarget) => Promise<void>;
   onDismissMessage: () => void;
   onDismissCacheMessage: () => void;
   onDismissStorageMessage: () => void;
@@ -54,6 +56,7 @@ export function SettingsPage(props: SettingsPageProps) {
     onRelocateStorage,
     onResetStorage,
     onCancelStorage,
+    onOpenStorage,
     onDismissMessage,
     onDismissCacheMessage,
     onDismissStorageMessage,
@@ -64,37 +67,64 @@ export function SettingsPage(props: SettingsPageProps) {
   // 模型提供商的 Key 归模型配置面板管，这里只留检索与下载凭据。
   const modelKeyNames = new Set((modelRouting?.providers ?? []).map((provider) => provider.keyName).filter(Boolean));
   const advancedKeys = keys.filter((key) => !modelKeyNames.has(key.name));
+
+  // 两张卡共用一条保存结果；记下是谁发起的，提示就出现在那张卡里，
+  // 而不是页面最底下、多半已经滚出屏幕的位置。
+  const [messageSource, setMessageSource] = useState<"model" | "advanced">("model");
+  const saveFrom = (source: "model" | "advanced") => (updates: Record<string, string | null>, name: string) => {
+    setMessageSource(source);
+    return onSaveKey(updates, name);
+  };
+  const tone = message.endsWith("已保存。") ? "success" : "warn";
+  const noticeFor = (source: "model" | "advanced") =>
+    settings && messageSource === source ? <Notice className="keys-message" message={message} tone={tone} onDismiss={onDismissMessage} /> : null;
+
   return (
     <section className="keys-layout">
-      <article className="panel keys-intro">
-        <span className="eyebrow">LLM & service credentials</span>
-        <h2>模型与服务密钥</h2>
-      </article>
+      {!settings && (
+        <article className="panel unavailable-card">
+          <strong>密钥服务尚未连接</strong>
+          <p>请在桌面应用中配置密钥。</p>
+          <Notice className="keys-message" message={message} tone={tone} onDismiss={onDismissMessage} />
+        </article>
+      )}
 
-      {modelRouting && <LlmConfigurationCard keys={keys} baseUrls={baseUrls} modelRouting={modelRouting} drafts={drafts} busy={busy} setDrafts={setDrafts} onSave={onSaveKey} />}
+      {settings && (
+        <div className="settings-group">
+          <h2 className="section-title">模型与服务</h2>
+          {modelRouting && <LlmConfigurationCard keys={keys} baseUrls={baseUrls} modelRouting={modelRouting} drafts={drafts} busy={busy} message={messageSource === "model" ? message : ""} messageTone={tone} onDismissMessage={onDismissMessage} setDrafts={setDrafts} onSave={saveFrom("model")} />}
 
-      {advancedKeys.length > 0 && <details className="advanced-keys panel"><summary><span><strong>高级配置</strong><small>联网检索等可选凭据</small></span><i>{advancedKeys.length} 项</i></summary><div className="key-grid">{advancedKeys.map((key) => <KeyConfigurationCard key={key.name} item={key} value={drafts[key.name] ?? ""} busy={busy} setDrafts={setDrafts} onSave={onSaveKey} />)}</div></details>}
+          {advancedKeys.length > 0 && (
+            <details className="advanced-keys panel">
+              <summary><span><strong>高级配置</strong><small>联网检索等可选凭据</small></span><i>{advancedKeys.length} 项</i></summary>
+              <div className="key-grid">{advancedKeys.map((key) => <KeyConfigurationCard key={key.name} item={key} value={drafts[key.name] ?? ""} busy={busy} setDrafts={setDrafts} onSave={saveFrom("advanced")} />)}</div>
+              {noticeFor("advanced")}
+            </details>
+          )}
+        </div>
+      )}
 
-      <StorageLocationsCard
-        status={storage}
-        progress={storageProgress}
-        busy={storageBusy}
-        message={storageMessage}
-        cache={cache}
-        cacheBusy={cacheBusy}
-        cacheMessage={cacheMessage}
-        onChoose={onChooseStorage}
-        onRelocate={onRelocateStorage}
-        onReset={onResetStorage}
-        onCancel={onCancelStorage}
-        onSaveCacheLimit={onSaveCacheLimit}
-        onClearCache={onClearCache}
-        onDismissMessage={onDismissStorageMessage}
-        onDismissCacheMessage={onDismissCacheMessage}
-      />
-
-      {!settings && <article className="panel unavailable-card"><strong>密钥服务尚未连接</strong><p>请在桌面应用中配置密钥。</p></article>}
-      <Notice className="keys-message" message={message} onDismiss={onDismissMessage} />
+      <div className="settings-group">
+        <h2 className="section-title">磁盘占用<small>默认在系统盘，可整体迁移到其他磁盘</small></h2>
+        <StorageLocationsCard
+          status={storage}
+          progress={storageProgress}
+          busy={storageBusy}
+          message={storageMessage}
+          cache={cache}
+          cacheBusy={cacheBusy}
+          cacheMessage={cacheMessage}
+          onChoose={onChooseStorage}
+          onRelocate={onRelocateStorage}
+          onReset={onResetStorage}
+          onCancel={onCancelStorage}
+          onOpen={onOpenStorage}
+          onSaveCacheLimit={onSaveCacheLimit}
+          onClearCache={onClearCache}
+          onDismissMessage={onDismissStorageMessage}
+          onDismissCacheMessage={onDismissCacheMessage}
+        />
+      </div>
     </section>
   );
 }

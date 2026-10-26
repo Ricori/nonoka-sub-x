@@ -120,7 +120,7 @@ export function AdminKeysPage() {
   return (
     <section className="admin-keys-layout">
       <article className="panel admin-key-create">
-        <div className="admin-key-heading"><div><span className="eyebrow">Cloud access</span><h2>添加 Key</h2><p>为使用者设置名称、自定义登录 Key 与剩余云端转写次数。</p></div><button className="quiet-button" disabled={busy} onClick={() => void refresh()}>刷新</button></div>
+        <div className="admin-key-heading"><div><h2>添加 Key</h2><p>为使用者设置名称、自定义登录 Key 与剩余云端转写次数。</p></div><button className="quiet-button" disabled={busy} onClick={() => void refresh()}>刷新</button></div>
         <div className="admin-key-form">
           <label><span>名称</span><input maxLength={100} placeholder="例如：字幕组" value={name} onChange={(event) => setName(event.target.value)} /></label>
           <label className="admin-key-secret"><span>自定义 Key</span><div><input maxLength={256} autoComplete="off" autoCapitalize="none" autoCorrect="off" spellCheck={false} placeholder="输入或生成 Key" value={key} onChange={(event) => setKey(event.target.value)} /><button className="quiet-button" type="button" onClick={() => setKey(generateKey())}>生成</button></div></label>
@@ -132,7 +132,7 @@ export function AdminKeysPage() {
       <Notice className="admin-key-message" message={message} onDismiss={() => setMessage("")} />
 
       <article className="panel admin-key-list-panel">
-        <div className="admin-key-heading"><div><span className="eyebrow">Issued keys</span><h2>已发放 Key</h2></div><small>共 {keys.length} 个</small></div>
+        <div className="admin-key-heading"><div><h2>已发放 Key</h2></div><small>共 {keys.length} 个</small></div>
         {!busy && keys.length === 0 ? <div className="admin-key-empty">还没有业务 Key</div> : (
           <div className="admin-key-list">
             {keys.map((item) => {

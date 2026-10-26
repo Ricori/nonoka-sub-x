@@ -387,7 +387,7 @@ export function RuntimePage({ capabilities, message, provisionMessage, provision
     <section className="runtime-layout">
       <article className="panel runtime-diagnostics">
         <div className="panel-heading">
-          <div><span className="eyebrow">Runtime diagnostics</span><h2>环境诊断</h2></div>
+          <div><h2>环境诊断</h2></div>
           <Mark>{ready ? "环境已就绪" : sidecar?.running ? "需要处理" : "服务未连接"}</Mark>
         </div>
         {issues.length ? (
@@ -416,7 +416,7 @@ export function RuntimePage({ capabilities, message, provisionMessage, provision
       </article>
       <article className="panel provision-panel">
         <div className="panel-heading">
-          <div><span className="eyebrow">Managed assets</span><h2>运行时与模型</h2></div>
+          <div><h2>运行时与模型</h2></div>
           <div className="provision-actions">
             <button
               className={confirmRemove ? "runtime-remove-button confirming" : "runtime-remove-button"}

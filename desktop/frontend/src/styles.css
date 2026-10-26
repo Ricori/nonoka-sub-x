@@ -1010,19 +1010,6 @@ dd {
   gap: 18px;
 }
 
-.keys-intro {
-  padding: 24px 27px;
-}
-
-.keys-intro p {
-  max-width: 760px;
-  margin: 12px 0 0;
-  color: #8193a8;
-  font-size: 13px;
-  line-height: 1.65;
-}
-
-.keys-intro code,
 .key-card code {
   color: #79a9d4;
   font-size: 12px;
@@ -1986,15 +1973,6 @@ html.wails-frameless .workspace-scroll {
   min-width: 170px;
 }
 
-.page-kicker {
-  display: block;
-  margin-bottom: 4px;
-  color: var(--accent-pink);
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: .16em;
-}
-
 .topbar h1 {
   margin: 0;
   color: var(--text);
@@ -2068,6 +2046,15 @@ html.wails-frameless .workspace-scroll {
 
 .primary-button:hover:not(:disabled) {
   filter: brightness(1.045) saturate(1.03);
+}
+
+/* 不可用的主按钮退成中性灰：渐变色只调低透明度时，看上去和可点只差一点。 */
+.primary-button:disabled {
+  background: var(--raised);
+  color: var(--faint);
+  box-shadow: none;
+  filter: none;
+  opacity: 1;
 }
 
 .runtime-banner {
@@ -2164,7 +2151,6 @@ dl div,
 dt,
 .success-copy,
 .sync-policy ul,
-.keys-intro p,
 .key-card p {
   color: var(--mut);
 }
@@ -2198,4 +2184,30 @@ dd {
   .workspace-scroll {
     padding-inline: 28px;
   }
+}
+
+/* 表单类页面（设置、插件、账户）收窄成靠左的一栏：控件和右侧的数字、按钮
+   不必横跨整个窗口，标题栏也一起收进来，主题按钮和卡片右边缘对齐。 */
+.workspace-scroll.narrow-page>* {
+  max-width: 960px;
+}
+
+/* 页面内的分组标题。页面标题已经说明了「这是哪一页」，卡片本身不再重复
+   eyebrow + 大标题，分组靠这一行。 */
+.section-title {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  margin: 0 2px;
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 650;
+  letter-spacing: 0;
+}
+
+.section-title small {
+  color: var(--faint);
+  font-size: 12px;
+  font-weight: 400;
 }

@@ -751,3 +751,6 @@
   color: var(--ok);
   font-size: 12px;
 }
+
+/* 卡片标题上方不再有 eyebrow，去掉为它留的上边距。 */
+.runtime-layout .panel-heading h2 { margin-top: 0; }

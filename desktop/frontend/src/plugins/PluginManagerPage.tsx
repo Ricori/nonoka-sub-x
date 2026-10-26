@@ -41,7 +41,7 @@ export function PluginManagerPage(props: PluginManagerPageProps) {
           )}
         </div>
         <div className="plugin-card-actions">
-          <button className="quiet-button" disabled={working} onClick={() => void onToggle(plugin)}>{working ? "请稍候…" : plugin.enabled ? "停用" : "启用"}</button>
+          <button className="quiet-button" disabled={working} title={plugin.enabled ? "隐藏左侧入口，插件和数据都会保留" : undefined} onClick={() => void onToggle(plugin)}>{working ? "请稍候…" : plugin.enabled ? "停用" : "启用"}</button>
           {/* 内置插件是程序的一部分，卸载没有意义，只能停用。 */}
           {!plugin.system && (
             <button className="danger-text-button" disabled={working} onClick={() => setPendingUninstall({ plugin, removeData: false })}>卸载</button>
@@ -60,25 +60,14 @@ export function PluginManagerPage(props: PluginManagerPageProps) {
   return (
     <section className="plugin-manager-layout">
       <Notice className="plugin-message" message={message} tone={message.includes("失败") ? "warn" : "success"} onDismiss={onDismissMessage} />
-      <article className="panel plugin-manager-hero">
-        <div>
-          <span className="eyebrow">扩展 Nonoka Sub X</span>
-          <h2>插件管理</h2>
-          <p>安装的插件会挂载在左侧“工具”板块。停用会隐藏入口，但保留插件和数据。</p>
-        </div>
-        <button className="primary-button" disabled={busy !== ""} onClick={() => void onInstall()}>
-          {busy === "install" ? "正在安装…" : "＋ 安装插件"}
-        </button>
-      </article>
-
       {systemPlugins.length > 0 && (
         <>
-          <h3 className="plugin-group-title">内置插件</h3>
+          <h2 className="section-title">内置插件</h2>
           <div className="plugin-card-list">{systemPlugins.map(renderCard)}</div>
         </>
       )}
 
-      <h3 className="plugin-group-title">已安装的插件<small>你自己安装的 .nonoka-plugin 包</small></h3>
+      <h2 className="section-title">已安装的插件<small>你自己安装的 .nonoka-plugin 包，入口挂在左侧“工具”板块</small></h2>
       {userPlugins.length === 0 ? (
         <article className="panel plugin-empty">
           <span className="plugin-empty-icon">◇</span>

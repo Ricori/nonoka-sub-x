@@ -1,7 +1,5 @@
 .llm-config-card {
    overflow: hidden;
-   border-color: var(--accent-line);
-   background: color-mix(in srgb, var(--panel) 93%, var(--accent-dim));
 }
 
 .llm-config-heading {
@@ -17,8 +15,8 @@
 }
 
 .llm-config-heading h2 {
-   margin: 6px 0 0;
-   font-size: 17px;
+   margin: 0;
+   font-size: 16px;
 }
 
 .llm-config-heading p {
@@ -36,7 +34,6 @@
 .llm-model-routing {
    border-top: 1px solid var(--line-soft);
    border-bottom: 1px solid var(--line-soft);
-   background: color-mix(in srgb, var(--panel) 94%, var(--accent-dim));
 }
 
 /* 卡片里所有可编辑的行共用这一套列：标签 | 控件 | 操作。操作列固定占位，
@@ -67,7 +64,7 @@
 
 .llm-row-label strong {
    overflow: hidden;
-   font-size: 11px;
+   font-size: 13px;
    text-overflow: ellipsis;
    white-space: nowrap;
 }
@@ -75,16 +72,36 @@
 .llm-row-label small {
    overflow: hidden;
    color: var(--faint);
-   font-size: 10px;
+   font-size: 11px;
    text-overflow: ellipsis;
    white-space: nowrap;
 }
 
-.llm-row-text {
+/* 控件下面挂一句说明的那一行：标签对齐第一行控件，而不是整格的中线。 */
+.llm-row:has(.llm-row-hint) {
+   align-items: start;
+}
+
+.llm-row:has(.llm-row-hint) .llm-row-label {
+   padding-top: 9px;
+}
+
+.llm-row-field {
+   display: grid;
+   gap: 7px;
+   min-width: 0;
+}
+
+.llm-row-hint {
    margin: 0;
+   padding-left: 2px;
    color: var(--mut);
-   font-size: 11px;
-   line-height: 1.6;
+   font-size: 12px;
+   line-height: 1.5;
+}
+
+.llm-row-hint.unavailable {
+   color: var(--warn);
 }
 
 .llm-row .danger-link {
@@ -101,7 +118,7 @@
    padding: 0 10px;
    background: color-mix(in srgb, var(--bg) 72%, var(--panel));
    color: var(--text);
-   font-size: 11px;
+   font-size: 12px;
    outline: none;
 }
 
@@ -122,7 +139,7 @@
    height: 36px;
    padding-top: 0;
    padding-bottom: 0;
-   font-size: 11px;
+   font-size: 12px;
 }
 
 .llm-route-controls {
@@ -143,7 +160,7 @@
    border-left: 2px solid color-mix(in srgb, var(--warn) 60%, transparent);
    padding: 2px 0 2px 10px;
    color: var(--mut);
-   font-size: 10px;
+   font-size: 11px;
    line-height: 1.6;
 }
 
@@ -163,6 +180,11 @@
 .llm-task-routing summary {
    cursor: pointer;
    list-style: none;
+   transition: background .15s;
+}
+
+.llm-task-routing summary:hover {
+   background: color-mix(in srgb, var(--accent) 5%, transparent);
 }
 
 .llm-task-routing summary::-webkit-details-marker {
@@ -178,21 +200,28 @@
 
 .llm-task-routing summary strong,
 .llm-task-routing-locked strong {
-   font-size: 11px;
+   font-size: 13px;
 }
 
 .llm-task-routing summary small,
-.llm-task-routing summary i,
 .llm-task-routing-locked small {
    color: var(--faint);
-   font-size: 10px;
+   font-size: 12px;
+}
+
+.llm-task-routing summary i {
+   flex: 0 0 auto;
+   color: var(--mut);
+   font-size: 12px;
    font-style: normal;
 }
 
 .llm-task-routing summary i::after {
-   content: " ›";
+   content: "›";
    display: inline-block;
-   margin-left: 2px;
+   margin-left: 6px;
+   font-size: 15px;
+   line-height: 1;
    transition: transform .15s;
 }
 
@@ -229,7 +258,7 @@
    min-width: 0;
    overflow: hidden;
    color: var(--mut);
-   font-size: 11px;
+   font-size: 12px;
    text-overflow: ellipsis;
    white-space: nowrap;
 }
@@ -261,14 +290,47 @@
 .llm-config-footer button {
    border: 0;
    border-radius: 8px;
-   padding: 8px 16px;
-   font-size: 11px;
+   padding: 8px 18px;
+   font-size: 12px;
    cursor: pointer;
 }
 
 .llm-config-footer button:disabled {
    opacity: .42;
    cursor: not-allowed;
+}
+
+/* 主按钮的不可用态已经是中性灰，不再叠一层透明度。 */
+.llm-config-footer .primary-button:disabled {
+   opacity: 1;
+}
+
+/* 底栏左侧的保存结果：和「已保存」状态同一个位置、同一行高，不另起一块。 */
+.llm-config-footer .llm-footer-notice {
+   flex: 0 1 auto;
+   gap: 8px;
+   align-items: center;
+   min-width: 0;
+   margin: 0;
+   color: var(--warn);
+   font-size: 12px;
+}
+
+.llm-config-footer .llm-footer-notice.notice-success {
+   border: 0;
+   background: transparent;
+   color: var(--ok);
+}
+
+.llm-config-footer .llm-footer-notice .notice-text {
+   color: inherit;
+   overflow: hidden;
+   text-overflow: ellipsis;
+   white-space: nowrap;
+}
+
+.llm-config-footer .llm-footer-notice .notice-close {
+   margin: 0;
 }
 
 @media (max-width: 900px) {

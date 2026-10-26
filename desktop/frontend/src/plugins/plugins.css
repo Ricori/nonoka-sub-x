@@ -1,33 +1,28 @@
-.plugin-manager-layout { display: grid; gap: 16px; }
-.plugin-manager-hero { display: flex; align-items: center; justify-content: space-between; gap: 28px; padding: 24px; }
-.plugin-manager-hero h2 { margin: 5px 0 7px; font-size: 21px; }
-.plugin-manager-hero p { max-width: 650px; margin: 0; color: var(--mut); font-size: 12px; line-height: 1.7; }
-.plugin-manager-hero .primary-button { flex: 0 0 auto; }
-.plugin-message { margin: 0; border: 1px solid color-mix(in srgb, var(--warn) 32%, transparent); border-radius: 11px; padding: 11px 13px; background: color-mix(in srgb, var(--warn) 8%, var(--panel)); color: var(--warn); font-size: 11px; line-height: 1.5; }
+.plugin-manager-layout { display: grid; gap: 12px; }
+.plugin-manager-layout .section-title:not(:first-child) { margin-top: 14px; }
+.plugin-message { margin: 0; border: 1px solid color-mix(in srgb, var(--warn) 32%, transparent); border-radius: 11px; padding: 11px 13px; background: color-mix(in srgb, var(--warn) 8%, var(--panel)); color: var(--warn); font-size: 12px; line-height: 1.5; }
 .plugin-empty { display: grid; justify-items: center; gap: 9px; padding: 52px 24px; text-align: center; }
 .plugin-empty-icon { display: grid; place-items: center; width: 48px; height: 48px; border-radius: 15px; background: var(--accent-dim); color: var(--accent); font-size: 24px; }
 .plugin-empty h3 { margin: 5px 0 0; font-size: 15px; }
 .plugin-empty p { margin: 0 0 7px; color: var(--mut); font-size: 12px; }
 .plugin-empty code { color: var(--accent); }
 .plugin-card-list { display: grid; gap: 10px; }
-.plugin-group-title { display: flex; align-items: baseline; gap: 9px; margin: 6px 2px -2px; font-size: 12px; }
-.plugin-group-title small { color: var(--faint); font-size: 10px; font-weight: 400; }
 .plugin-card { display: grid; grid-template-columns: 43px minmax(0, 1fr) auto; align-items: start; gap: 15px; padding: 18px; transition: opacity .15s ease; }
 .plugin-card.disabled { opacity: .68; }
 .plugin-card-mark { display: grid; place-items: center; width: 43px; height: 43px; border-radius: 13px; background: var(--grad); color: var(--on-grad); font-size: 15px; font-weight: 800; }
 .plugin-card-copy { display: grid; gap: 6px; min-width: 0; }
 .plugin-card-title { display: flex; align-items: center; gap: 8px; }
 .plugin-card-title h3 { margin: 0; font-size: 14px; }
-.plugin-card-title span { color: var(--faint); font-size: 10px; }
-.plugin-card-title i { border-radius: 20px; padding: 3px 7px; background: var(--raised); color: var(--faint); font-size: 9px; font-style: normal; }
+.plugin-card-title span { color: var(--faint); font-size: 11px; }
+.plugin-card-title i { border-radius: 20px; padding: 3px 7px; background: var(--raised); color: var(--faint); font-size: 10px; font-style: normal; }
 .plugin-card-title i.enabled { background: color-mix(in srgb, var(--ok) 13%, transparent); color: var(--ok); }
 .plugin-card-title i.system { background: var(--accent-dim); color: var(--accent); }
-.plugin-card-copy p { margin: 0; color: var(--mut); font-size: 11px; line-height: 1.55; }
-.plugin-card-copy small { color: var(--faint); font-size: 10px; }
+.plugin-card-copy p { margin: 0; color: var(--mut); font-size: 12px; line-height: 1.55; }
+.plugin-card-copy small { color: var(--faint); font-size: 11px; }
 .plugin-permissions { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 2px; }
-.plugin-permissions span { border: 1px solid var(--line-soft); border-radius: 20px; padding: 3px 7px; color: var(--faint); font-size: 9px; }
+.plugin-permissions span { border: 1px solid var(--line-soft); border-radius: 20px; padding: 3px 7px; color: var(--faint); font-size: 10px; }
 .plugin-card-actions { display: flex; align-items: center; gap: 8px; }
-.danger-text-button { border: 0; padding: 8px; background: transparent; color: var(--warn); font-size: 11px; cursor: pointer; }
+.danger-text-button { border: 0; padding: 8px; background: transparent; color: var(--warn); font-size: 12px; cursor: pointer; }
 .danger-text-button:disabled { opacity: .45; cursor: wait; }
 .plugin-tool-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
 .plugin-tool-chips button { border: 1px solid var(--line-soft); border-radius: 8px; padding: 6px 9px; background: var(--raised); color: var(--mut); font-size: 10px; cursor: pointer; }

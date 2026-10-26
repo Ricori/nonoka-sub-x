@@ -58,6 +58,9 @@ const focusRevalidateMs = 10_000;
 // Attempts per cloud cover before it is left blank for the session.
 const cloudCoverAttemptLimit = 3;
 
+/** Form-style pages read better as one left-aligned column than stretched across a wide window. */
+const narrowSections = new Set<Section>(["keys", "plugins", "account", "adminKeys"]);
+
 const errorText = (value: unknown) => value instanceof Error ? value.message : String(value ?? "");
 // What a local cover was cut from: a relink or a re-import changes it, and only
 // then is the cached data URL out of date.
@@ -611,6 +614,14 @@ export default function App() {
       setStorageMessage(value instanceof Error ? value.message : String(value));
     }
   }, [applyStorageAction]);
+
+  const openStorage = useCallback(async (target: StorageTarget) => {
+    try {
+      await storageLocations.open(target);
+    } catch (value) {
+      setStorageMessage(value instanceof Error ? value.message : String(value));
+    }
+  }, []);
 
   // One listing of the cloud library. A background run is stale-while-
   // revalidate: the cards on screen stay put and only change if the answer
@@ -1820,10 +1831,9 @@ export default function App() {
             non-client drag region — anything interactive placed here would be
             swallowed by the native hit test. */}
         <div className="workspace-titlebar" aria-hidden="true" />
-        <div className={`workspace-scroll${section === "plugin" ? " plugin-workspace-scroll" : ""}`}>
+        <div className={`workspace-scroll${section === "plugin" ? " plugin-workspace-scroll" : ""}${narrowSections.has(section) ? " narrow-page" : ""}`}>
           <header className="topbar">
             <div>
-              {section === "library" && <span className="page-kicker">MY MEDIA COLLECTION</span>}
               <h1>{title}</h1>
             </div>
             {section === "library" && <label className="library-search"><span>⌕</span><input type="search" placeholder="搜索标题或文件名" value={query} onChange={(event) => setQuery(event.target.value)} /></label>}
@@ -1834,6 +1844,8 @@ export default function App() {
                 <button className="primary-button" disabled={libraryBusy} onClick={() => void importMedia()}>{libraryBusy ? "正在导入…" : "＋ 添加媒体"}</button>
               ) : section === "tasks" ? (
                 <button className="quiet-button" onClick={() => void refreshTaskHistory()} disabled={taskHistoryBusy}>{taskHistoryBusy ? "正在刷新…" : "刷新任务"}</button>
+              ) : section === "plugins" ? (
+                <button className="primary-button" disabled={pluginBusy !== ""} onClick={() => void installPlugin()}>{pluginBusy === "install" ? "正在安装…" : "＋ 安装插件"}</button>
               ) : section === "runtime" ? (
                 <button className="quiet-button" onClick={() => void refresh()} disabled={loadState === "loading"}>{loadState === "loading" ? "正在检查…" : "重新检查"}</button>
               ) : null}
@@ -1983,6 +1995,7 @@ export default function App() {
               onRelocateStorage={relocateStorage}
               onResetStorage={resetStorage}
               onCancelStorage={cancelStorage}
+              onOpenStorage={openStorage}
               onDismissMessage={() => setKeysMessage("")}
               onDismissCacheMessage={() => setCacheMessage("")}
               onDismissStorageMessage={() => setStorageMessage("")}

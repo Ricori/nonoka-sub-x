@@ -21,5 +21,7 @@ export const storageLocations = {
     StorageService.Relocate(target, destination) as Promise<RelocationProgress>,
   reset: (target: StorageTarget) => StorageService.ResetLocation(target) as Promise<RelocationProgress>,
   cancel: () => StorageService.CancelRelocation() as Promise<RelocationProgress>,
+  /** 在系统文件管理器里打开该目标当前所在的目录。 */
+  open: (target: StorageTarget) => StorageService.OpenDirectory(target) as Promise<void>,
   progress: () => StorageService.Progress() as Promise<RelocationProgress>,
 };

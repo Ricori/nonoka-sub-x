@@ -6,6 +6,8 @@ import type { ProviderChoice } from "./llmRouting.ts";
 import { choiceIdOf, effectiveRoute, hasDraft, loadModelMemory, pickModelForProvider, preferredMember, providerChoices, routeSettingName, saveModelMemory } from "./llmRouting.ts";
 import { Mark } from "./Mark.tsx";
 import { CustomSelect } from "./CustomSelect.tsx";
+import { Notice } from "./Notice.tsx";
+import type { NoticeTone } from "./Notice.tsx";
 import "./LlmConfigurationCard.css";
 
 interface LlmConfigurationCardProps {
@@ -14,11 +16,15 @@ interface LlmConfigurationCardProps {
   modelRouting: FineSubModelRoutingState;
   drafts: Record<string, string>;
   busy: boolean;
+  /** 保存结果。显示在底栏左侧、暂时替换「已保存」那行状态，紧挨着点下去的按钮。 */
+  message?: string;
+  messageTone?: NoticeTone;
+  onDismissMessage?: () => void;
   setDrafts: Dispatch<SetStateAction<Record<string, string>>>;
   onSave: (updates: Record<string, string | null>, name: string) => Promise<void>;
 }
 
-export function LlmConfigurationCard({ keys, baseUrls, modelRouting, drafts, busy, setDrafts, onSave }: LlmConfigurationCardProps) {
+export function LlmConfigurationCard({ keys, baseUrls, modelRouting, drafts, busy, message = "", messageTone = "warn", onDismissMessage, setDrafts, onSave }: LlmConfigurationCardProps) {
   // 每个路由下各提供商最近用过的模型。切走再切回来时用它复原，
   // 否则手填模型 ID 的提供商每次都得重新输入。通过 localStorage 持久化，
   // 避免关闭页面或切换其他提供商保存后丢失。
@@ -247,7 +253,6 @@ export function LlmConfigurationCard({ keys, baseUrls, modelRouting, drafts, bus
     <article className="panel llm-config-card">
       <div className="llm-config-heading">
         <div>
-          <span className="eyebrow">Model configuration</span>
           <h2>模型配置</h2>
           <p>用于纠错、规划、研究与知识处理</p>
         </div>
@@ -259,39 +264,37 @@ export function LlmConfigurationCard({ keys, baseUrls, modelRouting, drafts, bus
       <section className="llm-model-routing">
         <div className="llm-row">
           <span className="llm-row-label"><strong>全局模型</strong></span>
-          <div className="llm-route-controls">
-            <CustomSelect
-              ariaLabel="全局提供商"
-              menuMaxHeight={480}
-              value={choiceIdOf(selected)}
-              options={[
-                { value: "", label: "选择提供商" },
-                // Nonoka Cloud 只有登录时才能选；已经选中的那一项照样列出，退出登录后不会无声消失。
-                ...choices.map((item) => ({
-                  value: item.id,
-                  label: `${item.label}${choiceSuffix(item)}`,
-                  disabled: item.members.every((member) => member.kind === "cloud" && !member.available) && item.id !== choiceIdOf(selected),
-                })),
-              ]}
-              onChange={(value) => selectChoice("default", value)}
-            />
-            {renderModelControl("default", selected, defaultRoute.model, "先选择提供商")}
+          <div className="llm-row-field">
+            <div className="llm-route-controls">
+              <CustomSelect
+                ariaLabel="全局提供商"
+                menuMaxHeight={480}
+                value={choiceIdOf(selected)}
+                options={[
+                  { value: "", label: "选择提供商" },
+                  // Nonoka Cloud 只有登录时才能选；已经选中的那一项照样列出，退出登录后不会无声消失。
+                  ...choices.map((item) => ({
+                    value: item.id,
+                    label: `${item.label}${choiceSuffix(item)}`,
+                    disabled: item.members.every((member) => member.kind === "cloud" && !member.available) && item.id !== choiceIdOf(selected),
+                  })),
+                ]}
+                onChange={(value) => selectChoice("default", value)}
+              />
+              {renderModelControl("default", selected, defaultRoute.model, "先选择提供商")}
+            </div>
+            {/* 不需要 Key 的提供商没有可填的东西，运行方式只是一句说明，挂在下拉框下面。 */}
+            {selected && !selected.requiresKey && (
+              <p className={`llm-row-hint${selected.available ? "" : " unavailable"}`}>{selected.kind === "cloud"
+                ? `通过 Nonoka Cloud 账号运行 · ${selected.available ? "已登录" : "未登录，登录云端账号后可用"}`
+                : `本机 CLI 订阅，无需 API Key · ${selected.available ? "已检测到" : "未检测到，安装后自动识别"}`}</p>
+            )}
           </div>
         </div>
 
-        {selected && !selected.requiresKey && (
-          <>
-            <div className="llm-row">
-              <span className="llm-row-label"><strong>运行方式</strong></span>
-              <p className="llm-row-text">{selected.kind === "cloud"
-                ? `Nonoka Cloud 账号 · ${selected.available ? "已登录" : "未登录，登录云端账号后可用"}`
-                : `本机 CLI 订阅，无需 API Key · ${selected.available ? "已检测到" : "未检测到，安装后自动识别"}`}</p>
-            </div>
-            {/* 提供商自己声明的注意事项，后端给什么就显示什么——没有针对某一家
-                写死的分支，下次再有一条只需改后端。 */}
-            {selected.note ? <p className="llm-provider-note">{selected.note}</p> : null}
-          </>
-        )}
+        {/* 提供商自己声明的注意事项，后端给什么就显示什么——没有针对某一家
+            写死的分支，下次再有一条只需改后端。 */}
+        {selected && !selected.requiresKey && selected.note ? <p className="llm-provider-note">{selected.note}</p> : null}
 
         {selected?.requiresKey && (
           <>
@@ -343,7 +346,11 @@ export function LlmConfigurationCard({ keys, baseUrls, modelRouting, drafts, bus
       </section>
 
       <div className="llm-config-footer">
-        <span className={shownTest ? `llm-test-${shownTest.status}` : undefined} title={shownTest?.text}>{shownTest?.text || blocker || (dirty ? "有未保存的更改" : "已保存")}</span>
+        {message ? (
+          <Notice className="llm-footer-notice" message={message} tone={messageTone} onDismiss={onDismissMessage} />
+        ) : (
+          <span className={shownTest ? `llm-test-${shownTest.status}` : undefined} title={shownTest?.text}>{shownTest?.text || blocker || (dirty ? "有未保存的更改" : "已保存")}</span>
+        )}
         <div className="llm-config-actions">
           <button
             type="button"

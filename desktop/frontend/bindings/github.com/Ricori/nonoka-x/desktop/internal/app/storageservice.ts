@@ -37,6 +37,15 @@ export function ChooseDirectory(target: string): $CancellablePromise<$models.Des
     return $Call.ByID(318157231, target);
 }
 
+/**
+ * OpenDirectory shows target's current directory in the system file manager.
+ * It takes the target rather than a path so the page can only ever open the two
+ * directories it describes.
+ */
+export function OpenDirectory(target: string): $CancellablePromise<void> {
+    return $Call.ByID(1046746912, target);
+}
+
 export function Progress(): $CancellablePromise<$models.RelocationProgress> {
     return $Call.ByID(1329583258);
 }

@@ -1,12 +1,25 @@
+.keys-layout { gap: 26px; }
+.settings-group { display: grid; gap: 12px; }
+
+/* 高级配置和模型配置卡的行用同一套内边距与字号，展开前看起来就是同一组的。 */
 .advanced-keys { overflow: hidden; }
-.advanced-keys summary { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 18px 21px; cursor: pointer; list-style: none; }
+.advanced-keys summary { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 15px 25px; cursor: pointer; list-style: none; transition: background .15s; }
+.advanced-keys summary:hover { background: color-mix(in srgb, var(--accent) 5%, transparent); }
 .advanced-keys summary::-webkit-details-marker { display: none; }
 .advanced-keys summary span { display: grid; gap: 4px; }
 .advanced-keys summary strong { font-size: 13px; }
-.advanced-keys summary small, .advanced-keys summary i { color: var(--faint); font-size: 11px; font-style: normal; }
-.advanced-keys[open] summary { border-bottom: 1px solid var(--line-soft); }
-.advanced-keys .key-grid { padding: 16px; }
-.keys-intro p { display: flex; align-items: center; gap: 8px; margin-top: 8px; font-size: 12px; }
-.keys-intro-cloud { display: grid; place-items: center; flex: 0 0 auto; width: 22px; height: 22px; border-radius: 7px; background: color-mix(in srgb, var(--info) 13%, transparent); color: var(--info); font-size: 11px; }
-.advanced-keys summary i::after { content: " ›"; display: inline-block; margin-left: 2px; transition: transform .15s; }
+.advanced-keys summary small { color: var(--faint); font-size: 12px; }
+.advanced-keys summary i { color: var(--mut); font-size: 12px; font-style: normal; }
+.advanced-keys summary i::after { content: "›"; display: inline-block; margin-left: 6px; font-size: 15px; line-height: 1; transition: transform .15s; }
 .advanced-keys[open] summary i::after { transform: rotate(90deg); }
+.advanced-keys[open] summary { border-bottom: 1px solid var(--line-soft); }
+.advanced-keys .key-grid { padding: 16px 25px 20px; }
+/* 卡里套卡：去掉内层的投影，只留边框分隔。 */
+.advanced-keys .key-card { box-shadow: none; }
+.advanced-keys .keys-message { margin: 0 25px 18px; }
+
+.unavailable-card { min-height: 0; }
+.unavailable-card .keys-message { margin-top: 12px; }
+
+.keys-layout .keys-message { border: 1px solid transparent; border-radius: 10px; padding: 9px 12px; font-size: 12px; line-height: 1.5; }
+.keys-layout .keys-message.notice-warn { border-color: color-mix(in srgb, var(--warn) 32%, transparent); background: color-mix(in srgb, var(--warn) 8%, var(--panel)); color: var(--warn); }

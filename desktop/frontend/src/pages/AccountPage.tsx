@@ -18,7 +18,6 @@ export function AccountPage({ session, media, loginKey, busy, message, onLoginKe
   return (
     <section className="account-layout">
       <article className="panel account-card">
-        <span className="eyebrow">Key authentication</span>
         <h2>{session?.authenticated ? session.admin ? "管理员已连接" : "已连接云端服务" : "使用 Nonoka Key 登录"}</h2>
         {session?.authenticated ? (
           <>
@@ -40,7 +39,6 @@ export function AccountPage({ session, media, loginKey, busy, message, onLoginKe
         <Notice className="account-message" message={message} onDismiss={onDismissMessage} />
       </article>
       <article className="panel sync-policy">
-        <span className="eyebrow">Sync policy</span>
         <h2>同步规则</h2>
         <ul>
           <li>登录后按媒体指纹合并本地和云端记录</li>

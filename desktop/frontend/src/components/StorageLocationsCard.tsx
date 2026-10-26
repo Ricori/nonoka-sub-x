@@ -23,6 +23,7 @@ interface StorageLocationsCardProps {
   onRelocate: (target: StorageTarget, destination: string) => Promise<void>;
   onReset: (target: StorageTarget) => Promise<void>;
   onCancel: () => Promise<void>;
+  onOpen?: (target: StorageTarget) => Promise<void>;
   onSaveCacheLimit?: (limit: number) => Promise<void>;
   onClearCache?: () => Promise<void>;
   onDismissMessage: () => void;
@@ -47,6 +48,7 @@ export function StorageLocationsCard(props: StorageLocationsCardProps) {
     onRelocate,
     onReset,
     onCancel,
+    onOpen,
     onSaveCacheLimit,
     onClearCache,
     onDismissMessage,
@@ -61,8 +63,17 @@ export function StorageLocationsCard(props: StorageLocationsCardProps) {
     if (cache) setLimit(String(cache.limitGB));
   }, [cache]);
 
-  const limitValue = Number(limit);
-  const limitValid = Number.isFinite(limitValue) && limitValue >= 1 && limitValue <= 1024;
+  // 上限在失焦或回车时直接保存，不再单独放一个平时总是灰着的「保存」按钮。
+  // 填了无效值就退回已保存的上限，而不是悄悄保留一个不会生效的数字。
+  const commitLimit = () => {
+    const value = Number(limit);
+    const valid = Number.isInteger(value) && value >= 1 && value <= 1024;
+    if (!valid || !cache || !onSaveCacheLimit) {
+      if (cache) setLimit(String(cache.limitGB));
+      return;
+    }
+    if (value !== cache.limitGB) void onSaveCacheLimit(value);
+  };
   const usage = cache?.limitBytes ? Math.min(100, (cache.bytes / cache.limitBytes) * 100) : 0;
 
   const confirm = () => {
@@ -76,12 +87,8 @@ export function StorageLocationsCard(props: StorageLocationsCardProps) {
 
   return (
     <article className="panel storage-locations-card">
-      <div className="storage-heading">
-        <span className="eyebrow">Storage locations</span>
-        <h2>磁盘占用</h2>
-        <p>默认在系统盘，可整体迁移到其他磁盘。</p>
-      </div>
-
+      {/* 卡片自己不再带标题，没有数据时至少说一句，免得只剩一个空框。 */}
+      {!status && <p className="storage-empty">正在读取磁盘占用…</p>}
       <div className="storage-rows">
         {(status?.locations ?? []).map((location: StorageLocation) => {
           const target = location.target as StorageTarget;
@@ -93,6 +100,8 @@ export function StorageLocationsCard(props: StorageLocationsCardProps) {
           const bytes = isVideo && cache ? cache.bytes : location.bytes;
 
           const hasLimit = isVideo && cache != null && cache.limitBytes > 0;
+          // 目录还没建出来（或磁盘拔掉了）时没有东西可打开。
+          const nothingToOpen = location.missing || (location.empty && location.bytes === 0 && location.files === 0);
 
           return (
             <section className="storage-row" key={location.target}>
@@ -110,48 +119,58 @@ export function StorageLocationsCard(props: StorageLocationsCardProps) {
                 </b>
               </div>
 
-              {isVideo && (
-                <div className="storage-cache-limit">
-                  {hasLimit && (
-                    <div className="storage-meter" aria-label={`缓存使用率 ${usage.toFixed(0)}%`}>
-                      <span style={{ width: `${usage}%` }} />
-                    </div>
-                  )}
-                  <label>
-                    上限
-                    <input
-                      type="number"
-                      min="1"
-                      max="1024"
-                      step="1"
-                      value={limit}
-                      onChange={(event) => setLimit(event.target.value)}
-                    />
-                    GB
-                  </label>
-                  {onSaveCacheLimit && (
-                    <button
-                      disabled={cacheBusy || busy || !limitValid || limitValue === cache?.limitGB}
-                      onClick={() => void onSaveCacheLimit(limitValue)}
-                      type="button"
-                    >
-                      保存
-                    </button>
-                  )}
+              {hasLimit && (
+                <div className="storage-meter" role="meter" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(usage)} aria-label={`缓存使用率 ${usage.toFixed(0)}%`}>
+                  <span style={{ width: `${usage}%` }} />
                 </div>
               )}
 
-              <code className="storage-path" title={location.directory}>{location.directory}</code>
+              <div className="storage-path">
+                <code title={location.directory}>{location.directory}</code>
+                {onOpen && (
+                  <button
+                    type="button"
+                    disabled={nothingToOpen}
+                    title={nothingToOpen ? "目录还不存在" : "在文件管理器中打开"}
+                    aria-label={`在文件管理器中打开${title}`}
+                    onClick={() => void onOpen(target)}
+                  >
+                    <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 4.5A1.5 1.5 0 0 1 3.5 3h2.8l1.4 1.5h4.8A1.5 1.5 0 0 1 14 6v5.5a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 2 11.5z" /></svg>
+                    打开
+                  </button>
+                )}
+              </div>
 
               <div className="storage-row-footer">
                 <div className="storage-row-stats">
                   <span>
                     {location.volume} 剩余 <b>{formatStorageBytes(location.freeBytes)}</b>
                   </span>
-                  {!location.missing && fileCount > 0 && (
+                  {isVideo && !location.missing && fileCount > 0 && (
                     <span>
-                      <b>{fileCount}</b> {isVideo ? "个视频副本" : "个文件"}
+                      <b>{fileCount}</b> 个视频副本
                     </span>
+                  )}
+                  {isVideo && cache && onSaveCacheLimit && (
+                    <label className="storage-cache-limit">
+                      上限
+                      <input
+                        type="number"
+                        min="1"
+                        max="1024"
+                        step="1"
+                        value={limit}
+                        disabled={cacheBusy || busy}
+                        title="失焦或回车后保存"
+                        onChange={(event) => setLimit(event.target.value)}
+                        onBlur={commitLimit}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter") event.currentTarget.blur();
+                          if (event.key === "Escape") setLimit(String(cache.limitGB));
+                        }}
+                      />
+                      GB
+                    </label>
                   )}
                   {location.empty && !location.missing && <span>尚未安装</span>}
                   {location.missing && <span className="storage-warn">目录当前不可访问，请重新连接该磁盘或改回默认位置</span>}

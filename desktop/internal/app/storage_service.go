@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -325,6 +327,27 @@ func (s *StorageService) ResetLocation(target string) (RelocationProgress, error
 		return s.Progress(), err
 	}
 	return s.start(target, fallback)
+}
+
+// OpenDirectory shows target's current directory in the system file manager.
+// It takes the target rather than a path so the page can only ever open the two
+// directories it describes.
+func (s *StorageService) OpenDirectory(target string) error {
+	if target != storage.RuntimeTarget && target != storage.VideoTarget {
+		return errors.New("unknown storage target")
+	}
+	directory := storage.Directory(s.dataDirectory, target)
+	if info, err := os.Stat(directory); err != nil || !info.IsDir() {
+		return errors.New("directory is not available")
+	}
+	switch runtime.GOOS {
+	case "windows":
+		return exec.Command("explorer.exe", directory).Start()
+	case "darwin":
+		return exec.Command("open", directory).Start()
+	default:
+		return exec.Command("xdg-open", directory).Start()
+	}
 }
 
 func (s *StorageService) start(target, destination string) (RelocationProgress, error) {

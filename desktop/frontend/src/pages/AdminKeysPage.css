@@ -1,7 +1,7 @@
 .admin-keys-layout { display: grid; gap: 18px; color: var(--text); }
 .admin-key-create, .admin-key-list-panel { padding: 24px 26px; }
 .admin-key-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; }
-.admin-key-heading h2 { margin-top: 7px; }
+.admin-key-heading h2 { margin-top: 0; }
 .admin-key-heading p { margin: 9px 0 0; color: var(--mut); font-size: 12px; }
 .admin-key-heading > small { color: var(--faint); font-size: 12px; }
 .admin-key-form { display: grid; grid-template-columns: minmax(150px, .7fr) minmax(280px, 1.5fr) 130px auto; align-items: end; gap: 12px; margin-top: 22px; }
