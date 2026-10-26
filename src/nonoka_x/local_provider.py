@@ -1033,6 +1033,19 @@ class LocalProvider:
         self._llm_config_stale = True
         return result
 
+    def set_cloud_account(self, account: Mapping[str, Any]) -> dict[str, Any]:
+        if self._settings is None:
+            raise ProviderError("settings_unavailable", "FineSub settings are unavailable", http_status=503)
+        if not isinstance(account, Mapping):
+            raise ProviderError("invalid_request", "account must be an object")
+        try:
+            result = self._settings.set_cloud_account(str(account.get("backend") or ""), str(account.get("key") or ""))
+        except ValueError as exc:
+            raise ProviderError("invalid_settings", str(exc)) from exc
+        if result["changed"]:
+            self._llm_config_stale = True
+        return result
+
     def start(self, request: Mapping[str, Any]) -> dict[str, Any]:
         try:
             return self._start(request)

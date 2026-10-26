@@ -1002,6 +1002,16 @@ export default function App() {
     void loadCloud({ background: true });
   }, [cloudSession?.authenticated, loadCloud, taskHistory]);
 
+  // Nonoka Cloud is a model provider only while signed in. The account reaches
+  // the sidecar inside the login, logout and session calls, so once the
+  // sign-in state settles the settings snapshot is read again for the
+  // provider list to follow it.
+  const cloudAuthenticated = cloudSession?.authenticated;
+  useEffect(() => {
+    if (cloudAuthenticated === undefined) return;
+    void fineSubSettings.read().then(setSettings).catch(() => undefined);
+  }, [cloudAuthenticated]);
+
   const actOnHistoryTask = useCallback(async (item: TaskHistoryEntry, action: "cancel" | "resume") => {
     const taskProvider = item.provider === "local" ? localProvider : cloudProvider;
     setTaskHistoryMessage(noNotice);

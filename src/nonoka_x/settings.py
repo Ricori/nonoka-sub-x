@@ -6,6 +6,7 @@ from functools import lru_cache
 import hashlib
 import os
 from pathlib import Path
+import re
 import shutil
 import tomllib
 from typing import Any, Mapping
@@ -198,9 +199,32 @@ _HTTP_TRANSPORTS: Mapping[str, tuple[str, str]] = {
     "aliyun-bailian": ("openai_compat", "NONOKA_DASHSCOPE"),
     "openai-compat": ("openai_compat", "NONOKA_OPENAI_COMPAT"),
     "anthropic-compat": ("anthropic", "NONOKA_ANTHROPIC_COMPAT"),
+    "nonoka-cloud": ("openai_compat", "NONOKA_CLOUD"),
 }
 
-MODEL_PROVIDERS = frozenset(set(API_PROVIDER_BY_ID) | set(LOCAL_AGENT_PROVIDERS))
+# The free model a signed-in Nonoka Cloud account is served at the backend's
+# `/v1/llm` (nonoka-sub-cloud), an OpenAI-compatible relay. Nobody types its
+# credentials: the desktop hands the signed-in account over whenever it changes
+# (`FineSubSettings.set_cloud_account`), so the two settings are neither in
+# KEY_SPECS nor in SETTING_NAMES and SaveKeys refuses them. Signed out, both are
+# empty, the provider is unavailable and its catalog row is not emitted.
+#
+# `models` is what the desktop offers. The backend may pin every request to a
+# model of its own (`LLM_MODEL`); this list is kept to that model so the limits
+# the engine plans windows against are the ones of the model that answers.
+CLOUD_PROVIDER_ID = "nonoka-cloud"
+CLOUD_KEY_NAME = "NONOKA_CLOUD_KEY"
+CLOUD_BASE_URL_NAME = "NONOKA_CLOUD_BASE_URL"
+CLOUD_PROVIDER: Mapping[str, Any] = {
+    "label": "Nonoka Cloud",
+    "models": ("gpt-6-luna",),
+    "note": "由 Nonoka Cloud 账号免费提供，无需 API Key，也不消耗转写余量；退出登录后不可用。",
+}
+#: What a cloud key may contain: the backend's own key pattern. Anything else
+#: could not have signed in, and a `,` or `:` would split in the env file.
+_CLOUD_KEY_PATTERN = re.compile(r"^[A-Za-z0-9._~-]{1,256}$")
+
+MODEL_PROVIDERS = frozenset(set(API_PROVIDER_BY_ID) | set(LOCAL_AGENT_PROVIDERS) | {CLOUD_PROVIDER_ID})
 MODEL_ROUTE_SPECS: tuple[dict[str, str], ...] = (
     {"id": "correction", "label": "纠错与翻译"},
     {"id": "research", "label": "背景准备与资料研究"},
@@ -439,6 +463,17 @@ def _builtin_model_options() -> dict[str, list[dict[str, Any]]]:
                 "supportsNativeSearch": entry.supports_native_search,
             }
         )
+    result[CLOUD_PROVIDER_ID] = [
+        {
+            "id": model,
+            "label": model_spec_for(model).display_name or model,
+            # The relay is text-only, like every HTTP transport here.
+            "supportsAudio": False,
+            "supportsVideo": False,
+            "supportsNativeSearch": False,
+        }
+        for model in CLOUD_PROVIDER["models"]
+    ]
     for provider in LOCAL_AGENT_PROVIDERS:
         result[provider] = [
             {
@@ -509,11 +544,15 @@ def _migrated(config: Mapping[str, Any]) -> dict[str, Any]:
     return {key: value for key, value in merged.items() if value is not None}
 
 
+def _cloud_signed_in(env_values: Mapping[str, str]) -> bool:
+    return bool(env_values.get(CLOUD_KEY_NAME, "").strip() and env_values.get(CLOUD_BASE_URL_NAME, "").strip())
+
+
 def _provider_usable(provider: Mapping[str, Any], base_urls: Mapping[str, str]) -> bool:
     """该提供商现在能不能真的发起调用。
 
     API 提供商要有 Key，兼容端点还要有地址；本地 Agent 不要 Key，但 CLI 得
-    真的在这台机器上。
+    真的在这台机器上；Nonoka Cloud 要求已登录云端账号。
     """
     if not provider["requiresKey"]:
         return bool(provider["available"])
@@ -621,12 +660,34 @@ class FineSubSettings:
         ]
         base_url_values = {item["name"]: item["value"] for item in base_urls}
         providers = [
+            # First: the one model that needs nothing but the account.
+            {
+                "id": CLOUD_PROVIDER_ID,
+                "kind": "cloud",
+                "label": CLOUD_PROVIDER["label"],
+                "mode": "select",
+                "models": model_options[CLOUD_PROVIDER_ID],
+                "defaultModel": _first_model(model_options[CLOUD_PROVIDER_ID]),
+                # The account is the credential, so no key is asked for; being
+                # signed in is the gate, the way the CLI is for a local agent.
+                "requiresKey": False,
+                "available": _cloud_signed_in(values),
+                "keyName": "",
+                "baseUrlName": "",
+                "customEndpoint": False,
+                "keyConfigured": False,
+                "groupId": "",
+                "groupLabel": "",
+                "tierLabel": "",
+                "note": CLOUD_PROVIDER["note"],
+            },
             # `defaultModel` is what selecting a provider fills in. For the
             # packaged rosters it is the first entry, which is the order the
             # option lists are built in.
             *[
                 {
                     "id": spec["id"],
+                    "kind": "api",
                     "label": spec["label"],
                     "mode": spec["mode"],
                     "models": model_options[spec["id"]],
@@ -649,6 +710,7 @@ class FineSubSettings:
             *[
                 {
                     "id": provider,
+                    "kind": "local",
                     "label": spec["label"],
                     "mode": "select",
                     "models": model_options[provider],
@@ -766,7 +828,7 @@ class FineSubSettings:
         allowed_models = {
             provider: {item["id"] for item in models}
             for provider, models in options.items()
-            if provider.startswith("gemini-") or provider in LOCAL_AGENT_PROVIDERS
+            if provider.startswith("gemini-") or provider in LOCAL_AGENT_PROVIDERS or provider == CLOUD_PROVIDER_ID
         }
         for prefix in ("default", *(spec["id"] for spec in MODEL_ROUTE_SPECS)):
             route = _route_from_config(candidate, prefix)
@@ -779,6 +841,8 @@ class FineSubSettings:
                 raise ValueError(f"A model is required for LLM route {prefix}")
             if provider in allowed_models and model not in allowed_models[provider]:
                 raise ValueError(f"Model {model!r} is not available in {provider}")
+            if provider == CLOUD_PROVIDER_ID and not _cloud_signed_in(env_values):
+                raise ValueError(f"Sign in to Nonoka Cloud before {provider} can be selected")
             spec = API_PROVIDER_BY_ID.get(provider)
             if spec is None:
                 continue
@@ -789,6 +853,38 @@ class FineSubSettings:
             if provider in CUSTOM_ENDPOINT_PROVIDERS and not env_values.get(spec["baseUrlName"], "").strip():
                 raise ValueError(f"A base URL is required before {provider} can be selected")
         update_config_file(self.config_file, {"nonoka_models": updates})
+
+    def set_cloud_account(self, backend: str, key: str) -> dict[str, Any]:
+        """Record the signed-in Nonoka Cloud account, or clear it when both are empty.
+
+        The desktop calls this on login, logout and session refresh, so it is
+        a no-op when nothing changed: the env file and the generated catalog
+        are only rewritten when the account actually moved.
+        """
+
+        secrets = _secrets_module()
+        backend = backend.strip().rstrip("/")
+        key = key.strip()
+        if bool(backend) != bool(key):
+            raise ValueError("backend and key are set or cleared together")
+        if backend:
+            parsed = urlsplit(backend)
+            if parsed.scheme not in {"http", "https"} or not parsed.netloc or "|" in backend:
+                raise ValueError("backend must be an http(s) URL")
+            if parsed.username or parsed.password or parsed.query or parsed.fragment:
+                raise ValueError("backend must not contain credentials, a query, or a fragment")
+            if not _CLOUD_KEY_PATTERN.fullmatch(key):
+                raise ValueError("key is not a Nonoka Cloud key")
+        wanted = {
+            CLOUD_KEY_NAME: key or None,
+            CLOUD_BASE_URL_NAME: f"{backend}/v1/llm" if backend else None,
+        }
+        values = secrets.read_env_file(self.env_file)
+        if all((values.get(name) or None) == value for name, value in wanted.items()):
+            return {"changed": False}
+        secrets.update_env_file(self.env_file, wanted)
+        self._sync_model_routing(secrets.read_env_file(self.env_file))
+        return {"changed": True}
 
     @staticmethod
     def _custom_target(provider: str, model: str) -> str:
@@ -838,17 +934,22 @@ class FineSubSettings:
         for provider, model in custom_models:
             target = self._custom_target(provider, model)
             kind, tier = _HTTP_TRANSPORTS[provider]
-            key_env = API_PROVIDER_BY_ID[provider]["keyName"]
-            url_name = API_PROVIDER_BY_ID[provider]["baseUrlName"]
-            base_url = (
-                API_PROVIDER_BY_ID[provider].get("fixedBaseUrl")
-                or env_values.get(url_name)
-                or default_urls.get(url_name, "")
-            ).strip().rstrip("/")
+            if provider == CLOUD_PROVIDER_ID:
+                key_env = CLOUD_KEY_NAME
+                base_url = env_values.get(CLOUD_BASE_URL_NAME, "").strip().rstrip("/")
+            else:
+                key_env = API_PROVIDER_BY_ID[provider]["keyName"]
+                url_name = API_PROVIDER_BY_ID[provider]["baseUrlName"]
+                base_url = (
+                    API_PROVIDER_BY_ID[provider].get("fixedBaseUrl")
+                    or env_values.get(url_name)
+                    or default_urls.get(url_name, "")
+                ).strip().rstrip("/")
             if not base_url:
                 # A compat provider whose endpoint was cleared behind the
-                # route's back: emitting the row would make the whole catalog
-                # unparseable, so drop it and let routing fall back.
+                # route's back, or Nonoka Cloud after signing out: emitting the
+                # row would make the whole catalog unparseable, so drop it and
+                # let routing fall back.
                 continue
             emitted.add(target)
             # The model's own declared limits, not a placeholder: windows are

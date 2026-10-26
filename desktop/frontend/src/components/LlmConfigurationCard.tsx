@@ -44,13 +44,16 @@ export function LlmConfigurationCard({ keys, baseUrls, modelRouting, drafts, bus
     return hasDraft(drafts, setting.name) ? drafts[setting.name] : (setting.value || setting.defaultValue);
   };
   // 已保存的凭据：只有这样的提供商才允许在任务路由里被选中。
+  // Nonoka Cloud 没有 Key 可填，登录云端账号就是它的凭据。
   const isConfigured = (provider: FineSubModelProvider) => {
+    if (provider.kind === "cloud") return provider.available;
     if (!provider.requiresKey) return true;
     if (!provider.keyConfigured) return false;
     return !provider.customEndpoint || Boolean(urlOf(provider)?.value);
   };
   // 连同本次草稿一起算：Key 与全局模型可以在同一次保存里落盘。
   const isReady = (provider: FineSubModelProvider) => {
+    if (provider.kind === "cloud") return provider.available;
     if (!provider.requiresKey) return true;
     const key = keyOf(provider);
     if (!key?.configured && !(drafts[provider.keyName] ?? "").trim()) return false;
@@ -91,7 +94,9 @@ export function LlmConfigurationCard({ keys, baseUrls, modelRouting, drafts, bus
 
   const blocker = !selected
     ? "先选择一个提供商"
-    : selected.requiresKey && !(selectedKey?.configured || (drafts[selected.keyName] ?? "").trim())
+    : selected.kind === "cloud" && !selected.available
+      ? "请先登录 Nonoka Cloud 账号"
+      : selected.requiresKey && !(selectedKey?.configured || (drafts[selected.keyName] ?? "").trim())
       ? `请填写 ${selected.label} API Key`
       : selected.customEndpoint && !urlValue(selected).trim()
         ? `请填写 ${selected.label} Base URL`
@@ -135,6 +140,7 @@ export function LlmConfigurationCard({ keys, baseUrls, modelRouting, drafts, bus
   // 是配好的，不该标成未配置。
   const choiceSuffix = (choice: ProviderChoice) => {
     const single = choice.members.length === 1 ? choice.members[0] : undefined;
+    if (single?.kind === "cloud") return single.available ? "（免费）" : "（登录云端后可用）";
     if (single && !single.requiresKey) return single.available ? "（本地 CLI）" : "（未检测到 CLI）";
     return choice.members.some(isConfigured) ? "" : "（未配置）";
   };
@@ -195,7 +201,7 @@ export function LlmConfigurationCard({ keys, baseUrls, modelRouting, drafts, bus
             { value: "", label: "跟随全局模型" },
             ...options.map((item) => ({
               value: item.id,
-              label: `${item.label}${item.members.length === 1 && item.members[0].requiresKey === false && !item.members[0].available ? "（未检测到 CLI）" : ""}`,
+              label: `${item.label}${item.members.length === 1 && item.members[0].kind === "local" && !item.members[0].available ? "（未检测到 CLI）" : ""}`,
             })),
           ]}
           onChange={(value) => selectChoice(routeID, value)}
@@ -260,7 +266,12 @@ export function LlmConfigurationCard({ keys, baseUrls, modelRouting, drafts, bus
               value={choiceIdOf(selected)}
               options={[
                 { value: "", label: "选择提供商" },
-                ...choices.map((item) => ({ value: item.id, label: `${item.label}${choiceSuffix(item)}` })),
+                // Nonoka Cloud 只有登录时才能选；已经选中的那一项照样列出，退出登录后不会无声消失。
+                ...choices.map((item) => ({
+                  value: item.id,
+                  label: `${item.label}${choiceSuffix(item)}`,
+                  disabled: item.members.every((member) => member.kind === "cloud" && !member.available) && item.id !== choiceIdOf(selected),
+                })),
               ]}
               onChange={(value) => selectChoice("default", value)}
             />
@@ -272,7 +283,9 @@ export function LlmConfigurationCard({ keys, baseUrls, modelRouting, drafts, bus
           <>
             <div className="llm-row">
               <span className="llm-row-label"><strong>运行方式</strong></span>
-              <p className="llm-row-text">本机 CLI 订阅，无需 API Key · {selected.available ? "已检测到" : "未检测到，安装后自动识别"}</p>
+              <p className="llm-row-text">{selected.kind === "cloud"
+                ? `Nonoka Cloud 账号 · ${selected.available ? "已登录" : "未登录，登录云端账号后可用"}`
+                : `本机 CLI 订阅，无需 API Key · ${selected.available ? "已检测到" : "未检测到，安装后自动识别"}`}</p>
             </div>
             {/* 提供商自己声明的注意事项，后端给什么就显示什么——没有针对某一家
                 写死的分支，下次再有一条只需改后端。 */}

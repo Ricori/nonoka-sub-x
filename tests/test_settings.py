@@ -200,6 +200,63 @@ class FineSubSettingsTests(unittest.TestCase):
                 snapshot = restarted.update_keys({key_name: None})
                 self.assertFalse(snapshot["llmReady"])
 
+    def test_nonoka_cloud_is_only_offered_while_signed_in(self) -> None:
+        import json
+        from finesub.llm.routing.model_catalog import default_model_catalog
+        from finesub.llm.routing.model_routes import default_model_routes
+
+        with tempfile.TemporaryDirectory() as temporary, patch.dict(
+            os.environ, {"FINESUB_ENV_PROTECT": "0"}, clear=False
+        ):
+            settings = FineSubSettings(temporary)
+            settings.bind_environment()
+            selection = {"LLM_DEFAULT_PROVIDER": "nonoka-cloud", "LLM_DEFAULT_MODEL": "gpt-6-luna"}
+            cloud = settings.snapshot()["modelRouting"]["providers"][0]
+            self.assertEqual(
+                (cloud["id"], cloud["kind"], cloud["requiresKey"], cloud["available"], cloud["keyName"]),
+                ("nonoka-cloud", "cloud", False, False, ""),
+            )
+            with self.assertRaisesRegex(ValueError, "Sign in to Nonoka Cloud"):
+                settings.update_keys(selection)
+            # Nobody types the account in: SaveKeys refuses its settings.
+            with self.assertRaisesRegex(ValueError, "Unknown FineSub key"):
+                settings.update_keys({"NONOKA_CLOUD_KEY": "cloud-secret"})
+
+            self.assertEqual(settings.set_cloud_account("https://cloud.example/", "cloud-secret"), {"changed": True})
+            self.assertEqual(settings.set_cloud_account("https://cloud.example", "cloud-secret"), {"changed": False})
+            snapshot = settings.update_keys(selection)
+            self.assertTrue(snapshot["llmReady"])
+            self.assertTrue(snapshot["modelRouting"]["providers"][0]["available"])
+            self.assertNotIn("cloud-secret", json.dumps(snapshot))
+            target_id = settings._custom_target("nonoka-cloud", "gpt-6-luna")
+            fact = next(item for item in default_model_catalog() if item.fact_id == target_id)
+            self.assertEqual(
+                (fact.provider_kind, fact.base_url, fact.key_env),
+                ("openai_compat", "https://cloud.example/v1/llm", "NONOKA_CLOUD_KEY"),
+            )
+            routes = default_model_routes()
+            binding, _ = routes.resolve_binding(routes.active_preset_id, "correction-text", "quality")
+            self.assertEqual(binding.target_ids, (target_id,))
+
+            # Signing out keeps the saved route but takes the provider away.
+            self.assertEqual(settings.set_cloud_account("", ""), {"changed": True})
+            snapshot = settings.snapshot()
+            self.assertFalse(snapshot["llmReady"])
+            self.assertEqual(snapshot["modelRouting"]["defaultRoute"], {"provider": "nonoka-cloud", "model": "gpt-6-luna"})
+            self.assertNotIn(target_id, (Path(temporary) / "model_catalog.psv").read_text(encoding="utf-8"))
+
+    def test_nonoka_cloud_account_is_validated(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            settings = FineSubSettings(temporary)
+            for backend, key, message in (
+                ("https://cloud.example", "", "together"),
+                ("ftp://cloud.example", "k", "http"),
+                ("https://user@cloud.example", "k", "credentials"),
+                ("https://cloud.example", "a:b", "not a Nonoka Cloud key"),
+            ):
+                with self.subTest(backend=backend, key=key), self.assertRaisesRegex(ValueError, message):
+                    settings.set_cloud_account(backend, key)
+
     def test_the_two_gemini_pools_share_one_provider_row(self) -> None:
         # 对配置的人来说 Gemini 是一个服务：同一个控制台、同一个端点，两档配额
         # 各一个 Key。对路由来说仍然是两个 tier——打包目录给了它们不同的 fact

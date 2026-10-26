@@ -240,6 +240,13 @@ type Service struct {
 	relayWG       sync.WaitGroup
 	lifetime      context.Context
 	stopRelays    context.CancelFunc
+
+	// The account as last handed to the local engine (account.go).
+	// publishMu serialises hand-overs so an older one cannot land last.
+	publishMu      sync.Mutex
+	publishAccount AccountPublisher
+	published      storedSession
+	publishedValid bool
 }
 
 func New(dataDirectory string, provider providerCaller, resolvers ...mediaResolver) (*Service, error) {
@@ -877,6 +884,7 @@ func (s *Service) Session() Session {
 }
 
 func (s *Service) RefreshSession() (Session, error) {
+	s.publishAccountState()
 	s.mu.RLock()
 	stored := s.session
 	s.mu.RUnlock()
@@ -917,15 +925,18 @@ func (s *Service) Login(backend, key string) (Session, error) {
 		return Session{}, err
 	}
 	s.mu.Unlock()
+	s.publishAccountState()
 	s.mergeLocalLibrary(&result)
 	return result, nil
 }
 
 func (s *Service) Logout() error {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	s.session = storedSession{}
-	if err := os.Remove(s.configPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+	err := os.Remove(s.configPath)
+	s.mu.Unlock()
+	s.publishAccountState()
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
 	return nil

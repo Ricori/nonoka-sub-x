@@ -89,6 +89,8 @@ class SidecarHandler(BaseHTTPRequestHandler):
             self._json(200, provider.knowledge(self._body()))
         elif self.command == "PUT" and parts == ["v1", "settings", "keys"]:
             self._json(200, provider.update_keys(self._body().get("keys", {})))
+        elif self.command == "PUT" and parts == ["v1", "settings", "cloud"]:
+            self._json(200, provider.set_cloud_account(self._body()))
         elif self.command == "GET" and parts == ["v1", "tasks"]:
             limit = int(parse_qs(parsed.query).get("limit", ["100"])[0])
             self._json(200, provider.list_tasks(limit=limit))

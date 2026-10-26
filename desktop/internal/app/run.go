@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io/fs"
 	"log"
+	"net/http"
 	"path/filepath"
 	"runtime"
 	"time"
@@ -136,6 +137,9 @@ func Run(assets fs.FS) error {
 	if err != nil {
 		return err
 	}
+	cloud.SetAccountPublisher(cloudService, func(ctx context.Context, backend, key string) error {
+		return manager.DoJSON(ctx, http.MethodPut, "/v1/settings/cloud", map[string]string{"backend": backend, "key": key}, nil)
+	})
 	if diagnosticErr == nil {
 		cloud.SetTelemetry(cloudService, diagnosticService)
 		diagnosticService.Start()

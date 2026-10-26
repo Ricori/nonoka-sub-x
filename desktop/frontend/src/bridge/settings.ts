@@ -22,7 +22,7 @@ export interface FineSubSettingsState {
   protection: "empty" | "protected" | "plaintext" | "unreadable";
 }
 
-export type FineSubModelProviderID = "gemini-free" | "gemini-paid" | "openai" | "anthropic" | "deepseek" | "kimi" | "aliyun-bailian" | "openai-compat" | "anthropic-compat" | "local-codex" | "local-agy" | "local-codebuddy";
+export type FineSubModelProviderID = "nonoka-cloud" | "gemini-free" | "gemini-paid" | "openai" | "anthropic" | "deepseek" | "kimi" | "aliyun-bailian" | "openai-compat" | "anthropic-compat" | "local-codex" | "local-agy" | "local-codebuddy";
 
 export interface FineSubModelOption {
   id: string;
@@ -39,12 +39,15 @@ export interface FineSubModelRoute {
 
 export interface FineSubModelProvider {
   id: FineSubModelProviderID;
+  // api：自带 API Key；local：本机 CLI 订阅；cloud：Nonoka Cloud 账号免费提供，登录后可用。
+  kind: "api" | "local" | "cloud";
   label: string;
   mode: "select" | "input";
   models: FineSubModelOption[];
   // 选中该提供商时预填的模型；input 模式为空。
   defaultModel: string;
   // 本地 Agent 提供商用自己的 CLI 订阅运行，不需要 API Key；available 表示该 CLI 是否已在 PATH 中。
+  // Nonoka Cloud 同样不要 Key，available 表示是否已登录云端账号。
   requiresKey: boolean;
   available: boolean;
   // 该提供商对应的 Key 与 Base URL 设置项；固定端点的 Base URL 为空，本地 Agent 两者皆为空。
