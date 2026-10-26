@@ -72,10 +72,6 @@ export function KnowledgePage({ active }: { active: boolean }) {
   }
   const visible = entries.filter(e => (!category || e.category === category) && `${e.name} ${e.intro ?? ""}`.toLocaleLowerCase().includes(query.toLocaleLowerCase()));
   return <section className="knowledge-page" hidden={!active} aria-label="知识库">
-    <div className="knowledge-toolbar">
-      <div className="knowledge-intro"><span className="knowledge-intro-icon"><BookIcon /></span><div><strong>每一次翻译，都有所积累</strong><p>整理主播资料、专有名词与翻译习惯，让熟悉的内容保持准确。</p></div></div>
-      <span className="knowledge-local"><i />本机知识库</span>
-    </div>
     {error && <p className="knowledge-error" role="alert">{error}</p>}
     <Notice className="knowledge-notice" message={notice} tone="success" onDismiss={() => setNotice("")} />
     {pendingID && <div className="knowledge-toolbar" role="alert"><p>当前修改尚未保存，是否放弃修改并加载条目？</p><div className="knowledge-actions"><button className="quiet-button" onClick={() => setPendingID(null)}>继续编辑</button><button className="quiet-button" onClick={() => void select(pendingID, true)}>放弃并加载</button></div></div>}

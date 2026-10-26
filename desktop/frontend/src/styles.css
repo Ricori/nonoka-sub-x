@@ -1859,51 +1859,32 @@ html.wails-fullscreen #wails-window-controls {
   border-top: 1px solid var(--line-soft);
 }
 
-.sidebar-account {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  min-width: 0;
+.sidebar-provider-action {
+  width: 100%;
   border: 0;
-  border-radius: 11px;
-  padding: 8px;
   background: transparent;
+  color: inherit;
+  font: inherit;
   text-align: left;
   cursor: pointer;
 }
 
-.sidebar-account:hover {
+.sidebar-provider-action:hover {
   background: color-mix(in srgb, var(--raised) 55%, transparent);
 }
 
-.sidebar-account:disabled {
+.sidebar-provider-action:disabled {
   cursor: wait;
 }
 
-.sidebar-account:disabled:hover {
+.sidebar-provider-action:disabled:hover {
   background: transparent;
 }
 
-.account-avatar {
-  display: grid;
-  place-items: center;
-  flex: 0 0 auto;
-  width: 30px;
-  height: 30px;
-  border-radius: 10px;
-  background: var(--raised);
-  color: var(--accent);
-  font-size: 12px;
-  font-weight: 700;
-}
-
-.account-avatar.loading {
-  background: var(--accent-dim);
-}
-
 .account-spinner {
-  width: 13px;
-  height: 13px;
+  flex: 0 0 auto;
+  width: 10px;
+  height: 10px;
   border: 2px solid var(--accent-line);
   border-top-color: var(--accent);
   border-radius: 50%;
@@ -1916,29 +1897,6 @@ html.wails-fullscreen #wails-window-controls {
   }
 }
 
-.account-copy {
-  min-width: 0;
-  overflow: hidden;
-}
-
-.account-copy strong,
-.account-copy small {
-  display: block;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.account-copy strong {
-  font-size: 12px;
-}
-
-.account-copy small {
-  margin-top: 3px;
-  color: var(--faint);
-  font-size: 11px;
-}
-
 .sidebar-collapsed .brand {
   justify-content: center;
   padding: 0;
@@ -1949,8 +1907,7 @@ html.wails-fullscreen #wails-window-controls {
 .sidebar-collapsed .nav-label,
 .sidebar-collapsed .nav-text,
 .sidebar-collapsed .nav-count,
-.sidebar-collapsed .sidebar-provider-status div,
-.sidebar-collapsed .account-copy {
+.sidebar-collapsed .sidebar-provider-status div {
   display: none;
 }
 
@@ -1967,8 +1924,7 @@ html.wails-fullscreen #wails-window-controls {
   margin-top: 30px;
 }
 
-.sidebar-collapsed .sidebar nav button,
-.sidebar-collapsed .sidebar-account {
+.sidebar-collapsed .sidebar nav button {
   justify-content: center;
   padding-inline: 0;
 }

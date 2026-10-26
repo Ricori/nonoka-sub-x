@@ -1,5 +1,7 @@
+import { useEffect, useState } from 'react';
 import { shallowEqual } from '../../home/lib/createStore';
 import { gotoNext, gotoPrev } from '../lib/edits';
+import { isPreviewFullscreen, togglePreviewFullscreen } from '../lib/fullscreen';
 import { setPlaying, setUserRate } from '../lib/playback';
 import { playStore } from '../store/playStore';
 import { fmtView, viewOutDur, viewStore } from '../store/viewStore';
@@ -11,6 +13,13 @@ export function Transport() {
   const { t, playing, rate } = playStore.use(s => s, shallowEqual);
   // 进出聚焦、剪辑都会改总时长与时间码基准
   viewStore.use(s => ({ t0: s.t0, t1: s.t1, pieces: s.pieces, focus: s.focus }), shallowEqual);
+  const [full, setFull] = useState(isPreviewFullscreen);
+
+  useEffect(() => {
+    const sync = () => setFull(isPreviewFullscreen());
+    document.addEventListener("fullscreenchange", sync);
+    return () => document.removeEventListener("fullscreenchange", sync);
+  }, []);
 
   return (
     <div className="transport">
@@ -44,6 +53,18 @@ export function Transport() {
             onClick={() => setUserRate(r)}>{r}×</button>
         ))}
       </div>
+      <button className="tbtn" id="btn-fullscreen" title={full ? "退出全屏 (F / Esc)" : "全屏预览 (F)"}
+        aria-label={full ? "退出全屏" : "全屏预览"} onClick={togglePreviewFullscreen}>
+        {full ? (
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5">
+            <path d="M5 1.5V5H1.5M9 1.5V5h3.5M5 12.5V9H1.5M9 12.5V9h3.5" />
+          </svg>
+        ) : (
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5">
+            <path d="M1.5 5V1.5H5M12.5 5V1.5H9M1.5 9v3.5H5M12.5 9v3.5H9" />
+          </svg>
+        )}
+      </button>
     </div>
   );
 }

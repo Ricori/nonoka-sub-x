@@ -1788,21 +1788,21 @@ export default function App() {
               <small>{runtimeReady ? "转写引擎已就绪" : "需要检查环境"}</small>
             </div>
           </div>
-          <div className="sidebar-provider-status">
-            <span className={`status-dot ${cloudSession?.authenticated ? "online" : ""}`} />
+          {/* The cloud row doubles as the account entry, so the login state is shown once. */}
+          <button
+            className="sidebar-provider-status sidebar-provider-action"
+            aria-busy={cloudLoading}
+            disabled={cloudLoading}
+            onClick={() => setSection("account")}
+            title={cloudSession?.authenticated ? `云端账户 · 已同步 ${cloudMedia.length} 个字幕记录` : "云端账户"}
+          >
+            {cloudLoading ? <span className="account-spinner" aria-hidden="true" /> : <span className={`status-dot ${cloudSession?.authenticated ? "online" : ""}`} />}
             <div>
               <strong>Nonoka Cloud</strong>
-              <small>{!cloudSession?.authenticated ? "未登录" : cloudSession.admin ? "管理员 · 不限次" : `转写剩余 ${cloudSession.remaining ?? "—"} 次`}</small>
+              <small>{cloudLoading ? "正在验证账户" : !cloudSession?.authenticated ? "未登录 · 点击登录" : `${cloudSession.name || "未命名 Key"} · ${cloudSession.admin ? "不限次" : `剩余 ${cloudSession.remaining ?? "—"} 次`}`}</small>
             </div>
-          </div>
+          </button>
         </section>
-        <button className="sidebar-account" aria-busy={cloudLoading} disabled={cloudLoading} onClick={() => setSection("account")} title="云端账户">
-          <span className={`account-avatar ${cloudLoading ? "loading" : ""}`}>{cloudLoading ? <span className="account-spinner" aria-hidden="true" /> : "N"}</span>
-          <span className="account-copy">
-            <strong>{cloudLoading ? "正在验证账户" : cloudSession?.authenticated ? cloudSession.name || "未命名 Key" : "未登录云端"}</strong>
-            <small>{cloudLoading ? "同步中" : cloudSession?.authenticated ? `已同步 ${cloudMedia.length} 个字幕记录` : "登录后同步媒体库"}</small>
-          </span>
-        </button>
       </aside>
 
       <main className="workspace">

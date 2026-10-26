@@ -33,7 +33,6 @@ export function AccountPage({ session, media, loginKey, busy, message, onLoginKe
           </>
         ) : (
           <div className="login-form">
-            <p className="cloud-endpoint-note"><span className="status-dot online" />默认连接 Nonoka Cloud</p>
             <label>登录 Key<input type="password" autoComplete="off" autoCapitalize="none" autoCorrect="off" spellCheck={false} placeholder="输入分配给你的 Key" value={loginKey} onChange={(event) => onLoginKeyChange(event.target.value)} /></label>
             <button className="primary-button" disabled={busy || !loginKey.trim()} onClick={() => void onLogin()}>{busy ? "正在验证…" : "登录并同步视频库"}</button>
           </div>

@@ -3,6 +3,7 @@ import {
   addSegmentAt, deleteSegment, extendCurrent, gotoNext, gotoPrev, nudgeToPlayhead, splitAtPlayhead,
 } from '../lib/edits';
 import { openFind } from '../lib/find';
+import { togglePreviewFullscreen } from '../lib/fullscreen';
 import { redo, undo } from '../lib/history';
 import { isScrubbing, scrubSound, seek, setPlaying } from '../lib/playback';
 import { video } from '../lib/media';
@@ -58,6 +59,7 @@ export function useShortcuts() {
       else if (e.key === "n" || e.key === "N") { addSegmentAt(t); }
       else if (e.key === "d" || e.key === "D") { splitAtPlayhead(); }
       else if (e.key === "v" || e.key === "V") { extendCurrent(); }
+      else if (e.key === "f" || e.key === "F") { togglePreviewFullscreen(); }
       // 视频轨上有选中（片段或拖出来的时间段）就删它，否则删字幕句
       else if (e.key === "Delete") { if (!deleteVsel()) deleteSegment(); }
     };

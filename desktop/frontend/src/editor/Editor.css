@@ -366,6 +366,12 @@ body.ctx-open .professional-editor .topbar {
   border-right: 1px solid var(--line);
 }
 
+/* 全屏预览：整块预览区（画面 + 播放条）铺满屏幕，去掉分栏边线 */
+.professional-editor .preview-pane:fullscreen {
+  background: var(--bg);
+  border-right: 0;
+}
+
 .professional-editor .stage-wrap {
   position: relative;
   flex: 1;

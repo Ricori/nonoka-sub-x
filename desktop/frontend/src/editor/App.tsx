@@ -58,7 +58,7 @@ export function EditorApp() {
         <TopBar />
 
         <div className="main" style={{ gridTemplateColumns: `minmax(0,1fr) ${sideW}px` }}>
-          <section className="preview-pane">
+          <section className="preview-pane" id="preview-pane">
             <VideoStage />
             <Transport />
           </section>
