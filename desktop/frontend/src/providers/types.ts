@@ -108,8 +108,8 @@ export interface TaskRequest {
   gpu_tier: GpuTier;
   /**
    * 是否跑人声分离。关掉只在输入本身已是纯人声时才对：产物位置与格式不变
-   * （`<stem>-vocal.ogg`，16 kHz 单声道），只是由源音直接转出。仅本地模式，
-   * 云端的分离在它自己的容器里。
+   * （`<stem>-vocal.ogg`，16 kHz 单声道），只是由源音直接转出。本地与云端都支持：
+   * 云端关掉时在 CPU 上转出这条轨，不租分离用的 GPU。
    */
   separate: boolean;
   vocal_profile: "cost" | "quality";

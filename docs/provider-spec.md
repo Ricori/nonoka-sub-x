@@ -184,7 +184,7 @@ interface ExecutionProvider {
 | `language` | 语言码 | — | 默认 `ja` |
 | `device` | `cpu` \| `cuda` \| `cuda:<n>` | — | 默认 `cuda`；应校验并在不支持时报错 |
 | `gpu_tier` | `auto` \| `cpu` \| `entry` \| `standard` \| `standard_large_vram` \| `high` | — | 默认 `auto`（由引擎探测本机显卡）。取代了 0.4.x 的 `gpu_budget_gb`；仍带旧字段的请求由 worker 按 `4→entry、8→standard、12/16→standard_large_vram` 转换一次并在任务日志里说明。`auto` 最高只选到 `standard_large_vram`，`high` 需要显卡自报 24GB 以上 |
-| `separate` | `boolean` | — | 默认 `true`。仅在输入本身已是纯人声（已分离的人声轨、录音棚干声）时可设为 `false`：产物位置与格式不变（`<stem>-vocal.ogg`，16 kHz 单声道），只是由源音直接转出。⚠ 该分离而没分离不会报任何错，只是识别质量整体下降 |
+| `separate` | `boolean` | — | 默认 `true`。仅在输入本身已是纯人声（已分离的人声轨、录音棚干声）时可设为 `false`：产物位置与格式不变（`<stem>-vocal.ogg`，16 kHz 单声道），只是由源音直接转出。本地与云端 Provider 都支持；非布尔值必须以 `invalid_request` 拒绝。⚠ 该分离而没分离不会报任何错，只是识别质量整体下降 |
 | `vocal_profile` | `cost` \| `quality` | — | 人声分离档位；不支持的档位必须显式报错 |
 | `correction.enabled` | `boolean` | — | `false` 时等价于跳过 LLM 环节 |
 | `correction.media` | `text` \| `audio` \| `video` | — | `video` 需 `features.video_multimodal=true` |

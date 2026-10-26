@@ -436,6 +436,7 @@ func (s *Service) submitCloudJobTracked(localID string, options map[string]any, 
 		"device":               "cuda",
 		"gpu_tier":             stringOption(options, "gpu_tier", "auto"),
 		"vocal_profile":        "cost",
+		"separate":             boolOption(options, "separate", true),
 		"cleanup_intermediate": false,
 	}
 	// Speaker diarization: the level the user chose and an optional cap, only
@@ -1624,6 +1625,15 @@ func extractAudioWithRoot(ctx context.Context, dataDirectory, source, output str
 func stringOption(options map[string]any, key, fallback string) string {
 	if value, ok := options[key].(string); ok && strings.TrimSpace(value) != "" {
 		return strings.TrimSpace(value)
+	}
+	return fallback
+}
+
+// boolOption reads a switch the renderer sends as a JSON boolean. Anything
+// else falls back, so a malformed value never turns separation off.
+func boolOption(options map[string]any, key string, fallback bool) bool {
+	if value, ok := options[key].(bool); ok {
+		return value
 	}
 	return fallback
 }

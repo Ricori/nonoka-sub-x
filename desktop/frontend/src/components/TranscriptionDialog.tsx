@@ -174,9 +174,6 @@ const CPU_DEVICE_HINT = "无显卡时的运行方式；整条流水线仍然完�
 // 关掉分离不会报错，只会让识别质量整体塌掉——所以这里说清它是给什么输入用的。
 const SKIP_SEPARATION_HINT = "仅在输入本身就是纯人声（已分离的人声轨、录音棚干声）时关闭；该分离而没分离不会报错，只是识别质量整体下降";
 
-// 云端的分离按时长自动分档、总是开启，没有关闭这一档；显示出来但不让改，免得选了不生效。
-const CLOUD_SEPARATION_HINT = "云端转写总是先做人声分离；输入已是纯人声时请选本机转写";
-
 export function TranscriptionDialog(props: TranscriptionDialogProps) {
   const {
     entry, localReady, localCapabilities, cloudCapabilities, settings, localIssue, cloudAuthenticated,
@@ -620,7 +617,7 @@ export function TranscriptionDialog(props: TranscriptionDialogProps) {
                   {engine === "local" && <label>计算设备<CustomSelect value={request.device} options={deviceOptions(devices)} onChange={(device) => setRequest((current) => ({ ...current, device, gpu_tier: device === "cpu" ? "cpu" : current.gpu_tier === "cpu" ? "auto" : current.gpu_tier }))} /></label>}
                   {engine === "local" && <label>显卡档位<CustomSelect value={request.gpu_tier} options={GPU_TIER_OPTIONS} onChange={(gpu_tier) => setRequest((current) => ({ ...current, gpu_tier }))} /></label>}
                   <label>原始语言<CustomSelect value={request.language} options={languageOptions.map(([value, label]) => ({ value, label }))} onChange={(language) => setRequest((current) => ({ ...current, language }))} /></label>
-                  <label title={engine === "cloud" ? CLOUD_SEPARATION_HINT : undefined}>人声分离<CustomSelect value={engine === "cloud" || request.separate ? "on" : "off"} disabled={engine === "cloud"} options={[{ value: "on", label: "开启" }, { value: "off", label: "关闭（输入已是纯人声）", hint: SKIP_SEPARATION_HINT }]} onChange={(value) => setRequest((current) => ({ ...current, separate: value === "on" }))} /></label>
+                  <label>人声分离<CustomSelect value={request.separate ? "on" : "off"} options={[{ value: "on", label: "开启" }, { value: "off", label: "关闭（输入已是纯人声）", hint: SKIP_SEPARATION_HINT }]} onChange={(value) => setRequest((current) => ({ ...current, separate: value === "on" }))} /></label>
                   <label>说话人分离<CustomSelect value={diarization} disabled={!diarizationSelectable} options={[
                     { value: "off" as const, label: "关闭" },
                     { value: "acoustics" as const, label: "按声音区分说话人" },

@@ -654,6 +654,67 @@ func TestStartTaskKeepsUploadUnlessBackendRefusedTask(t *testing.T) {
 	}
 }
 
+// The separation switch reaches the cloud as the user set it, and anything
+// but a boolean leaves separation on.
+func TestStartTaskSendsTheSeparationSwitch(t *testing.T) {
+	const uploadID = "upl_0123456789abcdef0123456789abcdef"
+	tests := []struct {
+		name    string
+		options map[string]any
+		want    bool
+	}{
+		{name: "off", options: map[string]any{"target": "raw-srt", "separate": false}, want: false},
+		{name: "on", options: map[string]any{"target": "raw-srt", "separate": true}, want: true},
+		{name: "absent", options: map[string]any{"target": "raw-srt"}, want: true},
+		{name: "malformed", options: map[string]any{"target": "raw-srt", "separate": "false"}, want: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			root := t.TempDir()
+			source := filepath.Join(root, "video.mp4")
+			if err := os.WriteFile(source, []byte("video"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			var submitted map[string]any
+			var server *httptest.Server
+			server = httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+				writer.Header().Set("Content-Type", "application/json")
+				switch {
+				case request.Method == http.MethodPut:
+					writer.WriteHeader(http.StatusNoContent)
+				case request.URL.Path == "/v1/session":
+					_, _ = writer.Write([]byte(`{"authenticated":true,"remaining":2,"running":0}`))
+				case request.URL.Path == "/v1/uploads/init":
+					_, _ = writer.Write([]byte(`{"objectId":"` + uploadID + `","uploadUrl":"` + server.URL + `/upload","contentType":"audio/mp4"}`))
+				case request.Method == http.MethodPost && request.URL.Path == "/v1/tasks":
+					_ = json.NewDecoder(request.Body).Decode(&submitted)
+					http.Error(writer, `{"detail":"fixture"}`, http.StatusBadRequest)
+				case request.Method == http.MethodDelete:
+					_, _ = writer.Write([]byte(`{"aborted":true}`))
+				default:
+					http.NotFound(writer, request)
+				}
+			}))
+			defer server.Close()
+
+			service, err := New(root, &projectingProvider{}, fakeMedia{path: source})
+			if err != nil {
+				t.Fatal(err)
+			}
+			service.extractor = func(_ context.Context, _, output string) error {
+				return os.WriteFile(output, []byte("audio-fixture"), 0o600)
+			}
+			if _, err := service.Login(server.URL, "login-key"); err != nil {
+				t.Fatal(err)
+			}
+			_, _ = service.StartTask("loc_0123456789ab", test.options)
+			if got, ok := submitted["separate"].(bool); !ok || got != test.want {
+				t.Fatalf("submitted separate = %#v, want %v", submitted["separate"], test.want)
+			}
+		})
+	}
+}
+
 // Media transcribed on another machine reaches this one as a fingerprint match
 // and nothing more: the card merges, reports the cloud copy, and still offers
 // to transcribe the video again because no local document exists. Adoption is
