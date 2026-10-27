@@ -255,7 +255,8 @@ export function TranscriptionDialog(props: TranscriptionDialogProps) {
     const serves = (capability: MediaCapability) => !keys || routeServesMedia(keys.modelRouting, "correction", capability);
     return {
       // 只认已保存的全局模型：装了 codex CLI、或在设置里选了却没保存，都不算配置好。
-      llm: !keys || keys.llmReady,
+      // 这一项不放宽：读不到设置就当没配，纠错与翻译不许打开。
+      llm: keys?.llmReady === true,
       nativeSearch: !keys || ["correction", "research"].every((routeID) => routeServesNativeSearch(keys.modelRouting, routeID)),
       retrieval: !keys || keys.retrievalKeyConfigured,
       audio: serves("supportsAudio"),
@@ -264,14 +265,15 @@ export function TranscriptionDialog(props: TranscriptionDialogProps) {
     };
   }, [entry.audioOnly, settings, supportsVideo]);
 
-  // 第二个分区能不能打开：先看模型配了没有，再看本机的纠错档（含续跑依赖）是否就绪。
-  const correctionIssue = !limits.llm
-    ? LLM_KEY_HINT
-    : localStages.some((item) => item.id === "final-srt") ? stageIssue("final-srt") : !localCapabilities ? "本地服务尚未启动" : "";
+  // 第二个分区能不能打开：本地服务没起来时连设置都读不到，先说这个；再看模型配了没有，
+  // 最后看本机的纠错档（含续跑依赖）是否就绪。
+  const correctionIssue = !localCapabilities
+    ? "本地服务尚未启动"
+    : !limits.llm ? LLM_KEY_HINT : stageIssue("final-srt");
   const correctionAvailable = correctionIssue === "";
   // 缺的是模型配置就去设置页，其余（续跑依赖等）去运行环境页。
-  const correctionNeedsKeys = !limits.llm
-    || localStages.find((item) => item.id === "final-srt")?.issues.some((issue) => issue.code === "missing_llm_key") === true;
+  const correctionNeedsKeys = localCapabilities !== null && (!limits.llm
+    || localStages.find((item) => item.id === "final-srt")?.issues.some((issue) => issue.code === "missing_llm_key") === true);
 
   // 说话人分离：轴里已经标了说话人时以轴为准，不再分离；日文轴不跑识别，也就无从分离。
   const diarizationAvailable = !translateOnly && speakers.length === 0 && engineCapabilities?.features.diarization === true;
@@ -391,8 +393,9 @@ export function TranscriptionDialog(props: TranscriptionDialogProps) {
 
   // 日文轴只有翻译这一件事可做。钉在这里而不是选轴时，是因为轴型可以在第 1 步改回来——
   // 退回去换成日文轴再走回来，请求里若还留着 raw-srt，任务会以 invalid_axis 被拒。
+  // 纠错开不了（比如没配模型）时不强开：开始按钮本来就拦着，开关不该显示成打开。
   useEffect(() => {
-    if (!translateOnly) return;
+    if (!translateOnly || !correctionAvailable) return;
     setRequest((current) => current.target === "final-srt" ? current : {
       ...current,
       target: "final-srt",
@@ -400,7 +403,7 @@ export function TranscriptionDialog(props: TranscriptionDialogProps) {
       // 多花钱多花时间，需要时用户自己往上加。
       correction: { ...current.correction, enabled: true, media: "text" },
     });
-  }, [translateOnly]);
+  }, [correctionAvailable, translateOnly]);
 
   const readAxisFile = async (file: File) => {
     setAxisFile(file.name);
