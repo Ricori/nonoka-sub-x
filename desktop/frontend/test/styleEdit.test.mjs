@@ -2,8 +2,15 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
-  cloneStyleText, patchStyleText, safeStyleName, styleFieldsOf, uniqueStyleName,
+  cloneStyleText, patchStyleText, removeStyleText, safeStyleName, styleFieldsOf, uniqueStyleName,
 } from "../src/subtitles/styleEdit.ts";
+
+test("删样式只摘掉那一条 Style 行，其余字节不动", () => {
+  const sheet = "[V4+ Styles]\n; 手写注释\nFormat: Name, Fontname\nStyle: cn,A\nStyle: cn 本句,B\n\n[Events]\nStyle: cn 本句,不是样式段\n";
+  assert.equal(removeStyleText(sheet, "cn 本句"),
+    "[V4+ Styles]\n; 手写注释\nFormat: Name, Fontname\nStyle: cn,A\n\n[Events]\nStyle: cn 本句,不是样式段\n");
+  assert.equal(removeStyleText(sheet, "不存在"), sheet);
+});
 import { composeSheet, parseSheet } from "../src/subtitles/styles.ts";
 import {
   BUILTIN_ASS_STYLES, DEFAULT_STYLE_SHEET, DEFAULT_USER_ASS_STYLES,

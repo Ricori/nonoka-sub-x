@@ -160,6 +160,13 @@ export function cloneStyleText(sheetText: string, from: string, to: string):
   return patchStyleText(sheetText, to, patch);
 }
 
+/** 删掉某个样式的 Style 行（同名的都删），其余字节不动 */
+export function removeStyleText(sheetText: string, name: string): string {
+  const lines = (sheetText || "").split("\n");
+  const limit = eventsAt(lines);
+  return lines.filter((line, i) => i >= limit || !isStyle(line) || styleParts(line)[0] !== name).join("\n");
+}
+
 /** 不与 taken 里任何名字相撞的新名字：speaker1 → speaker1 2 → speaker1 3 … */
 export function uniqueStyleName(base: string, taken: Iterable<string>): string {
   const used = new Set<string>();

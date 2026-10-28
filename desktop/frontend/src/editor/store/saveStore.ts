@@ -43,6 +43,7 @@ const packSeg = (s: Seg, _i: number): Seg => {
   if (s.k?.length) o.k = s.k.map(u => ({ t0: round3(u.t0), t1: round3(u.t1), text: u.text }));
   if (s.words) o.words = s.words;
   if (s.low_conf) o.low_conf = true;
+  if (s.style?.ja || s.style?.zh) o.style = { ...s.style };
   return o;
 };
 

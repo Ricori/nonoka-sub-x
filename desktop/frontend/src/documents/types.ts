@@ -1,4 +1,4 @@
-import type { KaraokeUnit, SubtitleEffectBinding } from '../subtitles/types.ts';
+import type { KaraokeUnit, SegmentStyle, SubtitleEffectBinding } from '../subtitles/types.ts';
 
 export interface EditSegment {
   t0: number;
@@ -9,6 +9,8 @@ export interface EditSegment {
   k?: KaraokeUnit[];
   words?: unknown[];
   low_conf?: boolean;
+  /** 这一句单独绑的样式，按 lane 分；没写的跟随轨道样式 */
+  style?: SegmentStyle;
 }
 
 export interface LaneMeta {

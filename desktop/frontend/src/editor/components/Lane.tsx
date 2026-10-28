@@ -12,12 +12,15 @@ import type { Lang, Seg, Ti } from '../types';
 interface BlockProps {
   ti: Ti; i: number; left: number; width: number; text: string; sel: boolean;
   bg?: string; bc?: string;
+  /** 这一句单独绑了样式（悬停显示样式名） */
+  own?: string;
 }
 
 /** 窄于 BLK_DETAIL_W 就不画手柄和文字：看不清，还白白拖慢排版 */
-const Block = memo(function Block({ ti, i, left, width, text, sel, bg, bc }: BlockProps) {
+const Block = memo(function Block({ ti, i, left, width, text, sel, bg, bc, own }: BlockProps) {
   return (
-    <div className={"blk" + (sel ? " sel" : "")} data-i={i} data-ti={ti}
+    <div className={"blk" + (sel ? " sel" : "") + (own ? " own-style" : "")} data-i={i} data-ti={ti}
+      title={own ? "专属样式：" + own : undefined}
       style={{ left: left + "px", width: width + "px", background: bg, borderColor: bc }}>
       {width >= BLK_DETAIL_W && <>
         <div className="h l" data-h="l" />
@@ -79,6 +82,7 @@ export function Lane({ ti, lang, height, fold, vis, onFocusText }: LaneProps) {
           left={xOf(it.seg.t0)} width={Math.max(wOf(it.seg.t0, it.seg.t1), 8)}
           text={(lang === "ja" ? it.seg.ja : it.seg.zh) || "（空）"}
           sel={selSet.has(it.seg)}
+          own={it.seg.style?.[lang]}
           bg={rgb ? `rgba(${rgb},.16)` : undefined}
           bc={rgb ? `rgba(${rgb},.55)` : undefined} />
         : <AggBlock key={"a" + it.i0} ti={ti} i0={it.i0} i1={it.i1} left={it.x} width={it.w}

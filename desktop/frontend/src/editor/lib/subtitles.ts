@@ -1,8 +1,7 @@
 import { ASS_EVENTS_HEAD, ASS_SCRIPT_INFO } from '../constants';
 import { getPlayRes } from '../ass';
 import { playStore } from '../store/playStore';
-import { buildAss, outputLines } from './assBuild';
-import { getStyleMap } from '../ass';
+import { buildAss, usedFonts } from './assBuild';
 import { loadFontMetrics } from '../../subtitles/metrics';
 import { subCanvas, video } from './media';
 import { systemFontFile } from '../../bridge/systemFonts';
@@ -123,12 +122,7 @@ export function syncSubs() {
  * 字体是异步就绪的，量到之前先用兜底比例，就绪后重排一次预览。
  */
 export async function refreshFontMetrics() {
-  const styleMap = getStyleMap();
-  const fonts = new Set<string>();
-  for (const line of outputLines()) {
-    const style = styleMap[line.style];
-    if (style?.font) fonts.add(String(style.font).trim());
-  }
+  const fonts = usedFonts();
   const [metricsChanged, fontsAdded] = await Promise.all([
     loadFontMetrics(fonts, bundledFontUrl).catch(() => false),
     loadSystemFonts(fonts).catch(() => false),

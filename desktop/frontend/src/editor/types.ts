@@ -16,6 +16,8 @@ export interface Seg {
   k?: import('../subtitles/types.ts').KaraokeUnit[];
   words?: unknown[];
   low_conf?: boolean;
+  /** 这一句单独绑的样式（按 lane）；没写的跟随轨道样式，见 src/subtitles/build.ts::cueStyleIn */
+  style?: import('../subtitles/types.ts').SegmentStyle;
 }
 
 /** 一条 lane（原文/译文）的展示元数据 */

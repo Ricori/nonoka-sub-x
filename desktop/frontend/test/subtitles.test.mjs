@@ -63,6 +63,23 @@ test("绑到本机没有的样式回退 origin/cn，整条线不会消失", () =
   assert.match(ass, /,cn,默认轨,0,0,0,,你好/);
 });
 
+test("句子单独绑的样式盖过轨道样式；没绑的 lane 和查无此样式的都跟随轨道", () => {
+  const styled = {
+    ...document,
+    subtitles: [
+      { t0: 1, t1: 2, ja: "一", zh: "壹", style: { zh: "note" } },
+      { t0: 2, t1: 3, ja: "二", zh: "贰", style: { ja: "不存在" } },
+      { t0: 3, t1: 4, ja: "三", zh: "叁" },
+    ],
+  };
+  const ass = documentAss(styled, DEFAULT_STYLE_SHEET);
+  assert.match(ass, /,note,默认轨,0,0,0,,壹/);
+  assert.match(ass, /,origin,默认轨,0,0,0,,一/);
+  assert.match(ass, /,origin,默认轨,0,0,0,,二/);
+  assert.match(ass, /,cn,默认轨,0,0,0,,贰/);
+  assert.match(ass, /,cn,默认轨,0,0,0,,叁/);
+});
+
 test("统一特效绑定按 lane 覆盖 track/all", () => {
   const affected = {
     ...document,

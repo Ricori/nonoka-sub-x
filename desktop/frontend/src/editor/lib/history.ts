@@ -33,6 +33,7 @@ function cloneSegs(arr: Seg[]): Seg[] {
     if (s.k) o.k = s.k;               // K 轴同样只被整体替换，浅引用即可
     if (s.words) o.words = s.words;   // words 只被整体替换、不原地改，浅引用即可
     if (s.low_conf) o.low_conf = true;
+    if (s.style) o.style = { ...s.style };   // 改单句样式是就地写字段，得深一层
     return o;
   });
 }

@@ -1,6 +1,6 @@
 import { fontsMissing, getStyleMap, getStyleSheet } from '../ass';
 import { docStore } from '../store/docStore';
-import { buildAssFrom, outputLinesOf, piecesAss, unknownStylesOf } from '../../subtitles/build';
+import { buildAssFrom, outputLinesOf, piecesAss, unknownStylesOf, usedStylesOf } from '../../subtitles/build';
 import type { Piece } from '../../subtitles/pieces.ts';
 import type { OutputLine } from '../../subtitles/build';
 import type { SubtitleSource } from '../../subtitles/types';
@@ -28,13 +28,16 @@ export const buildAss = (): string => buildAssFrom(docSource(), getStyleSheet())
 /** 成片 ASS：在整片那份外面包一层，按视频轨片段映射到成片时间 */
 export const buildPiecesAss = (pieces: readonly Piece[]): string => piecesAss(buildAss(), pieces);
 
-/** 当前会真的出现在画面上的那些样式所引用的字体里，系统找不到的那部分 */
-export function missingFonts(): Promise<string[]> {
+/** 会真的出现在画面上的那些样式（轨道的 + 句子单独绑的）所引用的字体 */
+export function usedFonts(): Set<string> {
   const styleMap = getStyleMap();
-  const names = new Set<string>();
-  for (const L of outputLines()) {
-    const st = styleMap[L.style];
-    if (st && st.font) names.add(String(st.font).trim());
+  const fonts = new Set<string>();
+  for (const name of usedStylesOf(docSource(), getStyleSheet())) {
+    const st = styleMap[name];
+    if (st && st.font) fonts.add(String(st.font).trim());
   }
-  return fontsMissing([...names]);
+  return fonts;
 }
+
+/** 当前会真的出现在画面上的那些样式所引用的字体里，系统找不到的那部分 */
+export const missingFonts = (): Promise<string[]> => fontsMissing([...usedFonts()]);

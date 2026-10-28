@@ -22,10 +22,12 @@ export interface SubtitleBox {
   index: number;
   trackId: string;
   lang: Lang;
-  /** 已经过 resolveStyle 回退的样式名——画面上真正生效的那个 */
+  /** 画面上真正生效的样式名：句子自己绑的优先，否则是经 resolveStyle 回退的轨道样式 */
   styleName: string;
-  /** 绑定上写的名字；样式表里没有它时与 styleName 不同 */
+  /** 轨道绑定上写的名字；样式表里没有它时与 styleName 不同 */
   boundStyle: string | null;
+  /** 这一句自己绑的样式（没绑为 null）；样式表里没有它时照样跟随轨道 */
+  ownStyle: string | null;
   trackName: string;
   seg: Seg | null;
   text: string;
@@ -77,11 +79,11 @@ export function subtitleBoxesAt(t = playStore.get().t): SubtitleBox[] {
   const sheet = getStyleSheet();
   const boxes: SubtitleBox[] = [];
   outputLines().forEach((line, index) => {
-    const style = sheet.styleMap[line.style];
-    if (!style) return;
     // 时间口径必须与 buildAssFrom 一致：钳重叠会改出点，自己再算一遍就会选错句
-    const cue = cuesOf(line).find(c => t >= c.t0 && t < c.t1);
+    const cue = cuesOf(line, sheet).find(c => t >= c.t0 && t < c.t1);
     if (!cue) return;
+    const style = sheet.styleMap[cue.style];
+    if (!style) return;
     // 取原始文本：assTx 会把换行转成 \N，layoutBlock 认的是 \n
     const text = (cue.segment[line.lang] || "").trim();
     if (!text) return;
@@ -89,8 +91,9 @@ export function subtitleBoxesAt(t = playStore.get().t): SubtitleBox[] {
       index,
       trackId: line.trackId,
       lang: line.lang,
-      styleName: line.style,
+      styleName: cue.style,
       boundStyle: line.meta.style,
+      ownStyle: cue.segment.style?.[line.lang] ?? null,
       trackName: line.name,
       seg: cue.segment as Seg,
       text,
@@ -123,6 +126,7 @@ export function boxForLane(lane: LaneRef, t = playStore.get().t): SubtitleBox | 
     lang: line.lang,
     styleName: line.style,
     boundStyle: line.meta.style,
+    ownStyle: null,
     trackName: line.name,
     seg: null,
     text: "",

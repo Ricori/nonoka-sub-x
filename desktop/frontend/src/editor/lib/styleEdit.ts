@@ -1,9 +1,9 @@
 import { assStyles } from '../../bridge/assStyles';
-import { lanesUsingStyle } from '../../subtitles/build';
+import { lanesUsingStyle, segsUsingStyle } from '../../subtitles/build';
 import type { StyleBinding } from '../../subtitles/build';
 import { DEFAULT_EFFECT_TRACK_ID } from '../../subtitles/effects';
 import {
-  cloneStyleText, patchStyleText, styleFieldsOf, uniqueStyleName,
+  cloneStyleText, patchStyleText, removeStyleText, styleFieldsOf, uniqueStyleName,
 } from '../../subtitles/styleEdit';
 import type { StylePatch } from '../../subtitles/styleEdit';
 import { getStyleNames, getStyleSheet, resolveStyle, setStyleSheet } from '../ass';
@@ -12,10 +12,10 @@ import { bumpDoc, docStore } from '../store/docStore';
 import { markDirty } from '../store/saveStore';
 import { toast } from '../store/uiStore';
 import { docSource } from './assBuild';
-import { bindStyle } from './edits';
+import { bindStyle, refreshAll } from './edits';
 import { pushHistory } from './history';
 import { refreshFontMetrics, syncSubs } from './subtitles';
-import type { Lang } from '../types';
+import type { Lang, Seg } from '../types';
 
 /**
  * 样式表的写入口。样式跟着视频走（document.json 的 styles 字段），所以这里只管
@@ -94,6 +94,58 @@ export function cloneStyleForLane(trackId: string, lang: Lang): string | null {
   bindStyle(lang, name, target);   // 自带 refreshAll() + markDirty()
   return name;
 }
+
+/**
+ * 为单句的某条 lane 复制一份专属样式并改绑：从这一句当前实际用的样式复制，
+ * 复制 + 改绑合成一个撤销步。base 是新名字的词干，默认沿用原名。
+ */
+export function cloneStyleForSeg(seg: Seg, lang: Lang, current: string, base = current): string | null {
+  if (!getStyleNames().includes(current)) return null;
+  const name = uniqueStyleName(base, getStyleNames());
+  pushHistory();
+  setDocStyles(cloneStyleText(docStore.get().styles, current, name).text);
+  seg.style = { ...seg.style, [lang]: name };
+  refreshAll();
+  return name;
+}
+
+// 「跟随轨道样式」开关关掉时自动复制出来的专属样式，名字都带这个前缀（专属样式_你好世界、
+// 撞名时 专属样式_你好世界 2…）。开关重新打开、这份样式又没人用了，就靠它认出来顺手删掉，
+// 免得来回拨几下样式表里堆满副本；用户自己建的样式不会带这个前缀，不会被误删。
+const SEG_COPY_PREFIX = "专属样式_";
+const isSegCopy = (name: string) => name.startsWith(SEG_COPY_PREFIX);
+
+/**
+ * 专属样式的名字：前缀 + 这一句的前 4 个字。空白和逗号先去掉——逗号会截断 Style 行，
+ * 末尾的「空格+数字」又会被 uniqueStyleName 当成撞名序号削掉。
+ */
+const segCopyName = (seg: Seg, lang: Lang) =>
+  SEG_COPY_PREFIX + Array.from((seg[lang] || "").replace(/[\s,]/g, "")).slice(0, 4).join("");
+
+/** 「跟随轨道样式」关：从这一句眼下的样式（即轨道样式）复制一份专属样式并改绑 */
+export const detachSegStyle = (seg: Seg, lang: Lang, current: string): string | null =>
+  cloneStyleForSeg(seg, lang, current, segCopyName(seg, lang));
+
+/**
+ * 「跟随轨道样式」开：取消这一句的专属样式。那份样式是开关自动复制出来的、
+ * 又没有别的轨道或句子用着，就从样式表里一起删掉（同一个撤销步）。
+ */
+export function followTrackStyle(seg: Seg, lang: Lang) {
+  const own = seg.style?.[lang];
+  if (!own) return;
+  pushHistory();
+  delete seg.style![lang];
+  if (!seg.style!.ja && !seg.style!.zh) delete seg.style;
+  if (isSegCopy(own) && !stylesInUse(own).some(b => b.direct) && !segsUsingStyle(docSource(), own)) {
+    setDocStyles(removeStyleText(docStore.get().styles, own));
+  } else {
+    markDirty();
+  }
+  refreshAll();
+}
+
+/** 有多少个字幕块单独绑了这个样式（给「改动会一起生效」的提示用） */
+export const segsUsingStyleCount = (name: string): number => segsUsingStyle(docSource(), name);
 
 /**
  * 绑定指向的样式本机没有、正按 origin/cn 回退显示时，用当前这副样子把它落成真样式。

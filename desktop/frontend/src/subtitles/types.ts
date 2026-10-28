@@ -41,7 +41,12 @@ export interface SubtitleSegment {
   k?: KaraokeUnit[];
   /** 转写中间产物里的词级时间戳，K 轴由它生成 */
   words?: unknown[];
+  /** 这一句单独绑的样式，按 lane 分；没写（或样式表里没有）的 lane 跟随轨道样式 */
+  style?: SegmentStyle;
 }
+
+/** 字幕句自己的样式覆盖：只存设了的那条 lane */
+export type SegmentStyle = Partial<Record<Lang, string>>;
 
 /** 自定义轨：与默认轨同构的双 lane */
 export interface SubtitleTrack {

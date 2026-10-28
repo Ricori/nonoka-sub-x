@@ -8,14 +8,15 @@ import { video } from '../../lib/media';
 import { boxForLane } from '../../lib/stageHit';
 import type { LaneRef } from '../../lib/stageHit';
 import {
-  cloneStyleForLane, materializeMissingStyle, patchStyleFromPanel, stylesInUse, styleFields,
+  cloneStyleForLane, cloneStyleForSeg, detachSegStyle, followTrackStyle, materializeMissingStyle,
+  patchStyleFromPanel, segsUsingStyleCount, stylesInUse, styleFields,
 } from '../../lib/styleEdit';
 import { DEFAULT_EFFECT_TRACK_ID } from '../../../subtitles/effects';
 import { bindStyle } from '../../lib/edits';
 import { docStore } from '../../store/docStore';
 import { modalStore, toast } from '../../store/uiStore';
 import { systemFonts } from '../../../bridge/systemFonts';
-import { PropRow, Segmented, SideSection, SliderField, ToggleChip } from '../ui/fields';
+import { PropRow, Segmented, SideSection, SliderField, Switch, ToggleChip } from '../ui/fields';
 import { ColorField } from '../ui/ColorField';
 import { StyleSelect } from '../SideTrackPanel';
 import { ignoresMarginV } from '../../../subtitles/layout';
@@ -76,6 +77,7 @@ export function StyleBar({ lane }: { lane: LaneRef }) {
   }, [styles]);
 
   const bindings = useMemo(() => (name ? stylesInUse(name) : []), [name, styles, version]);
+  const blockUses = useMemo(() => (name ? segsUsingStyleCount(name) : 0), [name, styles, version]);
   // 缺字检测是异步的（@font-face 懒加载，没先 load 一遍量到的是回退字体）
   const fontName = fields?.fontname ?? "";
   useEffect(() => {
@@ -117,10 +119,22 @@ export function StyleBar({ lane }: { lane: LaneRef }) {
   const vAlign = Math.floor((align - 1) / 3);
   const play = getPlayRes();
   const media = video();
-  // 绑定写的名字这份样式表里没有，正按 origin/cn 顶着用
-  const unbound = box.boundStyle && !getStyleNames().includes(box.boundStyle) ? box.boundStyle : null;
-  const shared = bindings.filter(binding => binding.direct).length > 1
+  // 画面上这一块用的是它自己绑的样式（不是轨道样式）：下面的改动改的就是那个样式
+  const ownActive = !!box.ownStyle && box.ownStyle === name;
+  // 绑定写的名字这份样式表里没有：轨道的按 origin/cn 顶着用，句子的跟随轨道
+  const ownMissing = box.ownStyle && !ownActive ? box.ownStyle : null;
+  const unbound = !ownActive && box.boundStyle && !getStyleNames().includes(box.boundStyle)
+    ? box.boundStyle : null;
+  // 用着这个样式的轨道 lane 和单独绑了它的字幕块，加起来不止一处就是共用
+  const users = bindings.length + blockUses;
+  const shared = bindings.filter(binding => binding.direct).length + blockUses > 1
     || bindings.some(binding => !binding.direct);
+  const sharedTitle = [
+    ...bindings.map(b => `${b.trackName} · ${b.lang === "ja" ? "原文" : "译文"}`),
+    ...(blockUses ? [`${blockUses} 个字幕块单独绑了它`] : []),
+  ].join("\n");
+  const sharedText = [bindings.length ? `${bindings.length} 条轨` : "", blockUses ? `${blockUses} 个字幕块` : ""]
+    .filter(Boolean).join(" + ");
 
   // 这条 lane 在绑定上对应哪个目标：默认轨存在 trackMeta 里，自定义轨按 id 找下标
   const laneTarget = box.trackId === DEFAULT_EFFECT_TRACK_ID
@@ -133,23 +147,46 @@ export function StyleBar({ lane }: { lane: LaneRef }) {
   return (
     <div className="style-bar">
       <SideSection title="样式">
-        <PropRow label="轨道样式" title="这条轨的这一行用哪个样式；下面的改动改的是这个样式本身">
+        <PropRow label="轨道样式" title="这条轨的这一行用哪个样式；「跟随轨道样式」开着时，下面的改动改的就是它">
           <StyleSelect lang={box.lang} value={box.boundStyle}
             onPick={value => bindStyle(box.lang, value, laneTarget)} />
         </PropRow>
-        {bindings.length > 1 && (
+        {/* 默认开；画面上这一刻没有字幕（空隙里）时没有句子可脱离轨道，开着置灰 */}
+        <PropRow label="跟随轨道"
+          title={ownActive
+            ? `关：下面的改动只改这一句的专属样式`
+            : "开：下面的改动改的是轨道样式，整条轨一起变"}>
+          <Switch on={!ownActive} disabled={!box.seg}
+            title={!box.seg ? "画面上这一刻没有字幕，改动作用于轨道样式"
+              : ownActive ? "改回跟随轨道样式" : "为这一句复制专属样式"}
+            onToggle={() => {
+              const seg = box.seg;
+              if (!seg) return;
+              if (ownActive) { followTrackStyle(seg, box.lang); return; }
+              const created = detachSegStyle(seg, box.lang, name);
+              if (created) toast("已为这一句复制专属样式「" + created + "」");
+            }} />
+        </PropRow>
+        {users > 1 && (
           <div className={"sd-shared" + (shared ? " warn" : "")}>
-            <span title={bindings.map(b => `${b.trackName} · ${b.lang === "ja" ? "原文" : "译文"}`).join("\n")}>
-              {bindings.length} 条轨共用样式，改动会一起生效
-            </span>
-            <button type="button" className="side-text-btn" title="改成只作用于这条轨道，之后拖动不再影响别人"
+            <span title={sharedTitle}>{sharedText}共用样式，改动会一起生效</span>
+            <button type="button" className="side-text-btn"
+              title={ownActive ? "复制一份只给这一句用" : "改成只作用于这条轨道，之后拖动不再影响别人"}
               onClick={() => {
-                const created = cloneStyleForLane(box.trackId, box.lang);
+                const created = ownActive && box.seg
+                  ? cloneStyleForSeg(box.seg, box.lang, name)
+                  : cloneStyleForLane(box.trackId, box.lang);
                 if (created) toast("已复制专属样式「" + created + "」并改绑");
               }}>复制专属样式</button>
           </div>
         )}
       </SideSection>
+
+      {ownMissing && (
+        <div className="sb-note">
+          <span>这一句绑的是样式表里没有的「{ownMissing}」，正跟随轨道样式 {name} 显示</span>
+        </div>
+      )}
 
       {unbound && (
         <div className="sb-note">

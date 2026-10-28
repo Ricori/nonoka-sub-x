@@ -25,6 +25,17 @@ import type { Lang, Seg, Track } from "../types";
 import { normalizePieces } from "../../subtitles/pieces.ts";
 import { vselStore } from "../store/vselStore";
 
+/** 句子自己的样式覆盖：只留非空的字符串，一条都没有就整个不要 */
+function normalizeSegStyle(raw: unknown): Seg["style"] | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const out: NonNullable<Seg["style"]> = {};
+  for (const lang of ["ja", "zh"] as Lang[]) {
+    const name = (raw as Record<string, unknown>)[lang];
+    if (typeof name === "string" && name) out[lang] = name;
+  }
+  return out.ja || out.zh ? out : undefined;
+}
+
 function mapSegs(items: unknown[]): Seg[] {
   const out = (items ?? []).map((item) => {
     const value = item as Partial<Seg>;
@@ -38,6 +49,8 @@ function mapSegs(items: unknown[]): Seg[] {
     const karaoke = normalizeKaraoke(value.k);
     if (karaoke.length) segment.k = karaoke;
     if (value.low_conf) segment.low_conf = true;
+    const style = normalizeSegStyle(value.style);
+    if (style) segment.style = style;
     return segment;
   }).sort((left, right) => left.t0 - right.t0);
   for (let index = 0; index < out.length - 1; index++) {

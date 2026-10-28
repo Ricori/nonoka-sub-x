@@ -3930,6 +3930,18 @@ body.ctx-open .professional-editor .topbar {
   border-color: color-mix(in srgb, var(--accent) 65%, transparent);
 }
 
+/* 单独绑了样式的块：右上角一个小三角，与跟随轨道的块区分开 */
+.professional-editor .blk.own-style::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 0;
+  border-style: solid;
+  border-width: 0 7px 7px 0;
+  border-color: transparent var(--accent) transparent transparent;
+  pointer-events: none;
+}
+
 .professional-editor .blk .txt {
   flex: 1;
   padding: 0 8px;

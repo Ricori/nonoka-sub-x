@@ -140,6 +140,7 @@ export function splitAtPlayhead() {
   }
   if (zh) s.zh = zh[0];
   if (s.low_conf) b.low_conf = true;
+  if (s.style) b.style = { ...s.style };   // 拆开的两半都还是这一句，样式一起带走
   s.t1 = t;
   arr.splice(sel + 1, 0, b);
   refreshAll(); markDirty();

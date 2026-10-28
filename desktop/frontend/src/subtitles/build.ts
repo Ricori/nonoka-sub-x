@@ -291,18 +291,49 @@ const GENERATORS: Record<string, (line: OutputLine, segment: SubtitleSegment, st
 export const generatorOf = (line: OutputLine): SubtitleEffectBinding | undefined =>
   line.effects.find(effect => GENERATORS[effect.templateId]);
 
-/** 有绑定、但样式表里查不到的样式名（这些线会回退到 origin/cn 照常出图） */
+/**
+ * 有绑定、但样式表里查不到的样式名。轨道绑定的会回退到 origin/cn，句子自己绑的
+ * 会回退到轨道样式——两种都照常出图，只是换了副样子。
+ */
 export function unknownStylesOf(source: SubtitleSource, sheet: StyleSheet): string[] {
   const miss = new Set<string>();
   const chk = (lane: LaneMeta | undefined) => {
     if (lane && lane.style && !sheet.styleMap[lane.style]) miss.add(lane.style);
   };
+  const chkSegs = (segs: SubtitleSegment[]) => {
+    for (const s of segs) for (const name of Object.values(s.style ?? {}))
+      if (name && !sheet.styleMap[name]) miss.add(name);
+  };
   if (source.trackMeta) { chk(source.trackMeta.zh); chk(source.trackMeta.ja); }
-  for (const tr of source.tracks) { chk(tr.zh); chk(tr.ja); }
+  chkSegs(source.segs);
+  for (const tr of source.tracks) { chk(tr.zh); chk(tr.ja); chkSegs(tr.segs); }
   return [...miss];
 }
 
-export interface BuiltCue { segment: SubtitleSegment; t0: number; t1: number; text: string }
+/** 一句在某条线上实际用的样式：句子自己绑了、且样式表里有，就用它；否则跟随轨道 */
+export const cueStyleIn = (sheet: StyleSheet, segment: SubtitleSegment, line: OutputLine): string => {
+  const own = segment.style?.[line.lang];
+  return own && sheet.styleMap[own] ? own : line.style;
+};
+
+/** 会真的出现在画面上的样式名（轨道的 + 句子自己绑的），查缺字、量度量用 */
+export function usedStylesOf(source: SubtitleSource, sheet: StyleSheet): Set<string> {
+  const names = new Set<string>();
+  for (const line of outputLinesOf(source, sheet)) {
+    names.add(line.style);
+    for (const s of line.arr) if ((s[line.lang] || "").trim()) names.add(cueStyleIn(sheet, s, line));
+  }
+  return names;
+}
+
+export interface BuiltCue {
+  segment: SubtitleSegment;
+  t0: number;
+  t1: number;
+  text: string;
+  /** 这一句实际用的样式（见 cueStyleIn） */
+  style: string;
+}
 
 /**
  * 一条输出线上真正会出图的那些句，按时间排好、重叠钳好。
@@ -310,10 +341,13 @@ export interface BuiltCue { segment: SubtitleSegment; t0: number; t1: number; te
  * 预览里的命中测试必须复用它：钳重叠这一步会改出点，自己再算一遍的话，边界处点到的
  * 会是另一句。
  */
-export function cuesOf(line: OutputLine): BuiltCue[] {
+export function cuesOf(line: OutputLine, sheet: StyleSheet): BuiltCue[] {
   // 组内按时间排：全片一起排会让晚开口的高优先级线被挤走
   const cues = line.arr.filter(s => (s[line.lang] || "").trim())
-    .map(s => ({ segment: s, t0: s.t0, t1: s.t1, text: transformTag(line) + assTx(s[line.lang]) }))
+    .map(s => ({
+      segment: s, t0: s.t0, t1: s.t1, text: transformTag(line) + assTx(s[line.lang]),
+      style: cueStyleIn(sheet, s, line),
+    }))
     .sort((a, b) => a.t0 - b.t0 || a.t1 - b.t1);
   // 同一条线内相邻句的毫秒级重叠（ASR 数据自带）会被当成碰撞，
   // 把后一句整句顶离贴边位——前句出点一律钳到后句入点
@@ -357,17 +391,31 @@ export function lanesUsingStyle(source: SubtitleSource, sheet: StyleSheet, name:
   return found;
 }
 
+/** 有多少个字幕块（一句的一条 lane）单独绑了这个样式。藏起来的轨也算，口径同 lanesUsingStyle */
+export function segsUsingStyle(source: SubtitleSource, name: string): number {
+  let count = 0;
+  const scan = (segs: SubtitleSegment[]) => {
+    for (const s of segs) {
+      if (s.style?.ja === name) count++;
+      if (s.style?.zh === name) count++;
+    }
+  };
+  scan(source.segs);
+  for (const track of source.tracks) scan(track.segs);
+  return count;
+}
+
 export function buildAssFrom(source: SubtitleSource, sheet: StyleSheet): string {
   const evs: string[] = [];
   for (const L of outputLinesOf(source, sheet)) {
     const generator = generatorOf(L);
-    const style = sheet.styleMap[L.style];
-    for (const e of cuesOf(L)) {
+    for (const e of cuesOf(L, sheet)) {
+      const style = sheet.styleMap[e.style];
       const built = generator && style
         ? GENERATORS[generator.templateId](L, { ...e.segment, t0: e.t0, t1: e.t1 }, style, sheet, generator)
         : [{ layer: 0, t0: e.t0, t1: e.t1, text: e.text }];
       for (const event of built)
-        evs.push(`Dialogue: ${event.layer},${assTs(event.t0)},${assTs(event.t1)},${L.style},${assNm(L.name)},0,0,0,,${event.text}`);
+        evs.push(`Dialogue: ${event.layer},${assTs(event.t0)},${assTs(event.t1)},${e.style},${assNm(L.name)},0,0,0,,${event.text}`);
     }
   }
   return assHeadOf(sheet) + ASS_EVENTS_HEAD + evs.join("\n") + "\n";
