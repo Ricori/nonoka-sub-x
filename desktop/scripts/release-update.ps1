@@ -6,8 +6,7 @@ param(
     [string]$NotesFile = "CHANGELOG.md",
     [switch]$VersionOnly,
     [switch]$SkipBuild,
-    [switch]$Publish,
-    [switch]$PublishLegacyUpdatePathOnce
+    [switch]$Publish
 )
 
 $ErrorActionPreference = "Stop"
@@ -98,10 +97,6 @@ if ($Publish) {
     }
     $publisher = Join-Path $PSScriptRoot "publish-update.mjs"
     $outputDir = Join-Path (Join-Path $projectRoot "bin\update") $Version
-    $publishArguments = @($publisher, "--dir", $outputDir)
-    if ($PublishLegacyUpdatePathOnce) {
-        $publishArguments += "--publish-legacy-update-path-once"
-    }
-    & $node @publishArguments
+    & $node $publisher --dir $outputDir
     if ($LASTEXITCODE -ne 0) { throw "Failed to publish update artifacts to R2" }
 }

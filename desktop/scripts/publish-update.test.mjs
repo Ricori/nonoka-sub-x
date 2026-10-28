@@ -24,7 +24,7 @@ function artifact(platform, arch, filename, content) {
   };
 }
 
-async function runPublisher(localManifest, files, remoteManifest, publisherArguments = []) {
+async function runPublisher(localManifest, files, remoteManifest) {
   const directory = mkdtempSync(path.join(tmpdir(), "nonoka-publish-"));
   const requests = [];
   writeFileSync(path.join(directory, "latest.json"), JSON.stringify(localManifest));
@@ -52,7 +52,7 @@ async function runPublisher(localManifest, files, remoteManifest, publisherArgum
   const address = server.address();
   try {
     const result = await new Promise(resolve => {
-      const child = spawn(process.execPath, [publisher, "--dir", directory, ...publisherArguments], {
+      const child = spawn(process.execPath, [publisher, "--dir", directory], {
         env: {
           ...process.env,
           R2_ACCOUNT_ID: "test-account",
@@ -108,18 +108,17 @@ test("does not merge artifacts from another release version", async () => {
   assert.deepEqual(result.published.artifacts.map(artifactKey), ["windows/amd64"]);
 });
 
-test("publishes the renamed release to the legacy update path only when requested", async () => {
-  const content = Buffer.from("transition-update");
+test("publishes only to the configured bucket and prefix", async () => {
+  const content = Buffer.from("windows-update");
   const windows = artifact("windows", "amd64", "Nonoka-X-0.5.3-windows-amd64.exe", content);
   const result = await runPublisher(
     manifest("0.5.3", [windows]),
     { [windows.url]: content },
     null,
-    ["--publish-legacy-update-path-once"],
   );
   const urls = result.requests.map(request => request.url);
-  assert.equal(urls.filter(url => url.startsWith("/test-bucket/desktop-updates/")).length, 3);
-  assert.equal(urls.filter(url => url.startsWith("/youtube-live-cache/nonoka-x-updates/wails/")).length, 3);
+  assert.equal(urls.length, 3);
+  assert.ok(urls.every(url => url.startsWith("/test-bucket/desktop-updates/")));
 });
 
 function artifactKey(value) {

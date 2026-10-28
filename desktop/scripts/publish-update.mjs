@@ -7,12 +7,8 @@ import { GetObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3
 const scriptsDir = path.dirname(fileURLToPath(import.meta.url));
 const root = path.dirname(scriptsDir);
 // Releases live under their own prefix in the nonoka-x-cloud bucket, served
-// publicly as cloudfile.nonoka.online/desktop-updates/. Clients up to 0.5.0
-// still poll the old bucket, so the first release after the move is also
-// written there when explicitly requested.
+// publicly as cloudfile.nonoka.online/desktop-updates/.
 const DEFAULT_PREFIX = "desktop-updates/";
-const LEGACY_BUCKET = "youtube-live-cache";
-const LEGACY_PREFIX = "nonoka-x-updates/wails/";
 
 function readArgument(name) {
   const index = process.argv.indexOf(name);
@@ -107,7 +103,6 @@ const localManifest = JSON.parse(readFileSync(manifestPath, "utf8"));
 validateManifest(localManifest);
 const localFiles = new Map(localManifest.artifacts.map(artifact => [artifactKey(artifact), verifyArtifact(directory, artifact)]));
 const prefix = normalisePrefix(process.env.R2_WAILS_PREFIX || DEFAULT_PREFIX);
-const publishLegacyPathOnce = process.argv.includes("--publish-legacy-update-path-once");
 const endpoint = process.env.R2_ENDPOINT || `https://${process.env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com`;
 const client = new S3Client({
   region: "auto",
@@ -121,42 +116,34 @@ const client = new S3Client({
   },
 });
 
-async function publishToPrefix(bucket, targetPrefix) {
-  const manifestKey = `${targetPrefix}latest.json`;
-  const remoteManifest = await readRemoteManifest(client, bucket, manifestKey);
-  const publishedManifest = mergeSameVersion(localManifest, remoteManifest);
+const bucket = process.env.R2_BUCKET;
+const manifestKey = `${prefix}latest.json`;
+const remoteManifest = await readRemoteManifest(client, bucket, manifestKey);
+const publishedManifest = mergeSameVersion(localManifest, remoteManifest);
 
-  for (const artifact of localManifest.artifacts) {
-    const file = localFiles.get(artifactKey(artifact));
-    const size = statSync(file).size;
-    process.stdout.write(`Uploading ${targetPrefix}${artifact.url} (${(size / 1024 ** 2).toFixed(1)} MB)... `);
-    await client.send(new PutObjectCommand({
-      Bucket: bucket,
-      Key: `${targetPrefix}${artifact.url}`,
-      Body: readFileSync(file),
-      ContentLength: size,
-      ContentType: contentType(file),
-      CacheControl: "public, max-age=31536000, immutable",
-    }));
-    console.log("done");
-  }
-
-  const manifestBody = Buffer.from(`${JSON.stringify(publishedManifest, null, 2)}\n`);
+for (const artifact of localManifest.artifacts) {
+  const file = localFiles.get(artifactKey(artifact));
+  const size = statSync(file).size;
+  process.stdout.write(`Uploading ${prefix}${artifact.url} (${(size / 1024 ** 2).toFixed(1)} MB)... `);
   await client.send(new PutObjectCommand({
     Bucket: bucket,
-    Key: manifestKey,
-    Body: manifestBody,
-    ContentLength: manifestBody.length,
-    ContentType: "application/json",
-    CacheControl: "no-cache",
+    Key: `${prefix}${artifact.url}`,
+    Body: readFileSync(file),
+    ContentLength: size,
+    ContentType: contentType(file),
+    CacheControl: "public, max-age=31536000, immutable",
   }));
-  console.log(`Published v${publishedManifest.version} to r2://${bucket}/${targetPrefix}`);
-  return manifestBody;
+  console.log("done");
 }
 
-const manifestBody = await publishToPrefix(process.env.R2_BUCKET, prefix);
+const manifestBody = Buffer.from(`${JSON.stringify(publishedManifest, null, 2)}\n`);
+await client.send(new PutObjectCommand({
+  Bucket: bucket,
+  Key: manifestKey,
+  Body: manifestBody,
+  ContentLength: manifestBody.length,
+  ContentType: "application/json",
+  CacheControl: "no-cache",
+}));
 writeFileSync(manifestPath, manifestBody);
-const legacyBucket = process.env.R2_LEGACY_BUCKET || LEGACY_BUCKET;
-if (publishLegacyPathOnce && !(process.env.R2_BUCKET === legacyBucket && prefix === LEGACY_PREFIX)) {
-  await publishToPrefix(legacyBucket, LEGACY_PREFIX);
-}
+console.log(`Published v${publishedManifest.version} to r2://${bucket}/${prefix}`);
