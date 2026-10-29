@@ -189,9 +189,11 @@ class RuntimeProvisioner:
             from finesub_bootstrap.resources import ResourceManager
             from finesub_bootstrap.shell import resource_specs
 
+            from nonoka_x.asset_digest import install_cloud_digest_source
             from nonoka_x.download_route import install_proxy_route_policy
 
             install_proxy_route_policy()
+            install_cloud_digest_source()
             self.paths = AppPaths.for_root(
                 install_root,
                 data_root=self.data_dir / "finesub-data",
