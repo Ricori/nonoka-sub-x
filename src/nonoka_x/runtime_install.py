@@ -27,6 +27,7 @@ from finesub_bootstrap.models import DownloadAsset, DownloadProgress
 from finesub_bootstrap.runtime_health import site_packages_of
 
 from nonoka_x.download_route import live_proxy, proxy_label
+from nonoka_x.msvc_runtime import explaining, msvc_runtime_problem
 
 
 # PyTorch's package index does not publish wheel sizes, so uv cannot put them
@@ -128,6 +129,7 @@ class ProgressRuntimeEnvironment(RuntimeEnvironment):
     def __init__(self, *, download_progress: ProgressCallback, **values: Any) -> None:
         super().__init__(**values)
         self.download_progress = download_progress
+        self.runtime_validator = explaining(self.runtime_validator)
 
     def _install_dependencies(
         self,
@@ -292,8 +294,15 @@ class ProgressRuntimeEnvironment(RuntimeEnvironment):
         the rebuild builds a separate staging tree and never reads the live one.
         A pause is the user's cancellation and is not turned into a rebuild --
         the marker is still the old one, so the next attempt updates again.
+
+        A machine whose VC++ runtime cannot load torch is refused before any
+        download: the install would only fail in its import probe, gigabytes
+        later. A runtime that is already ready is left alone.
         """
 
+        problem = msvc_runtime_problem()
+        if problem is not None and (force or self.status().state != "ready"):
+            raise RuntimeError(problem)
         if not force and self.condition() == "outdated":
             try:
                 return self._update_in_place(
