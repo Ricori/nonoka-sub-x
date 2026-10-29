@@ -49,8 +49,11 @@ def emit(event_type: str, payload: Mapping[str, Any] | None = None) -> None:
 # the part worth surfacing, and they are the ones that carry `why`: the
 # endpoint's own words (`llm_runtime`), which is exactly what tells a rate
 # limit apart from a spent key apart from a hung stage. Successes stay in the
-# run log and the per-call artifacts, where nothing is lost.
+# run log and the per-call artifacts, where nothing is lost -- except the slow
+# ones: a call that took minutes is where a stage's time went, and without it a
+# 30-minute preparation task showed no line at all between two timestamps.
 _API_CALL_MESSAGE = "llm api call"
+_SLOW_API_CALL_SECONDS = 60.0
 
 # audio-separator checks ONNXruntime execution providers on initialization and
 # logs a warning if onnxruntime-gpu is missing. FineSub uses PyTorch CUDA and
@@ -71,6 +74,13 @@ def _install_separator_logging_filters() -> None:
 
 
 _install_separator_logging_filters()
+
+
+def _is_slow_call(fields: Mapping[str, Any]) -> bool:
+    try:
+        return float(fields.get("sec") or 0) >= _SLOW_API_CALL_SECONDS
+    except (TypeError, ValueError):
+        return False
 
 
 class NonokaXReporter:
@@ -114,7 +124,7 @@ class NonokaXReporter:
 
     def debug(self, message: str, fields=None) -> None:
         values = dict(fields or {})
-        if message == _API_CALL_MESSAGE and not values.get("why"):
+        if message == _API_CALL_MESSAGE and not values.get("why") and not _is_slow_call(values):
             return
         emit("log", {"message": message, "fields": values})
 

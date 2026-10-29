@@ -1,0 +1,147 @@
+Subject: [PATCH 11/11] Say what a long LLM call is doing while it runs
+
+Reason: On 2026-10-29 a desktop task logged nothing for 29 minutes between
+the routing notes and the first correction window. The preparation task was
+waiting on a slow OpenAI-compatible model: its successful calls log only at
+`debug` (which Nonoka X keeps out of the task log), parse retries go only to
+the artifacts, and the soft timeout -- 180 s plus the allowed output at
+25 tok/s, about 47 minutes for a 64k answer -- was nowhere near. From the
+desktop it was indistinguishable from a hang.
+
+Three lines now fill that gap. `_call_and_parse` says at `debug` when a
+research round starts waiting and, once the reply is back, which model
+answered and how long it took. A reply that cannot be parsed and will be asked
+for again is a `research-parse-retry` warning, because each retry is a whole
+new generation. `_SoftDeadline` also notes every 5 minutes that a call is
+still in flight (`llm api call still waiting`), before and after the soft
+deadline; the soft-timeout warning itself is unchanged. Nothing about the
+calls, their timeouts or their results changes; cloud-shared, it only adds
+log lines.
+
+Removal: Delete once upstream reports in-flight calls and research rounds.
+
+diff --git a/src/finesub/llm/llm_runtime.py b/src/finesub/llm/llm_runtime.py
+index 432e779..6a2601b 100644
+--- a/src/finesub/llm/llm_runtime.py
++++ b/src/finesub/llm/llm_runtime.py
+@@ -62,33 +62,65 @@ def api_timeouts(max_tokens: Optional[int]) -> ApiTimeouts:
+     return ApiTimeouts(soft=soft, hard=soft * factor)
+ 
+ 
++#: How often a call still in flight says so. The soft deadline is sized for the
++#: largest allowed answer -- 47 minutes at the 64k default -- so a slow call
++#: could otherwise run half an hour without a line in the log.
++WAIT_HEARTBEAT_SECONDS = 300.0
++
++
+ class _SoftDeadline:
+-    """Say so once a call outlives its soft deadline, without touching the call.
++    """Say so once a call outlives its soft deadline, without touching the call,
++    and note every `heartbeat` seconds that it is still waiting.
+ 
+-    The warning fires from a timer thread, which has no reporter of its own
++    Both fire from a watcher thread, which has no reporter of its own
+     (`current_reporter` is thread-local), so the caller's reporter is captured
+     here, on the calling thread.
+     """
+ 
+-    def __init__(self, seconds: float, *, model: str, hard: float) -> None:
++    def __init__(
++        self,
++        seconds: float,
++        *,
++        model: str,
++        hard: float,
++        heartbeat: float = WAIT_HEARTBEAT_SECONDS,
++    ) -> None:
+         self.seconds = seconds
++        self.heartbeat = heartbeat
+         self._reporter = current_reporter()
+-        self._timer = threading.Timer(seconds, self._fire, kwargs={"model": model, "hard": hard})
+-        self._timer.daemon = True
+-
+-    def _fire(self, *, model: str, hard: float) -> None:
+-        self._reporter.warning(
+-            "llm-api-soft-timeout",
+-            f"{model} has not answered after {self.seconds:.0f}s (soft timeout); "
+-            f"still waiting, up to {hard:.0f}s.",
++        self._done = threading.Event()
++        self._thread = threading.Thread(
++            target=self._watch, kwargs={"model": model, "hard": hard}, daemon=True
+         )
+ 
++    def _watch(self, *, model: str, hard: float) -> None:
++        started = time.monotonic()
++        warned = False
++        while True:
++            elapsed = time.monotonic() - started
++            next_beat = (elapsed // self.heartbeat + 1) * self.heartbeat
++            until = next_beat if warned else min(next_beat, self.seconds)
++            if self._done.wait(max(0.0, until - elapsed)):
++                return
++            elapsed = time.monotonic() - started
++            if not warned and elapsed >= self.seconds:
++                warned = True
++                self._reporter.warning(
++                    "llm-api-soft-timeout",
++                    f"{model} has not answered after {self.seconds:.0f}s (soft timeout); "
++                    f"still waiting, up to {hard:.0f}s.",
++                )
++            else:
++                self._reporter.debug(
++                    "llm api call still waiting", {"model": model, "sec": f"{elapsed:.0f}"}
++                )
++
+     def __enter__(self) -> "_SoftDeadline":
+-        self._timer.start()
++        self._thread.start()
+         return self
+ 
+     def __exit__(self, *_exc: object) -> None:
+-        self._timer.cancel()
++        self._done.set()
+ 
+ 
+ # Default safety thresholds false-positive on ordinary subtitle material (a
+diff --git a/src/finesub/llm/research.py b/src/finesub/llm/research.py
+index be7d0ba..26e7e82 100644
+--- a/src/finesub/llm/research.py
++++ b/src/finesub/llm/research.py
+@@ -533,6 +533,13 @@ def _call_and_parse(
+     last_error: Exception | None = None
+     session_base = artifact_kind.removesuffix("_response")
+     for attempt in range(max_parse_retries + 1):
++        # A preparation turn sends the whole transcript and may think for many
++        # minutes; without these lines the run log shows nothing between the
++        # routing notes and the first window, which reads as a hang.
++        current_reporter().debug(
++            f"research {round_name}: waiting for the model", {"attempt": attempt}
++        )
++        call_started = time.monotonic()
+         try:
+             result = client.complete(
+                 role,
+@@ -621,6 +628,23 @@ def _call_and_parse(
+             parse_error = (
+                 f"prompt blocked by content filter (finish_reason={finish_reason})"
+             )
++        current_reporter().debug(
++            f"research {round_name}: answered",
++            {
++                "model": result.model,
++                "attempt": attempt,
++                "sec": f"{time.monotonic() - call_started:.1f}",
++            },
++        )
++        if parse_error and not prompt_blocked and attempt < max_parse_retries:
++            # Each retry is a whole new generation, so it doubles the wait; say
++            # so rather than leaving it to the artifacts.
++            current_reporter().warning(
++                "research-parse-retry",
++                f"research {round_name}: reply {attempt + 1} could not be parsed "
++                f"({' '.join(parse_error.split())[:200]}); asking again",
++                impact=f"最多再试 {max_parse_retries - attempt} 次，每次重新生成",
++            )
+         if task_artifact_dir:
+             append_task_artifact(
+                 task_artifact_dir,

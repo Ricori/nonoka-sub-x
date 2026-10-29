@@ -1,10 +1,10 @@
 {
   "archive_sha256": "e76340e70a214412facdb7b7288b5532886ff9e6bab0b3519bfb54ed1cc257ae",
   "commit": "5caf422cbad36f0402c98eb565e4c29aee4ac197",
-  "content_sha256": "53c6e0dc293091e6d1cba7d0ea1c97ae8aca43f81ca5a9f1fe899d4fad6801d6",
+  "content_sha256": "f03542c668eaa4539ac592552609a55a636691af8c949fd21a401f6fbb0b6b1a",
   "engine_bundle_id": "finesub-0.6.0+5caf422cbad3",
   "engine_version": "0.6.0",
-  "files_manifest_sha256": "b6862eae385fb5980340f33134f72984bf72ed491d037afad180fc2d8e9002e3",
+  "files_manifest_sha256": "ea471558125a581cd4f589e7c0aa108fb1522f1dd0720332a087086f53878966",
   "patches": [
     {
       "path": "0001-qwen-tail-entry-point.patch",
@@ -45,6 +45,10 @@
     {
       "path": "0010-lazy-asr-imports-in-stages.patch",
       "sha256": "2963043325b7f6f45276f4c804dac39fffe886e49e2d8cc9948ea2f1d3f8c3b9"
+    },
+    {
+      "path": "0011-llm-wait-visibility.patch",
+      "sha256": "7b08fe951f277bbfd1dcb948de94b714d0a4531ac9333cc501480d954d9be60c"
     }
   ],
   "ref": "v0.6.0",

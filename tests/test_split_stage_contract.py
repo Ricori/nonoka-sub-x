@@ -234,6 +234,14 @@ class PurelyAdditiveTests(unittest.TestCase):
             "0010-lazy-asr-imports-in-stages.patch": [
                 "src/finesub/stages.py",
             ],
+            # Log lines only: a research round says when it waits and how
+            # long the answer took, a parse retry is a warning, and a call in
+            # flight notes every 5 minutes that it still is. No call, timeout
+            # or result changes.
+            "0011-llm-wait-visibility.patch": [
+                "src/finesub/llm/llm_runtime.py",
+                "src/finesub/llm/research.py",
+            ],
         }
         for name in names:
             with self.subTest(patch=name):

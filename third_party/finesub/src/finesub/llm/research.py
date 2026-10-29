@@ -533,6 +533,13 @@ def _call_and_parse(
     last_error: Exception | None = None
     session_base = artifact_kind.removesuffix("_response")
     for attempt in range(max_parse_retries + 1):
+        # A preparation turn sends the whole transcript and may think for many
+        # minutes; without these lines the run log shows nothing between the
+        # routing notes and the first window, which reads as a hang.
+        current_reporter().debug(
+            f"research {round_name}: waiting for the model", {"attempt": attempt}
+        )
+        call_started = time.monotonic()
         try:
             result = client.complete(
                 role,
@@ -620,6 +627,23 @@ def _call_and_parse(
         if prompt_blocked:
             parse_error = (
                 f"prompt blocked by content filter (finish_reason={finish_reason})"
+            )
+        current_reporter().debug(
+            f"research {round_name}: answered",
+            {
+                "model": result.model,
+                "attempt": attempt,
+                "sec": f"{time.monotonic() - call_started:.1f}",
+            },
+        )
+        if parse_error and not prompt_blocked and attempt < max_parse_retries:
+            # Each retry is a whole new generation, so it doubles the wait; say
+            # so rather than leaving it to the artifacts.
+            current_reporter().warning(
+                "research-parse-retry",
+                f"research {round_name}: reply {attempt + 1} could not be parsed "
+                f"({' '.join(parse_error.split())[:200]}); asking again",
+                impact=f"最多再试 {max_parse_retries - attempt} 次，每次重新生成",
             )
         if task_artifact_dir:
             append_task_artifact(

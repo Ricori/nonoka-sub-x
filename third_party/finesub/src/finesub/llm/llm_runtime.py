@@ -62,33 +62,65 @@ def api_timeouts(max_tokens: Optional[int]) -> ApiTimeouts:
     return ApiTimeouts(soft=soft, hard=soft * factor)
 
 
-class _SoftDeadline:
-    """Say so once a call outlives its soft deadline, without touching the call.
+#: How often a call still in flight says so. The soft deadline is sized for the
+#: largest allowed answer -- 47 minutes at the 64k default -- so a slow call
+#: could otherwise run half an hour without a line in the log.
+WAIT_HEARTBEAT_SECONDS = 300.0
 
-    The warning fires from a timer thread, which has no reporter of its own
+
+class _SoftDeadline:
+    """Say so once a call outlives its soft deadline, without touching the call,
+    and note every `heartbeat` seconds that it is still waiting.
+
+    Both fire from a watcher thread, which has no reporter of its own
     (`current_reporter` is thread-local), so the caller's reporter is captured
     here, on the calling thread.
     """
 
-    def __init__(self, seconds: float, *, model: str, hard: float) -> None:
+    def __init__(
+        self,
+        seconds: float,
+        *,
+        model: str,
+        hard: float,
+        heartbeat: float = WAIT_HEARTBEAT_SECONDS,
+    ) -> None:
         self.seconds = seconds
+        self.heartbeat = heartbeat
         self._reporter = current_reporter()
-        self._timer = threading.Timer(seconds, self._fire, kwargs={"model": model, "hard": hard})
-        self._timer.daemon = True
-
-    def _fire(self, *, model: str, hard: float) -> None:
-        self._reporter.warning(
-            "llm-api-soft-timeout",
-            f"{model} has not answered after {self.seconds:.0f}s (soft timeout); "
-            f"still waiting, up to {hard:.0f}s.",
+        self._done = threading.Event()
+        self._thread = threading.Thread(
+            target=self._watch, kwargs={"model": model, "hard": hard}, daemon=True
         )
 
+    def _watch(self, *, model: str, hard: float) -> None:
+        started = time.monotonic()
+        warned = False
+        while True:
+            elapsed = time.monotonic() - started
+            next_beat = (elapsed // self.heartbeat + 1) * self.heartbeat
+            until = next_beat if warned else min(next_beat, self.seconds)
+            if self._done.wait(max(0.0, until - elapsed)):
+                return
+            elapsed = time.monotonic() - started
+            if not warned and elapsed >= self.seconds:
+                warned = True
+                self._reporter.warning(
+                    "llm-api-soft-timeout",
+                    f"{model} has not answered after {self.seconds:.0f}s (soft timeout); "
+                    f"still waiting, up to {hard:.0f}s.",
+                )
+            else:
+                self._reporter.debug(
+                    "llm api call still waiting", {"model": model, "sec": f"{elapsed:.0f}"}
+                )
+
     def __enter__(self) -> "_SoftDeadline":
-        self._timer.start()
+        self._thread.start()
         return self
 
     def __exit__(self, *_exc: object) -> None:
-        self._timer.cancel()
+        self._done.set()
 
 
 # Default safety thresholds false-positive on ordinary subtitle material (a

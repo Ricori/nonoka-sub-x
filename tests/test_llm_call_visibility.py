@@ -14,7 +14,9 @@ correction pass makes hundreds of successful calls. So the filter is now
 Nonoka X's half of the contract, and it is what this file pins:
 
 - a failed call still reaches the task log, with the provider's own words;
-- a successful one does not reach it at all;
+- a successful one does not reach it, unless it took a minute or more -- a
+  slow call is where a stage's time went (2026-10-29: a preparation task
+  spent 29 minutes on one model with no line in between);
 - nothing else the engine logs at `debug` is affected by the rule.
 
 The upstream half is pinned too, because it is a sync away from moving: the
@@ -89,6 +91,35 @@ class ApiCallLogFilterTests(unittest.TestCase):
 
         self.assertEqual(events, [])
 
+    def test_a_quick_successful_call_says_nothing(self) -> None:
+        reporter = NonokaXReporter()
+        events = _events(
+            lambda: reporter.debug(
+                _API_CALL_MESSAGE, {"model": "qwen3.8", "code": "200", "sec": "59.900"}
+            )
+        )
+
+        self.assertEqual(events, [])
+
+    def test_a_slow_successful_call_reaches_the_task_log(self) -> None:
+        reporter = NonokaXReporter()
+        events = _events(
+            lambda: reporter.debug(
+                _API_CALL_MESSAGE, {"model": "qwen3.8", "code": "200", "sec": "1312.408"}
+            )
+        )
+
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0]["payload"]["fields"]["sec"], "1312.408")
+
+    def test_an_unreadable_duration_is_not_slow(self) -> None:
+        reporter = NonokaXReporter()
+        events = _events(
+            lambda: reporter.debug(_API_CALL_MESSAGE, {"code": "200", "sec": "n/a"})
+        )
+
+        self.assertEqual(events, [])
+
     def test_an_empty_reason_is_not_a_failure_either(self) -> None:
         reporter = NonokaXReporter()
         events = _events(
@@ -139,6 +170,14 @@ class UpstreamContractTests(unittest.TestCase):
             ROOT / "third_party/finesub/src/finesub/llm/llm_runtime.py"
         ).read_text(encoding="utf-8")
         self.assertIn('fields["why"]', source)
+
+    def test_the_engine_still_carries_the_duration_under_sec(self) -> None:
+        """`sec` is what lets a slow success through."""
+
+        source = (
+            ROOT / "third_party/finesub/src/finesub/llm/llm_runtime.py"
+        ).read_text(encoding="utf-8")
+        self.assertIn('"sec": f"{elapsed:.3f}"', source)
 
 
 if __name__ == "__main__":

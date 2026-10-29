@@ -35,7 +35,7 @@ third_party/finesub/
         └── pylock.win-py312.cn.toml # 同上，国内镜像路由
 
 patches/finesub/
-├── 0001-*.patch … 0010-*.patch   # 补丁栈，按文件名顺序应用（当前 10 个）
+├── 0001-*.patch … 0011-*.patch   # 补丁栈，按文件名顺序应用（当前 11 个）
 └── BASELINE_FILES.json           # 未打补丁的上游基线文件哈希
 ```
 
@@ -88,6 +88,7 @@ patches/finesub/
 | `0008-agy-guard-utf8-stdin.patch` | `src/finesub/llm/agent` | agy 的 PreToolUse 守卫脚本（`guard_view_file.py`，三个模板）用 `json.load(sys.stdin)` 读载荷。agy 写的是 UTF-8，文本 stdin 却按系统代码页解码，中文 Windows 上是 cp936：转义引号前若是奇数个 UTF-8 字节的中日文，最后一个字节会和反斜杠拼成一个 GBK 字符，`\"` 失去转义，JSON 解析失败，钩子崩溃即被 agy 当作拒绝。纠错 `submit` 的内容里一旦有 `…不明确\"` 这类片段就会被拒，模型只能整份重写（2026-10-13 一个窗口被拒 5 次，耗时 625 秒；更早一次只能靠全 ASCII 的 `text` 占位答案通过）。9 月起 agy 1.2.2 的日志里就有同样的崩溃，与 agy 版本无关。改为 `json.loads(sys.stdin.buffer.read())`，由 `json` 自行识别 UTF-8。脚本内容变化会让 hook digest 改变，FineSub 的 agy 项目各重新注册一次 | 上游守卫改为按字节读取 |
 | `0009-reject-placeholder-correction.patch` | `src/finesub/llm` | 纠错校验只看结构（覆盖、位置、列数、单元格非空）。2026-10-13 一个 agy 窗口在真答案被守卫拒绝后（见 0008），提交了 52 行全是 `text|text` 的试探答案并被采纳，最终字幕每行都是 "text"。`validate_correction_output_text` 在结构通过后再整窗判断一次：5 行及以上每行完全相同，或过半行是占位词（`text`、`test`、`placeholder`、`todo`、`tbd`），即作为可修复错误打回重写。单独一行短句、或短窗口里重复的「うん」不受影响。续跑与回放走同一个函数，缓存里的占位答案不会再被复用。只会更严，云端共用无妨 | 上游拒绝占位式纠错答复 |
 | `0010-lazy-asr-imports-in-stages.patch` | `src/finesub` | 桌面端从云端交付的 `stable.json` 续跑时，`run_pipeline` 的 `aligned_required` 为假、人声与识别阶段都不会启动，但 `finesub.stages` 在模块顶层导入了 `transcribe`、`vad_asr_stage` 与分离器，三者一导入就加载 numpy 和 torch，于是只装了 `[harness]` 的启动环境连 `run_pipeline` 都导入不了。本补丁把这三个模块挪到各自阶段内部导入；`model_name` 与 `gap_sec` 原本以 `transcribe` 的常量为默认值（定义时就要导入它），改为默认 `None`、在识别阶段内解析成同样的常量，仍然只有一处定义。需要识别的运行导入同样的模块，只是晚一个阶段，算出来的东西不变；云端共用无妨 | 上游 `finesub.stages` 不再在导入时依赖 torch |
+| `0011-llm-wait-visibility.patch` | `src/finesub/llm` | 2026-10-29 一个桌面任务在路由提示和第一个纠错窗口之间 29 分钟没有任何日志：准备任务在等一个慢的 OpenAI 兼容模型，成功调用只记 `debug`（桌面端会滤掉），解析重试只写 artifacts，软超时按 64k 输出算要约 47 分钟才到，看上去和卡死没区别。本补丁让 `_call_and_parse` 在每轮研究开始等待时、以及回复到达后（哪个模型、用了多久）各记一行 `debug`；解析失败且还要重试时发 `research-parse-retry` 警告（每次重试都是整次重新生成）；`_SoftDeadline` 在调用未返回期间每 5 分钟记一行 `llm api call still waiting`，软超时前后都记，软超时警告本身不变。调用本身、超时与结果都不变，只多几行日志；云端共用无妨。桌面端另外放行耗时 ≥ 60 秒的成功 `llm api call` | 上游自己报告进行中的调用与研究轮次 |
 
 > 上游 **0.6.0** 又收走了四条，本仓库删掉它们并把编号重排为 0001–0006：
 > **旧 0003**（agy 工作区读取授权）——上游给自己的 agy project 授予 `read_file(*)`
