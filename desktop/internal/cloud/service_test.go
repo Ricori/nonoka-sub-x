@@ -857,7 +857,8 @@ func TestStartTaskKeepsUploadUnlessBackendRefusedTask(t *testing.T) {
 }
 
 // The separation switch reaches the cloud as the user set it, and anything
-// but a boolean leaves separation on.
+// but a boolean leaves separation on. The local GPU tier never does: the card
+// is the cloud's, and a Mac's `cpu` once put Whisper on the GPU container's CPU.
 func TestStartTaskSendsTheSeparationSwitch(t *testing.T) {
 	const uploadID = "upl_0123456789abcdef0123456789abcdef"
 	tests := []struct {
@@ -869,6 +870,7 @@ func TestStartTaskSendsTheSeparationSwitch(t *testing.T) {
 		{name: "on", options: map[string]any{"target": "raw-srt", "separate": true}, want: true},
 		{name: "absent", options: map[string]any{"target": "raw-srt"}, want: true},
 		{name: "malformed", options: map[string]any{"target": "raw-srt", "separate": "false"}, want: true},
+		{name: "local cpu tier", options: map[string]any{"target": "raw-srt", "gpu_tier": "cpu"}, want: true},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -912,6 +914,9 @@ func TestStartTaskSendsTheSeparationSwitch(t *testing.T) {
 			_, _ = service.StartTask("loc_0123456789ab", test.options)
 			if got, ok := submitted["separate"].(bool); !ok || got != test.want {
 				t.Fatalf("submitted separate = %#v, want %v", submitted["separate"], test.want)
+			}
+			if submitted["gpu_tier"] != "auto" || submitted["device"] != "cuda" {
+				t.Fatalf("submitted device/gpu_tier = %#v/%#v, want cuda/auto", submitted["device"], submitted["gpu_tier"])
 			}
 		})
 	}

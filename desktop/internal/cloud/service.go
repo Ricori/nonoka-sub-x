@@ -461,6 +461,10 @@ func (s *Service) submitCloudJobTracked(localID string, options map[string]any, 
 	// translation and the knowledge base belong to the local leg. No cover
 	// goes up beside the audio any more -- a job is not a library entry, and
 	// the sync after the relay completes carries the cover with the subtitles.
+	//
+	// `device` and `gpu_tier` describe the cloud's card, not this machine's: the
+	// dialog fills `gpu_tier` from the local device, and a Mac's `cpu` sent
+	// here once had the backend decode Whisper on its GPU container's CPU.
 	request := map[string]any{
 		"schema":               1,
 		"provider":             "cloud",
@@ -468,7 +472,7 @@ func (s *Service) submitCloudJobTracked(localID string, options map[string]any, 
 		"target":               "stable",
 		"language":             stringOption(options, "language", "ja"),
 		"device":               "cuda",
-		"gpu_tier":             stringOption(options, "gpu_tier", "auto"),
+		"gpu_tier":             "auto",
 		"vocal_profile":        "cost",
 		"separate":             boolOption(options, "separate", true),
 		"cleanup_intermediate": false,
