@@ -242,6 +242,12 @@ class PurelyAdditiveTests(unittest.TestCase):
                 "src/finesub/llm/llm_runtime.py",
                 "src/finesub/llm/research.py",
             ],
+            # How the ASR delivery reads its input only: once and front to
+            # back instead of a seek per window, with the window sized in
+            # seconds. The samples it writes are the same; the cloud shares it.
+            "0012-sequential-asr-delivery-read.patch": [
+                "src/finesub/speech/preprocessing/separator/separation.py",
+            ],
         }
         for name in names:
             with self.subTest(patch=name):

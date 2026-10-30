@@ -903,13 +903,13 @@ def _append_separated_block(
     return out_file
 
 
-#: One resample window, counted in whole ratio steps (see `_rational_ratio`):
-#: 2000 steps is 20s at 44.1 kHz, ~7 MiB of float32 stereo.
-_RESAMPLE_WINDOW_STEPS = 2000
-#: Real audio carried on each side of a window and then discarded. 20 steps is
-#: 0.2s -- orders of magnitude past the resampling filter's support, which is
-#: what makes the kept samples indistinguishable from a whole-file resample.
-_RESAMPLE_CONTEXT_STEPS = 20
+#: One resample window, in seconds of source audio and rounded up to whole ratio
+#: steps (see `_whole_steps`): 2000 steps at 44.1 kHz, ~7 MiB of float32 stereo.
+_RESAMPLE_WINDOW_SECONDS = 20
+#: Real audio carried on each side of a window and then discarded. 0.2s is
+#: orders of magnitude past the resampling filter's support, which is what
+#: makes the kept samples indistinguishable from a whole-file resample.
+_RESAMPLE_CONTEXT_SECONDS = 0.2
 
 
 def _rational_ratio(src_sr: int, dst_sr: int) -> tuple[int, int]:
@@ -922,6 +922,17 @@ def _rational_ratio(src_sr: int, dst_sr: int) -> tuple[int, int]:
 
     divisor = gcd(src_sr, dst_sr)
     return src_sr // divisor, dst_sr // divisor
+
+
+def _whole_steps(seconds: float, src_sr: int, step_src: int) -> int:
+    """Source frames in `seconds`, rounded up to a whole number of ratio steps.
+
+    Sized by time, not by a fixed count of steps: a step is 441 frames at
+    44.1 kHz but 3 at 48 kHz, so the 2000-step window that was 20s at 44.1 kHz
+    was 0.125s at 48 kHz -- 34000 windows for an hour of audio.
+    """
+
+    return max(1, -(-round(seconds * src_sr) // step_src)) * step_src
 
 
 def stream_asr_frames(merged_path: Path) -> Iterator[np.ndarray]:
@@ -938,43 +949,55 @@ def stream_asr_frames(merged_path: Path) -> Iterator[np.ndarray]:
     dropped -- so each sample kept was computed from a fully populated filter,
     which is what resampling the whole file at once would have produced. A test
     pins the two against each other rather than trusting that argument.
+
+    The file is opened once and read front to back, never seeked: the context
+    each window needs from its neighbours is kept from the previous read. This
+    also runs on the *source* when separation is skipped, and libsndfile seeks
+    an mp3 by decoding from the start -- a fresh open and seek per window made
+    the encode quadratic in the length, which on a 71-minute 48 kHz recording
+    ran for hours with the task log silent (2026-10-30).
     """
 
-    info = sf.info(str(merged_path))
-    src_sr, total_frames = int(info.samplerate), int(info.frames)
-    step_src, step_dst = _rational_ratio(src_sr, ASR_TARGET_SR)
-    window = _RESAMPLE_WINDOW_STEPS * step_src
-    context = _RESAMPLE_CONTEXT_STEPS * step_src
-    position = 0
-    while position < total_frames:
-        core = min(window, total_frames - position)
-        left = min(context, position)
-        right = min(context, total_frames - position - core)
-        waveform, read_sr = load_audio_slice(
-            str(merged_path), position - left, left + core + right
-        )
-        if int(read_sr) != src_sr:
-            raise SystemExit(f"Sample rate changed mid-file: {merged_path}")
-        resampled, _ = resample_if_needed(
-            to_mono(waveform).unsqueeze(0), src_sr, ASR_TARGET_SR
-        )
-        frames = resampled.squeeze(0)
-        # `left` is a whole number of steps, so its share of the output is
-        # exact. The tail window is the only one whose core is not, and rounding
-        # it up is what a whole-file resample does with the same remainder.
-        start = left // step_src * step_dst
-        keep = min(-(-core * step_dst // step_src), int(frames.numel()) - start)
-        yield as_numpy_float32(frames[start : start + keep])
-        position += core
+    with sf.SoundFile(str(merged_path)) as in_file:
+        src_sr, total_frames = int(in_file.samplerate), int(in_file.frames)
+        step_src, step_dst = _rational_ratio(src_sr, ASR_TARGET_SR)
+        window = _whole_steps(_RESAMPLE_WINDOW_SECONDS, src_sr, step_src)
+        context = _whole_steps(_RESAMPLE_CONTEXT_SECONDS, src_sr, step_src)
+        # Mono source frames from `position - left` on: this window's left
+        # context plus whatever of the window the previous read already holds.
+        pending = torch.zeros(0, dtype=torch.float32)
+        position = 0
+        while position < total_frames:
+            core = min(window, total_frames - position)
+            left = min(context, position)
+            right = min(context, total_frames - position - core)
+            missing = left + core + right - int(pending.numel())
+            if missing > 0:
+                block = in_file.read(missing, dtype="float32", always_2d=True)
+                waveform = torch.from_numpy(np.ascontiguousarray(block.T))
+                pending = torch.cat([pending, to_mono(waveform)])
+            resampled, _ = resample_if_needed(
+                pending[: left + core + right].unsqueeze(0), src_sr, ASR_TARGET_SR
+            )
+            frames = resampled.squeeze(0)
+            # `left` is a whole number of steps, so its share of the output is
+            # exact. The tail window is the only one whose core is not, and
+            # rounding it up is what a whole-file resample does with the same
+            # remainder.
+            start = left // step_src * step_dst
+            keep = min(-(-core * step_dst // step_src), int(frames.numel()) - start)
+            yield as_numpy_float32(frames[start : start + keep])
+            position += core
+            pending = pending[left + core - min(context, position) :]
 
 
 #: Frames per `write()` into the Vorbis delivery. libsndfile's Vorbis writer
 #: dies on a single write past roughly half a million frames -- **process-level,
 #: no exception**, leaving a header-only file behind. That is not hypothetical:
-#: one resample window is `_RESAMPLE_WINDOW_STEPS` source steps, so 44.1 kHz
-#: yields 320000 output frames per window and survives while 22.05 kHz yields
-#: 640000 and does not. The window size is a tunable and the source rate is now
-#: a switch, so neither may be relied on to stay under the limit.
+#: when a window was a fixed count of source steps, 44.1 kHz yielded 320000
+#: output frames per window and survived while 22.05 kHz yielded 640000 and did
+#: not. The window size is a tunable and the source rate is now a switch, so
+#: neither may be relied on to stay under the limit.
 _OGG_WRITE_FRAMES = 262_144
 
 

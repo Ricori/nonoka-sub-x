@@ -1,5 +1,5 @@
 {
-  "content_sha256": "f03542c668eaa4539ac592552609a55a636691af8c949fd21a401f6fbb0b6b1a",
+  "content_sha256": "0db7ef8e00a83fa2066f3be8768d8823324d96fa39bc62c5d25045452e72f0f7",
   "files": [
     {
       "bytes": 35149,
@@ -1627,9 +1627,9 @@
       "sha256": "5d98af28d8cb9cb7fa80629249c59e72bc9df7ab508e09125104e4bc7f39e580"
     },
     {
-      "bytes": 59075,
+      "bytes": 60504,
       "path": "src/finesub/speech/preprocessing/separator/separation.py",
-      "sha256": "89df4f24fdecb9530ad29de0ca738eb2aa2fee5abeadc071646dec5cb50d3075"
+      "sha256": "399089e8dba38462136311742d4cf936e453dca29b9b0e6ff075270a1315dd04"
     },
     {
       "bytes": 30557,
