@@ -184,7 +184,9 @@ func (s *Service) ExportVideoPieces(id, defaultName, ass string, pieces []Range,
 		if err := os.WriteFile(filepath.Join(work, "graph.txt"), []byte(graph), 0o600); err != nil {
 			return ExportResult{}, err
 		}
-		args = append(args, "-filter_complex_script", "graph.txt", "-map", "[vo]")
+		// "-/opt file" reads the option's value from a file (FFmpeg 7+); the old
+		// -filter_complex_script spelling was removed in FFmpeg 8.
+		args = append(args, "-/filter_complex", "graph.txt", "-map", "[vo]")
 		if hasAudio {
 			args = append(args, "-map", "[ac]")
 		}
