@@ -271,7 +271,7 @@ func New(dataDirectory string, provider providerCaller, resolvers ...mediaResolv
 		thumbRoot:            filepath.Join(root, "cloud-thumbnails"),
 		tasksRoot:            filepath.Join(root, "tasks"),
 		provider:             provider,
-		client:               netproxy.NewClient(30 * time.Second),
+		client:               &http.Client{Timeout: 30 * time.Second, Transport: newFailoverTransport(netproxy.NewTransport())},
 		upload:               netproxy.NewClient(3 * time.Hour),
 		download:             newDownloadClient(),
 		extractor: func(ctx context.Context, source, output string) error {
@@ -1591,7 +1591,7 @@ func decodeJPEGDataURL(value string) ([]byte, error) {
 func newDownloadClient() *http.Client {
 	transport := netproxy.NewTransport()
 	transport.ResponseHeaderTimeout = artifactHeaderTimeout
-	return &http.Client{Transport: transport}
+	return &http.Client{Transport: newFailoverTransport(transport)}
 }
 
 func (s *Service) authenticatedText(ctx context.Context, endpoint string) ([]byte, error) {
