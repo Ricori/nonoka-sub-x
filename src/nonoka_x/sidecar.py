@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import secrets
 import signal
 import sys
@@ -13,6 +14,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
+from .download_route import PREFERENCES_ENVIRONMENT, install_app_proxy_policy
 from .local_provider import LocalProvider, ProviderError
 from .provision import RuntimeProvisioner
 from .settings import FineSubSettings
@@ -169,6 +171,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--install-dir", type=Path, default=None)
     args = parser.parse_args(argv)
     token = secrets.token_urlsafe(32)
+    # The desktop's proxy setting lives in its preferences.json; naming it here
+    # hands it to every worker and installer spawned from this environment.
+    os.environ.setdefault(PREFERENCES_ENVIRONMENT, str(args.data_dir / "preferences.json"))
+    install_app_proxy_policy()
     settings = FineSubSettings(args.data_dir)
     settings.bind_environment()
     try:

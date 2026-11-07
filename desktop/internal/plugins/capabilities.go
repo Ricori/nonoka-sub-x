@@ -18,6 +18,7 @@ import (
 
 	"github.com/Ricori/nonoka-x/desktop/internal/library"
 	"github.com/Ricori/nonoka-x/desktop/internal/managedtools"
+	"github.com/Ricori/nonoka-x/desktop/internal/netproxy"
 )
 
 type MediaSummary struct {
@@ -274,10 +275,11 @@ func (s *Service) RunYTDLP(pluginID, rawURL string, pluginArgs []string) (Downlo
 		// android_vr fallback at least lists some.
 		args = append(args, "--extractor-args", "youtube:player_client=mweb")
 	}
+	// Always spelled out, "" included: that is yt-dlp's "direct", and the PO
+	// token generator and JS runtime it spawns follow the same variables.
 	proxy := downloadProxy()
-	if proxy != "" {
-		args = append(args, "--proxy", proxy)
-	}
+	args = append(args, "--proxy", proxy)
+	environment = append(environment, netproxy.ChildEnvironment(proxy)...)
 	// Multi-connection fetching, as the reference downloader does it: aria2c
 	// pulls a long VOD far faster than yt-dlp's own HTTP downloader. It is opt-in
 	// because it is a second network client with its own failure modes -- a

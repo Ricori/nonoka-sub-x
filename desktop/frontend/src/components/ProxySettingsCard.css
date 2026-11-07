@@ -1,0 +1,51 @@
+/* 行距、字号和模型配置卡一致，放在设置页里读起来是同一套。 */
+.proxy-card { overflow: visible; }
+
+.proxy-row { display: grid; grid-template-columns: 128px minmax(0, 1fr); align-items: center; gap: 14px; min-height: 58px; padding: 12px 25px; }
+.proxy-row + .proxy-row { border-top: 1px solid var(--line-soft); }
+
+.proxy-row-label { display: grid; gap: 3px; min-width: 0; }
+.proxy-row-label strong { font-size: 13px; }
+.proxy-row-label small { color: var(--faint); font-size: 11px; }
+
+.proxy-route { display: flex; align-items: center; gap: 8px; margin: 0; color: var(--mut); font-size: 12px; font-variant-numeric: tabular-nums; }
+.proxy-route i { flex: 0 0 auto; width: 7px; height: 7px; border-radius: 99px; background: var(--faint); }
+.proxy-route.active { color: var(--text); }
+.proxy-route.active i { background: var(--accent); }
+.proxy-route.warn { color: var(--warn); }
+.proxy-route.warn i { background: var(--warn); }
+
+.proxy-fields { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.proxy-fields .custom-select { flex: 0 0 104px; }
+.proxy-fields label { display: flex; align-items: center; gap: 7px; min-width: 0; color: var(--mut); font-size: 12px; }
+.proxy-fields label span { flex: 0 0 auto; }
+.proxy-host { flex: 1 1 auto; }
+.proxy-port { flex: 0 0 auto; }
+.proxy-fields input { width: 100%; min-width: 0; height: 36px; border: 1px solid var(--line); border-radius: 9px; padding: 0 10px; background: color-mix(in srgb, var(--bg) 72%, var(--panel)); color: var(--text); font-size: 12px; font-variant-numeric: tabular-nums; outline: none; }
+.proxy-port input { width: 82px; }
+.proxy-fields input:focus { border-color: var(--accent-border); box-shadow: 0 0 0 3px var(--accent-dim); }
+.proxy-fields input[aria-invalid="true"] { border-color: color-mix(in srgb, var(--warn) 55%, var(--line)); }
+.proxy-fields input:disabled { color: var(--faint); opacity: .72; }
+
+.proxy-footer { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 13px 25px; border-top: 1px solid var(--line-soft); }
+.proxy-footer > span { min-width: 0; overflow: hidden; color: var(--mut); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.proxy-footer > span.warn { color: var(--warn); }
+.proxy-footer .proxy-footer-notice { flex: 0 1 auto; min-width: 0; margin: 0; font-size: 12px; }
+
+.proxy-actions { display: flex; flex: 0 0 auto; gap: 8px; }
+.proxy-actions button { border-radius: 8px; padding: 8px 18px; font-size: 12px; cursor: pointer; }
+.proxy-actions .primary-button { border: 0; }
+.proxy-actions .primary-button:disabled { opacity: 1; }
+.proxy-actions .secondary-button { border: 1px solid var(--line); background: transparent; color: var(--text); }
+.proxy-actions .secondary-button:hover:not(:disabled) { border-color: var(--accent-border); }
+.proxy-actions button:disabled { cursor: not-allowed; }
+.proxy-actions .secondary-button:disabled { opacity: .42; }
+
+@media (max-width: 760px) {
+  .proxy-row { grid-template-columns: 1fr; gap: 8px; }
+  .proxy-fields { flex-wrap: wrap; }
+  .proxy-footer { flex-direction: column; align-items: flex-start; }
+}
+
+.proxy-route-detail { display: grid; gap: 4px; min-width: 0; }
+.proxy-system-hint { color: var(--faint); font-size: 11px; line-height: 1.5; }

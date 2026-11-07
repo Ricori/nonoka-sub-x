@@ -22,11 +22,10 @@ from finesub_bootstrap.environment import (
     RuntimeEnvironment,
     _is_retryable_from_mirror,
 )
-from finesub_bootstrap.http_client import apply_network_environment
 from finesub_bootstrap.models import DownloadAsset, DownloadProgress
 from finesub_bootstrap.runtime_health import site_packages_of
 
-from nonoka_x.download_route import live_proxy, proxy_label
+from nonoka_x.download_route import apply_proxy_environment, live_proxy, proxy_label
 from nonoka_x.msvc_runtime import explaining, msvc_runtime_problem
 
 
@@ -342,7 +341,7 @@ class ProgressRuntimeEnvironment(RuntimeEnvironment):
                 "UV_SYSTEM_PYTHON": "1",
             }
         )
-        apply_network_environment(environment)
+        apply_proxy_environment(environment)
         if stage is not None:
             stage("installing_dependencies", "正在更新运行环境：只安装有变化的依赖")
         self._install_dependencies(uv, python, environment, log=log, should_pause=should_pause)

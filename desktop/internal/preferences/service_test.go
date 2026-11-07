@@ -7,6 +7,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/Ricori/nonoka-x/desktop/internal/netproxy"
 )
 
 func TestLegacyDiagnosticsPreferenceIsDiscarded(t *testing.T) {
@@ -105,5 +107,58 @@ func TestDamagedPreferencesFallBackToDefaults(t *testing.T) {
 		if state.Bounds == nil {
 			t.Fatalf("bounds for %q are nil, want an empty map", body)
 		}
+	}
+}
+
+func TestProxyPreferencePersistsAndClears(t *testing.T) {
+	root := t.TempDir()
+	service, err := New(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { netproxy.SetCustom(nil) })
+	if service.Get().Proxy != nil {
+		t.Fatal("a fresh install should follow the system proxy")
+	}
+	// The page sends numbers as JSON numbers, which arrive as float64.
+	updated, err := service.Save(map[string]any{"proxy": map[string]any{"scheme": "SOCKS5", "host": " ", "port": float64(7891)}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := netproxy.Custom{Scheme: "socks5", Host: "127.0.0.1", Port: 7891}
+	if updated.Proxy == nil || *updated.Proxy != want {
+		t.Fatalf("saved proxy = %#v", updated.Proxy)
+	}
+	if status := service.ProxyStatus(); status.Source != "custom" || status.Configured != "socks5://127.0.0.1:7891" {
+		t.Fatalf("custom proxy not applied: %#v", status)
+	}
+	reloaded, err := New(root)
+	if err != nil || reloaded.Get().Proxy == nil || *reloaded.Get().Proxy != want {
+		t.Fatalf("custom proxy not persisted: %#v, %v", reloaded.Get().Proxy, err)
+	}
+	if _, err := service.Save(map[string]any{"proxy": map[string]any{"scheme": "http", "host": "127.0.0.1", "port": float64(0)}}); err == nil {
+		t.Fatal("port 0 was accepted")
+	}
+	if service.Get().Proxy == nil || *service.Get().Proxy != want {
+		t.Fatal("a rejected proxy replaced the saved one")
+	}
+	cleared, err := service.Save(map[string]any{"proxy": nil})
+	if err != nil || cleared.Proxy != nil {
+		t.Fatalf("proxy not cleared: %#v, %v", cleared.Proxy, err)
+	}
+	if status := service.ProxyStatus(); status.Source == "custom" {
+		t.Fatalf("cleared proxy still applied: %#v", status)
+	}
+}
+
+func TestInvalidStoredProxyFollowsSystem(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "preferences.json"), []byte(`{"proxy":{"scheme":"ftp","host":"x","port":21}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	service, err := New(root)
+	t.Cleanup(func() { netproxy.SetCustom(nil) })
+	if err != nil || service.Get().Proxy != nil {
+		t.Fatalf("invalid stored proxy kept: %#v, %v", service.Get().Proxy, err)
 	}
 }

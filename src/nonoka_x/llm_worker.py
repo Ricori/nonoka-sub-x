@@ -104,6 +104,9 @@ def failure(exc: BaseException) -> dict[str, Any]:
 
 
 def main() -> int:
+    from .download_route import install_app_proxy_policy
+
+    install_app_proxy_policy()
     session = Session()
     try:
         for line in sys.stdin:

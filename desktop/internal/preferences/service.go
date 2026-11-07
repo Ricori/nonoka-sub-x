@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+
+	"github.com/Ricori/nonoka-x/desktop/internal/netproxy"
 )
 
 type State struct {
@@ -16,6 +18,10 @@ type State struct {
 	SidebarCollapsed bool                    `json:"sidebarCollapsed"`
 	LibraryView      string                  `json:"libraryView"`
 	Bounds           map[string]WindowBounds `json:"bounds"`
+	// Proxy is a custom proxy for everything the app sends off this machine,
+	// or nil to follow the system proxy. The Python sidecar reads this key from
+	// preferences.json too (`nonoka_x.download_route`).
+	Proxy *netproxy.Custom `json:"proxy"`
 }
 
 type WindowBounds struct {
@@ -43,6 +49,7 @@ func New(dataDirectory string) (*Service, error) {
 		data: State{Schema: 2, HomeTheme: "light", EditorTheme: "dark", LibraryView: "grid", Bounds: map[string]WindowBounds{}},
 	}
 	service.load()
+	netproxy.SetCustom(service.data.Proxy)
 	return service, nil
 }
 
@@ -87,11 +94,46 @@ func (s *Service) Save(patch map[string]any) (State, error) {
 		}
 		next.LibraryView = view
 	}
+	if value, exists := patch["proxy"]; exists {
+		custom, err := decodeProxy(value)
+		if err != nil {
+			return s.data, err
+		}
+		next.Proxy = custom
+	}
 	if err := writeAtomic(s.path, next); err != nil {
 		return s.data, err
 	}
 	s.data = next
+	netproxy.SetCustom(next.Proxy)
 	return cloneState(s.data), nil
+}
+
+// ProxyStatus reports the route requests take right now, for the settings
+// page: the custom or system proxy in effect, and whether it is answering.
+func (s *Service) ProxyStatus() netproxy.Status {
+	return netproxy.CurrentStatus()
+}
+
+// decodeProxy reads the "proxy" patch value: null follows the system proxy,
+// an object is a custom proxy.
+func decodeProxy(value any) (*netproxy.Custom, error) {
+	if value == nil {
+		return nil, nil
+	}
+	data, err := json.Marshal(value)
+	if err != nil {
+		return nil, errors.New("proxy must be an object or null")
+	}
+	var custom netproxy.Custom
+	if err := json.Unmarshal(data, &custom); err != nil {
+		return nil, errors.New("代理端口必须是数字")
+	}
+	normalized, err := custom.Normalize()
+	if err != nil {
+		return nil, err
+	}
+	return &normalized, nil
 }
 
 func (s *Service) GetWindowBounds(kind string) (WindowBounds, bool) {
@@ -145,11 +187,25 @@ func (s *Service) load() {
 	if state.Bounds == nil {
 		state.Bounds = map[string]WindowBounds{}
 	}
+	if state.Proxy != nil {
+		// A hand-edited or damaged entry is dropped rather than half-applied:
+		// following the system proxy is what an unset value means anyway.
+		if normalized, err := state.Proxy.Normalize(); err != nil {
+			log.Printf("preferences: ignoring invalid proxy: %v", err)
+			state.Proxy = nil
+		} else {
+			state.Proxy = &normalized
+		}
+	}
 	s.data = state
 }
 
 func cloneState(state State) State {
 	result := state
+	if state.Proxy != nil {
+		proxy := *state.Proxy
+		result.Proxy = &proxy
+	}
 	result.Bounds = make(map[string]WindowBounds, len(state.Bounds))
 	for kind, bounds := range state.Bounds {
 		result.Bounds[kind] = bounds

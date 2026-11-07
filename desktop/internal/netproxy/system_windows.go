@@ -1,6 +1,6 @@
 //go:build windows
 
-package plugins
+package netproxy
 
 import winregistry "golang.org/x/sys/windows/registry"
 

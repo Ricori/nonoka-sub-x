@@ -1,7 +1,7 @@
 //go:build !windows
 
-package plugins
+package netproxy
 
 // systemProxy has nothing to add elsewhere: proxies there are environment
-// variables, which yt-dlp and aria2c already read by themselves.
+// variables, which Resolve already reads after the system proxy.
 func systemProxy() string { return "" }

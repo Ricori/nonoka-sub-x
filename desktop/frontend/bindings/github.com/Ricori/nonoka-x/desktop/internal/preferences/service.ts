@@ -7,6 +7,10 @@ import { Call as $Call, CancellablePromise as $CancellablePromise } from "@wails
 
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
+import * as netproxy$0 from "../netproxy/models.js";
+
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
 import * as $models from "./models.js";
 
 export function Get(): $CancellablePromise<$models.State> {
@@ -15,6 +19,14 @@ export function Get(): $CancellablePromise<$models.State> {
 
 export function GetWindowBounds(kind: string): $CancellablePromise<[$models.WindowBounds, boolean]> {
     return $Call.ByID(2687191818, kind);
+}
+
+/**
+ * ProxyStatus reports the route requests take right now, for the settings
+ * page: the custom or system proxy in effect, and whether it is answering.
+ */
+export function ProxyStatus(): $CancellablePromise<netproxy$0.Status> {
+    return $Call.ByID(312091093);
 }
 
 export function Save(patch: { [_ in string]?: any } | null): $CancellablePromise<$models.State> {

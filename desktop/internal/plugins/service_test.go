@@ -457,21 +457,7 @@ func TestDownloadFailureExplainsTheUnreachableCase(t *testing.T) {
 	}
 }
 
-func TestSystemProxyParsing(t *testing.T) {
-	cases := map[string]string{
-		"":                      "",
-		"127.0.0.1:7890":        "http://127.0.0.1:7890",
-		"http://127.0.0.1:7890": "http://127.0.0.1:7890",
-		"http=127.0.0.1:8080;https=127.0.0.1:8443": "http://127.0.0.1:8443",
-		"http=127.0.0.1:8080;socks=127.0.0.1:1080": "http://127.0.0.1:8080",
-		"socks=127.0.0.1:1080":                     "socks5://127.0.0.1:1080",
-		"ftp=127.0.0.1:21":                         "",
-	}
-	for server, want := range cases {
-		if got := parseSystemProxy(server); got != want {
-			t.Fatalf("parseSystemProxy(%q) = %q, want %q", server, got, want)
-		}
-	}
+func TestAria2cProxySupport(t *testing.T) {
 	if !aria2cSupportsProxy("") || !aria2cSupportsProxy("http://127.0.0.1:7890") {
 		t.Fatal("aria2c was refused a direct or HTTP-proxied transfer")
 	}

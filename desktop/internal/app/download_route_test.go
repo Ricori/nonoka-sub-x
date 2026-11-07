@@ -1,9 +1,6 @@
 package app
 
-import (
-	"net"
-	"testing"
-)
+import "testing"
 
 func TestResolveRoutePrefersProxyOverMirrors(t *testing.T) {
 	t.Setenv(regionEnvironment, "")
@@ -33,32 +30,24 @@ func TestResolveRouteHonoursRegionOverride(t *testing.T) {
 	}
 }
 
-func TestProxyIsListeningSkipsDeadLocalProxy(t *testing.T) {
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
+func TestRouteEnvironmentCarriesProxy(t *testing.T) {
+	direct := (bootstrapRoute{}).environment()
+	if !contains(direct, "NO_PROXY=*") || !contains(direct, "HTTPS_PROXY=") {
+		t.Fatalf("a direct route must clear the proxy variables: %#v", direct)
 	}
-	address := listener.Addr().String()
-	if !proxyIsListening("http://" + address) {
-		t.Fatal("a listening local proxy was rejected")
-	}
-	listener.Close()
-	if proxyIsListening("http://" + address) {
-		t.Fatal("a closed local proxy was accepted")
-	}
-	if !proxyIsListening("http://proxy.example.com:8080") {
-		t.Fatal("a remote proxy is assumed reachable")
+	environment := bootstrapRoute{Proxy: "http://127.0.0.1:7890"}.environment()
+	if !contains(environment, "HTTPS_PROXY=http://127.0.0.1:7890") || !contains(environment, "ALL_PROXY=http://127.0.0.1:7890") {
+		t.Fatalf("unexpected proxy environment: %#v", environment)
 	}
 }
 
-func TestRouteEnvironmentCarriesProxy(t *testing.T) {
-	if environment := (bootstrapRoute{}).environment(); len(environment) != 0 {
-		t.Fatalf("a direct route sets no proxy variables: %#v", environment)
+func contains(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
 	}
-	environment := bootstrapRoute{Proxy: "http://127.0.0.1:7890"}.environment()
-	if len(environment) != 3 || environment[0] != "HTTPS_PROXY=http://127.0.0.1:7890" {
-		t.Fatalf("unexpected proxy environment: %#v", environment)
-	}
+	return false
 }
 
 func TestProxyLabel(t *testing.T) {

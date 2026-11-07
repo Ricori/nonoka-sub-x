@@ -14,6 +14,8 @@ import (
 	"strconv"
 	"sync"
 	"time"
+
+	"github.com/Ricori/nonoka-x/desktop/internal/netproxy"
 )
 
 const Endpoint = "https://nonoka.online/v1/telemetry"
@@ -72,7 +74,7 @@ type Service struct {
 func New(root, version string, caller Caller) (*Service, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	s := &Service{path: filepath.Join(root, "telemetry-desktop.json"), version: version, endpoint: Endpoint, caller: caller,
-		client: &http.Client{Timeout: 5 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}, ctx: ctx, cancel: cancel, done: make(chan struct{})}
+		client: &http.Client{Timeout: 5 * time.Second, Transport: netproxy.NewTransport(), CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}, ctx: ctx, cancel: cancel, done: make(chan struct{})}
 	if b, err := os.ReadFile(s.path); err == nil {
 		_ = json.Unmarshal(b, &s.state)
 	}

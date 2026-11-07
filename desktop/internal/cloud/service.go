@@ -28,6 +28,7 @@ import (
 
 	"github.com/Ricori/nonoka-x/desktop/internal/library"
 	"github.com/Ricori/nonoka-x/desktop/internal/managedtools"
+	"github.com/Ricori/nonoka-x/desktop/internal/netproxy"
 	"github.com/Ricori/nonoka-x/desktop/internal/telemetry"
 )
 
@@ -267,8 +268,8 @@ func New(dataDirectory string, provider providerCaller, resolvers ...mediaResolv
 		thumbRoot:            filepath.Join(root, "cloud-thumbnails"),
 		tasksRoot:            filepath.Join(root, "tasks"),
 		provider:             provider,
-		client:               &http.Client{Timeout: 30 * time.Second},
-		upload:               &http.Client{Timeout: 3 * time.Hour},
+		client:               netproxy.NewClient(30 * time.Second),
+		upload:               netproxy.NewClient(3 * time.Hour),
 		download:             newDownloadClient(),
 		extractor: func(ctx context.Context, source, output string) error {
 			return extractAudioWithRoot(ctx, root, source, output)
@@ -1579,7 +1580,7 @@ func decodeJPEGDataURL(value string) ([]byte, error) {
 }
 
 func newDownloadClient() *http.Client {
-	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport := netproxy.NewTransport()
 	transport.ResponseHeaderTimeout = artifactHeaderTimeout
 	return &http.Client{Transport: transport}
 }

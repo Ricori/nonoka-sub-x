@@ -3,21 +3,20 @@ package app
 import (
 	"context"
 	"io"
-	"net"
 	"net/http"
 	"net/url"
 	"os"
 	"strings"
 	"time"
 
-	"github.com/Ricori/nonoka-x/desktop/internal/plugins"
+	"github.com/Ricori/nonoka-x/desktop/internal/netproxy"
 )
 
 // bootstrapRoute is where the launcher bootstrap fetches uv, Python and its
 // base dependencies from. It follows the same rule as the sidecar's
 // `nonoka_x.download_route`:
 //
-//   - a proxy is configured and answering -> the official sources, through it;
+//   - a proxy is in effect (`netproxy`) -> the official sources, through it;
 //   - no proxy, mainland exit -> the domestic mirrors first;
 //   - no proxy, anywhere else -> the official sources, direct.
 //
@@ -44,7 +43,7 @@ const (
 )
 
 func resolveBootstrapRoute() bootstrapRoute {
-	return resolveRoute(liveProxy(), probeMainland)
+	return resolveRoute(netproxy.Resolve(), probeMainland)
 }
 
 func resolveRoute(proxy string, mainland func() bool) bootstrapRoute {
@@ -57,48 +56,6 @@ func resolveRoute(proxy string, mainland func() bool) bootstrapRoute {
 		route.Mirror = proxy == "" && mainland()
 	}
 	return route
-}
-
-// liveProxy returns the first configured proxy that is actually reachable:
-// the system proxy first, then the usual environment variables -- the order
-// FineSub's `network_routes` uses. A proxy on this machine whose client is not
-// running is skipped instead of failing every download.
-func liveProxy() string {
-	candidates := []string{plugins.SystemProxy()}
-	for _, name := range []string{"HTTPS_PROXY", "HTTP_PROXY", "ALL_PROXY", "https_proxy", "http_proxy", "all_proxy"} {
-		candidates = append(candidates, os.Getenv(name))
-	}
-	for _, candidate := range candidates {
-		candidate = strings.TrimSpace(candidate)
-		if candidate == "" {
-			continue
-		}
-		if !strings.Contains(candidate, "://") {
-			candidate = "http://" + candidate
-		}
-		if proxyIsListening(candidate) {
-			return candidate
-		}
-	}
-	return ""
-}
-
-func proxyIsListening(proxy string) bool {
-	parsed, err := url.Parse(proxy)
-	if err != nil || parsed.Hostname() == "" || parsed.Port() == "" {
-		return false
-	}
-	switch strings.ToLower(parsed.Hostname()) {
-	case "127.0.0.1", "localhost", "::1":
-	default:
-		return true
-	}
-	connection, err := net.DialTimeout("tcp", parsed.Host, 350*time.Millisecond)
-	if err != nil {
-		return false
-	}
-	connection.Close()
-	return true
 }
 
 // probeMainland asks where a direct connection comes out. Any failure means
@@ -163,27 +120,11 @@ func (r bootstrapRoute) transport() *http.Transport {
 	return transport
 }
 
-// environment hands the same proxy to uv, which reads only the environment.
+// environment hands the same route to uv, which reads only the environment.
+// Direct is spelled out too, so uv cannot pick up a proxy the route skipped.
 func (r bootstrapRoute) environment() []string {
-	if r.Proxy == "" {
-		return nil
-	}
-	return []string{"HTTPS_PROXY=" + r.Proxy, "HTTP_PROXY=" + r.Proxy, "ALL_PROXY=" + r.Proxy}
+	return netproxy.ChildEnvironment(r.Proxy)
 }
 
-// proxyLabel names the proxy the way the runtime page shows it, matching the
-// sidecar's `proxy_label`: "本地代理 127.0.0.1:7890".
-func proxyLabel(proxy string) string {
-	if proxy == "" {
-		return ""
-	}
-	parsed, err := url.Parse(proxy)
-	if err != nil || parsed.Host == "" {
-		return "代理 " + proxy
-	}
-	switch strings.ToLower(parsed.Hostname()) {
-	case "127.0.0.1", "localhost", "::1":
-		return "本地代理 " + parsed.Host
-	}
-	return "代理 " + parsed.Host
-}
+// proxyLabel names the proxy the way the runtime page shows it.
+func proxyLabel(proxy string) string { return netproxy.Label(proxy) }

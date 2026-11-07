@@ -114,7 +114,7 @@ def _bare_runtime(tmp_path: Path) -> ProgressRuntimeEnvironment:
 def test_an_outdated_runtime_is_updated_in_place_and_marked_last(tmp_path: Path, monkeypatch) -> None:
     runtime = _bare_runtime(tmp_path)
     calls: list[str] = []
-    monkeypatch.setattr(runtime_install, "apply_network_environment", lambda environment: None)
+    monkeypatch.setattr(runtime_install, "apply_proxy_environment", lambda environment: None)
     runtime._install_dependencies = lambda uv, python, environment, **kwargs: calls.append(f"install:{python.name}")
     runtime._verify_staging = lambda *args, **kwargs: calls.append("verify")
     runtime.runtime_validator = lambda python: (True, "")

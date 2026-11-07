@@ -56,6 +56,9 @@ def handle(request: dict) -> dict:
 
 
 def main() -> None:
+    from .download_route import install_app_proxy_policy
+
+    install_app_proxy_policy()
     try:
         result = {"result": handle(json.load(sys.stdin))}
     except Exception as exc:

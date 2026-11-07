@@ -6,6 +6,7 @@ import type { RelocationProgress, StorageDestination, StorageStatus, StorageTarg
 import { StorageLocationsCard } from "../components/StorageLocationsCard.tsx";
 import { LlmConfigurationCard } from "../components/LlmConfigurationCard.tsx";
 import { KeyConfigurationCard } from "../components/KeyConfigurationCard.tsx";
+import { ProxySettingsCard } from "../components/ProxySettingsCard.tsx";
 import "./SettingsPage.css";
 import { Notice } from "../components/Notice.tsx";
 
@@ -124,6 +125,11 @@ export function SettingsPage(props: SettingsPageProps) {
           onDismissMessage={onDismissStorageMessage}
           onDismissCacheMessage={onDismissCacheMessage}
         />
+      </div>
+
+      <div className="settings-group">
+        <h2 className="section-title">网络代理<small>默认跟随系统代理；下载、模型调用、云端与更新都走这一条线路</small></h2>
+        <ProxySettingsCard />
       </div>
     </section>
   );

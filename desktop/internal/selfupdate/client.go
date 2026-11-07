@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"sync"
 	"time"
+
+	"github.com/Ricori/nonoka-x/desktop/internal/netproxy"
 )
 
 const (
@@ -31,7 +33,9 @@ var errDownloadStalled = errors.New("download stalled")
 // the wait for response headers, then lets the body take as long as it needs
 // while bytes keep arriving.
 func newHTTPClient(stall time.Duration) *http.Client {
-	transport := http.DefaultTransport.(*http.Transport).Clone()
+	// netproxy: a system-proxy client such as Clash is the fast route to the
+	// Cloudflare edge for exactly the users this client was tuned for.
+	transport := netproxy.NewTransport()
 	transport.DialContext = (&net.Dialer{Timeout: connectTimeout, KeepAlive: 30 * time.Second}).DialContext
 	transport.TLSHandshakeTimeout = handshakeTimeout
 	transport.ResponseHeaderTimeout = responseHeaderTimeout
