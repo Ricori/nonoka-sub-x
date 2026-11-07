@@ -160,8 +160,9 @@ func piecesDuration(pieces []Range) float64 {
 // piecesFilterGraph trims every piece out of an input that was opened with
 // -ss offset, concatenates them, and burns the subtitles onto the joined
 // stream. The subtitle file is already in output time; subtitles is the whole
-// post-concat video chain (subtitles filter, fonts dir, scaling).
-func piecesFilterGraph(pieces []Range, offset float64, hasAudio bool, subtitles string) string {
+// post-concat video chain (subtitles filter, fonts dir, scaling). audioInput is
+// the ffmpeg input the audio comes from (1 when it is read from the original).
+func piecesFilterGraph(pieces []Range, offset float64, audioInput int, hasAudio bool, subtitles string) string {
 	var graph strings.Builder
 	inputs := strings.Builder{}
 	for index, piece := range pieces {
@@ -173,8 +174,8 @@ func piecesFilterGraph(pieces []Range, offset float64, hasAudio bool, subtitles 
 			length := piece.T1 - piece.T0
 			fade := math.Min(joinFadeSeconds, length/4)
 			fmt.Fprintf(&graph,
-				"[0:a]atrim=start=%s:end=%s,asetpts=PTS-STARTPTS,afade=t=in:d=%s,afade=t=out:st=%s:d=%s[a%d];",
-				start, end, formatFloat(fade), formatFloat(length-fade), formatFloat(fade), index)
+				"[%d:a]atrim=start=%s:end=%s,asetpts=PTS-STARTPTS,afade=t=in:d=%s,afade=t=out:st=%s:d=%s[a%d];",
+				audioInput, start, end, formatFloat(fade), formatFloat(length-fade), formatFloat(fade), index)
 			fmt.Fprintf(&inputs, "[a%d]", index)
 		}
 	}

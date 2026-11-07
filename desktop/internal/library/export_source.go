@@ -20,6 +20,10 @@ type ExportSource struct {
 	VideoKbps float64 `json:"videoKbps"`
 	AudioKbps float64 `json:"audioKbps"`
 	HasAudio  bool    `json:"hasAudio"`
+	// The first audio track's layout, for sizing a lossless (FLAC) export.
+	AudioSampleRate int `json:"audioSampleRate"`
+	AudioChannels   int `json:"audioChannels"`
+	AudioBits       int `json:"audioBits"`
 }
 
 // assumedAudioKbps stands in for an audio stream whose bitrate the container
@@ -51,6 +55,16 @@ func ProbeExportSource(s *Service, id string) ExportSource {
 			}
 		}
 	}
+	// The export takes its audio from the original even when the video comes
+	// from the working copy; size the audio from that file too.
+	if audioSource := exportAudioSource(entry, source); audioSource != source {
+		if probed, _, _ := s.probeExportSource(audioSource); probed.HasAudio {
+			info.AudioKbps = probed.AudioKbps
+			info.AudioSampleRate = probed.AudioSampleRate
+			info.AudioChannels = probed.AudioChannels
+			info.AudioBits = probed.AudioBits
+		}
+	}
 	if info.VideoKbps == 0 && totalKbps > 0 {
 		audio := 0.0
 		if info.HasAudio {
@@ -73,7 +87,7 @@ func (s *Service) probeExportSource(path string) (ExportSource, float64, bool) {
 	defer cancel()
 	command := exec.CommandContext(ctx, executable,
 		"-v", "error",
-		"-show_entries", "format=bit_rate:stream=codec_type,width,height,avg_frame_rate,bit_rate:stream_tags=BPS,BPS-eng:stream_disposition=attached_pic",
+		"-show_entries", "format=bit_rate:stream=codec_type,width,height,avg_frame_rate,bit_rate,sample_rate,channels,bits_per_sample,bits_per_raw_sample:stream_tags=BPS,BPS-eng:stream_disposition=attached_pic",
 		"-of", "json", path,
 	)
 	configureMediaCommand(command)
@@ -86,13 +100,18 @@ func (s *Service) probeExportSource(path string) (ExportSource, float64, bool) {
 			BitRate string `json:"bit_rate"`
 		} `json:"format"`
 		Streams []struct {
-			CodecType    string            `json:"codec_type"`
-			Width        int               `json:"width"`
-			Height       int               `json:"height"`
-			AvgFrameRate string            `json:"avg_frame_rate"`
-			BitRate      string            `json:"bit_rate"`
-			Tags         map[string]string `json:"tags"`
-			Disposition  struct {
+			CodecType    string `json:"codec_type"`
+			Width        int    `json:"width"`
+			Height       int    `json:"height"`
+			AvgFrameRate string `json:"avg_frame_rate"`
+			BitRate      string `json:"bit_rate"`
+			SampleRate   string `json:"sample_rate"`
+			Channels     int    `json:"channels"`
+			// bits_per_sample is set for PCM; FLAC and others only have the raw one.
+			BitsPerSample    int               `json:"bits_per_sample"`
+			BitsPerRawSample string            `json:"bits_per_raw_sample"`
+			Tags             map[string]string `json:"tags"`
+			Disposition      struct {
 				AttachedPic int `json:"attached_pic"`
 			} `json:"disposition"`
 		} `json:"streams"`
@@ -126,6 +145,12 @@ func (s *Service) probeExportSource(path string) (ExportSource, float64, bool) {
 			}
 			info.HasAudio = true
 			info.AudioKbps = kbps
+			info.AudioSampleRate, _ = strconv.Atoi(strings.TrimSpace(stream.SampleRate))
+			info.AudioChannels = stream.Channels
+			info.AudioBits = stream.BitsPerSample
+			if raw, err := strconv.Atoi(strings.TrimSpace(stream.BitsPerRawSample)); err == nil && raw > 0 {
+				info.AudioBits = raw
+			}
 		}
 	}
 	return info, parseKbps(value.Format.BitRate), seenVideo

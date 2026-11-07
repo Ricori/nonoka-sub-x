@@ -64,6 +64,13 @@ export interface ExportSource {
     "videoKbps": number;
     "audioKbps": number;
     "hasAudio": boolean;
+
+    /**
+     * The first audio track's layout, for sizing a lossless (FLAC) export.
+     */
+    "audioSampleRate": number;
+    "audioChannels": number;
+    "audioBits": number;
 }
 
 export interface FilmstripTileResult {

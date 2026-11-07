@@ -25,7 +25,7 @@ func TestNormalizePiecesMergesAndClamps(t *testing.T) {
 }
 
 func TestPiecesFilterGraph(t *testing.T) {
-	graph := piecesFilterGraph([]Range{{T0: 10, T1: 12}, {T0: 15, T1: 20}}, 10, true, "subtitles=subtitle.ass")
+	graph := piecesFilterGraph([]Range{{T0: 10, T1: 12}, {T0: 15, T1: 20}}, 10, 0, true, "subtitles=subtitle.ass")
 	for _, part := range []string{
 		"[0:v]trim=start=0.000:end=2.000,setpts=PTS-STARTPTS[v0];",
 		"[0:v]trim=start=5.000:end=10.000,setpts=PTS-STARTPTS[v1];",
@@ -36,7 +36,7 @@ func TestPiecesFilterGraph(t *testing.T) {
 			t.Fatalf("graph missing %q:\n%s", part, graph)
 		}
 	}
-	silent := piecesFilterGraph([]Range{{T0: 0, T1: 1}, {T0: 2, T1: 3}}, 0, false, "null")
+	silent := piecesFilterGraph([]Range{{T0: 0, T1: 1}, {T0: 2, T1: 3}}, 0, 0, false, "null")
 	if strings.Contains(silent, "atrim") || !strings.Contains(silent, "[v0][v1]concat=n=2:v=1:a=0[vc];[vc]null[vo]") {
 		t.Fatalf("silent graph = %s", silent)
 	}

@@ -50,8 +50,8 @@ export function OpenVideoExport(mediaID: string, defaultName: string, ass: strin
  * The source, subtitle text and output range come only from the stored draft;
  * the renderer can change encoding knobs but cannot silently swap the project.
  */
-export function RunVideoExport(jobID: string, crf: number, preset: string, scaleH: number, abr: string): $CancellablePromise<$models.VideoExportResult> {
-    return $Call.ByID(2182945304, jobID, crf, preset, scaleH, abr);
+export function RunVideoExport(jobID: string, crf: number, preset: string, scaleH: number, abr: string, container: string): $CancellablePromise<$models.VideoExportResult> {
+    return $Call.ByID(2182945304, jobID, crf, preset, scaleH, abr, container);
 }
 
 export function VideoExportDraft(jobID: string): $CancellablePromise<$models.VideoExportDraft> {

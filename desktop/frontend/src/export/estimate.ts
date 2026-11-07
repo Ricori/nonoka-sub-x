@@ -25,6 +25,18 @@ export interface EstimateInput {
   scaleH: number;
   abr: string;
   joined: boolean;
+  container?: 'mp4' | 'mkv';
+}
+
+/** FLAC 对一般影视音频大约能压到 PCM 的六成 */
+const FLAC_RATIO = 0.6;
+
+/** 按源音轨的采样率、声道与位深估 FLAC 码率；不知道的按 48k 立体声 16 bit 算 */
+function flacKbps(source: ExportSource): number {
+  const rate = source.audioSampleRate > 0 ? source.audioSampleRate : 48000;
+  const channels = source.audioChannels > 0 ? source.audioChannels : 2;
+  const bits = source.audioBits > 0 ? Math.min(source.audioBits, 24) : 16;
+  return rate * channels * bits / 1000 * FLAC_RATIO;
 }
 
 /** 估算导出文件的字节数；源分辨率未知或时长为零时返回 null */
@@ -55,12 +67,18 @@ export function estimateExportBytes(input: EstimateInput): number | null {
 
   let audioKbps = 0;
   if (source.hasAudio) {
-    // 多段拼接时“复制源音轨”不可用，Go 端会退回 192k
-    const abr = input.abr === 'copy' && input.joined ? '192k' : input.abr;
-    audioKbps = abr === 'copy' ? (source.audioKbps || ASSUMED_AUDIO_KBPS) : (parseInt(abr, 10) || 192);
+    // 与 Go 端 editorExportAudioArgs 的兜底一致：多段拼接时没有源音轨可复制，
+    // MKV 退回 FLAC、MP4 退回 192k；FLAC 只在 MKV 里生效
+    const mkv = input.container === 'mkv';
+    let abr = input.abr;
+    if (abr === 'copy' && input.joined) abr = mkv ? 'flac' : '192k';
+    if (abr === 'flac' && !mkv) abr = '192k';
+    if (abr === 'copy') audioKbps = source.audioKbps || ASSUMED_AUDIO_KBPS;
+    else if (abr === 'flac') audioKbps = flacKbps(source);
+    else audioKbps = parseInt(abr, 10) || 192;
   }
 
-  // 约 1% 的 MP4 封装开销
+  // 约 1% 的封装开销，MP4 与 MKV 相差无几
   return (videoKbps + audioKbps) * 1000 / 8 * duration * 1.01;
 }
 

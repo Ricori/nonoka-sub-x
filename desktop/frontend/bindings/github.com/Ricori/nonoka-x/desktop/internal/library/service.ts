@@ -88,10 +88,10 @@ export function ExportVideo(id: string, ass: string): $CancellablePromise<string
  * ExportVideoPieces burns ass onto the given source pieces joined in order.
  * The ASS must already be in output time (see subtitles/build.ts piecesAss).
  * A single piece keeps the plain -ss/-t path; several go through trim+concat,
- * which always re-encodes the audio.
+ * which always re-encodes the audio. container is "mp4" or "mkv".
  */
-export function ExportVideoPieces(id: string, defaultName: string, ass: string, pieces: $models.Range[] | null, crf: number, preset: string, scaleH: number, abr: string): $CancellablePromise<$models.ExportResult> {
-    return $Call.ByID(221216840, id, defaultName, ass, pieces, crf, preset, scaleH, abr);
+export function ExportVideoPieces(id: string, defaultName: string, ass: string, pieces: $models.Range[] | null, crf: number, preset: string, scaleH: number, abr: string, container: string): $CancellablePromise<$models.ExportResult> {
+    return $Call.ByID(221216840, id, defaultName, ass, pieces, crf, preset, scaleH, abr, container);
 }
 
 export function ExportVideoRange(id: string, defaultName: string, ass: string, t0: number, t1: number, crf: number, preset: string, scaleH: number, abr: string): $CancellablePromise<$models.ExportResult> {

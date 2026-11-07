@@ -48,18 +48,53 @@ var editorExportPresets = map[string]bool{
 	"medium": true, "slow": true, "slower": true, "veryslow": true,
 }
 
+// exportContainer is a container the editor can export burned-in video to.
+type exportContainer struct {
+	name  string
+	ext   string
+	label string
+	muxer string
+	// allAudio keeps every source audio track instead of only the first.
+	// Matroska takes any codec, so a copy cannot fail on a second track.
+	allAudio bool
+}
+
+var exportContainers = map[string]exportContainer{
+	"mp4": {name: "mp4", ext: ".mp4", label: "MP4 视频", muxer: "mp4"},
+	"mkv": {name: "mkv", ext: ".mkv", label: "MKV 视频", muxer: "matroska", allAudio: true},
+}
+
+func exportContainerFor(name string) exportContainer {
+	if container, ok := exportContainers[strings.ToLower(name)]; ok {
+		return container
+	}
+	return exportContainers["mp4"]
+}
+
+// exportFileName swaps a known container extension for the chosen one, so the
+// editor's "x - 字幕.mp4" default becomes "x - 字幕.mkv".
+func exportFileName(name string, container exportContainer) string {
+	ext := filepath.Ext(name)
+	for _, known := range exportContainers {
+		if strings.EqualFold(ext, known.ext) {
+			return strings.TrimSuffix(name, ext) + container.ext
+		}
+	}
+	return name + container.ext
+}
+
 func (s *Service) ExportVideoRange(id, defaultName, ass string, t0, t1 float64, crf int, preset string, scaleH int, abr string) (ExportResult, error) {
 	if !finite(t0) || !finite(t1) || t1 <= t0 {
 		return ExportResult{}, errors.New("invalid video export request")
 	}
-	return s.ExportVideoPieces(id, defaultName, ass, []Range{{T0: t0, T1: t1}}, crf, preset, scaleH, abr)
+	return s.ExportVideoPieces(id, defaultName, ass, []Range{{T0: t0, T1: t1}}, crf, preset, scaleH, abr, "mp4")
 }
 
 // ExportVideoPieces burns ass onto the given source pieces joined in order.
 // The ASS must already be in output time (see subtitles/build.ts piecesAss).
 // A single piece keeps the plain -ss/-t path; several go through trim+concat,
-// which always re-encodes the audio.
-func (s *Service) ExportVideoPieces(id, defaultName, ass string, pieces []Range, crf int, preset string, scaleH int, abr string) (ExportResult, error) {
+// which always re-encodes the audio. container is "mp4" or "mkv".
+func (s *Service) ExportVideoPieces(id, defaultName, ass string, pieces []Range, crf int, preset string, scaleH int, abr, container string) (ExportResult, error) {
 	if !validID(id) || len(ass) > 64<<20 || len(pieces) == 0 {
 		return ExportResult{}, errors.New("invalid video export request")
 	}
@@ -77,11 +112,11 @@ func (s *Service) ExportVideoPieces(id, defaultName, ass string, pieces []Range,
 	if !fileExists(source) {
 		return ExportResult{}, errors.New("local media is unavailable")
 	}
+	audioSource := exportAudioSource(entry, source)
 	pieces = joinPieces(normalizePieces(pieces, entry.Duration))
 	if len(pieces) == 0 {
 		return ExportResult{}, errors.New("video export range is empty")
 	}
-	t0, t1 := pieces[0].T0, pieces[len(pieces)-1].T1
 	if crf < 1 || crf > 51 {
 		crf = 21
 	}
@@ -91,7 +126,8 @@ func (s *Service) ExportVideoPieces(id, defaultName, ass string, pieces []Range,
 	if scaleH != 0 && (scaleH < 240 || scaleH > 4320) {
 		scaleH = 0
 	}
-	audioArgs := editorExportAudioArgs(abr)
+	format := exportContainerFor(container)
+	audioArgs := editorExportAudioArgs(abr, format, len(pieces) > 1)
 	ctx, cancel := context.WithCancel(context.Background())
 	s.mu.Lock()
 	if s.exportCancels == nil {
@@ -117,12 +153,10 @@ func (s *Service) ExportVideoPieces(id, defaultName, ass string, pieces []Range,
 	}
 	name := strings.TrimSpace(filepath.Base(defaultName))
 	if name == "" || name == "." {
-		name = strings.TrimSuffix(entry.Title, filepath.Ext(entry.Title)) + " - 字幕.mp4"
+		name = strings.TrimSuffix(entry.Title, filepath.Ext(entry.Title)) + " - 字幕"
 	}
-	if !strings.EqualFold(filepath.Ext(name), ".mp4") {
-		name += ".mp4"
-	}
-	output, err := app.Dialog.SaveFile().SetFilename(name).AddFilter("MP4 视频", "*.mp4").AttachToWindow(window).PromptForSingleSelection()
+	name = exportFileName(name, format)
+	output, err := app.Dialog.SaveFile().SetFilename(name).AddFilter(format.label, "*"+format.ext).AttachToWindow(window).PromptForSingleSelection()
 	if dialogCancelled(err) {
 		err = nil
 	}
@@ -132,10 +166,10 @@ func (s *Service) ExportVideoPieces(id, defaultName, ass string, pieces []Range,
 	if err != nil || output == "" {
 		return ExportResult{}, err
 	}
-	if !strings.EqualFold(filepath.Ext(output), ".mp4") {
-		output += ".mp4"
+	if !strings.EqualFold(filepath.Ext(output), format.ext) {
+		output += format.ext
 	}
-	if samePath(source, output) {
+	if samePath(source, output) || samePath(audioSource, output) {
 		return ExportResult{}, errors.New("export destination must not overwrite source video")
 	}
 
@@ -168,36 +202,25 @@ func (s *Service) ExportVideoPieces(id, defaultName, ass string, pieces []Range,
 	if scaleH > 0 {
 		filter += fmt.Sprintf(",scale=-2:%d", scaleH)
 	}
-	partial := output + ".part.mp4"
-	args := []string{"-v", "error", "-y", "-ss", formatFloat(t0), "-t", formatFloat(t1 - t0), "-i", source}
-	if len(pieces) == 1 {
-		args = append(args, "-vf", filter)
-	} else {
-		hasAudio := true
+	partial := output + ".part" + format.ext
+	job := editorExportJob{
+		video: source, audio: audioSource, pieces: pieces, filter: filter,
+		crf: crf, preset: preset, audioArgs: audioArgs, container: format, output: partial,
+	}
+	if len(pieces) > 1 {
+		job.hasAudio = true
 		if s.prober != nil {
-			if metadata, probeErr := s.prober.Probe(ctx, source); probeErr == nil {
-				hasAudio = metadata.HasAudio
+			if metadata, probeErr := s.prober.Probe(ctx, audioSource); probeErr == nil {
+				job.hasAudio = metadata.HasAudio
 			}
 		}
 		// Written to a file: a few hundred pieces overflow the Windows command line.
-		graph := piecesFilterGraph(pieces, t0, hasAudio, filter)
+		graph := piecesFilterGraph(pieces, pieces[0].T0, job.audioInput(), job.hasAudio, filter)
 		if err := os.WriteFile(filepath.Join(work, "graph.txt"), []byte(graph), 0o600); err != nil {
 			return ExportResult{}, err
 		}
-		// "-/opt file" reads the option's value from a file (FFmpeg 7+); the old
-		// -filter_complex_script spelling was removed in FFmpeg 8.
-		args = append(args, "-/filter_complex", "graph.txt", "-map", "[vo]")
-		if hasAudio {
-			args = append(args, "-map", "[ac]")
-		}
-		// Joined audio is a new stream; there is nothing left to copy.
-		if abr == "copy" {
-			audioArgs = editorExportAudioArgs("")
-		}
 	}
-	args = append(args, "-c:v", "libx264", "-preset", preset, "-crf", strconv.Itoa(crf))
-	args = append(args, audioArgs...)
-	args = append(args, "-progress", "pipe:1", "-nostats", partial)
+	args := buildEditorExportArgs(job)
 	command := exec.CommandContext(ctx, ffmpeg, args...)
 	command.Dir = work
 	configureMediaCommand(command)
@@ -236,6 +259,9 @@ func (s *Service) ExportVideoPieces(id, defaultName, ass string, pieces []Range,
 		if message == "" {
 			message = runErr.Error()
 		}
+		if format.name == "mp4" && abr == "copy" && strings.Contains(message, "not currently supported in container") {
+			return ExportResult{}, errors.New("源音轨的编码放不进 MP4，请改用 MKV 容器，或改为重新编码音频")
+		}
 		return ExportResult{}, fmt.Errorf("export video: %s", message)
 	}
 	if scanErr != nil {
@@ -257,14 +283,94 @@ func (s *Service) ExportVideoPieces(id, defaultName, ass string, pieces []Range,
 	return ExportResult{Path: output, Size: stat.Size()}, nil
 }
 
-func editorExportAudioArgs(option string) []string {
-	if option == "copy" {
-		return []string{"-c:a", "copy"}
+// exportAudioSource picks the file the audio is taken from. When the video
+// comes from the H.264 working copy, its audio is an AAC re-encode; the
+// original still has the real track (PCM, FLAC, TrueHD...), which is what
+// "copy" and the lossless option are for, and a better start for AAC too.
+func exportAudioSource(entry Entry, video string) string {
+	if entry.SourcePath != "" && !samePath(video, entry.SourcePath) && fileExists(entry.SourcePath) {
+		return entry.SourcePath
 	}
-	if option != "128k" && option != "192k" && option != "256k" && option != "320k" {
-		option = "192k"
+	return video
+}
+
+// editorExportJob is everything the export ffmpeg command line depends on.
+type editorExportJob struct {
+	video, audio string
+	pieces       []Range
+	// hasAudio is consulted only for joined pieces, whose filter graph must
+	// know; a single piece maps audio optionally instead.
+	hasAudio  bool
+	filter    string
+	crf       int
+	preset    string
+	audioArgs []string
+	container exportContainer
+	output    string
+}
+
+func (job editorExportJob) audioInput() int {
+	if job.audio != "" && job.audio != job.video {
+		return 1
 	}
-	return []string{"-c:a", "aac", "-b:a", option}
+	return 0
+}
+
+// buildEditorExportArgs maps streams explicitly: left to itself ffmpeg would
+// also carry a soft subtitle track from an MKV source into an MKV output,
+// doubling the subtitles that were just burned in.
+func buildEditorExportArgs(job editorExportJob) []string {
+	t0, t1 := job.pieces[0].T0, job.pieces[len(job.pieces)-1].T1
+	seek := []string{"-ss", formatFloat(t0), "-t", formatFloat(t1 - t0)}
+	args := append([]string{"-v", "error", "-y"}, seek...)
+	args = append(args, "-i", job.video)
+	audio := job.audioInput()
+	if audio == 1 {
+		args = append(args, seek...)
+		args = append(args, "-i", job.audio)
+	}
+	if len(job.pieces) == 1 {
+		audioMap := fmt.Sprintf("%d:a:0?", audio)
+		if job.container.allAudio {
+			audioMap = fmt.Sprintf("%d:a?", audio)
+		}
+		// V, not v: a cover picture is a video stream too.
+		args = append(args, "-vf", job.filter, "-map", "0:V:0", "-map", audioMap)
+	} else {
+		// "-/opt file" reads the option's value from a file (FFmpeg 7+); the old
+		// -filter_complex_script spelling was removed in FFmpeg 8.
+		args = append(args, "-/filter_complex", "graph.txt", "-map", "[vo]")
+		if job.hasAudio {
+			args = append(args, "-map", "[ac]")
+		}
+	}
+	args = append(args, "-sn", "-dn", "-c:v", "libx264", "-preset", job.preset, "-crf", strconv.Itoa(job.crf))
+	args = append(args, job.audioArgs...)
+	return append(args, "-f", job.container.muxer, "-progress", "pipe:1", "-nostats", job.output)
+}
+
+// editorExportAudioArgs turns the audio option into encoder flags. Joined
+// pieces build a new audio stream, so there is nothing to copy: MKV falls back
+// to lossless FLAC there, MP4 to AAC. FLAC is offered for MKV only, where
+// players expect it.
+func editorExportAudioArgs(option string, container exportContainer, joined bool) []string {
+	if option == "copy" && joined {
+		option = ""
+		if container.name == "mkv" {
+			option = "flac"
+		}
+	}
+	switch {
+	case option == "copy":
+		// Matroska seeks to the video keyframe's cue for every stream, so a
+		// copied track would start that far before the cut; drop what precedes it.
+		return []string{"-c:a", "copy", "-copypriorss", "0"}
+	case option == "flac" && container.name == "mkv":
+		return []string{"-c:a", "flac"}
+	case option == "128k" || option == "192k" || option == "256k" || option == "320k":
+		return []string{"-c:a", "aac", "-b:a", option}
+	}
+	return []string{"-c:a", "aac", "-b:a", "192k"}
 }
 
 func (s *Service) CancelExport(id string) error {

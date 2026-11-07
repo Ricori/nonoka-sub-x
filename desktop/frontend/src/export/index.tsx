@@ -49,6 +49,7 @@ function ExportWindow() {
   const [presetIndex, setPresetIndex] = useState(1);
   const [scale, setScale] = useState('0');
   const [abr, setAbr] = useState('192k');
+  const [container, setContainer] = useState<'mp4' | 'mkv'>('mp4');
   const [result, setResult] = useState<{ path: string; size: number } | null>(null);
   const [confirmClose, setConfirmClose] = useState(false);
 
@@ -56,8 +57,8 @@ function ExportWindow() {
   // 剪辑成片要把几段拼起来，拼出来的音轨是新的，没有源音轨可复制
   const joined = (draft?.pieces?.length ?? 0) > 1;
   const estimate = useMemo(() => draft?.source ? estimateExportBytes({
-    source: draft.source, pieces: draft.pieces, crf: Number(crf), preset, scaleH: Number(scale), abr, joined,
-  }) : null, [draft, crf, preset, scale, abr, joined]);
+    source: draft.source, pieces: draft.pieces, crf: Number(crf), preset, scaleH: Number(scale), abr, joined, container,
+  }) : null, [draft, crf, preset, scale, abr, joined, container]);
 
   useEffect(() => {
     applyTheme(initialTheme('dark'));
@@ -101,6 +102,13 @@ function ExportWindow() {
     }
   }), [busy, jobID]);
 
+  function chooseContainer(value: 'mp4' | 'mkv') {
+    setContainer(value);
+    // FLAC 只给 MKV；拼接成片在 MKV 里没有源音轨可复制，默认换成无损
+    if (value === 'mp4' && abr === 'flac') setAbr('192k');
+    if (value === 'mkv' && joined && abr === 'copy') setAbr('flac');
+  }
+
   function choosePreset(index: number) {
     if (busy) return;
     setPresetIndex(index);
@@ -117,7 +125,7 @@ function ExportWindow() {
     progressStart.current = null;
     setResult(null);
     try {
-      const value = await desktopWindows.runVideoExport(jobID, Number(crf), preset, Number(scale), abr);
+      const value = await desktopWindows.runVideoExport(jobID, Number(crf), preset, Number(scale), abr, container);
       if (!value.path) {
         setPhase('ready');
         setMessage('未选择保存位置，导出尚未开始。');
@@ -191,13 +199,25 @@ function ExportWindow() {
           </select>
         </div>
         <div className="setting-row">
-          <label htmlFor="export-audio" title="复制源音轨不会重新编码；源音频编码需兼容 MP4 容器">音频</label>
+          <label title="MP4 兼容性最好；MKV 能原样装下 PCM、FLAC、TrueHD 等音轨，并保留源文件的全部音轨">格式</label>
+          <div className="segments">
+            {(['mp4', 'mkv'] as const).map((value) => (
+              <button type="button" key={value} className={container === value ? 'selected' : ''}
+                disabled={busy} onClick={() => chooseContainer(value)}>{value.toUpperCase()}</button>
+            ))}
+          </div>
+        </div>
+        <div className="setting-row">
+          <label htmlFor="export-audio" title={container === 'mp4'
+            ? '复制源音轨不会重新编码；源音频编码需兼容 MP4 容器，PCM 等请改用 MKV'
+            : '复制源音轨不会重新编码；FLAC 无损重新编码，多段拼接时也能保持无损'}>音频</label>
           <select id="export-audio" disabled={busy} value={abr} onChange={(event) => setAbr(event.target.value)}>
             <option value="copy" disabled={joined}>
               {joined ? '复制源音轨（多段拼接时不可用）' : '复制源音轨（不重新编码）'}
             </option>
-            <option value="128k">128k</option><option value="192k">192k</option>
-            <option value="256k">256k</option><option value="320k">320k</option>
+            {container === 'mkv' && <option value="flac">FLAC 无损</option>}
+            <option value="128k">AAC 128k</option><option value="192k">AAC 192k</option>
+            <option value="256k">AAC 256k</option><option value="320k">AAC 320k</option>
           </select>
         </div>
       </section>

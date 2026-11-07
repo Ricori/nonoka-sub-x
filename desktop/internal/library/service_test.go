@@ -249,7 +249,7 @@ func TestImportAcceptsAudioOnlyMediaAndRefusesFrameFeatures(t *testing.T) {
 	if _, err := service.FilmstripTile(entry.ID, 0, 1, 1); err == nil {
 		t.Fatal("filmstrip was offered for audio-only media")
 	}
-	if _, err := service.ExportVideoPieces(entry.ID, "", "[Events]\n", []Range{{T0: 0, T1: 10}}, 21, "medium", 0, ""); err != errAudioOnlyExport {
+	if _, err := service.ExportVideoPieces(entry.ID, "", "[Events]\n", []Range{{T0: 0, T1: 10}}, 21, "medium", 0, "", "mkv"); err != errAudioOnlyExport {
 		t.Fatalf("export audio-only = %v", err)
 	}
 

@@ -145,7 +145,7 @@ func (s *WindowService) VideoExportDraft(jobID string) (VideoExportDraft, error)
 // RunVideoExport owns the long-running call on behalf of the export window.
 // The source, subtitle text and output range come only from the stored draft;
 // the renderer can change encoding knobs but cannot silently swap the project.
-func (s *WindowService) RunVideoExport(jobID string, crf int, preset string, scaleH int, abr string) (VideoExportResult, error) {
+func (s *WindowService) RunVideoExport(jobID string, crf int, preset string, scaleH int, abr, container string) (VideoExportResult, error) {
 	s.mu.Lock()
 	if s.export == nil || s.exportDraft.JobID != jobID {
 		s.mu.Unlock()
@@ -169,7 +169,7 @@ func (s *WindowService) RunVideoExport(jobID string, crf int, preset string, sca
 	}()
 	result, err := s.library.ExportVideoPieces(
 		draft.MediaID, draft.DefaultName, ass, draft.Pieces,
-		crf, preset, scaleH, abr,
+		crf, preset, scaleH, abr, container,
 	)
 	return VideoExportResult{Path: result.Path, Size: result.Size}, err
 }
