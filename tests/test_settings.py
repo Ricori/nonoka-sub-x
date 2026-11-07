@@ -210,7 +210,7 @@ class FineSubSettingsTests(unittest.TestCase):
         ):
             settings = FineSubSettings(temporary)
             settings.bind_environment()
-            selection = {"LLM_DEFAULT_PROVIDER": "nonoka-cloud", "LLM_DEFAULT_MODEL": "gpt-6-luna"}
+            selection = {"LLM_DEFAULT_PROVIDER": "nonoka-cloud", "LLM_DEFAULT_MODEL": "gpt-6.1-terra"}
             cloud = settings.snapshot()["modelRouting"]["providers"][0]
             self.assertEqual(
                 (cloud["id"], cloud["kind"], cloud["requiresKey"], cloud["available"], cloud["keyName"]),
@@ -219,7 +219,7 @@ class FineSubSettingsTests(unittest.TestCase):
             # The relay's allow list, its default first.
             self.assertEqual(
                 [(model["id"], model["label"]) for model in cloud["models"]],
-                [("gpt-6.1-terra", "GPT-6.1 Terra"), ("gpt-6-luna", "GPT-6 Luna")],
+                [("gpt-6.1-terra", "GPT-6.1 Terra")],
             )
             self.assertEqual(cloud["defaultModel"], "gpt-6.1-terra")
             with self.assertRaisesRegex(ValueError, "Sign in to Nonoka Cloud"):
@@ -234,7 +234,7 @@ class FineSubSettingsTests(unittest.TestCase):
             self.assertTrue(snapshot["llmReady"])
             self.assertTrue(snapshot["modelRouting"]["providers"][0]["available"])
             self.assertNotIn("cloud-secret", json.dumps(snapshot))
-            target_id = settings._custom_target("nonoka-cloud", "gpt-6-luna")
+            target_id = settings._custom_target("nonoka-cloud", "gpt-6.1-terra")
             fact = next(item for item in default_model_catalog() if item.fact_id == target_id)
             self.assertEqual(
                 (fact.provider_kind, fact.base_url, fact.key_env),
@@ -248,8 +248,39 @@ class FineSubSettingsTests(unittest.TestCase):
             self.assertEqual(settings.set_cloud_account("", ""), {"changed": True})
             snapshot = settings.snapshot()
             self.assertFalse(snapshot["llmReady"])
-            self.assertEqual(snapshot["modelRouting"]["defaultRoute"], {"provider": "nonoka-cloud", "model": "gpt-6-luna"})
+            self.assertEqual(snapshot["modelRouting"]["defaultRoute"], {"provider": "nonoka-cloud", "model": "gpt-6.1-terra"})
             self.assertNotIn(target_id, (Path(temporary) / "model_catalog.psv").read_text(encoding="utf-8"))
+
+    def test_withdrawn_nonoka_cloud_model_moves_to_the_cloud_default(self) -> None:
+        """GPT-6 Luna left the relay's allow list on 2026-11-08.
+
+        A route saved while it was offered has to name the model that now
+        answers, or the windows are planned against the wrong limits and every
+        later save is refused for naming a model the cloud does not list.
+        """
+
+        with tempfile.TemporaryDirectory() as temporary, patch.dict(
+            os.environ, {"FINESUB_ENV_PROTECT": "0"}, clear=False
+        ):
+            config_path = Path(temporary) / "finesub.toml"
+            config_path.write_text(
+                "[nonoka_models]\n"
+                'default_provider = "nonoka-cloud"\n'
+                'default_model = "gpt-6-luna"\n'
+                'correction_provider = "nonoka-cloud"\n'
+                'correction_model = "gpt-6-luna"\n',
+                encoding="utf-8",
+            )
+            settings = FineSubSettings(temporary)
+            settings.bind_environment()
+            settings.set_cloud_account("https://cloud.example", "cloud-secret")
+            routing = settings.snapshot()["modelRouting"]
+            self.assertEqual(routing["defaultRoute"], {"provider": "nonoka-cloud", "model": "gpt-6.1-terra"})
+            routes = {item["id"]: item["route"] for item in routing["taskRoutes"]}
+            self.assertEqual(routes["correction"], {"provider": "nonoka-cloud", "model": "gpt-6.1-terra"})
+            # An unrelated save goes through instead of tripping on the old name.
+            settings.update_keys({"LLM_DEFAULT_PROVIDER": "nonoka-cloud", "LLM_DEFAULT_MODEL": "gpt-6.1-terra"})
+            self.assertNotIn("gpt-6-luna", config_path.read_text(encoding="utf-8"))
 
     def test_nonoka_cloud_account_is_validated(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

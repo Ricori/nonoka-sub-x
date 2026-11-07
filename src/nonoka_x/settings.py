@@ -214,13 +214,18 @@ _HTTP_TRANSPORTS: Mapping[str, tuple[str, str]] = {
 # to its own default; this list is kept to that allow list, in the same order,
 # so the limits the engine plans windows against are the ones of the model that
 # answers. GPT-6.1 Terra leads since 2026-11-07: GPT-6 Luna through the relay
-# hung and dropped often enough to fail long correction runs.
+# hung and dropped often enough to fail long correction runs. Luna was then
+# withdrawn on 2026-11-08: the relay's Responses-to-chat converter answers a
+# streamed, reasoning, full-size request with `502 unsupported native Responses
+# stream event` (code `native_response_conversion_failed`), and the backend
+# always streams. A saved route naming it moves to the default
+# (`migrate_model_config`).
 CLOUD_PROVIDER_ID = "nonoka-cloud"
 CLOUD_KEY_NAME = "NONOKA_CLOUD_KEY"
 CLOUD_BASE_URL_NAME = "NONOKA_CLOUD_BASE_URL"
 CLOUD_PROVIDER: Mapping[str, Any] = {
     "label": "Nonoka Cloud",
-    "models": ("gpt-6.1-terra", "gpt-6-luna"),
+    "models": ("gpt-6.1-terra",),
     "note": "由 Nonoka Cloud 账号免费提供，无需 API Key，也不消耗转写余量；退出登录后不可用。",
 }
 #: What a cloud key may contain: the backend's own key pattern. Anything else
@@ -501,7 +506,7 @@ def migrate_model_config(config: Mapping[str, Any]) -> dict[str, str | None]:
     """The `[nonoka_models]` writes that bring a saved config up to date.
 
     Pure: the caller decides whether to persist them. Empty when nothing is
-    stale, so applying it again is a no-op. Three kinds of staleness, all left
+    stale, so applying it again is a no-op. Four kinds of staleness, all left
     by an engine sync rather than by the user:
 
     * a route that no longer exists (`LEGACY_ROUTES`) -- cleared, its
@@ -509,7 +514,10 @@ def migrate_model_config(config: Mapping[str, Any]) -> dict[str, str | None]:
     * a renamed provider (`LEGACY_PROVIDER_IDS`);
     * a local-agent model the engine stopped packaging -- moved to its named
       successor (`LEGACY_LOCAL_MODELS`), else to the provider's default, so a
-      saved route never names a target the routing table cannot build.
+      saved route never names a target the routing table cannot build;
+    * a Nonoka Cloud model the backend no longer serves -- moved to the cloud
+      default, which is the model that would answer anyway, so the windows
+      are planned against its limits and the next save is not refused.
     """
 
     current = {key: value for key, value in config.items() if value not in (None, "")}
@@ -529,7 +537,7 @@ def migrate_model_config(config: Mapping[str, Any]) -> dict[str, str | None]:
         provider = LEGACY_PROVIDER_IDS.get(route["provider"], route["provider"])
         if provider != route["provider"]:
             updates[f"{prefix}_provider"] = provider
-        spec = LOCAL_AGENT_PROVIDERS.get(provider)
+        spec = CLOUD_PROVIDER if provider == CLOUD_PROVIDER_ID else LOCAL_AGENT_PROVIDERS.get(provider)
         if spec is None or not route["model"]:
             continue
         model = LEGACY_LOCAL_MODELS.get(provider, {}).get(route["model"], route["model"])
