@@ -128,7 +128,7 @@ export function SettingsPage(props: SettingsPageProps) {
       </div>
 
       <div className="settings-group">
-        <h2 className="section-title">网络代理<small>默认跟随系统代理；下载、模型调用、云端与更新都走这一条线路</small></h2>
+        <h2 className="section-title">网络代理<small>默认跟随系统代理</small></h2>
         <ProxySettingsCard />
       </div>
     </section>
