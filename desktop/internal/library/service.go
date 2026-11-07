@@ -148,6 +148,9 @@ type Service struct {
 	// encoder pipeline that last succeeded (see proxy.go).
 	proxySlot     chan struct{}
 	proxyPipeline string
+	// exportEncoder names the hardware encoder the last GPU export finished
+	// with (see export_encoder.go).
+	exportEncoder string
 	// tileMu serialises filmstrip and spectrogram renders. Reading a tile that
 	// is already on disk never takes it.
 	tileMu sync.Mutex

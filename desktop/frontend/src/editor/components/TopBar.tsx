@@ -51,7 +51,7 @@ export function TopBar() {
               srtItem("导出 SRT（仅译文）", "zh"),
               srtItem("导出 SRT（仅原文）", "ja"),
               // 纯音频没有画面可以压字幕
-              ...(audioOnly ? [] : ["-" as const, { label: "导出 MP4（内嵌字幕）", onClick: () => void openExport() }]),
+              ...(audioOnly ? [] : ["-" as const, { label: "导出视频（内嵌字幕）", onClick: () => void openExport() }]),
             ], e.currentTarget)}>导出 ▾</button>
           <button className="btn primary" id="btn-save" title="保存 (Ctrl+S)"
             onClick={() => void manualSave()}>保存</button>

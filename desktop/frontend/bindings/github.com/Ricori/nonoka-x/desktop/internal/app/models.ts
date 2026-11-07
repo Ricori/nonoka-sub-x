@@ -131,4 +131,5 @@ export interface VideoExportDraft {
 export interface VideoExportResult {
     "path": string;
     "size": number;
+    "encoder": string;
 }

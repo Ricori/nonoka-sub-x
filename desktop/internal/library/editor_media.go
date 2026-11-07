@@ -26,6 +26,8 @@ const (
 type ExportResult struct {
 	Path string `json:"path"`
 	Size int64  `json:"size"`
+	// Encoder is the label of the video encoder that produced the file.
+	Encoder string `json:"encoder"`
 }
 
 type MediaProgress struct {
@@ -33,6 +35,11 @@ type MediaProgress struct {
 	Stage string  `json:"stage"`
 	Done  float64 `json:"done"`
 	Total float64 `json:"total"`
+	// Encoder labels the video encoder of an export; it changes when a GPU
+	// encoder failed and the export started over on the next one.
+	Encoder string `json:"encoder,omitempty"`
+	// Output is where a running export will land, once it has been chosen.
+	Output string `json:"output,omitempty"`
 }
 
 type SpectrogramTileResult struct {
@@ -87,14 +94,15 @@ func (s *Service) ExportVideoRange(id, defaultName, ass string, t0, t1 float64, 
 	if !finite(t0) || !finite(t1) || t1 <= t0 {
 		return ExportResult{}, errors.New("invalid video export request")
 	}
-	return s.ExportVideoPieces(id, defaultName, ass, []Range{{T0: t0, T1: t1}}, crf, preset, scaleH, abr, "mp4")
+	return s.ExportVideoPieces(id, defaultName, ass, []Range{{T0: t0, T1: t1}}, crf, preset, scaleH, abr, "mp4", false)
 }
 
 // ExportVideoPieces burns ass onto the given source pieces joined in order.
 // The ASS must already be in output time (see subtitles/build.ts piecesAss).
 // A single piece keeps the plain -ss/-t path; several go through trim+concat,
-// which always re-encodes the audio. container is "mp4" or "mkv".
-func (s *Service) ExportVideoPieces(id, defaultName, ass string, pieces []Range, crf int, preset string, scaleH int, abr, container string) (ExportResult, error) {
+// which always re-encodes the audio. container is "mp4" or "mkv". gpu tries
+// the hardware H.264 encoders first and falls back to libx264 when none works.
+func (s *Service) ExportVideoPieces(id, defaultName, ass string, pieces []Range, crf int, preset string, scaleH int, abr, container string, gpu bool) (ExportResult, error) {
 	if !validID(id) || len(ass) > 64<<20 || len(pieces) == 0 {
 		return ExportResult{}, errors.New("invalid video export request")
 	}
@@ -220,58 +228,36 @@ func (s *Service) ExportVideoPieces(id, defaultName, ass string, pieces []Range,
 			return ExportResult{}, err
 		}
 	}
-	args := buildEditorExportArgs(job)
-	command := exec.CommandContext(ctx, ffmpeg, args...)
-	command.Dir = work
-	configureMediaCommand(command)
-	stdout, err := command.StdoutPipe()
-	if err != nil {
-		return ExportResult{}, err
-	}
-	var stderr bytes.Buffer
-	command.Stderr = &stderr
-	if err := command.Start(); err != nil {
-		if errors.Is(ctx.Err(), context.Canceled) {
-			return ExportResult{}, errors.New("已取消")
-		}
-		return ExportResult{}, err
-	}
 	duration := piecesDuration(pieces)
 	jobID := "exp_" + id
-	lastProgress := time.Time{}
-	scanner := bufio.NewScanner(stdout)
-	for scanner.Scan() {
-		done, ok := parseExportProgress(scanner.Text(), duration)
-		if !ok || (done < duration && time.Since(lastProgress) < 150*time.Millisecond) {
-			continue
+	var used exportEncoder
+	var failures []string
+	for _, encoder := range s.exportEncoders(gpu) {
+		job.encoder = encoder
+		_ = os.Remove(partial)
+		s.emitMediaProgress(MediaProgress{ID: jobID, Stage: "export", Total: duration, Encoder: encoder.label, Output: output})
+		runErr := s.runEditorExport(ctx, ffmpeg, work, buildEditorExportArgs(job), duration, jobID, encoder.label)
+		if runErr == nil {
+			used = encoder
+			break
 		}
-		lastProgress = time.Now()
-		s.emitMediaProgress(MediaProgress{ID: jobID, Stage: "export", Done: done, Total: duration})
-	}
-	scanErr := scanner.Err()
-	runErr := command.Wait()
-	if runErr != nil {
 		_ = os.Remove(partial)
 		if errors.Is(ctx.Err(), context.Canceled) {
 			return ExportResult{}, errors.New("已取消")
 		}
-		message := strings.TrimSpace(stderr.String())
-		if message == "" {
-			message = runErr.Error()
-		}
+		message := runErr.Error()
 		if format.name == "mp4" && abr == "copy" && strings.Contains(message, "not currently supported in container") {
 			return ExportResult{}, errors.New("源音轨的编码放不进 MP4，请改用 MKV 容器，或改为重新编码音频")
 		}
-		return ExportResult{}, fmt.Errorf("export video: %s", message)
+		failures = append(failures, encoder.label+": "+message)
 	}
-	if scanErr != nil {
-		_ = os.Remove(partial)
-		if errors.Is(ctx.Err(), context.Canceled) {
-			return ExportResult{}, errors.New("已取消")
-		}
-		return ExportResult{}, fmt.Errorf("read export progress: %w", scanErr)
+	if used.args == nil {
+		// libx264 is last and its own reason is the one worth showing; the GPU
+		// attempts before it most likely failed for want of a card.
+		return ExportResult{}, fmt.Errorf("export video: %s", strings.TrimPrefix(failures[len(failures)-1], softwareExportEncoder.label+": "))
 	}
-	s.emitMediaProgress(MediaProgress{ID: jobID, Stage: "export", Done: duration, Total: duration})
+	s.rememberExportEncoder(used)
+	s.emitMediaProgress(MediaProgress{ID: jobID, Stage: "export", Done: duration, Total: duration, Encoder: used.label})
 	if err := os.Rename(partial, output); err != nil {
 		_ = os.Remove(partial)
 		return ExportResult{}, err
@@ -280,7 +266,45 @@ func (s *Service) ExportVideoPieces(id, defaultName, ass string, pieces []Range,
 	if err != nil {
 		return ExportResult{}, err
 	}
-	return ExportResult{Path: output, Size: stat.Size()}, nil
+	return ExportResult{Path: output, Size: stat.Size(), Encoder: used.label}, nil
+}
+
+// runEditorExport runs one ffmpeg attempt, relaying its progress.
+func (s *Service) runEditorExport(ctx context.Context, ffmpeg, work string, args []string, duration float64, jobID, encoder string) error {
+	command := exec.CommandContext(ctx, ffmpeg, args...)
+	command.Dir = work
+	configureMediaCommand(command)
+	stdout, err := command.StdoutPipe()
+	if err != nil {
+		return err
+	}
+	var stderr bytes.Buffer
+	command.Stderr = &stderr
+	if err := command.Start(); err != nil {
+		return err
+	}
+	lastProgress := time.Time{}
+	scanner := bufio.NewScanner(stdout)
+	for scanner.Scan() {
+		done, ok := parseExportProgress(scanner.Text(), duration)
+		if !ok || (done < duration && time.Since(lastProgress) < 150*time.Millisecond) {
+			continue
+		}
+		lastProgress = time.Now()
+		s.emitMediaProgress(MediaProgress{ID: jobID, Stage: "export", Done: done, Total: duration, Encoder: encoder})
+	}
+	scanErr := scanner.Err()
+	if runErr := command.Wait(); runErr != nil {
+		message := strings.TrimSpace(stderr.String())
+		if message == "" {
+			message = runErr.Error()
+		}
+		return errors.New(message)
+	}
+	if scanErr != nil {
+		return fmt.Errorf("read export progress: %w", scanErr)
+	}
+	return nil
 }
 
 // exportAudioSource picks the file the audio is taken from. When the video
@@ -300,10 +324,12 @@ type editorExportJob struct {
 	pieces       []Range
 	// hasAudio is consulted only for joined pieces, whose filter graph must
 	// know; a single piece maps audio optionally instead.
-	hasAudio  bool
-	filter    string
-	crf       int
-	preset    string
+	hasAudio bool
+	filter   string
+	crf      int
+	preset   string
+	// encoder defaults to libx264 when unset.
+	encoder   exportEncoder
 	audioArgs []string
 	container exportContainer
 	output    string
@@ -344,7 +370,12 @@ func buildEditorExportArgs(job editorExportJob) []string {
 			args = append(args, "-map", "[ac]")
 		}
 	}
-	args = append(args, "-sn", "-dn", "-c:v", "libx264", "-preset", job.preset, "-crf", strconv.Itoa(job.crf))
+	encoder := job.encoder
+	if encoder.args == nil {
+		encoder = softwareExportEncoder
+	}
+	args = append(args, "-sn", "-dn")
+	args = append(args, encoder.args(job.crf, job.preset)...)
 	args = append(args, job.audioArgs...)
 	return append(args, "-f", job.container.muxer, "-progress", "pipe:1", "-nostats", job.output)
 }

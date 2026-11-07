@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { estimateExportBytes } from "../src/export/estimate.ts";
+import { HARDWARE_FACTOR, estimateExportBytes } from "../src/export/estimate.ts";
 
 const source = {
   width: 1920, height: 1080, fps: 24, videoKbps: 8000, audioKbps: 2304, hasAudio: true,
@@ -31,4 +31,11 @@ test("joined copy falls back to FLAC in MKV and 192k in MP4", () => {
   const joined = (container) => audioBytes({ abr: "copy", container, joined: true, pieces });
   assert.equal(Math.round(kbps(joined("mkv"))), Math.round(2304 * 0.6));
   assert.equal(Math.round(kbps(joined("mp4"))), 192);
+});
+
+test("GPU encoding scales only the video share", () => {
+  const silent = { ...base, source: { ...source, hasAudio: false }, abr: "192k" };
+  const cpu = estimateExportBytes(silent);
+  const gpu = estimateExportBytes({ ...silent, gpu: true });
+  assert.equal(Math.round(gpu / cpu * 100), Math.round(HARDWARE_FACTOR * 100));
 });

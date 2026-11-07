@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"runtime"
 	"strings"
 
 	"github.com/Ricori/nonoka-x/desktop/internal/library"
@@ -28,8 +29,9 @@ type VideoExportDraft struct {
 }
 
 type VideoExportResult struct {
-	Path string `json:"path"`
-	Size int64  `json:"size"`
+	Path    string `json:"path"`
+	Size    int64  `json:"size"`
+	Encoder string `json:"encoder"`
 }
 
 // OpenVideoExport creates one modeless native export window. One window is
@@ -98,14 +100,25 @@ func exportWindowOptions(store *preferences.Service, jobID, defaultName string) 
 	return applyWindowOptions(store, "export", applyWindowTheme(store, "editor", application.WebviewWindowOptions{
 		Name:            "export",
 		Title:           "导出视频 · " + title,
-		Width:           560,
-		Height:          650,
-		MinWidth:        480,
-		MinHeight:       560,
+		Width:           600,
+		Height:          746,
+		MinWidth:        520,
+		MinHeight:       740,
 		InitialPosition: application.WindowCentered,
 		StartState:      application.WindowStateNormal,
 		Hidden:          true,
 		URL:             "/export.html?job=" + url.QueryEscape(jobID),
+		// Same chrome as the editor: the page draws its own title bar.
+		Frameless: runtime.GOOS == "windows",
+		Mac: application.MacWindow{
+			TitleBar:                application.MacTitleBarHiddenInsetUnified,
+			InvisibleTitleBarHeight: 44,
+			TabbingMode:             application.MacWindowTabbingModeDisallowed,
+		},
+		Windows: application.WindowsWindow{
+			NonClientRegionSupport:     true,
+			WebView2CompositionHosting: true,
+		},
 	}))
 }
 
@@ -145,7 +158,7 @@ func (s *WindowService) VideoExportDraft(jobID string) (VideoExportDraft, error)
 // RunVideoExport owns the long-running call on behalf of the export window.
 // The source, subtitle text and output range come only from the stored draft;
 // the renderer can change encoding knobs but cannot silently swap the project.
-func (s *WindowService) RunVideoExport(jobID string, crf int, preset string, scaleH int, abr, container string) (VideoExportResult, error) {
+func (s *WindowService) RunVideoExport(jobID string, crf int, preset string, scaleH int, abr, container string, gpu bool) (VideoExportResult, error) {
 	s.mu.Lock()
 	if s.export == nil || s.exportDraft.JobID != jobID {
 		s.mu.Unlock()
@@ -169,9 +182,9 @@ func (s *WindowService) RunVideoExport(jobID string, crf int, preset string, sca
 	}()
 	result, err := s.library.ExportVideoPieces(
 		draft.MediaID, draft.DefaultName, ass, draft.Pieces,
-		crf, preset, scaleH, abr, container,
+		crf, preset, scaleH, abr, container, gpu,
 	)
-	return VideoExportResult{Path: result.Path, Size: result.Size}, err
+	return VideoExportResult{Path: result.Path, Size: result.Size, Encoder: result.Encoder}, err
 }
 
 func (s *WindowService) CloseVideoExport() {

@@ -68,8 +68,8 @@ func TestExportWindowIsIndependentAndHiddenUntilReady(t *testing.T) {
 	}
 
 	options := exportWindowOptions(store, "exp_media id", "Fixture.mp4")
-	if options.Name != "export" || options.Width != 560 || options.Height != 650 {
-		t.Fatalf("export window = %q %dx%d, want independent 560x650 window", options.Name, options.Width, options.Height)
+	if options.Name != "export" || options.Width != 600 || options.Height != 746 {
+		t.Fatalf("export window = %q %dx%d, want independent 600x746 window", options.Name, options.Width, options.Height)
 	}
 	if !options.Hidden {
 		t.Fatal("export window must remain hidden until its draft is loaded")

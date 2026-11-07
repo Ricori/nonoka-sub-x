@@ -16,6 +16,8 @@ const PRESET_FACTOR: Record<string, number> = {
   ultrafast: 2.0, superfast: 1.6, veryfast: 1.25, faster: 1.1, fast: 1.05,
   medium: 1, slow: 0.95, slower: 0.92, veryslow: 0.9,
 };
+/** GPU 编码器同一 CRF 下的码率倍数（RTX 3070 上 NVENC 对 x264 实测约 1.55–1.65） */
+export const HARDWARE_FACTOR = 1.6;
 
 export interface EstimateInput {
   source: ExportSource;
@@ -26,6 +28,8 @@ export interface EstimateInput {
   abr: string;
   joined: boolean;
   container?: 'mp4' | 'mkv';
+  /** 优先用 GPU 编码；失败回退 CPU 时实际会更小 */
+  gpu?: boolean;
 }
 
 /** FLAC 对一般影视音频大约能压到 PCM 的六成 */
@@ -64,6 +68,7 @@ export function estimateExportBytes(input: EstimateInput): number | null {
       * 2 ** ((SOURCE_CRF - crf) / 6) * presetFactor;
     videoKbps = Math.sqrt(byPixels * bySource);
   }
+  if (input.gpu) videoKbps *= HARDWARE_FACTOR;
 
   let audioKbps = 0;
   if (source.hasAudio) {

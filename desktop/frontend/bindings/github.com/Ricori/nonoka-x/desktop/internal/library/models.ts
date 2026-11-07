@@ -51,6 +51,11 @@ export interface Entry {
 export interface ExportResult {
     "path": string;
     "size": number;
+
+    /**
+     * Encoder is the label of the video encoder that produced the file.
+     */
+    "encoder": string;
 }
 
 /**
