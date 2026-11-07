@@ -216,6 +216,12 @@ class FineSubSettingsTests(unittest.TestCase):
                 (cloud["id"], cloud["kind"], cloud["requiresKey"], cloud["available"], cloud["keyName"]),
                 ("nonoka-cloud", "cloud", False, False, ""),
             )
+            # The relay's allow list, its default first.
+            self.assertEqual(
+                [(model["id"], model["label"]) for model in cloud["models"]],
+                [("gpt-6.1-terra", "GPT-6.1 Terra"), ("gpt-6-luna", "GPT-6 Luna")],
+            )
+            self.assertEqual(cloud["defaultModel"], "gpt-6.1-terra")
             with self.assertRaisesRegex(ValueError, "Sign in to Nonoka Cloud"):
                 settings.update_keys(selection)
             # Nobody types the account in: SaveKeys refuses its settings.

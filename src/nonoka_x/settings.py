@@ -209,15 +209,18 @@ _HTTP_TRANSPORTS: Mapping[str, tuple[str, str]] = {
 # KEY_SPECS nor in SETTING_NAMES and SaveKeys refuses them. Signed out, both are
 # empty, the provider is unavailable and its catalog row is not emitted.
 #
-# `models` is what the desktop offers. The backend may pin every request to a
-# model of its own (`LLM_MODEL`); this list is kept to that model so the limits
-# the engine plans windows against are the ones of the model that answers.
+# `models` is what the desktop offers, the default first. The backend only
+# serves the models in its `LLM_MODEL` allow list and rewrites any other name
+# to its own default; this list is kept to that allow list, in the same order,
+# so the limits the engine plans windows against are the ones of the model that
+# answers. GPT-6.1 Terra leads since 2026-11-07: GPT-6 Luna through the relay
+# hung and dropped often enough to fail long correction runs.
 CLOUD_PROVIDER_ID = "nonoka-cloud"
 CLOUD_KEY_NAME = "NONOKA_CLOUD_KEY"
 CLOUD_BASE_URL_NAME = "NONOKA_CLOUD_BASE_URL"
 CLOUD_PROVIDER: Mapping[str, Any] = {
     "label": "Nonoka Cloud",
-    "models": ("gpt-6-luna",),
+    "models": ("gpt-6.1-terra", "gpt-6-luna"),
     "note": "由 Nonoka Cloud 账号免费提供，无需 API Key，也不消耗转写余量；退出登录后不可用。",
 }
 #: What a cloud key may contain: the backend's own key pattern. Anything else

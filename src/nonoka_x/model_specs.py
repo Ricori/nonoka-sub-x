@@ -127,6 +127,9 @@ _MODEL_SPECS: tuple[tuple[str, ModelSpec], ...] = (
     # https://developers.openai.com/api/docs/models/gpt-6-astra
     # https://developers.openai.com/api/docs/models/gpt-6-luna
     ("gpt-6.1-sol", ModelSpec("GPT-6.1 Sol", 1_050_000, 128_000)),
+    # Not on the 2026-09-30 check: Terra is the Nonoka Cloud relay's default
+    # since 2026-11-07 and is given its Sol sibling's envelope.
+    ("gpt-6.1-terra", ModelSpec("GPT-6.1 Terra", 1_050_000, 128_000)),
     ("gpt-6-sol", ModelSpec("GPT-6 Sol", 1_050_000, 128_000)),
     ("gpt-6-astra", ModelSpec("GPT-6 Astra", 1_050_000, 128_000)),
     ("gpt-6-luna", ModelSpec("GPT-6 Luna", 1_050_000, 128_000)),
