@@ -15,12 +15,17 @@ same `name`/`size`/`digest` shape as GitHub's own asset entry, so
 `resolve_asset` validates and pins it exactly as before. When the cloud cannot
 answer -- unreachable, or no such asset -- the lookup falls through to GitHub as
 FineSub always did; the cloud is a shortcut, never a new way to fail.
+
+Mainland users are the ones this exists for, and they are also the ones whose
+route to Cloudflare drops out at peak hours. So a cloud that cannot be reached
+is asked again over the backup route (`nonoka_x.cloud_route`), the reverse
+proxy in Tokyo, before the lookup gives up on it.
 """
 
 from __future__ import annotations
 
 from typing import Any
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 
 CLOUD_BACKEND = "https://cloud.nonoka.online"
 
@@ -37,26 +42,35 @@ def cloud_asset(owner: str, repo: str, tag: str, name: str) -> dict[str, Any] | 
     except ImportError:
         return None
 
-    endpoint = (
-        f"{CLOUD_BACKEND}/releases/github/{quote(owner, safe='')}/"
-        f"{quote(repo, safe='')}/{quote(tag, safe='')}"
-    )
+    from .cloud_route import BACKUP_HOSTS, STATE
+
+    path = f"/releases/github/{quote(owner, safe='')}/{quote(repo, safe='')}/{quote(tag, safe='')}"
+    primary = urlsplit(CLOUD_BACKEND).hostname or ""
+    backup = BACKUP_HOSTS.get(primary)
+    hosts = [primary] + ([backup] if backup else [])
+    if backup and STATE.prefer_backup(primary):
+        hosts.reverse()
     # Short: every second spent here is added to the GitHub fallback.
     timeout = httpx.Timeout(connect=8.0, read=15.0, write=15.0, pool=8.0)
     for route in network_routes():
-        try:
-            with create_client(route, timeout=timeout) as client:
-                response = client.get(endpoint)
-                response.raise_for_status()
-                payload = response.json()
-        except Exception:  # noqa: BLE001 - try the next route, then GitHub
-            continue
-        if not isinstance(payload, dict):
+        for host in hosts:
+            try:
+                with create_client(route, timeout=timeout) as client:
+                    response = client.get(f"https://{host}{path}")
+                    response.raise_for_status()
+                    payload = response.json()
+            except httpx.TransportError:
+                # Not reached: the other route to the same backend may be.
+                STATE.failed(primary, host)
+                continue
+            except Exception:  # noqa: BLE001 - an answer; the backup is the same backend
+                break
+            if not isinstance(payload, dict):
+                return None
+            for entry in payload.get("assets") or []:
+                if isinstance(entry, dict) and entry.get("name") == name:
+                    return entry
             return None
-        for entry in payload.get("assets") or []:
-            if isinstance(entry, dict) and entry.get("name") == name:
-                return entry
-        return None
     return None
 
 
