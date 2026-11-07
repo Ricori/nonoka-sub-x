@@ -110,6 +110,23 @@ func (s *Service) RemoveRuntime() (map[string]any, error) {
 	return result, err
 }
 
+// RuntimeCacheStatus measures the runtime's download caches: the uv package
+// cache, the runtime wheels and the resource archives under the install root.
+func (s *Service) RuntimeCacheStatus() (map[string]any, error) {
+	var result map[string]any
+	err := s.provider.DoJSON(context.Background(), http.MethodGet, "/v1/runtime/cache", nil, &result)
+	return result, err
+}
+
+// ClearRuntimeCache empties those caches and reports what was freed. The
+// installed runtime, the models and FineSub's state file are left alone; the
+// sidecar refuses while an install or a local task is running.
+func (s *Service) ClearRuntimeCache() (map[string]any, error) {
+	var result map[string]any
+	err := s.provider.DoJSON(context.Background(), http.MethodDelete, "/v1/runtime/cache", nil, &result)
+	return result, err
+}
+
 // RemoveRuntimeGroup removes one managed optional-tool group without touching
 // the required runtime, models, tasks, subtitles, or user settings.
 func (s *Service) RemoveRuntimeGroup(target string) (map[string]any, error) {

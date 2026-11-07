@@ -83,6 +83,10 @@ class SidecarHandler(BaseHTTPRequestHandler):
             self._json(200, provider.cancel_runtime_install())
         elif self.command == "DELETE" and parts == ["v1", "runtime", "provision"]:
             self._json(200, provider.remove_runtime())
+        elif self.command == "GET" and parts == ["v1", "runtime", "cache"]:
+            self._json(200, provider.runtime_cache_status())
+        elif self.command == "DELETE" and parts == ["v1", "runtime", "cache"]:
+            self._json(200, provider.clear_runtime_cache())
         elif self.command == "DELETE" and parts == ["v1", "runtime", "provision", "group"]:
             self._json(200, provider.remove_runtime_group(str(self._body().get("target") or "")))
         elif self.command == "GET" and parts == ["v1", "settings"]:

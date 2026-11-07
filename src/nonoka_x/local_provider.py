@@ -1017,6 +1017,26 @@ class LocalProvider:
             # desktop shell could only report as "Sidecar request failed".
             raise ProviderError("runtime_remove_failed", f"删除环境失败：{exc}", http_status=409) from exc
 
+    def runtime_cache_status(self) -> dict[str, Any]:
+        if self._provisioner is None:
+            raise ProviderError("runtime_unavailable", "FineSub runtime installer is unavailable", http_status=503)
+        return self._provisioner.cache_usage()
+
+    def clear_runtime_cache(self) -> dict[str, Any]:
+        if self._provisioner is None:
+            raise ProviderError("runtime_unavailable", "FineSub runtime installer is unavailable", http_status=503)
+        # Workers run with UV_CACHE_DIR pointing into the cache, and a file a
+        # running worker has open cannot be unlinked on Windows anyway.
+        with self._lock:
+            if any(process.poll() is None for process in self._processes.values()):
+                raise ProviderError("runtime_in_use", "有本地任务正在运行，请等任务结束后再清理缓存", http_status=409)
+        try:
+            return self._provisioner.clear_cache()
+        except RuntimeProvisionError as exc:
+            raise ProviderError("runtime_cache_unavailable", str(exc), http_status=409) from exc
+        except OSError as exc:
+            raise ProviderError("runtime_cache_failed", f"清理缓存失败：{exc}", http_status=409) from exc
+
     def remove_runtime_group(self, group: str) -> dict[str, Any]:
         if self._provisioner is None:
             raise ProviderError("runtime_unavailable", "FineSub runtime installer is unavailable", http_status=503)

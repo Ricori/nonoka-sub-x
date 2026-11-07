@@ -7,6 +7,7 @@ import { StorageLocationsCard } from "../components/StorageLocationsCard.tsx";
 import { LlmConfigurationCard } from "../components/LlmConfigurationCard.tsx";
 import { KeyConfigurationCard } from "../components/KeyConfigurationCard.tsx";
 import { ProxySettingsCard } from "../components/ProxySettingsCard.tsx";
+import { useRuntimeCache } from "../components/runtimeCache.ts";
 import "./SettingsPage.css";
 import { Notice } from "../components/Notice.tsx";
 
@@ -31,6 +32,8 @@ interface SettingsPageProps {
   onResetStorage: (target: StorageTarget) => Promise<void>;
   onCancelStorage: () => Promise<void>;
   onOpenStorage: (target: StorageTarget) => Promise<void>;
+  /** 跳过尺寸缓存重新测量两个目录；清理下载缓存之后用。 */
+  onRefreshStorage: () => void;
   onDismissMessage: () => void;
   onDismissCacheMessage: () => void;
   onDismissStorageMessage: () => void;
@@ -58,6 +61,7 @@ export function SettingsPage(props: SettingsPageProps) {
     onResetStorage,
     onCancelStorage,
     onOpenStorage,
+    onRefreshStorage,
     onDismissMessage,
     onDismissCacheMessage,
     onDismissStorageMessage,
@@ -68,6 +72,10 @@ export function SettingsPage(props: SettingsPageProps) {
   // 模型提供商的 Key 归模型配置面板管，这里只留检索与下载凭据。
   const modelKeyNames = new Set((modelRouting?.providers ?? []).map((provider) => provider.keyName).filter(Boolean));
   const advancedKeys = keys.filter((key) => !modelKeyNames.has(key.name));
+
+  // 运行环境换了目录、装完或删掉东西之后，下载缓存的数字也要跟着重算。
+  const runtimeLocation = (storage?.locations ?? []).find((location) => location.target === "runtime");
+  const runtimeCache = useRuntimeCache(`${runtimeLocation?.directory ?? ""}|${runtimeLocation?.bytes ?? 0}`, onRefreshStorage);
 
   // 两张卡共用一条保存结果；记下是谁发起的，提示就出现在那张卡里，
   // 而不是页面最底下、多半已经滚出屏幕的位置。
@@ -122,6 +130,7 @@ export function SettingsPage(props: SettingsPageProps) {
           onOpen={onOpenStorage}
           onSaveCacheLimit={onSaveCacheLimit}
           onClearCache={onClearCache}
+          runtimeCache={runtimeCache}
           onDismissMessage={onDismissStorageMessage}
           onDismissCacheMessage={onDismissCacheMessage}
         />

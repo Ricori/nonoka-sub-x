@@ -40,6 +40,22 @@ export interface RuntimeProvisionState {
   };
 }
 
+/** 运行环境下载缓存（uv 缓存、运行时 wheel、资源压缩包）的占用。 */
+export interface RuntimeCacheStatus {
+  schema: 1;
+  bytes: number;
+  /** 不含 uv 硬链接进运行环境的文件：那部分删掉缓存也还在磁盘上，清理腾不出来。 */
+  reclaimable: number;
+  files: number;
+}
+
+export interface RuntimeCacheClearResult extends RuntimeCacheStatus {
+  freed: number;
+  removed: number;
+  /** 未能删除的条目，通常是被占用的文件。 */
+  failures: string[];
+}
+
 export interface PythonBootstrapState {
   schema: 1;
   platform: string;
@@ -61,4 +77,6 @@ export const fineSubRuntime = {
   cancel: () => ProviderService.CancelRuntimeInstall() as Promise<unknown> as Promise<RuntimeProvisionState>,
   removeAll: () => ProviderService.RemoveRuntime() as Promise<unknown> as Promise<RuntimeProvisionState>,
   removeGroup: (target: RuntimeToolGroup) => ProviderService.RemoveRuntimeGroup(target) as Promise<unknown> as Promise<RuntimeProvisionState>,
+  cacheStatus: () => ProviderService.RuntimeCacheStatus() as Promise<unknown> as Promise<RuntimeCacheStatus>,
+  clearCache: () => ProviderService.ClearRuntimeCache() as Promise<unknown> as Promise<RuntimeCacheClearResult>,
 };

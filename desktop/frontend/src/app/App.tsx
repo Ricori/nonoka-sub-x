@@ -566,6 +566,8 @@ export default function App() {
     }
   }, []);
 
+  const refreshStorageSizes = useCallback(() => void loadStorageStatus(true), [loadStorageStatus]);
+
   /** 动作的返回值只是发起那一刻的快照；期间已经收到事件就以事件为准，免得把「已完成」退回「准备中」。 */
   const applyStorageAction = useCallback(async (action: () => Promise<RelocationProgress>) => {
     const seen = storageEventSeq.current;
@@ -1996,6 +1998,7 @@ export default function App() {
               onResetStorage={resetStorage}
               onCancelStorage={cancelStorage}
               onOpenStorage={openStorage}
+              onRefreshStorage={refreshStorageSizes}
               onDismissMessage={() => setKeysMessage("")}
               onDismissCacheMessage={() => setCacheMessage("")}
               onDismissStorageMessage={() => setStorageMessage("")}

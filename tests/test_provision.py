@@ -283,3 +283,72 @@ def test_a_runtime_built_for_an_older_lock_is_outdated_not_missing(tmp_path: Pat
     # A runtime directory that lost its interpreter is damage, not an upgrade.
     runtime.python_executable.unlink()
     assert provisioner.status()["runtime"]["state"] == "missing"
+
+
+def _fill_runtime_cache(provisioner: RuntimeProvisioner) -> tuple[Path, Path]:
+    assert provisioner.paths is not None
+    cache = provisioner.paths.cache
+    for name, size in (("uv", 300), ("runtime-wheels", 200), ("downloads", 100)):
+        (cache / name / "nested").mkdir(parents=True, exist_ok=True)
+        (cache / name / "nested" / "blob.bin").write_bytes(b"x" * size)
+    state = cache / "state" / "state.json"
+    state.parent.mkdir(parents=True, exist_ok=True)
+    state.write_text("{}", encoding="utf-8")
+    installed = provisioner.paths.runtime / "linked.bin"
+    installed.parent.mkdir(parents=True, exist_ok=True)
+    os.link(cache / "uv" / "nested" / "blob.bin", installed)
+    return state, installed
+
+
+def test_cache_usage_leaves_out_files_hardlinked_into_the_runtime(tmp_path: Path) -> None:
+    provisioner = RuntimeProvisioner(tmp_path, VENDOR)
+    _fill_runtime_cache(provisioner)
+    usage = provisioner.cache_usage()
+    assert usage["bytes"] == 600
+    assert usage["files"] == 3
+    # The uv blob is also the runtime's file: deleting it frees nothing.
+    assert usage["reclaimable"] == 300
+
+
+def test_clear_cache_empties_download_caches_and_keeps_state_and_runtime(tmp_path: Path) -> None:
+    provisioner = RuntimeProvisioner(tmp_path, VENDOR)
+    state, installed = _fill_runtime_cache(provisioner)
+    assert provisioner.paths is not None
+    job_before = provisioner.status()["job"]
+
+    result = provisioner.clear_cache()
+
+    assert result["freed"] == 300
+    assert result["removed"] == 600
+    assert result["failures"] == []
+    assert result["bytes"] == 0
+    for name in ("uv", "runtime-wheels", "downloads"):
+        entry = provisioner.paths.cache / name
+        assert entry.is_dir() and not any(entry.iterdir())
+    assert state.read_text(encoding="utf-8") == "{}"
+    assert installed.read_bytes() == b"x" * 300
+    assert provisioner.status()["job"] == job_before
+
+
+def test_clear_cache_refuses_while_an_install_is_running(tmp_path: Path) -> None:
+    provisioner = RuntimeProvisioner(tmp_path, VENDOR)
+    _fill_runtime_cache(provisioner)
+    provisioner._job["state"] = "running"
+    with pytest.raises(RuntimeProvisionError, match="安装任务运行中"):
+        provisioner.clear_cache()
+    assert provisioner.cache_usage()["bytes"] == 600
+
+
+def test_clear_cache_reports_entries_it_could_not_remove(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    provisioner = RuntimeProvisioner(tmp_path, VENDOR)
+    _fill_runtime_cache(provisioner)
+
+    def refuse(target: Path) -> None:
+        raise PermissionError(13, "被占用", str(target))
+
+    monkeypatch.setattr("nonoka_x.provision._remove_managed_tree", refuse)
+    result = provisioner.clear_cache()
+    assert result["freed"] == 0
+    assert result["failures"] == ["uv/nested（被占用）", "runtime-wheels/nested（被占用）", "downloads/nested（被占用）"]
+    # A failed clear must not leave installs locked out.
+    assert provisioner._clearing_cache is False

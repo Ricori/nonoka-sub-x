@@ -153,6 +153,46 @@ def _remove_managed_tree(target: Path) -> None:
             os.chmod(blocked, os.stat(blocked).st_mode | stat.S_IWRITE)
 
 
+#: The children of the install root's `cache/` that are download caches: uv's
+#: package cache, the runtime wheels the installer fetched itself, and the
+#: resource archives. The list names what goes rather than what stays because
+#: `cache/state` sits beside them and is FineSub's rate-limit record.
+RUNTIME_CACHE_ENTRIES = ("uv", "runtime-wheels", "downloads")
+
+
+def _measure_cache_tree(path: Path, usage: dict[str, Any], *, top: bool = False) -> None:
+    """Add path's files to usage without following a link out of the tree.
+
+    Only the top-level entry may be a link, the same one clear_cache() empties
+    through. `os.lstat` rather than `DirEntry.stat`: on Windows the latter
+    always reports `st_nlink` as zero, and the link count is the whole point.
+    """
+
+    from finesub_bootstrap.fsops import is_directory_link
+
+    if not top and is_directory_link(path):
+        return
+    try:
+        children = list(os.scandir(path))
+    except OSError:
+        return
+    for child in children:
+        child_path = Path(child.path)
+        try:
+            if child.is_dir(follow_symlinks=False) and not is_directory_link(child_path):
+                _measure_cache_tree(child_path, usage)
+                continue
+            if not child.is_file(follow_symlinks=False):
+                continue
+            info = os.lstat(child.path)
+        except OSError:
+            continue
+        usage["bytes"] += info.st_size
+        usage["files"] += 1
+        if info.st_nlink <= 1:
+            usage["reclaimable"] += info.st_size
+
+
 class RuntimeProvisioner:
     """Own one asynchronous FineSub provisioning operation.
 
@@ -229,6 +269,9 @@ class RuntimeProvisioner:
                 download_progress=self._progress,
             )
         self._lock = threading.RLock()
+        # Set while clear_cache() is deleting, so an install cannot start and
+        # download into the directories that are being emptied under it.
+        self._clearing_cache = False
         self._cancel = threading.Event()
         self._job: dict[str, Any] = {
             "state": "idle",
@@ -373,6 +416,8 @@ class RuntimeProvisioner:
         with self._lock:
             if self._job["state"] == "running":
                 raise RuntimeProvisionError("FineSub runtime installation is already running")
+            if self._clearing_cache:
+                raise RuntimeProvisionError("正在清理下载缓存，请稍后再安装")
             self._cancel.clear()
             self._job = {
                 "state": "running",
@@ -720,6 +765,82 @@ class RuntimeProvisioner:
             error=None,
         )
         return self.status()
+
+    def cache_usage(self) -> dict[str, Any]:
+        """Measure the download caches clear_cache() would empty.
+
+        `bytes` is what the files add up to; `reclaimable` leaves out the files
+        uv hardlinked into the runtime, which stay on disk through the other
+        link and are most of the uv cache on a single-volume install. The page
+        offers the second number, because it is the one clearing delivers.
+        """
+
+        usage = {"schema": 1, "bytes": 0, "reclaimable": 0, "files": 0}
+        if self.paths is None:
+            return usage
+        for entry in self._cache_entries():
+            _measure_cache_tree(entry, usage, top=True)
+        return usage
+
+    def clear_cache(self) -> dict[str, Any]:
+        """Empty the runtime's download caches and report what was freed.
+
+        Only the entries in RUNTIME_CACHE_ENTRIES go; `cache/state` beside them
+        is FineSub's rate-limit record and is not a cache at all. The install
+        job state is left alone: this is not a provisioning step, and the
+        runtime page's last result should not be replaced by it.
+        """
+
+        if self.paths is None:
+            raise RuntimeProvisionError("FineSub runtime installer is unavailable")
+        with self._lock:
+            if self._job["state"] == "running":
+                raise RuntimeProvisionError("安装任务运行中，无法清理缓存；请等待安装完成或先取消安装")
+            if self._clearing_cache:
+                raise RuntimeProvisionError("正在清理下载缓存")
+            self._clearing_cache = True
+        try:
+            before = self.cache_usage()
+            failures: list[str] = []
+            for entry in self._cache_entries():
+                if not os.path.lexists(entry):
+                    continue
+                # Empty the entry rather than remove it: it may be a link the
+                # user made to keep the cache on another drive, and removing
+                # the link would leave that data behind and the drive unused.
+                for child in entry.iterdir():
+                    try:
+                        _remove_managed_tree(child)
+                    except OSError as error:
+                        failures.append(f"{entry.name}/{child.name}（{error.strerror or error}）")
+            after = self.cache_usage()
+        finally:
+            with self._lock:
+                self._clearing_cache = False
+        result = {
+            **after,
+            "freed": max(0, before["reclaimable"] - after["reclaimable"]),
+            "removed": max(0, before["bytes"] - after["bytes"]),
+            "failures": failures,
+        }
+        return result
+
+    def _cache_entries(self) -> list[Path]:
+        assert self.paths is not None
+        cache = self.paths.cache
+        allowed_roots = (self.paths.root.resolve(), self.paths.big_data.resolve())
+        entries: list[Path] = []
+        for name in RUNTIME_CACHE_ENTRIES:
+            entry = cache / name
+            # Clearing empties the entry's children, so an entry that resolves
+            # to the install root or above it would take the runtime and the
+            # models with it. A link to anywhere else is the user's own cache
+            # arrangement and is emptied like the default.
+            resolved = entry.resolve()
+            if any(resolved == root or resolved in root.parents for root in allowed_roots):
+                raise RuntimeProvisionError(f"拒绝清理托管目录本身：{resolved}")
+            entries.append(entry)
+        return entries
 
     def remove_tool_group(self, group: str) -> dict[str, Any]:
         """Remove one managed optional-tool group and leave every other asset intact."""

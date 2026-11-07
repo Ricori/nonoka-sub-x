@@ -59,6 +59,8 @@ func TestServiceMapsFixedProviderEndpoints(t *testing.T) {
 	_, _ = service.CancelRuntimeInstall()
 	_, _ = service.RemoveRuntime()
 	_, _ = service.RemoveRuntimeGroup("video-tools")
+	_, _ = service.RuntimeCacheStatus()
+	_, _ = service.ClearRuntimeCache()
 	_, _ = service.Settings()
 	_, _ = service.SaveKeys(map[string]any{"GEMINI_FREE": "secret"})
 	_, _ = service.ListTasks()
@@ -78,6 +80,8 @@ func TestServiceMapsFixedProviderEndpoints(t *testing.T) {
 		{method: "POST", endpoint: "/v1/runtime/provision/cancel", body: map[string]any{}},
 		{method: "DELETE", endpoint: "/v1/runtime/provision"},
 		{method: "DELETE", endpoint: "/v1/runtime/provision/group", body: map[string]any{"target": "video-tools"}},
+		{method: "GET", endpoint: "/v1/runtime/cache"},
+		{method: "DELETE", endpoint: "/v1/runtime/cache"},
 		{method: "GET", endpoint: "/v1/settings"},
 		{method: "PUT", endpoint: "/v1/settings/keys", body: map[string]any{"keys": map[string]any{"GEMINI_FREE": "secret"}}},
 		{method: "GET", endpoint: "/v1/tasks?limit=100"},

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { CacheStatus } from "../bridge/library.ts";
 import type { RelocationProgress, StorageDestination, StorageLocation, StorageStatus, StorageTarget } from "../bridge/storage.ts";
+import type { RuntimeCacheState } from "./runtimeCache.ts";
 import "./StorageLocationsCard.css";
 import { Notice } from "./Notice.tsx";
 import {
@@ -26,6 +27,8 @@ interface StorageLocationsCardProps {
   onOpen?: (target: StorageTarget) => Promise<void>;
   onSaveCacheLimit?: (limit: number) => Promise<void>;
   onClearCache?: () => Promise<void>;
+  /** 只有设置页传：运行环境那一行多出下载缓存的占用和清理按钮。 */
+  runtimeCache?: RuntimeCacheState;
   onDismissMessage: () => void;
   onDismissCacheMessage?: () => void;
 }
@@ -51,6 +54,7 @@ export function StorageLocationsCard(props: StorageLocationsCardProps) {
     onOpen,
     onSaveCacheLimit,
     onClearCache,
+    runtimeCache,
     onDismissMessage,
     onDismissCacheMessage,
   } = props;
@@ -96,6 +100,9 @@ export function StorageLocationsCard(props: StorageLocationsCardProps) {
           if (!title) return null;
           const movingThis = active && progress?.target === location.target;
           const isVideo = target === "video";
+          const runtimeCacheStatus = target === "runtime" && !location.missing ? runtimeCache?.status : null;
+          // uv 把包硬链接进运行环境，这部分删掉缓存也还在磁盘上；按钮只看真能腾出的空间。
+          const sharedOnly = runtimeCacheStatus != null && runtimeCacheStatus.bytes > 0 && runtimeCacheStatus.reclaimable === 0;
           const fileCount = isVideo && cache ? cache.files : location.files;
           const bytes = isVideo && cache ? cache.bytes : location.bytes;
 
@@ -172,6 +179,14 @@ export function StorageLocationsCard(props: StorageLocationsCardProps) {
                       GB
                     </label>
                   )}
+                  {runtimeCacheStatus != null && runtimeCacheStatus.bytes > 0 && (
+                    <span title="已下载的安装包与 uv 缓存。与运行环境共用的部分清理后不会腾出空间。">
+                      下载缓存 <b>{formatStorageBytes(runtimeCacheStatus.bytes)}</b>
+                      {runtimeCacheStatus.reclaimable < runtimeCacheStatus.bytes && (
+                        <>，可释放 <b>{formatStorageBytes(runtimeCacheStatus.reclaimable)}</b></>
+                      )}
+                    </span>
+                  )}
                   {location.empty && !location.missing && <span>尚未安装</span>}
                   {location.missing && <span className="storage-warn">目录当前不可访问，请重新连接该磁盘或改回默认位置</span>}
                 </div>
@@ -187,6 +202,23 @@ export function StorageLocationsCard(props: StorageLocationsCardProps) {
                       清理缓存
                     </button>
                   )}
+                  {runtimeCache && target === "runtime" && runtimeCacheStatus != null && (
+                    <button
+                      className="danger-link"
+                      disabled={runtimeCache.busy || busy || active || runtimeCacheStatus.reclaimable === 0}
+                      title={
+                        runtimeCacheStatus.bytes === 0
+                          ? "没有可清理的下载缓存"
+                          : sharedOnly
+                            ? "缓存里的文件都与已安装的运行环境共用，删除不会腾出空间"
+                            : "删除已下载的安装包与 uv 缓存；已安装的运行环境和模型不受影响，以后重装或更新时会重新下载"
+                      }
+                      onClick={() => void runtimeCache.clear()}
+                      type="button"
+                    >
+                      {runtimeCache.busy ? "正在清理…" : "清理下载缓存"}
+                    </button>
+                  )}
                   {location.custom && (
                     <button className="ghost" disabled={busy || active} onClick={() => void onReset(target)} type="button">
                       移回默认
@@ -197,6 +229,10 @@ export function StorageLocationsCard(props: StorageLocationsCardProps) {
                   </button>
                 </div>
               </div>
+
+              {target === "runtime" && runtimeCache?.message && (
+                <Notice className="storage-cache-message" message={runtimeCache.message} tone={runtimeCache.tone} onDismiss={runtimeCache.dismiss} />
+              )}
 
               {isVideo && cacheMessage && onDismissCacheMessage && (
                 <Notice className="storage-cache-message" message={cacheMessage} onDismiss={onDismissCacheMessage} />

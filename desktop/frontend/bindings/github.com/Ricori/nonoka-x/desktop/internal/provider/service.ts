@@ -26,6 +26,15 @@ export function Capabilities(): $CancellablePromise<{ [_ in string]?: any } | nu
     return $Call.ByID(2454552558);
 }
 
+/**
+ * ClearRuntimeCache empties those caches and reports what was freed. The
+ * installed runtime, the models and FineSub's state file are left alone; the
+ * sidecar refuses while an install or a local task is running.
+ */
+export function ClearRuntimeCache(): $CancellablePromise<{ [_ in string]?: any } | null> {
+    return $Call.ByID(1305808367);
+}
+
 export function Document(videoID: string): $CancellablePromise<{ [_ in string]?: any } | null> {
     return $Call.ByID(3574782081, videoID);
 }
@@ -102,6 +111,14 @@ export function ResumeTask(taskID: string): $CancellablePromise<{ [_ in string]?
 
 export function RetryTask(taskID: string): $CancellablePromise<{ [_ in string]?: any } | null> {
     return $Call.ByID(3087477991, taskID);
+}
+
+/**
+ * RuntimeCacheStatus measures the runtime's download caches: the uv package
+ * cache, the runtime wheels and the resource archives under the install root.
+ */
+export function RuntimeCacheStatus(): $CancellablePromise<{ [_ in string]?: any } | null> {
+    return $Call.ByID(2846756888);
 }
 
 export function RuntimeProvisionStatus(): $CancellablePromise<{ [_ in string]?: any } | null> {
