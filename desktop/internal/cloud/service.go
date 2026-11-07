@@ -232,8 +232,11 @@ type Service struct {
 	// Relays (relay.go). relayMu guards the records and the driver table;
 	// relayActionMu serialises the renderer's cancel and restart, which stop
 	// a relay's driver and act on the relay as its only writer.
-	relayRoot     string
-	relayPoll     time.Duration
+	relayRoot string
+	relayPoll time.Duration
+	// The waits between retries of a subtitle read (retry.go); nil means
+	// defaultFetchBackoff. Tests shorten it.
+	fetchBackoff  []time.Duration
 	relayMu       sync.RWMutex
 	relayActionMu sync.Mutex
 	relays        map[string]*relayRecord
@@ -728,7 +731,13 @@ func (s *Service) adoptThumbnail(entry Entry, localID string) {
 }
 
 func (s *Service) finishedLibraryEntry(videoID string) (Entry, error) {
-	remote, err := s.Library()
+	// The first leg of a retrieval, so it gets the retrieval's retries.
+	var remote []Entry
+	err := s.retryRead(context.Background(), func() error {
+		var err error
+		remote, err = s.Library()
+		return err
+	})
 	if err != nil {
 		return Entry{}, err
 	}
@@ -755,7 +764,7 @@ func (s *Service) finishedLibraryEntry(videoID string) (Entry, error) {
 // artifacts for digest or SRT-format differences.
 func (s *Service) projectRemoteArtifacts(taskID string, target mediaTarget) (map[string]any, error) {
 	var remote remoteArtifactManifest
-	if err := s.authenticatedDo(context.Background(), http.MethodGet, "/v1/library/"+taskID+"/artifacts", nil, &remote); err != nil {
+	if err := s.fetchJSON(context.Background(), "/v1/library/"+taskID+"/artifacts", &remote); err != nil {
 		return nil, err
 	}
 	directory := filepath.Join(s.tasksRoot, "cloud", taskID)
@@ -770,7 +779,7 @@ func (s *Service) projectRemoteArtifacts(taskID string, target mediaTarget) (map
 		if !ok {
 			continue
 		}
-		content, err := s.authenticatedText(context.Background(), item.URI)
+		content, err := s.fetchText(context.Background(), item.URI)
 		if err != nil {
 			return nil, err
 		}
@@ -1432,7 +1441,7 @@ func (s *Service) do(ctx context.Context, session storedSession, method, path st
 	defer response.Body.Close()
 	payload, err := io.ReadAll(io.LimitReader(response.Body, maxResponseBytes+1))
 	if err != nil {
-		return err
+		return &transientError{fmt.Errorf("read cloud response: %w", err)}
 	}
 	if len(payload) > maxResponseBytes {
 		return errors.New("cloud response exceeds size limit")
@@ -1610,13 +1619,13 @@ func (s *Service) authenticatedText(ctx context.Context, endpoint string) ([]byt
 	defer response.Body.Close()
 	payload, err := io.ReadAll(io.LimitReader(response.Body, maxArtifactBytes+1))
 	if err != nil {
-		return nil, fmt.Errorf("read cloud artifact: %w", err)
+		return nil, &transientError{fmt.Errorf("read cloud artifact: %w", err)}
 	}
 	if len(payload) > maxArtifactBytes {
 		return nil, errors.New("cloud artifact exceeds the 32 MB limit")
 	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return nil, fmt.Errorf("download cloud artifact: HTTP %d", response.StatusCode)
+		return nil, &downloadStatusError{Status: response.StatusCode}
 	}
 	return payload, nil
 }

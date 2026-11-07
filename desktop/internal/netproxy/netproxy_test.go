@@ -190,3 +190,13 @@ func TestLabel(t *testing.T) {
 		}
 	}
 }
+
+func TestNewTransportHealthChecksHTTP2Connections(t *testing.T) {
+	transport := NewTransport()
+	if transport.HTTP2 == nil || transport.HTTP2.SendPingTimeout != http2PingAfter || transport.HTTP2.PingTimeout != http2PingTimeout {
+		t.Fatalf("HTTP2 = %#v", transport.HTTP2)
+	}
+	if !transport.ForceAttemptHTTP2 {
+		t.Fatal("the transport no longer negotiates HTTP/2")
+	}
+}

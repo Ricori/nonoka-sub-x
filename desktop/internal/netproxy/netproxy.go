@@ -217,8 +217,25 @@ func ProxyFunc(request *http.Request) (*url.URL, error) {
 func NewTransport() *http.Transport {
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.Proxy = ProxyFunc
+	// Health-check HTTP/2 connections. Go sends no PING by default, so a
+	// connection a cross-border middlebox or a NAT silently dropped stays in
+	// the pool, and every request multiplexed onto it hangs until its own
+	// timeout. Pinging one that has been quiet catches that within about
+	// http2PingAfter+http2PingTimeout and closes it, which also fails a
+	// download stalled mid-body instead of leaving it to its 10-minute cap.
+	transport.HTTP2 = &http.HTTP2Config{
+		SendPingTimeout: http2PingAfter,
+		PingTimeout:     http2PingTimeout,
+	}
 	return transport
 }
+
+const (
+	// How long an HTTP/2 connection may receive nothing before it is pinged.
+	http2PingAfter = 15 * time.Second
+	// How long a ping may go unanswered before the connection is closed.
+	http2PingTimeout = 10 * time.Second
+)
 
 // NewClient is an http.Client on NewTransport.
 func NewClient(timeout time.Duration) *http.Client {

@@ -577,7 +577,7 @@ func (s *Service) stepRelayFetch(ctx context.Context, record *relayRecord) {
 
 func (s *Service) collectStable(ctx context.Context, record *relayRecord) error {
 	var manifest remoteArtifactManifest
-	if err := s.authenticatedDo(ctx, http.MethodGet, "/v1/tasks/"+record.CloudJobID+"/artifacts", nil, &manifest); err != nil {
+	if err := s.fetchJSON(ctx, "/v1/tasks/"+record.CloudJobID+"/artifacts", &manifest); err != nil {
 		return err
 	}
 	item, ok := manifest.Artifacts["stable_json"]
@@ -602,7 +602,7 @@ func (s *Service) collectStable(ctx context.Context, record *relayRecord) error 
 // collectArtifact downloads one artifact of a job, checks it against the
 // digest the backend published, and only then puts it in place.
 func (s *Service) collectArtifact(ctx context.Context, uri, digest, path, label string) error {
-	content, err := s.authenticatedText(ctx, uri)
+	content, err := s.fetchText(ctx, uri)
 	if err != nil {
 		return err
 	}
