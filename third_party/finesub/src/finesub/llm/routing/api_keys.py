@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 import hashlib
 import os
 from pathlib import Path
 import sys
-from typing import Any, Dict, Mapping
+from typing import Any, Dict, Mapping, Optional
 
 from finesub.config import clear_config_cache, read_config_with_path
 from finesub.reporting import current_reporter
@@ -70,7 +71,27 @@ _WARNED_OVERSIZED_POOLS: set[tuple[str, tuple[str, ...]]] = set()
 
 
 class ProviderUnavailableError(RuntimeError):
-    """A disabled provider or one without selected credentials."""
+    """A disabled provider or one without selected credentials.
+
+    ``cooling`` marks the one case that ends by itself within minutes: every
+    configured key was passed over only for its transient cooldown (or left to
+    a sibling call probing it), none for a daily lock or a missing key.
+    ``cooldown_until`` is the earliest moment a skipped key's skip window ends,
+    when one was skipped outright; a key left to a probe has no fixed moment.
+    `RoleClient.complete` waits a cooling chain out when nothing else in the
+    chain could answer.
+    """
+
+    def __init__(
+        self,
+        message: str = "",
+        *,
+        cooling: bool = False,
+        cooldown_until: Optional[datetime] = None,
+    ) -> None:
+        super().__init__(message)
+        self.cooling = bool(cooling)
+        self.cooldown_until = cooldown_until
 
 
 def parse_key_list(value: str) -> list[str]:

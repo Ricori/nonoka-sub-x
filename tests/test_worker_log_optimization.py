@@ -115,6 +115,35 @@ class WorkerLogOptimizationTests(unittest.TestCase):
             "engine_failed",
         )
 
+    def test_classify_failure_keeps_key_cooldown_apart_from_missing_key(self) -> None:
+        cooling = (
+            "ProviderUnavailableError: No API key for NONOKA_CLOUD could be tried: "
+            "1 in a transient cooldown after recent errors, retryable from 07:23 UTC."
+        )
+        self.assertEqual(local_provider.classify_failure(cooling), "rate_limited")
+        probing = (
+            "ProviderUnavailableError: No API key for NONOKA_CLOUD could be tried: "
+            "1 left to another call that is already probing the same cooldown."
+        )
+        self.assertEqual(local_provider.classify_failure(probing), "rate_limited")
+        mixed = (
+            "ProviderUnavailableError: No API key for GEMINI_FREE could be tried: "
+            "1 exhausted for the day (until the quota's own reset); "
+            "2 in a transient cooldown after recent errors."
+        )
+        self.assertEqual(local_provider.classify_failure(mixed), "rate_limited")
+        daily = (
+            "ProviderUnavailableError: No API key for GEMINI_FREE could be tried: "
+            "2 exhausted for the day (until the quota's own reset)."
+        )
+        self.assertEqual(local_provider.classify_failure(daily), "quota_exceeded")
+        self.assertEqual(
+            local_provider.classify_failure(
+                "ProviderUnavailableError: Provider NONOKA_OPENAI is disabled or has no selected API key."
+            ),
+            "missing_llm_key",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

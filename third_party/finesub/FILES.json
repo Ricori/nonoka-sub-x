@@ -1,5 +1,5 @@
 {
-  "content_sha256": "0db7ef8e00a83fa2066f3be8768d8823324d96fa39bc62c5d25045452e72f0f7",
+  "content_sha256": "70e7a6f8e798e7ac381e73d65d592bef64998cc092265e13ce3f6e05a0e6330d",
   "files": [
     {
       "bytes": 35149,
@@ -142,9 +142,9 @@
       "sha256": "efdbe40ab6befb4a3746cc513b537b997ad6fa5dfd3eb8c586523e5552e48ae9"
     },
     {
-      "bytes": 160191,
+      "bytes": 165714,
       "path": "src/finesub/llm/client.py",
-      "sha256": "925d3ca5add4da494f9f5a67905cd687b418505bb43c4783231f500cbfab6609"
+      "sha256": "60312a421f12158d4c0bba40ad1c3e99c07ad9baa217da07bb57c8080b628e3d"
     },
     {
       "bytes": 5030,
@@ -477,9 +477,9 @@
       "sha256": "7814e499dc045ad5f612ea1ade18195382b07cb0a38385ae53aedebdfe34b8c1"
     },
     {
-      "bytes": 44224,
+      "bytes": 46421,
       "path": "src/finesub/llm/llm_runtime.py",
-      "sha256": "35ea7d48d40c869cfa8c2886bab8c476b45863adca2d41fec28d3a0cbfa66dba"
+      "sha256": "63cce1d687e829624460665c2737b90fb18c01bc17124b5e85bea09ddca2e3b8"
     },
     {
       "bytes": 19696,
@@ -1187,14 +1187,14 @@
       "sha256": "cd6f8745fa8a41939b4fe71489475d0dd4d7c26c671a321c3be08fdbaf6052e1"
     },
     {
-      "bytes": 10894,
+      "bytes": 11342,
       "path": "src/finesub/llm/provider_transports.py",
-      "sha256": "bede66ef0770d6fe536cd884308e804b0aa6b458e133fbe51281f579bb2106b1"
+      "sha256": "f80ff1f5a88bf42c6ed01ede0206d90b28ad484eb5d6c2d5eda9fb71cf4a801a"
     },
     {
-      "bytes": 37147,
+      "bytes": 37588,
       "path": "src/finesub/llm/rate_limit.py",
-      "sha256": "6d5d19bcfea1bf69fc0dab55abdf0fdb0f770b61034444db8da8fdefc7210e73"
+      "sha256": "b84228a0ba738ac969dd3658c72529f8d748515524192af05b39a26fe84541b2"
     },
     {
       "bytes": 14268,
@@ -1212,9 +1212,9 @@
       "sha256": "72ea47a47dd96a9f061f2638d5f42f22bf30651448cce186d1fc21c5ece263dd"
     },
     {
-      "bytes": 9042,
+      "bytes": 9859,
       "path": "src/finesub/llm/routing/api_keys.py",
-      "sha256": "fca8678acaffbbdab99b17b6c64ab1245a529019489fcee24ee9bf7abd600f9c"
+      "sha256": "d2a64edc303c84a9ce26449c68e7d5f6baf5db6b1b5cd46d3941663c268630c8"
     },
     {
       "bytes": 24385,

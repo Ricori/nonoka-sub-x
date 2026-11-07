@@ -1,0 +1,428 @@
+Subject: [PATCH 13/13] Wait out a key cooldown when nothing else can answer
+
+Reason: On 2026-11-07 a desktop task configured with only the free Nonoka
+Cloud provider failed at 75% with "No API key for NONOKA_CLOUD could be
+tried: 1 in a transient cooldown after recent errors". One upstream hiccup at
+the relay had spent the key's three sticky retries (about 30 s of backoff),
+the (tier, model, key) combo went into its 20-minute skip, and with no second
+key and no second provider the next correction window had nothing to rotate
+to: the chain raised, the window failed, the run failed. The cooldown is
+persisted, so "继续" before the skip ended failed the same way.
+
+Resumed, the same task failed twice more without a single skip. A
+generation hung until its 10600 s hard deadline, the retry 5 s later hit a
+45 s TLS handshake timeout, and the two counted as "consecutive timeouts" and
+aborted the call; on the next resume two dropped handshakes aborted it in
+under two minutes. The next morning the relay's upstream answered 522 until
+the sticky retries ran out, and that raised straight through.
+
+The skip window is 5 minutes instead of 20, and the sticky same-key retries
+are 6 instead of 3 (5, 9, 17, 33, 65, 129 s of backoff, so a combo only
+reaches the cooldown after about four minutes of failures). A connect timeout
+neither counts toward the consecutive-timeout abort nor resets it: the abort
+guards against sitting through a second hard deadline, which a 45 s handshake
+says nothing about.
+
+A failure is now `cooling` when it ends by itself: a
+`ProviderUnavailableError` whose keys were all skipped for their cooldown (or
+left to a sibling's probe), or the provider error itself when every key tried
+spent its retries on a retryable error and so has just started cooling --
+with no daily lock among the skips either way. `cooldown_until` is the
+earliest skip end. The candidate loop marks its final exception with whether
+*only* cooling failures stopped the chain, and `RoleClient.complete` (the old
+body is now `_complete_routed`) waits such a chain out: it warns
+`llm-cooldown-wait` with the time it will retry and the failure, sleeps until
+the skip ends (30 s polls for a key left to a probe), and runs the chain
+again, whose first call is the cooldown's probe. A chain that also failed some
+other way, a permanent error, a daily lock, a missing key and two hard
+deadlines in a row still raise at once; the waiting is capped at 60 minutes
+per call.
+
+The openai_compat transport also quotes a non-JSON body without its leading
+whitespace: the relay's heartbeat is one space per 15 s, so past 50 minutes
+its trailing "HTTP 502" marker fell out of the 200-character quote and the
+failure read as a non-retryable HTTP 200.
+
+Upstream's three retries guarded the Gemini free tiers' daily budget, which
+the desktop does not use; the cloud image shares the engine but runs no LLM
+stages.
+
+Removal: Delete once upstream waits out cooldowns that leave the chain empty,
+or the desktop stops shipping a single-key provider without a fallback.
+
+diff --git a/src/finesub/llm/client.py b/src/finesub/llm/client.py
+index d812f9f..1fad046 100644
+--- a/src/finesub/llm/client.py
++++ b/src/finesub/llm/client.py
+@@ -3,6 +3,7 @@
+ from __future__ import annotations
+ 
+ from dataclasses import dataclass, field, replace
++from datetime import datetime, timedelta, timezone
+ from enum import Enum
+ from functools import lru_cache
+ import json
+@@ -693,6 +694,65 @@ def _shared_rate_limiter(enabled: bool) -> ModelRateLimiter:
+     return ModelRateLimiter(enabled=enabled)
+ 
+ 
++#: How long one `RoleClient.complete` may sit out key cooldowns before it
++#: gives up and fails as it used to. A skip window is 5 minutes and every
++#: failed probe restarts it, so this is several probes; an upstream still down
++#: after an hour is not a hiccup.
++_COOLDOWN_WAIT_BUDGET_SECONDS = 60 * 60
++#: A key left to a sibling call's probe has no end time of its own: the probe
++#: either clears the cooldown or restarts it within one call's span. Look again
++#: after this long.
++_COOLDOWN_PROBE_POLL_SECONDS = 30.0
++#: Margin past the skip window's end, so the next pass reads PROBE rather than
++#: a SKIP a few milliseconds from over.
++_COOLDOWN_WAKE_MARGIN_SECONDS = 2.0
++
++
++def _is_cooling(exc: BaseException) -> bool:
++    """Whether this failure is a key cooldown that ends by itself.
++
++    Two shapes carry it: a `ProviderUnavailableError` for keys skipped because
++    they were already cooling, and the provider error itself (a 5xx, a 429, a
++    connect timeout) when every key tried spent its sticky retries on it and
++    so has just started cooling -- `llm_runtime.chat_complete` marks both.
++    """
++
++    return bool(getattr(exc, "cooling", False))
++
++
++def _brief(exc: BaseException) -> str:
++    """The failure in one short line, for the wait notice."""
++
++    text = " ".join(str(exc).split())
++    return f"{type(exc).__name__}: {text[:120]}"
++
++
++def _cooldown_wait_seconds(
++    exc: BaseException, *, waited: float, now: Optional[datetime] = None
++) -> Optional[float]:
++    """How long to sleep before running a cooling chain again, or None to fail.
++
++    None unless the whole chain failed on cooldowns alone (the chain marks its
++    exception with `_harness_chain_only_cooling`) and the per-call budget can
++    still cover the wait.
++    """
++
++    if not _is_cooling(exc) or not getattr(exc, "_harness_chain_only_cooling", False):
++        return None
++    until = getattr(exc, "cooldown_until", None)
++    if isinstance(until, datetime):
++        if until.tzinfo is None:
++            until = until.replace(tzinfo=timezone.utc)
++        current = now or datetime.now(timezone.utc)
++        delay = (until - current).total_seconds() + _COOLDOWN_WAKE_MARGIN_SECONDS
++        delay = max(delay, _COOLDOWN_WAKE_MARGIN_SECONDS)
++    else:
++        delay = _COOLDOWN_PROBE_POLL_SECONDS
++    if waited + delay > _COOLDOWN_WAIT_BUDGET_SECONDS:
++        return None
++    return delay
++
++
+ def _append_chain_summary(exc: BaseException, route_decision: Mapping[str, Any]) -> None:
+     """Say what the whole chain did, not just what its last link said.
+ 
+@@ -917,9 +977,15 @@ class RoleClient:
+         role_configs: Mapping[LLMRole, RoleModelConfig] | None = None,
+         rate_limiter: ModelRateLimiter | None = None,
+         test_profile: bool = False,
+-        # Sticky same-key retries only. Kept low because even 5xx responses
+-        # appear to consume Gemini daily quota (observed 2026-07-29).
+-        max_retries: int = 3,
++        # Sticky same-key retries only. Upstream keeps 3 because even 5xx
++        # responses appear to consume Gemini daily quota (observed
++        # 2026-07-29). Nonoka X raises it to 6: its desktop providers are
++        # paid or relayed APIs without a twenty-a-day budget, and the free
++        # Nonoka Cloud relay -- often the only provider configured -- shares
++        # one upstream, so a burst of 429/5xx there used to put the only key
++        # into cooldown after ~30 s of backoff. Six retries back off for about
++        # four minutes (5, 9, 17, 33, 65, 129 s) before the cooldown starts.
++        max_retries: int = 6,
+         router: ModelRouter | None = None,
+         execution_settings: ExecutionSettings | None = None,
+         local_agent_driver: LocalAgentDriver | None = None,
+@@ -2348,6 +2414,49 @@ class RoleClient:
+         )
+ 
+     def complete(
++        self,
++        role: LLMRole,
++        messages: List[Dict[str, Any]] | TieredMessages,
++        **kwargs: Any,
++    ) -> LLMCallResult:
++        """Call the role's routed endpoint chain, waiting out a cooldown that
++        leaves nothing else to try.
++
++        Every key of every candidate the chain reached can be in its transient
++        cooldown at once -- with one provider of one key (the free Nonoka Cloud
++        relay) a single upstream hiccup does it, and the call that spent the
++        last retries is already the first to find the chain empty. The chain then has no
++        fallback, and failing the call fails the window and the run, while
++        the cooldown itself ends in minutes and "继续" before then fails the
++        same way. So a chain that failed *only* on cooldowns sleeps until the
++        earliest skip window ends, tells the task about it, and runs again; the
++        next pass is the cooldown's probe. Anything else in the chain's
++        failures -- a daily lock, a missing key, a real provider error --
++        raises as before. Bounded by `_COOLDOWN_WAIT_BUDGET_SECONDS` per call.
++
++        Keyword arguments are `_complete_routed`'s; see its docstring.
++        """
++
++        waited = 0.0
++        while True:
++            try:
++                return self._complete_routed(role, messages, **kwargs)
++            except Exception as exc:
++                delay = _cooldown_wait_seconds(exc, waited=waited)
++                if delay is None:
++                    raise
++                resume_at = datetime.now().astimezone() + timedelta(seconds=delay)
++                current_reporter().warning(
++                    "llm-cooldown-wait",
++                    "模型提供商连续出错，正在冷却，且没有可切换的备用提供商；"
++                    f"等待至 {resume_at:%H:%M:%S} 后自动重试（{_brief(exc)}）",
++                    impact="本窗口暂停，冷却结束后继续",
++                    action="无需操作；也可在设置里添加其它提供商作为备用",
++                )
++                time.sleep(delay)
++                waited += delay
++
++    def _complete_routed(
+         self,
+         role: LLMRole,
+         messages: List[Dict[str, Any]] | TieredMessages,
+@@ -2506,6 +2615,10 @@ class RoleClient:
+             return estimates[key]
+ 
+         last_exc: BaseException | None = None
++        # Whether some candidate failed for a reason other than a key
++        # cooldown; only a chain that did not is worth waiting out (see
++        # `complete`).
++        failed_other_than_cooldown = False
+         accumulated_api_attempts: List[Mapping[str, Any]] = []
+         accumulated_execution_attempts: List[Mapping[str, Any]] = []
+         from .routing.model_router import (
+@@ -3160,11 +3273,17 @@ class RoleClient:
+                     "_harness_execution_attempts",
+                     list(accumulated_execution_attempts),
+                 )
++                if not _is_cooling(exc):
++                    failed_other_than_cooldown = True
+                 if failure.value in candidate.fallback_on:
+                     continue
+                 mark_unreached(idx + 1, "fallback_not_allowed")
++                setattr(exc, "_harness_chain_only_cooling", not failed_other_than_cooldown)
+                 raise
+         if last_exc is not None:
++            setattr(
++                last_exc, "_harness_chain_only_cooling", not failed_other_than_cooldown
++            )
+             setattr(last_exc, "_harness_route_decision", route_decision)
+             setattr(
+                 last_exc,
+diff --git a/src/finesub/llm/llm_runtime.py b/src/finesub/llm/llm_runtime.py
+index 6a2601b..61507a8 100644
+--- a/src/finesub/llm/llm_runtime.py
++++ b/src/finesub/llm/llm_runtime.py
+@@ -8,6 +8,8 @@ import time
+ from datetime import datetime, timezone
+ from typing import Any, Dict, List, Mapping, Optional, Tuple
+ 
++import httpx
++
+ from finesub import settings
+ from finesub.paths import resolve_env_file
+ from finesub.reporting import current_reporter, redact_credentials
+@@ -786,11 +788,16 @@ def chat_complete(
+ 
+     # Why each key was passed over, so "nothing could be tried" can say which
+     # of the two it was. They are hours apart in consequence: a daily lock
+-    # holds until the quota's own reset, a combo cooldown for twenty minutes.
++    # holds until the quota's own reset, a combo cooldown for a few minutes.
+     skipped_daily = 0
+     skipped_cooldown = 0
+     skipped_probing = 0
+     cooldown_retry_at: Optional[datetime] = None
++    # Nonoka X: whether every key this call actually tried ended by putting
++    # its combo into cooldown on a retryable error. Then the final exception
++    # is `cooling` like a skip is, and a chain with nothing else to try waits
++    # it out (`RoleClient.complete`) instead of failing on the first burst.
++    tried_keys_all_cooled = True
+ 
+     for key_entry in key_entries:
+         key = key_entry.key
+@@ -925,7 +932,18 @@ def chat_complete(
+             except Exception as exc:  # pragma: no cover - network/remote errors
+                 last_exc = exc
+                 return_code = _status_code_from_exception(exc)
+-                if return_code == "NO_RESPONSE_TIMEOUT":
++                # Nonoka X: a connect timeout (the 45 s handshake cap in
++                # `http.py`) neither counts toward the abort nor resets it.
++                # The abort exists so a call does not sit through a second
++                # *hard deadline* -- hours each -- and a handshake that failed
++                # in 45 s says nothing about that. Counting it turned one hung
++                # generation plus one dropped handshake into an aborted run
++                # (2026-11-07: a 3-hour hang, then `ConnectTimeout: _ssl.c:993`
++                # 5 s later), and two dropped handshakes on resume aborted it
++                # again in under two minutes.
++                if isinstance(exc, httpx.ConnectTimeout):
++                    pass
++                elif return_code == "NO_RESPONSE_TIMEOUT":
+                     consecutive_timeouts += 1
+                 else:
+                     consecutive_timeouts = 0
+@@ -988,6 +1006,18 @@ def chat_complete(
+ 
+             if combo_phase is ComboCooldownPhase.PROBE or sticky_exhausted_retryable:
+                 rate_limiter.note_combo_exhausted(_rl_endpoint, key_id=key_id)
++            if sticky_exhausted_retryable:
++                retry_at = rate_limiter.combo_cooldown_retry_at(
++                    _rl_endpoint, key_id=key_id
++                )
++                if retry_at is not None and (
++                    cooldown_retry_at is None or retry_at < cooldown_retry_at
++                ):
++                    cooldown_retry_at = retry_at
++            else:
++                tried_keys_all_cooled = False
++        else:
++            tried_keys_all_cooled = False
+ 
+         # Rotate to the next key only when this key spent its retries on a
+         # quota/rate-limit error (a separate project may still have budget). A
+@@ -1017,8 +1047,19 @@ def chat_complete(
+                 cooldown=skipped_cooldown,
+                 probing=skipped_probing,
+                 cooldown_retry_at=cooldown_retry_at,
+-            )
++            ),
++            # Only the two waits of minutes; a daily lock among the skips
++            # means at least one key is gone until the quota's reset, and the
++            # caller must not read the whole tier as "back in a moment".
++            cooling=not skipped_daily and bool(skipped_cooldown or skipped_probing),
++            cooldown_until=cooldown_retry_at,
+         )
++    if tried_keys_all_cooled and not skipped_daily:
++        try:
++            setattr(last_exc, "cooling", True)
++            setattr(last_exc, "cooldown_until", cooldown_retry_at)
++        except Exception:  # pragma: no cover - defensive
++            pass
+     _attach_attempts_to_exception(last_exc, api_attempts)
+     raise last_exc
+ 
+diff --git a/src/finesub/llm/provider_transports.py b/src/finesub/llm/provider_transports.py
+index a41eb7c..77185b1 100644
+--- a/src/finesub/llm/provider_transports.py
++++ b/src/finesub/llm/provider_transports.py
+@@ -94,9 +94,15 @@ def _post_json(
+     try:
+         data = response.json()
+     except ValueError as exc:
++        # Nonoka X: quote the body without its leading whitespace. The Nonoka
++        # Cloud relay keeps a long answer's connection alive with one space
++        # every 15 s and, when the upstream stream breaks, ends the body with a
++        # marker naming a 502 that the classifier reads as retryable. Past 200
++        # spaces (50 minutes) the marker fell outside the quote and the
++        # failure read as a non-retryable "HTTP 200".
+         raise RuntimeError(
+             f"HTTP {response.status_code} returned non-JSON body: "
+-            f"{response.text[:200]}"
++            f"{response.text.lstrip()[:200]}"
+         ) from exc
+     if not isinstance(data, dict):
+         raise RuntimeError("Provider returned a non-object JSON response")
+diff --git a/src/finesub/llm/rate_limit.py b/src/finesub/llm/rate_limit.py
+index 6aaa0a3..cd2c8fc 100644
+--- a/src/finesub/llm/rate_limit.py
++++ b/src/finesub/llm/rate_limit.py
+@@ -96,9 +96,16 @@ _DAILY_EXHAUSTED_KEY = "daily_exhausted"
+ _DAILY_STRIKES_KEY = "daily_strikes"
+ _COMBO_COOLDOWNS_KEY = "combo_cooldowns"
+ 
+-# After a (tier, model, key) exhausts sticky retries: skip 20m, then probe
++# After a (tier, model, key) exhausts sticky retries: skip 5m, then probe
+ # once (retry=0) until 120m; probe success clears, probe failure restarts.
+-COMBO_COOLDOWN_SKIP_SECONDS = 20 * 60
++#
++# Nonoka X: 5 minutes, not upstream's 20. A desktop run that has nothing to
++# rotate to -- the free Nonoka Cloud provider is one key and usually the only
++# provider -- now waits the skip out instead of failing (`RoleClient.complete`),
++# and twenty minutes per hiccup was a long time to sit on one window. The sticky
++# retries that lead here were raised at the same time, so a combo only gets
++# this far after several minutes of failures anyway.
++COMBO_COOLDOWN_SKIP_SECONDS = 5 * 60
+ COMBO_COOLDOWN_TTL_SECONDS = 120 * 60
+ 
+ # Lock a key/endpoint as daily-exhausted only after several consecutive
+@@ -453,7 +460,7 @@ class ModelRateLimiter:
+         every concurrent window read PROBE at once and each fired its own --
+         four probes of something meant to be tested with one, four requests off
+         a free tier's daily allowance, and four ``note_combo_exhausted`` calls
+-        restarting the 20-minute skip on top of each other. This is the same
++        restarting the skip window on top of each other. This is the same
+         "N concurrent observations of one fact" the daily-strike gate already
+         solved with ``departed_at``; the cooldown never got the treatment.
+ 
+@@ -498,7 +505,7 @@ class ModelRateLimiter:
+         key_id: str = "",
+         now: Optional[datetime] = None,
+     ) -> None:
+-        """Start or restart the 20m skip + 100m probe cooldown window."""
++        """Start or restart the 5m skip + 115m probe cooldown window."""
+ 
+         if not self.enabled:
+             return
+diff --git a/src/finesub/llm/routing/api_keys.py b/src/finesub/llm/routing/api_keys.py
+index 6d44b85..bc0102c 100644
+--- a/src/finesub/llm/routing/api_keys.py
++++ b/src/finesub/llm/routing/api_keys.py
+@@ -3,11 +3,12 @@
+ from __future__ import annotations
+ 
+ from dataclasses import dataclass
++from datetime import datetime
+ import hashlib
+ import os
+ from pathlib import Path
+ import sys
+-from typing import Any, Dict, Mapping
++from typing import Any, Dict, Mapping, Optional
+ 
+ from finesub.config import clear_config_cache, read_config_with_path
+ from finesub.reporting import current_reporter
+@@ -70,7 +71,27 @@ _WARNED_OVERSIZED_POOLS: set[tuple[str, tuple[str, ...]]] = set()
+ 
+ 
+ class ProviderUnavailableError(RuntimeError):
+-    """A disabled provider or one without selected credentials."""
++    """A disabled provider or one without selected credentials.
++
++    ``cooling`` marks the one case that ends by itself within minutes: every
++    configured key was passed over only for its transient cooldown (or left to
++    a sibling call probing it), none for a daily lock or a missing key.
++    ``cooldown_until`` is the earliest moment a skipped key's skip window ends,
++    when one was skipped outright; a key left to a probe has no fixed moment.
++    `RoleClient.complete` waits a cooling chain out when nothing else in the
++    chain could answer.
++    """
++
++    def __init__(
++        self,
++        message: str = "",
++        *,
++        cooling: bool = False,
++        cooldown_until: Optional[datetime] = None,
++    ) -> None:
++        super().__init__(message)
++        self.cooling = bool(cooling)
++        self.cooldown_until = cooldown_until
+ 
+ 
+ def parse_key_list(value: str) -> list[str]:

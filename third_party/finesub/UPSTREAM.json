@@ -1,10 +1,10 @@
 {
   "archive_sha256": "e76340e70a214412facdb7b7288b5532886ff9e6bab0b3519bfb54ed1cc257ae",
   "commit": "5caf422cbad36f0402c98eb565e4c29aee4ac197",
-  "content_sha256": "0db7ef8e00a83fa2066f3be8768d8823324d96fa39bc62c5d25045452e72f0f7",
+  "content_sha256": "70e7a6f8e798e7ac381e73d65d592bef64998cc092265e13ce3f6e05a0e6330d",
   "engine_bundle_id": "finesub-0.6.0+5caf422cbad3",
   "engine_version": "0.6.0",
-  "files_manifest_sha256": "d53172c9e98088e9d3afa0bc2bf68b8eda8f8f3997a75331727e643bd405a741",
+  "files_manifest_sha256": "2f19b56b783d3df644d20e08dc69f1d4b4e96d38faed72476f4a3cd4456915d2",
   "patches": [
     {
       "path": "0001-qwen-tail-entry-point.patch",
@@ -53,6 +53,10 @@
     {
       "path": "0012-sequential-asr-delivery-read.patch",
       "sha256": "b7e2b26ee9faf0786389988fc82253925c07a0bd54ec5b3fddc819b1e9034f71"
+    },
+    {
+      "path": "0013-llm-cooldown-wait.patch",
+      "sha256": "ed74c74b4984aa51ac772cc2cb3d536a44858ae184e3d4be794df5effb5e603d"
     }
   ],
   "ref": "v0.6.0",

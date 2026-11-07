@@ -8,6 +8,8 @@ import time
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Mapping, Optional, Tuple
 
+import httpx
+
 from finesub import settings
 from finesub.paths import resolve_env_file
 from finesub.reporting import current_reporter, redact_credentials
@@ -786,11 +788,16 @@ def chat_complete(
 
     # Why each key was passed over, so "nothing could be tried" can say which
     # of the two it was. They are hours apart in consequence: a daily lock
-    # holds until the quota's own reset, a combo cooldown for twenty minutes.
+    # holds until the quota's own reset, a combo cooldown for a few minutes.
     skipped_daily = 0
     skipped_cooldown = 0
     skipped_probing = 0
     cooldown_retry_at: Optional[datetime] = None
+    # Nonoka X: whether every key this call actually tried ended by putting
+    # its combo into cooldown on a retryable error. Then the final exception
+    # is `cooling` like a skip is, and a chain with nothing else to try waits
+    # it out (`RoleClient.complete`) instead of failing on the first burst.
+    tried_keys_all_cooled = True
 
     for key_entry in key_entries:
         key = key_entry.key
@@ -925,7 +932,18 @@ def chat_complete(
             except Exception as exc:  # pragma: no cover - network/remote errors
                 last_exc = exc
                 return_code = _status_code_from_exception(exc)
-                if return_code == "NO_RESPONSE_TIMEOUT":
+                # Nonoka X: a connect timeout (the 45 s handshake cap in
+                # `http.py`) neither counts toward the abort nor resets it.
+                # The abort exists so a call does not sit through a second
+                # *hard deadline* -- hours each -- and a handshake that failed
+                # in 45 s says nothing about that. Counting it turned one hung
+                # generation plus one dropped handshake into an aborted run
+                # (2026-11-07: a 3-hour hang, then `ConnectTimeout: _ssl.c:993`
+                # 5 s later), and two dropped handshakes on resume aborted it
+                # again in under two minutes.
+                if isinstance(exc, httpx.ConnectTimeout):
+                    pass
+                elif return_code == "NO_RESPONSE_TIMEOUT":
                     consecutive_timeouts += 1
                 else:
                     consecutive_timeouts = 0
@@ -988,6 +1006,18 @@ def chat_complete(
 
             if combo_phase is ComboCooldownPhase.PROBE or sticky_exhausted_retryable:
                 rate_limiter.note_combo_exhausted(_rl_endpoint, key_id=key_id)
+            if sticky_exhausted_retryable:
+                retry_at = rate_limiter.combo_cooldown_retry_at(
+                    _rl_endpoint, key_id=key_id
+                )
+                if retry_at is not None and (
+                    cooldown_retry_at is None or retry_at < cooldown_retry_at
+                ):
+                    cooldown_retry_at = retry_at
+            else:
+                tried_keys_all_cooled = False
+        else:
+            tried_keys_all_cooled = False
 
         # Rotate to the next key only when this key spent its retries on a
         # quota/rate-limit error (a separate project may still have budget). A
@@ -1017,8 +1047,19 @@ def chat_complete(
                 cooldown=skipped_cooldown,
                 probing=skipped_probing,
                 cooldown_retry_at=cooldown_retry_at,
-            )
+            ),
+            # Only the two waits of minutes; a daily lock among the skips
+            # means at least one key is gone until the quota's reset, and the
+            # caller must not read the whole tier as "back in a moment".
+            cooling=not skipped_daily and bool(skipped_cooldown or skipped_probing),
+            cooldown_until=cooldown_retry_at,
         )
+    if tried_keys_all_cooled and not skipped_daily:
+        try:
+            setattr(last_exc, "cooling", True)
+            setattr(last_exc, "cooldown_until", cooldown_retry_at)
+        except Exception:  # pragma: no cover - defensive
+            pass
     _attach_attempts_to_exception(last_exc, api_attempts)
     raise last_exc
 

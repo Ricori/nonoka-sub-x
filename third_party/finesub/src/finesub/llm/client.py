@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
+from datetime import datetime, timedelta, timezone
 from enum import Enum
 from functools import lru_cache
 import json
@@ -693,6 +694,65 @@ def _shared_rate_limiter(enabled: bool) -> ModelRateLimiter:
     return ModelRateLimiter(enabled=enabled)
 
 
+#: How long one `RoleClient.complete` may sit out key cooldowns before it
+#: gives up and fails as it used to. A skip window is 5 minutes and every
+#: failed probe restarts it, so this is several probes; an upstream still down
+#: after an hour is not a hiccup.
+_COOLDOWN_WAIT_BUDGET_SECONDS = 60 * 60
+#: A key left to a sibling call's probe has no end time of its own: the probe
+#: either clears the cooldown or restarts it within one call's span. Look again
+#: after this long.
+_COOLDOWN_PROBE_POLL_SECONDS = 30.0
+#: Margin past the skip window's end, so the next pass reads PROBE rather than
+#: a SKIP a few milliseconds from over.
+_COOLDOWN_WAKE_MARGIN_SECONDS = 2.0
+
+
+def _is_cooling(exc: BaseException) -> bool:
+    """Whether this failure is a key cooldown that ends by itself.
+
+    Two shapes carry it: a `ProviderUnavailableError` for keys skipped because
+    they were already cooling, and the provider error itself (a 5xx, a 429, a
+    connect timeout) when every key tried spent its sticky retries on it and
+    so has just started cooling -- `llm_runtime.chat_complete` marks both.
+    """
+
+    return bool(getattr(exc, "cooling", False))
+
+
+def _brief(exc: BaseException) -> str:
+    """The failure in one short line, for the wait notice."""
+
+    text = " ".join(str(exc).split())
+    return f"{type(exc).__name__}: {text[:120]}"
+
+
+def _cooldown_wait_seconds(
+    exc: BaseException, *, waited: float, now: Optional[datetime] = None
+) -> Optional[float]:
+    """How long to sleep before running a cooling chain again, or None to fail.
+
+    None unless the whole chain failed on cooldowns alone (the chain marks its
+    exception with `_harness_chain_only_cooling`) and the per-call budget can
+    still cover the wait.
+    """
+
+    if not _is_cooling(exc) or not getattr(exc, "_harness_chain_only_cooling", False):
+        return None
+    until = getattr(exc, "cooldown_until", None)
+    if isinstance(until, datetime):
+        if until.tzinfo is None:
+            until = until.replace(tzinfo=timezone.utc)
+        current = now or datetime.now(timezone.utc)
+        delay = (until - current).total_seconds() + _COOLDOWN_WAKE_MARGIN_SECONDS
+        delay = max(delay, _COOLDOWN_WAKE_MARGIN_SECONDS)
+    else:
+        delay = _COOLDOWN_PROBE_POLL_SECONDS
+    if waited + delay > _COOLDOWN_WAIT_BUDGET_SECONDS:
+        return None
+    return delay
+
+
 def _append_chain_summary(exc: BaseException, route_decision: Mapping[str, Any]) -> None:
     """Say what the whole chain did, not just what its last link said.
 
@@ -917,9 +977,15 @@ class RoleClient:
         role_configs: Mapping[LLMRole, RoleModelConfig] | None = None,
         rate_limiter: ModelRateLimiter | None = None,
         test_profile: bool = False,
-        # Sticky same-key retries only. Kept low because even 5xx responses
-        # appear to consume Gemini daily quota (observed 2026-07-29).
-        max_retries: int = 3,
+        # Sticky same-key retries only. Upstream keeps 3 because even 5xx
+        # responses appear to consume Gemini daily quota (observed
+        # 2026-07-29). Nonoka X raises it to 6: its desktop providers are
+        # paid or relayed APIs without a twenty-a-day budget, and the free
+        # Nonoka Cloud relay -- often the only provider configured -- shares
+        # one upstream, so a burst of 429/5xx there used to put the only key
+        # into cooldown after ~30 s of backoff. Six retries back off for about
+        # four minutes (5, 9, 17, 33, 65, 129 s) before the cooldown starts.
+        max_retries: int = 6,
         router: ModelRouter | None = None,
         execution_settings: ExecutionSettings | None = None,
         local_agent_driver: LocalAgentDriver | None = None,
@@ -2351,6 +2417,49 @@ class RoleClient:
         self,
         role: LLMRole,
         messages: List[Dict[str, Any]] | TieredMessages,
+        **kwargs: Any,
+    ) -> LLMCallResult:
+        """Call the role's routed endpoint chain, waiting out a cooldown that
+        leaves nothing else to try.
+
+        Every key of every candidate the chain reached can be in its transient
+        cooldown at once -- with one provider of one key (the free Nonoka Cloud
+        relay) a single upstream hiccup does it, and the call that spent the
+        last retries is already the first to find the chain empty. The chain then has no
+        fallback, and failing the call fails the window and the run, while
+        the cooldown itself ends in minutes and "继续" before then fails the
+        same way. So a chain that failed *only* on cooldowns sleeps until the
+        earliest skip window ends, tells the task about it, and runs again; the
+        next pass is the cooldown's probe. Anything else in the chain's
+        failures -- a daily lock, a missing key, a real provider error --
+        raises as before. Bounded by `_COOLDOWN_WAIT_BUDGET_SECONDS` per call.
+
+        Keyword arguments are `_complete_routed`'s; see its docstring.
+        """
+
+        waited = 0.0
+        while True:
+            try:
+                return self._complete_routed(role, messages, **kwargs)
+            except Exception as exc:
+                delay = _cooldown_wait_seconds(exc, waited=waited)
+                if delay is None:
+                    raise
+                resume_at = datetime.now().astimezone() + timedelta(seconds=delay)
+                current_reporter().warning(
+                    "llm-cooldown-wait",
+                    "模型提供商连续出错，正在冷却，且没有可切换的备用提供商；"
+                    f"等待至 {resume_at:%H:%M:%S} 后自动重试（{_brief(exc)}）",
+                    impact="本窗口暂停，冷却结束后继续",
+                    action="无需操作；也可在设置里添加其它提供商作为备用",
+                )
+                time.sleep(delay)
+                waited += delay
+
+    def _complete_routed(
+        self,
+        role: LLMRole,
+        messages: List[Dict[str, Any]] | TieredMessages,
         *,
         max_tokens: int | None = None,
         output_reserve: int | None = None,
@@ -2506,6 +2615,10 @@ class RoleClient:
             return estimates[key]
 
         last_exc: BaseException | None = None
+        # Whether some candidate failed for a reason other than a key
+        # cooldown; only a chain that did not is worth waiting out (see
+        # `complete`).
+        failed_other_than_cooldown = False
         accumulated_api_attempts: List[Mapping[str, Any]] = []
         accumulated_execution_attempts: List[Mapping[str, Any]] = []
         from .routing.model_router import (
@@ -3160,11 +3273,17 @@ class RoleClient:
                     "_harness_execution_attempts",
                     list(accumulated_execution_attempts),
                 )
+                if not _is_cooling(exc):
+                    failed_other_than_cooldown = True
                 if failure.value in candidate.fallback_on:
                     continue
                 mark_unreached(idx + 1, "fallback_not_allowed")
+                setattr(exc, "_harness_chain_only_cooling", not failed_other_than_cooldown)
                 raise
         if last_exc is not None:
+            setattr(
+                last_exc, "_harness_chain_only_cooling", not failed_other_than_cooldown
+            )
             setattr(last_exc, "_harness_route_decision", route_decision)
             setattr(
                 last_exc,

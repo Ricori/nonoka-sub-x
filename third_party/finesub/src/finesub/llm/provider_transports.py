@@ -94,9 +94,15 @@ def _post_json(
     try:
         data = response.json()
     except ValueError as exc:
+        # Nonoka X: quote the body without its leading whitespace. The Nonoka
+        # Cloud relay keeps a long answer's connection alive with one space
+        # every 15 s and, when the upstream stream breaks, ends the body with a
+        # marker naming a 502 that the classifier reads as retryable. Past 200
+        # spaces (50 minutes) the marker fell outside the quote and the
+        # failure read as a non-retryable "HTTP 200".
         raise RuntimeError(
             f"HTTP {response.status_code} returned non-JSON body: "
-            f"{response.text[:200]}"
+            f"{response.text.lstrip()[:200]}"
         ) from exc
     if not isinstance(data, dict):
         raise RuntimeError("Provider returned a non-object JSON response")

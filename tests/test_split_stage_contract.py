@@ -248,6 +248,18 @@ class PurelyAdditiveTests(unittest.TestCase):
             "0012-sequential-asr-delivery-read.patch": [
                 "src/finesub/speech/preprocessing/separator/separation.py",
             ],
+            # LLM routing only, which the cloud never runs: a 5-minute key
+            # cooldown, 6 sticky retries, connect timeouts kept out of the
+            # timeout abort, a call whose whole chain is cooling waits for it
+            # instead of failing, and a non-JSON body quoted past its
+            # leading whitespace.
+            "0013-llm-cooldown-wait.patch": [
+                "src/finesub/llm/client.py",
+                "src/finesub/llm/llm_runtime.py",
+                "src/finesub/llm/provider_transports.py",
+                "src/finesub/llm/rate_limit.py",
+                "src/finesub/llm/routing/api_keys.py",
+            ],
         }
         for name in names:
             with self.subTest(patch=name):

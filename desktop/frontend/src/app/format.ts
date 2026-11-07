@@ -99,6 +99,7 @@ const errorCodeLabels: Record<string, string> = {
   insufficient_disk: "磁盘空间不足",
   missing_dependency: "缺少系统依赖",
   quota_exceeded: "模型用量超限或额度不足",
+  rate_limited: "模型提供商暂时限流或冷却中，请稍后继续",
   auth_failed: "本地 CLI 认证失效或未登录",
   agent_failed: "本地 CLI 运行异常",
   engine_failed: "引擎处理异常",

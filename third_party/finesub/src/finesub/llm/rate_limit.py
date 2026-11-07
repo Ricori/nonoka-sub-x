@@ -96,9 +96,16 @@ _DAILY_EXHAUSTED_KEY = "daily_exhausted"
 _DAILY_STRIKES_KEY = "daily_strikes"
 _COMBO_COOLDOWNS_KEY = "combo_cooldowns"
 
-# After a (tier, model, key) exhausts sticky retries: skip 20m, then probe
+# After a (tier, model, key) exhausts sticky retries: skip 5m, then probe
 # once (retry=0) until 120m; probe success clears, probe failure restarts.
-COMBO_COOLDOWN_SKIP_SECONDS = 20 * 60
+#
+# Nonoka X: 5 minutes, not upstream's 20. A desktop run that has nothing to
+# rotate to -- the free Nonoka Cloud provider is one key and usually the only
+# provider -- now waits the skip out instead of failing (`RoleClient.complete`),
+# and twenty minutes per hiccup was a long time to sit on one window. The sticky
+# retries that lead here were raised at the same time, so a combo only gets
+# this far after several minutes of failures anyway.
+COMBO_COOLDOWN_SKIP_SECONDS = 5 * 60
 COMBO_COOLDOWN_TTL_SECONDS = 120 * 60
 
 # Lock a key/endpoint as daily-exhausted only after several consecutive
@@ -453,7 +460,7 @@ class ModelRateLimiter:
         every concurrent window read PROBE at once and each fired its own --
         four probes of something meant to be tested with one, four requests off
         a free tier's daily allowance, and four ``note_combo_exhausted`` calls
-        restarting the 20-minute skip on top of each other. This is the same
+        restarting the skip window on top of each other. This is the same
         "N concurrent observations of one fact" the daily-strike gate already
         solved with ``departed_at``; the cooldown never got the treatment.
 
@@ -498,7 +505,7 @@ class ModelRateLimiter:
         key_id: str = "",
         now: Optional[datetime] = None,
     ) -> None:
-        """Start or restart the 20m skip + 100m probe cooldown window."""
+        """Start or restart the 5m skip + 115m probe cooldown window."""
 
         if not self.enabled:
             return
