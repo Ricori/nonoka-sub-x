@@ -5,14 +5,19 @@ import (
 	"bytes"
 	"compress/gzip"
 	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Ricori/nonoka-x/desktop/internal/managedtools"
 	"github.com/Ricori/nonoka-x/desktop/internal/sidecar"
@@ -202,35 +207,67 @@ func TestExtractNamedTarGzFileReportsAMissingMember(t *testing.T) {
 	}
 }
 
-func TestGitHubDownloadURLsOrderAndEnvironment(t *testing.T) {
+func TestGitHubDownloadSourcesFollowTheLadder(t *testing.T) {
+	t.Setenv("NONOKA_GITHUB_PROXY", "")
+	t.Setenv("FINESUB_GITHUB_FILE_PROXY", "")
 	raw := "https://github.com/example/repo/releases/download/v1.0/file.zip"
+	proxy := "http://127.0.0.1:7890"
 
-	// Default without environment override: official URL first, followed by default mirrors
-	urls := gitHubDownloadURLs(raw, false)
-	if len(urls) < 2 {
-		t.Fatalf("expected multiple URLs, got %d", len(urls))
+	sources := gitHubDownloadSources(raw, []bootstrapAttempt{{Proxy: proxy}, {}, {Mirror: true}})
+	want := []bootstrapSource{
+		{bootstrapAttempt: bootstrapAttempt{Proxy: proxy}, URL: raw},
+		{URL: raw},
+		{bootstrapAttempt: bootstrapAttempt{Mirror: true}, URL: "https://gh-proxy.com/" + raw},
 	}
-	if urls[0] != raw {
-		t.Fatalf("first URL = %s, want %s", urls[0], raw)
-	}
-	for _, prefix := range defaultGitHubMirrorPrefixes {
-		mirrorURL := prefix + raw
-		if !containsString(urls, mirrorURL) {
-			t.Errorf("expected mirror URL %s in list", mirrorURL)
-		}
+	if !slices.Equal(sources, want) {
+		t.Fatalf("sources = %#v", sources)
 	}
 
-	// A route that prefers mirrors tries them first and the official URL last
-	mirrored := gitHubDownloadURLs(raw, true)
-	if mirrored[0] != defaultGitHubMirrorPrefixes[0]+raw || mirrored[len(mirrored)-1] != raw {
-		t.Fatalf("mirror-first order wrong: %#v", mirrored)
-	}
-
-	// With NONOKA_GITHUB_PROXY environment variable
+	// A proxy the user names takes the mirror's place on the ladder.
 	t.Setenv("NONOKA_GITHUB_PROXY", "https://custom-proxy.example.com")
-	urlsCustom := gitHubDownloadURLs(raw, false)
-	if len(urlsCustom) == 0 || urlsCustom[0] != "https://custom-proxy.example.com/"+raw {
-		t.Fatalf("custom proxy not prioritized: %#v", urlsCustom)
+	custom := gitHubDownloadSources(raw, []bootstrapAttempt{{}, {Mirror: true}})
+	if custom[0].URL != raw || custom[1].URL != "https://custom-proxy.example.com/"+raw {
+		t.Fatalf("custom proxy not in the mirror rung: %#v", custom)
+	}
+}
+
+func TestDownloadAbandonsACrawlingSourceForTheNext(t *testing.T) {
+	shrinkBootstrapWindows(t, 100*time.Millisecond)
+	payload := []byte("uv archive payload")
+	digest := sha256.Sum256(payload)
+	fast := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		_, _ = writer.Write(payload)
+	}))
+	defer fast.Close()
+
+	data := t.TempDir()
+	bootstrap := NewPythonBootstrap(data, sidecar.New(sidecar.Config{}))
+	destination := filepath.Join(data, "uv.zip")
+	sources := []bootstrapSource{{URL: dripServer(t).URL}, {URL: fast.URL}}
+
+	if err := bootstrap.downloadWithFallback(sources, destination, int64(len(payload)), hex.EncodeToString(digest[:])); err != nil {
+		t.Fatalf("the second source should have been used: %v", err)
+	}
+	written, err := os.ReadFile(destination)
+	if err != nil || !bytes.Equal(written, payload) {
+		t.Fatalf("written=%q err=%v", written, err)
+	}
+}
+
+func TestDownloadAbandonsASourceThatStopsSending(t *testing.T) {
+	shrinkBootstrapWindows(t, 100*time.Millisecond)
+	silent := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		_, _ = writer.Write([]byte("x"))
+		writer.(http.Flusher).Flush()
+		<-request.Context().Done()
+	}))
+	defer silent.Close()
+
+	data := t.TempDir()
+	bootstrap := NewPythonBootstrap(data, sidecar.New(sidecar.Config{}))
+	err := bootstrap.downloadSingle(bootstrapSource{URL: silent.URL}, filepath.Join(data, "uv.zip"), 100, "digest", "message", true)
+	if !errors.Is(err, errBootstrapTooSlow) {
+		t.Fatalf("a stalled body should be too slow, got %v", err)
 	}
 }
 
@@ -240,17 +277,20 @@ func TestDownloadWithFallbackFailsWithManualInstructions(t *testing.T) {
 	destination := filepath.Join(data, "uv.zip")
 
 	// Invalid candidate URLs that cannot be connected to
-	candidateURLs := []string{
-		"http://127.0.0.1:54321/nonexistent1.zip",
-		"http://127.0.0.1:54321/nonexistent2.zip",
+	sources := []bootstrapSource{
+		{URL: "http://127.0.0.1:54321/nonexistent1.zip"},
+		{URL: "http://127.0.0.1:54321/nonexistent2.zip"},
 	}
 
-	err := bootstrap.downloadWithFallback(candidateURLs, destination, 100, "dummy-digest")
+	err := bootstrap.downloadWithFallback(sources, destination, 100, "dummy-digest")
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
 
 	errMsg := err.Error()
+	if !strings.Contains(errMsg, bootstrapUnreachableMessage) {
+		t.Errorf("expected the advice to turn a proxy on, got: %s", errMsg)
+	}
 	if !strings.Contains(errMsg, "手动下载") {
 		t.Errorf("expected manual download guidance in error message, got: %s", errMsg)
 	}

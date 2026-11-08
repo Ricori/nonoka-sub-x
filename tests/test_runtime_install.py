@@ -1,11 +1,16 @@
 import json
 from pathlib import Path
+import subprocess
+import tomllib
 from types import SimpleNamespace
 
 import pytest
 
+from finesub_bootstrap import http_client
 from finesub_bootstrap.environment import RuntimeEnvironment
+from finesub_bootstrap.http_client import NetworkRoute
 from finesub_bootstrap.models import DownloadProgress
+from nonoka_x.download_route import DownloadTooSlow, DownloadUnreachable
 import nonoka_x.runtime_install as runtime_install
 from nonoka_x.runtime_install import (
     KNOWN_WHEEL_SIZES,
@@ -101,6 +106,165 @@ def test_an_installed_wheel_is_neither_downloaded_nor_reinstalled(tmp_path: Path
         should_pause=lambda: False,
         installed_in=site_packages,
     ) == []
+
+
+def _ladder_runtime(tmp_path: Path, monkeypatch, *, proxy: str | None, fail: int, output: str):
+    """A runtime whose uv records each `--requirement` run and fails the first `fail`."""
+
+    monkeypatch.delenv("FINESUB_GITHUB_FILE_PROXY", raising=False)
+    monkeypatch.setattr(
+        http_client,
+        "network_routes",
+        lambda: ([NetworkRoute("代理", proxy)] if proxy else []) + [NetworkRoute("直连", None)],
+    )
+    monkeypatch.setattr(runtime_install, "site_packages_of", lambda python: tmp_path)
+    monkeypatch.setattr(runtime_install, "ensure_fast_enough", lambda url, stage: None)
+    runtime = object.__new__(ProgressRuntimeEnvironment)
+    runtime.paths = SimpleNamespace(cache=tmp_path / "cache")
+    runtime.runtime_lock = RUNTIME / "pylock.win-py312.toml"
+    runtime._progress_stage = None
+    runtime._prefetch_large_wheels = lambda lock, **kwargs: []
+    runs: list[tuple[Path, dict[str, str]]] = []
+
+    def run(command, environment, *, log, should_pause) -> None:
+        runs.append((Path(command[command.index("--requirement") + 1]), environment))
+        if len(runs) <= fail:
+            raise subprocess.CalledProcessError(1, command, output=output)
+
+    runtime._run = run
+    return runtime, runs
+
+
+def _install(runtime) -> None:
+    runtime._install_dependencies(Path("uv.exe"), Path("python.exe"), {"PATH": "x"}, log=None, should_pause=None)
+
+
+def test_dependencies_climb_proxy_direct_then_the_mirror_lock(tmp_path: Path, monkeypatch) -> None:
+    proxy = "http://127.0.0.1:7890"
+    network_error = "error sending request for url\ntcp connect error\n由于连接方没有响应 (os error 10060)"
+    runtime, runs = _ladder_runtime(tmp_path, monkeypatch, proxy=proxy, fail=2, output=network_error)
+
+    _install(runtime)
+
+    assert [environment["HTTPS_PROXY"] for _lock, environment in runs] == [proxy, "", ""]
+    assert [lock.name for lock, _environment in runs] == [
+        "pylock.win-py312.toml",
+        "pylock.win-py312.toml",
+        "pylock.win-py312.cn.toml",
+    ]
+
+
+def test_the_mirror_lock_sends_github_files_to_the_github_mirror(tmp_path: Path, monkeypatch) -> None:
+    runtime, _runs = _ladder_runtime(tmp_path, monkeypatch, proxy=None, fail=0, output="")
+
+    lock = runtime._mirror_lock()
+
+    body = lock.read_text(encoding="utf-8")
+    assert lock.name == "pylock.win-py312.cn.toml"
+    assert 'url = "https://gh-proxy.com/https://github.com/caca2331/finesub/' in body
+    assert 'url = "https://github.com/' not in body
+    assert "pypi.tuna.tsinghua.edu.cn" in body
+    assert tomllib.loads(body)["packages"]
+
+
+def test_exhausted_dependency_ladder_asks_for_a_proxy(tmp_path: Path, monkeypatch) -> None:
+    runtime, runs = _ladder_runtime(tmp_path, monkeypatch, proxy=None, fail=9, output="error sending request")
+
+    with pytest.raises(DownloadUnreachable, match="请开启代理"):
+        _install(runtime)
+
+    assert len(runs) == 2
+
+
+def test_a_non_network_uv_failure_stops_the_climb(tmp_path: Path, monkeypatch) -> None:
+    runtime, runs = _ladder_runtime(tmp_path, monkeypatch, proxy=None, fail=9, output="Hash mismatch for torch")
+
+    with pytest.raises(subprocess.CalledProcessError):
+        _install(runtime)
+
+    assert len(runs) == 1
+
+
+def test_mending_a_tree_can_ask_for_packages_to_be_reinstalled(tmp_path: Path, monkeypatch) -> None:
+    """FineSub's `_verify_staging` passes `reinstall=`; the override has to take it."""
+
+    runtime, _runs = _ladder_runtime(tmp_path, monkeypatch, proxy=None, fail=0, output="")
+    commands: list[list[str]] = []
+    runtime._run = lambda command, environment, *, log, should_pause: commands.append(command)
+
+    runtime._install_dependencies(
+        Path("uv.exe"), Path("python.exe"), {}, log=None, should_pause=None, reinstall=["numpy"]
+    )
+
+    assert commands[0][-2:] == ["--reinstall-package", "numpy"]
+
+
+def test_a_slow_rung_is_left_before_uv_starts_on_it(tmp_path: Path, monkeypatch) -> None:
+    runtime, runs = _ladder_runtime(tmp_path, monkeypatch, proxy=None, fail=0, output="")
+    samples: list[str] = []
+
+    def sample(url: str, stage) -> None:
+        samples.append(url)
+        if stage.kind == "direct":
+            raise DownloadTooSlow("slow")
+
+    monkeypatch.setattr(runtime_install, "ensure_fast_enough", sample)
+
+    _install(runtime)
+
+    assert [lock.name for lock, _environment in runs] == ["pylock.win-py312.cn.toml"]
+    assert samples[0].startswith("https://files.pythonhosted.org/")
+
+
+def test_the_speed_sample_is_a_file_uv_itself_would_fetch() -> None:
+    sample = runtime_install._speed_sample(RUNTIME / "pylock.win-py312.toml")
+
+    assert "files.pythonhosted.org" in sample
+    assert "torch-" not in sample
+
+
+def test_interpreter_download_is_timed_before_uv_starts(monkeypatch) -> None:
+    monkeypatch.delenv("FINESUB_GITHUB_FILE_PROXY", raising=False)
+    monkeypatch.setattr(http_client, "network_routes", lambda: [NetworkRoute("直连", None)])
+    samples: list[str] = []
+
+    def sample(url: str, stage) -> None:
+        samples.append(url)
+        if stage.kind == "direct":
+            raise DownloadTooSlow("slow")
+
+    monkeypatch.setattr(runtime_install, "ensure_fast_enough", sample)
+    attempts: list[dict[str, str]] = []
+    monkeypatch.setattr(
+        RuntimeEnvironment, "_run", lambda self, command, environment, *, log, should_pause: attempts.append(environment)
+    )
+    runtime = object.__new__(ProgressRuntimeEnvironment)
+
+    runtime._run(["uv.exe", "python", "install", "3.12"], {}, log=None, should_pause=None)
+
+    assert len(attempts) == 1
+    assert attempts[0]["UV_PYTHON_INSTALL_MIRROR"].startswith("https://gh-proxy.com/")
+    assert "python-build-standalone" in samples[0]
+
+
+def test_interpreter_download_climbs_to_the_github_mirror(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.delenv("FINESUB_GITHUB_FILE_PROXY", raising=False)
+    monkeypatch.setattr(http_client, "network_routes", lambda: [NetworkRoute("直连", None)])
+    monkeypatch.setattr(runtime_install, "ensure_fast_enough", lambda url, stage: None)
+    attempts: list[dict[str, str]] = []
+
+    def base_run(self, command, environment, *, log, should_pause) -> None:
+        attempts.append(environment)
+        if len(attempts) == 1:
+            raise subprocess.CalledProcessError(1, command, output="error sending request for url")
+
+    monkeypatch.setattr(RuntimeEnvironment, "_run", base_run)
+    runtime = object.__new__(ProgressRuntimeEnvironment)
+
+    runtime._run(["uv.exe", "python", "install", "3.12"], {}, log=None, should_pause=None)
+
+    assert "UV_PYTHON_INSTALL_MIRROR" not in attempts[0]
+    assert attempts[1]["UV_PYTHON_INSTALL_MIRROR"].startswith("https://gh-proxy.com/https://github.com/astral-sh/")
 
 
 def _bare_runtime(tmp_path: Path) -> ProgressRuntimeEnvironment:

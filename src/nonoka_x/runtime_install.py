@@ -3,14 +3,17 @@ and in-place updates of a runtime whose lock moved on."""
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 import json
 import os
 from pathlib import Path
+import re
 import tomllib
 from typing import Any
 from urllib.parse import unquote, urlparse
+
+import httpx
 
 from finesub_bootstrap.downloader import (
     DigestMismatch,
@@ -21,11 +24,24 @@ from finesub_bootstrap.downloader import (
 from finesub_bootstrap.environment import (
     RuntimeEnvironment,
     _is_retryable_from_mirror,
+    _is_retryable_install,
 )
 from finesub_bootstrap.models import DownloadAsset, DownloadProgress
 from finesub_bootstrap.runtime_health import site_packages_of
 
-from nonoka_x.download_route import apply_proxy_environment, live_proxy, proxy_label
+from nonoka_x.download_route import (
+    PYTHON_BUILD_SAMPLE,
+    DownloadStage,
+    apply_proxy_environment,
+    climb,
+    download_stages,
+    ensure_fast_enough,
+    github_mirror_url,
+    is_transport_failure,
+    pinned_stage,
+    python_build_mirror,
+    stage_environment,
+)
 from nonoka_x.msvc_runtime import explaining, msvc_runtime_problem
 
 
@@ -111,6 +127,43 @@ def _format_size(size: int) -> str:
     return f"{size / 1024**3:.1f} GiB" if size >= 1024**3 else f"{size / 1024**2:.0f} MiB"
 
 
+#: A locked file's URL, as uv's PEP 751 lock spells it.
+_LOCK_URL = re.compile(r'url = "([^"]+)"')
+
+
+def _install_advances(stage: DownloadStage, error: Exception) -> bool:
+    """Which failures of a uv step or a wheel prefetch move to the next rung."""
+
+    if isinstance(error, DownloadPaused):
+        return False
+    if isinstance(error, httpx.HTTPError) or is_transport_failure(error):
+        return True
+    if stage.mirror:
+        return isinstance(error, (DigestMismatch, SizeMismatch)) or _is_retryable_from_mirror(error)
+    return _is_retryable_install(error)
+
+
+def _speed_sample(lock: Path) -> str | None:
+    """The largest file uv itself will fetch from this lock, to time a rung with."""
+
+    body = tomllib.loads(lock.read_text(encoding="utf-8"))
+    wheels = [
+        wheel
+        for package in body.get("packages", [])
+        for wheel in package.get("wheels", [])
+        if isinstance(wheel.get("size"), int) and wheel["size"] < LARGE_WHEEL_THRESHOLD and wheel.get("url")
+    ]
+    return max(wheels, key=lambda wheel: wheel["size"])["url"] if wheels else None
+
+
+def _prefetch_message(stage: DownloadStage) -> str:
+    if stage.mirror:
+        return "正在从中国大陆镜像下载 {package}（{size}）"
+    if stage.proxy:
+        return f"正在通过{stage.label} 下载 {{package}}（{{size}}）"
+    return "正在从官方源下载 {package}（{size}）"
+
+
 class ProgressRuntimeEnvironment(RuntimeEnvironment):
     """Prefetch very large wheels with byte progress before invoking uv, and
     update an outdated runtime in place instead of rebuilding it.
@@ -130,6 +183,47 @@ class ProgressRuntimeEnvironment(RuntimeEnvironment):
         self.download_progress = download_progress
         self.runtime_validator = explaining(self.runtime_validator)
 
+    def _run(self, command, environment, *, log, should_pause) -> None:
+        """uv's interpreter download climbs the ladder; everything else just runs."""
+
+        if command[1:3] != ["python", "install"]:
+            super()._run(command, environment, log=log, should_pause=should_pause)
+            return
+        mirror = None if environment.get("UV_PYTHON_INSTALL_MIRROR") else python_build_mirror()
+
+        def attempt(stage: DownloadStage) -> None:
+            ensure_fast_enough(PYTHON_BUILD_SAMPLE, stage)
+            routed = stage_environment(environment, stage)
+            if stage.mirror:
+                routed["UV_PYTHON_INSTALL_MIRROR"] = mirror
+            super(ProgressRuntimeEnvironment, self)._run(command, routed, log=log, should_pause=should_pause)
+
+        climb(download_stages(has_mirror=mirror is not None), attempt, advances=_install_advances, announce=log)
+
+    def _mirror_lock(self) -> Path | None:
+        """The cn lock with its GitHub files on the GitHub mirror, or None.
+
+        The cn lock moves only the PyPI and PyTorch hosts: its ctranslate2 wheel
+        still names github.com, the very host this rung exists to avoid. The
+        digests stay as they were, so uv holds every file to the same hashes.
+        """
+
+        source = self.runtime_lock.with_name(self.runtime_lock.name.replace(".toml", ".cn.toml"))
+        if not source.is_file():
+            return None
+        body = source.read_text(encoding="utf-8")
+        rewritten = _LOCK_URL.sub(
+            lambda found: f'url = "{github_mirror_url(found[1]) or found[1]}"',
+            body,
+        )
+        if rewritten == body:
+            return source
+        # uv recognises a PEP 751 lock by its file name, so it keeps this one.
+        destination = self.paths.cache / "mirror-lock" / source.name
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_text(rewritten, encoding="utf-8", newline="\n")
+        return destination
+
     def _install_dependencies(
         self,
         uv: Path,
@@ -138,49 +232,59 @@ class ProgressRuntimeEnvironment(RuntimeEnvironment):
         *,
         log,
         should_pause,
+        reinstall: Sequence[str] = (),
     ) -> None:
-        regional = self.regional_lock()
-        selected = regional or self.runtime_lock
-        proxy = proxy_label(live_proxy())
+        """Install the runtime lock, one whole attempt per rung.
+
+        Whole attempts because uv installs a lock as a unit, and a half-mirrored
+        environment is not something either lock describes.
+        """
+
+        mirror_lock = self._mirror_lock()
         # A wheel the target already holds needs neither a download nor a
         # reinstall: true of every unchanged large wheel in an in-place update,
         # never of a fresh staging tree.
         installed_in = site_packages_of(staging_python)
-        try:
-            local_wheels = self._prefetch_large_wheels(
-                selected,
-                stage_message=(
-                    "正在从中国大陆镜像下载 {package}（{size}）"
-                    if regional is not None
-                    else f"正在通过{proxy} 下载 {{package}}（{{size}}）"
-                    if proxy
-                    else "正在下载 {package}（{size}）"
-                ),
-                should_pause=should_pause,
-                installed_in=installed_in,
-            )
-        except Exception as error:
-            mirror_can_retry = isinstance(error, (DigestMismatch, SizeMismatch)) or _is_retryable_from_mirror(error)
-            if regional is None or isinstance(error, DownloadPaused) or not mirror_can_retry:
-                raise
-            if log is not None:
-                log(f"镜像下载失败，改用官方源重试：{error}")
-            from finesub_bootstrap.download_routes import record_failure
 
-            record_failure(self.paths.data_root, "pypi")
-            local_wheels = self._prefetch_large_wheels(
-                self.runtime_lock,
-                stage_message="正在从官方源下载 {package}（{size}）",
-                should_pause=should_pause,
-                installed_in=installed_in,
-            )
-
-        if local_wheels:
-            if self._progress_stage is not None:
-                self._progress_stage(
-                    "installing_dependencies",
-                    "大型依赖下载完成，正在安装到隔离环境",
+        def attempt(stage: DownloadStage) -> None:
+            lock = mirror_lock if stage.mirror else self.runtime_lock
+            routed = stage_environment(environment, stage)
+            with pinned_stage(stage):
+                local_wheels = self._prefetch_large_wheels(
+                    lock,
+                    stage_message=_prefetch_message(stage),
+                    should_pause=should_pause,
+                    installed_in=installed_in,
                 )
+            if local_wheels:
+                if self._progress_stage is not None:
+                    self._progress_stage(
+                        "installing_dependencies",
+                        "大型依赖下载完成，正在安装到隔离环境",
+                    )
+                self._run(
+                    [
+                        str(uv),
+                        "pip",
+                        "install",
+                        "--python",
+                        str(staging_python),
+                        "--no-deps",
+                        *(str(path) for path in local_wheels),
+                    ],
+                    routed,
+                    log=log,
+                    should_pause=should_pause,
+                )
+
+            sample = _speed_sample(lock)
+            if sample is not None:
+                ensure_fast_enough(sample, stage)
+            # The prefetched wheels stay where they are, deliberately. uv's cache
+            # entry for them is keyed by this file path, so with the file gone the
+            # next rebuild -- any engine upgrade that changes the lock -- would
+            # download the multi-GB wheel again; kept, the downloader finds it and
+            # verifies its digest instead. "删除环境" removes the cache with the rest.
             self._run(
                 [
                     str(uv),
@@ -188,25 +292,20 @@ class ProgressRuntimeEnvironment(RuntimeEnvironment):
                     "install",
                     "--python",
                     str(staging_python),
-                    "--no-deps",
-                    *(str(path) for path in local_wheels),
+                    "--requirement",
+                    str(lock),
+                    *(argument for name in reinstall for argument in ("--reinstall-package", name)),
                 ],
-                environment,
+                routed,
                 log=log,
                 should_pause=should_pause,
             )
 
-        # The prefetched wheels stay where they are, deliberately. uv's cache
-        # entry for them is keyed by this file path, so with the file gone the
-        # next rebuild -- any engine upgrade that changes the lock -- would
-        # download the multi-GB wheel again; kept, the downloader finds it and
-        # verifies its digest instead. "删除环境" removes the cache with the rest.
-        super()._install_dependencies(
-            uv,
-            staging_python,
-            environment,
-            log=log,
-            should_pause=should_pause,
+        climb(
+            download_stages(has_mirror=mirror_lock is not None),
+            attempt,
+            advances=_install_advances,
+            announce=log,
         )
 
     def _prefetch_large_wheels(

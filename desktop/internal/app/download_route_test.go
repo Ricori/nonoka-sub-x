@@ -1,42 +1,203 @@
 package app
 
-import "testing"
+import (
+	"errors"
+	"net/http"
+	"net/http/httptest"
+	"slices"
+	"strings"
+	"testing"
+	"time"
+)
 
-func TestResolveRoutePrefersProxyOverMirrors(t *testing.T) {
-	t.Setenv(regionEnvironment, "")
-	probed := false
-	mainland := func() bool { probed = true; return true }
+const testProxy = "http://127.0.0.1:7890"
 
-	withProxy := resolveRoute("http://127.0.0.1:7890", mainland)
-	if withProxy.Mirror || withProxy.Proxy == "" || probed {
-		t.Fatalf("a live proxy should mean official sources without a probe: %#v probed=%v", withProxy, probed)
+func TestLadderClimbsProxyThenDirectThenMirror(t *testing.T) {
+	want := []bootstrapAttempt{{Proxy: testProxy}, {}, {Mirror: true}}
+	if got := bootstrapAttempts(testProxy); !slices.Equal(got, want) {
+		t.Fatalf("with a proxy: %#v", got)
 	}
-	if direct := resolveRoute("", mainland); !direct.Mirror || !probed {
-		t.Fatalf("no proxy on a mainland exit should prefer mirrors: %#v", direct)
-	}
-	if overseas := resolveRoute("", func() bool { return false }); overseas.Mirror {
-		t.Fatalf("no proxy outside the mainland should use official sources: %#v", overseas)
+	want = []bootstrapAttempt{{}, {Mirror: true}}
+	if got := bootstrapAttempts(""); !slices.Equal(got, want) {
+		t.Fatalf("without a proxy: %#v", got)
 	}
 }
 
-func TestResolveRouteHonoursRegionOverride(t *testing.T) {
-	t.Setenv(regionEnvironment, "cn")
-	if route := resolveRoute("http://127.0.0.1:7890", func() bool { return false }); !route.Mirror {
-		t.Fatalf("FINESUB_DOWNLOAD_REGION=cn should force mirrors: %#v", route)
-	}
-	t.Setenv(regionEnvironment, "global")
-	if route := resolveRoute("", func() bool { return true }); route.Mirror {
-		t.Fatalf("FINESUB_DOWNLOAD_REGION=global should force official sources: %#v", route)
+func TestLadderIgnoresTheRegionVariable(t *testing.T) {
+	t.Setenv("FINESUB_DOWNLOAD_REGION", "cn")
+	want := []bootstrapAttempt{{}, {Mirror: true}}
+	if got := bootstrapAttempts(""); !slices.Equal(got, want) {
+		t.Fatalf("the ladder should not depend on the region variable: %#v", got)
 	}
 }
 
-func TestRouteEnvironmentCarriesProxy(t *testing.T) {
-	direct := (bootstrapRoute{}).environment()
+func TestClimbStopsAtTheFirstRungThatWorks(t *testing.T) {
+	var tried []bootstrapAttempt
+	err := climbBootstrap([]bootstrapAttempt{{Proxy: testProxy}, {}, {Mirror: true}}, "failed", nil, func(attempt bootstrapAttempt, _ bool) ([]byte, error) {
+		tried = append(tried, attempt)
+		if !attempt.Mirror && attempt.Proxy == "" {
+			return nil, nil
+		}
+		return []byte("error sending request"), errors.New("exit status 1")
+	})
+	if err != nil || len(tried) != 2 {
+		t.Fatalf("err=%v tried=%#v", err, tried)
+	}
+}
+
+func TestClimbAsksForAProxyOnceEveryRungFails(t *testing.T) {
+	err := climbBootstrap([]bootstrapAttempt{{}, {Mirror: true}}, "failed", nil, func(bootstrapAttempt, bool) ([]byte, error) {
+		return []byte("tcp connect error"), errors.New("exit status 1")
+	})
+	if err == nil || !strings.Contains(err.Error(), bootstrapUnreachableMessage) {
+		t.Fatalf("expected the proxy advice, got %v", err)
+	}
+}
+
+func TestClimbDoesNotBlameTheNetworkForALocalFailure(t *testing.T) {
+	calls := 0
+	err := climbBootstrap([]bootstrapAttempt{{}, {Mirror: true}}, "failed", nil, func(bootstrapAttempt, bool) ([]byte, error) {
+		calls++
+		return []byte("磁盘空间不足。 (os error 112)"), errors.New("exit status 1")
+	})
+	if calls != 1 {
+		t.Fatalf("a full disk should stop the climb, tried %d rungs", calls)
+	}
+	if err == nil || strings.Contains(err.Error(), bootstrapUnreachableMessage) {
+		t.Fatalf("a full disk should not ask for a proxy: %v", err)
+	}
+}
+
+func TestClimbWatchesEveryRungButTheLast(t *testing.T) {
+	var watched []bool
+	_ = climbBootstrap([]bootstrapAttempt{{Proxy: testProxy}, {}, {Mirror: true}}, "failed", nil, func(_ bootstrapAttempt, isWatched bool) ([]byte, error) {
+		watched = append(watched, isWatched)
+		return nil, errors.New("exit status 1")
+	})
+	if !slices.Equal(watched, []bool{true, true, false}) {
+		t.Fatalf("watched = %v", watched)
+	}
+}
+
+func TestClimbFallsBackToASlowRungOnlyWhenTheRestFail(t *testing.T) {
+	var tried []bootstrapAttempt
+	var watched []bool
+	err := climbBootstrap([]bootstrapAttempt{{}, {Mirror: true}}, "failed", nil, func(attempt bootstrapAttempt, isWatched bool) ([]byte, error) {
+		tried = append(tried, attempt)
+		watched = append(watched, isWatched)
+		if isWatched {
+			return nil, errBootstrapTooSlow
+		}
+		if attempt.Mirror {
+			return []byte("tcp connect error"), errors.New("exit status 1")
+		}
+		return nil, nil
+	})
+	if err != nil {
+		t.Fatalf("the slow rung should have been used: %v", err)
+	}
+	if !slices.Equal(tried, []bootstrapAttempt{{}, {Mirror: true}, {}}) || !slices.Equal(watched, []bool{true, false, false}) {
+		t.Fatalf("tried=%#v watched=%v", tried, watched)
+	}
+}
+
+func TestSpeedWatchJudgesAWholeWindow(t *testing.T) {
+	clock := time.Unix(1000, 0)
+	watch := speedWatch{now: func() time.Time { return clock }}
+
+	if err := watch.add(0); err != nil {
+		t.Fatalf("no bytes yet is not a crawl: %v", err)
+	}
+	clock = clock.Add(time.Hour)
+	if err := watch.add(1); err != nil {
+		t.Fatalf("the clock must start at the first byte: %v", err)
+	}
+	clock = clock.Add(bootstrapSlowWindow - time.Second)
+	if err := watch.add(1); err != nil {
+		t.Fatalf("a part of a window proves nothing: %v", err)
+	}
+	clock = clock.Add(time.Second)
+	if err := watch.add(1); !errors.Is(err, errBootstrapTooSlow) {
+		t.Fatalf("a crawling window should be too slow, got %v", err)
+	}
+}
+
+func TestSpeedWatchLetsAFastWindowPass(t *testing.T) {
+	clock := time.Unix(1000, 0)
+	watch := speedWatch{now: func() time.Time { return clock }}
+	_ = watch.add(1)
+	clock = clock.Add(bootstrapSlowWindow)
+	fast := int(bootstrapMinBytesPerSecond * bootstrapSlowWindow.Seconds())
+	if err := watch.add(fast); err != nil {
+		t.Fatalf("a window at the floor should pass: %v", err)
+	}
+	if !watch.started.Equal(clock) || watch.bytes != 0 {
+		t.Fatalf("a passed window should start the next: %#v", watch)
+	}
+}
+
+func shrinkBootstrapWindows(t *testing.T, window time.Duration) {
+	t.Helper()
+	slow, probe := bootstrapSlowWindow, bootstrapProbeWindow
+	bootstrapSlowWindow, bootstrapProbeWindow = window, window
+	t.Cleanup(func() { bootstrapSlowWindow, bootstrapProbeWindow = slow, probe })
+}
+
+func dripServer(t *testing.T) *httptest.Server {
+	t.Helper()
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		for range 200 {
+			if _, err := writer.Write([]byte("x")); err != nil {
+				return
+			}
+			writer.(http.Flusher).Flush()
+			select {
+			case <-request.Context().Done():
+				return
+			case <-time.After(10 * time.Millisecond):
+			}
+		}
+	}))
+	t.Cleanup(server.Close)
+	return server
+}
+
+func TestRouteProbeNoticesACrawl(t *testing.T) {
+	shrinkBootstrapWindows(t, 100*time.Millisecond)
+	if !bootstrapRouteTooSlow(dripServer(t).URL, bootstrapAttempt{}) {
+		t.Fatal("a dripping route should measure too slow")
+	}
+}
+
+func TestRouteProbePassesAFastRoute(t *testing.T) {
+	shrinkBootstrapWindows(t, time.Second)
+	body := make([]byte, 1024*1024)
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		_, _ = writer.Write(body)
+	}))
+	defer server.Close()
+	if bootstrapRouteTooSlow(server.URL, bootstrapAttempt{}) {
+		t.Fatal("a fast route should pass")
+	}
+}
+
+func TestRouteProbeDoesNotBlameAnHTTPError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writer.WriteHeader(http.StatusForbidden)
+	}))
+	defer server.Close()
+	if bootstrapRouteTooSlow(server.URL, bootstrapAttempt{}) {
+		t.Fatal("an HTTP error says nothing about speed")
+	}
+}
+
+func TestAttemptEnvironmentCarriesProxy(t *testing.T) {
+	direct := (bootstrapAttempt{}).environment()
 	if !contains(direct, "NO_PROXY=*") || !contains(direct, "HTTPS_PROXY=") {
-		t.Fatalf("a direct route must clear the proxy variables: %#v", direct)
+		t.Fatalf("a direct attempt must clear the proxy variables: %#v", direct)
 	}
-	environment := bootstrapRoute{Proxy: "http://127.0.0.1:7890"}.environment()
-	if !contains(environment, "HTTPS_PROXY=http://127.0.0.1:7890") || !contains(environment, "ALL_PROXY=http://127.0.0.1:7890") {
+	environment := bootstrapAttempt{Proxy: testProxy}.environment()
+	if !contains(environment, "HTTPS_PROXY="+testProxy) || !contains(environment, "ALL_PROXY="+testProxy) {
 		t.Fatalf("unexpected proxy environment: %#v", environment)
 	}
 }

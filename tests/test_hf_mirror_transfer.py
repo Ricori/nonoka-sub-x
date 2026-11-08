@@ -18,25 +18,31 @@ What has to stay true:
 - a mirrored fetch turns Xet off, and an official one does not;
 - a user's own `HF_ENDPOINT` gets the same treatment, since it is a mirror
   too, while their own `HF_HUB_DISABLE_XET` -- `0` included -- always wins;
-- that 401 counts as a mirror failure, so the fallback to the official source
-  runs and the mirror is recorded as having failed;
-- the desktop's model install takes that fallback in a *second process*,
-  because the endpoint is read when `huggingface_hub` is imported.
+- that 401 counts as a mirror failure, so the next rung of the ladder runs;
+- the desktop's model install takes each rung in its *own process*, because
+  the endpoint is read when `huggingface_hub` is imported.
 """
 
 from __future__ import annotations
 
 import json
+import os
+import subprocess
 import sys
+import time
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
-from finesub_bootstrap import model_fetch
+from finesub_bootstrap import http_client, model_fetch
+from finesub_bootstrap.http_client import NetworkRoute
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
+from nonoka_x import download_route  # noqa: E402
+from nonoka_x.download_route import DownloadUnreachable, climb_huggingface  # noqa: E402
 from nonoka_x.provision import RuntimeProvisionError, RuntimeProvisioner  # noqa: E402
 
 
@@ -57,11 +63,10 @@ def _neutral_download_environment(monkeypatch: pytest.MonkeyPatch) -> None:
 
     for name in ("HF_ENDPOINT", "HF_HUB_DISABLE_XET", "FINESUB_HF_ENDPOINT"):
         monkeypatch.delenv(name, raising=False)
-    monkeypatch.setenv("FINESUB_DOWNLOAD_REGION", "global")
+    monkeypatch.setattr(http_client, "network_routes", lambda: [NetworkRoute("直连", None)])
 
 
 def _use_mirror(monkeypatch: pytest.MonkeyPatch, endpoint: str = "https://hf-mirror.com") -> None:
-    monkeypatch.setenv("FINESUB_DOWNLOAD_REGION", "cn")
     monkeypatch.setenv("FINESUB_HF_ENDPOINT", endpoint)
 
 
@@ -119,7 +124,7 @@ def test_a_full_disk_is_still_not_the_mirrors_fault() -> None:
     assert model_fetch.is_mirror_failure(RuntimeError("OSError: no space left on device")) is False
 
 
-def test_the_official_attempt_gets_both_the_endpoint_and_xet_back(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_only_the_mirror_attempt_loses_the_endpoint_and_xet(monkeypatch: pytest.MonkeyPatch) -> None:
     _use_mirror(monkeypatch)
     attempts: list[dict[str, str]] = []
 
@@ -128,16 +133,12 @@ def test_the_official_attempt_gets_both_the_endpoint_and_xet_back(tmp_path: Path
         if len(attempts) == 1:
             raise RuntimeError(CAS_401)
 
-    model_fetch.fetch_with_fallback(
-        fetch,
-        base_environment={},
-        data_root=tmp_path,
-        region="cn",
-        is_retryable=model_fetch.is_mirror_failure,
-    )
+    climb_huggingface(fetch, {}, is_retryable=model_fetch.is_mirror_failure)
 
-    assert attempts[0] == {"HF_ENDPOINT": "https://hf-mirror.com", "HF_HUB_DISABLE_XET": "1"}
-    assert attempts[1] == {}
+    assert "HF_ENDPOINT" not in attempts[0]
+    assert "HF_HUB_DISABLE_XET" not in attempts[0]
+    assert attempts[1]["HF_ENDPOINT"] == "https://hf-mirror.com"
+    assert attempts[1]["HF_HUB_DISABLE_XET"] == "1"
 
 
 def _provisioner(tmp_path: Path) -> RuntimeProvisioner:
@@ -150,7 +151,7 @@ def _provisioner(tmp_path: Path) -> RuntimeProvisioner:
     return provisioner
 
 
-def test_model_install_retries_the_official_source_in_a_second_process(
+def test_model_install_takes_each_rung_in_its_own_process(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _use_mirror(monkeypatch)
@@ -166,14 +167,51 @@ def test_model_install_retries_the_official_source_in_a_second_process(
     provisioner._install_model("whisper")
 
     assert len(attempts) == 2
-    assert attempts[0]["HF_ENDPOINT"] == "https://hf-mirror.com"
-    assert attempts[0]["HF_HUB_DISABLE_XET"] == "1"
-    assert "HF_ENDPOINT" not in attempts[1]
-    assert "HF_HUB_DISABLE_XET" not in attempts[1]
-    routes = json.loads(
-        (provisioner.paths.data_root / "download-routes.json").read_text(encoding="utf-8")
+    assert "HF_ENDPOINT" not in attempts[0]
+    assert "HF_HUB_DISABLE_XET" not in attempts[0]
+    assert attempts[1]["HF_ENDPOINT"] == "https://hf-mirror.com"
+    assert attempts[1]["HF_HUB_DISABLE_XET"] == "1"
+
+
+def test_a_mirror_never_turns_itself_off_as_the_last_rung(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A degrade counter from the mirror-first days must not remove the rung."""
+
+    _use_mirror(monkeypatch)
+    provisioner = _provisioner(tmp_path)
+    provisioner.paths.data_root.mkdir(parents=True, exist_ok=True)
+    (provisioner.paths.data_root / "download-routes.json").write_text(
+        json.dumps({"failures": {model_fetch.RESOURCE_CLASS: 99}}), encoding="utf-8"
     )
-    assert routes["failures"][model_fetch.RESOURCE_CLASS] == 1
+    attempts: list[dict[str, str]] = []
+
+    def run(model_id: str, environment: dict[str, str]) -> None:
+        attempts.append(environment)
+        if len(attempts) == 1:
+            raise RuntimeProvisionError(CAS_401)
+
+    monkeypatch.setattr(provisioner, "_run_model_installer", run)
+    provisioner._install_model("whisper")
+
+    assert attempts[1]["HF_ENDPOINT"] == "https://hf-mirror.com"
+
+
+def test_the_separator_is_left_to_its_own_file_ladder(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    provisioner = _provisioner(tmp_path)
+    attempts: list[dict[str, str]] = []
+
+    def run(model_id: str, environment: dict[str, str]) -> None:
+        attempts.append(environment)
+        raise RuntimeProvisionError(CAS_401)
+
+    monkeypatch.setattr(provisioner, "_run_model_installer", run)
+    with pytest.raises(RuntimeProvisionError):
+        provisioner._install_model("separator")
+
+    assert len(attempts) == 1
 
 
 def test_a_local_failure_is_reported_rather_than_retried_elsewhere(
@@ -194,9 +232,70 @@ def test_a_local_failure_is_reported_rather_than_retried_elsewhere(
     assert len(attempts) == 1
 
 
-def test_without_a_mirror_there_is_only_one_attempt(
+#: The installer's protocol: some bytes, then silence for as long as it lives.
+_PROGRESS_LINE = (
+    'print(\'{"type":"progress","resource":"whisper","completed":1,"total":1000000000,'
+    '"unit":"bytes","bytes_per_second":1.0,"message":"m"}\', flush=True)'
+)
+_CRAWLING_INSTALLER = f"import time\n{_PROGRESS_LINE}\ntime.sleep(60)\n"
+_VERIFYING_INSTALLER = (
+    f"import time\n{_PROGRESS_LINE}\n"
+    'print(\'{"type":"stage","resource":"whisper","stage":"verifying","message":"m"}\', flush=True)\n'
+    "time.sleep(1)\n"
+)
+
+
+def _fake_installer(monkeypatch: pytest.MonkeyPatch, provisioner: RuntimeProvisioner, script: str) -> None:
+    real = subprocess.Popen
+
+    def popen(args, **kwargs):
+        if list(args[1:3]) == ["-m", "nonoka_x.model_install"]:
+            return real([sys.executable, "-c", script], **kwargs)
+        return real(args, **kwargs)
+
+    monkeypatch.setattr(subprocess, "Popen", popen)
+    monkeypatch.setattr(download_route, "SLOW_WINDOW_SECONDS", 0.3)
+    provisioner.runtime = SimpleNamespace(python_executable=sys.executable)
+
+
+@pytest.fixture
+def _watched_rung():
+    token = download_route._watching_speed.set(True)
+    yield
+    download_route._watching_speed.reset(token)
+
+
+def test_a_crawling_model_download_is_stopped(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, _watched_rung) -> None:
+    provisioner = _provisioner(tmp_path)
+    _fake_installer(monkeypatch, provisioner, _CRAWLING_INSTALLER)
+    started = time.monotonic()
+
+    with pytest.raises(download_route.DownloadTooSlow):
+        provisioner._run_model_installer("whisper", dict(os.environ))
+
+    assert time.monotonic() - started < 30
+
+
+def test_verifying_a_model_is_not_mistaken_for_a_crawl(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, _watched_rung
+) -> None:
+    provisioner = _provisioner(tmp_path)
+    _fake_installer(monkeypatch, provisioner, _VERIFYING_INSTALLER)
+
+    provisioner._run_model_installer("whisper", dict(os.environ))
+
+
+def test_the_last_rung_is_left_to_finish_however_slowly(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    provisioner = _provisioner(tmp_path)
+    _fake_installer(monkeypatch, provisioner, f"import time\n{_PROGRESS_LINE}\ntime.sleep(1)\n")
+
+    provisioner._run_model_installer("whisper", dict(os.environ))
+
+
+def test_without_a_mirror_the_ladder_ends_at_the_official_source(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    _use_mirror(monkeypatch, "")
     provisioner = _provisioner(tmp_path)
     attempts: list[dict[str, str]] = []
 
@@ -205,7 +304,7 @@ def test_without_a_mirror_there_is_only_one_attempt(
         raise RuntimeProvisionError(CAS_401)
 
     monkeypatch.setattr(provisioner, "_run_model_installer", run)
-    with pytest.raises(RuntimeProvisionError):
+    with pytest.raises(DownloadUnreachable, match="请开启代理"):
         provisioner._install_model("whisper")
 
     assert len(attempts) == 1
