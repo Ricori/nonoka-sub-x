@@ -202,8 +202,9 @@ _HTTP_TRANSPORTS: Mapping[str, tuple[str, str]] = {
     "nonoka-cloud": ("openai_compat", "NONOKA_CLOUD"),
 }
 
-# The free model a signed-in Nonoka Cloud account is served at the backend's
-# `/v1/llm` (nonoka-sub-cloud), an OpenAI-compatible relay. Nobody types its
+# The free model a signed-in Nonoka Cloud account is served at `/v1/llm` on the
+# Tokyo server (nonoka-sub-cloud/tokyo_llm), an OpenAI-compatible relay that
+# checks the key against the backend. Nobody types its
 # credentials: the desktop hands the signed-in account over whenever it changes
 # (`FineSubSettings.set_cloud_account`), so the two settings are neither in
 # KEY_SPECS nor in SETTING_NAMES and SaveKeys refuses them. Signed out, both are
@@ -223,6 +224,7 @@ _HTTP_TRANSPORTS: Mapping[str, tuple[str, str]] = {
 CLOUD_PROVIDER_ID = "nonoka-cloud"
 CLOUD_KEY_NAME = "NONOKA_CLOUD_KEY"
 CLOUD_BASE_URL_NAME = "NONOKA_CLOUD_BASE_URL"
+CLOUD_LLM_BASE_URL = "https://cloud-jp.nonoka.online/v1/llm"
 CLOUD_PROVIDER: Mapping[str, Any] = {
     "label": "Nonoka Cloud",
     "models": ("gpt-6.1-terra",),
@@ -888,7 +890,7 @@ class FineSubSettings:
                 raise ValueError("key is not a Nonoka Cloud key")
         wanted = {
             CLOUD_KEY_NAME: key or None,
-            CLOUD_BASE_URL_NAME: f"{backend}/v1/llm" if backend else None,
+            CLOUD_BASE_URL_NAME: CLOUD_LLM_BASE_URL if backend else None,
         }
         values = secrets.read_env_file(self.env_file)
         if all((values.get(name) or None) == value for name, value in wanted.items()):

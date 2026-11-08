@@ -9,8 +9,8 @@ import (
 // AccountPublisher hands the signed-in account to the local engine: the
 // backend and key, or two empty strings once signed out.
 //
-// The backend serves a signed-in key a free model at /v1/llm, and the engine
-// offers it as one more provider ("Nonoka Cloud"). The engine reads every
+// A signed-in key is served a free model at /v1/llm on the Tokyo server, and
+// the engine offers it as one more provider ("Nonoka Cloud"). The engine reads every
 // credential from its own settings, so it has to be told when the account
 // changes rather than asking this package for it on each call.
 type AccountPublisher func(ctx context.Context, backend, key string) error

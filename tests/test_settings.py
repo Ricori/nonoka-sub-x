@@ -238,7 +238,7 @@ class FineSubSettingsTests(unittest.TestCase):
             fact = next(item for item in default_model_catalog() if item.fact_id == target_id)
             self.assertEqual(
                 (fact.provider_kind, fact.base_url, fact.key_env),
-                ("openai_compat", "https://cloud.example/v1/llm", "NONOKA_CLOUD_KEY"),
+                ("openai_compat", "https://cloud-jp.nonoka.online/v1/llm", "NONOKA_CLOUD_KEY"),
             )
             routes = default_model_routes()
             binding, _ = routes.resolve_binding(routes.active_preset_id, "correction-text", "quality")

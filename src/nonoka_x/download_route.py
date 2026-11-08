@@ -677,12 +677,6 @@ def install_app_proxy_policy() -> None:
 
         llm_http.configured_proxy = configured_proxy
 
-        # Over the route just settled: the backup's transport carries the
-        # same proxy every other LLM call takes.
-        from .cloud_route import install_cloud_route
-
-        install_cloud_route()
-
     # Settle the environment now, before anything reads it.
     live_proxy()
 
