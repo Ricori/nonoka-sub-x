@@ -1,10 +1,10 @@
 {
   "archive_sha256": "e76340e70a214412facdb7b7288b5532886ff9e6bab0b3519bfb54ed1cc257ae",
   "commit": "5caf422cbad36f0402c98eb565e4c29aee4ac197",
-  "content_sha256": "70e7a6f8e798e7ac381e73d65d592bef64998cc092265e13ce3f6e05a0e6330d",
+  "content_sha256": "d94abf08add4ea6ac05d29c43be5728627957afe2bfdf8bfa9f86382d21fee26",
   "engine_bundle_id": "finesub-0.6.0+5caf422cbad3",
   "engine_version": "0.6.0",
-  "files_manifest_sha256": "2f19b56b783d3df644d20e08dc69f1d4b4e96d38faed72476f4a3cd4456915d2",
+  "files_manifest_sha256": "0dfc8949047b5bdc0cfd475078b4b90d7b3c812da1a8f5dab239ea502a012ad0",
   "patches": [
     {
       "path": "0001-qwen-tail-entry-point.patch",
@@ -57,6 +57,10 @@
     {
       "path": "0013-llm-cooldown-wait.patch",
       "sha256": "ed74c74b4984aa51ac772cc2cb3d536a44858ae184e3d4be794df5effb5e603d"
+    },
+    {
+      "path": "0014-llm-stream-reading.patch",
+      "sha256": "3416b7f2cad891133b4eaa8d497a6978069d9bd65a20db6f6c846dfa2de83d2c"
     }
   ],
   "ref": "v0.6.0",

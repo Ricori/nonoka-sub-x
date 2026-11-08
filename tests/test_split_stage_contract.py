@@ -260,6 +260,13 @@ class PurelyAdditiveTests(unittest.TestCase):
                 "src/finesub/llm/rate_limit.py",
                 "src/finesub/llm/routing/api_keys.py",
             ],
+            # The Tokyo relay's answers read as a stream, with a timeout on
+            # progress and dropped connections made retryable.
+            "0014-llm-stream-reading.patch": [
+                "src/finesub/llm/http.py",
+                "src/finesub/llm/llm_runtime.py",
+                "src/finesub/llm/provider_transports.py",
+            ],
         }
         for name in names:
             with self.subTest(patch=name):

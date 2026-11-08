@@ -14,7 +14,7 @@ from finesub import settings
 from finesub.paths import resolve_env_file
 from finesub.reporting import current_reporter, redact_credentials
 from finesub_bootstrap import secrets
-from .http import post_within_deadline
+from .http import StreamStalled, post_within_deadline
 from .routing import api_keys
 
 
@@ -940,8 +940,9 @@ def chat_complete(
                 # generation plus one dropped handshake into an aborted run
                 # (2026-11-07: a 3-hour hang, then `ConnectTimeout: _ssl.c:993`
                 # 5 s later), and two dropped handshakes on resume aborted it
-                # again in under two minutes.
-                if isinstance(exc, httpx.ConnectTimeout):
+                # again in under two minutes. A stalled stream is the same
+                # case: it gave up after minutes, not after a hard deadline.
+                if isinstance(exc, (httpx.ConnectTimeout, StreamStalled)):
                     pass
                 elif return_code == "NO_RESPONSE_TIMEOUT":
                     consecutive_timeouts += 1

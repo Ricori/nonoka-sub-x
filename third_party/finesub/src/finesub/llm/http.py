@@ -24,7 +24,7 @@ from __future__ import annotations
 import socket
 import threading
 import time
-from typing import Any, Mapping
+from typing import Any, Callable, Mapping, TypeVar
 
 import httpx
 
@@ -90,6 +90,17 @@ class DeadlineExceeded(httpx.TimeoutException):
     (`llm_runtime._status_code_from_exception` reads it as NO_RESPONSE_TIMEOUT).
     """
 
+
+class StreamStalled(httpx.TimeoutException):
+    """A streamed answer stopped making progress before its deadline.
+
+    Worded "timed out" for the same reason as :class:`DeadlineExceeded`, so it
+    is retried like any timeout. It costs minutes where a deadline costs hours,
+    so it stays out of the consecutive-timeout abort (`llm_runtime`).
+    """
+
+
+_T = TypeVar("_T")
 
 #: The connect phase is not generation and does not scale with the deadline: a
 #: host that never answers the handshake must not hold a call for all of it.
@@ -224,10 +235,62 @@ def post_within_deadline(
     outcome -- including when a per-read timeout happened to fire first.
     """
 
+    def read_whole(response: httpx.Response) -> httpx.Response:
+        response.read()
+        return response
+
+    return _exchange_within_deadline(
+        url,
+        headers=headers,
+        json=json,
+        deadline_seconds=deadline_seconds,
+        read_seconds=deadline_seconds,
+        consume=read_whole,
+    )
+
+
+def stream_within_deadline(
+    url: str,
+    *,
+    headers: Mapping[str, str],
+    json: Any,
+    deadline_seconds: float,
+    idle_seconds: float,
+    consume: Callable[[httpx.Response], _T],
+) -> _T:
+    """POST and hand the open response to `consume`, under the same deadline
+    as :func:`post_within_deadline`.
+
+    Each socket read may wait only `idle_seconds`, so a connection that has
+    gone silent raises `httpx.ReadTimeout` here in minutes instead of holding
+    the call to its deadline. `consume` runs on the worker thread.
+    """
+
+    return _exchange_within_deadline(
+        url,
+        headers=headers,
+        json=json,
+        deadline_seconds=deadline_seconds,
+        read_seconds=idle_seconds,
+        consume=consume,
+    )
+
+
+def _exchange_within_deadline(
+    url: str,
+    *,
+    headers: Mapping[str, str],
+    json: Any,
+    deadline_seconds: float,
+    read_seconds: float,
+    consume: Callable[[httpx.Response], _T],
+) -> _T:
     teardown = _Teardown(deadline_seconds)
     outcome: dict[str, Any] = {}
     timeout = httpx.Timeout(
-        deadline_seconds, connect=min(CONNECT_TIMEOUT_SECONDS, deadline_seconds)
+        deadline_seconds,
+        connect=min(CONNECT_TIMEOUT_SECONDS, deadline_seconds),
+        read=min(read_seconds, deadline_seconds),
     )
 
     def attempt() -> None:
@@ -241,8 +304,7 @@ def post_within_deadline(
                     json=json,
                     extensions={"trace": teardown.trace},
                 ) as response:
-                    response.read()
-            outcome["response"] = response
+                    outcome["value"] = consume(response)
         except BaseException as exc:  # handed to the caller's thread
             outcome["error"] = exc
 
@@ -266,4 +328,4 @@ def post_within_deadline(
         if isinstance(error, DeadlineExceeded) or teardown.expired():
             raise teardown.error() from error
         raise error
-    return outcome["response"]
+    return outcome["value"]

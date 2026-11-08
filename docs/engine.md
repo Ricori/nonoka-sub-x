@@ -35,7 +35,7 @@ third_party/finesub/
         └── pylock.win-py312.cn.toml # 同上，国内镜像路由
 
 patches/finesub/
-├── 0001-*.patch … 0013-*.patch   # 补丁栈，按文件名顺序应用（当前 13 个）
+├── 0001-*.patch … 0014-*.patch   # 补丁栈，按文件名顺序应用（当前 14 个）
 └── BASELINE_FILES.json           # 未打补丁的上游基线文件哈希
 ```
 
@@ -91,6 +91,7 @@ patches/finesub/
 | `0011-llm-wait-visibility.patch` | `src/finesub/llm` | 2026-10-29 一个桌面任务在路由提示和第一个纠错窗口之间 29 分钟没有任何日志：准备任务在等一个慢的 OpenAI 兼容模型，成功调用只记 `debug`（桌面端会滤掉），解析重试只写 artifacts，软超时按 64k 输出算要约 47 分钟才到，看上去和卡死没区别。本补丁让 `_call_and_parse` 在每轮研究开始等待时、以及回复到达后（哪个模型、用了多久）各记一行 `debug`；解析失败且还要重试时发 `research-parse-retry` 警告（每次重试都是整次重新生成）；`_SoftDeadline` 在调用未返回期间每 5 分钟记一行 `llm api call still waiting`，软超时前后都记，软超时警告本身不变。调用本身、超时与结果都不变，只多几行日志；云端共用无妨。桌面端另外放行耗时 ≥ 60 秒的成功 `llm api call` | 上游自己报告进行中的调用与研究轮次 |
 | `0012-sequential-asr-delivery-read.patch` | `src/finesub/speech/preprocessing/separator` | 2026-10-30 一个关闭人声分离的桌面任务，在 71 分钟、48 kHz 的 mp3 上卡在 vocal 阶段，`encoding ASR vocal delivery without separation` 之后再无日志，按速度推算要跑一两个小时。`stream_asr_frames` 每个窗口都重新打开输入并 seek；不分离时输入就是源文件本身，而 libsndfile 在 mp3 里 seek 要从头解码，于是整次编码随时长平方增长。窗口又是固定 2000 个比例步长：44.1 kHz 下是 20 秒，48 kHz 下只有 0.125 秒，一小时要读 3.4 万次。本补丁改成只打开一次、顺序读取，相邻窗口需要的上下文从上一次读取里保留；窗口与上下文改按秒计（20 秒、0.2 秒，向上取整到整步长），44.1 kHz 下步数与原来完全相同。写出的样本不变：测试与整文件重采样对比，44.1 kHz 与 48 kHz 的 mp3 输出与旧代码逐字节一致；30 分钟 48 kHz mp3 约 3 秒编完。云端共用，只改读取方式 | 上游不再按窗口 seek 地流式生成 ASR 交付 |
 | `0013-llm-cooldown-wait.patch` | `src/finesub/llm` | 2026-11-07 一个只配置了免费 Nonoka Cloud 的桌面任务在 75% 失败：`No API key for NONOKA_CLOUD could be tried: 1 in a transient cooldown`。中转的上游一次抖动就耗尽了这把 key 的 3 次粘性重试（退避合计约 30 秒），组合进入 20 分钟跳过期；只有一把 key、没有第二个提供商，下一个纠错窗口无处可换，任务失败，冷却落盘，跳过期内「继续」也一样失败。续跑后同一任务又两次失败：一次生成挂到 10600 秒硬超时，5 秒后的重试碰上 45 秒的 TLS 握手超时，两者被算作「连续两次超时」而中止；再续跑时两次握手超时不到两分钟就中止；次日中转上游返回 522 直到粘性重试耗尽，直接抛出。本补丁：跳过期改为 5 分钟，粘性重试改为 6 次（退避 5、9、17、33、65、129 秒）；连接超时既不计入也不清零连续超时计数（中止只为避免再熬一次硬超时）；失败被标记为 `cooling`（会自行结束）的两种情况——所有 key 因冷却或让给探测而跳过的 `ProviderUnavailableError`，或者每把试过的 key 都在可重试错误上耗尽重试、刚进入冷却时的原始错误——且跳过中没有日额度锁；`cooldown_until` 是最早结束的跳过期。候选链在最终异常上标记是否**只**因 cooling 失败，`RoleClient.complete`（原函数体改名 `_complete_routed`）遇到时发 `llm-cooldown-wait` 警告（写明几点重试和错误），睡到跳过期结束（让给探测的 key 每 30 秒再看一次）后重跑整条链，第一次调用就是冷却的探测。链上还有其它失败、永久错误、日额度锁、缺 key、连续两次硬超时仍立即抛出；每次调用最多等 60 分钟。另外 openai_compat 传输引用非 JSON 正文前先去掉前导空白：中转的心跳每 15 秒一个空格，超过 50 分钟后结尾的「HTTP 502」标记会落在 200 字符引用之外，被当作不可重试的 HTTP 200。上游保留 3 次重试是为了 Gemini 免费层的日额度，桌面端不用 Gemini；云端镜像共用引擎但不跑 LLM 阶段。桌面端把 `llm-cooldown-wait` 同时写进任务卡片的进度文字 | 上游在候选链因冷却而无路可走时自行等待，或桌面端不再提供没有备用的单 key 提供商 |
+| `0014-llm-stream-reading.patch` | `src/finesub/llm` | 2026-11-08 中转 236 秒就完成了一次纠错调用，桌面端却空等 2 小时 48 分：非流式读取在答案完整前没有任何字节，连接静默断开和模型慢看起来一样，而单次读超时等于 10600 秒的硬超时。本补丁让 `STREAMED_HOSTS`（东京中转）走 `stream: true`，把事件折叠成同样的 JSON 答案；连接无数据、或只有 keep-alive 与空 delta 超过 `STREAM_IDLE_SECONDS` 就抛 `StreamStalled`，按超时重试但不计入连续超时中止；连接断开、提前结束、错误事件抛 `ProviderStreamBroken`（写成 502，可重试）。其他 provider 仍走 JSON；云端不走这条路径 | 上游以流式读取 OpenAI 兼容答案 |
 
 > 上游 **0.6.0** 又收走了四条，本仓库删掉它们并把编号重排为 0001–0006：
 > **旧 0003**（agy 工作区读取授权）——上游给自己的 agy project 授予 `read_file(*)`

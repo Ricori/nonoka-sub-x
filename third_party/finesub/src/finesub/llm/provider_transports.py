@@ -37,13 +37,26 @@ rather than ignore them, surveyed 2026-08-11, docs/provider-adapters.md).
 
 from __future__ import annotations
 
+import json
+import time
 from typing import Any, Dict, List, Mapping, Optional
+from urllib.parse import urlsplit
 
 import httpx
 
-from .http import post_within_deadline
+from .http import StreamStalled, post_within_deadline, stream_within_deadline
 
 ANTHROPIC_VERSION = "2023-06-01"
+
+#: Nonoka X: hosts whose OpenAI-compatible answers are read as a stream. A
+#: non-streaming answer is silent until it is complete, so a connection that
+#: dies on the way looks exactly like a slow model and holds the call to its
+#: hard deadline (2026-11-08: the relay finished in 236 s, the desktop waited
+#: 2 h 48 min for an answer that never arrived).
+STREAMED_HOSTS = frozenset({"cloud-jp.nonoka.online"})
+
+#: Nonoka X: how long a streamed answer may go without progress.
+STREAM_IDLE_SECONDS = 300.0
 
 
 class ProviderHTTPError(RuntimeError):
@@ -74,6 +87,15 @@ class ProviderHTTPError(RuntimeError):
             return None
 
 
+class ProviderStreamBroken(RuntimeError):
+    """A streamed answer ended before it was complete.
+
+    Nonoka X: the message names a 502 so the classifier retries it; a bare
+    `ReadError` or `RemoteProtocolError` carries no status and would fail the
+    run on the first dropped connection.
+    """
+
+
 def _post_json(
     url: str,
     *,
@@ -86,6 +108,10 @@ def _post_json(
     response = post_within_deadline(
         url, headers=headers, json=dict(payload), deadline_seconds=timeout
     )
+    return _json_answer(response)
+
+
+def _json_answer(response: httpx.Response) -> Dict[str, Any]:
     if response.status_code < 200 or response.status_code >= 300:
         snippet = response.text[:500]
         raise ProviderHTTPError(
@@ -107,6 +133,146 @@ def _post_json(
     if not isinstance(data, dict):
         raise RuntimeError("Provider returned a non-object JSON response")
     return data
+
+
+def _post_chat_stream(
+    url: str,
+    *,
+    headers: Mapping[str, str],
+    payload: Mapping[str, Any],
+    timeout: float,
+) -> Dict[str, Any]:
+    """One chat completion read as a stream and folded into the JSON answer
+    a non-streaming call returns."""
+
+    idle = STREAM_IDLE_SECONDS
+    try:
+        return stream_within_deadline(
+            url,
+            headers={
+                **headers,
+                "Accept": "text/event-stream",
+                # A compressor would hold back the small writes of a stream.
+                "Accept-Encoding": "identity",
+            },
+            json={**payload, "stream": True, "stream_options": {"include_usage": True}},
+            deadline_seconds=timeout,
+            idle_seconds=idle,
+            consume=lambda response: _fold_chat_stream(response, idle_seconds=idle),
+        )
+    except httpx.ReadTimeout as exc:
+        raise StreamStalled(f"stream timed out: no data for {idle:.0f}s") from exc
+    except (httpx.ReadError, httpx.WriteError, httpx.RemoteProtocolError) as exc:
+        raise ProviderStreamBroken(
+            f"HTTP 502 connection broke before the answer was complete: "
+            f"{type(exc).__name__}: {exc}"
+        ) from exc
+
+
+def _fold_chat_stream(response: httpx.Response, *, idle_seconds: float) -> Dict[str, Any]:
+    content_type = response.headers.get("Content-Type", "").lower()
+    if not 200 <= response.status_code < 300 or "text/event-stream" not in content_type:
+        response.read()
+        return _json_answer(response)
+
+    head: Dict[str, Any] = {}
+    parts: List[str] = []
+    usage: Optional[Dict[str, Any]] = None
+    finish_reason: Optional[str] = None
+    answered = False
+    done = False
+    last_progress = time.monotonic()
+
+    def take(raw: bytes) -> None:
+        nonlocal usage, finish_reason, answered, done, last_progress
+        if raw.strip() == b"[DONE]":
+            done = True
+            return
+        try:
+            chunk = json.loads(raw)
+        except ValueError as exc:
+            raise ProviderStreamBroken(
+                f"HTTP 502 malformed stream event: {raw[:200]!r}"
+            ) from exc
+        if not isinstance(chunk, dict):
+            return
+        error = chunk.get("error")
+        if error:
+            detail = error.get("message", error) if isinstance(error, dict) else error
+            raise ProviderStreamBroken(f"HTTP 502 upstream stream failed: {str(detail)[:300]}")
+        for field in ("id", "created", "model"):
+            if head.get(field) is None and chunk.get(field) is not None:
+                head[field] = chunk[field]
+        if isinstance(chunk.get("usage"), dict):
+            usage = chunk["usage"]
+            last_progress = time.monotonic()
+        for choice in chunk.get("choices") or []:
+            if not isinstance(choice, dict) or choice.get("index", 0) != 0:
+                continue
+            answered = True
+            delta = choice.get("delta") if isinstance(choice.get("delta"), dict) else {}
+            if isinstance(delta.get("content"), str):
+                parts.append(delta["content"])
+            # Keep-alives can arrive as empty deltas: only real output counts.
+            if any(delta.get(name) for name in ("content", "reasoning_content", "reasoning", "refusal", "tool_calls")):
+                last_progress = time.monotonic()
+            if isinstance(choice.get("finish_reason"), str):
+                finish_reason = choice["finish_reason"]
+                last_progress = time.monotonic()
+
+    # Split on bytes: `iter_lines` uses `str.splitlines`, which also breaks a
+    # JSON string at U+2028 and friends.
+    buffer = bytearray()
+    data: List[bytes] = []
+
+    def line(text: bytes) -> None:
+        nonlocal data
+        if not text:
+            if data:
+                take(b"\n".join(data))
+            data = []
+        elif text.startswith(b"data:"):
+            data.append(text[5:].removeprefix(b" "))
+
+    try:
+        for piece in response.iter_bytes():
+            buffer += piece
+            while not done and (cut := buffer.find(b"\n")) >= 0:
+                line(bytes(buffer[:cut]).removesuffix(b"\r"))
+                del buffer[: cut + 1]
+            if done:
+                break
+            if time.monotonic() - last_progress > idle_seconds:
+                if finish_reason is not None:
+                    break
+                raise StreamStalled(f"stream timed out: no progress for {idle_seconds:.0f}s")
+    except httpx.TransportError:
+        # Only the usage or the end marker can still be missing.
+        if finish_reason is None:
+            raise
+    if not done:
+        if buffer:
+            line(bytes(buffer).removesuffix(b"\r"))
+        line(b"")
+    if not answered or (not done and finish_reason is None):
+        raise ProviderStreamBroken("HTTP 502 stream ended before the answer was complete")
+
+    answer: Dict[str, Any] = {
+        "id": head.get("id", ""),
+        "object": "chat.completion",
+        "created": head.get("created", int(time.time())),
+        "model": head.get("model", ""),
+        "choices": [
+            {
+                "index": 0,
+                "message": {"role": "assistant", "content": "".join(parts)},
+                "finish_reason": finish_reason,
+            }
+        ],
+    }
+    if usage is not None:
+        answer["usage"] = usage
+    return answer
 
 
 def _as_text(content: Any) -> str:
@@ -150,7 +316,8 @@ def openai_compat_generate(
     if level:
         # Pre-mapped provider value (the fact's thinking spec).
         payload["reasoning_effort"] = level
-    data = _post_json(
+    post = _post_chat_stream if urlsplit(base_url).hostname in STREAMED_HOSTS else _post_json
+    data = post(
         base_url.rstrip("/") + "/chat/completions",
         headers={
             "Authorization": f"Bearer {api_key}",
