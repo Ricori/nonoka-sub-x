@@ -219,7 +219,18 @@ class FineSubSettingsTests(unittest.TestCase):
             # The relay's allow list, its default first.
             self.assertEqual(
                 [(model["id"], model["label"]) for model in cloud["models"]],
-                [("gpt-6.1-terra", "GPT-6.1 Terra")],
+                [
+                    ("gpt-6.1-terra", "GPT-6.1 Terra"),
+                    ("MiniMax-M3", "MiniMax-M3"),
+                    ("MiniMax-M3.1-flash", "MiniMax-M3.1-flash"),
+                    ("MiniMax-M3.1", "MiniMax-M3.1"),
+                    ("mimo-v2.6-flash", "mimo-v2.6-flash"),
+                    ("glm-5.3-flash", "glm-5.3-flash"),
+                    ("deepseek-v4.1-flash", "DeepSeek-V4.1-Flash"),
+                    ("doubao-seed-2.0-lite", "doubao-seed-2.0-lite"),
+                    ("kimi-k2.6", "Kimi K2.6"),
+                    ("qwen3.8-flash", "Qwen3.8"),
+                ],
             )
             self.assertEqual(cloud["defaultModel"], "gpt-6.1-terra")
             with self.assertRaisesRegex(ValueError, "Sign in to Nonoka Cloud"):

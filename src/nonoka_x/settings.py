@@ -227,7 +227,18 @@ CLOUD_BASE_URL_NAME = "NONOKA_CLOUD_BASE_URL"
 CLOUD_LLM_BASE_URL = "https://cloud-jp.nonoka.online/v1/llm"
 CLOUD_PROVIDER: Mapping[str, Any] = {
     "label": "Nonoka Cloud",
-    "models": ("gpt-6.1-terra",),
+    "models": (
+        "gpt-6.1-terra",
+        "MiniMax-M3",
+        "MiniMax-M3.1-flash",
+        "MiniMax-M3.1",
+        "mimo-v2.6-flash",
+        "glm-5.3-flash",
+        "deepseek-v4.1-flash",
+        "doubao-seed-2.0-lite",
+        "kimi-k2.6",
+        "qwen3.8-flash",
+    ),
     "note": "由 Nonoka Cloud 账号免费提供，无需 API Key，也不消耗转写余量；退出登录后不可用。",
 }
 #: What a cloud key may contain: the backend's own key pattern. Anything else
