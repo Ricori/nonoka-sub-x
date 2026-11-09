@@ -3,7 +3,7 @@ import type { Dispatch, SetStateAction } from "react";
 import type { FineSubBaseUrlState, FineSubKeyState, FineSubModelProvider, FineSubModelRoute, FineSubModelRoutingState } from "../bridge/settings.ts";
 import { fineSubSettings } from "../bridge/settings.ts";
 import type { ProviderChoice } from "./llmRouting.ts";
-import { choiceIdOf, effectiveRoute, hasDraft, loadModelMemory, pickModelForProvider, preferredMember, providerChoices, routeSettingName, saveModelMemory } from "./llmRouting.ts";
+import { choiceIdOf, effectiveRoute, hasDraft, loadModelMemory, modelTestTimeoutSeconds, pickModelForProvider, preferredMember, providerChoices, routeSettingName, saveModelMemory } from "./llmRouting.ts";
 import { Mark } from "./Mark.tsx";
 import { CustomSelect } from "./CustomSelect.tsx";
 import { Notice } from "./Notice.tsx";
@@ -232,7 +232,7 @@ export function LlmConfigurationCard({ keys, baseUrls, modelRouting, drafts, bus
     setTestState({ status: "running", text: "正在测试…", route });
     const started = performance.now();
     try {
-      const result = await fineSubSettings.testModel();
+      const result = await fineSubSettings.testModel(modelTestTimeoutSeconds(savedProvider));
       const seconds = ((performance.now() - started) / 1000).toFixed(1);
       const reply = result.content.trim().replace(/\s+/g, " ").slice(0, 40);
       setTestState({

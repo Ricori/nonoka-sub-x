@@ -6,6 +6,11 @@ export function routeSettingName(routeID: string, field: "provider" | "model") {
     : `LLM_ROUTE_${routeID.toUpperCase()}_${field.toUpperCase()}`;
 }
 
+// 本地 CLI 要先启动进程和会话，一句话的回复也要三十多秒（agy 实测 34–39s）。
+export function modelTestTimeoutSeconds(provider?: Pick<FineSubModelProvider, "kind">) {
+  return provider?.kind === "local" ? 90 : 35;
+}
+
 export function hasDraft(drafts: Record<string, string>, name: string) {
   return Object.prototype.hasOwnProperty.call(drafts, name);
 }

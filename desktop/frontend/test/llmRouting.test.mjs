@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { choiceIdOf, effectiveRoute, loadModelMemory, pickModelForProvider, preferredMember, providerChoices, routeSettingName, routeServesMedia, routeServesNativeSearch, saveModelMemory } from "../src/components/llmRouting.ts";
+import { choiceIdOf, effectiveRoute, loadModelMemory, modelTestTimeoutSeconds, pickModelForProvider, preferredMember, providerChoices, routeSettingName, routeServesMedia, routeServesNativeSearch, saveModelMemory } from "../src/components/llmRouting.ts";
 
 const compat = {
   id: "openai-compat",
@@ -251,6 +251,13 @@ test("picking the Gemini row keeps the tier already chosen", () => {
   // 切走再切回来不该把用户挑好的付费池换成免费池。
   const [row] = providerChoices([gemini, geminiPaid]);
   assert.equal(preferredMember(row, { current: "gemini-paid" }).id, "gemini-paid");
+});
+
+test("a local CLI gets longer to answer the model test than an API", () => {
+  assert.equal(modelTestTimeoutSeconds({ kind: "local" }), 90);
+  assert.equal(modelTestTimeoutSeconds({ kind: "api" }), 35);
+  assert.equal(modelTestTimeoutSeconds({ kind: "cloud" }), 35);
+  assert.equal(modelTestTimeoutSeconds(undefined), 35);
 });
 
 test("picking the Gemini row lands on the tier that has a key", () => {

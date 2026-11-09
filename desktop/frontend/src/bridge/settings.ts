@@ -93,12 +93,12 @@ export const fineSubSettings = {
     ProviderService.SaveKeys(keys) as Promise<unknown> as Promise<FineSubSettingsState>,
   // 用已保存的全局模型发一次最小请求。输出预算留宽一些：推理模型会先花掉
   // 一部分 token 在思考上，太紧会拿到空回复。
-  testModel: () =>
+  testModel: (timeoutSeconds: number) =>
     ProviderService.LLMComplete({
       role: "general_capable",
       messages: [{ role: "user", content: "Reply with the single word: OK" }],
       max_tokens: 1024,
-      timeout_seconds: 35,
+      timeout_seconds: timeoutSeconds,
       ignore_cooldown: true,
     }) as Promise<unknown> as Promise<FineSubModelTestResult>,
 };
