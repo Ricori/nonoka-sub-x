@@ -267,6 +267,12 @@ class PurelyAdditiveTests(unittest.TestCase):
                 "src/finesub/llm/llm_runtime.py",
                 "src/finesub/llm/provider_transports.py",
             ],
+            # Network failures retried by type, and named by host.
+            "0015-llm-retry-network-errors.patch": [
+                "src/finesub/llm/client.py",
+                "src/finesub/llm/http.py",
+                "src/finesub/llm/llm_runtime.py",
+            ],
         }
         for name in names:
             with self.subTest(patch=name):

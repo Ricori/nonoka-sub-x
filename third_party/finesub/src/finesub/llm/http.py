@@ -100,6 +100,26 @@ class StreamStalled(httpx.TimeoutException):
     """
 
 
+def name_request_host(exc: BaseException) -> None:
+    """Add the host to a transport failure's message, in place.
+
+    httpx reports what went wrong and not where: `[Errno 11001] getaddrinfo
+    failed` reads the same for every provider, and the message is all a failed
+    run leaves behind. An error raised without a request is left alone.
+    """
+
+    if not isinstance(exc, httpx.TransportError):
+        return
+    try:
+        host = exc.request.url.host
+    except RuntimeError:
+        return
+    message = str(exc)
+    suffix = f"(host: {host})"
+    if host and suffix not in message:
+        exc.args = (f"{message} {suffix}".strip(),)
+
+
 _T = TypeVar("_T")
 
 #: The connect phase is not generation and does not scale with the deadline: a

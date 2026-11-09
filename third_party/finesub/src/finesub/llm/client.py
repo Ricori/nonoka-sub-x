@@ -676,6 +676,13 @@ def is_retryable_provider_error(exc: BaseException) -> bool:
     if status is not None:
         return status >= 500
     # No status anywhere: transport-level failures, which are worth a retry.
+    # Nonoka X: by type first, because the markers below only ever matched the
+    # timeouts. A DNS failure, a reset or a dropped connection says nothing
+    # about the request, and each used to fail a run on its first occurrence
+    # (2026-11-09: `ConnectError: [Errno 11001] getaddrinfo failed` ended a
+    # correction four hours in, as the machine's network changed over).
+    if isinstance(exc, (httpx.NetworkError, httpx.RemoteProtocolError, httpx.ProxyError)):
+        return True
     text = f"{type(exc).__name__}: {exc}".lower()
     markers = [
         "unavailable",

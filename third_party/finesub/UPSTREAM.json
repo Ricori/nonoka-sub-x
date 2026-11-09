@@ -1,10 +1,10 @@
 {
   "archive_sha256": "e76340e70a214412facdb7b7288b5532886ff9e6bab0b3519bfb54ed1cc257ae",
   "commit": "5caf422cbad36f0402c98eb565e4c29aee4ac197",
-  "content_sha256": "d94abf08add4ea6ac05d29c43be5728627957afe2bfdf8bfa9f86382d21fee26",
+  "content_sha256": "67d689971de23f2578034eacfcf9933d2df49e178a62e6dda63eb9313e1aa49a",
   "engine_bundle_id": "finesub-0.6.0+5caf422cbad3",
   "engine_version": "0.6.0",
-  "files_manifest_sha256": "0dfc8949047b5bdc0cfd475078b4b90d7b3c812da1a8f5dab239ea502a012ad0",
+  "files_manifest_sha256": "cd906c2294ee48e0b8c5ef46b401360919cb8d55bc51798810e3388a88ca0d29",
   "patches": [
     {
       "path": "0001-qwen-tail-entry-point.patch",
@@ -61,6 +61,10 @@
     {
       "path": "0014-llm-stream-reading.patch",
       "sha256": "3416b7f2cad891133b4eaa8d497a6978069d9bd65a20db6f6c846dfa2de83d2c"
+    },
+    {
+      "path": "0015-llm-retry-network-errors.patch",
+      "sha256": "95525f9abf7c8acaeec377be0dbbb2bf86f7c26f2c56224e64dce3e6002eb0ee"
     }
   ],
   "ref": "v0.6.0",

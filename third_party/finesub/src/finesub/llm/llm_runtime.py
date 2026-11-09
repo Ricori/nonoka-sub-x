@@ -14,7 +14,7 @@ from finesub import settings
 from finesub.paths import resolve_env_file
 from finesub.reporting import current_reporter, redact_credentials
 from finesub_bootstrap import secrets
-from .http import StreamStalled, post_within_deadline
+from .http import StreamStalled, name_request_host, post_within_deadline
 from .routing import api_keys
 
 
@@ -930,6 +930,7 @@ def chat_complete(
                     response["_harness_rate_ticket"] = rate_ticket
                 return _attach_api_attempts(response, api_attempts)
             except Exception as exc:  # pragma: no cover - network/remote errors
+                name_request_host(exc)
                 last_exc = exc
                 return_code = _status_code_from_exception(exc)
                 # Nonoka X: a connect timeout (the 45 s handshake cap in
@@ -941,8 +942,9 @@ def chat_complete(
                 # (2026-11-07: a 3-hour hang, then `ConnectTimeout: _ssl.c:993`
                 # 5 s later), and two dropped handshakes on resume aborted it
                 # again in under two minutes. A stalled stream is the same
-                # case: it gave up after minutes, not after a hard deadline.
-                if isinstance(exc, (httpx.ConnectTimeout, StreamStalled)):
+                # case: it gave up after minutes, not after a hard deadline,
+                # and so is a connection that could not be made at all.
+                if isinstance(exc, (httpx.ConnectTimeout, httpx.ConnectError, httpx.ProxyError, StreamStalled)):
                     pass
                 elif return_code == "NO_RESPONSE_TIMEOUT":
                     consecutive_timeouts += 1
