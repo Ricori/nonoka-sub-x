@@ -1,6 +1,6 @@
 """agy's PreToolUse guards read the hook payload as UTF-8, the engine half.
 
-Promises kept by `patches/finesub/0008-agy-guard-utf8-stdin.patch`: agy writes
+Promises kept by `patches/finesub/0007-agy-compatibility.patch`: agy writes
 the payload in UTF-8, while a text stdin decodes with the locale code page.
 Under cp936 a CJK character right before an escaped quote swallows the
 backslash, the guard dies on the JSON, and agy refuses the call -- a correction

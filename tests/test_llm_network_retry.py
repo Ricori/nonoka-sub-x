@@ -1,4 +1,4 @@
-"""Retrying LLM calls over network failures (vendor patch 0015).
+"""Retrying LLM calls over network failures (vendor patch 0013).
 
 A 2026-11-09 desktop correction failed four hours in on one
 `ConnectError: [Errno 11001] getaddrinfo failed`: the retry check matched

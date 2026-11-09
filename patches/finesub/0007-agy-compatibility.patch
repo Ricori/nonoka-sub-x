@@ -1,6 +1,9 @@
-Subject: [PATCH 7/9] Re-register an agy project that agy silently replaced
+Subject: [PATCH 7/16] Keep agy's project check and guard hooks working
 
-Reason: Since agy 1.3, `--project <id>` for a project agy no longer has (its
+Reason: Two places where the local agy integration broke on what agy actually
+does. They share a file and no code; each half has its own removal condition.
+
+Project fallback: Since agy 1.3, `--project <id>` for a project agy no longer has (its
 record under `~/.gemini/config/projects` is gone) opens `default-cli-project`
 instead, exits 0, and still lists the cwd's hooks. The engine's project
 check (`/hooks` on the kept id) therefore kept passing, the state file was
@@ -25,11 +28,31 @@ check now also requires the kept id's record under
 missing records directory is no verdict (agy may have moved it, and only
 the tool path needs it).
 
-Removal: Delete once upstream verifies the opened project, or agy fails an
-unknown `--project` id instead of falling back.
+Guard hook encoding: The PreToolUse guards (`guard_view_file.py`, all three templates)
+read their payload with `json.load(sys.stdin)`. agy writes it in UTF-8, but a
+text stdin decodes with the locale code page -- cp936 on Chinese Windows.
+There a CJK run with an odd number of UTF-8 bytes right before an escaped
+quote pairs its last byte with the backslash, the quote closes the string,
+and the guard dies with `JSONDecodeError`. agy treats the dead hook as a
+refusal, so a correction `submit` whose CSV or task feedback carries
+`...不明确\"` is refused and the model rewrites the whole answer. One window
+on 2026-10-13 was refused five times (625 s, 790k input tokens); an earlier
+run only got through on an all-ASCII `text|text` placeholder answer. The agy
+logs show the same failure since 2026-09 on 1.2.2, so it is not agy-version
+specific.
+
+`json.loads` on `sys.stdin.buffer.read()` detects UTF-8 itself and never
+consults the code page. The script text changes, so each FineSub agy project
+re-registers once (its hook digest moves).
+
+Removal: Drop the project-record checks in `_check_project` once upstream
+verifies the opened project, or agy fails an unknown `--project` id instead of
+falling back. Drop the guard change once upstream's guards read bytes, or agy
+stops being the hook writer on Windows. Delete the patch when both halves are
+gone.
 
 diff --git a/src/finesub/llm/agent/local_agent.py b/src/finesub/llm/agent/local_agent.py
-index 1c940dd..fa893d6 100644
+index 1c940dd..74d9685 100644
 --- a/src/finesub/llm/agent/local_agent.py
 +++ b/src/finesub/llm/agent/local_agent.py
 @@ -304,6 +304,10 @@ AGY_AGENT_NAME = "finesub-media"
@@ -43,7 +66,43 @@ index 1c940dd..fa893d6 100644
  
  AGY_HOOKS_DOCUMENT = {
      AGY_HOOK_NAME: {
-@@ -6348,6 +6352,46 @@ class AgyLocalAgentDriver(LocalAgentDriver):
+@@ -328,7 +332,10 @@ import os
+ import sys
+ 
+ 
+-payload = json.load(sys.stdin)
++# Bytes, not text: agy writes UTF-8, and a text stdin decodes with the locale
++# code page (cp936 on Chinese Windows), which can swallow the backslash of an
++# escaped quote after CJK text and break the JSON.
++payload = json.loads(sys.stdin.buffer.read())
+ tool_call = payload.get("toolCall") or {}
+ args = tool_call.get("args") or {}
+ raw_path = args.get("AbsolutePath")
+@@ -449,7 +456,10 @@ import os
+ import sys
+ 
+ 
+-payload = json.load(sys.stdin)
++# Bytes, not text: agy writes UTF-8, and a text stdin decodes with the locale
++# code page (cp936 on Chinese Windows), which can swallow the backslash of an
++# escaped quote after CJK text and break the JSON.
++payload = json.loads(sys.stdin.buffer.read())
+ tool_call = payload.get("toolCall") or {}
+ name = tool_call.get("name")
+ args = tool_call.get("args") or {}
+@@ -591,7 +601,10 @@ import os
+ import sys
+ 
+ 
+-payload = json.load(sys.stdin)
++# Bytes, not text: agy writes UTF-8, and a text stdin decodes with the locale
++# code page (cp936 on Chinese Windows), which can swallow the backslash of an
++# escaped quote after CJK text and break the JSON.
++payload = json.loads(sys.stdin.buffer.read())
+ tool_call = payload.get("toolCall") or {}
+ name = tool_call.get("name")
+ args = tool_call.get("args") or {}
+@@ -6348,6 +6361,46 @@ class AgyLocalAgentDriver(LocalAgentDriver):
                  "and would fall back to its default agent"
              )
  
@@ -90,7 +149,7 @@ index 1c940dd..fa893d6 100644
      def _check_project(
          self,
          project_root: Path,
-@@ -6357,7 +6401,8 @@ class AgyLocalAgentDriver(LocalAgentDriver):
+@@ -6357,7 +6410,8 @@ class AgyLocalAgentDriver(LocalAgentDriver):
          tool: bool = False,
      ) -> None:
          """`/hooks` on the exact project and agent a model call will use:
@@ -100,7 +159,7 @@ index 1c940dd..fa893d6 100644
  
          Only a tool project fails closed on the agent. A capsule project warns
          and runs on (owner 2026-10-06): the hook, not the document, holds the
-@@ -6376,6 +6421,11 @@ class AgyLocalAgentDriver(LocalAgentDriver):
+@@ -6376,6 +6430,11 @@ class AgyLocalAgentDriver(LocalAgentDriver):
                  log_text = log_path.read_text(encoding="utf-8", errors="replace")
              except OSError:
                  log_text = ""

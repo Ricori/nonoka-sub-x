@@ -1,4 +1,4 @@
-"""Reading the Nonoka Cloud relay's answers as a stream (vendor patch 0014).
+"""Reading the Nonoka Cloud relay's answers as a stream (vendor patch 0013).
 
 On 2026-11-08 the relay finished a correction call in 236 s and the desktop
 waited 2 h 48 min for the answer: a non-streaming read cannot tell a dead

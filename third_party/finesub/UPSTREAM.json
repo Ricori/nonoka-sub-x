@@ -27,16 +27,12 @@
       "sha256": "8f31416c3d80e16308f69effe839576c0e5cf7a1966fd3a227c101b5204aacf3"
     },
     {
-      "path": "0007-agy-project-fallback-reregister.patch",
-      "sha256": "0b31c383a4e18551de7987972843aa802119cbf526df2a05a9cd557cb8fe3297"
-    },
-    {
-      "path": "0008-agy-guard-utf8-stdin.patch",
-      "sha256": "09b41d564f5eed2fb132e0aa452eaa6fafbe5a295d613b6a333e1641a19b212e"
+      "path": "0007-agy-compatibility.patch",
+      "sha256": "30b6864c92f607c9e3f30773bdceb0c2cc7b89f1678ffe9b8cd8e313e3ac4f8e"
     },
     {
       "path": "0009-reject-placeholder-correction.patch",
-      "sha256": "595f66ce3760d65f4e7dcd813dd3ef60fe55e83e23c8c869ceca9bebdfdda432"
+      "sha256": "0bda41bb350f40cffbfcbbed7066a247690acf5638fe730ec80192025e0da073"
     },
     {
       "path": "0010-lazy-asr-imports-in-stages.patch",
@@ -51,16 +47,8 @@
       "sha256": "b7e2b26ee9faf0786389988fc82253925c07a0bd54ec5b3fddc819b1e9034f71"
     },
     {
-      "path": "0013-llm-cooldown-wait.patch",
-      "sha256": "ed74c74b4984aa51ac772cc2cb3d536a44858ae184e3d4be794df5effb5e603d"
-    },
-    {
-      "path": "0014-llm-stream-reading.patch",
-      "sha256": "3416b7f2cad891133b4eaa8d497a6978069d9bd65a20db6f6c846dfa2de83d2c"
-    },
-    {
-      "path": "0015-llm-retry-network-errors.patch",
-      "sha256": "95525f9abf7c8acaeec377be0dbbb2bf86f7c26f2c56224e64dce3e6002eb0ee"
+      "path": "0013-llm-transport-resilience.patch",
+      "sha256": "4b47e99ae88c78ac764e9f0a9c1ad0173d8419f0b236c33cd47aa73b8588a6c6"
     },
     {
       "path": "0016-local-token-counting-only.patch",

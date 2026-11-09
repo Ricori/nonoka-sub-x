@@ -456,9 +456,8 @@ def rebuild_baseline(
     Windows in a way that shows up as an unexplained hash mismatch rather than
     as a bad reverse-apply.
 
-    Reverse order, because the stack is ordered: two patches touch
-    `separator_aoti.py` and the later one was written against the earlier
-    one's output.
+    Reverse order, because the stack is ordered: a later patch may be written
+    against an earlier one's output.
     """
 
     upstream = verify_snapshot(vendor)

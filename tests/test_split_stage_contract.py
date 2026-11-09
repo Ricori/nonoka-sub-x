@@ -208,14 +208,11 @@ class PurelyAdditiveTests(unittest.TestCase):
             # Local-agent setup, not transcription: agy 1.3 silently swaps an
             # unknown `--project` id for its default project, and the check
             # now notices and re-registers. Only the local agy driver runs
-            # it; the cloud never starts a local agent CLI.
-            "0007-agy-project-fallback-reregister.patch": [
-                "src/finesub/llm/agent/local_agent.py",
-            ],
-            # Local-agent plumbing too: the agy guard hook reads its payload
-            # as UTF-8 bytes rather than through the Windows code page. Only
-            # agy runs these scripts, and only on the local machine.
-            "0008-agy-guard-utf8-stdin.patch": [
+            # it; the cloud never starts a local agent CLI. Local-agent
+            # plumbing too: the agy guard hook reads its payload as UTF-8
+            # bytes rather than through the Windows code page. Only agy runs
+            # these scripts, and only on the local machine.
+            "0007-agy-compatibility.patch": [
                 "src/finesub/llm/agent/local_agent.py",
             ],
             # A validation the cloud shares, and stricter only: a reply whose
@@ -249,26 +246,16 @@ class PurelyAdditiveTests(unittest.TestCase):
             # cooldown, 6 sticky retries, connect timeouts kept out of the
             # timeout abort, a call whose whole chain is cooling waits for it
             # instead of failing, and a non-JSON body quoted past its
-            # leading whitespace.
-            "0013-llm-cooldown-wait.patch": [
+            # leading whitespace. The Tokyo relay's answers read as a stream,
+            # with a timeout on progress and dropped connections made
+            # retryable. Network failures retried by type, and named by host.
+            "0013-llm-transport-resilience.patch": [
                 "src/finesub/llm/client.py",
+                "src/finesub/llm/http.py",
                 "src/finesub/llm/llm_runtime.py",
                 "src/finesub/llm/provider_transports.py",
                 "src/finesub/llm/rate_limit.py",
                 "src/finesub/llm/routing/api_keys.py",
-            ],
-            # The Tokyo relay's answers read as a stream, with a timeout on
-            # progress and dropped connections made retryable.
-            "0014-llm-stream-reading.patch": [
-                "src/finesub/llm/http.py",
-                "src/finesub/llm/llm_runtime.py",
-                "src/finesub/llm/provider_transports.py",
-            ],
-            # Network failures retried by type, and named by host.
-            "0015-llm-retry-network-errors.patch": [
-                "src/finesub/llm/client.py",
-                "src/finesub/llm/http.py",
-                "src/finesub/llm/llm_runtime.py",
             ],
             # Token counting without the network, under one deadline.
             "0016-local-token-counting-only.patch": [

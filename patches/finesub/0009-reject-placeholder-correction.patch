@@ -3,7 +3,7 @@ Subject: [PATCH 9/9] Refuse a correction reply made of placeholder rows
 Reason: The correction validator checks structure only: row coverage,
 positions, columns, non-empty cells. On 2026-10-13 an agy window submitted
 `text|text` on all 52 rows -- a probe of the submit channel after the tool
-guard had refused its real answers (0008) -- and that reply was accepted as
+guard had refused its real answers (0007) -- and that reply was accepted as
 the window's subtitles, so every line of the final SRT read "text".
 
 `validate_correction_output_text` now also judges the whole window once the
