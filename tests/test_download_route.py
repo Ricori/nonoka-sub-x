@@ -92,6 +92,31 @@ def test_ladder_order_with_and_without_a_proxy(monkeypatch):
     _routes(monkeypatch, None)
     assert download_route.download_stages(has_mirror=True) == [DownloadStage("direct"), DownloadStage("mirror")]
     assert download_route.download_stages(has_mirror=False) == [DownloadStage("direct")]
+    assert download_route.download_stages(has_mirror=True, has_backup=True) == [
+        DownloadStage("direct"),
+        DownloadStage("mirror"),
+        DownloadStage("backup"),
+    ]
+
+
+def test_github_files_end_on_our_own_copy(monkeypatch):
+    _routes(monkeypatch, None)
+    backup = "https://cloudfile.nonoka.online/github-mirror/github.com/example/repo/releases/download/v1/tool.zip"
+
+    assert download_route.github_backup_url(GITHUB_URL) == backup
+    assert download_route.github_backup_url("https://nodejs.org/dist/node.zip") is None
+    assert download_route.github_stages(GITHUB_URL)[-1] == DownloadStage("backup")
+    assert download_route.github_stages("https://nodejs.org/dist/node.zip") == [DownloadStage("direct")]
+
+    # Emptying the third-party mirror leaves ours.
+    monkeypatch.setenv("FINESUB_GITHUB_FILE_PROXY", "")
+    assert download_route.github_stages(GITHUB_URL) == [DownloadStage("direct"), DownloadStage("backup")]
+
+
+def test_the_backup_host_matches_the_launcher():
+    source = Path(__file__).resolve().parents[1] / "desktop" / "internal" / "app" / "python_bootstrap.go"
+
+    assert f'bootstrapGitHubBackup  = "{download_route.GITHUB_BACKUP}"' in source.read_text(encoding="utf-8")
 
 
 class _Clock:
@@ -244,7 +269,11 @@ def test_exhausted_ladder_asks_for_a_proxy(monkeypatch, tmp_path):
     with pytest.raises(download_route.DownloadUnreachable, match="请开启代理"):
         download_route._laddered_download(fake)(_asset(), tmp_path / "tool.zip", None, None)
 
-    assert len(calls) == 2
+    assert [url for url, _proxy in calls] == [
+        GITHUB_URL,
+        f"https://gh-proxy.com/{GITHUB_URL}",
+        download_route.github_backup_url(GITHUB_URL),
+    ]
 
 
 def test_a_host_without_a_mirror_skips_that_rung(monkeypatch, tmp_path):

@@ -163,6 +163,25 @@ def test_macos_managed_tools_are_added_to_worker_path(tmp_path: Path) -> None:
     assert str(provisioner.tool_path("ffprobe").parent) in path_entries
 
 
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows FFmpeg resource")
+def test_ffmpeg_is_pinned_and_a_copy_from_before_the_pin_keeps_serving(tmp_path: Path) -> None:
+    provisioner = RuntimeProvisioner(tmp_path, VENDOR)
+    assert provisioner.resources is not None
+    asset = provisioner.resources.resources["ffmpeg"].asset
+    assert asset.size > 0 and len(asset.sha256) == 64
+
+    root = provisioner.resources.install_path("ffmpeg").parent
+    tools = root / "n9.0-latest" / "ffmpeg-n9.0-latest-win64-gpl-9.0" / "bin"
+    tools.mkdir(parents=True)
+    for name in ("ffmpeg", "ffprobe"):
+        (tools / f"{name}.exe").write_bytes(b"fixture")
+    (root / "current.json").write_text('{"current":"n9.0-latest"}', encoding="utf-8")
+
+    assert provisioner.tool_path("ffmpeg") == tools / "ffmpeg.exe"
+    assert provisioner.tool_path("ffprobe") == tools / "ffprobe.exe"
+    assert provisioner.status()["media_ready"] is True
+
+
 def test_runtime_progress_can_aggregate_multiple_resource_downloads(tmp_path: Path) -> None:
     provisioner = RuntimeProvisioner(tmp_path, VENDOR)
 

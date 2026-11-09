@@ -10,7 +10,7 @@ from finesub_bootstrap import http_client
 from finesub_bootstrap.environment import RuntimeEnvironment
 from finesub_bootstrap.http_client import NetworkRoute
 from finesub_bootstrap.models import DownloadProgress
-from nonoka_x.download_route import DownloadTooSlow, DownloadUnreachable
+from nonoka_x.download_route import DownloadStage, DownloadTooSlow, DownloadUnreachable
 import nonoka_x.runtime_install as runtime_install
 from nonoka_x.runtime_install import (
     KNOWN_WHEEL_SIZES,
@@ -167,13 +167,26 @@ def test_the_mirror_lock_sends_github_files_to_the_github_mirror(tmp_path: Path,
     assert tomllib.loads(body)["packages"]
 
 
+def test_the_backup_lock_sends_github_files_to_our_own_copy(tmp_path: Path, monkeypatch) -> None:
+    runtime, _runs = _ladder_runtime(tmp_path, monkeypatch, proxy=None, fail=0, output="")
+
+    lock = runtime._mirror_lock(DownloadStage("backup"))
+
+    body = lock.read_text(encoding="utf-8")
+    assert lock.name == "pylock.win-py312.cn.toml"
+    assert 'url = "https://cloudfile.nonoka.online/github-mirror/github.com/caca2331/finesub/' in body
+    assert 'url = "https://github.com/' not in body
+    assert "pypi.tuna.tsinghua.edu.cn" in body
+
+
 def test_exhausted_dependency_ladder_asks_for_a_proxy(tmp_path: Path, monkeypatch) -> None:
     runtime, runs = _ladder_runtime(tmp_path, monkeypatch, proxy=None, fail=9, output="error sending request")
 
     with pytest.raises(DownloadUnreachable, match="请开启代理"):
         _install(runtime)
 
-    assert len(runs) == 2
+    assert len(runs) == 3
+    assert "backup-lock" in str(runs[-1][0])
 
 
 def test_a_non_network_uv_failure_stops_the_climb(tmp_path: Path, monkeypatch) -> None:
@@ -265,6 +278,53 @@ def test_interpreter_download_climbs_to_the_github_mirror(tmp_path: Path, monkey
 
     assert "UV_PYTHON_INSTALL_MIRROR" not in attempts[0]
     assert attempts[1]["UV_PYTHON_INSTALL_MIRROR"].startswith("https://gh-proxy.com/https://github.com/astral-sh/")
+
+
+def test_interpreter_download_ends_on_our_own_copy(monkeypatch) -> None:
+    monkeypatch.delenv("FINESUB_GITHUB_FILE_PROXY", raising=False)
+    monkeypatch.setattr(http_client, "network_routes", lambda: [NetworkRoute("直连", None)])
+    samples: list[str] = []
+    monkeypatch.setattr(runtime_install, "ensure_fast_enough", lambda url, stage: samples.append(url))
+    attempts: list[dict[str, str]] = []
+
+    def base_run(self, command, environment, *, log, should_pause) -> None:
+        attempts.append(environment)
+        if len(attempts) < 3:
+            raise subprocess.CalledProcessError(1, command, output="error sending request for url")
+
+    monkeypatch.setattr(RuntimeEnvironment, "_run", base_run)
+    runtime = object.__new__(ProgressRuntimeEnvironment)
+
+    runtime._run(["uv.exe", "python", "install", "3.12"], {}, log=None, should_pause=None)
+
+    assert attempts[2]["UV_PYTHON_INSTALL_MIRROR"] == (
+        "https://cloudfile.nonoka.online/github-mirror/github.com/astral-sh/python-build-standalone/releases/download"
+    )
+    # A rung is timed on its own host: the mirror's speed says nothing about GitHub's.
+    assert samples[1].startswith("https://gh-proxy.com/")
+
+
+def test_a_mirror_the_user_chose_for_the_interpreter_gets_no_copy_rungs(monkeypatch) -> None:
+    monkeypatch.setattr(http_client, "network_routes", lambda: [NetworkRoute("直连", None)])
+    monkeypatch.setattr(runtime_install, "ensure_fast_enough", lambda url, stage: None)
+    attempts: list[dict[str, str]] = []
+
+    def base_run(self, command, environment, *, log, should_pause) -> None:
+        attempts.append(environment)
+        raise subprocess.CalledProcessError(1, command, output="error sending request for url")
+
+    monkeypatch.setattr(RuntimeEnvironment, "_run", base_run)
+    runtime = object.__new__(ProgressRuntimeEnvironment)
+
+    with pytest.raises(DownloadUnreachable):
+        runtime._run(
+            ["uv.exe", "python", "install", "3.12"],
+            {"UV_PYTHON_INSTALL_MIRROR": "https://mine.example"},
+            log=None,
+            should_pause=None,
+        )
+
+    assert [environment["UV_PYTHON_INSTALL_MIRROR"] for environment in attempts] == ["https://mine.example"]
 
 
 def _bare_runtime(tmp_path: Path) -> ProgressRuntimeEnvironment:

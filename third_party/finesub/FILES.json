@@ -1,5 +1,5 @@
 {
-  "content_sha256": "f494aa4388e45884d9c8001c1cd6c725d327f17d0a8c5a713c736fe2d621757f",
+  "content_sha256": "4b1f46d73b0b91bf59da129200d8fb855340f07da8a74c8d8ee77b66e57676c3",
   "files": [
     {
       "bytes": 35149,
@@ -2027,9 +2027,9 @@
       "sha256": "746eae559e43f47b351b9e0cddf7192c1a61096384ed626a7e120875440191bf"
     },
     {
-      "bytes": 4237,
+      "bytes": 3948,
       "path": "src/finesub_bootstrap/runtime-manifest.json",
-      "sha256": "0171f663e3512bf2604e8f788942e8ed0253cb1b09ec8cd70e0c166f25f58db5"
+      "sha256": "83c53d29d49101a96993129783891f1d218397611a0a0b3866691bbfce9c99db"
     },
     {
       "bytes": 23258,

@@ -30,16 +30,17 @@ from finesub_bootstrap.models import DownloadAsset, DownloadProgress
 from finesub_bootstrap.runtime_health import site_packages_of
 
 from nonoka_x.download_route import (
+    PYTHON_BUILD_RELEASES,
     PYTHON_BUILD_SAMPLE,
     DownloadStage,
     apply_proxy_environment,
     climb,
     download_stages,
     ensure_fast_enough,
-    github_mirror_url,
+    github_stages,
+    github_url_on,
     is_transport_failure,
     pinned_stage,
-    python_build_mirror,
     stage_environment,
 )
 from nonoka_x.msvc_runtime import explaining, msvc_runtime_problem
@@ -189,22 +190,23 @@ class ProgressRuntimeEnvironment(RuntimeEnvironment):
         if command[1:3] != ["python", "install"]:
             super()._run(command, environment, log=log, should_pause=should_pause)
             return
-        mirror = None if environment.get("UV_PYTHON_INSTALL_MIRROR") else python_build_mirror()
+        chosen = bool(environment.get("UV_PYTHON_INSTALL_MIRROR"))
+        stages = download_stages(has_mirror=False) if chosen else github_stages(PYTHON_BUILD_RELEASES)
 
         def attempt(stage: DownloadStage) -> None:
-            ensure_fast_enough(PYTHON_BUILD_SAMPLE, stage)
+            ensure_fast_enough(github_url_on(stage, PYTHON_BUILD_SAMPLE), stage)
             routed = stage_environment(environment, stage)
             if stage.mirror:
-                routed["UV_PYTHON_INSTALL_MIRROR"] = mirror
+                routed["UV_PYTHON_INSTALL_MIRROR"] = github_url_on(stage, PYTHON_BUILD_RELEASES)
             super(ProgressRuntimeEnvironment, self)._run(command, routed, log=log, should_pause=should_pause)
 
-        climb(download_stages(has_mirror=mirror is not None), attempt, advances=_install_advances, announce=log)
+        climb(stages, attempt, advances=_install_advances, announce=log)
 
-    def _mirror_lock(self) -> Path | None:
-        """The cn lock with its GitHub files on the GitHub mirror, or None.
+    def _mirror_lock(self, stage: DownloadStage = DownloadStage("mirror")) -> Path | None:
+        """The cn lock with its GitHub files on this rung's host, or None.
 
         The cn lock moves only the PyPI and PyTorch hosts: its ctranslate2 wheel
-        still names github.com, the very host this rung exists to avoid. The
+        still names github.com, the very host these rungs exist to avoid. The
         digests stay as they were, so uv holds every file to the same hashes.
         """
 
@@ -212,14 +214,11 @@ class ProgressRuntimeEnvironment(RuntimeEnvironment):
         if not source.is_file():
             return None
         body = source.read_text(encoding="utf-8")
-        rewritten = _LOCK_URL.sub(
-            lambda found: f'url = "{github_mirror_url(found[1]) or found[1]}"',
-            body,
-        )
+        rewritten = _LOCK_URL.sub(lambda found: f'url = "{github_url_on(stage, found[1])}"', body)
         if rewritten == body:
             return source
         # uv recognises a PEP 751 lock by its file name, so it keeps this one.
-        destination = self.paths.cache / "mirror-lock" / source.name
+        destination = self.paths.cache / f"{stage.kind}-lock" / source.name
         destination.parent.mkdir(parents=True, exist_ok=True)
         destination.write_text(rewritten, encoding="utf-8", newline="\n")
         return destination
@@ -241,13 +240,15 @@ class ProgressRuntimeEnvironment(RuntimeEnvironment):
         """
 
         mirror_lock = self._mirror_lock()
+        backup_lock = self._mirror_lock(DownloadStage("backup"))
+        locks = {"mirror": mirror_lock, "backup": backup_lock}
         # A wheel the target already holds needs neither a download nor a
         # reinstall: true of every unchanged large wheel in an in-place update,
         # never of a fresh staging tree.
         installed_in = site_packages_of(staging_python)
 
         def attempt(stage: DownloadStage) -> None:
-            lock = mirror_lock if stage.mirror else self.runtime_lock
+            lock = locks.get(stage.kind) or self.runtime_lock
             routed = stage_environment(environment, stage)
             with pinned_stage(stage):
                 local_wheels = self._prefetch_large_wheels(
@@ -302,7 +303,7 @@ class ProgressRuntimeEnvironment(RuntimeEnvironment):
             )
 
         climb(
-            download_stages(has_mirror=mirror_lock is not None),
+            download_stages(has_mirror=mirror_lock is not None, has_backup=backup_lock not in (None, mirror_lock)),
             attempt,
             advances=_install_advances,
             announce=log,

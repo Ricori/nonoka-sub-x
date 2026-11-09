@@ -2,17 +2,10 @@
   "schema_version": 1,
   "platform": "windows-x64",
   "_note": [
-    "Every asset is pinned by size and sha256 except ffmpeg, which carries",
-    "`digest_from` instead: BtbN replaces the bytes behind its `latest` tag on",
-    "every build, so a pin there fails within a day. Its digest is fetched from",
-    "the GitHub release API at install time and the download is verified against",
-    "that -- integrity and resume safety kept, reproducibility given up. See",
-    "`ResolvableAsset` in src/finesub_bootstrap/models.py and",
-    "docs/download-routes.md, the moving-upstream section.",
-    "",
-    "`version` for ffmpeg is a static label, not a build id, so an installed copy",
-    "stays put instead of re-downloading daily. Bump it to push everyone onto a",
-    "newer ffmpeg."
+    "Every asset is pinned by size and sha256. ffmpeg is pinned to one of the",
+    "month-end autobuilds, the ones the builder keeps once its daily builds are",
+    "pruned; its `latest` tag replaces the bytes on every build, so no copy kept",
+    "elsewhere could stay verifiable against it."
   ],
   "resources": [
     {
@@ -33,17 +26,18 @@
     },
     {
       "id": "ffmpeg",
-      "version": "n9.0-latest",
+      "version": "n9.0.2-39-g7adfbe40dc",
       "destination": "runtime",
       "directory": "ffmpeg",
       "archive_type": "zip",
       "required_files": [
-        "ffmpeg-n9.0-latest-win64-gpl-9.0/bin/ffmpeg.exe",
-        "ffmpeg-n9.0-latest-win64-gpl-9.0/bin/ffprobe.exe"
+        "ffmpeg-n9.0.2-39-g7adfbe40dc-win64-gpl-9.0/bin/ffmpeg.exe",
+        "ffmpeg-n9.0.2-39-g7adfbe40dc-win64-gpl-9.0/bin/ffprobe.exe"
       ],
       "asset": {
-        "url": "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n9.0-latest-win64-gpl-9.0.zip",
-        "digest_from": "github-release-api"
+        "url": "https://github.com/FFmpeg-Builds/FFmpeg-Builds/releases/download/autobuild-2026-10-31-12-59/ffmpeg-n9.0.2-39-g7adfbe40dc-win64-gpl-9.0.zip",
+        "size": 195110184,
+        "sha256": "693f3e224bc184b40524a62ca47526cfebaf2504414021b92fe75f677ad868b9"
       }
     },
     {

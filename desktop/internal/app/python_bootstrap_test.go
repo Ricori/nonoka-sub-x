@@ -213,11 +213,12 @@ func TestGitHubDownloadSourcesFollowTheLadder(t *testing.T) {
 	raw := "https://github.com/example/repo/releases/download/v1.0/file.zip"
 	proxy := "http://127.0.0.1:7890"
 
-	sources := gitHubDownloadSources(raw, []bootstrapAttempt{{Proxy: proxy}, {}, {Mirror: true}})
+	sources := gitHubDownloadSources(raw, []bootstrapAttempt{{Proxy: proxy}, {}, {Mirror: true}, {Backup: true}})
 	want := []bootstrapSource{
 		{bootstrapAttempt: bootstrapAttempt{Proxy: proxy}, URL: raw},
 		{URL: raw},
 		{bootstrapAttempt: bootstrapAttempt{Mirror: true}, URL: "https://gh-proxy.com/" + raw},
+		{bootstrapAttempt: bootstrapAttempt{Backup: true}, URL: "https://cloudfile.nonoka.online/github-mirror/github.com/example/repo/releases/download/v1.0/file.zip"},
 	}
 	if !slices.Equal(sources, want) {
 		t.Fatalf("sources = %#v", sources)

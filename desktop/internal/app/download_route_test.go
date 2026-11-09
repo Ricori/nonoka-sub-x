@@ -13,19 +13,29 @@ import (
 const testProxy = "http://127.0.0.1:7890"
 
 func TestLadderClimbsProxyThenDirectThenMirror(t *testing.T) {
-	want := []bootstrapAttempt{{Proxy: testProxy}, {}, {Mirror: true}}
+	want := []bootstrapAttempt{{Proxy: testProxy}, {}, {Mirror: true}, {Backup: true}}
 	if got := bootstrapAttempts(testProxy); !slices.Equal(got, want) {
 		t.Fatalf("with a proxy: %#v", got)
 	}
-	want = []bootstrapAttempt{{}, {Mirror: true}}
+	want = []bootstrapAttempt{{}, {Mirror: true}, {Backup: true}}
 	if got := bootstrapAttempts(""); !slices.Equal(got, want) {
 		t.Fatalf("without a proxy: %#v", got)
 	}
 }
 
+func TestOnlyGitHubStepsKeepTheBackupRung(t *testing.T) {
+	attempts := bootstrapAttempts(testProxy)
+	if got := withoutBackup(attempts); !slices.Equal(got, []bootstrapAttempt{{Proxy: testProxy}, {}, {Mirror: true}}) {
+		t.Fatalf("withoutBackup = %#v", got)
+	}
+	if got := withoutMirror(attempts); !slices.Equal(got, []bootstrapAttempt{{Proxy: testProxy}, {}}) {
+		t.Fatalf("a mirror the user chose should drop both copy rungs: %#v", got)
+	}
+}
+
 func TestLadderIgnoresTheRegionVariable(t *testing.T) {
 	t.Setenv("FINESUB_DOWNLOAD_REGION", "cn")
-	want := []bootstrapAttempt{{}, {Mirror: true}}
+	want := []bootstrapAttempt{{}, {Mirror: true}, {Backup: true}}
 	if got := bootstrapAttempts(""); !slices.Equal(got, want) {
 		t.Fatalf("the ladder should not depend on the region variable: %#v", got)
 	}

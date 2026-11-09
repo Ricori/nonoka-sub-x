@@ -19,7 +19,8 @@ import (
 //  1. through the proxy in effect (`netproxy`), if any, from the official source;
 //  2. directly from the official source;
 //  3. directly from a mirror (gh-proxy.com for GitHub files, TUNA for PyPI);
-//  4. an error telling the user to turn a proxy on.
+//  4. for GitHub files, directly from our own copy on R2;
+//  5. an error telling the user to turn a proxy on.
 //
 // A rung that works but crawls under bootstrapMinBytesPerSecond is abandoned
 // too. The last rung has nowhere to move to, so it is left to finish, and one
@@ -29,6 +30,8 @@ type bootstrapAttempt struct {
 	Proxy string
 	// Mirror fetches from the mirror instead of the official source.
 	Mirror bool
+	// Backup fetches from our own copy on R2. Only GitHub files have one.
+	Backup bool
 }
 
 const (
@@ -56,7 +59,7 @@ func bootstrapAttempts(proxy string) []bootstrapAttempt {
 	if proxy != "" {
 		attempts = append(attempts, bootstrapAttempt{Proxy: proxy})
 	}
-	return append(attempts, bootstrapAttempt{}, bootstrapAttempt{Mirror: true})
+	return append(attempts, bootstrapAttempt{}, bootstrapAttempt{Mirror: true}, bootstrapAttempt{Backup: true})
 }
 
 // bootstrapRung is one try at a route. Only a rung with another after it is
@@ -146,20 +149,33 @@ func bootstrapRouteTooSlow(rawURL string, attempt bootstrapAttempt) bool {
 }
 
 // withoutMirror is the ladder for a step whose mirror the user already chose
-// through uv's own variables: the "mirror" rung would only repeat the direct one.
+// through uv's own variables: the copy rungs would only repeat the direct one.
 func withoutMirror(attempts []bootstrapAttempt) []bootstrapAttempt {
 	official := make([]bootstrapAttempt, 0, len(attempts))
 	for _, attempt := range attempts {
-		if !attempt.Mirror {
+		if !attempt.Mirror && !attempt.Backup {
 			official = append(official, attempt)
 		}
 	}
 	return official
 }
 
+// withoutBackup is the ladder for a step that fetches nothing from GitHub.
+func withoutBackup(attempts []bootstrapAttempt) []bootstrapAttempt {
+	kept := make([]bootstrapAttempt, 0, len(attempts))
+	for _, attempt := range attempts {
+		if !attempt.Backup {
+			kept = append(kept, attempt)
+		}
+	}
+	return kept
+}
+
 // label names the rung in the progress message and in a failure.
 func (a bootstrapAttempt) label() string {
 	switch {
+	case a.Backup:
+		return "Nonoka 备用源"
 	case a.Mirror:
 		return "镜像"
 	case a.Proxy != "":

@@ -33,6 +33,9 @@ const (
 	bootstrapUVRelease     = "https://github.com/astral-sh/uv/releases/download/" + bootstrapUVVersion + "/"
 	bootstrapPyPIIndex     = "https://pypi.tuna.tsinghua.edu.cn/simple"
 	bootstrapGitHubMirror  = "https://gh-proxy.com/"
+	// bootstrapGitHubBackup holds our copies of GitHub files, keyed by host and
+	// path. Kept the same as GITHUB_BACKUP in nonoka_x.download_route.
+	bootstrapGitHubBackup  = "https://cloudfile.nonoka.online/github-mirror/"
 	bootstrapPythonRelease = "https://github.com/astral-sh/python-build-standalone/releases/download"
 	// bootstrapSpeedSample times the route to GitHub before uv fetches an
 	// interpreter. An immutable release from the same repository.
@@ -106,13 +109,20 @@ type bootstrapSource struct {
 func gitHubDownloadSources(rawURL string, attempts []bootstrapAttempt) []bootstrapSource {
 	sources := make([]bootstrapSource, 0, len(attempts))
 	for _, attempt := range attempts {
-		source := bootstrapSource{bootstrapAttempt: attempt, URL: rawURL}
-		if attempt.Mirror {
-			source.URL = gitHubMirrorPrefix() + rawURL
-		}
-		sources = append(sources, source)
+		sources = append(sources, bootstrapSource{bootstrapAttempt: attempt, URL: attempt.gitHubURL(rawURL)})
 	}
 	return sources
+}
+
+// gitHubURL is where this rung fetches a GitHub file from.
+func (a bootstrapAttempt) gitHubURL(rawURL string) string {
+	switch {
+	case a.Backup:
+		return bootstrapGitHubBackup + strings.TrimPrefix(rawURL, "https://")
+	case a.Mirror:
+		return gitHubMirrorPrefix() + rawURL
+	}
+	return rawURL
 }
 
 type bootstrapProgress struct {
@@ -367,13 +377,13 @@ func (b *PythonBootstrap) installPython() error {
 		pythonAttempts = withoutMirror(attempts)
 	}
 	installed := climbBootstrap(pythonAttempts, "安装 Python 失败", b.announcer("installing_python", "正在下载并安装 Python "+bootstrapPythonVersion), func(attempt bootstrapAttempt, watched bool) ([]byte, error) {
-		if watched && bootstrapRouteTooSlow(bootstrapSpeedSample, attempt) {
+		if watched && bootstrapRouteTooSlow(attempt.gitHubURL(bootstrapSpeedSample), attempt) {
 			return nil, errBootstrapTooSlow
 		}
 		_ = os.RemoveAll(staging)
 		step := slices.Concat(environment, attempt.environment())
-		if attempt.Mirror {
-			step = append(step, "UV_PYTHON_INSTALL_MIRROR="+gitHubMirrorPrefix()+bootstrapPythonRelease)
+		if attempt.Mirror || attempt.Backup {
+			step = append(step, "UV_PYTHON_INSTALL_MIRROR="+attempt.gitHubURL(bootstrapPythonRelease))
 		}
 		return runBootstrapCommand(uv, step, "venv", staging, "--python", bootstrapPythonVersion, "--managed-python", "--no-project")
 	})
@@ -402,6 +412,7 @@ func installLauncherRequirements(uv string, environment []string, attempts []boo
 	if os.Getenv("UV_DEFAULT_INDEX") != "" || os.Getenv("UV_INDEX_URL") != "" || os.Getenv("PIP_INDEX_URL") != "" {
 		attempts = withoutMirror(attempts)
 	}
+	attempts = withoutBackup(attempts)
 	return climbBootstrap(attempts, "安装 Python 基础依赖失败", announce, func(attempt bootstrapAttempt, _ bool) ([]byte, error) {
 		step := slices.Concat(environment, attempt.environment())
 		if attempt.Mirror {
@@ -516,9 +527,10 @@ func (b *PythonBootstrap) downloadWithFallback(sources []bootstrapSource, destin
 		"也可以手动下载该文件并放入指定目录后重试：\n"+
 		"• 官方下载链接：%s\n"+
 		"• 镜像加速链接：%s\n"+
+		"• Nonoka 备用链接：%s\n"+
 		"• 目标放置路径：%s\n"+
 		"• 详细错误日志：%s",
-		bootstrapUnreachableMessage, official, gitHubMirrorPrefix()+official, destination, strings.Join(failures, "；"))
+		bootstrapUnreachableMessage, official, gitHubMirrorPrefix()+official, bootstrapAttempt{Backup: true}.gitHubURL(official), destination, strings.Join(failures, "；"))
 }
 
 func (b *PythonBootstrap) downloadSingle(source bootstrapSource, destination string, size int64, digest, message string, watched bool) error {

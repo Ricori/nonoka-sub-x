@@ -49,6 +49,9 @@ OPTIONAL_MODELS = ("nemotron3", "speaker-embedding")
 OPTIONAL_MODELS_TARGET = "optional-models"
 TARGETS = {"media", "runtime", "models", "all", OPTIONAL_MODELS_TARGET, *OPTIONAL_TOOLS, *REQUIRED_TOOLS, *TOOL_GROUPS}
 PIPELINE_MODELS = ("separator", "whisper", "qwen-referee")
+#: The Windows FFmpeg resource from before the build was pinned.
+UNPINNED_FFMPEG_VERSION = "n9.0-latest"
+UNPINNED_FFMPEG_DIRECTORY = "ffmpeg-n9.0-latest-win64-gpl-9.0"
 
 #: What an installed runtime whose dependency lock moved on is told: an engine
 #: sync changed the pinned packages, so the environment is rebuilt from the new
@@ -936,10 +939,29 @@ class RuntimeProvisioner:
         for resource_id in resource_ids:
             if resource_id not in self.resources.resources:
                 continue
-            executable = self.resources.active_file(resource_id, filename)
+            executable = self.resources.active_file(resource_id, filename) or self._unpinned_ffmpeg(resource_id, filename)
             if executable is not None:
                 return executable
         return None
+
+    def _unpinned_ffmpeg(self, resource_id: str, filename: str) -> Path | None:
+        """`filename` in a copy of the FFmpeg that followed upstream's `latest` tag.
+
+        Pinning the build changed the manifest's required paths, which that copy
+        no longer matches. It still works, so it keeps serving instead of the
+        update declaring the media tools gone.
+        """
+
+        if resource_id != "ffmpeg" or self.resources.active_version(resource_id) != UNPINNED_FFMPEG_VERSION:
+            return None
+        candidate = (
+            self.resources.install_path(resource_id).parent
+            / UNPINNED_FFMPEG_VERSION
+            / UNPINNED_FFMPEG_DIRECTORY
+            / "bin"
+            / filename
+        )
+        return candidate if candidate.is_file() else None
 
     def worker_environment(self) -> dict[str, str]:
         environment = os.environ.copy()

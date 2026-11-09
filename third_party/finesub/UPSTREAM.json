@@ -1,26 +1,22 @@
 {
   "archive_sha256": "e76340e70a214412facdb7b7288b5532886ff9e6bab0b3519bfb54ed1cc257ae",
   "commit": "5caf422cbad36f0402c98eb565e4c29aee4ac197",
-  "content_sha256": "f494aa4388e45884d9c8001c1cd6c725d327f17d0a8c5a713c736fe2d621757f",
+  "content_sha256": "4b1f46d73b0b91bf59da129200d8fb855340f07da8a74c8d8ee77b66e57676c3",
   "engine_bundle_id": "finesub-0.6.0+5caf422cbad3",
   "engine_version": "0.6.0",
-  "files_manifest_sha256": "d2549008fb5731e9401303207b008b7e2d9428d829b180c225ea97f7e80ccc68",
+  "files_manifest_sha256": "8efe1aa99e408448c33acd04d38782db53317366de8bea41406c74f30c9afa4b",
   "patches": [
     {
       "path": "0001-qwen-tail-entry-point.patch",
       "sha256": "6c395a1f39ba7a3327d64b3849a9f45ae3b33fd2812ba147c3085ca229bf5685"
     },
     {
-      "path": "0002-runtime-tool-manifest.patch",
-      "sha256": "f231b5c9f28b99e693610337aa04f3334098acd62b3d93c57a7aac536052df8d"
+      "path": "0002-runtime-resource-management.patch",
+      "sha256": "b08f2b18ce942938213de6f536692156872eac9c417caf7465ab0417674ea60e"
     },
     {
       "path": "0003-aoti-toolchain-portability.patch",
       "sha256": "2b786f47fa563291e4baba6d66b594c3aac4323bcd7f38720f44f31afa1f9b13"
-    },
-    {
-      "path": "0005-remove-managed-git.patch",
-      "sha256": "004b68145953b3ee90156d59c1225c184c30e3e94cbd9725c45b3899538c4f01"
     },
     {
       "path": "0006-pinned-knowledge-subjects.patch",
@@ -57,7 +53,7 @@
   ],
   "ref": "v0.6.0",
   "repository": "https://github.com/caca2331/finesub",
-  "runtime_manifest_sha256": "0171f663e3512bf2604e8f788942e8ed0253cb1b09ec8cd70e0c166f25f58db5",
+  "runtime_manifest_sha256": "83c53d29d49101a96993129783891f1d218397611a0a0b3866691bbfce9c99db",
   "sync_schema": 1,
   "synced_at": "2026-10-11T20:10:58Z"
 }

@@ -8,7 +8,9 @@ models -- tries the same rungs in the same order:
 3. a mirror, directly: gh-proxy.com for GitHub files, the cn lock's hosts for
    PyPI and PyTorch wheels, hf-mirror for Hugging Face. A resource with no
    mirror skips this rung;
-4. an error telling the user to turn a proxy on.
+4. for GitHub files, our own copy on R2, directly (`GITHUB_BACKUP`), so that
+   reaching them never depends only on third parties;
+5. an error telling the user to turn a proxy on.
 
 FineSub on its own picks `cn` or `global` per machine and goes mirror-first on a
 mainland exit. Nothing here asks, and `FINESUB_DOWNLOAD_REGION` is not honoured:
@@ -24,8 +26,9 @@ tried again unwatched if every other rung fails outright: slow beats nothing.
 Bytes are counted in flight wherever they can be. uv reports none, so the steps
 it runs are timed with a short sample before they start (`ensure_fast_enough`).
 
-The mirror is the last rung, so FineSub's per-machine degrade rule does not
-apply to it: giving up on the last resort would leave nothing but the error.
+The mirror comes after the official source, so FineSub's per-machine degrade
+rule does not apply to it: giving up on a last resort would leave nothing but
+the error.
 
 Which proxy rung 1 uses follows the desktop's settings page
 (`install_app_proxy_policy`): a custom proxy saved in preferences.json replaces
@@ -60,12 +63,16 @@ _T = TypeVar("_T")
 
 #: The GitHub rung. `FINESUB_GITHUB_FILE_PROXY` replaces it; emptied, it removes it.
 GITHUB_MIRROR = "https://gh-proxy.com/"
+#: The last rung for GitHub files: our copies, keyed by host and path, on R2.
+#: `desktop/scripts/publish-github-mirror.mjs` fills it from the manifests. Kept
+#: the same as `bootstrapGitHubBackup` in desktop/internal/app/python_bootstrap.go.
+GITHUB_BACKUP = "https://cloudfile.nonoka.online/github-mirror/"
 _GITHUB_HOSTS = ("https://github.com/", "https://raw.githubusercontent.com/")
-_PYTHON_BUILD_RELEASES = "https://github.com/astral-sh/python-build-standalone/releases/download"
+PYTHON_BUILD_RELEASES = "https://github.com/astral-sh/python-build-standalone/releases/download"
 #: Times the route to GitHub before uv fetches an interpreter. An immutable
 #: release from the same repository; which one does not matter, only the route.
 PYTHON_BUILD_SAMPLE = (
-    f"{_PYTHON_BUILD_RELEASES}/20250317/cpython-3.12.9%2B20250317-x86_64-pc-windows-msvc-install_only_stripped.tar.gz"
+    f"{PYTHON_BUILD_RELEASES}/20250317/cpython-3.12.9%2B20250317-x86_64-pc-windows-msvc-install_only_stripped.tar.gz"
 )
 
 UNREACHABLE_MESSAGE = "连不上下载源，请开启代理后重试"
@@ -117,17 +124,21 @@ _custom_cache: tuple[str, int, int, str | None] | None = None
 class DownloadStage:
     """One rung of the ladder."""
 
-    kind: str  # "proxy" | "direct" | "mirror"
+    kind: str  # "proxy" | "direct" | "mirror" | "backup"
     proxy: str | None = None
 
     @property
     def mirror(self) -> bool:
-        return self.kind == "mirror"
+        """Whether this rung serves copies rather than the official source."""
+
+        return self.kind in {"mirror", "backup"}
 
     @property
     def label(self) -> str:
         if self.kind == "proxy":
             return proxy_label(self.proxy)
+        if self.kind == "backup":
+            return "Nonoka 备用源"
         return "镜像" if self.mirror else "直连官方源"
 
 
@@ -218,7 +229,7 @@ def pinned_stage(stage: DownloadStage) -> Iterator[None]:
         _pinned_stage.reset(token)
 
 
-def download_stages(*, has_mirror: bool) -> list[DownloadStage]:
+def download_stages(*, has_mirror: bool, has_backup: bool = False) -> list[DownloadStage]:
     """The rungs for one resource, in the order they are tried."""
 
     proxy = live_proxy()
@@ -226,6 +237,8 @@ def download_stages(*, has_mirror: bool) -> list[DownloadStage]:
     stages.append(DownloadStage("direct"))
     if has_mirror:
         stages.append(DownloadStage("mirror"))
+    if has_backup:
+        stages.append(DownloadStage("backup"))
     return stages
 
 
@@ -347,10 +360,31 @@ def github_mirror_url(url: str) -> str | None:
     return f"{prefix.rstrip('/')}/{url}" if prefix else None
 
 
-def python_build_mirror() -> str | None:
-    """`UV_PYTHON_INSTALL_MIRROR` for the mirror rung."""
+def github_backup_url(url: str) -> str | None:
+    """`url` on our own copy, or None when it is not a GitHub file."""
 
-    return github_mirror_url(_PYTHON_BUILD_RELEASES)
+    if not url.startswith(_GITHUB_HOSTS):
+        return None
+    return GITHUB_BACKUP + url.removeprefix("https://")
+
+
+def github_url_on(stage: DownloadStage, url: str) -> str:
+    """Where this rung fetches the GitHub file `url` from."""
+
+    if stage.kind == "mirror":
+        return github_mirror_url(url) or url
+    if stage.kind == "backup":
+        return github_backup_url(url) or url
+    return url
+
+
+def github_stages(url: str) -> list[DownloadStage]:
+    """The rungs for a file that may live on GitHub."""
+
+    return download_stages(
+        has_mirror=github_mirror_url(url) is not None,
+        has_backup=github_backup_url(url) is not None,
+    )
 
 
 def climb_huggingface(
@@ -483,14 +517,13 @@ def _laddered_download(download: Callable[..., _T]) -> Callable[..., _T]:
     def download_locked(asset, destination, progress, should_pause):
         if _pinned_stage.get() is not None:
             return download(asset, destination, progress, should_pause)
-        mirror = github_mirror_url(asset.url)
 
         def attempt(stage: DownloadStage):
-            target = asset.model_copy(update={"url": mirror}) if stage.mirror else asset
+            target = asset.model_copy(update={"url": github_url_on(stage, asset.url)})
             with pinned_stage(stage):
                 return download(target, destination, progress, should_pause)
 
-        return climb(download_stages(has_mirror=mirror is not None), attempt, advances=_file_advances)
+        return climb(github_stages(asset.url), attempt, advances=_file_advances)
 
     return download_locked
 
@@ -507,11 +540,10 @@ def _laddered_unverified(fetch: Callable[..., None]) -> Callable[..., None]:
     """`_fetch_unverified`, which reports nothing: a written file means it worked."""
 
     def fetch_unverified(url, destination, proxy, *, data_root=None) -> None:
-        mirror = github_mirror_url(url)
-        for stage in download_stages(has_mirror=mirror is not None):
+        for stage in github_stages(url):
             before = _fingerprint(destination)
             with pinned_stage(stage):
-                fetch(mirror if stage.mirror else url, destination, "", data_root=None)
+                fetch(github_url_on(stage, url), destination, "", data_root=None)
             if _fingerprint(destination) != before:
                 return
 
