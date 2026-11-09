@@ -150,6 +150,61 @@ class WorkerAdapterTests(unittest.TestCase):
         self.assertIn("- 主播 / 频道：柊優花", summary)
         self.assertIn("- 其他知识主题：Hololive", summary)
 
+    def zh_request(self, **extra) -> dict:
+        return {
+            "language": "zh",
+            "knowledge": "update",
+            "knowledge_subjects": [{"id": "s1", "kind": "streamer", "subject": "某主播"}],
+            "correction": {"extra_info": "背景", "extra_style": "简洁"},
+            **extra,
+        }
+
+    def test_a_new_chinese_task_drops_knowledge_and_style(self) -> None:
+        sys.path.insert(0, str(ROOT / "third_party/finesub/src"))
+        with tempfile.TemporaryDirectory() as temp:
+            request = worker.for_task_mode(self.zh_request(), Path(temp) / "llm-artifacts")
+
+        self.assertEqual(request["knowledge"], "none")
+        self.assertEqual(request["correction"], {"extra_info": "背景", "extra_style": ""})
+        self.assertEqual(worker.knowledge_subjects(request), [])
+        self.assertEqual(worker.compose_knowledge_context(request, "背景"), "背景")
+
+    def test_a_resumed_chinese_translation_keeps_its_settings(self) -> None:
+        sys.path.insert(0, str(ROOT / "third_party/finesub/src"))
+        records = {
+            "recorded before the field": '{"version": 1, "mode": "single", "proofread": true}',
+            "recorded as translating": '{"version": 1, "mode": "single", "proofread": true, "correct_only": false}',
+        }
+        for reason, record in records.items():
+            with self.subTest(reason), tempfile.TemporaryDirectory() as temp:
+                directory = Path(temp)
+                (directory / "correction-mode.json").write_text(record, encoding="utf-8")
+                self.assertEqual(worker.for_task_mode(self.zh_request(), directory), self.zh_request())
+        with self.subTest("windows but no record"), tempfile.TemporaryDirectory() as temp:
+            directory = Path(temp)
+            (directory / "correction-windows.jsonl").write_text("", encoding="utf-8")
+            self.assertEqual(worker.for_task_mode(self.zh_request(), directory), self.zh_request())
+
+    def test_a_resumed_correct_only_task_stays_correct_only(self) -> None:
+        sys.path.insert(0, str(ROOT / "third_party/finesub/src"))
+        with tempfile.TemporaryDirectory() as temp:
+            directory = Path(temp)
+            (directory / "correction-mode.json").write_text(
+                '{"version": 1, "mode": "single", "proofread": false, "correct_only": true}', encoding="utf-8"
+            )
+            (directory / "correction-windows.jsonl").write_text("", encoding="utf-8")
+            self.assertEqual(worker.for_task_mode(self.zh_request(), directory)["knowledge"], "none")
+
+    def test_only_a_declared_chinese_source_without_a_japanese_axis_changes(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            directory = Path(temp)
+            for request in (
+                {**self.zh_request(), "language": "ja"},
+                {**self.zh_request(), "language": "auto"},
+                self.zh_request(axis={"kind": "ja", "rows": []}),
+            ):
+                self.assertEqual(worker.for_task_mode(request, directory), request)
+
     def test_task_request_maps_to_pipeline_and_returns_hashed_manifest(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             task_dir = Path(temp) / "task"

@@ -3,7 +3,7 @@ import { shallowEqual } from '../../home/lib/createStore';
 import { DEFAULT_EFFECT_TRACK_ID } from '../../subtitles/effects';
 import { CustomSelect } from '../../components/CustomSelect';
 import { toggleFind } from '../lib/find';
-import { docStore, trackName } from '../store/docStore';
+import { docStore, laneNames, trackName } from '../store/docStore';
 import { findStore } from '../store/findStore';
 import { curSegs, selStore, setActiveTrack } from '../store/selectionStore';
 import { selectLane, stageStore } from '../store/stageStore';
@@ -80,12 +80,13 @@ function SideStylePanel() {
     if (sel && sel.trackId !== laneRef(curTrack, sel.lang).trackId) selectLane(laneRef(curTrack, sel.lang));
   }, [curTrack]);
 
+  const names = laneNames();
   return <div className="side-page side-style-page">
     <div className="side-head">
       <TrackSelect />
       <div className="side-segmented" role="group" aria-label="样式语言轴">
-        <button type="button" className={lang === "ja" ? "on" : ""} onClick={() => pickLang("ja")}>原文</button>
-        <button type="button" className={lang === "zh" ? "on" : ""} onClick={() => pickLang("zh")}>译文</button>
+        <button type="button" className={lang === "ja" ? "on" : ""} onClick={() => pickLang("ja")}>{names.ja}</button>
+        <button type="button" className={lang === "zh" ? "on" : ""} onClick={() => pickLang("zh")}>{names.zh}</button>
       </div>
     </div>
     <div className="side-panel"><StyleBar lane={laneRef(curTrack, lang)} /></div>

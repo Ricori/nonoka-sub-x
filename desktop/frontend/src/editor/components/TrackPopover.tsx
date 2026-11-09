@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { getStyleNames, resolveStyle } from '../ass';
 import { bindStyle, renameTarget } from '../lib/edits';
-import { docStore } from '../store/docStore';
+import { docStore, laneNames } from '../store/docStore';
 import { closeTrackPop, modalStore } from '../store/uiStore';
 import type { Lang } from '../types';
 
@@ -81,7 +81,7 @@ export function TrackPopover() {
       </div>
       {/* 只绑齿轮所在那一行（原文 / 译文）的样式 */}
       <div className="tp-lane">
-        <label>{lang === "ja" ? "原文样式" : "译文样式"}</label>
+        <label>{laneNames()[lang]}样式</label>
         <StyleSelect id="tp-style" lang={lang} value={style}
           onPick={v => bindStyle(lang, v, styleTarget)} />
       </div>

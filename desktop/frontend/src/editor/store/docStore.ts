@@ -29,6 +29,8 @@ interface DocState {
   rev: number;              // 服务端乐观锁版本
   title: string;
   videoFp: string | null;   // 上传时算好的文件指纹，选文件兜底校验用
+  /** 中文素材只纠错不翻译：ja 装忠实转写，zh 装润色稿，界面上不能再叫原文/译文 */
+  correctOnly: boolean;
   peaks: Peaks | null;
   version: number;
 }
@@ -36,11 +38,20 @@ interface DocState {
 export const docStore = createStore<DocState>({
   segs: [], tracks: [], trackMeta: null, effects: [], styles: "",
   knowledgeBase: "", canLearnKnowledge: false, knowledgeLearning: { status: "idle" },
-  rev: 0, title: "", videoFp: null, peaks: null, version: 0,
+  rev: 0, title: "", videoFp: null, correctOnly: false, peaks: null, version: 0,
 });
 
 /** 就地改完文档后调用，触发订阅者重渲染 */
 export const bumpDoc = () => docStore.set(s => ({ version: s.version + 1 }));
+
+const TRANSLATION_LANES = { ja: "原文", zh: "译文", both: "双语" };
+const CORRECT_ONLY_LANES = { ja: "转写", zh: "润色", both: "转写 + 润色" };
+
+/**
+ * 两条 lane 在界面上叫什么。字段名 ja/zh 是历史包袱，装的东西随任务而变。
+ * 文档打开时才定下来，开档后会 bumpDoc，订阅 version 的组件直接调用就是最新的。
+ */
+export const laneNames = () => docStore.get().correctOnly ? CORRECT_ONLY_LANES : TRANSLATION_LANES;
 
 /** ti：-1=默认轨，否则自定义轨下标 */
 export function segsOf(ti: Ti): Seg[] {

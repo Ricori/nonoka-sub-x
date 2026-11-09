@@ -273,24 +273,95 @@ def _words_for(source_ids: Iterable[str], stable: Mapping[str, dict[str, Any]]) 
     return words
 
 
+def _recorded_correct_only(path: str | Path | None) -> bool:
+    """Whether the task's `correction-mode.json` says it only corrected.
+
+    The record rather than the requested language: `auto` can turn out Chinese,
+    and a Chinese task begun before 0.7.0 goes on translating when resumed. A
+    missing or unreadable record is a translation, as it is to the engine.
+    """
+
+    if path is None:
+        return False
+    try:
+        payload = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    return isinstance(payload, dict) and payload.get("correct_only") is True
+
+
+def _cues_by_row(
+    annotated: list[dict[str, Any]], cues: list[SrtCue], *, relaxed: bool
+) -> list[SrtCue | None]:
+    """The final SRT cue of each annotated row, None for a row that has none.
+
+    Since 0.7.0 a row with no translation stays in annotated.csv but gets no
+    cue: a Chinese source's line that is only filler has its polished cell left
+    empty, so the two files legitimately differ by exactly those rows. Any other
+    difference cannot be mapped without guessing.
+    """
+
+    if len(annotated) == len(cues):
+        return list(cues)
+    with_text = [index for index, row in enumerate(annotated) if row["translation"]]
+    if len(with_text) == len(cues):
+        by_row: list[SrtCue | None] = [None] * len(annotated)
+        for index, cue in zip(with_text, cues):
+            by_row[index] = cue
+        return by_row
+    if relaxed:
+        return [cues[index] if index < len(cues) else None for index in range(len(annotated))]
+    raise ProjectionError(
+        "annotated.csv and final SRT row counts differ "
+        f"({len(annotated)} vs {len(cues)}); refusing positional truncation"
+    )
+
+
+def hide_source_lanes(projection: Mapping[str, Any]) -> dict[str, Any]:
+    """Start every source lane hidden, so the document shows and exports the subtitle the run delivered.
+
+    For a correct-only run, whose subtitle is the polished lane alone. Run after
+    the speaker split and the axis conform, which rebuild `track_meta` and the
+    tracks; they keep the source lane visible for a run with no second lane.
+    """
+
+    def hidden(lane: Any) -> dict[str, Any]:
+        return {**(lane if isinstance(lane, Mapping) else {}), "hidden": True}
+
+    meta = dict(projection.get("track_meta") or {})
+    meta["ja"] = hidden(meta.get("ja"))
+    return {
+        **projection,
+        "track_meta": meta,
+        "tracks": [{**track, "ja": hidden(track.get("ja"))} for track in projection.get("tracks") or []],
+    }
+
+
 def project_edit_document(
     stable_json: str | Path,
     *,
     annotated_csv: str | Path | None = None,
     final_srt: str | Path | None = None,
+    correction_mode: str | Path | None = None,
     video_id: str,
     title: str,
     source: str = "",
     fingerprint: str | None = None,
     relaxed_srt: bool = False,
 ) -> dict[str, Any]:
-    """Create an editor-compatible document from raw or final FineSub artifacts."""
+    """Create an editor-compatible document from raw or final FineSub artifacts.
+
+    A correct-only run (`correction_mode` records it) fills the same two fields
+    with other things: `ja` is the faithful transcript and `zh` its polish, and
+    `projection.correct_only` tells the editor to name them so.
+    """
 
     stable_segments, stable_by_id = _load_stable(Path(stable_json))
     if (annotated_csv is None) != (final_srt is None):
         raise ProjectionError("annotated_csv and final_srt must be supplied together")
     projected: list[dict[str, Any]] = []
     mode = "stable"
+    correct_only = annotated_csv is not None and _recorded_correct_only(correction_mode)
     if annotated_csv is None:
         for segment in stable_segments:
             item = {
@@ -319,16 +390,12 @@ def project_edit_document(
                 cues = []
         else:
             cues = parse_srt(Path(final_srt).read_text(encoding="utf-8"))
-        if not relaxed_srt and len(annotated) != len(cues):
-            raise ProjectionError(
-                "annotated.csv and final SRT row counts differ "
-                f"({len(annotated)} vs {len(cues)}); refusing positional truncation"
-            )
+        cue_of_row = _cues_by_row(annotated, cues, relaxed=relaxed_srt)
         mode = "final"
         previous_end = 0.0
         for index, row in enumerate(annotated):
             words = _words_for(row["source_ids"], stable_by_id)
-            cue = cues[index] if index < len(cues) else None
+            cue = cue_of_row[index]
             if cue is not None:
                 start, end, translated = cue.start, cue.end, cue.text or row["translation"]
             elif row["source_ids"]:
@@ -386,6 +453,6 @@ def project_edit_document(
             "zh": {"hidden": False, "style": "cn"},
         },
         "effects": [],
-        "projection": {"schema": 1, "mode": mode},
+        "projection": {"schema": 1, "mode": mode, **({"correct_only": True} if correct_only else {})},
     }
 

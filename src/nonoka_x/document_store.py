@@ -32,6 +32,11 @@ def _timestamp() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
+def _correct_only(document: Mapping[str, Any]) -> bool:
+    projection = document.get("projection")
+    return isinstance(projection, Mapping) and projection.get("correct_only") is True
+
+
 #: Windows denies `os.replace` while anything holds either name open, and
 #: Python's `open` does not share deletion -- so a reader of `snapshot.json`
 #: denies the writer. The desktop UI polls task status while the worker
@@ -168,6 +173,14 @@ class DocumentStore:
                     # whose lines it now holds.
                     if isinstance(current_meta, dict) and isinstance(incoming.get("track_meta"), Mapping):
                         current_meta["name"] = incoming["track_meta"].get("name", current_meta.get("name"))
+                        # A run that changes what the source lane holds (a translation's
+                        # original, a correct-only run's transcript) also changes whether
+                        # it belongs in the export; only that lane's style stays the person's.
+                        if _correct_only(current) != _correct_only(incoming) and "ja" in incoming["track_meta"]:
+                            current_meta["ja"] = {
+                                **(current_meta.get("ja") or {}),
+                                "hidden": bool(incoming["track_meta"]["ja"].get("hidden")),
+                            }
                 else:
                     incoming["tracks"] = current_tracks
                 incoming["track_meta"] = current_meta

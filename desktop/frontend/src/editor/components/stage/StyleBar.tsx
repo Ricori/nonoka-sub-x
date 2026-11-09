@@ -13,7 +13,7 @@ import {
 } from '../../lib/styleEdit';
 import { DEFAULT_EFFECT_TRACK_ID } from '../../../subtitles/effects';
 import { bindStyle } from '../../lib/edits';
-import { docStore } from '../../store/docStore';
+import { docStore, laneNames } from '../../store/docStore';
 import { modalStore, toast } from '../../store/uiStore';
 import { systemFonts } from '../../../bridge/systemFonts';
 import { PropRow, Segmented, SideSection, SliderField, Switch, ToggleChip } from '../ui/fields';
@@ -130,7 +130,7 @@ export function StyleBar({ lane }: { lane: LaneRef }) {
   const shared = bindings.filter(binding => binding.direct).length + blockUses > 1
     || bindings.some(binding => !binding.direct);
   const sharedTitle = [
-    ...bindings.map(b => `${b.trackName} · ${b.lang === "ja" ? "原文" : "译文"}`),
+    ...bindings.map(b => `${b.trackName} · ${laneNames()[b.lang]}`),
     ...(blockUses ? [`${blockUses} 个字幕块单独绑了它`] : []),
   ].join("\n");
   const sharedText = [bindings.length ? `${bindings.length} 条轨` : "", blockUses ? `${blockUses} 个字幕块` : ""]

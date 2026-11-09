@@ -4,7 +4,7 @@ import { useTheme } from '../../home/hooks/useTheme';
 import { exportAss } from '../lib/exportAss';
 import { exportSrt } from '../lib/exportSrt';
 import type { SrtLang } from '../lib/srtBuild';
-import { docStore } from '../store/docStore';
+import { docStore, laneNames } from '../store/docStore';
 import { openExport } from '../lib/openExport';
 import { manualSave, saveStore } from '../store/saveStore';
 import { showCtx } from '../store/uiStore';
@@ -47,9 +47,9 @@ export function TopBar() {
               { label: "导出 ASS 字幕", onClick: () => void runExport(exportAss) },
               "-",
               // SRT 把所有未隐藏轨道摊平成一条流（格式本身没有多轨概念），三种语言各存一份
-              srtItem("导出 SRT（双语）", "both"),
-              srtItem("导出 SRT（仅译文）", "zh"),
-              srtItem("导出 SRT（仅原文）", "ja"),
+              srtItem(`导出 SRT（${laneNames().both}）`, "both"),
+              srtItem(`导出 SRT（仅${laneNames().zh}）`, "zh"),
+              srtItem(`导出 SRT（仅${laneNames().ja}）`, "ja"),
               // 纯音频没有画面可以压字幕
               ...(audioOnly ? [] : ["-" as const, { label: "导出视频（内嵌字幕）", onClick: () => void openExport() }]),
             ], e.currentTarget)}>导出 ▾</button>

@@ -396,6 +396,36 @@ def diarization_kwargs(request: Mapping[str, Any]) -> dict[str, Any]:
     return kwargs
 
 
+def for_task_mode(request: Mapping[str, Any], artifact_dir: Path) -> dict[str, Any]:
+    """The request without what a Chinese-source task cannot use.
+
+    Since 0.7.0 such a task only corrects: it neither reads nor writes the
+    knowledge base and ignores `extra_style`. The engine turns those off itself
+    but warns about each one, and it validates pinned subjects before it gets
+    that far, so a subject it would never have read could still fail the run.
+
+    Follows the engine's own decision (`three_pass.task_correct_only`): a task
+    whose record or windows say it translated -- one begun before 0.7.0, say --
+    goes on translating, with the knowledge settings it started with. A source
+    only detected as Chinese (`language=auto`) cannot be known here and is left
+    to the engine. A Japanese axis has its source text and is always translated.
+    """
+
+    axis = request.get("axis")
+    if request.get("language") != "zh" or (isinstance(axis, Mapping) and axis.get("kind") == "ja"):
+        return dict(request)
+    from finesub.llm.correction_mode import recorded_choice, started
+
+    recorded = recorded_choice(artifact_dir)
+    if not (recorded.correct_only if recorded is not None else not started(artifact_dir)):
+        return dict(request)
+    return {
+        **request,
+        "knowledge": "none",
+        "correction": {**(request.get("correction") or {}), "extra_style": ""},
+    }
+
+
 def emit_request_notices(request: Mapping[str, Any]) -> None:
     """Say once what the provider adjusted in this request, and why."""
 
@@ -545,6 +575,8 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         request = json.loads(sys.stdin.readline())
+        artifact_dir = args.task_dir / "workspace" / "llm-artifacts"
+        request = for_task_mode(request, artifact_dir)
         install_proxy_route_policy()
         install_llm_model_override(request)
         emit_request_notices(request)
@@ -563,7 +595,6 @@ def main(argv: list[str] | None = None) -> int:
         from finesub.reporting import quieted_libraries, reporting_to
 
         axis = request.get("axis") if isinstance(request.get("axis"), dict) else None
-        artifact_dir = args.task_dir / "workspace" / "llm-artifacts"
         subjects = prepare_knowledge_subjects(request, args.task_id)
         for entry in subjects["created"]:
             emit("log", {
@@ -647,6 +678,9 @@ def main(argv: list[str] | None = None) -> int:
                 "annotated_csv": Path(paths.final_srt).with_name(f"{Path(paths.final_srt).stem}-annotated.csv"),
                 "final_srt": Path(paths.final_srt),
                 "metadata_json": Path(paths.metadata_json),
+                # The record of which way the task ran: the projection reads
+                # whether its two text columns are translation or polish.
+                "correction_mode_json": artifact_dir / "correction-mode.json",
             }
         upstream = json.loads((args.vendor / "UPSTREAM.json").read_text(encoding="utf-8"))
         manifest = {

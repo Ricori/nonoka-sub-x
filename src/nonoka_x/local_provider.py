@@ -35,7 +35,7 @@ from .document_store import (
     _read_json_when_free,
 )
 from .peaks import generate_peaks
-from .projector import ProjectionError, project_edit_document
+from .projector import ProjectionError, hide_source_lanes, project_edit_document
 from .provision import RuntimeProvisionError, RuntimeProvisioner
 from .settings import (
     FineSubSettings,
@@ -1683,6 +1683,7 @@ class LocalProvider:
             stable,
             annotated_csv=annotated if annotated is not None and final is not None else None,
             final_srt=final if annotated is not None and final is not None else None,
+            correction_mode=artifact_path("correction_mode_json"),
             video_id=video_id,
             title=str(metadata.get("title") or video_id),
             source=str(metadata.get("path") or metadata.get("source_path") or ""),
@@ -1702,6 +1703,8 @@ class LocalProvider:
             # No axis: the engine's speaker labels, when the run made any,
             # are the only account of who says what.
             projection = split_diarized_tracks(projection)
+        if projection["projection"].get("correct_only"):
+            projection = hide_source_lanes(projection)
         return self.documents.create(
             video_id,
             projection,

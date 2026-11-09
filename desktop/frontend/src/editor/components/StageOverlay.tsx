@@ -7,7 +7,7 @@ import type { SubtitleBox } from '../lib/stageHit';
 import { setSegText } from '../lib/edits';
 import { armPending, commitPending, disarmPending, pushHistory } from '../lib/history';
 import { patchStyle } from '../lib/styleEdit';
-import { docStore } from '../store/docStore';
+import { docStore, laneNames } from '../store/docStore';
 import { playStore } from '../store/playStore';
 import { clearStageSelection, stageStore } from '../store/stageStore';
 import { modalStore } from '../store/uiStore';
@@ -138,7 +138,7 @@ export function StageOverlay({ stageRef }: { stageRef: React.RefObject<HTMLDivEl
         onClick={event => event.stopPropagation()}>
 
         <span className="sel-tag">
-          {box.trackName} · {box.lang === "ja" ? "原文" : "译文"} · {box.styleName}
+          {box.trackName} · {laneNames()[box.lang]} · {box.styleName}
         </span>
 
         <span className="sel-rotate" title="拖动旋转（按住 Shift 吸附 15°）"

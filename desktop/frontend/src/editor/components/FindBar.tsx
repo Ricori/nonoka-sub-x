@@ -5,16 +5,19 @@ import {
   stepHit, toggleAllTracks, toggleMatchCase,
 } from '../lib/find';
 import { CustomSelect } from '../../components/CustomSelect';
-import { docStore } from '../store/docStore';
+import { docStore, laneNames } from '../store/docStore';
 import { findStore, type FindField } from '../store/findStore';
 import { selStore } from '../store/selectionStore';
 import { viewStore } from '../store/viewStore';
 
-const FIELD_OPTIONS: { value: FindField; label: string }[] = [
-  { value: "both", label: "原文 + 译文" },
-  { value: "ja", label: "仅原文" },
-  { value: "zh", label: "仅译文" },
-];
+function fieldOptions(): { value: FindField; label: string }[] {
+  const names = laneNames();
+  return [
+    { value: "both", label: `${names.ja} + ${names.zh}` },
+    { value: "ja", label: `仅${names.ja}` },
+    { value: "zh", label: `仅${names.zh}` },
+  ];
+}
 
 /** 字幕列表顶部的查找/替换条（Ctrl+F 开关） */
 export function FindBar() {
@@ -71,7 +74,7 @@ export function FindBar() {
         <button type="button" className={"fbtn tog" + (f.matchCase ? " on" : "")} title="区分大小写"
           aria-pressed={f.matchCase} onClick={toggleMatchCase}>Aa</button>
         <CustomSelect compact className="find-field" ariaLabel="在哪些文本里查找" value={f.field}
-          options={FIELD_OPTIONS} onChange={value => setField(value)} />
+          options={fieldOptions()} onChange={value => setField(value)} />
         <button type="button" className={"fbtn tog" + (f.allTracks ? " on" : "")} title="跨所有轨道查找（跳转时会自动切轨）"
           aria-pressed={f.allTracks} onClick={toggleAllTracks}>所有轨道</button>
       </div>

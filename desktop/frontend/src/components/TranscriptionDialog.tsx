@@ -172,7 +172,9 @@ const GPU_TIER_OPTIONS = GPU_TIERS.map((value) => ({ value, label: GPU_TIER_LABE
 const CPU_DEVICE_HINT = "无显卡时的运行方式；整条流水线仍然完整，但耗时通常是音频时长的十几到几十倍";
 
 // 关掉分离不会报错，只会让识别质量整体塌掉——所以这里说清它是给什么输入用的。
-const SKIP_SEPARATION_HINT = "仅在输入本身就是纯人声（已分离的人声轨、录音棚干声）时关闭；该分离而没分离不会报错，只是识别质量整体下降";
+const CHINESE_SOURCE_NOTE = "中文素材只做纠错和润色，不翻译。这条路径不读写知识库，翻译风格也不生效，所以这里不再显示它们。";
+
+const SKIP_SEPARATION_HINT ="仅在输入本身就是纯人声（已分离的人声轨、录音棚干声）时关闭；该分离而没分离不会报错，只是识别质量整体下降";
 
 export function TranscriptionDialog(props: TranscriptionDialogProps) {
   const {
@@ -238,7 +240,10 @@ export function TranscriptionDialog(props: TranscriptionDialogProps) {
   const supportsVideo = localCapabilities?.features.video_multimodal === true;
   const supportsKnowledge = localCapabilities?.features.knowledge === true;
   const finalOutput = request.target === "final-srt";
-  const knowledgeActive = supportsKnowledge && finalOutput && request.knowledge !== "none";
+  // 引擎对中文素材只纠错、不翻译（日文轴另说，它只有翻译这一件事）。选项留在 state 里不动，
+  // 改回别的语言时还在；发请求时才收掉。选「自动检测」事先判断不了，交给引擎，编辑器按实际结果显示。
+  const chineseSource = request.language === "zh" && !translateOnly;
+  const knowledgeActive = supportsKnowledge && finalOutput && request.knowledge !== "none" && !chineseSource;
   const knowledgeWrites = knowledgeActive && request.knowledge === "update";
   const devices = localCapabilities?.devices ?? [];
   const cpuOnly = (localCapabilities?.runtime?.warnings ?? []).some((warning) => warning.code === "missing_gpu");
@@ -319,10 +324,10 @@ export function TranscriptionDialog(props: TranscriptionDialogProps) {
     if (axis && importOnly) return `直接导入 ${axis.rows.length} 条字幕，不做任何处理`;
     if (axis && translateOnly) return `按你的轴在本机补中文译文，不做识别（${axis.rows.length} 条）`;
     const where = engine === "local" ? "本机转写" : "云端转写";
-    const output = finalOutput ? "本机 AI 纠错与翻译" : "只输出原始字幕";
+    const output = !finalOutput ? "只输出原始字幕" : chineseSource ? "本机 AI 纠错与润色（不翻译）" : "本机 AI 纠错与翻译";
     const source = request.language === "auto" ? "自动检测语言" : languageOptions.find(([id]) => id === request.language)?.[1] ?? request.language;
     return `${source} · ${where} · ${output}${axis ? " · 按导入的轴重排" : ""}${diarization !== "off" ? " · 区分说话人" : ""}`;
-  }, [axis, diarization, engine, finalOutput, importOnly, request.language, translateOnly]);
+  }, [axis, chineseSource, diarization, engine, finalOutput, importOnly, request.language, translateOnly]);
 
   const back = useCallback(() => {
     if (step === "settings") setStep("axis");
@@ -497,8 +502,9 @@ export function TranscriptionDialog(props: TranscriptionDialogProps) {
     || knowledgeSubjectMissing;
   const startRequest: TaskRequest = requestForEngine(runsOn, {
     ...request,
-    knowledge: finalOutput ? request.knowledge : "none",
+    knowledge: finalOutput && !chineseSource ? request.knowledge : "none",
     knowledge_subjects: knowledgeSubjects,
+    correction: chineseSource ? { ...request.correction, extra_style: "" } : request.correction,
     ...(diarization !== "off" ? { diarization: { level: diarization } } : {}),
   }, entry);
   const uploadingCloudAudio = busy && runsOn === "cloud";
@@ -513,6 +519,7 @@ export function TranscriptionDialog(props: TranscriptionDialogProps) {
   const cloudBadge = !cloudAuthenticated ? "未登录" : cloudDurationExceeded ? "时长超限" : harnessIssue ? "需本机环境"
     : cloudRemaining === undefined ? "已登录" : `剩余 ${cloudRemaining} 次`;
   const chosenIssue = engineIssue(engine);
+  const correctionTitle = chineseSource ? "纠错与润色" : "纠错与翻译";
 
   return (
     <div className="modal-backdrop transcription-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) onClose(); }}>
@@ -635,9 +642,9 @@ export function TranscriptionDialog(props: TranscriptionDialogProps) {
             <section className={`transcription-block ${finalOutput ? "" : "collapsed"}`.trim()} aria-labelledby="transcription-block-llm">
               <header className="transcription-block-head">
                 <span className="transcription-block-index" aria-hidden="true">2</span>
-                <strong id="transcription-block-llm">纠错与翻译</strong>
+                <strong id="transcription-block-llm">{correctionTitle}</strong>
                 <label className="block-switch" title={correctionIssue || undefined}>
-                  <input type="checkbox" role="switch" aria-label="纠错与翻译" checked={finalOutput} disabled={translateOnly || !correctionAvailable} onChange={(event) => setCorrection(event.target.checked)} />
+                  <input type="checkbox" role="switch" aria-label={correctionTitle} checked={finalOutput} disabled={translateOnly || !correctionAvailable} onChange={(event) => setCorrection(event.target.checked)} />
                   <i aria-hidden="true" />
                 </label>
               </header>
@@ -646,12 +653,13 @@ export function TranscriptionDialog(props: TranscriptionDialogProps) {
                 : <button onClick={onOpenRuntime}>检查运行环境</button>}</p>}
 
               {finalOutput && <>
+                {chineseSource && <p className="transcription-note">{CHINESE_SOURCE_NOTE}</p>}
                 <div className="form-grid transcription-block-fields">
                   <label>纠错参考<CustomSelect value={request.correction.media} options={[{ value: "text", label: "仅识别文本" }, { value: "audio" as const, label: "音频", disabled: !limits.audio, hint: limits.audio ? undefined : mediaHint("supportsAudio") }, ...(supportsVideo ? [{ value: "video" as const, label: "视频多模态", disabled: !limits.video, hint: limits.video ? undefined : entry.audioOnly ? "纯音频素材没有画面" : mediaHint("supportsVideo") }] : [])]} onChange={(media) => setRequest((current) => ({ ...current, correction: { ...current.correction, media } }))} /></label>
                   <label>处理质量<CustomSelect value={request.correction.difficulty} options={[{ value: "efficiency", label: "效率优先" }, { value: "intermediate", label: "均衡" }, { value: "quality", label: "质量优先" }]} onChange={(difficulty) => setRequest((current) => ({ ...current, correction: { ...current.correction, difficulty } }))} /></label>
                   <label>快速模式<CustomSelect value={request.correction.fast} options={[{ value: "auto", label: "自动", hint: "字幕放得进单个窗口时一次完成，放不下时自动改走正常流程" }, { value: "off", label: "关闭" }]} onChange={(fast) => setRequest((current) => ({ ...current, correction: { ...current.correction, fast } }))} /></label>
                   <label>资料检索<CustomSelect value={request.correction.retrieval} options={[{ value: "none", label: "不检索" }, { value: "local", label: "本地检索", disabled: !limits.retrieval, hint: limits.retrieval ? undefined : RETRIEVAL_KEY_HINT }, { value: "native", label: "模型原生检索", disabled: !limits.nativeSearch, hint: limits.nativeSearch ? undefined : NATIVE_SEARCH_HINT }]} onChange={(retrieval) => setRequest((current) => ({ ...current, correction: { ...current.correction, retrieval } }))} /></label>
-                  {supportsKnowledge && <label>知识库<CustomSelect value={request.knowledge} options={[{ value: "none", label: "不使用" }, { value: "read", label: "读取知识库" }, { value: "update", label: "读取知识库并自动更新" }]} onChange={setKnowledge} /></label>}
+                  {supportsKnowledge && !chineseSource && <label>知识库<CustomSelect value={request.knowledge} options={[{ value: "none", label: "不使用" }, { value: "read", label: "读取知识库" }, { value: "update", label: "读取知识库并自动更新" }]} onChange={setKnowledge} /></label>}
                 </div>
 
                 {knowledgeActive && <section className="transcription-section knowledge-subject-section">
@@ -703,9 +711,9 @@ export function TranscriptionDialog(props: TranscriptionDialogProps) {
                   </section>;
                 })}
 
-                <div className="prompt-grid transcription-block-fields">
+                <div className={`prompt-grid transcription-block-fields ${chineseSource ? "single-column" : ""}`.trim()}>
                   <label>背景信息<textarea rows={3} maxLength={4000} placeholder="人物、节目、专有名词等（可选）" value={request.correction.extra_info} onChange={(event) => setRequest((current) => ({ ...current, correction: { ...current.correction, extra_info: event.target.value } }))} /></label>
-                  <label>翻译风格<textarea rows={3} maxLength={4000} placeholder="例如：简洁自然，保留角色名英文（可选）" value={request.correction.extra_style} onChange={(event) => setRequest((current) => ({ ...current, correction: { ...current.correction, extra_style: event.target.value } }))} /></label>
+                  {!chineseSource && <label>翻译风格<textarea rows={3} maxLength={4000} placeholder="例如：简洁自然，保留角色名英文（可选）" value={request.correction.extra_style} onChange={(event) => setRequest((current) => ({ ...current, correction: { ...current.correction, extra_style: event.target.value } }))} /></label>}
                 </div>
               </>}
             </section>

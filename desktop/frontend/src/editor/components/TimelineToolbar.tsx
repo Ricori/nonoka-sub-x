@@ -4,7 +4,7 @@ import { endScrub } from '../lib/playback';
 import {
   cutAtPlayhead, hasContiguous, keepSelectedSegs, mergeContiguous, resetVideoEdit, splitHere, toggleFocus,
 } from '../lib/videoEdit';
-import { docStore } from '../store/docStore';
+import { docStore, laneNames } from '../store/docStore';
 import { layoutStore, saveLayout } from '../store/layoutStore';
 import { playStore } from '../store/playStore';
 import { modalStore, showCtx } from '../store/uiStore';
@@ -22,6 +22,7 @@ export function TimelineToolbar() {
   const focused = focus && !!pieces;
   const videoActive = vselStore.use(s => s.videoActive);
   const joined = pieces ? joinPieces(pieces) : null;
+  const sourceName = laneNames().ja;
 
   /** 成片面包屑下拉：在完整片和成片之间切换，外加几个整体操作 */
   function crumbMenu(e: React.MouseEvent) {
@@ -69,12 +70,12 @@ export function TimelineToolbar() {
       </button>
       <div className="sep"></div>
       <button className={"tool" + (foldJa() ? " on" : "")} id="btn-fold-ja"
-        title="一键隐藏所有原文轨，导出同步不出原文" onClick={toggleFoldJa}>
+        title={`一键隐藏所有${sourceName}轨，导出同步不出${sourceName}`} onClick={toggleFoldJa}>
         <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" strokeWidth="1.4">
           <path d="M1 6.5S3 2.5 6.5 2.5 12 6.5 12 6.5 10 10.5 6.5 10.5 1 6.5 1 6.5Z" />
           <path d="M2 11 11 2" />
         </svg>
-        <span id="fold-ja-txt">隐藏原文轨</span>
+        <span id="fold-ja-txt">隐藏{sourceName}轨</span>
       </button>
       <div className="sep"></div>
       {/* 右对齐区：仅图标，靠 #tool-snap 的 margin-left:auto 吃掉前面的剩余空间 */}

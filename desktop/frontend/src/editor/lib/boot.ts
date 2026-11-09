@@ -145,6 +145,7 @@ export async function runBootSequence() {
       knowledgeBase: "",
       canLearnKnowledge: false,
       knowledgeLearning: { status: "idle" },
+      correctOnly: data.projection?.correct_only === true,
       peaks,
     });
     setDocStyles(styles, { dirty: false });

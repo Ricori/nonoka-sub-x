@@ -7,7 +7,7 @@ import { toggleDefaultHidden, toggleTrackHidden } from '../lib/edits';
 import { applyRowHeight, rowDisplayH } from '../lib/rows';
 import { effGain, setWaveGain, stepWaveGain } from '../lib/wave';
 import { splitHandler } from '../lib/split';
-import { docStore, laneColor } from '../store/docStore';
+import { docStore, laneColor, laneNames } from '../store/docStore';
 import { layoutStore, saveLayout, setRowH } from '../store/layoutStore';
 import { selStore, setActiveTrack } from '../store/selectionStore';
 import { openTrackPop } from '../store/uiStore';
@@ -84,7 +84,7 @@ function TrackLabel({ r, cur }: { r: RowSpec; cur: boolean }) {
   const isDefault = ti < 0;
   const tr = tracks[ti];
   const full = (isDefault || !tr ? (trackMeta?.name || "默认轨") : (tr.name || ("轨道 " + (ti + 1))))
-    + " · " + (lang === "ja" ? "原文" : "译文");
+    + " · " + laneNames()[lang];
   const hidden = isDefault || !tr
     ? !!trackMeta?.[lang].hidden
     : !!tr[lang].hidden;

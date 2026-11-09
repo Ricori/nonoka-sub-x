@@ -1,5 +1,5 @@
 import { MIN_DUR } from '../constants';
-import { bumpDoc, docStore, locateSeg, segsOf } from '../store/docStore';
+import { bumpDoc, docStore, laneNames, locateSeg, segsOf } from '../store/docStore';
 import { playStore } from '../store/playStore';
 import { markDirty } from '../store/saveStore';
 import {
@@ -273,7 +273,7 @@ export function toggleFoldJa() {
   trackMeta.ja.hidden = hide;
   tracks.forEach(tr => { tr.ja.hidden = hide; });
   refreshAll(); markDirty();
-  toast(hide ? "已隐藏所有原文轨" : "已显示所有原文轨");
+  toast(`${hide ? "已隐藏" : "已显示"}所有${laneNames().ja}轨`);
 }
 
 // ── 轨道增删（换轨靠时间轴上下拖字幕块，见 useLaneDrag）──────

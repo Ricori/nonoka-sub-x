@@ -13,7 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "third_party" / "fi
 from finesub.speech.diarization.judgments import Inserted, Judgments
 from finesub.subtitles.stable_rows import lines_hash
 from nonoka_x.document_store import DocumentError, DocumentStore, RevisionConflict
-from nonoka_x.projector import ProjectionError, parse_srt, project_edit_document
+from nonoka_x.projector import ProjectionError, hide_source_lanes, parse_srt, project_edit_document
 
 
 FIXTURES = Path(__file__).parent / "fixtures" / "finesub"
@@ -201,6 +201,77 @@ class ProjectorTests(unittest.TestCase):
                     title="Sample",
                 )
 
+    def correct_only_run(self, temp: str, *, recorded: bool = True) -> dict[str, Path]:
+        """A Chinese run as the engine leaves it: the filler line is in the annotated rows, not the subtitle."""
+
+        root = Path(temp)
+        stable = root / "zh-stable.json"
+        stable.write_text(json.dumps({"segments": [
+            {"start": 1.0, "end": 2.0, "text": "就是那个那个新角色"},
+            {"start": 2.4, "end": 2.6, "text": "呃"},
+            {"start": 3.0, "end": 4.0, "text": "下期再讲"},
+        ]}, ensure_ascii=False), encoding="utf-8")
+        annotated = root / "zh-annotated.csv"
+        annotated.write_text(
+            "# type|position|duration|gap|corrected|translation|conf|char_count|spk|note\n"
+            "sub|1|1.0||就是那个那个新角色|就是那个新角色|high|7||\n"
+            "sub|2|0.2|0.4|呃||high|0||整行只有垫词\n"
+            "sub|3|1.0|0.4|下期再讲|下期再讲|high|4||\n",
+            encoding="utf-8",
+        )
+        final = root / "zh.srt"
+        final.write_text(
+            "1\n00:00:01,000 --> 00:00:02,300\n就是那个新角色\n\n"
+            "2\n00:00:03,000 --> 00:00:04,300\n下期再讲\n",
+            encoding="utf-8",
+        )
+        mode = root / "correction-mode.json"
+        if recorded:
+            mode.write_text('{"version": 1, "mode": "single", "proofread": false, "correct_only": true}', encoding="utf-8")
+        return {"stable": stable, "annotated": annotated, "final": final, "mode": mode}
+
+    def project_run(self, run: dict[str, Path]) -> dict:
+        return project_edit_document(
+            run["stable"],
+            annotated_csv=run["annotated"],
+            final_srt=run["final"],
+            correction_mode=run["mode"],
+            video_id="video-1",
+            title="中文",
+        )
+
+    def test_a_filler_row_keeps_its_transcript_without_taking_a_cue(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            document = self.project_run(self.correct_only_run(temp))
+
+        self.assertEqual(
+            [(row["t0"], row["t1"], row["ja"], row["zh"]) for row in document["subtitles"]],
+            [
+                (1.0, 2.3, "就是那个那个新角色", "就是那个新角色"),
+                (2.4, 2.6, "呃", ""),
+                (3.0, 4.3, "下期再讲", "下期再讲"),
+            ],
+        )
+        self.assertEqual(document["projection"], {"schema": 1, "mode": "final", "correct_only": True})
+
+    def test_a_task_without_the_correct_only_record_stays_a_translation(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            document = self.project_run(self.correct_only_run(temp, recorded=False))
+
+        self.assertEqual(document["projection"], {"schema": 1, "mode": "final"})
+        self.assertFalse(document["track_meta"]["ja"]["hidden"])
+
+    def test_hiding_source_lanes_covers_the_speaker_tracks_and_keeps_styles(self) -> None:
+        hidden = hide_source_lanes({
+            "track_meta": {"name": "A", "ja": {"hidden": False, "style": "origin"}, "zh": {"hidden": False, "style": "cn"}},
+            "tracks": [{"id": "d1", "ja": {"hidden": False, "style": "x"}, "zh": {"hidden": False, "style": "cn"}}],
+        })
+
+        self.assertEqual(hidden["track_meta"]["ja"], {"hidden": True, "style": "origin"})
+        self.assertFalse(hidden["track_meta"]["zh"]["hidden"])
+        self.assertEqual(hidden["tracks"][0]["ja"], {"hidden": True, "style": "x"})
+        self.assertFalse(hidden["tracks"][0]["zh"]["hidden"])
+
     def test_zero_duration_stable_segment_is_widened_instead_of_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             stable = Path(temp) / "collapsed-stable.json"
@@ -303,6 +374,40 @@ class DocumentStoreTests(unittest.TestCase):
             self.assertEqual(replaced["tracks"], [track])
             self.assertEqual(replaced["effects"], effects)
             self.assertEqual(replaced["rev"], 2)
+
+    def meta(self, *, hidden: bool, style: str = "origin") -> dict:
+        return {"name": "默认轨", "ja": {"hidden": hidden, "style": style}, "zh": {"hidden": False, "style": "cn"}}
+
+    def test_switching_to_a_correct_only_run_hides_the_source_lane_but_keeps_its_style(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            store = DocumentStore(temp)
+            store.create("video-1", {**self.projection(), "track_meta": self.meta(hidden=False, style="mine")})
+            replaced = store.create(
+                "video-1",
+                {
+                    **self.projection(),
+                    "projection": {"schema": 1, "mode": "final", "correct_only": True},
+                    "track_meta": self.meta(hidden=True),
+                },
+                replace_default=True,
+                generated_track_prefixes=("d",),
+            )
+
+        self.assertEqual(replaced["track_meta"]["ja"], {"hidden": True, "style": "mine"})
+
+    def test_rerunning_the_same_kind_of_task_keeps_what_the_person_chose(self) -> None:
+        correct_only = {"schema": 1, "mode": "final", "correct_only": True}
+        with tempfile.TemporaryDirectory() as temp:
+            store = DocumentStore(temp)
+            store.create("video-1", {**self.projection(), "projection": correct_only, "track_meta": self.meta(hidden=False)})
+            replaced = store.create(
+                "video-1",
+                {**self.projection(), "projection": correct_only, "track_meta": self.meta(hidden=True)},
+                replace_default=True,
+                generated_track_prefixes=("d",),
+            )
+
+        self.assertFalse(replaced["track_meta"]["ja"]["hidden"])
 
 
 if __name__ == "__main__":

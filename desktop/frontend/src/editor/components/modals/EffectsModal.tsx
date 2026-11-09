@@ -7,7 +7,7 @@ import type {
 } from '../../../subtitles/effects.ts';
 import { disableEffect, enableEffect, exactEffectBinding, updateEffectParams } from '../../lib/effects';
 import { karaokeSummary, karaokeTracks } from '../../lib/karaoke';
-import { docStore } from '../../store/docStore';
+import { docStore, laneNames } from '../../store/docStore';
 import { modalStore } from '../../store/uiStore';
 import type {
   SubtitleEffectBinding, SubtitleEffectTarget,
@@ -91,14 +91,15 @@ export function EffectsModal() {
 
   const targets = useMemo<TargetOption[]>(() => {
     const values: TargetOption[] = [{ key: "all", group: "整个项目", label: "全部字幕轴", target: { scope: "all" } }];
+    const names = laneNames();
     const addTrack = (trackId: string, name: string) => {
       const trackTarget: SubtitleEffectTarget = { scope: "track", trackId };
       const jaTarget: SubtitleEffectTarget = { scope: "lane", trackId, lang: "ja" };
       const zhTarget: SubtitleEffectTarget = { scope: "lane", trackId, lang: "zh" };
       values.push(
-        { key: effectTargetKey(trackTarget), group: name, label: "整条轨道（双语）", target: trackTarget },
-        { key: effectTargetKey(jaTarget), group: name, label: "原文轴", target: jaTarget },
-        { key: effectTargetKey(zhTarget), group: name, label: "中文译文轴", target: zhTarget },
+        { key: effectTargetKey(trackTarget), group: name, label: `整条轨道（${names.both}）`, target: trackTarget },
+        { key: effectTargetKey(jaTarget), group: name, label: `${names.ja}轴`, target: jaTarget },
+        { key: effectTargetKey(zhTarget), group: name, label: `${names.zh}轴`, target: zhTarget },
       );
     };
     addTrack(DEFAULT_EFFECT_TRACK_ID, "默认轨");

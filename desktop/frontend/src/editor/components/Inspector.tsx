@@ -4,7 +4,7 @@ import { shallowEqual } from '../../home/lib/createStore';
 import { deleteSegment, mergeNext, /* nudge, */ setSegText } from '../lib/edits';
 import { armPending, commitPending, disarmPending } from '../lib/history';
 import { seek } from '../lib/playback';
-import { docStore } from '../store/docStore';
+import { docStore, laneNames } from '../store/docStore';
 import { curSegs, select, selStore } from '../store/selectionStore';
 import { toast } from '../store/uiStore';
 import { /* fmtView, */ viewStore } from '../store/viewStore';
@@ -80,14 +80,14 @@ export function Inspector() {
       </div>
       */}
       <div className="textfield lang-ja">
-        <label><i></i>原文</label>
+        <label><i></i>{laneNames().ja}</label>
         <textarea id="insp-ja" ref={jaRef} spellCheck={false} value={s ? s.ja : ""}
           onFocus={armPending} onBlur={disarmPending}
           onKeyDown={e => onKeyDown(e, "ja")}
           onChange={e => onInput("ja", e.target.value)} />
       </div>
       <div className="textfield lang-zh">
-        <label><i></i>译文</label>
+        <label><i></i>{laneNames().zh}</label>
         <textarea id="insp-zh" ref={zhRef} spellCheck={false} value={s ? s.zh : ""}
           onFocus={armPending} onBlur={disarmPending}
           onKeyDown={e => onKeyDown(e, "zh")}

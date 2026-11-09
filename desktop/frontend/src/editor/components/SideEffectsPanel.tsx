@@ -6,7 +6,7 @@ import type { EffectParamDefinition } from '../../subtitles/effects';
 import { formatAssColor, hexOf, parseAssColor, parseCssHex } from '../../subtitles/color';
 import { CustomSelect } from '../../components/CustomSelect';
 import { disableEffect, enableEffect, exactEffectBinding, updateEffectParams } from '../lib/effects';
-import { docStore } from '../store/docStore';
+import { docStore, laneNames } from '../store/docStore';
 import { modalStore } from '../store/uiStore';
 import type { SubtitleEffectBinding, SubtitleEffectTarget } from '../types';
 import { ColorField } from './ui/ColorField';
@@ -54,14 +54,15 @@ export function SideEffectsPanel() {
 
   const targets = useMemo<TargetOption[]>(() => {
     const values: TargetOption[] = [{ key: "all", label: "整个项目", target: { scope: "all" } }];
+    const names = laneNames();
     const addTrack = (trackId: string, name: string) => {
       const track: SubtitleEffectTarget = { scope: "track", trackId };
       const ja: SubtitleEffectTarget = { scope: "lane", trackId, lang: "ja" };
       const zh: SubtitleEffectTarget = { scope: "lane", trackId, lang: "zh" };
       values.push(
-        { key: effectTargetKey(track), label: `${name} · 双语`, target: track },
-        { key: effectTargetKey(ja), label: `${name} · 原文`, target: ja },
-        { key: effectTargetKey(zh), label: `${name} · 译文`, target: zh },
+        { key: effectTargetKey(track), label: `${name} · ${names.both}`, target: track },
+        { key: effectTargetKey(ja), label: `${name} · ${names.ja}`, target: ja },
+        { key: effectTargetKey(zh), label: `${name} · ${names.zh}`, target: zh },
       );
     };
     addTrack(DEFAULT_EFFECT_TRACK_ID, "默认轨");

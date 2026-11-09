@@ -3,7 +3,7 @@ import { CustomSelect } from '../../components/CustomSelect';
 import {
   bindStyle, deleteTrack, newTrack, renameTarget, toggleDefaultHidden, toggleTrackHidden,
 } from '../lib/edits';
-import { docStore, segsOf } from '../store/docStore';
+import { docStore, laneNames, segsOf } from '../store/docStore';
 import { selStore, setActiveTrack } from '../store/selectionStore';
 import { modalStore } from '../store/uiStore';
 import type { Lang } from '../types';
@@ -45,6 +45,7 @@ export function SideTrackPanel() {
 
   const toggleHidden = (ti: number, lang: Lang) => ti < 0 ? toggleDefaultHidden(lang) : toggleTrackHidden(ti, lang);
   const laneOf = (ti: number, lang: Lang) => ti < 0 ? trackMeta?.[lang] : tracks[ti]?.[lang];
+  const names = laneNames();
 
   return <div className="side-page">
     <div className="side-panel">
@@ -63,9 +64,9 @@ export function SideTrackPanel() {
               {(["ja", "zh"] as Lang[]).map(lang => {
                 const hidden = !!laneOf(ti, lang)?.hidden;
                 return <button key={lang} type="button" className={"trk-eye lang-" + lang + (hidden ? " off" : "")}
-                  title={(lang === "ja" ? "原文" : "译文") + (hidden ? "：已隐藏，点击显示" : "：点击隐藏")}
+                  title={names[lang] + (hidden ? "：已隐藏，点击显示" : "：点击隐藏")}
                   onClick={event => { event.stopPropagation(); toggleHidden(ti, lang); }}>
-                  <EyeIcon off={hidden} /><span>{lang === "ja" ? "原" : "译"}</span>
+                  <EyeIcon off={hidden} /><span>{names[lang][0]}</span>
                 </button>;
               })}
             </div>;
@@ -83,7 +84,7 @@ export function SideTrackPanel() {
 
       {(["ja", "zh"] as Lang[]).map(lang => {
         const meta = lane(lang);
-        return <SideSection key={lang} title={lang === "ja" ? "原文" : "译文"}
+        return <SideSection key={lang} title={names[lang]}
           extra={<Switch on={!meta?.hidden} title={meta?.hidden ? "显示这一行" : "隐藏这一行"}
             onToggle={() => toggleHidden(curTrack, lang)} />}>
           <PropRow label="样式">
