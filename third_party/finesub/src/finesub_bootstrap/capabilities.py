@@ -52,9 +52,8 @@ def preferred_capabilities(*, stage: str = "raw-srt") -> tuple[str, ...]:
     task on that list, and everything here has a working fallback in the
     pipeline. Gating on an optimisation turns a slower run into no run at all.
 
-    `tokcount` is the local tokenizer binary. The LLM layer counts tokens
-    through the free `countTokens` endpoint without it, so the run still works
-    -- it just needs the network and a key to plan, even for a dry run.
+    `tokcount` is the local tokenizer binary. The LLM layer estimates token
+    counts without it, so the run still works, on slightly larger budgets.
     """
 
     return ("tokcount",) if stage in LLM_STAGES else ()

@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from nonoka_x.provision import CANCELLED_MESSAGE, DONE_MESSAGES, OPTIONAL_TOOLS, TOOL_GROUPS, RuntimeProvisionError, RuntimeProvisioner, parse_model_install_event
+from nonoka_x.provision import CANCELLED_MESSAGE, DONE_MESSAGES, OPTIONAL_TOOLS, REMOVABLE_TOOL_GROUPS, REQUIRED_TOOLS, TOOL_GROUPS, RuntimeProvisionError, RuntimeProvisioner, parse_model_install_event
 
 
 VENDOR = Path(__file__).resolve().parents[1] / "third_party" / "finesub"
@@ -216,11 +216,41 @@ def test_model_installer_events_are_validated_before_updating_ui() -> None:
 
 
 def test_optional_tools_are_explicit_install_targets() -> None:
-    assert OPTIONAL_TOOLS == ("yt-dlp", "tokcount", "aria2c", "node", "pot-provider")
+    assert OPTIONAL_TOOLS == ("yt-dlp", "aria2c", "node", "pot-provider")
     assert TOOL_GROUPS["video-tools"] == ("yt-dlp", "aria2c", "node", "pot-provider")
-    assert TOOL_GROUPS["optional-tools"] == ("tokcount",)
     assert all(tool in OPTIONAL_TOOLS for tool in TOOL_GROUPS["video-tools"])
     assert all(tool in DONE_MESSAGES for tool in OPTIONAL_TOOLS)
+
+
+def test_tokcount_is_required_and_cannot_be_removed() -> None:
+    assert REQUIRED_TOOLS == ("tokcount",)
+    assert all(tool in DONE_MESSAGES for tool in REQUIRED_TOOLS)
+    assert not any("tokcount" in TOOL_GROUPS[group] for group in REMOVABLE_TOOL_GROUPS)
+
+
+def _startup_provisioner(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, state: str, system: str | None) -> tuple[RuntimeProvisioner, list[str]]:
+    provisioner = RuntimeProvisioner(tmp_path, VENDOR)
+    provisioner._runtime_supported = True
+    monkeypatch.setattr("nonoka_x.provision.shutil.which", lambda _name: system)
+    monkeypatch.setattr(provisioner.resources, "status", lambda _id: type("Status", (), {"state": state})())
+    started: list[str] = []
+    monkeypatch.setattr(provisioner, "start", started.append)
+    return provisioner, started
+
+
+def test_startup_fetches_a_missing_required_tool(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    provisioner, started = _startup_provisioner(tmp_path, monkeypatch, state="missing", system=None)
+    provisioner.ensure_required_tools()
+    assert started == ["tokcount"]
+
+
+def test_startup_leaves_an_installed_or_system_tool_alone(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    provisioner, started = _startup_provisioner(tmp_path, monkeypatch, state="ready", system=None)
+    provisioner.ensure_required_tools()
+    assert started == []
+    provisioner, started = _startup_provisioner(tmp_path, monkeypatch, state="missing", system="C:/tools/tokcount.exe")
+    provisioner.ensure_required_tools()
+    assert started == []
 
 
 def test_remove_all_preserves_tasks_and_user_data(tmp_path: Path) -> None:

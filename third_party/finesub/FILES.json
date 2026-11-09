@@ -1,5 +1,5 @@
 {
-  "content_sha256": "67d689971de23f2578034eacfcf9933d2df49e178a62e6dda63eb9313e1aa49a",
+  "content_sha256": "f494aa4388e45884d9c8001c1cd6c725d327f17d0a8c5a713c736fe2d621757f",
   "files": [
     {
       "bytes": 35149,
@@ -1387,14 +1387,14 @@
       "sha256": "a45e3d0f83baf09d3355056ca5b5c6fa83a4031f75878f1b33bf064c33962cf1"
     },
     {
-      "bytes": 24979,
+      "bytes": 24040,
       "path": "src/finesub/llm/token_budget.py",
-      "sha256": "bc6aa874fa0cd0c23a2933e42250bcbac9af84b36e110f7c1e70f0876ef343da"
+      "sha256": "d277a05565a6f50e09a6902696f2f5afc2e29ecedcb4204cc1ae6132cfa2a523"
     },
     {
-      "bytes": 4371,
+      "bytes": 4036,
       "path": "src/finesub/llm/token_measure.py",
-      "sha256": "5a9258e0d7a3035203d8a9216445f17b4ad584945d19ee857e78b6e0343a3fcf"
+      "sha256": "da1df66b3423edf4e68f5c81ac4dfbca7c11c50ead7910e7337721334d931b9e"
     },
     {
       "bytes": 13307,
@@ -1892,9 +1892,9 @@
       "sha256": "38e505332fff23a7c5cfc63a46f462cbac31518a10e7eb8c760175d0f3baf131"
     },
     {
-      "bytes": 4288,
+      "bytes": 4214,
       "path": "src/finesub_bootstrap/capabilities.py",
-      "sha256": "c208d80855f2204af1cd538978075893477bc756311b8e15478b73e14e39e30a"
+      "sha256": "2c2734fcf37f152af8493418d20085250b70730117c196e431046e9da8cf8b1e"
     },
     {
       "bytes": 1181,

@@ -1,4 +1,4 @@
-"""Measure subtitle token usage with Gemini countTokens or local counters."""
+"""Measure subtitle token usage with the local counter."""
 
 from __future__ import annotations
 
@@ -13,7 +13,6 @@ from .chunking import (
     render_segments_as_csv,
     render_segments_as_srt,
 )
-from .routing.config import GEMINI_31_FLASH_LITE
 from .token_budget import (
     TokenCounter,
     default_token_counter,
@@ -79,10 +78,7 @@ def compare_subtitle_token_formats(
 
 
 def _build_counter(args: argparse.Namespace) -> TokenCounter:
-    return default_token_counter(
-        model=args.model,
-        api_version=args.api_version,
-    )
+    return default_token_counter()
 
 
 def _print_table(results: Sequence[SubtitleTokenFormatComparison]) -> None:
@@ -123,12 +119,6 @@ def parse_args() -> argparse.Namespace:
         description="Compare SRT vs CSV subtitle token usage for *-stable.json files."
     )
     parser.add_argument("inputs", nargs="+", help="Path(s) to *-stable.json files.")
-    parser.add_argument(
-        "--model",
-        default=GEMINI_31_FLASH_LITE,
-        help="Gemini model used for countTokens.",
-    )
-    parser.add_argument("--api-version", default="v1beta")
     parser.add_argument("--json", action="store_true", help="Print JSON instead of TSV.")
     return parser.parse_args()
 

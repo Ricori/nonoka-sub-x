@@ -51,7 +51,7 @@ const assetStateLabels: Record<RuntimeItem["state"], string> = {
   failed: "安装失败",
 };
 
-const optionalToolIds = new Set(["yt-dlp", "tokcount", "aria2c", "node", "pot-provider"]);
+const optionalToolIds = new Set(["yt-dlp", "aria2c", "node", "pot-provider"]);
 
 // 这几样单独装没有意义：yt-dlp 下载，aria2c 提速，node 与 pot-provider 一起
 // 提供 YouTube 要的 PO token。所以它们作为一件事呈现，也作为一件事安装。
@@ -328,7 +328,6 @@ export function RuntimePage({ capabilities, message, provisionMessage, provision
   const resources = provision?.resources ?? [];
   const optionalTools = resources.filter((item) => optionalToolIds.has(item.id));
   const videoTools = optionalTools.filter((item) => videoToolIds.has(item.id));
-  const otherTools = optionalTools.filter((item) => !videoToolIds.has(item.id));
   const requiredRuntimeAssets = [
     ...(provision?.runtime_supported && provision.runtime ? [provision.runtime] : []),
     ...resources.filter((item) => !optionalToolIds.has(item.id)),
@@ -537,26 +536,6 @@ export function RuntimePage({ capabilities, message, provisionMessage, provision
               }
               setConfirmRemoveGroup(null);
               void onRemoveGroup("video-tools");
-            }}
-          />
-          <AssetGroup
-            title="可选工具"
-            items={otherTools}
-            optional
-            target="optional-tools"
-            installing={jobRunning && job?.target === "optional-tools"}
-            blocked={toolsBlocked}
-            removable={otherTools.some((item) => item.source !== "system" && item.state !== "missing")}
-            confirmingRemove={confirmRemoveGroup === "optional-tools"}
-            onInstall={requestInstall}
-            onCancelRemove={() => setConfirmRemoveGroup((current) => current === "optional-tools" ? null : current)}
-            onRemove={() => {
-              if (confirmRemoveGroup !== "optional-tools") {
-                setConfirmRemoveGroup("optional-tools");
-                return;
-              }
-              setConfirmRemoveGroup(null);
-              void onRemoveGroup("optional-tools");
             }}
           />
         </div>

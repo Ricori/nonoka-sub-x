@@ -19,8 +19,9 @@ from finesub.paths import token_counter_candidates
 from finesub_bootstrap import token_counter
 from finesub_bootstrap.processes import no_window
 
-from .http import llm_http_client
-from .routing.config import DEFAULT_LIMITS, GEMINI_31_FLASH_LITE, ModelLimits
+from finesub.reporting import current_reporter
+
+from .routing.config import DEFAULT_LIMITS, ModelLimits
 from .routing.profiles import DEFAULT_PROFILE, TranslationProfile, expected_output_tokens
 
 
@@ -41,76 +42,6 @@ class TokenCounter(Protocol):
         ...
 
 
-@dataclass
-class GeminiCountTokensCounter:
-    """Token counter backed by the Gemini countTokens API.
-
-    Text counting always calls the API (free, consumes no generation quota) with
-    a per-text sha cache; failures raise instead of silently degrading — the old
-    local heuristic underestimated CJK-heavy prompts by 25-40% and was removed.
-    Audio is counted locally at the official 32 tok/s rate (the API cannot count
-    audio without uploading it).
-    """
-
-    model: str = GEMINI_31_FLASH_LITE
-    api_key: str | None = None
-    api_version: str = "v1beta"
-    client_factory: Callable[..., Any] = llm_http_client
-    timeout_seconds: float = 60.0
-    audio_tokens_per_second: int = DEFAULT_LIMITS.audio_tokens_per_second
-    source: str = "gemini-countTokens"
-
-    def __post_init__(self) -> None:
-        self._cache: dict[str, int] = {}
-
-    @property
-    def model_name(self) -> str:
-        return self.model.split("/", 1)[1] if self.model.startswith("gemini/") else self.model
-
-    def count_text(self, text: str) -> int:
-        if not text:
-            return 0
-        digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
-        if digest in self._cache:
-            return self._cache[digest]
-        count = self._count_parts_api([{"text": text}])
-        self._cache[digest] = count
-        return count
-
-    def count_texts(self, texts: Iterable[str]) -> int:
-        parts = [{"text": text} for text in texts if text]
-        if not parts:
-            return 0
-        return self._count_parts_api(parts)
-
-    def count_audio_seconds(self, seconds: float) -> int:
-        if seconds <= 0:
-            return 0
-        return int(math.ceil(seconds * self.audio_tokens_per_second))
-
-    def _api_key(self) -> str:
-        if self.api_key:
-            return self.api_key
-        from .client import _first_gemini_api_key
-
-        return _first_gemini_api_key()
-
-    def _count_parts_api(self, parts: list[Mapping[str, str]]) -> int:
-        api_key = self._api_key()
-        url = (
-            f"https://generativelanguage.googleapis.com/{self.api_version}/models/"
-            f"{self.model_name}:countTokens"
-        )
-        payload = {"contents": [{"role": "user", "parts": list(parts)}]}
-        with self.client_factory(timeout=self.timeout_seconds) as client:
-            response = client.post(url, json=payload, headers={"x-goog-api-key": api_key})
-            if response.status_code >= 400:
-                body = response.text[:500].replace(api_key, "[redacted]")
-                raise RuntimeError(f"Gemini countTokens failed with HTTP {response.status_code}: {body}")
-            data = response.json()
-        return int(data["totalTokens"])
-
-
 # The tokcount Go binary runs the SDK's local tokenizer, which the
 # API wraps in a `contents` envelope worth exactly one extra token. Verified
 # constant across ASCII/CJK/emoji/empty-ish inputs and 1..1000-token lengths,
@@ -120,6 +51,9 @@ LOCAL_COUNTER_API_OFFSET = 1
 # not among them, but the 2.5 vocabulary matches 3.1-flash-lite to within the
 # constant offset above (that is what the verification measured).
 LOCAL_TOKENIZER_MODEL = "gemini-2.5-flash"
+# Nonoka X: one count, start-up included, may take this long. A count is
+# milliseconds of CPU, so anything near this is a binary that is not coming back.
+LOCAL_COUNTER_TIMEOUT_SECONDS = 10.0
 
 
 def _local_counter_exe_is_runnable(path: Path) -> bool:
@@ -159,6 +93,7 @@ class _LocalTokenCounterService:
         self._process: subprocess.Popen[bytes] | None = None
         self._responses: queue.Queue[bytes | None] | None = None
         self._stderr_tail: deque[str] = deque(maxlen=20)
+        self._abandoned = ""
 
     @property
     def pid(self) -> int | None:
@@ -185,11 +120,56 @@ class _LocalTokenCounterService:
             request["idle_timeout_ms"] = int(
                 math.ceil(idle_timeout_seconds * 1000)
             )
+        if self._abandoned:
+            raise RuntimeError(self._abandoned)
         payload = (json.dumps(request, ensure_ascii=False) + "\n").encode("utf-8")
 
+        # Nonoka X: on its own thread, because starting the process, writing to
+        # a pipe nobody reads and waiting for the lock can each block past any
+        # timeout of their own, and this deadline has to hold over all of them.
+        outcome: queue.Queue[tuple[int | None, Exception | None]] = queue.Queue(maxsize=1)
+
+        def attempt() -> None:
+            try:
+                outcome.put((self._request_with_restart(payload, timeout_seconds), None))
+            except Exception as exc:  # noqa: BLE001 - handed to the caller below
+                outcome.put((None, exc))
+
+        threading.Thread(target=attempt, name="tokcount-request", daemon=True).start()
+        try:
+            tokens, error = outcome.get(timeout=timeout_seconds)
+        except queue.Empty:
+            raise RuntimeError(self._abandon(timeout_seconds)) from None
+        if error is not None:
+            raise error
+        assert tokens is not None
+        return tokens
+
+    def _abandon(self, timeout_seconds: float) -> str:
+        """Stop asking for the rest of this process, so a hang costs one wait."""
+
+        first = not self._abandoned
+        reason = f"tokcount did not answer within {timeout_seconds:g}s"
+        self._abandoned = reason
+        # Unlocked on purpose: the thread that is stuck may be holding the lock.
+        process = self._process
+        if process is not None:
+            try:
+                process.kill()
+            except OSError:
+                pass
+        if first:
+            current_reporter().warning(
+                "tokcount-timeout", f"{reason}; token counts fall back to the estimate for this run."
+            )
+        return reason
+
+    def _request_with_restart(self, payload: bytes, timeout_seconds: float) -> int:
         errors: list[str] = []
         with self._lock:
             for _attempt in range(2):
+                if self._abandoned:
+                    raise RuntimeError(self._abandoned)
                 try:
                     return self._request_once(payload, timeout_seconds)
                 except _ServerReportedError:
@@ -375,13 +355,13 @@ class LocalGeminiTokenCounter:
     per Python process and applies ``LOCAL_COUNTER_API_OFFSET`` so counts match
     the countTokens API. The server restarts transparently after idle exit or
     one transport failure. Raises (so callers can fall back) when the binary is
-    missing or errors.
+    missing or errors, and at once for the rest of the process after a timeout.
     """
 
     exe_path: str | None = None
     model: str = LOCAL_TOKENIZER_MODEL
     api_offset: int = LOCAL_COUNTER_API_OFFSET
-    timeout_seconds: float = 30.0
+    timeout_seconds: float = LOCAL_COUNTER_TIMEOUT_SECONDS
     server_idle_timeout_seconds: float | None = None
     audio_tokens_per_second: int = DEFAULT_LIMITS.audio_tokens_per_second
     source: str = "tokcount-local"
@@ -493,7 +473,7 @@ def classify_char(char: str) -> str:
 class HeuristicTokenCounter:
     """Approximate, dependency-free token counter used only as a last resort.
 
-    Reached when both the local binary and the countTokens API are unavailable,
+    Reached when the local binary is unavailable,
     and also used as the cheap upper-bound pre-check for `lazy` truncation. Sums
     per-character-class weights (`HEURISTIC_CHAR_WEIGHTS`) plus a small constant.
     The weights are an **empirical upper bound over the tested categories**, not
@@ -533,7 +513,7 @@ class HeuristicTokenCounter:
 class FallbackTokenCounter:
     """Try each backing counter in order, falling through on failure.
 
-    Default order is local binary -> countTokens API -> heuristic. The result
+    Default order is local binary -> heuristic. The result
     is cached per-text so repeated prefixes (e.g. the truncation search) reuse a
     single successful backend. ``last_source`` reflects the backend that most
     recently answered.
@@ -542,7 +522,7 @@ class FallbackTokenCounter:
     counters: Sequence[TokenCounter] = field(default_factory=tuple)
     #: The chain, for display. Read `source` (the property below) when
     #: recording what actually answered.
-    chain_source: str = "tokcount+api+heuristic"
+    chain_source: str = "tokcount+heuristic"
     last_source: str = ""
 
     @property
@@ -597,35 +577,17 @@ class FallbackTokenCounter:
         return self.counters[0].count_audio_seconds(seconds)
 
 
-def default_token_counter(
-    *,
-    model: str = GEMINI_31_FLASH_LITE,
-    api_version: str = "v1beta",
-    execution_settings: Any | None = None,
-) -> FallbackTokenCounter:
-    """Standard counter, respecting execution policy for outbound API use.
+def default_token_counter(*, execution_settings: Any | None = None) -> FallbackTokenCounter:
+    """Standard counter: the local binary, then the estimate.
 
-    ``agent-only`` is an end-to-end no-provider-API promise, including budget
-    estimation.  In that policy the exact Gemini ``countTokens`` fallback is
-    omitted rather than being treated as a harmless auxiliary request.
+    Nonoka X: never the network. The Gemini ``countTokens`` fallback cost a
+    desktop run 39 minutes of connect timeouts on a machine that could not reach
+    Google, one per uncached text, for a number the estimate serves well enough.
+    ``execution_settings`` only chose whether that fallback applied, and stays
+    so the call sites do not have to change.
     """
 
-    from .routing.execution_policy import load_execution_settings
-
-    counters: tuple[TokenCounter, ...]
-    effective_settings = execution_settings or load_execution_settings()
-    if effective_settings.policy_id == "agent-only":
-        counters = (LocalGeminiTokenCounter(), HeuristicTokenCounter())
-    else:
-        counters = (
-            LocalGeminiTokenCounter(),
-            GeminiCountTokensCounter(model=model, api_version=api_version),
-            HeuristicTokenCounter(),
-        )
-
-    return FallbackTokenCounter(
-        counters=counters
-    )
+    return FallbackTokenCounter(counters=(LocalGeminiTokenCounter(), HeuristicTokenCounter()))
 
 
 @dataclass(frozen=True)

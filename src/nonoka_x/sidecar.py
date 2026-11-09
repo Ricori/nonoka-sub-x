@@ -189,6 +189,10 @@ def main(argv: list[str] | None = None) -> int:
     except Exception as exc:  # noqa: BLE001 - a stale catalog is not fatal
         print(f"model catalog refresh skipped: {exc}", file=sys.stderr, flush=True)
     provisioner = RuntimeProvisioner(args.data_dir, args.vendor, args.install_dir)
+    try:
+        provisioner.ensure_required_tools()
+    except Exception as exc:  # noqa: BLE001 - the engine works without it
+        print(f"required tool install skipped: {exc}", file=sys.stderr, flush=True)
     provider = LocalProvider(args.data_dir / "tasks", args.vendor, settings=settings, provisioner=provisioner)
     server = SidecarServer(("127.0.0.1", 0), provider, token)
     print(json.dumps({"schema": 1, "host": "127.0.0.1", "port": server.server_port, "token": token}, separators=(",", ":")), flush=True)

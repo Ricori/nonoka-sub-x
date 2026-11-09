@@ -35,7 +35,7 @@ third_party/finesub/
         └── pylock.win-py312.cn.toml # 同上，国内镜像路由
 
 patches/finesub/
-├── 0001-*.patch … 0015-*.patch   # 补丁栈，按文件名顺序应用（当前 14 个，0004 已并入 0003，编号留空）
+├── 0001-*.patch … 0016-*.patch   # 补丁栈，按文件名顺序应用（当前 15 个，0004 已并入 0003，编号留空）
 └── BASELINE_FILES.json           # 未打补丁的上游基线文件哈希
 ```
 
@@ -92,6 +92,7 @@ patches/finesub/
 | `0013-llm-cooldown-wait.patch` | `src/finesub/llm` | 2026-11-07 一个只配置了免费 Nonoka Cloud 的桌面任务在 75% 失败：`No API key for NONOKA_CLOUD could be tried: 1 in a transient cooldown`。中转的上游一次抖动就耗尽了这把 key 的 3 次粘性重试（退避合计约 30 秒），组合进入 20 分钟跳过期；只有一把 key、没有第二个提供商，下一个纠错窗口无处可换，任务失败，冷却落盘，跳过期内「继续」也一样失败。续跑后同一任务又两次失败：一次生成挂到 10600 秒硬超时，5 秒后的重试碰上 45 秒的 TLS 握手超时，两者被算作「连续两次超时」而中止；再续跑时两次握手超时不到两分钟就中止；次日中转上游返回 522 直到粘性重试耗尽，直接抛出。本补丁：跳过期改为 5 分钟，粘性重试改为 6 次（退避 5、9、17、33、65、129 秒）；连接超时既不计入也不清零连续超时计数（中止只为避免再熬一次硬超时）；失败被标记为 `cooling`（会自行结束）的两种情况——所有 key 因冷却或让给探测而跳过的 `ProviderUnavailableError`，或者每把试过的 key 都在可重试错误上耗尽重试、刚进入冷却时的原始错误——且跳过中没有日额度锁；`cooldown_until` 是最早结束的跳过期。候选链在最终异常上标记是否**只**因 cooling 失败，`RoleClient.complete`（原函数体改名 `_complete_routed`）遇到时发 `llm-cooldown-wait` 警告（写明几点重试和错误），睡到跳过期结束（让给探测的 key 每 30 秒再看一次）后重跑整条链，第一次调用就是冷却的探测。链上还有其它失败、永久错误、日额度锁、缺 key、连续两次硬超时仍立即抛出；每次调用最多等 60 分钟。另外 openai_compat 传输引用非 JSON 正文前先去掉前导空白：中转的心跳每 15 秒一个空格，超过 50 分钟后结尾的「HTTP 502」标记会落在 200 字符引用之外，被当作不可重试的 HTTP 200。上游保留 3 次重试是为了 Gemini 免费层的日额度，桌面端不用 Gemini；云端镜像共用引擎但不跑 LLM 阶段。桌面端把 `llm-cooldown-wait` 同时写进任务卡片的进度文字 | 上游在候选链因冷却而无路可走时自行等待，或桌面端不再提供没有备用的单 key 提供商 |
 | `0014-llm-stream-reading.patch` | `src/finesub/llm` | 2026-11-08 中转 236 秒就完成了一次纠错调用，桌面端却空等 2 小时 48 分：非流式读取在答案完整前没有任何字节，连接静默断开和模型慢看起来一样，而单次读超时等于 10600 秒的硬超时。本补丁让 `STREAMED_HOSTS`（东京中转）走 `stream: true`，把事件折叠成同样的 JSON 答案；连接无数据、或只有 keep-alive 与空 delta 超过 `STREAM_IDLE_SECONDS` 就抛 `StreamStalled`，按超时重试但不计入连续超时中止；连接断开、提前结束、错误事件抛 `ProviderStreamBroken`（写成 502，可重试）。其他 provider 仍走 JSON；云端不走这条路径 | 上游以流式读取 OpenAI 兼容答案 |
 | `0015-llm-retry-network-errors.patch` | `src/finesub/llm` | 2026-11-09 一个桌面任务跑了四小时后因 `ConnectError: [Errno 11001] getaddrinfo failed` 失败，一次重试都没有。`is_retryable_provider_error` 按错误文字判断，标记词只匹配得上超时，DNS 失败、连接重置、`ReadError`、服务器断开都是第一次出现就结束任务，也用不上 0013 的粘性重试和冷却等待。本补丁把 `httpx.NetworkError`、`RemoteProtocolError`、`ProxyError` 按类型算作可重试（路由策略里也随之是 `TRANSIENT`）；错误的 URL（`UnsupportedProtocol`）和不合法的请求（`LocalProtocolError`）仍是永久错误。连接没建立起来的失败和连接超时一样，不计入也不重置连续超时中止。错误信息带上请求的域名，httpx 自己不写，而失败的任务只留下这句话。只多重试和多几个字，云端共用无妨 | 上游按类型重试传输层错误 |
+| `0016-local-token-counting-only.patch` | `src/finesub/llm`、`src/finesub_bootstrap` | 2026-11-09 一个桌面任务的 52 秒 LLM 调用前后多等了 39 分钟：机器没有 `tokcount` 又连不上 Google，每段新文本都要等 Gemini `countTokens` 连接超时才回退估算，全程没有日志。桌面端已把 `tokcount` 改为必装，这里删掉联网计数，链路变成本地程序→估算，出错立即回退；单次计数连同启动和写管道最多 10 秒，超时一次后本进程不再尝试，并发一条警告。上游不再联网计数且给本地计数器设限后可删。 |
 
 > 上游 **0.6.0** 又收走了四条，本仓库删掉它们并把编号重排为 0001–0006：
 > **旧 0003**（agy 工作区读取授权）——上游给自己的 agy project 授予 `read_file(*)`

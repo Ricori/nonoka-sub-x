@@ -32,12 +32,14 @@ from nonoka_x.download_route import (
 #: copy anywhere else -- and a copy elsewhere would be the one nobody reads.
 VENDOR_BOOTSTRAP = Path("src") / "finesub_bootstrap"
 
-OPTIONAL_TOOLS = ("yt-dlp", "tokcount", "aria2c", "node", "pot-provider")
+OPTIONAL_TOOLS = ("yt-dlp", "aria2c", "node", "pot-provider")
+#: Installed with the runtime, and fetched at startup by installations that
+#: predate the requirement. Never removable.
+REQUIRED_TOOLS = ("tokcount",)
 
 # 按组安装
 TOOL_GROUPS = {
     "video-tools": ("yt-dlp", "aria2c", "node", "pot-provider"),
-    "optional-tools": ("tokcount",),
 }
 REMOVABLE_TOOL_GROUPS = frozenset(TOOL_GROUPS)
 #: Models only some runs need: speaker diarization's default backend
@@ -45,7 +47,7 @@ REMOVABLE_TOOL_GROUPS = frozenset(TOOL_GROUPS)
 #: never part of `models` / `all`, and never a reason a transcription is blocked.
 OPTIONAL_MODELS = ("nemotron3", "speaker-embedding")
 OPTIONAL_MODELS_TARGET = "optional-models"
-TARGETS = {"media", "runtime", "models", "all", OPTIONAL_MODELS_TARGET, *OPTIONAL_TOOLS, *TOOL_GROUPS}
+TARGETS = {"media", "runtime", "models", "all", OPTIONAL_MODELS_TARGET, *OPTIONAL_TOOLS, *REQUIRED_TOOLS, *TOOL_GROUPS}
 PIPELINE_MODELS = ("separator", "whisper", "qwen-referee")
 
 #: What an installed runtime whose dependency lock moved on is told: an engine
@@ -64,12 +66,11 @@ START_MESSAGES = {
     "all": "正在准备安装运行时并下载缺失的模型",
     OPTIONAL_MODELS_TARGET: "正在准备下载说话人分离模型",
     "yt-dlp": "正在准备安装可选工具 yt-dlp",
-    "tokcount": "正在准备安装可选工具 tokcount",
+    "tokcount": "正在准备安装 tokcount",
     "aria2c": "正在准备安装可选工具 aria2c",
     "node": "正在准备安装可选工具 Node.js",
     "pot-provider": "正在准备安装 PO Token 生成器",
     "video-tools": "正在准备安装视频下载工具",
-    "optional-tools": "正在准备安装可选工具",
 }
 DONE_MESSAGES = {
     "media": "FFmpeg 与 FFprobe 已准备就绪",
@@ -78,12 +79,11 @@ DONE_MESSAGES = {
     "all": "运行时与所需模型已全部准备就绪",
     OPTIONAL_MODELS_TARGET: "说话人分离模型已下载并校验完成",
     "yt-dlp": "可选工具 yt-dlp 已安装并校验完成",
-    "tokcount": "可选工具 tokcount 已安装并校验完成",
+    "tokcount": "tokcount 已安装并校验完成",
     "aria2c": "可选工具 aria2c 已安装并校验完成",
     "node": "可选工具 Node.js 已安装并校验完成",
     "pot-provider": "PO Token 生成器已安装并校验完成",
     "video-tools": "视频下载工具已安装并校验完成",
-    "optional-tools": "可选工具已安装并校验完成",
 }
 CANCELLED_MESSAGE = "已取消；已下载的部分会保留，下次继续时不必重头再来"
 
@@ -413,7 +413,7 @@ class RuntimeProvisioner:
         if target not in TARGETS:
             raise RuntimeProvisionError(
                 f"target must be one of: media, runtime, models, all, {OPTIONAL_MODELS_TARGET}, "
-                + ", ".join((*OPTIONAL_TOOLS, *TOOL_GROUPS))
+                + ", ".join((*OPTIONAL_TOOLS, *REQUIRED_TOOLS, *TOOL_GROUPS))
             )
         if target == "media" and not self._media_supported:
             raise RuntimeProvisionError(f"managed FFmpeg is unavailable on {self.platform}")
@@ -443,6 +443,23 @@ class RuntimeProvisioner:
         thread = threading.Thread(target=self._run, args=(target,), name="nonoka-runtime-provision", daemon=True)
         thread.start()
         return self.status()
+
+    def ensure_required_tools(self) -> None:
+        """Start fetching a required tool this installation does not have.
+
+        An install that predates the requirement never runs the job that would
+        bring it, and one that only uses the cloud never needs the runtime job
+        at all. Best effort: the engine still works without it.
+        """
+
+        if self.resources is None or self._bootstrap_error or not self._runtime_supported:
+            return
+        for resource_id in REQUIRED_TOOLS:
+            if resource_id not in self.resources.resources or shutil.which(resource_id):
+                continue
+            if self.resources.status(resource_id).state != "ready":
+                self.start(resource_id)
+                return
 
     def cancel(self) -> dict[str, Any]:
         """Ask the running job to stop at its next checkpoint.
@@ -495,13 +512,13 @@ class RuntimeProvisioner:
             self._stop_if_cancelled()
             if target in TOOL_GROUPS:
                 self._install_tool_group(target)
-            elif target in OPTIONAL_TOOLS:
+            elif target in OPTIONAL_TOOLS or target in REQUIRED_TOOLS:
                 self._install_optional_tool(target)
             if target == "media":
                 self._install_media_tools()
             if target in {"runtime", "all"}:
                 assert self.runtime is not None
-                for resource_id in ("uv", "ffmpeg"):
+                for resource_id in ("uv", "ffmpeg", *REQUIRED_TOOLS):
                     self._stop_if_cancelled()
                     if self.resources.status(resource_id).state != "ready":
                         self._stage("resource", f"正在安装 FineSub 资源：{resource_id}")

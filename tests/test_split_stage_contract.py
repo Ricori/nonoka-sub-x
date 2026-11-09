@@ -270,6 +270,11 @@ class PurelyAdditiveTests(unittest.TestCase):
                 "src/finesub/llm/http.py",
                 "src/finesub/llm/llm_runtime.py",
             ],
+            # Token counting without the network, under one deadline.
+            "0016-local-token-counting-only.patch": [
+                "src/finesub/llm/token_budget.py",
+                "src/finesub/llm/token_measure.py",
+            ],
         }
         for name in names:
             with self.subTest(patch=name):

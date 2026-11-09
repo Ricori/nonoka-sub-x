@@ -127,7 +127,7 @@ func TestServiceRejectsUnknownRemovableRuntimeGroup(t *testing.T) {
 func TestServiceAcceptsOptionalRuntimeTargets(t *testing.T) {
 	transport := &fakeCaller{}
 	service, _ := New(transport)
-	for _, target := range []string{"optional-models", "yt-dlp", "tokcount", "aria2c", "node", "pot-provider", "video-tools", "optional-tools"} {
+	for _, target := range []string{"optional-models", "yt-dlp", "tokcount", "aria2c", "node", "pot-provider", "video-tools"} {
 		if _, err := service.InstallRuntime(target); err != nil {
 			t.Fatalf("optional target %q was rejected: %v", target, err)
 		}
