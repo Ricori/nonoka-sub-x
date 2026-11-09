@@ -1,7 +1,9 @@
 """One ladder for every download the environment makes.
 
 Every resource -- the managed tools, the runtime's wheels and interpreter, the
-models -- tries the same rungs in the same order:
+models -- tries the same rungs in the same order. An offline package beside the
+application comes before all of them (`offline_pack`); whatever it lacks climbs
+as usual:
 
 1. the official source, through the live proxy if there is one;
 2. the official source, directly;
@@ -115,6 +117,8 @@ _LOCAL_OS_ERRORS = ("(os error 5)", "(os error 28)", "(os error 112)")
 #: preferences.json, set by the sidecar for itself and every child it spawns.
 #: Unset (tests, a hand-run worker) the app policy stays out of the way.
 PREFERENCES_ENVIRONMENT = "NONOKA_PREFERENCES_FILE"
+#: The offline package, set by the desktop for the sidecar and every child.
+OFFLINE_PACK_ENVIRONMENT = "NONOKA_OFFLINE_PACK"
 _PROXY_NAMES = ("HTTPS_PROXY", "HTTP_PROXY", "ALL_PROXY", "https_proxy", "http_proxy", "all_proxy")
 _LOCAL_HOSTS = "localhost,127.0.0.1,::1"
 _custom_cache: tuple[str, int, int, str | None] | None = None
@@ -124,7 +128,7 @@ _custom_cache: tuple[str, int, int, str | None] | None = None
 class DownloadStage:
     """One rung of the ladder."""
 
-    kind: str  # "proxy" | "direct" | "mirror" | "backup"
+    kind: str  # "local" | "proxy" | "direct" | "mirror" | "backup"
     proxy: str | None = None
 
     @property
@@ -139,6 +143,8 @@ class DownloadStage:
             return proxy_label(self.proxy)
         if self.kind == "backup":
             return "Nonoka 备用源"
+        if self.kind == "local":
+            return "本地资源包"
         return "镜像" if self.mirror else "直连官方源"
 
 
@@ -360,6 +366,90 @@ def github_mirror_url(url: str) -> str | None:
     return f"{prefix.rstrip('/')}/{url}" if prefix else None
 
 
+def offline_pack() -> Path | None:
+    """The offline package this application came with, or None.
+
+    Its files are found by what they are, not by which release they belong to:
+    `files/<sha256>/`, `huggingface/<repo>/<revision>/`. A package is therefore
+    never out of date as a whole, and new files can simply be merged into it.
+    """
+
+    value = os.environ.get(OFFLINE_PACK_ENVIRONMENT, "").strip()
+    if not value:
+        return None
+    root = Path(value)
+    return root if (root / "pack.json").is_file() else None
+
+
+def offline_file(sha256: str) -> Path | None:
+    """The file with this digest in the offline package, or None."""
+
+    root = offline_pack()
+    if root is None or not sha256:
+        return None
+    try:
+        return next((entry for entry in (root / "files" / sha256.lower()).iterdir() if entry.is_file()), None)
+    except OSError:
+        return None
+
+
+def offline_python() -> Path | None:
+    """The offline package's interpreter directory, laid out as uv's mirror."""
+
+    root = offline_pack()
+    return root / "python" if root is not None and (root / "python").is_dir() else None
+
+
+def offline_snapshot(repository: str, revision: str) -> Path | None:
+    """A Hugging Face snapshot in the offline package, or None."""
+
+    root = offline_pack()
+    if root is None:
+        return None
+    snapshot = root / "huggingface" / f"models--{repository.replace('/', '--')}" / revision
+    return snapshot if snapshot.is_dir() else None
+
+
+def _copy_into_place(source: Path, destination: Path, report: Callable[[int], None] = lambda _copied: None) -> None:
+    """Copy through a temporary name, so a half-written file is never visible."""
+
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    temporary = destination.with_name(f".{destination.name}.offline")
+    copied = 0
+    try:
+        with source.open("rb") as reader, temporary.open("wb") as writer:
+            while chunk := reader.read(8 * 1024 * 1024):
+                writer.write(chunk)
+                copied += len(chunk)
+                report(copied)
+        os.replace(temporary, destination)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def _seed_from_offline_pack(asset, destination: Path, progress, should_pause) -> None:
+    """Put `asset` where the downloader looks first, if the package has it.
+
+    The downloader then hashes it like any finished download and goes no
+    further, so a package holding the wrong bytes cannot get them installed.
+    """
+
+    from finesub_bootstrap import downloader
+
+    source = offline_file(asset.sha256)
+    if source is None or (destination.is_file() and downloader._sha256(destination) == asset.sha256):
+        return
+    started = time.monotonic()
+
+    def report(copied: int) -> None:
+        if should_pause is not None and should_pause():
+            raise downloader.DownloadPaused("Download paused")
+        elapsed = max(time.monotonic() - started, 1e-6)
+        progress(downloader.DownloadProgress(downloaded=copied, total=asset.size, bytes_per_second=copied / elapsed))
+
+    _copy_into_place(source, destination, report)
+
+
 def github_backup_url(url: str) -> str | None:
     """`url` on our own copy, or None when it is not a GitHub file."""
 
@@ -515,6 +605,7 @@ def _laddered_download(download: Callable[..., _T]) -> Callable[..., _T]:
     """`_download_locked`, climbing the ladder unless a caller already is."""
 
     def download_locked(asset, destination, progress, should_pause):
+        _seed_from_offline_pack(asset, destination, progress, should_pause)
         if _pinned_stage.get() is not None:
             return download(asset, destination, progress, should_pause)
 
@@ -523,7 +614,12 @@ def _laddered_download(download: Callable[..., _T]) -> Callable[..., _T]:
             with pinned_stage(stage):
                 return download(target, destination, progress, should_pause)
 
-        return climb(github_stages(asset.url), attempt, advances=_file_advances)
+        try:
+            return climb(github_stages(asset.url), attempt, advances=_file_advances)
+        except DownloadUnreachable as error:
+            if offline_pack() is None:
+                raise
+            raise DownloadUnreachable(f"离线资源包里没有 {Path(urlparse(asset.url).path).name}，{error}") from error
 
     return download_locked
 
@@ -540,6 +636,11 @@ def _laddered_unverified(fetch: Callable[..., None]) -> Callable[..., None]:
     """`_fetch_unverified`, which reports nothing: a written file means it worked."""
 
     def fetch_unverified(url, destination, proxy, *, data_root=None) -> None:
+        root = offline_pack()
+        source = root / "unverified" / Path(urlparse(url).path).name if root is not None else None
+        if source is not None and source.is_file():
+            _copy_into_place(source, destination)
+            return
         for stage in github_stages(url):
             before = _fingerprint(destination)
             with pinned_stage(stage):

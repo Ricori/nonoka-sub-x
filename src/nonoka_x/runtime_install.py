@@ -40,6 +40,9 @@ from nonoka_x.download_route import (
     github_stages,
     github_url_on,
     is_transport_failure,
+    offline_file,
+    offline_pack,
+    offline_python,
     pinned_stage,
     stage_environment,
 )
@@ -130,6 +133,9 @@ def _format_size(size: int) -> str:
 
 #: A locked file's URL, as uv's PEP 751 lock spells it.
 _LOCK_URL = re.compile(r'url = "([^"]+)"')
+#: A wheel or archive with the digest that follows it on the line. Not an sdist:
+#: uv never takes one when the package has a wheel, and the offline package has none.
+_LOCK_FILE = re.compile(r'(?<!sdist = \{ )url = "([^"]+)"([^\n]*?sha256 = "([0-9a-f]{64})")')
 
 
 def _install_advances(stage: DownloadStage, error: Exception) -> bool:
@@ -137,7 +143,7 @@ def _install_advances(stage: DownloadStage, error: Exception) -> bool:
 
     if isinstance(error, DownloadPaused):
         return False
-    if isinstance(error, httpx.HTTPError) or is_transport_failure(error):
+    if stage.kind == "local" or isinstance(error, httpx.HTTPError) or is_transport_failure(error):
         return True
     if stage.mirror:
         return isinstance(error, (DigestMismatch, SizeMismatch)) or _is_retryable_from_mirror(error)
@@ -192,11 +198,17 @@ class ProgressRuntimeEnvironment(RuntimeEnvironment):
             return
         chosen = bool(environment.get("UV_PYTHON_INSTALL_MIRROR"))
         stages = download_stages(has_mirror=False) if chosen else github_stages(PYTHON_BUILD_RELEASES)
+        local = None if chosen else offline_python()
+        if local is not None:
+            stages.insert(0, DownloadStage("local"))
 
         def attempt(stage: DownloadStage) -> None:
-            ensure_fast_enough(github_url_on(stage, PYTHON_BUILD_SAMPLE), stage)
+            if stage.kind != "local":
+                ensure_fast_enough(github_url_on(stage, PYTHON_BUILD_SAMPLE), stage)
             routed = stage_environment(environment, stage)
-            if stage.mirror:
+            if stage.kind == "local":
+                routed["UV_PYTHON_INSTALL_MIRROR"] = local.resolve().as_uri()
+            elif stage.mirror:
                 routed["UV_PYTHON_INSTALL_MIRROR"] = github_url_on(stage, PYTHON_BUILD_RELEASES)
             super(ProgressRuntimeEnvironment, self)._run(command, routed, log=log, should_pause=should_pause)
 
@@ -223,6 +235,33 @@ class ProgressRuntimeEnvironment(RuntimeEnvironment):
         destination.write_text(rewritten, encoding="utf-8", newline="\n")
         return destination
 
+    def _offline_lock(self, log) -> Path | None:
+        """The lock with every file the offline package holds pointing at it, or None.
+
+        A file it lacks keeps its URL, so an out-of-date package still supplies
+        everything that has not changed.
+        """
+
+        if offline_pack() is None:
+            return None
+        missing: list[str] = []
+
+        def swap(found: re.Match[str]) -> str:
+            local = offline_file(found[3])
+            if local is None:
+                missing.append(Path(unquote(urlparse(found[1]).path)).name)
+                return found[0]
+            # `path`, because uv refuses a file:// URL in an `archive` entry.
+            return f'path = "{local.resolve().as_posix()}"{found[2]}'
+
+        body = _LOCK_FILE.sub(swap, self.runtime_lock.read_text(encoding="utf-8"))
+        if missing and log is not None:
+            log(f"离线资源包缺少 {len(missing)} 个依赖，将在线下载：{'、'.join(missing)}")
+        destination = self.paths.cache / "local-lock" / self.runtime_lock.name
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_text(body, encoding="utf-8", newline="\n")
+        return destination
+
     def _install_dependencies(
         self,
         uv: Path,
@@ -241,7 +280,8 @@ class ProgressRuntimeEnvironment(RuntimeEnvironment):
 
         mirror_lock = self._mirror_lock()
         backup_lock = self._mirror_lock(DownloadStage("backup"))
-        locks = {"mirror": mirror_lock, "backup": backup_lock}
+        local_lock = self._offline_lock(log)
+        locks = {"local": local_lock, "mirror": mirror_lock, "backup": backup_lock}
         # A wheel the target already holds needs neither a download nor a
         # reinstall: true of every unchanged large wheel in an in-place update,
         # never of a fresh staging tree.
@@ -250,8 +290,9 @@ class ProgressRuntimeEnvironment(RuntimeEnvironment):
         def attempt(stage: DownloadStage) -> None:
             lock = locks.get(stage.kind) or self.runtime_lock
             routed = stage_environment(environment, stage)
+            # uv reads the local rung's files where they lie: nothing to fetch.
             with pinned_stage(stage):
-                local_wheels = self._prefetch_large_wheels(
+                local_wheels = [] if stage.kind == "local" else self._prefetch_large_wheels(
                     lock,
                     stage_message=_prefetch_message(stage),
                     should_pause=should_pause,
@@ -278,7 +319,7 @@ class ProgressRuntimeEnvironment(RuntimeEnvironment):
                     should_pause=should_pause,
                 )
 
-            sample = _speed_sample(lock)
+            sample = None if stage.kind == "local" else _speed_sample(lock)
             if sample is not None:
                 ensure_fast_enough(sample, stage)
             # The prefetched wheels stay where they are, deliberately. uv's cache
@@ -303,7 +344,10 @@ class ProgressRuntimeEnvironment(RuntimeEnvironment):
             )
 
         climb(
-            download_stages(has_mirror=mirror_lock is not None, has_backup=backup_lock not in (None, mirror_lock)),
+            [
+                *([DownloadStage("local")] if local_lock is not None else []),
+                *download_stages(has_mirror=mirror_lock is not None, has_backup=backup_lock not in (None, mirror_lock)),
+            ],
             attempt,
             advances=_install_advances,
             announce=log,

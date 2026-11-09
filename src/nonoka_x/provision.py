@@ -347,6 +347,8 @@ class RuntimeProvisioner:
         resources = [item.model_dump(mode="json") for item in self.resources.check_all()]
         for item in resources:
             item["source"] = "managed"
+            if item["state"] == "missing" and self._unpinned_ffmpeg(item["id"], "ffmpeg.exe") is not None:
+                item.update(state="outdated", installed_version=UNPINNED_FFMPEG_VERSION)
             if item["id"] != "tokcount" or item["state"] == "ready":
                 continue
             system_tool = shutil.which(item["id"])

@@ -52,6 +52,7 @@ func Run(assets fs.FS) error {
 	// interpreter and ffmpeg -- would otherwise miss tools the user has
 	// installed.
 	managedtools.EnsureSearchPath()
+	announceOfflinePack()
 	selfupdate.CleanupReplacedExecutables()
 	migration, err := migrateDefaultDataDirectory()
 	if err != nil {

@@ -32,6 +32,8 @@ type bootstrapAttempt struct {
 	Mirror bool
 	// Backup fetches from our own copy on R2. Only GitHub files have one.
 	Backup bool
+	// Local reads from the offline package, ahead of every network rung.
+	Local bool
 }
 
 const (
@@ -174,6 +176,8 @@ func withoutBackup(attempts []bootstrapAttempt) []bootstrapAttempt {
 // label names the rung in the progress message and in a failure.
 func (a bootstrapAttempt) label() string {
 	switch {
+	case a.Local:
+		return "本地资源包"
 	case a.Backup:
 		return "Nonoka 备用源"
 	case a.Mirror:

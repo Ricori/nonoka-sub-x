@@ -345,7 +345,7 @@ func (b *PythonBootstrap) installPython() error {
 	b.update("preparing", "正在选择下载线路", nil)
 	attempts := resolveBootstrapAttempts()
 	uvArchive := filepath.Join(downloads, bootstrapUVVersion+"-"+b.uv.Name)
-	if !fileMatches(uvArchive, b.uv.Size, b.uv.SHA256) {
+	if seedFromOfflinePack(b.uv.SHA256, uvArchive); !fileMatches(uvArchive, b.uv.Size, b.uv.SHA256) {
 		sources := gitHubDownloadSources(b.uv.URL(), attempts)
 		if err := b.downloadWithFallback(sources, uvArchive, b.uv.Size, b.uv.SHA256); err != nil {
 			return err
@@ -376,13 +376,18 @@ func (b *PythonBootstrap) installPython() error {
 	if os.Getenv("UV_PYTHON_INSTALL_MIRROR") != "" {
 		pythonAttempts = withoutMirror(attempts)
 	}
+	offlinePython := offlineSubdirectory("python")
+	pythonAttempts = offlineRung(pythonAttempts, offlinePython)
 	installed := climbBootstrap(pythonAttempts, "安装 Python 失败", b.announcer("installing_python", "正在下载并安装 Python "+bootstrapPythonVersion), func(attempt bootstrapAttempt, watched bool) ([]byte, error) {
-		if watched && bootstrapRouteTooSlow(attempt.gitHubURL(bootstrapSpeedSample), attempt) {
+		if watched && !attempt.Local && bootstrapRouteTooSlow(attempt.gitHubURL(bootstrapSpeedSample), attempt) {
 			return nil, errBootstrapTooSlow
 		}
 		_ = os.RemoveAll(staging)
 		step := slices.Concat(environment, attempt.environment())
-		if attempt.Mirror || attempt.Backup {
+		switch {
+		case attempt.Local:
+			step = append(step, "UV_PYTHON_INSTALL_MIRROR="+fileURI(offlinePython))
+		case attempt.Mirror || attempt.Backup:
 			step = append(step, "UV_PYTHON_INSTALL_MIRROR="+attempt.gitHubURL(bootstrapPythonRelease))
 		}
 		return runBootstrapCommand(uv, step, "venv", staging, "--python", bootstrapPythonVersion, "--managed-python", "--no-project")
@@ -412,13 +417,18 @@ func installLauncherRequirements(uv string, environment []string, attempts []boo
 	if os.Getenv("UV_DEFAULT_INDEX") != "" || os.Getenv("UV_INDEX_URL") != "" || os.Getenv("PIP_INDEX_URL") != "" {
 		attempts = withoutMirror(attempts)
 	}
-	attempts = withoutBackup(attempts)
+	offlineWheels := offlineSubdirectory("launcher")
+	attempts = offlineRung(withoutBackup(attempts), offlineWheels)
 	return climbBootstrap(attempts, "安装 Python 基础依赖失败", announce, func(attempt bootstrapAttempt, _ bool) ([]byte, error) {
 		step := slices.Concat(environment, attempt.environment())
-		if attempt.Mirror {
+		arguments := []string{"pip", "install", "--python", python, "--require-hashes", "-r", requirements}
+		switch {
+		case attempt.Local:
+			arguments = append(arguments, "--no-index", "--find-links", offlineWheels)
+		case attempt.Mirror:
 			step = append(step, "UV_DEFAULT_INDEX="+bootstrapPyPIIndex)
 		}
-		return runBootstrapCommand(uv, step, "pip", "install", "--python", python, "--require-hashes", "-r", requirements)
+		return runBootstrapCommand(uv, step, arguments...)
 	})
 }
 

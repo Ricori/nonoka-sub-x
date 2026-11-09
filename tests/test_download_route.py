@@ -31,6 +31,86 @@ def _no_mirror_overrides(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("HF_ENDPOINT", raising=False)
     monkeypatch.delenv("HF_HUB_DISABLE_XET", raising=False)
     monkeypatch.delenv("FINESUB_HF_ENDPOINT", raising=False)
+    monkeypatch.delenv(download_route.OFFLINE_PACK_ENVIRONMENT, raising=False)
+
+
+def _offline_pack(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    pack = tmp_path / "offline-pack"
+    pack.mkdir()
+    (pack / "pack.json").write_text("{}", encoding="utf-8")
+    monkeypatch.setenv(download_route.OFFLINE_PACK_ENVIRONMENT, str(pack))
+    return pack
+
+
+def _packed(pack: Path, payload: bytes, *, digest: str | None = None) -> DownloadAsset:
+    sha256 = digest or hashlib.sha256(payload).hexdigest()
+    folder = pack / "files" / sha256
+    folder.mkdir(parents=True)
+    (folder / "tool.zip").write_bytes(payload)
+    # Nothing listens on port 9: reaching the network would fail the test.
+    return DownloadAsset(url="http://127.0.0.1:9/tool.zip", size=len(payload), sha256=sha256)
+
+
+def test_a_directory_without_a_manifest_is_not_a_package(tmp_path, monkeypatch):
+    monkeypatch.setenv(download_route.OFFLINE_PACK_ENVIRONMENT, str(tmp_path))
+
+    assert download_route.offline_pack() is None
+
+
+def test_a_packed_file_is_installed_without_the_network(tmp_path, monkeypatch):
+    _routes(monkeypatch, None)
+    asset = _packed(_offline_pack(tmp_path, monkeypatch), b"packed-bytes")
+    reported: list[int] = []
+
+    result = downloader.download_asset(asset, tmp_path / "out" / "tool.zip", lambda value: reported.append(value.total))
+
+    assert result.read_bytes() == b"packed-bytes"
+    assert reported and set(reported) == {len(b"packed-bytes")}
+
+
+def test_wrong_bytes_in_a_package_are_not_accepted(tmp_path, monkeypatch):
+    _routes(monkeypatch, None)
+    asset = _packed(_offline_pack(tmp_path, monkeypatch), b"tampered", digest="0" * 64)
+
+    with pytest.raises(download_route.DownloadUnreachable, match="离线资源包里没有 tool.zip"):
+        downloader.download_asset(asset, tmp_path / "out" / "tool.zip", lambda _value: None)
+
+
+def test_a_file_the_package_lacks_climbs_as_usual(tmp_path, monkeypatch):
+    _routes(monkeypatch, None)
+    _offline_pack(tmp_path, monkeypatch)
+    fake, calls = _recording_download(0, httpx.ConnectError("unused"))
+
+    download_route._laddered_download(fake)(_asset(), tmp_path / "tool.zip", None, None)
+
+    assert calls == [(GITHUB_URL, None)]
+
+
+def test_a_pinned_download_still_uses_the_package(tmp_path, monkeypatch):
+    _routes(monkeypatch, None)
+    asset = _packed(_offline_pack(tmp_path, monkeypatch), b"packed-bytes")
+    destination = tmp_path / "out" / "tool.zip"
+
+    with download_route.pinned_stage(DownloadStage("direct")):
+        result = downloader.download_asset(asset, destination, lambda _value: None)
+
+    assert result.read_bytes() == b"packed-bytes"
+
+
+def test_an_unverified_file_comes_from_the_package(tmp_path, monkeypatch):
+    _routes(monkeypatch, None)
+    pack = _offline_pack(tmp_path, monkeypatch)
+    (pack / "unverified").mkdir()
+    (pack / "unverified" / "checks.json").write_text("{}", encoding="utf-8")
+    destination = tmp_path / "out" / "checks.json"
+    calls: list[str] = []
+
+    download_route._laddered_unverified(lambda url, *args, **kwargs: calls.append(url))(
+        "https://raw.githubusercontent.com/a/b/main/checks.json", destination, "", data_root=tmp_path
+    )
+
+    assert destination.read_text(encoding="utf-8") == "{}"
+    assert calls == []
 
 
 @pytest.fixture

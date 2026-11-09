@@ -93,6 +93,10 @@ patches/finesub/
 > **GitHub 文件的兜底副本**：下载阶梯的最后一级是 `cloudfile.nonoka.online/github-mirror/<host>/<path>`（R2），覆盖运行时清单、模型清单、lock 与启动器用到的全部 GitHub 文件，以及 uv 下载的 Python。任何改变这些文件的操作（引擎同步、升级 uv、换 FFmpeg）之后，都要在 `desktop/scripts` 下运行一次：
 > `node publish-github-mirror.mjs --uv <对应版本的 uv>`（凭据读 `desktop/.env.release`，已存在且大小相同的文件会跳过）。
 
+> **离线版**：exe 旁边的 `offline-pack/`（或 `NONOKA_OFFLINE_PACK` 指向的目录）排在下载阶梯最前面，缺的文件照常在线下载。文件按内容存放，不绑定版本：`files/<sha256>/`（工具、wheel、separator）、`python/<tag>/`（uv 的镜像结构）、`launcher/`（启动器 wheel）、`huggingface/<repo>/<revision>/`（整个快照）、`unverified/`（没有摘要的小文件）。在 `desktop/scripts` 下构建（`--models` 指向一份已装好模型的 `finesub/models`，产物默认在 `desktop/bin/offline/`）：
+> `node build-offline-package.mjs --uv <对应版本的 uv> --models <models 目录> --exe "../bin/Nonoka Sub X.exe"`
+> 版本更新时加 `--since <旧的 offline-pack>` 只输出新增文件，合并进旧包并换上新 exe 即可。
+
 > 上游 **0.6.0** 又收走了四条，本仓库删掉它们并把编号重排为 0001–0006：
 > **旧 0003**（agy 工作区读取授权）——上游给自己的 agy project 授予 `read_file(*)`
 > （`local_agent.AGY_READ_PERMISSION_RULES`），并要求 agy ≥ 1.2.16；**旧 0004**（复用

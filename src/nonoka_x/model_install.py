@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import shutil
 import time
 from pathlib import Path
 from typing import Any, Callable
@@ -240,6 +241,39 @@ def _install_huggingface(entry, model_id: str, models_root: Path, sink: EventSin
     return snapshot
 
 
+def _install_from_offline_pack(entry, model_id: str, models_root: Path, sink: EventSink) -> Path | None:
+    """Copy a snapshot out of the offline package, or None when it has no such one.
+
+    Plain files where the Hub would leave links into `blobs/`, which is what it
+    does itself on a system without symlinks. `install_model` verifies the
+    result like any download.
+    """
+
+    from nonoka_x.download_route import _copy_into_place, offline_snapshot
+
+    source = offline_snapshot(entry.repo, entry.revision)
+    if source is None:
+        return None
+    files = [path for path in source.rglob("*") if path.is_file()]
+    reporter = ByteProgressReporter(model_id, sum(path.stat().st_size for path in files), sink)
+    _stage(sink, model_id, "downloading", f"正在从本地资源包安装模型：{model_id}")
+    snapshot = models_root / "huggingface" / "hub" / f"models--{entry.repo.replace('/', '--')}" / "snapshots" / entry.revision
+    staging = snapshot.with_name(f".{entry.revision}.offline")
+    shutil.rmtree(staging, ignore_errors=True)
+    copied_before = 0
+    for path in files:
+        _copy_into_place(
+            path,
+            staging / path.relative_to(source),
+            lambda copied, *, before=copied_before: reporter.update(before + copied),
+        )
+        copied_before += path.stat().st_size
+    shutil.rmtree(snapshot, ignore_errors=True)
+    staging.replace(snapshot)
+    reporter.update(copied_before, force=True)
+    return snapshot
+
+
 def install_model(model_id: str, models_root: Path, data_root: Path, *, sink: EventSink = emit_event) -> None:
     from finesub_bootstrap.model_manifest import entry_for, file_matches
 
@@ -253,7 +287,9 @@ def install_model(model_id: str, models_root: Path, data_root: Path, *, sink: Ev
 
     if not entry.repo or not entry.revision:
         raise RuntimeError(f"FineSub model {model_id!r} has no pinned repository")
-    snapshot = _install_huggingface(entry, model_id, models_root, sink)
+    snapshot = _install_from_offline_pack(entry, model_id, models_root, sink) or _install_huggingface(
+        entry, model_id, models_root, sink
+    )
     _stage(sink, model_id, "verifying", f"正在校验模型：{model_id}")
     mismatches = [wanted.name for wanted in entry.files if wanted.is_verifiable and not file_matches(snapshot / wanted.name, wanted)]
     if mismatches:

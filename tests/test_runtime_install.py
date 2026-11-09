@@ -179,6 +179,71 @@ def test_the_backup_lock_sends_github_files_to_our_own_copy(tmp_path: Path, monk
     assert "pypi.tuna.tsinghua.edu.cn" in body
 
 
+def _offline_pack_holding(tmp_path: Path, monkeypatch, *wheels: tuple[str, str]) -> Path:
+    pack = tmp_path / "offline pack 离线"
+    pack.mkdir()
+    (pack / "pack.json").write_text("{}", encoding="utf-8")
+    for sha256, name in wheels:
+        (pack / "files" / sha256).mkdir(parents=True)
+        (pack / "files" / sha256 / name).write_bytes(b"wheel")
+    monkeypatch.setenv("NONOKA_OFFLINE_PACK", str(pack))
+    return pack
+
+
+def _first_lock_wheel() -> tuple[str, str]:
+    body = (RUNTIME / "pylock.win-py312.toml").read_text(encoding="utf-8")
+    found = runtime_install._LOCK_FILE.search(body)
+    return found[3], found[1].rsplit("/", 1)[-1]
+
+
+def test_the_offline_package_is_tried_before_any_network_rung(tmp_path: Path, monkeypatch) -> None:
+    sha256, name = _first_lock_wheel()
+    _offline_pack_holding(tmp_path, monkeypatch, (sha256, name))
+    runtime, runs = _ladder_runtime(tmp_path, monkeypatch, proxy=None, fail=0, output="")
+    samples: list[str] = []
+    monkeypatch.setattr(runtime_install, "ensure_fast_enough", lambda url, stage: samples.append(url))
+    logged: list[str] = []
+
+    runtime._install_dependencies(Path("uv.exe"), Path("python.exe"), {"PATH": "x"}, log=logged.append, should_pause=None)
+
+    assert len(runs) == 1
+    body = runs[0][0].read_text(encoding="utf-8")
+    assert "local-lock" in str(runs[0][0])
+    assert f'/offline pack 离线/files/{sha256}/' in body and 'path = "' in body
+    assert tomllib.loads(body)["packages"]  # Still a lock, whatever the path holds.
+    assert samples == []  # Nothing to time: no route is involved.
+    assert any("离线资源包缺少" in line for line in logged)
+
+
+def test_a_failed_offline_install_falls_through_to_the_network(tmp_path: Path, monkeypatch) -> None:
+    _offline_pack_holding(tmp_path, monkeypatch, _first_lock_wheel())
+    runtime, runs = _ladder_runtime(tmp_path, monkeypatch, proxy=None, fail=1, output="Hash mismatch for torch")
+
+    _install(runtime)
+
+    assert [lock.name for lock, _environment in runs] == ["pylock.win-py312.toml", "pylock.win-py312.toml"]
+    assert "local-lock" in str(runs[0][0]) and "local-lock" not in str(runs[1][0])
+
+
+def test_the_interpreter_comes_from_the_offline_package(tmp_path: Path, monkeypatch) -> None:
+    pack = _offline_pack_holding(tmp_path, monkeypatch)
+    (pack / "python").mkdir()
+    monkeypatch.setattr(http_client, "network_routes", lambda: [NetworkRoute("直连", None)])
+    samples: list[str] = []
+    monkeypatch.setattr(runtime_install, "ensure_fast_enough", lambda url, stage: samples.append(url))
+    attempts: list[dict[str, str]] = []
+    monkeypatch.setattr(
+        RuntimeEnvironment, "_run", lambda self, command, environment, *, log, should_pause: attempts.append(environment)
+    )
+    runtime = object.__new__(ProgressRuntimeEnvironment)
+
+    runtime._run(["uv.exe", "python", "install", "3.12"], {}, log=None, should_pause=None)
+
+    assert len(attempts) == 1
+    assert attempts[0]["UV_PYTHON_INSTALL_MIRROR"].startswith("file:///")
+    assert samples == []
+
+
 def test_exhausted_dependency_ladder_asks_for_a_proxy(tmp_path: Path, monkeypatch) -> None:
     runtime, runs = _ladder_runtime(tmp_path, monkeypatch, proxy=None, fail=9, output="error sending request")
 

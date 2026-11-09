@@ -179,7 +179,10 @@ def test_ffmpeg_is_pinned_and_a_copy_from_before_the_pin_keeps_serving(tmp_path:
 
     assert provisioner.tool_path("ffmpeg") == tools / "ffmpeg.exe"
     assert provisioner.tool_path("ffprobe") == tools / "ffprobe.exe"
-    assert provisioner.status()["media_ready"] is True
+    status = provisioner.status()
+    assert status["media_ready"] is True
+    row = next(item for item in status["resources"] if item["id"] == "ffmpeg")
+    assert (row["state"], row["installed_version"]) == ("outdated", "n9.0-latest")
 
 
 def test_runtime_progress_can_aggregate_multiple_resource_downloads(tmp_path: Path) -> None:
