@@ -761,6 +761,30 @@ class LLMCallTests(ProviderFixture):
         self.assertIsNone(provider._llm_process)
         provider.shutdown()
 
+    def test_a_caller_can_ask_for_a_shorter_limit(self) -> None:
+        provider = self.llm_provider()
+        started = time.monotonic()
+        with self.assertRaisesRegex(ProviderError, "did not answer within 1s") as caught:
+            provider.llm_complete({**self.call("hang"), "timeout_seconds": 1})
+        self.assertLess(time.monotonic() - started, 15)
+        self.assertEqual(caught.exception.code, "llm_timeout")
+        self.assertIsNone(provider._llm_process)
+        provider.shutdown()
+
+    def test_only_a_caller_that_asks_skips_the_cooldown(self) -> None:
+        from nonoka_x.local_provider import _validate_llm_request
+
+        self.assertTrue(_validate_llm_request({**self.call(), "ignore_cooldown": True})["ignore_cooldown"])
+        self.assertNotIn("ignore_cooldown", _validate_llm_request(self.call()))
+
+    def test_waiting_behind_another_call_spends_the_same_limit(self) -> None:
+        provider = self.llm_provider()
+        with provider._llm_lock:
+            with self.assertRaisesRegex(ProviderError, "did not answer within 1s"):
+                provider.llm_complete({**self.call(), "timeout_seconds": 1})
+        self.assertIsNone(provider._llm_process)
+        provider.shutdown()
+
     def test_a_vendor_refusal_reaches_the_caller_with_its_own_words(self) -> None:
         provider = self.llm_provider()
         with self.assertRaisesRegex(ProviderError, "daily quota spent"):
@@ -828,6 +852,10 @@ class LLMCallTests(ProviderFixture):
             ),
             ("tokens", {**self.call(), "max_tokens": 0}, "max_tokens"),
             ("temperature", {**self.call(), "temperature": 5}, "temperature"),
+            ("timeout low", {**self.call(), "timeout_seconds": 0}, "timeout_seconds"),
+            ("timeout high", {**self.call(), "timeout_seconds": 301}, "timeout_seconds"),
+            ("timeout type", {**self.call(), "timeout_seconds": True}, "timeout_seconds"),
+            ("cooldown type", {**self.call(), "ignore_cooldown": "yes"}, "ignore_cooldown"),
         ):
             with self.subTest(label):
                 with self.assertRaisesRegex(ProviderError, expected):

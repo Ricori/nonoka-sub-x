@@ -41,6 +41,7 @@ class Session:
 
     def __init__(self) -> None:
         self._client: Any = None
+        self._cooldown_free_client: Any = None
 
     def client(self) -> Any:
         if self._client is None:
@@ -49,14 +50,30 @@ class Session:
             self._client = RoleClient()
         return self._client
 
+    def cooldown_free_client(self) -> Any:
+        """A client that neither honours a key's cooldown nor starts one.
+
+        For a person asking whether a model works right now: the answer has to
+        come from the provider each time, and a failed check must not cost the
+        next pipeline run its only key.
+        """
+
+        if self._cooldown_free_client is None:
+            from finesub.llm.client import RoleClient
+            from finesub.llm.rate_limit import ModelRateLimiter
+
+            self._cooldown_free_client = RoleClient(rate_limiter=ModelRateLimiter(enabled=False))
+        return self._cooldown_free_client
+
     def close(self) -> None:
-        if self._client is None:
-            return
-        try:
-            self._client.close()
-        except Exception:  # noqa: BLE001 - shutdown must not raise
-            pass
-        self._client = None
+        for client in (self._client, self._cooldown_free_client):
+            if client is None:
+                continue
+            try:
+                client.close()
+            except Exception:  # noqa: BLE001 - shutdown must not raise
+                pass
+        self._client = self._cooldown_free_client = None
 
     def complete(self, request: Mapping[str, Any]) -> dict[str, Any]:
         from finesub.llm.routing.config import LLMRole
@@ -68,7 +85,8 @@ class Session:
             {"role": str(item["role"]), "content": str(item["content"])}
             for item in request["messages"]
         ]
-        result = self.client().complete(
+        client = self.cooldown_free_client() if request.get("ignore_cooldown") else self.client()
+        result = client.complete(
             LLMRole(ENGINE_ROLES[role]),
             messages,
             max_tokens=int(request.get("max_tokens", 8192)),

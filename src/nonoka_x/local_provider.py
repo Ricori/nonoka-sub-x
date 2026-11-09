@@ -11,6 +11,7 @@ import signal
 import subprocess
 import sys
 import threading
+import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -780,12 +781,27 @@ def _validate_llm_request(value: Mapping[str, Any]) -> dict[str, Any]:
     temperature = value.get("temperature", 1.0)
     if isinstance(temperature, bool) or not isinstance(temperature, (int, float)) or not 0.0 <= float(temperature) <= 2.0:
         raise ProviderError("invalid_request", "temperature must be a number between 0 and 2")
-    return {
+    request: dict[str, Any] = {
         "role": role,
         "messages": messages,
         "max_tokens": max_tokens,
         "temperature": float(temperature),
     }
+    if "timeout_seconds" in value:
+        timeout = value["timeout_seconds"]
+        if isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or not 1 <= timeout <= LLM_CALL_TIMEOUT_SEC:
+            raise ProviderError("invalid_request", f"timeout_seconds must be a number between 1 and {LLM_CALL_TIMEOUT_SEC:g}")
+        request["timeout_seconds"] = float(timeout)
+    ignore_cooldown = value.get("ignore_cooldown", False)
+    if not isinstance(ignore_cooldown, bool):
+        raise ProviderError("invalid_request", "ignore_cooldown must be true or false")
+    if ignore_cooldown:
+        request["ignore_cooldown"] = True
+    return request
+
+
+def _llm_timeout_error(timeout: float) -> ProviderError:
+    return ProviderError("llm_timeout", f"The LLM call did not answer within {timeout:g}s", http_status=504)
 
 
 def _read_line_with_timeout(process: subprocess.Popen[str], timeout: float) -> str | None:
@@ -1357,8 +1373,15 @@ class LocalProvider:
             if not stage["ready"]:
                 issue = stage["issues"][0]
                 raise ProviderError(issue["code"], issue["message"], http_status=503)
-        with self._llm_lock:
-            response = self._llm_exchange(request)
+        timeout = float(request.get("timeout_seconds", LLM_CALL_TIMEOUT_SEC))
+        deadline = time.monotonic() + timeout
+        # Waiting behind a call already in flight spends the same limit.
+        if not self._llm_lock.acquire(timeout=timeout):
+            raise _llm_timeout_error(timeout)
+        try:
+            response = self._llm_exchange(request, deadline)
+        finally:
+            self._llm_lock.release()
         if not response.get("ok"):
             error = response.get("error") if isinstance(response.get("error"), Mapping) else {}
             message = str(error.get("message") or "LLM call failed")
@@ -1372,7 +1395,7 @@ class LocalProvider:
             "fallback_used": bool(response.get("fallback_used")),
         }
 
-    def _llm_exchange(self, request: Mapping[str, Any]) -> dict[str, Any]:
+    def _llm_exchange(self, request: Mapping[str, Any], deadline: float) -> dict[str, Any]:
         """Send one request to the LLM worker and read its one response.
 
         Caller holds `_llm_lock`. A worker that died between calls -- the CLI it
@@ -1391,14 +1414,10 @@ class LocalProvider:
                 if attempt == 0:
                     continue
                 raise ProviderError("llm_unavailable", "The LLM worker could not be started", http_status=503)
-            line = _read_line_with_timeout(process, LLM_CALL_TIMEOUT_SEC)
+            line = _read_line_with_timeout(process, max(0.0, deadline - time.monotonic()))
             if line is None:
                 self._stop_llm_worker()
-                raise ProviderError(
-                    "llm_timeout",
-                    f"The LLM call did not answer within {int(LLM_CALL_TIMEOUT_SEC)}s",
-                    http_status=504,
-                )
+                raise _llm_timeout_error(float(request.get("timeout_seconds", LLM_CALL_TIMEOUT_SEC)))
             if not line.strip():
                 # EOF: the worker is gone. Its stderr went to the sidecar's.
                 self._stop_llm_worker()
@@ -1465,14 +1484,20 @@ class LocalProvider:
         process, self._llm_process = self._llm_process, None
         if process is None:
             return
-        for stream in (process.stdin, process.stdout):
-            if stream is not None and not stream.closed:
-                try:
-                    stream.close()
-                except OSError:
-                    pass
+        self._close_llm_stream(process.stdin)
         if process.poll() is None:
             self._terminate(process)
+        # Last: closing stdout under a timed-out reader blocks until that read
+        # returns, which is only once the process is gone.
+        self._close_llm_stream(process.stdout)
+
+    @staticmethod
+    def _close_llm_stream(stream: Any) -> None:
+        if stream is not None and not stream.closed:
+            try:
+                stream.close()
+            except OSError:
+                pass
 
     def cancel(self, task_id: str) -> dict[str, Any]:
         with self._lock:

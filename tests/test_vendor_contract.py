@@ -4,6 +4,7 @@ import ast
 import importlib
 import json
 import sys
+import tempfile
 import tomllib
 import unittest
 from pathlib import Path
@@ -107,6 +108,28 @@ class VendorContractTests(unittest.TestCase):
         self.assertTrue(engine_roles <= roles, f"{engine_roles - roles} are not engine roles")
         self.assertEqual(set(ROLES), set(LLM_ROLES))
         self.assertEqual(set(ENGINE_ROLES), set(ROLES))
+
+    def test_a_disabled_limiter_neither_honours_nor_starts_a_cooldown(self) -> None:
+        """What the LLM worker relies on for a settings-page model check."""
+
+        sys.path.insert(0, str(DEFAULT_VENDOR / "src"))
+        from finesub.llm.rate_limit import ComboCooldownPhase, ModelRateLimiter
+        from finesub.llm.routing.config import ModelEndpoint
+
+        self.assertIn(
+            "rate_limiter: ModelRateLimiter | None = None",
+            (DEFAULT_VENDOR / "src/finesub/llm/client.py").read_text(encoding="utf-8"),
+        )
+        endpoint = ModelEndpoint("TIER", "model")
+        with tempfile.TemporaryDirectory() as temporary:
+            state = Path(temporary) / "state"
+            ModelRateLimiter(state_path=state).note_combo_exhausted(endpoint, key_id="cooling")
+            disabled = ModelRateLimiter(state_path=state, enabled=False)
+            self.assertIs(disabled.combo_cooldown_phase(endpoint, key_id="cooling"), ComboCooldownPhase.NONE)
+            disabled.note_combo_exhausted(endpoint, key_id="checked")
+            fresh = ModelRateLimiter(state_path=state)
+            self.assertIs(fresh.combo_cooldown_phase(endpoint, key_id="cooling"), ComboCooldownPhase.SKIP)
+            self.assertIs(fresh.combo_cooldown_phase(endpoint, key_id="checked"), ComboCooldownPhase.NONE)
 
     def test_desktop_restates_the_engine_switch_values(self) -> None:
         """The knowledge modes and diarization levels the provider validates.

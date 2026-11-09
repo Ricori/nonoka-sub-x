@@ -25,13 +25,18 @@ class FakeClient:
 
     built = 0
     calls: list[tuple] = []
+    instances: list["FakeClient"] = []
 
-    def __init__(self) -> None:
+    def __init__(self, rate_limiter=None) -> None:
         type(self).built += 1
+        type(self).instances.append(self)
+        self.rate_limiter = rate_limiter
         self.closed = False
+        self.answered = 0
 
     def complete(self, role, messages, **kwargs):
         type(self).calls.append((role, messages, kwargs))
+        self.answered += 1
         if messages[-1]["content"] == "boom":
             raise RuntimeError("the endpoint refused: daily quota spent")
         return types.SimpleNamespace(
@@ -59,10 +64,13 @@ def engine():
     client_module.is_quota_or_rate_limit_error = lambda exc: "quota" in str(exc)
     config = types.ModuleType("finesub.llm.routing.config")
     config.LLMRole = Role
+    limiter_module = types.ModuleType("finesub.llm.rate_limit")
+    limiter_module.ModelRateLimiter = lambda enabled: types.SimpleNamespace(enabled=enabled)
     modules = {
         "finesub": types.ModuleType("finesub"),
         "finesub.llm": types.ModuleType("finesub.llm"),
         "finesub.llm.client": client_module,
+        "finesub.llm.rate_limit": limiter_module,
         "finesub.llm.routing": types.ModuleType("finesub.llm.routing"),
         "finesub.llm.routing.config": config,
     }
@@ -72,6 +80,7 @@ def engine():
     sys.modules.update(modules)
     FakeClient.built = 0
     FakeClient.calls = []
+    FakeClient.instances = []
     try:
         yield
     finally:
@@ -120,6 +129,17 @@ class LLMWorkerTests(unittest.TestCase):
         self.assertEqual(replies[0]["error"]["code"], "quota_exceeded")
         self.assertIn("daily quota spent", replies[0]["error"]["message"])
         self.assertTrue(replies[1]["ok"])
+
+    def test_a_cooldown_free_call_gets_its_own_unlimited_client(self) -> None:
+        with engine():
+            replies = run([call("plain"), {**call("check"), "ignore_cooldown": True}, call("plain again")])
+            normal, cooldown_free = FakeClient.instances
+        self.assertTrue(all(reply["ok"] for reply in replies))
+        self.assertIsNone(normal.rate_limiter)
+        self.assertEqual(normal.answered, 2)
+        self.assertFalse(cooldown_free.rate_limiter.enabled)
+        self.assertEqual(cooldown_free.answered, 1)
+        self.assertTrue(normal.closed and cooldown_free.closed)
 
     def test_an_unlisted_role_is_refused_without_reaching_the_engine(self) -> None:
         with engine():

@@ -98,5 +98,7 @@ export const fineSubSettings = {
       role: "general_capable",
       messages: [{ role: "user", content: "Reply with the single word: OK" }],
       max_tokens: 1024,
+      timeout_seconds: 35,
+      ignore_cooldown: true,
     }) as Promise<unknown> as Promise<FineSubModelTestResult>,
 };
