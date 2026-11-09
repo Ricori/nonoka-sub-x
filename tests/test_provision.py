@@ -29,6 +29,12 @@ def test_runtime_provision_status_uses_finesub_manifests(tmp_path: Path) -> None
     assert {item["id"] for item in status["models"]} == {"separator", "whisper", "qwen-referee"}
 
 
+def test_runtime_is_not_reported_under_the_uv_resource_id(tmp_path: Path) -> None:
+    status = RuntimeProvisioner(tmp_path, VENDOR).status()
+    assert status["runtime"]["id"] == "python"
+    assert status["runtime"]["id"] not in {item["id"] for item in status["resources"]}
+
+
 def test_runtime_provision_status_reports_bootstrap_failure(tmp_path: Path) -> None:
     """A broken bootstrap disables every install control in the desktop shell,
     so the payload has to carry the reason rather than only a tile tooltip."""

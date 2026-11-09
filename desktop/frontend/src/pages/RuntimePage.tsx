@@ -84,7 +84,6 @@ const compactAssetLabels: Record<string, string> = {
 const toolPurposes: Record<string, string> = {
   nemotron3: "说话人分离：判断谁在说话",
   "speaker-embedding": "说话人分离：按声音归人",
-  tokcount: "本地精确统计 Token",
   "yt-dlp": "解析在线视频与字幕",
   aria2c: "多连接加速下载",
   node: "运行 JavaScript 挑战",

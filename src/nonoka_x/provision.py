@@ -355,6 +355,9 @@ class RuntimeProvisioner:
                 )
         if self.runtime is not None:
             runtime_status = self.runtime.status().model_dump(mode="json")
+            # FineSub names this status after its installer, the same id as the
+            # uv resource listed beside it.
+            runtime_status["id"] = "python"
             if runtime_status.get("state") == "missing" and self._runtime_outdated():
                 # Installed, but for an older dependency lock: say "update",
                 # not "missing" -- the environment is there and most of it is
