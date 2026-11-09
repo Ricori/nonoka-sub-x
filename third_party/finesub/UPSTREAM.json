@@ -1,59 +1,47 @@
 {
-  "archive_sha256": "e76340e70a214412facdb7b7288b5532886ff9e6bab0b3519bfb54ed1cc257ae",
-  "commit": "5caf422cbad36f0402c98eb565e4c29aee4ac197",
-  "content_sha256": "4b1f46d73b0b91bf59da129200d8fb855340f07da8a74c8d8ee77b66e57676c3",
-  "engine_bundle_id": "finesub-0.6.0+5caf422cbad3",
-  "engine_version": "0.6.0",
-  "files_manifest_sha256": "8efe1aa99e408448c33acd04d38782db53317366de8bea41406c74f30c9afa4b",
+  "archive_sha256": "9b48d99e8c712ba0cd6de8809502782743ceeda0a3ce05daa1e63103248202cb",
+  "commit": "7123055da0cd6e037d8e37feb53b82f9e428c5cb",
+  "content_sha256": "6e3d305af80c593be93244fa9b7436b5b28c3b0529ed1374eefd5a6564186039",
+  "engine_bundle_id": "finesub-0.7.0+7123055da0cd",
+  "engine_version": "0.7.0",
+  "files_manifest_sha256": "f343c0f7a1799d84646d56fd8b6baf00b610f37e8c3fc6989d11ab91cb92e405",
   "patches": [
     {
       "path": "0001-qwen-tail-entry-point.patch",
-      "sha256": "6c395a1f39ba7a3327d64b3849a9f45ae3b33fd2812ba147c3085ca229bf5685"
+      "sha256": "35573bc43aea6273d0c3e8de7539f49e9164cbfbd4e481f0894ab9a1d3e07f3e"
     },
     {
       "path": "0002-runtime-resource-management.patch",
-      "sha256": "b08f2b18ce942938213de6f536692156872eac9c417caf7465ab0417674ea60e"
+      "sha256": "74425060ddcaef25e58985214559249db12959dd8d667acfaf1b8c87df33ad23"
     },
     {
       "path": "0003-aoti-toolchain-portability.patch",
-      "sha256": "2b786f47fa563291e4baba6d66b594c3aac4323bcd7f38720f44f31afa1f9b13"
+      "sha256": "16768a0ed0314080ddb4118c1bd9b3d85aaa228181f62109f45198b241fc27a7"
     },
     {
-      "path": "0006-pinned-knowledge-subjects.patch",
-      "sha256": "8f31416c3d80e16308f69effe839576c0e5cf7a1966fd3a227c101b5204aacf3"
+      "path": "0004-pinned-knowledge-subjects.patch",
+      "sha256": "7340e8237a3dd65ea9f8b4e24cc32c3ab0c3a6e8c5cfe4ff408b9af09620f2da"
     },
     {
-      "path": "0007-agy-compatibility.patch",
-      "sha256": "30b6864c92f607c9e3f30773bdceb0c2cc7b89f1678ffe9b8cd8e313e3ac4f8e"
+      "path": "0005-agy-compatibility.patch",
+      "sha256": "ba910c2b5701d25b9b488c03591a2840772b3c56243a0d224240a3b12c12b25c"
     },
     {
-      "path": "0009-reject-placeholder-correction.patch",
-      "sha256": "0bda41bb350f40cffbfcbbed7066a247690acf5638fe730ec80192025e0da073"
+      "path": "0006-lazy-asr-import-in-stages.patch",
+      "sha256": "f5e625517caa4ff5b74b2d092f1d7d0ce94273bfbe7413d48024fbeb73ace506"
     },
     {
-      "path": "0010-lazy-asr-imports-in-stages.patch",
-      "sha256": "2963043325b7f6f45276f4c804dac39fffe886e49e2d8cc9948ea2f1d3f8c3b9"
+      "path": "0007-llm-wait-visibility.patch",
+      "sha256": "bd0804d4e2d9849482320c2422bac830e5a5cb7dc5395936974a4d9be5e1d12b"
     },
     {
-      "path": "0011-llm-wait-visibility.patch",
-      "sha256": "7b08fe951f277bbfd1dcb948de94b714d0a4531ac9333cc501480d954d9be60c"
-    },
-    {
-      "path": "0012-sequential-asr-delivery-read.patch",
-      "sha256": "b7e2b26ee9faf0786389988fc82253925c07a0bd54ec5b3fddc819b1e9034f71"
-    },
-    {
-      "path": "0013-llm-transport-resilience.patch",
-      "sha256": "4b47e99ae88c78ac764e9f0a9c1ad0173d8419f0b236c33cd47aa73b8588a6c6"
-    },
-    {
-      "path": "0016-local-token-counting-only.patch",
-      "sha256": "37b77d38f4c269c9006d748672a89560cb2b4977d6c3209561de4e0f80998a57"
+      "path": "0008-llm-stream-reply-timeout.patch",
+      "sha256": "d4aff41919e4332734571fd0c1c994667de21471b28c5953344776fd345b476a"
     }
   ],
-  "ref": "v0.6.0",
+  "ref": "v0.7.0",
   "repository": "https://github.com/caca2331/finesub",
-  "runtime_manifest_sha256": "83c53d29d49101a96993129783891f1d218397611a0a0b3866691bbfce9c99db",
+  "runtime_manifest_sha256": "c0ccb721db97ef841d2c2ffd2f9dbe8921a6bf0d998aa4b710096585eaa67137",
   "sync_schema": 1,
-  "synced_at": "2026-10-11T20:10:58Z"
+  "synced_at": "2026-11-09T14:04:41Z"
 }

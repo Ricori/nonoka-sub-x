@@ -1,6 +1,6 @@
 """User-picked knowledge subjects, the engine half.
 
-Promises kept by `patches/finesub/0006-pinned-knowledge-subjects.patch`: the
+Promises kept by `patches/finesub/0004-pinned-knowledge-subjects.patch`: the
 subjects a task names resolve by qualified name, ride into every correction
 window as one budgeted block, and are pinned at the head of the knowledge
 update's entry selection so the model can write into them.

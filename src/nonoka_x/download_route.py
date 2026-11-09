@@ -50,6 +50,7 @@ from contextvars import ContextVar
 from dataclasses import dataclass
 import json
 import os
+import sys
 from pathlib import Path
 import time
 from typing import Any, TypeVar
@@ -488,7 +489,7 @@ def climb_huggingface(
 
     One process each because `huggingface_hub` reads its endpoint at import. A
     user's own `HF_ENDPOINT` is left alone and has no mirror rung; it still
-    cannot serve Xet, which `apply_xet_policy` knows.
+    cannot serve Xet, which `apply_mirror_policy` knows.
     """
 
     from finesub_bootstrap import model_fetch
@@ -501,7 +502,7 @@ def climb_huggingface(
         routed = stage_environment(environment, stage)
         if stage.mirror:
             routed[model_fetch.HF_ENDPOINT] = mirror
-        model_fetch.apply_xet_policy(routed, endpoint=mirror if stage.mirror else chosen)
+        model_fetch.apply_mirror_policy(routed, endpoint=mirror if stage.mirror else chosen)
         fetch(routed)
 
     def advances(_stage: DownloadStage, error: Exception) -> bool:
@@ -742,7 +743,8 @@ def install_app_proxy_policy() -> None:
       without one, the system proxy and the environment as before. Its liveness
       probe still skips a local proxy whose client is not running.
     * `finesub.llm.http`: API calls take the same route instead of httpx's own
-      `trust_env` lookup. An explicit `[llm] proxy` in config.toml still wins.
+      `trust_env` lookup. An explicit `[api] proxy` in config.toml still wins.
+      A SOCKS route goes direct with a warning: the engine refuses SOCKS.
     * `os.environ`: kept on that route, so in-process clients that read the
       environment (Hugging Face) and every child spawned from a copy of it
       follow too. Direct is spelled `NO_PROXY=*`, which stops Python and Rust
@@ -796,19 +798,31 @@ def install_app_proxy_policy() -> None:
     http_client._environment_proxies = environment_proxies
 
     try:
-        from finesub.llm import http as llm_http
+        from finesub import api_http
     except Exception:  # noqa: BLE001 - the LLM layer is optional in installer processes
-        llm_http = None
-    if llm_http is not None:
-        original_configured = llm_http.configured_proxy
+        api_http = None
+    if api_http is not None:
+        original_configured = api_http.configured_proxy
+        warned_socks = False
 
         def configured_proxy() -> str | None:
+            nonlocal warned_socks
             explicit = original_configured()
             if explicit is not None:
                 return explicit
-            return live_proxy() or llm_http.DIRECT
+            proxy = live_proxy()
+            if proxy and proxy.lower().startswith("socks"):
+                if not warned_socks:
+                    warned_socks = True
+                    print(
+                        "Warning: the transcription engine does not support SOCKS proxies; "
+                        "its API calls go direct. Use the proxy's HTTP port to route them.",
+                        file=sys.stderr,
+                    )
+                return api_http.DIRECT
+            return proxy or api_http.DIRECT
 
-        llm_http.configured_proxy = configured_proxy
+        api_http.configured_proxy = configured_proxy
 
     # Settle the environment now, before anything reads it.
     live_proxy()

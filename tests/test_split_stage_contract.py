@@ -197,7 +197,7 @@ class PurelyAdditiveTests(unittest.TestCase):
             # the windows and the post-task update. Without
             # `knowledge_subjects=` every path is upstream's, and the cloud
             # never sends one (its runs read no local knowledge base).
-            "0006-pinned-knowledge-subjects.patch": [
+            "0004-pinned-knowledge-subjects.patch": [
                 "src/finesub/llm/correction_request.py",
                 "src/finesub/llm/correction_translation.py",
                 "src/finesub/llm/knowledge/entries.py",
@@ -208,59 +208,35 @@ class PurelyAdditiveTests(unittest.TestCase):
             # Local-agent setup, not transcription: agy 1.3 silently swaps an
             # unknown `--project` id for its default project, and the check
             # now notices and re-registers. Only the local agy driver runs
-            # it; the cloud never starts a local agent CLI. Local-agent
-            # plumbing too: the agy guard hook reads its payload as UTF-8
-            # bytes rather than through the Windows code page. Only agy runs
-            # these scripts, and only on the local machine.
-            "0007-agy-compatibility.patch": [
+            # it; the cloud never starts a local agent CLI.
+            "0005-agy-compatibility.patch": [
                 "src/finesub/llm/agent/local_agent.py",
-            ],
-            # A validation the cloud shares, and stricter only: a reply whose
-            # rows are one repeated line or mostly a placeholder word becomes
-            # a repair round. Any reply it refuses was never a correction.
-            "0009-reject-placeholder-correction.patch": [
-                "src/finesub/llm/output_protocol.py",
             ],
             # Import placement only: recognition and separation load where
             # their stages run, so resuming from a stable.json needs no torch.
             # A run that recognises imports the same modules a stage later,
             # with the same defaults; nothing it computes changes.
-            "0010-lazy-asr-imports-in-stages.patch": [
+            "0006-lazy-asr-import-in-stages.patch": [
+                "src/finesub/speech/diarization/marks.py",
                 "src/finesub/stages.py",
             ],
             # Log lines only: a research round says when it waits and how
             # long the answer took, a parse retry is a warning, and a call in
             # flight notes every 5 minutes that it still is. No call, timeout
             # or result changes.
-            "0011-llm-wait-visibility.patch": [
+            "0007-llm-wait-visibility.patch": [
+                "src/finesub/llm/http.py",
                 "src/finesub/llm/llm_runtime.py",
                 "src/finesub/llm/research.py",
             ],
-            # How the ASR delivery reads its input only: once and front to
-            # back instead of a seek per window, with the window sized in
-            # seconds. The samples it writes are the same; the cloud shares it.
-            "0012-sequential-asr-delivery-read.patch": [
-                "src/finesub/speech/preprocessing/separator/separation.py",
-            ],
-            # LLM routing only, which the cloud never runs: a 5-minute key
-            # cooldown, 6 sticky retries, connect timeouts kept out of the
-            # timeout abort, a call whose whole chain is cooling waits for it
-            # instead of failing, and a non-JSON body quoted past its
-            # leading whitespace. The Tokyo relay's answers read as a stream,
-            # with a timeout on progress and dropped connections made
-            # retryable. Network failures retried by type, and named by host.
-            "0013-llm-transport-resilience.patch": [
-                "src/finesub/llm/client.py",
+            # LLM calls only, which the cloud never runs: a streamed call is
+            # judged by replies rather than bytes, gets a backup after 10
+            # minutes without one and is cut after 10 more.
+            "0008-llm-stream-reply-timeout.patch": [
                 "src/finesub/llm/http.py",
                 "src/finesub/llm/llm_runtime.py",
                 "src/finesub/llm/provider_transports.py",
-                "src/finesub/llm/rate_limit.py",
-                "src/finesub/llm/routing/api_keys.py",
-            ],
-            # Token counting without the network, under one deadline.
-            "0016-local-token-counting-only.patch": [
-                "src/finesub/llm/token_budget.py",
-                "src/finesub/llm/token_measure.py",
+                "src/finesub/llm/streaming.py",
             ],
         }
         for name in names:

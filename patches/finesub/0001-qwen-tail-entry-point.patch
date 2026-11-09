@@ -1,48 +1,17 @@
-Subject: [PATCH 1/6] Make the Qwen pass runnable on its own
+From fce0c89ae4a33da1575d8650097922e970609ac4 Mon Sep 17 00:00:00 2001
+From: Takamichika <sloanewu233@gmail.com>
+Date: Tue, 10 Nov 2026 00:23:45 +0900
+Subject: [PATCH] Make the Qwen pass runnable on its own
 
-Reason: Nonoka X's cloud deployment rents its accelerator by the second and runs
-one FineSub task across three containers. Upstream 0.5.0 split the VAD half out
-by itself -- `run_vad_prefix`, `write_vad_prefix`/`read_vad_prefix` and
-`run_vad_asr(vad_prefix_path=...)` -- so the CPU container that used to need a
-patch now calls upstream code with upstream arguments. The referee's own seam
-came with it: `QwenReferee.warm` and `resolve_verification_referee` are upstream
-too, which is what lets the scheduler preload the second model beside the GPU
-stage.
-
-What upstream still has no entry point for is running the referee *after* the
-fact. Inside `run_vad_asr` the pass is inline, so the only way to keep the second
-model off the Whisper accelerator is to run the stage with `qwen_verify="off"`
-and attach the evidence later -- on a cheap CPU container, against the aligned
-artifact the GPU container already wrote. `finalize_qwen_verification` is that
-entry point and nothing else: it is additive, no existing statement is touched,
-and every local run, the CLI and batch reach the untouched inline path.
-
-It calls the same `qwen_referee.apply_verification` the inline pass calls, with
-the same arguments, so the evidence is not a second implementation. Idempotent
-by construction -- an artifact that already carries `asr_align.qwen_verify` is
-returned untouched -- which is what lets a resumed run call it without checking.
-
-Containment is upstream's own, not ours: 0.5.1 answered the "a failed referee
-must not take the run down" half of the old patch 0004 with
-`contained_verification`, and this entry point calls it rather than restating
-the policy. The cloud reaches here with the default `qwen_verify="auto"`, so
-without it a hub that cannot be reached would discard an alignment pass the GPU
-container has already been billed for. 0.5.1 likewise absorbed the offline
-weight load (`speech/runtime/hf_weights`), which is why nothing about loading
-the referee is patched any more.
-
-`tests/test_split_stage_contract.py` in the Nonoka X repository enforces that
-reading: one file touched, nothing but additions.
-
-Removal: Delete once upstream can run the referee as a separate step against an
-existing aligned artifact, or once Nonoka X stops splitting the stage across
-containers.
+---
+ .../speech/recognition/vad_asr_stage.py       | 133 ++++++++++++++++++
+ 1 file changed, 133 insertions(+)
 
 diff --git a/src/finesub/speech/recognition/vad_asr_stage.py b/src/finesub/speech/recognition/vad_asr_stage.py
-index 10f872a..96dabea 100644
+index 58e83a3..e538810 100644
 --- a/src/finesub/speech/recognition/vad_asr_stage.py
 +++ b/src/finesub/speech/recognition/vad_asr_stage.py
-@@ -692,6 +692,139 @@ def _finish_segment_timeline(
+@@ -799,6 +799,139 @@ def _finish_segment_timeline(
      return energy_segments
  
  

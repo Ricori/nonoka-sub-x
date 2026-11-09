@@ -1,4 +1,4 @@
-"""What the log says while an LLM call is still running (vendor patch 0011).
+"""What the log says while an LLM call is still running (vendor patch 0007).
 
 A 2026-10-29 task sat 29 minutes between the routing notes and the first
 correction window with not one line in the task log: the preparation task was
@@ -17,12 +17,13 @@ import time
 import unittest
 from pathlib import Path
 from typing import Any
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "third_party/finesub/src"))
 
-from finesub.llm import llm_runtime, research  # noqa: E402
+from finesub.llm import http, research  # noqa: E402
 from finesub.llm.client import LLMCallResult  # noqa: E402
 from finesub.llm.routing.config import LLMRole  # noqa: E402
 from finesub.reporting import reporting_to  # noqa: E402
@@ -130,37 +131,33 @@ class ResearchCallLinesTests(unittest.TestCase):
 
 
 class WaitHeartbeatTests(unittest.TestCase):
-    def test_a_call_in_flight_says_so_before_the_soft_deadline(self) -> None:
-        recorder = _Recorder()
-        with reporting_to(recorder):
-            with llm_runtime._SoftDeadline(10.0, model="qwen3.8", hard=20.0, heartbeat=0.05):
-                time.sleep(0.18)
-        beats = [line for line in recorder.lines if line[1] == "llm api call still waiting"]
+    @staticmethod
+    def hedge(send: Any, *, on_backup: Any = lambda progress: None, heartbeat: Any) -> Any:
+        with mock.patch.object(http, "WAIT_HEARTBEAT_SECONDS", 0.05), mock.patch.object(
+            http, "_JOIN_SLICE_SECONDS", 0.01
+        ):
+            return http.hedge_on_silence(
+                send,
+                silence_seconds=30.0,
+                on_backup=on_backup,
+                on_end=lambda request: None,
+                on_heartbeat=heartbeat,
+            )
 
+    def test_a_call_in_flight_says_so_on_each_beat(self) -> None:
+        beats: list[http.StreamProgress] = []
+
+        def send(progress: http.StreamProgress) -> str:
+            time.sleep(0.18)
+            return "answer"
+
+        self.assertEqual(self.hedge(send, heartbeat=beats.append), "answer")
         self.assertGreaterEqual(len(beats), 2)
-        self.assertEqual(beats[0][2]["model"], "qwen3.8")
-        self.assertFalse([line for line in recorder.lines if line[0] == "warning"])
-
-    def test_the_soft_deadline_still_warns_once_and_beats_continue(self) -> None:
-        recorder = _Recorder()
-        with reporting_to(recorder):
-            with llm_runtime._SoftDeadline(0.05, model="qwen3.8", hard=1.0, heartbeat=0.04):
-                time.sleep(0.25)
-        warnings = [line for line in recorder.lines if line[0] == "warning"]
-
-        self.assertEqual(len(warnings), 1)
-        self.assertEqual(warnings[0][1], "llm-api-soft-timeout")
-        later = recorder.lines[recorder.lines.index(warnings[0]) + 1 :]
-        self.assertTrue([line for line in later if line[1] == "llm api call still waiting"])
 
     def test_a_quick_call_says_nothing(self) -> None:
-        recorder = _Recorder()
-        with reporting_to(recorder):
-            with llm_runtime._SoftDeadline(10.0, model="qwen3.8", hard=20.0, heartbeat=5.0):
-                pass
-        time.sleep(0.05)
-
-        self.assertEqual(recorder.lines, [])
+        beats: list[http.StreamProgress] = []
+        self.assertEqual(self.hedge(lambda progress: "answer", heartbeat=beats.append), "answer")
+        self.assertEqual(beats, [])
 
 
 if __name__ == "__main__":

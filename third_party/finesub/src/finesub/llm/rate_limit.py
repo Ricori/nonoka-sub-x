@@ -7,6 +7,7 @@ from finesub.reporting import current_reporter
 from collections import deque
 from dataclasses import dataclass, field
 from enum import Enum
+from functools import lru_cache
 import hashlib
 import itertools
 import math
@@ -96,16 +97,9 @@ _DAILY_EXHAUSTED_KEY = "daily_exhausted"
 _DAILY_STRIKES_KEY = "daily_strikes"
 _COMBO_COOLDOWNS_KEY = "combo_cooldowns"
 
-# After a (tier, model, key) exhausts sticky retries: skip 5m, then probe
+# After a (tier, model, key) exhausts sticky retries: skip 20m, then probe
 # once (retry=0) until 120m; probe success clears, probe failure restarts.
-#
-# Nonoka X: 5 minutes, not upstream's 20. A desktop run that has nothing to
-# rotate to -- the free Nonoka Cloud provider is one key and usually the only
-# provider -- now waits the skip out instead of failing (`RoleClient.complete`),
-# and twenty minutes per hiccup was a long time to sit on one window. The sticky
-# retries that lead here were raised at the same time, so a combo only gets
-# this far after several minutes of failures anyway.
-COMBO_COOLDOWN_SKIP_SECONDS = 5 * 60
+COMBO_COOLDOWN_SKIP_SECONDS = 20 * 60
 COMBO_COOLDOWN_TTL_SECONDS = 120 * 60
 
 # Lock a key/endpoint as daily-exhausted only after several consecutive
@@ -282,7 +276,7 @@ class ModelRateLimiter:
             raise ValueError(
                 f"No runtime fact for {endpoint.provider_tier} + "
                 f"{endpoint.api_model_id} (neither the packaged nor the data "
-                "root's model_catalog.psv declares it)"
+                "root's model_catalog.toml declares it)"
             )
         factor = self.policy.safety_factor
         effective_tpm = -1 if entry.tpm < 0 else max(1, int(entry.tpm * factor))
@@ -460,7 +454,7 @@ class ModelRateLimiter:
         every concurrent window read PROBE at once and each fired its own --
         four probes of something meant to be tested with one, four requests off
         a free tier's daily allowance, and four ``note_combo_exhausted`` calls
-        restarting the skip window on top of each other. This is the same
+        restarting the 20-minute skip on top of each other. This is the same
         "N concurrent observations of one fact" the daily-strike gate already
         solved with ``departed_at``; the cooldown never got the treatment.
 
@@ -484,6 +478,22 @@ class ModelRateLimiter:
             self._probe_claims[key] = window
             return True
 
+    def release_combo_probe(
+        self,
+        endpoint: ModelEndpoint,
+        *,
+        key_id: str = "",
+    ) -> None:
+        """Give the probe back unanswered: the request never reached the server.
+
+        A probe that could not connect learnt nothing about the combo's quota
+        (`api_http.HostBreaker` keeps that), so it neither restarts the
+        cooldown nor keeps the claim -- the next call may ask again.
+        """
+
+        with self._lock:
+            self._probe_claims.pop(endpoint_key(endpoint, key_id), None)
+
     def effective_sticky_retries(
         self,
         endpoint: ModelEndpoint,
@@ -505,7 +515,7 @@ class ModelRateLimiter:
         key_id: str = "",
         now: Optional[datetime] = None,
     ) -> None:
-        """Start or restart the 5m skip + 115m probe cooldown window."""
+        """Start or restart the 20m skip + 100m probe cooldown window."""
 
         if not self.enabled:
             return
@@ -597,10 +607,15 @@ class ModelRateLimiter:
                         running += event.tokens
                         if running >= needed:
                             target = event.ts + window
-                            if target > candidate:
-                                candidate = target
-                                moved = True
                             break
+                    else:
+                        # Larger than the window allows even once everything
+                        # booked has aged out: it departs alone, after the
+                        # last of them, rather than beside them.
+                        target = max(event.ts for event in active_events) + window
+                    if target > candidate:
+                        candidate = target
+                        moved = True
             if not moved:
                 return candidate
 
@@ -877,6 +892,14 @@ class ModelRateLimiter:
                 k: list(v) for k, v in self._daily_strikes.items()
             }
             section[_COMBO_COOLDOWNS_KEY] = dict(self._combo_cooldowns)
+
+
+@lru_cache(maxsize=2)
+def shared_rate_limiter(enabled: bool) -> ModelRateLimiter:
+    """The process's one limiter: model calls of every role and the Gemma4
+    retrieval calls book into the same windows."""
+
+    return ModelRateLimiter(enabled=enabled)
 
 
 def estimate_call_input_tokens(

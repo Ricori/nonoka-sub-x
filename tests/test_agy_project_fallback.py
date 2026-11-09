@@ -1,6 +1,6 @@
 """A kept agy project id that agy no longer has, the engine half.
 
-Promises kept by `patches/finesub/0007-agy-compatibility.patch`:
+Promises kept by `patches/finesub/0005-agy-compatibility.patch`:
 agy 1.3 answers an unknown `--project` id by opening `default-cli-project`
 with exit status 0, so the project check now reads which project agy actually
 opened. A stale id is registered afresh; a project agy cannot open even right

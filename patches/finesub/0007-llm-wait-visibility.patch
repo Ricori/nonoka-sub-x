@@ -1,0 +1,126 @@
+From b53a44e07881bc2e581640493cd93f5a4a5615db Mon Sep 17 00:00:00 2001
+From: Takamichika <sloanewu233@gmail.com>
+Date: Tue, 10 Nov 2026 00:26:29 +0900
+Subject: [PATCH] Say what a long LLM call is doing while it runs
+
+---
+ src/finesub/llm/http.py        |  9 +++++++++
+ src/finesub/llm/llm_runtime.py | 18 +++++++++++++++++-
+ src/finesub/llm/research.py    | 24 ++++++++++++++++++++++++
+ 3 files changed, 50 insertions(+), 1 deletion(-)
+
+diff --git a/src/finesub/llm/http.py b/src/finesub/llm/http.py
+index d004808..535b18c 100644
+--- a/src/finesub/llm/http.py
++++ b/src/finesub/llm/http.py
+@@ -185,6 +185,10 @@ _STREAM_DONE = (".connect_tcp.complete", ".start_tls.complete")
+ #: whole deadline -- which can be an hour and a half.
+ _JOIN_SLICE_SECONDS = 0.5
+ 
++#: How often a call still in flight says so. A slow call can otherwise run
++#: half an hour without a line in the log, which reads as a hang.
++WAIT_HEARTBEAT_SECONDS = 300.0
++
+ 
+ class _Teardown:
+     """Everything needed to stop one request from outside, and the one clock
+@@ -398,6 +402,7 @@ def hedge_on_silence(
+     silence_seconds: float,
+     on_backup: Callable[[StreamProgress], None],
+     on_end: Callable[[HedgedRequest[T]], None],
++    on_heartbeat: Callable[[StreamProgress], None] | None = None,
+ ) -> T:
+     """Run `send` and, if nothing arrives on it for `silence_seconds`, run it a
+     second time beside it without closing the first; the first to answer wins
+@@ -450,9 +455,13 @@ def hedge_on_silence(
+     primary = start(backup=False)
+     running = [primary]
+     last_failed: HedgedRequest[T] | None = None
++    next_heartbeat = time.monotonic() + WAIT_HEARTBEAT_SECONDS
+     try:
+         while running:
+             wait = _JOIN_SLICE_SECONDS
++            if on_heartbeat is not None and time.monotonic() >= next_heartbeat:
++                next_heartbeat += WAIT_HEARTBEAT_SECONDS
++                on_heartbeat(primary.progress)
+             if primary.backup_sent_after is None and primary in running:
+                 until_backup = silence_seconds - primary.progress.silent_for(time.monotonic())
+                 if until_backup <= 0:
+diff --git a/src/finesub/llm/llm_runtime.py b/src/finesub/llm/llm_runtime.py
+index 93af1d6..59202e5 100644
+--- a/src/finesub/llm/llm_runtime.py
++++ b/src/finesub/llm/llm_runtime.py
+@@ -675,6 +675,18 @@ def _generate_hedged(
+         )
+         note_backup()
+ 
++    waiting_since = time.monotonic()
++
++    def on_heartbeat(progress: StreamProgress) -> None:
++        current_reporter().debug(
++            "llm api call still waiting",
++            {
++                "model": model_name,
++                "sec": f"{time.monotonic() - waiting_since:.0f}",
++                "state": progress.describe(),
++            },
++        )
++
+     scope = (
+         (custom_kind, custom_base_url, key_id, model_name, prompt_cache.prefix_key(messages))
+         if custom_kind
+@@ -682,7 +694,11 @@ def _generate_hedged(
+     )
+     with prompt_cache.warm_prefix(scope):
+         return hedge_on_silence(
+-            send, silence_seconds=timeouts.soft, on_backup=on_backup, on_end=record
++            send,
++            silence_seconds=timeouts.soft,
++            on_backup=on_backup,
++            on_end=record,
++            on_heartbeat=on_heartbeat,
+         )
+ 
+ 
+diff --git a/src/finesub/llm/research.py b/src/finesub/llm/research.py
+index f086642..31b79d6 100644
+--- a/src/finesub/llm/research.py
++++ b/src/finesub/llm/research.py
+@@ -575,6 +575,13 @@ def _call_and_parse(
+     last_error: Exception | None = None
+     session_base = artifact_kind.removesuffix("_response")
+     for attempt in range(max_parse_retries + 1):
++        # A preparation turn sends the whole transcript and may think for many
++        # minutes; without these lines the run log shows nothing between the
++        # routing notes and the first window, which reads as a hang.
++        current_reporter().debug(
++            f"research {round_name}: waiting for the model", {"attempt": attempt}
++        )
++        call_started = time.monotonic()
+         try:
+             result = client.complete(
+                 role,
+@@ -665,6 +672,23 @@ def _call_and_parse(
+             parse_error = (
+                 f"prompt blocked by content filter (finish_reason={finish_reason})"
+             )
++        current_reporter().debug(
++            f"research {round_name}: answered",
++            {
++                "model": result.model,
++                "attempt": attempt,
++                "sec": f"{time.monotonic() - call_started:.1f}",
++            },
++        )
++        if parse_error and not prompt_blocked and attempt < max_parse_retries:
++            # Each retry is a whole new generation, so it doubles the wait; say
++            # so rather than leaving it to the artifacts.
++            current_reporter().warning(
++                "research-parse-retry",
++                f"research {round_name}: reply {attempt + 1} could not be parsed "
++                f"({' '.join(parse_error.split())[:200]}); asking again",
++                impact=f"最多再试 {max_parse_retries - attempt} 次，每次重新生成",
++            )
+         if task_artifact_dir:
+             append_task_artifact(
+                 task_artifact_dir,

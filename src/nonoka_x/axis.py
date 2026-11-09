@@ -176,6 +176,8 @@ def translate_axis(
     from finesub.llm.correction_translation import run_correction_task
     from finesub.llm.routing.profiles import resolve_profile
 
+    from .settings import correction_proofread
+
     output = Path(output_path)
     output.parent.mkdir(parents=True, exist_ok=True)
     stable_json = output.with_name(f"{output.stem}.stable.json")
@@ -218,6 +220,7 @@ def translate_axis(
         extra_info=str(correction.get("extra_info") or ""),
         extra_style=str(correction.get("extra_style") or ""),
         knowledge=knowledge,
+        proofread=correction_proofread(correction),
         task_id=task_id,
         task_summary=task_summary,
         task_artifact_dir=Path(task_artifact_dir),

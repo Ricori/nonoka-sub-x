@@ -49,6 +49,7 @@ from ...runtime.resources import (
     gpu_tier_help,
 )
 from . import accel, demix
+from .rates import DEFAULT_SEPARATOR_SAMPLE_RATE, SEPARATOR_SAMPLE_RATES
 from ..audio import (
     # The rate every consumer of the ASR delivery resamples to, taken from the
     # shared constant rather than restated here.
@@ -70,14 +71,6 @@ from ...runtime.resource_usage import (
 # can import without pulling in torch.
 MODEL_NAME = SEPARATOR_CHECKPOINT
 
-#: The rates the separator may be told to decode and emit at. 44100 is the
-#: model's own and the only one its weights were trained for; the other two buy
-#: fewer chunks per second of audio -- the chunk is a fixed 352800 samples, so
-#: halving the rate halves the chunk count -- and pay for it in separation
-#: quality. Neither is recommended; see docs/separator-optimization.md "E12"
-#: for what each costs and why 16000 is not on this list at all.
-SEPARATOR_SAMPLE_RATES = (44100, 32000, 22050)
-DEFAULT_SEPARATOR_SAMPLE_RATE = 44100
 BATCH_SIZE = get_resource_profile(DEFAULT_GPU_TIER).vocal_separation_batch_size
 
 
@@ -138,19 +131,19 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--block-seconds",
         type=float,
-        default=600.0,
+        default=None,
         help="Core block size in seconds (default: 600). Use 0 to disable.",
     )
     parser.add_argument(
         "--pad-seconds",
         type=float,
-        default=10.0,
+        default=None,
         help="Padding seconds on each side of a block (default: 10).",
     )
     parser.add_argument(
         "--gpu-tier",
         choices=gpu_tier_cli_choices(),
-        default=AUTO_GPU_TIER,
+        default=None,
         help=gpu_tier_help(),
     )
     parser.add_argument(
@@ -162,7 +155,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--separator-rate",
         type=int,
-        default=DEFAULT_SEPARATOR_SAMPLE_RATE,
+        default=None,
         choices=SEPARATOR_SAMPLE_RATES,
         help=(
             "Rate the separator works at (default: 44100, the model's own). "
@@ -741,6 +734,8 @@ def _acquire_separator(
 class _SeparationBlock:
     index: int
     block_start: int
+    #: Where the block's core ends: the next block's `block_start`, or the end of the file.
+    block_end: int
     read_start: int
     read_end: int
 
@@ -805,6 +800,7 @@ def plan_separation_blocks(
             _SeparationBlock(
                 index=len(blocks),
                 block_start=core_start,
+                block_end=core_end,
                 read_start=max(0, core_start - pad_samples),
                 read_end=min(total_frames, core_end + pad_samples),
             )
@@ -873,12 +869,14 @@ def _append_separated_block(
     output_path: Path,
     merge_format: str,
     block: _SeparationBlock,
-    total_frames: int,
-    pad_seconds: float,
+    source_rate: int,
     chunk_frames: int,
 ) -> sf.SoundFile:
-    trim_left = 0.0 if block.block_start == 0 else pad_seconds
-    trim_right = 0.0 if block.read_end >= total_frames else pad_seconds
+    # The padding the block actually read, not the pad asked for: near the file's ends the read is clamped, and
+    # once a core is shorter than the pad the second block's left pad is too -- trimming the full pad there
+    # repeated or dropped audio and shifted the rest of the track.
+    trim_left = (block.block_start - block.read_start) / source_rate
+    trim_right = (block.read_end - block.block_end) / source_rate
 
     channels, block_frames = stem.shape
     if out_file is None:
@@ -928,8 +926,8 @@ def _whole_steps(seconds: float, src_sr: int, step_src: int) -> int:
     """Source frames in `seconds`, rounded up to a whole number of ratio steps.
 
     Sized by time, not by a fixed count of steps: a step is 441 frames at
-    44.1 kHz but 3 at 48 kHz, so the 2000-step window that was 20s at 44.1 kHz
-    was 0.125s at 48 kHz -- 34000 windows for an hour of audio.
+    44.1 kHz but 3 at 48 kHz, so a 2000-step window that is 20s at 44.1 kHz
+    would be 0.125s at 48 kHz -- 29000 windows for an hour of audio.
     """
 
     return max(1, -(-round(seconds * src_sr) // step_src)) * step_src
@@ -951,11 +949,11 @@ def stream_asr_frames(merged_path: Path) -> Iterator[np.ndarray]:
     pins the two against each other rather than trusting that argument.
 
     The file is opened once and read front to back, never seeked: the context
-    each window needs from its neighbours is kept from the previous read. This
-    also runs on the *source* when separation is skipped, and libsndfile seeks
-    an mp3 by decoding from the start -- a fresh open and seek per window made
-    the encode quadratic in the length, which on a 71-minute 48 kHz recording
-    ran for hours with the task log silent (2026-10-30).
+    each window needs from its neighbour is kept from the previous read. With
+    `--no-separate` this runs on the *source*, and libsndfile seeks an mp3 by
+    decoding from the start, so a fresh open and seek per window made the
+    encode quadratic in the length: Nonoka X saw a 71-minute 48 kHz mp3 sit in
+    the vocal stage for what would have been hours (its engine patch 0012).
     """
 
     with sf.SoundFile(str(merged_path)) as in_file:
@@ -973,6 +971,12 @@ def stream_asr_frames(merged_path: Path) -> Iterator[np.ndarray]:
             right = min(context, total_frames - position - core)
             missing = left + core + right - int(pending.numel())
             if missing > 0:
+                # A read that comes back short (a header frame count past what
+                # decodes, a decode error mid-mp3) is not caught: `keep` trims
+                # a short tail, a longer one fails in the resampler, and the
+                # windows after a mid-file gap slide earlier. The per-window
+                # seek this replaced failed the same way at the end; rare
+                # enough to leave as is.
                 block = in_file.read(missing, dtype="float32", always_2d=True)
                 waveform = torch.from_numpy(np.ascontiguousarray(block.T))
                 pending = torch.cat([pending, to_mono(waveform)])
@@ -988,6 +992,8 @@ def stream_asr_frames(merged_path: Path) -> Iterator[np.ndarray]:
             keep = min(-(-core * step_dst // step_src), int(frames.numel()) - start)
             yield as_numpy_float32(frames[start : start + keep])
             position += core
+            # The next window's left context starts `min(context, position)`
+            # frames before its core.
             pending = pending[left + core - min(context, position) :]
 
 
@@ -1358,8 +1364,7 @@ def run_vocal_separation(
                             output_path=merge_path,
                             merge_format=merge_format,
                             block=actual,
-                            total_frames=total_frames,
-                            pad_seconds=pad_seconds,
+                            source_rate=src_sr,
                             chunk_frames=chunk_frames,
                         )
                         del stem
@@ -1404,8 +1409,7 @@ def run_vocal_separation(
                         output_path=merge_path,
                         merge_format=merge_format,
                         block=block,
-                        total_frames=total_frames,
-                        pad_seconds=pad_seconds,
+                        source_rate=src_sr,
                         chunk_frames=chunk_frames,
                     )
                     del stem
@@ -1464,15 +1468,18 @@ def main() -> int:
         # Without a bound renderer this command's own CPU-fallback warning
         # reaches a reporter that shows nothing -- and a run silently on CPU
         # is the thing that warning exists to prevent.
+        options = {
+            "output_path": args.output,
+            "block_seconds": args.block_seconds,
+            "pad_seconds": args.pad_seconds,
+            "gpu_tier": args.gpu_tier,
+            "batch_size": args.batch_size,
+            "separator_sample_rate": args.separator_rate,
+        }
         with reporting_to(reporter), quieted_libraries(reporter.level):
+            # A flag left out stays out, so `run_vocal_separation`'s signature answers it.
             output = run_vocal_separation(
-                args.input,
-                output_path=args.output,
-                block_seconds=args.block_seconds,
-                pad_seconds=args.pad_seconds,
-                gpu_tier=args.gpu_tier,
-                batch_size=args.batch_size,
-                separator_sample_rate=args.separator_rate,
+                args.input, **{name: value for name, value in options.items() if value is not None}
             )
         print(output)
     except Exception as exc:

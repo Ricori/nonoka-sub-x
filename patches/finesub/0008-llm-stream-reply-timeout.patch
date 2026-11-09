@@ -1,0 +1,260 @@
+From 29b5aaa3858ebd60f400c823cb883e8f731e38e8 Mon Sep 17 00:00:00 2001
+From: Takamichika <sloanewu233@gmail.com>
+Date: Tue, 10 Nov 2026 00:26:29 +0900
+Subject: [PATCH] Judge a streamed LLM call by its replies, not its bytes
+
+---
+ src/finesub/llm/http.py                | 77 +++++++++++++++++++++++++-
+ src/finesub/llm/llm_runtime.py         |  8 ++-
+ src/finesub/llm/provider_transports.py |  1 +
+ src/finesub/llm/streaming.py           |  8 ++-
+ 4 files changed, 89 insertions(+), 5 deletions(-)
+
+diff --git a/src/finesub/llm/http.py b/src/finesub/llm/http.py
+index 535b18c..1ef8be6 100644
+--- a/src/finesub/llm/http.py
++++ b/src/finesub/llm/http.py
+@@ -90,6 +90,10 @@ class StreamProgress:
+         self.header_at: float | None = None
+         self.first_output_at: float | None = None
+         self.last_byte_at: float | None = None
++        #: Answer or thinking text. Keep-alives, empty deltas and usage-only
++        #: chunks are bytes, not replies: a relay can send those while the
++        #: model behind it has gone away.
++        self.last_reply_at: float | None = None
+         self.events = 0
+         self.cancelled = False
+         self._output: list[str] = []
+@@ -104,9 +108,13 @@ class StreamProgress:
+     def event(self) -> None:
+         self.events += 1
+ 
++    def reply(self) -> None:
++        self.last_reply_at = time.monotonic()
++
+     def output(self, text: str) -> None:
+         if not text:
+             return
++        self.reply()
+         if self.first_output_at is None:
+             self.first_output_at = time.monotonic()
+         self._output.append(text)
+@@ -121,6 +129,12 @@ class StreamProgress:
+ 
+         return now - (self.last_byte_at if self.last_byte_at is not None else self.started)
+ 
++    def no_reply_for(self, now: float) -> float:
++        """Seconds since the last reply, or since the request left if none has
++        arrived."""
++
++        return now - (self.last_reply_at if self.last_reply_at is not None else self.started)
++
+     def restart_clock(self) -> None:
+         """For a request that waited (on a rate limit) after this was made:
+         its clock is from leaving."""
+@@ -185,6 +199,16 @@ _STREAM_DONE = (".connect_tcp.complete", ".start_tls.complete")
+ #: whole deadline -- which can be an hour and a half.
+ _JOIN_SLICE_SECONDS = 0.5
+ 
++#: A call with no reply for this long gets a backup request, whatever its soft
++#: timeout works out to for a large output budget.
++BACKUP_AFTER_NO_REPLY_SECONDS = 600.0
++#: With a backup out, neither request replying for this long ends the pair.
++CUT_AFTER_BACKUP_NO_REPLY_SECONDS = 600.0
++#: A call still replying keeps at least this much of its deadline ahead of it.
++REPLY_DEADLINE_SECONDS = (
++    BACKUP_AFTER_NO_REPLY_SECONDS + CUT_AFTER_BACKUP_NO_REPLY_SECONDS
++)
++
+ #: How often a call still in flight says so. A slow call can otherwise run
+ #: half an hour without a line in the log, which reads as a hang.
+ WAIT_HEARTBEAT_SECONDS = 300.0
+@@ -216,6 +240,13 @@ class _Teardown:
+             "deadline and was closed"
+         )
+ 
++    def extend_to(self, deadline_at: float) -> None:
++        """Move the deadline out, never in; a request already cut stays cut."""
++
++        with self._lock:
++            if not self._cut and deadline_at > self.deadline_at:
++                self.deadline_at = deadline_at
++
+     def adopt_client(self, client: httpx.Client) -> None:
+         with self._lock:
+             self._client = client
+@@ -273,6 +304,7 @@ def stream_within_deadline(
+     error_for_status: Callable[[httpx.Response], BaseException],
+     progress: StreamProgress,
+     client_factory: Callable[..., Any] = llm_http_client,
++    extend_on_reply: bool = False,
+ ) -> T:
+     """POST a streaming request and assemble its SSE body, within the hard
+     deadline.
+@@ -363,6 +395,8 @@ def stream_within_deadline(
+     worker.start()
+     try:
+         while worker.is_alive() and not progress.cancelled:
++            if extend_on_reply and progress.last_reply_at is not None:
++                teardown.extend_to(progress.last_reply_at + REPLY_DEADLINE_SECONDS)
+             remaining = teardown.deadline_at - time.monotonic()
+             if remaining <= 0:
+                 break
+@@ -396,6 +430,32 @@ class HedgedRequest(Generic[T]):
+     sending: bool = False
+ 
+ 
++def _close_requests(
++    running: list[HedgedRequest[T]],
++    ended: "queue.Queue[HedgedRequest[T]]",
++    on_end: Callable[[HedgedRequest[T]], None],
++) -> None:
++    """Close every request still running and record how each ended."""
++
++    for request in running:
++        request.progress.cancel()
++    while running:
++        for request in [item for item in running if not item.sending]:
++            running.remove(request)
++            request.error = StreamCancelled("closed before it was sent: no reply")
++            on_end(request)
++        if not running:
++            return
++        try:
++            request = ended.get(timeout=_JOIN_SLICE_SECONDS)
++        except queue.Empty:
++            continue
++        running.remove(request)
++        if request.error is None:
++            request.result, request.error = None, StreamCancelled("answered after it was closed")
++        on_end(request)
++
++
+ def hedge_on_silence(
+     send: Callable[[StreamProgress], T],
+     *,
+@@ -454,6 +514,8 @@ def hedge_on_silence(
+ 
+     primary = start(backup=False)
+     running = [primary]
++    requests = [primary]
++    backup_at: float | None = None
+     last_failed: HedgedRequest[T] | None = None
+     next_heartbeat = time.monotonic() + WAIT_HEARTBEAT_SECONDS
+     try:
+@@ -463,12 +525,23 @@ def hedge_on_silence(
+                 next_heartbeat += WAIT_HEARTBEAT_SECONDS
+                 on_heartbeat(primary.progress)
+             if primary.backup_sent_after is None and primary in running:
+-                until_backup = silence_seconds - primary.progress.silent_for(time.monotonic())
++                until_backup = silence_seconds - primary.progress.no_reply_for(time.monotonic())
+                 if until_backup <= 0:
+-                    running.append(start(backup=True))
++                    backup_at = time.monotonic()
++                    requests.append(start(backup=True))
++                    running.append(requests[-1])
+                     primary.backup_sent_after = time.monotonic() - primary.progress.started
+                 else:
+                     wait = min(wait, until_backup)
++            if backup_at is not None:
++                replies = [item.progress.last_reply_at for item in requests]
++                last_sign = max([backup_at, *(at for at in replies if at is not None)])
++                if time.monotonic() - last_sign >= CUT_AFTER_BACKUP_NO_REPLY_SECONDS:
++                    _close_requests(running, ended, on_end)
++                    raise StreamInterrupted(
++                        "stream interrupted: no reply from either request for "
++                        f"{CUT_AFTER_BACKUP_NO_REPLY_SECONDS:.0f}s after the backup went out"
++                    )
+             try:
+                 request = ended.get(timeout=wait)
+             except queue.Empty:
+diff --git a/src/finesub/llm/llm_runtime.py b/src/finesub/llm/llm_runtime.py
+index 59202e5..e4b1924 100644
+--- a/src/finesub/llm/llm_runtime.py
++++ b/src/finesub/llm/llm_runtime.py
+@@ -19,6 +19,7 @@ from finesub.api_http import (
+ from finesub.reporting import current_reporter, redact_credentials
+ from . import prompt_cache
+ from .http import (
++    BACKUP_AFTER_NO_REPLY_SECONDS,
+     HedgedRequest,
+     StreamCancelled,
+     StreamInterrupted,
+@@ -520,6 +521,7 @@ def _gemini_generate_content(
+         assembler=GeminiAssembler(progress, _gemini_api_error),
+         error_for_status=lambda resp: _gemini_api_error(resp.status_code, resp.text),
+         progress=progress,
++        extend_on_reply=True,
+     )
+ 
+ 
+@@ -664,12 +666,14 @@ def _generate_hedged(
+             api_base=gemini_api_base(env_map),
+         )
+ 
++    silence = min(timeouts.soft, BACKUP_AFTER_NO_REPLY_SECONDS)
++
+     def on_backup(progress: StreamProgress) -> None:
+         # Where the stream stands is the point: "no headers yet", "connected
+         # but still thinking" and "still writing" call for different readings.
+         current_reporter().warning(
+             "llm-api-soft-timeout",
+-            f"{model_name}: nothing arrived for {timeouts.soft:.0f}s (soft timeout; "
++            f"{model_name}: no reply for {silence:.0f}s (soft timeout; "
+             f"{progress.describe()}); sent a backup request and kept this one "
+             f"open, each up to {timeouts.hard:.0f}s.",
+         )
+@@ -695,7 +699,7 @@ def _generate_hedged(
+     with prompt_cache.warm_prefix(scope):
+         return hedge_on_silence(
+             send,
+-            silence_seconds=timeouts.soft,
++            silence_seconds=silence,
+             on_backup=on_backup,
+             on_end=record,
+             on_heartbeat=on_heartbeat,
+diff --git a/src/finesub/llm/provider_transports.py b/src/finesub/llm/provider_transports.py
+index aec5058..af2bda5 100644
+--- a/src/finesub/llm/provider_transports.py
++++ b/src/finesub/llm/provider_transports.py
+@@ -143,6 +143,7 @@ def _stream_json(
+         assembler=assembler,
+         error_for_status=_http_error,
+         progress=assembler.progress,
++        extend_on_reply=True,
+     )
+ 
+ 
+diff --git a/src/finesub/llm/streaming.py b/src/finesub/llm/streaming.py
+index 53bd163..188e7fc 100644
+--- a/src/finesub/llm/streaming.py
++++ b/src/finesub/llm/streaming.py
+@@ -158,6 +158,8 @@ class OpenAIChatAssembler(SSEAssembler):
+             if not isinstance(choice, dict) or choice.get("index", 0) != 0:
+                 continue
+             delta = choice.get("delta") or {}
++            if delta.get("reasoning_content") or delta.get("reasoning") or delta.get("reasoning_details"):
++                self.progress.reply()
+             content = delta.get("content")
+             if isinstance(content, str) and content:
+                 self._text.append(content)
+@@ -266,6 +268,8 @@ class AnthropicMessagesAssembler(SSEAssembler):
+         elif kind == "content_block_delta":
+             delta = body.get("delta") or {}
+             index = int(body.get("index", 0))
++            if delta.get("thinking") or delta.get("partial_json"):
++                self.progress.reply()
+             if delta.get("type") == "text_delta":
+                 text = str(delta.get("text") or "")
+                 self._blocks.setdefault(index, ({"type": "text"}, []))[1].append(text)
+@@ -416,7 +420,9 @@ class GeminiAssembler(SSEAssembler):
+             last["text"] += text
+         else:
+             parts.append(clean | {"text": text})
+-        if not thought:
++        if thought:
++            self.progress.reply()
++        else:
+             self.progress.output(text)
+         return text
+ 

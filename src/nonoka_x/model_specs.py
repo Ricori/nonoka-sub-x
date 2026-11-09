@@ -1,7 +1,7 @@
 """Declared facts for the models the desktop routes to over HTTP.
 
-``FineSubSettings._sync_model_routing`` writes one ``model_catalog.psv`` row per
-user-selected model, and the engine plans against what that row claims. The two
+``FineSubSettings._sync_model_routing`` writes one ``model_catalog.toml`` table per
+user-selected model, and the engine plans against what that table claims. The two
 numbers that matter are not cosmetic:
 
 * ``max_output_tokens`` is the output envelope. Windows are cut so that the
@@ -57,7 +57,7 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class ModelSpec:
-    """One model's declared facts, in ``model_catalog.psv`` terms."""
+    """One model's declared facts, in ``model_catalog.toml`` terms."""
 
     display_name: str
     max_input_tokens: int

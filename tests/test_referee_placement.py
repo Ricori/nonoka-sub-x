@@ -307,7 +307,7 @@ class VerificationProgressTests(unittest.TestCase):
         reporter = RecordingReporter()
         referee = _StubReferee()
         with reporting_to(reporter), mock.patch.object(
-            qwen_referee, "_SpanReader", _StubReader
+            qwen_referee, "SpanReader", _StubReader
         ):
             qwen_referee.apply_verification(
                 [],

@@ -38,6 +38,8 @@ from dataclasses import dataclass
 class _SeparationBlock:
     index: int
     block_start: int
+    #: Where the block's core ends: the next block's `block_start`, or the end of the file.
+    block_end: int
     read_start: int
     read_end: int
 
@@ -102,6 +104,7 @@ def plan_separation_blocks(
             _SeparationBlock(
                 index=len(blocks),
                 block_start=core_start,
+                block_end=core_end,
                 read_start=max(0, core_start - pad_samples),
                 read_end=min(total_frames, core_end + pad_samples),
             )

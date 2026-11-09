@@ -217,6 +217,16 @@ def _load_stable(path: Path) -> tuple[list[dict[str, Any]], dict[str, dict[str, 
     segments = payload.get("segments") if isinstance(payload, dict) else payload
     if not isinstance(segments, list) or not segments:
         raise ProjectionError("stable JSON must contain a non-empty segments list")
+    if all(isinstance(segment, dict) for segment in segments):
+        # The engine's own reader: `-stable.json` with its `-diar-rows.json`
+        # (labels, acoustic row splits) and what a speaker judge changed. These
+        # are the lines the ids in annotated.csv count, `<id>b` and `<id>i` too.
+        from finesub.speech.diarization.product import read_product
+
+        try:
+            segments = read_product(path).rows()
+        except (OSError, ValueError) as exc:
+            raise ProjectionError(f"cannot read stable JSON: {exc}") from exc
     normalized: list[dict[str, Any]] = []
     by_id: dict[str, dict[str, Any]] = {}
     for index, value in enumerate(segments, start=1):

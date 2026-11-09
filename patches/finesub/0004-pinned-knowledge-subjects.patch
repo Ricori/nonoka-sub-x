@@ -1,0 +1,394 @@
+From 9561ab7424fcd339132fdac0ea970318a7a1429e Mon Sep 17 00:00:00 2001
+From: Takamichika <sloanewu233@gmail.com>
+Date: Tue, 10 Nov 2026 00:24:57 +0900
+Subject: [PATCH] Pin user-picked knowledge subjects into windows and the
+ update
+
+---
+ src/finesub/llm/correction_request.py     |   4 +
+ src/finesub/llm/correction_translation.py |  12 +-
+ src/finesub/llm/knowledge/entries.py      |  27 +++-
+ src/finesub/llm/knowledge/subjects.py     | 157 ++++++++++++++++++++++
+ src/finesub/llm/knowledge/update.py       |  11 +-
+ src/finesub/stages.py                     |  11 ++
+ 6 files changed, 218 insertions(+), 4 deletions(-)
+ create mode 100644 src/finesub/llm/knowledge/subjects.py
+
+diff --git a/src/finesub/llm/correction_request.py b/src/finesub/llm/correction_request.py
+index 183bfe9..016cea9 100644
+--- a/src/finesub/llm/correction_request.py
++++ b/src/finesub/llm/correction_request.py
+@@ -173,6 +173,10 @@ class CorrectionRequest:
+     style_efficiency_cap: bool = True
+     #: `none` / `read` / `update`; unset = `read` (`CODE_DEFAULTS`).
+     knowledge: str | None = None
++    #: Knowledge subjects the task names (`knowledge/subjects.py`): their
++    #: entries ride in every window's system prompt and are pinned into the
++    #: post-task update. Ignored under `knowledge="none"`.
++    knowledge_subjects: str | Sequence[str] | None = None
+     #: Whether correction windows and the preparation task emit
+     #: `<task_update_feedback>`. None = only under `update` (owner 2026-10-01:
+     #: `read` reads and collects nothing). Reference ingest asks for it with
+diff --git a/src/finesub/llm/correction_translation.py b/src/finesub/llm/correction_translation.py
+index 51cd73b..0866abf 100644
+--- a/src/finesub/llm/correction_translation.py
++++ b/src/finesub/llm/correction_translation.py
+@@ -58,6 +58,7 @@ from .knowledge.style import (
+     render_style_block,
+     resolve_style_selection,
+ )
++from .knowledge.subjects import parse_subject_names, render_subject_block
+ from .knowledge.base import (
+     DEFAULT_KNOWLEDGE_ROOT,
+     TASK_ARTIFACT_FILENAME,
+@@ -196,6 +197,7 @@ def run_post_correction_knowledge_update(
+     counter: TokenCounter | None = None,
+     difficulty: str = "quality",
+     style_names: Sequence[str] = (),
++    subject_names: Sequence[str] = (),
+     user_summary: bool = False,
+     parse_retries: int | None = None,
+ ) -> Dict[str, Any]:
+@@ -234,6 +236,7 @@ def run_post_correction_knowledge_update(
+         token_counter=counter,
+         difficulty=difficulty,
+         style_names=style_names,
++        subject_names=subject_names,
+         user_summary=user_summary,
+         parse_retries=parse_retries,
+     )
+@@ -926,6 +929,7 @@ def _run_task(request: CorrectionRequest, artifact_dir: Path | None, language: s
+     knowledge = str(request.knowledge)
+     reads = knowledge_reads(knowledge)
+     feedback = collects_feedback(request)
++    subject_names = parse_subject_names(request.knowledge_subjects) if reads else ()
+     task_id = _task_id(request)
+     task_summary = request.task_summary or f"LLM subtitle correction task {task_id}"
+     execute = request.mode == "execute"
+@@ -974,6 +978,7 @@ def _run_task(request: CorrectionRequest, artifact_dir: Path | None, language: s
+             style_names=_writable_style_names(
+                 style_selection, style_catalog, context_path=context_path, artifact_dir=artifact_dir
+             ),
++            subject_names=subject_names,
+             user_summary=bool(request.task_summary.strip()),
+             parse_retries=request.max_retries_per_window,
+         )
+@@ -1199,8 +1204,11 @@ def _run_task(request: CorrectionRequest, artifact_dir: Path | None, language: s
+         extra_style=request.extra_style,
+         # A fast window that still picks gets no style up front: the factory default is one of its
+         # possible picks, and injecting it before the pick would stack it under the style picked.
+-        style_block="" if window_picks else render_style_block(
+-            root, style_selection.names, rev=style_selection.rev, correct_only=profile.correct_only),
++        style_block=("" if window_picks else render_style_block(
++            root, style_selection.names, rev=style_selection.rev, correct_only=profile.correct_only))
++        + render_subject_block(
++            root, subject_names, count_tokens=token_counter.count_text, rev=style_selection.rev
++        ),
+         knowledge_enabled=reads,
+         task_artifact_dir=artifact_dir,
+         task_id=task_id,
+diff --git a/src/finesub/llm/knowledge/entries.py b/src/finesub/llm/knowledge/entries.py
+index 0e976a0..ec4a107 100644
+--- a/src/finesub/llm/knowledge/entries.py
++++ b/src/finesub/llm/knowledge/entries.py
+@@ -13,7 +13,7 @@ binds each handle to ``(id, expected_valid_from_rev)`` for the CAS apply.
+ 
+ from __future__ import annotations
+ 
+-from dataclasses import dataclass
++from dataclasses import dataclass, replace
+ from pathlib import Path
+ from typing import Callable, Iterable, Sequence
+ 
+@@ -155,6 +155,31 @@ def pin_style_entries(
+     return pinned + [s for s in selections if s.category != STYLE_CATEGORY]
+ 
+ 
++def pin_subject_entries(
++    selections: Sequence[EntrySelection], subject_keys: Sequence[tuple[str, str]]
++) -> list[EntrySelection]:
++    """Put the subjects the task named at the head of the selection.
++
++    Same reasoning as `pin_style_entries`: the user stated these are the
++    subjects the material belongs to, so the update must be able to write into
++    them whatever the window hints scored. A pinned subject that also arrived
++    through ranking keeps its `applied` marker and is not listed twice.
++    """
++
++    ranked = {(s.category, s.key): s for s in selections}
++    pinned = [
++        replace(
++            ranked.get(pair) or EntrySelection(category=pair[0], key=pair[1], score=0.0, exists=True),
++            score=float("inf"),
++            exists=True,
++            pinned=True,
++        )
++        for pair in subject_keys
++    ]
++    keys = set(subject_keys)
++    return pinned + [s for s in selections if (s.category, s.key) not in keys]
++
++
+ def _entry_section_text(
+     selection: EntrySelection,
+     repo: KnowledgeRepo,
+diff --git a/src/finesub/llm/knowledge/subjects.py b/src/finesub/llm/knowledge/subjects.py
+new file mode 100644
+index 0000000..17777a4
+--- /dev/null
++++ b/src/finesub/llm/knowledge/subjects.py
+@@ -0,0 +1,157 @@
++"""Knowledge subjects a task names explicitly, injected whole into every window.
++
++The ordinary paths reach an entry only when something asks for it: a keyword
++in the user note, research round 1's judgment, or a window's
++`<requested_entries>`. A front end that lets the user say "this video is about
++these subjects" needs the entries present regardless of whether any of those
++fire, so the selection here is **task-static**, the same contract
++`style.py` gives a translation style: the task names the subjects, nothing is
++matched, and the model never picks.
++
++Two consumers read the same selection:
++
++* the correction windows, through `render_subject_block` (placed next to the
++  style block in the system prompt, so every window carries it);
++* the post-task knowledge update, which pins the resolved keys into every
++  chunk's `<kb_entries>` so the model can propose into them
++  (`entries.pin_subject_entries`).
++
++Names come from a human, so they take the human lookup: `streamer/某主播`
++addresses a category explicitly, and a bare name that exists in several raises
++rather than picking a side.
++"""
++
++from __future__ import annotations
++
++from dataclasses import dataclass
++from pathlib import Path
++from typing import Callable, Sequence
++
++from ..injection_budget import render_knowledge_entries_block
++from ..routing.config import injection_block_token_limit
++from .node.presets import preset_for_category
++from .node.repo import AmbiguousName, KnowledgeRepo
++from .style import STYLE_CATEGORY, parse_style_names
++
++#: How many subjects one task may name. Every window carries all of them, so
++#: this is a prompt-size bound as much as a UI one; the block budget below
++#: scales with it.
++MAX_KNOWLEDGE_SUBJECTS = 8
++
++
++class SubjectSelectionError(ValueError):
++    """A named subject that cannot be resolved to exactly one entry.
++
++    Loud for the same reason as `StyleSelectionError`: a run that silently
++    drops a subject the user picked looks exactly like the subject having no
++    effect.
++    """
++
++
++@dataclass(frozen=True)
++class PinnedSubject:
++    category: str
++    key: str
++    text: str
++
++
++def parse_subject_names(value: str | Sequence[str] | None) -> tuple[str, ...]:
++    """Same shape as `--style`: a comma list or a sequence, order kept."""
++
++    return parse_style_names(value)
++
++
++def load_subject_entries(
++    knowledge_root: str | Path,
++    names: Sequence[str],
++    *,
++    rev: int | None = None,
++) -> list[PinnedSubject]:
++    """Resolve each name to one entry and read its prompt projection."""
++
++    names = parse_subject_names(names)
++    if not names:
++        return []
++    if len(names) > MAX_KNOWLEDGE_SUBJECTS:
++        raise SubjectSelectionError(
++            f"最多指定 {MAX_KNOWLEDGE_SUBJECTS} 个知识主体，本次为 {len(names)} 个"
++        )
++    repo = KnowledgeRepo.open(knowledge_root)
++    at = repo.rev if rev is None else rev
++    out: list[PinnedSubject] = []
++    seen: set[tuple[str, str]] = set()
++    for name in names:
++        try:
++            resolved = repo.resolve_qualified(name, at)
++        except AmbiguousName as exc:
++            raise SubjectSelectionError(str(exc)) from exc
++        if resolved is None:
++            raise SubjectSelectionError(f"知识主体 {name!r}：知识库里没有这个条目")
++        if resolved.category == STYLE_CATEGORY:
++            raise SubjectSelectionError(
++                f"知识主体 {name!r} 指到的是风格条目；风格请用 --style 指定"
++            )
++        pair = (resolved.category, resolved.key)
++        if pair in seen:
++            continue
++        seen.add(pair)
++        out.append(
++            PinnedSubject(
++                category=resolved.category,
++                key=resolved.key,
++                text=repo.entry_injection_text(resolved.subject_id, at),
++            )
++        )
++    return out
++
++
++def resolve_subject_keys(
++    knowledge_root: str | Path,
++    names: Sequence[str],
++    *,
++    rev: int | None = None,
++) -> list[tuple[str, str]]:
++    """`(category, key)` of the named subjects -- what the update pins."""
++
++    return [
++        (subject.category, subject.key)
++        for subject in load_subject_entries(knowledge_root, names, rev=rev)
++    ]
++
++
++def _entry_cap(label: str) -> int | None:
++    """Each entry's own category cap -- the one every other injection uses."""
++
++    return preset_for_category(label.split("/", 1)[0]).max_entry_tokens
++
++
++def render_subject_block(
++    knowledge_root: str | Path,
++    names: Sequence[str],
++    *,
++    count_tokens: Callable[[str], int],
++    rev: int | None = None,
++) -> str:
++    """The system-prompt block, or `""` when the task named no subject.
++
++    Budgeted with the same per-entry and per-block caps as every other
++    knowledge injection, so a large entry is truncated with a notice instead
++    of crowding the window out.
++    """
++
++    subjects = load_subject_entries(knowledge_root, names, rev=rev)
++    if not subjects:
++        return ""
++    block = render_knowledge_entries_block(
++        {f"{subject.category}/{subject.key}": subject.text for subject in subjects},
++        count_tokens=count_tokens,
++        entry_limit=_entry_cap,
++        block_limit=injection_block_token_limit(len(subjects)),
++    )
++    if not block.text.strip():
++        return ""
++    return (
++        "\n本任务指定的知识主体（由用户明确选择，词条常驻每个窗口，无需再通过 "
++        "requested_entries 索取；其中的固定译名与设定按知识库词条对待）：\n"
++        f"<pinned_entries>\n{block.text.strip()}\n</pinned_entries>\n"
++    )
+diff --git a/src/finesub/llm/knowledge/update.py b/src/finesub/llm/knowledge/update.py
+index b7ece8c..58596d5 100644
+--- a/src/finesub/llm/knowledge/update.py
++++ b/src/finesub/llm/knowledge/update.py
+@@ -54,10 +54,12 @@ from .base import (
+ from .entries import (
+     EntrySelection,
+     pin_style_entries,
++    pin_subject_entries,
+     render_kb_entry_excerpt,
+     select_kb_entries,
+ )
+ from .style import resolve_style_keys
++from .subjects import resolve_subject_keys
+ from .node.proposals import (
+     CAS_DROPPED_REASON,
+     HIDDEN_LABEL_HELD,
+@@ -765,6 +767,10 @@ def _run_knowledge_update(
+     #: into them. Empty means the run named no style, and the prompt's style
+     #: section then has nothing to act on.
+     style_names: Sequence[str] = (),
++    #: The knowledge subjects the task named (`subjects.py`): pinned into
++    #: every chunk's `<kb_entries>` so the model can propose into them
++    #: whatever the window hints scored.
++    subject_names: Sequence[str] = (),
+     #: ``task_summary`` is the user's own words (`--task-summary`), not a line the caller made up: only then may
+     #: the update change a style's `[字幕长度]` (`length_tier.tier_line_gate`).
+     user_summary: bool = False,
+@@ -887,6 +893,7 @@ def _run_knowledge_update(
+                 impact="其余几套照常注入纠错提示词，但不会收录本次的新约定",
+                 action="想更新另一套就单独跑一次，或把 --style 的第一位换成它",
+             )
++    subject_keys = resolve_subject_keys(knowledge_root, subject_names) if subject_names else []
+     ledger_path = artifact_path / CHUNK_LEDGER_FILENAME
+     ledger = _load_chunk_ledger(ledger_path) if resume else {}
+     pending_intents = (
+@@ -1014,7 +1021,9 @@ def _run_knowledge_update(
+                 applied_entries=applied_entries,
+                 rev=working_rev,
+             )
+-            selections = pin_style_entries(selections, writable_style_keys)
++            selections = pin_style_entries(
++                pin_subject_entries(selections, subject_keys), writable_style_keys
++            )
+             kb_entries_block, kb_handles = render_kb_entry_excerpt(
+                 selections, knowledge_root, count_tokens=counter.count_text, rev=working_rev
+             )
+diff --git a/src/finesub/stages.py b/src/finesub/stages.py
+index 9fb358a..2547a32 100644
+--- a/src/finesub/stages.py
++++ b/src/finesub/stages.py
+@@ -426,6 +426,8 @@ def _validate_llm_configuration(
+     style: str | None,
+     style_mode: str | None,
+     llm_difficulty: str,
++    knowledge: str = "none",
++    knowledge_subjects: str | Sequence[str] | None = None,
+ ) -> None:
+     """Everything about the LLM stage that is knowable before ASR runs.
+ 
+@@ -450,6 +452,10 @@ def _validate_llm_configuration(
+     ).names
+     if names:
+         resolve_style_keys(root, names)
++    if knowledge != "none" and knowledge_subjects:
++        from finesub.llm.knowledge.subjects import resolve_subject_keys
++
++        resolve_subject_keys(root, knowledge_subjects)
+ 
+ 
+ def _refuse_judge_without_split(paths: PipelinePaths, profile: Any, speaker_judge: str, *, resume: bool) -> None:
+@@ -1145,6 +1151,8 @@ def run_pipeline(
+     #: none / read / update — see `knowledge/style.py`. `None` reads
+     #: `[llm] style_mode`, then defaults to `read`.
+     style_mode: str | None = None,
++    #: Knowledge subjects the task names (`llm/knowledge/subjects.py`).
++    knowledge_subjects: str | Sequence[str] | None = None,
+     download_video_source: bool = True,
+     knowledge: str | None = None,
+     refined_srt: str | Path | None = None,
+@@ -1199,6 +1207,8 @@ def run_pipeline(
+             style=style,
+             style_mode=style_mode,
+             llm_difficulty=llm_difficulty,
++            knowledge=knowledge,
++            knowledge_subjects=knowledge_subjects,
+         )
+     # Normalize "auto" to None: whisper uses None for auto-detection;
+     # the string "auto" is not a valid language code and would raise.
+@@ -1272,6 +1282,7 @@ def run_pipeline(
+             llm_video=llm_video, fast=llm_fast, parallel_windows=switches.parallel_windows,
+             extra_info=extra_info, extra_style=extra_style, style=style, style_mode=style_mode,
+             knowledge=knowledge, knowledge_root=knowledge_root, refined_srt=refined_srt,
++            knowledge_subjects=knowledge_subjects,
+             switch_sources=switches.sources,
+             task_id=task_id, task_summary=task_summary, postprocess_profile=postprocess_profile,
+             max_retries_per_window=max_retries_per_window,

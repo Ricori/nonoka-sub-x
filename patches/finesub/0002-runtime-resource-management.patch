@@ -1,57 +1,21 @@
+From c896413da3e804ce98867186a47010098b88df0a Mon Sep 17 00:00:00 2001
+From: Takamichika <sloanewu233@gmail.com>
+Date: Tue, 10 Nov 2026 00:24:00 +0900
 Subject: [PATCH] Manage the runtime resources Nonoka X installs
 
-Nonoka X has no resource system of its own: every managed binary it can find
-lives under `finesub/runtime/<id>/`, resolved by `managedtools`. So what the
-desktop can install is decided here, in the engine's resource manifest, and this
-patch holds every difference from upstream's list. It has three parts, which
-can be removed separately.
-
-Video downloader tools. aria2c, node and pot-provider are declared because a
-tool has to be in the manifest to be installable at all. All three are optional:
-without them the downloader still runs, it is just slower and fails on anything
-but short videos.
-
-  aria2c         Multi-connection fetch. Pure speed; the built-in downloader
-                 works without it.
-  node           A JavaScript runtime. yt-dlp needs one to solve the "n"
-                 challenge (it enables only deno by default), and the PO token
-                 generator runs on it.
-  pot-provider   Proof-of-origin tokens. YouTube only returns usable formats to
-                 a signed-in session whose request carries one, and yt-dlp
-                 cannot mint them itself.
-
-They are declared together because they only work together: YouTube gates in
-sequence, and a missing piece fails at an earlier gate than the one it belongs
-to, which is what makes each look useless when added alone.
-
-`pot-provider` carries both halves of the provider -- the yt-dlp plugin and the
-generator it calls. Upstream ships no built backend (it needs an npm install
-with a native `canvas`, which is not a single archive), and versions the two
-halves together, so Nonoka X builds and publishes one bundle instead: see
-`scripts/build_pot_bundle.py`. It is GPL-3.0, and the bundle carries the licence
-and corresponding source accordingly. aria2c's binary and node's sit one
-directory down inside their archives, so `required_files` names those paths.
-
-No managed Git. FineSub's knowledge store is SQLite and no runtime path uses
-Git anymore. Keeping MinGit in the manifest still exposes a download/install
-target, adds it to diagnostics, and injects its directory into every worker
-PATH. The managed asset and the now-dead system-tool plumbing are removed.
-Repository maintenance remains a developer concern outside the packaged runtime.
-
-A pinned FFmpeg. The manifest followed BtbN's `latest` tag, whose bytes change
-on every build, and asked the GitHub release API for the digest at install time.
-A copy kept on Nonoka's own storage as the last download rung cannot be verified
-against a digest that moves daily, so the asset is pinned to a month-end
-autobuild, the kind the builder retains.
-
-Removal: delete the tools once upstream declares them, the Git part once
-upstream removes managed Git, and the pin once FFmpeg is no longer self-hosted.
+---
+ src/finesub_bootstrap/environment.py        |  2 +-
+ src/finesub_bootstrap/models.py             |  2 +-
+ src/finesub_bootstrap/runtime-manifest.json | 87 +++++++++++++--------
+ src/finesub_bootstrap/shell.py              | 11 ---
+ src/finesub_bootstrap/system_tools.py       | 20 -----
+ 5 files changed, 58 insertions(+), 64 deletions(-)
 
 diff --git a/src/finesub_bootstrap/environment.py b/src/finesub_bootstrap/environment.py
-index 372569c..9b84757 100644
+index 74c0757..0533ae2 100644
 --- a/src/finesub_bootstrap/environment.py
 +++ b/src/finesub_bootstrap/environment.py
-@@ -743,7 +743,7 @@ class RuntimeEnvironment:
+@@ -742,7 +742,7 @@ class RuntimeEnvironment:
          ``extra_env``: this method owns them, and a caller that merely set them
          in ``extra_env`` would have them silently overwritten. Extra entries go
          through ``extra_path_dirs`` / ``extra_python_path`` instead -- managed
@@ -74,7 +38,7 @@ index 400740e..cac087a 100644
      # one is blocked by it. Consumers exclude these from readiness counts and
      # from the "space required" total.
 diff --git a/src/finesub_bootstrap/runtime-manifest.json b/src/finesub_bootstrap/runtime-manifest.json
-index 1cdf9f7..e640b55 100644
+index 92bf7ef..58bce9e 100644
 --- a/src/finesub_bootstrap/runtime-manifest.json
 +++ b/src/finesub_bootstrap/runtime-manifest.json
 @@ -2,17 +2,10 @@
@@ -139,8 +103,8 @@ index 1cdf9f7..e640b55 100644
      },
      {
 @@ -90,6 +69,52 @@
-         "size": 9303247,
-         "sha256": "4e1d215bec6f2f48f8271673a1339d289bf8650a155b88a6210174bd133e6eec"
+         "size": 3768375,
+         "sha256": "94207e6e17eae3fd68ac5df74841032729284e852ae254ce3b4c4e0306feace5"
        }
 +    },
 +    {
@@ -192,7 +156,7 @@ index 1cdf9f7..e640b55 100644
    ]
  }
 diff --git a/src/finesub_bootstrap/shell.py b/src/finesub_bootstrap/shell.py
-index 983b11a..abbf65b 100644
+index abfbebb..a196243 100644
 --- a/src/finesub_bootstrap/shell.py
 +++ b/src/finesub_bootstrap/shell.py
 @@ -88,7 +88,6 @@ from finesub_bootstrap.resources import ResourceManager
@@ -203,7 +167,7 @@ index 983b11a..abbf65b 100644
      "yt-dlp": "URL input needs a downloader",
      "tokcount": "the LLM layer counts tokens locally",
  }
-@@ -535,7 +534,6 @@ def system_tool(resource_id: str):
+@@ -574,7 +573,6 @@ def system_tool(resource_id: str):
  
      finder = {
          "ffmpeg": system_tools.find_system_ffmpeg,
@@ -211,7 +175,7 @@ index 983b11a..abbf65b 100644
          "tokcount": system_tools.find_system_token_counter,
      }.get(resource_id)
      return finder() if finder is not None else None
-@@ -808,7 +806,6 @@ class Shell:
+@@ -854,7 +852,6 @@ class Shell:
          print(f"env-keys     {self._env_keys_report()}")
          for resource_id, note in (
              ("ffmpeg", ""),
@@ -219,7 +183,7 @@ index 983b11a..abbf65b 100644
              ("yt-dlp", "installed on demand: URL input"),
              ("tokcount", "optional: offline token counting for the LLM layer"),
          ):
-@@ -1846,7 +1843,6 @@ class Shell:
+@@ -1892,7 +1889,6 @@ class Shell:
                      lambda: self.tool_file("tokcount", "tokcount.exe")
                  ),
              },
@@ -227,7 +191,7 @@ index 983b11a..abbf65b 100644
              extra_python_path=self._yt_dlp_python_path(),
          )
          environment = os.environ.copy()
-@@ -2155,13 +2151,6 @@ class Shell:
+@@ -2217,13 +2213,6 @@ class Shell:
              return found.path
          return self.resources.active_file(resource_id, filename)
  
@@ -242,10 +206,10 @@ index 983b11a..abbf65b 100644
          # Imported, not executed, so it joins PYTHONPATH rather than PATH.
          if self.resources.active_version("yt-dlp") is None:
 diff --git a/src/finesub_bootstrap/system_tools.py b/src/finesub_bootstrap/system_tools.py
-index cf0c1ec..a5d632b 100644
+index 5571fb8..e98dc14 100644
 --- a/src/finesub_bootstrap/system_tools.py
 +++ b/src/finesub_bootstrap/system_tools.py
-@@ -120,26 +120,6 @@ def find_system_ffmpeg(
+@@ -119,26 +119,6 @@ def find_system_ffmpeg(
      )
  
  
@@ -257,7 +221,7 @@ index cf0c1ec..a5d632b 100644
 -    a broken shim on PATH does not read as success.
 -    """
 -
--    executable = shutil.which("git")
+-    executable = which("git")
 -    if executable is None:
 -        return None
 -    banner = probe([executable, "--version"], timeout=5.0)

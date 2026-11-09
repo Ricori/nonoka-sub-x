@@ -664,7 +664,7 @@ def app_policy(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
     the real functions and the environment back.
     """
 
-    from finesub.llm import http as llm_http
+    from finesub import api_http
 
     state = {"system": "http://127.0.0.1:7890", "live": {"http://127.0.0.1:7890"}, "llm": None}
     preferences = tmp_path / "preferences.json"
@@ -675,7 +675,7 @@ def app_policy(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
     monkeypatch.setattr(http_client, "_windows_proxy", lambda: state["system"])
     monkeypatch.setattr(http_client, "_environment_proxies", http_client._environment_proxies)
     monkeypatch.setattr(http_client, "_local_proxy_is_listening", lambda proxy: proxy in state["live"])
-    monkeypatch.setattr(llm_http, "configured_proxy", lambda: state["llm"])
+    monkeypatch.setattr(api_http, "configured_proxy", lambda: state["llm"])
 
     def save(proxy) -> None:
         preferences.write_text(json.dumps({"schema": 2, "proxy": proxy}), encoding="utf-8")
@@ -684,20 +684,20 @@ def app_policy(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
 
     save(None)
     download_route.install_app_proxy_policy()
-    return state, save, llm_http
+    return state, save, api_http
 
 
 def test_app_policy_follows_system_proxy_by_default(app_policy):
-    state, _save, llm_http = app_policy
+    state, _save, api_http = app_policy
 
     assert http_client.network_routes()[0].proxy == "http://127.0.0.1:7890"
     assert os.environ["HTTPS_PROXY"] == "http://127.0.0.1:7890"
     assert os.environ["NO_PROXY"] == "localhost,127.0.0.1,::1"
-    assert llm_http.configured_proxy() == "http://127.0.0.1:7890"
+    assert api_http.configured_proxy() == "http://127.0.0.1:7890"
 
 
 def test_custom_proxy_replaces_system_and_environment(app_policy):
-    state, save, llm_http = app_policy
+    state, save, api_http = app_policy
     state["live"].add("socks5://127.0.0.1:7891")
     save({"scheme": "socks5", "host": "127.0.0.1", "port": 7891})
 
@@ -705,22 +705,22 @@ def test_custom_proxy_replaces_system_and_environment(app_policy):
 
     assert [route.proxy for route in routes] == ["socks5://127.0.0.1:7891", None]
     assert os.environ["ALL_PROXY"] == "socks5://127.0.0.1:7891"
-    assert llm_http.configured_proxy() == "socks5://127.0.0.1:7891"
+    assert api_http.configured_proxy() == api_http.DIRECT
 
 
 def test_dead_custom_proxy_goes_direct_not_system(app_policy):
-    state, save, llm_http = app_policy
+    state, save, api_http = app_policy
     save({"scheme": "http", "host": "127.0.0.1", "port": 9999})
 
     assert http_client.network_routes()[0].proxy is None
     assert "HTTPS_PROXY" not in os.environ
     # Direct is explicit, so registry-reading clients cannot pick the system proxy up.
     assert os.environ["NO_PROXY"] == "*"
-    assert llm_http.configured_proxy() == llm_http.DIRECT
+    assert api_http.configured_proxy() == api_http.DIRECT
 
 
 def test_child_environment_follows_the_route(app_policy):
-    state, save, _llm_http = app_policy
+    state, save, _api_http = app_policy
     child = dict(os.environ)
     download_route.apply_proxy_environment(child)
     assert child["HTTPS_PROXY"] == "http://127.0.0.1:7890"
@@ -741,10 +741,10 @@ def test_a_child_pinned_direct_does_not_pick_the_proxy_back_up(app_policy, monke
 
 
 def test_explicit_llm_proxy_in_config_still_wins(app_policy):
-    state, _save, llm_http = app_policy
+    state, _save, api_http = app_policy
     state["llm"] = "direct"
 
-    assert llm_http.configured_proxy() == "direct"
+    assert api_http.configured_proxy() == "direct"
 
 
 @pytest.mark.parametrize(

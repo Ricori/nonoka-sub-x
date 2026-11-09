@@ -1,0 +1,76 @@
+From 9e339e0696dc40259054285dc7b094ed784c8fe3 Mon Sep 17 00:00:00 2001
+From: Takamichika <sloanewu233@gmail.com>
+Date: Tue, 10 Nov 2026 00:36:49 +0900
+Subject: [PATCH] Import recognition where its stage runs
+
+---
+ src/finesub/speech/diarization/marks.py |  5 +++--
+ src/finesub/stages.py                   | 14 ++++++++------
+ 2 files changed, 11 insertions(+), 8 deletions(-)
+
+diff --git a/src/finesub/speech/diarization/marks.py b/src/finesub/speech/diarization/marks.py
+index fc01427..c132963 100644
+--- a/src/finesub/speech/diarization/marks.py
++++ b/src/finesub/speech/diarization/marks.py
+@@ -152,12 +152,13 @@ def row_marks(
+     evidence,
+ ) -> "list[dict[str, Any] | None] | None":
+     """One mark (or None) per subtitle line; None overall when the evidence cannot carry marks."""
++    if not usable(evidence) or len(subtitles) != len(speakers):
++        return None
++
+     import numpy as np
+ 
+     from .nemotron3_backend import windows
+ 
+-    if not usable(evidence) or len(subtitles) != len(speakers):
+-        return None
+     native = np.asarray(evidence.native_activity)
+     soft = np.asarray(evidence.soft)
+     centroid_of_track = np.asarray(evidence.centroid_of_track)
+diff --git a/src/finesub/stages.py b/src/finesub/stages.py
+index 2547a32..40957c5 100644
+--- a/src/finesub/stages.py
++++ b/src/finesub/stages.py
+@@ -951,10 +951,6 @@ def _run_vocal_stage(
+     plan rather than to any one stage.
+     """
+ 
+-    # Here, not at the top: the separator imports torch, and `pipeline --help`
+-    # imports this module.
+-    from .speech.preprocessing.separator import separation as vocal_separation
+-
+     reporter = current_reporter()
+     if joint:
+         # A joint backend transcribes the original mix: no vocal track is made.
+@@ -970,6 +966,10 @@ def _run_vocal_stage(
+             aligned_required and not paths.aligned_json.exists()
+         )
+         if vocal_needed:
++            # Here, not at the top: the separator imports torch, and a run that
++            # continues from an existing stable.json never needs it.
++            from .speech.preprocessing.separator import separation as vocal_separation
++
+             # Either delivery counts as done, which is why this asks
+             # `resolve_vocal_audio` rather than looking for the shape this stage
+             # happens to write. `.ogg` is what it asks separation for; a `.flac`
+@@ -1292,8 +1292,6 @@ def run_pipeline(
+         )
+ 
+     from .media.ffmpeg import describe_ffmpeg
+-    from .speech.recognition import vad_asr_stage as vad_asr  # torch; not at the top (`pipeline --help`)
+-
+     update_run_metadata(
+         paths.metadata_json,
+         {
+@@ -1372,6 +1370,10 @@ def run_pipeline(
+             update_run_metadata(
+                 paths.metadata_json, {"asr_context": asr_context_report}
+             )
++        # Here, not with the other imports: numpy and torch, and a run that continues from an
++        # existing stable.json never gets this far.
++        from .speech.recognition import vad_asr_stage as vad_asr
++
+         asr_t0 = _stage_clock()
+         _use_or_create(
+             paths.aligned_json,

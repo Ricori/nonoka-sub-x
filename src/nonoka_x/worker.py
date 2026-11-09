@@ -378,21 +378,19 @@ def _seed_once(origin: Path, seeded: Path) -> None:
 
 
 def diarization_kwargs(request: Mapping[str, Any]) -> dict[str, Any]:
-    """`run_pipeline`'s speaker keys for this request; empty when it asks for none.
+    """`run_pipeline`'s speaker keys for this request.
 
     The provider has already validated and normalized the block
     (`local_provider.normalize_diarization`), so this only translates it.
-    Nothing is passed for `off`, which keeps such a run on upstream's own
-    defaults.
+    `off` is passed explicitly: since engine 0.7.0 an unset level at the
+    `quality` difficulty turns the speaker judge on.
     """
 
     block = request.get("diarization")
-    if not isinstance(block, Mapping):
-        return {}
-    level = str(block.get("level") or "off")
-    if level == "off":
-        return {}
+    level = str(block.get("level") or "off") if isinstance(block, Mapping) else "off"
     kwargs: dict[str, Any] = {"diarize": level}
+    if level == "off":
+        return kwargs
     if block.get("max_speakers") is not None:
         kwargs["diarize_max_speakers"] = int(block["max_speakers"])
     return kwargs
@@ -407,7 +405,7 @@ def emit_request_notices(request: Mapping[str, Any]) -> None:
                        "需要写回请选择自动更新",
         })
     block = request.get("diarization")
-    if diarization_kwargs(request) and diarization_models_missing():
+    if diarization_kwargs(request)["diarize"] != "off" and diarization_models_missing():
         emit("log", {
             "message": "首次使用说话人分离：需要下载约 450MB 模型，将在说话人分离阶段自动下载并校验",
         })
@@ -498,24 +496,6 @@ def install_llm_model_override(request: Mapping[str, Any]) -> None:
                 )
             expanded[group] = target
     install_runtime_preferred(expanded)
-    if (request.get("correction") or {}).get("retrieval") == "native":
-        from finesub.llm.routing.model_routes import default_model_routes
-        from .settings import native_search_target
-
-        routes = default_model_routes()
-        difficulty = (request.get("correction") or {}).get("difficulty") or "quality"
-        # Saved CLI routes pin the ordinary target. Entitle the same model's
-        # search tool only for native correction/research calls in this run.
-        # Explicit multi-model groups retain their declared routing semantics.
-        for group_id in ("correction-mm", "correction-text", "research"):
-            group, _cell = routes.resolve_binding(routes.active_preset_id, group_id, difficulty)
-            if len(group.target_ids) != 1:
-                continue
-            target_id = group.target_ids[0]
-            native_id = native_search_target(routes, target_id)
-            if native_id and native_id != target_id:
-                expanded[group_id] = native_id
-        install_runtime_preferred(expanded)
 
 
 def extract_execution_failure_detail(exc: BaseException) -> str:
@@ -606,6 +586,8 @@ def main(argv: list[str] | None = None) -> int:
         else:
             from finesub.stages import run_pipeline
 
+            from .settings import correction_proofread
+
             if seed_cloud_stable(request, output) is not None:
                 emit("log", {"message": "从云端识别结果续跑：跳过人声分离与识别"})
             reporter = NonokaXReporter()
@@ -627,6 +609,7 @@ def main(argv: list[str] | None = None) -> int:
                     llm_media=correction.get("media"),
                     llm_retrieval=correction.get("retrieval"),
                     llm_difficulty=correction.get("difficulty"),
+                    llm_proofread=correction_proofread(correction),
                     llm_fast=resolve_request_fast(
                         correction, warn=lambda message: reporter.warning("fast-mode", message)
                     ),
@@ -637,8 +620,8 @@ def main(argv: list[str] | None = None) -> int:
                     task_id=args.task_id,
                     task_artifact_dir=artifact_dir,
                     resume=True,
-                    # The editor builds its own speaker tracks from the labels
-                    # on stable.json, so the engine's per-speaker exports stay off.
+                    # The editor builds its own speaker tracks from the speaker
+                    # labels, so the engine's per-speaker exports stay off.
                     speaker_tracks="off",
                     **diarization_kwargs(request),
                     **subject_kwargs,
@@ -656,6 +639,7 @@ def main(argv: list[str] | None = None) -> int:
                 # Kept, never regenerated on their own: a rerun may label the
                 # speakers differently, so these are the record of this run's.
                 "diar_json": Path(paths.diar_json),
+                "diar_rows_json": Path(paths.diar_rows_json),
                 "diar_evidence_npz": diarization_evidence_path(Path(paths.diar_json)),
                 "speaker_judge_json": Path(paths.speaker_judge_json),
                 "raw_srt": Path(paths.raw_srt),

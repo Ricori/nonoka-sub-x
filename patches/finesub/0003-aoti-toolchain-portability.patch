@@ -1,37 +1,11 @@
-Subject: [PATCH 3/14] Let AOTInductor compile under MSVC /std:c11 and off Windows
+From 89f7af3c9d5154092cef4e6f2ad61fe73ad0500e Mon Sep 17 00:00:00 2001
+From: Takamichika <sloanewu233@gmail.com>
+Date: Tue, 10 Nov 2026 00:24:24 +0900
+Subject: [PATCH] Let AOTInductor compile under MSVC /std:c11 and off Windows
 
-Reason: Upstream's AOTI builder only ever ran on one toolchain, and Nonoka X
-needs it to compile on two more shapes of it. Both halves decide whether AOTI
-compiles, never what the separator outputs.
-
-MSVC /std:c11: On Windows, Triton generates launch stubs with empty struct
-initializers `CUlaunchAttribute clusterAttr = {};`. Standard C11 forbids empty
-struct initializers, causing error C2059: syntax error: '}'. Additionally,
-Windows SDK winbase.h causes warning C5105 under /std:c11. This monkey-patches
-Triton's launcher generator and build command to replace `{}` with `{0}` and add
-`/wd5105` before `/link`.
-
-POSIX: `build_packages` calls `_activate_msvc()` unconditionally and
-`cxx_toolchain_available()` mirrors it, both looking only for `cl.exe` or
-vcvars, because Windows is the only platform upstream runs the AOTI path on.
-Nonoka X runs it on Linux too: the cloud Vocal worker's `vocal_accel` module is
-exactly the installer FineSub does not provide, and `vocal_accel_image`
-assembles the CUDA headers Inductor needs under CUDA_HOME for that purpose.
-Without a POSIX branch every Linux build raised `AOTInductor on Windows requires
-MSVC (cl.exe)`; `vocal_accel.install` catches it and degrades to eager, so every
-cloud task >= 270 s silently ran unaccelerated and no package was ever written
-to the models Volume for a later task to load. Measured on a T4
-(`testing/throughput_probe.py`, 2026-09-04).
-
-This adds `_posix_cxx_driver()` and routes both the activation and the
-availability check through it off Windows. Windows behaviour is untouched --
-`_patch_triton_windows_driver` and the vcvars activation still run there, and
-only there.
-
-Removal: Drop `_patch_triton_windows_driver` once upstream Triton replaces empty
-struct initializers with `{0}` under C11 or upstream FineSub incorporates the
-fix. Drop `_posix_cxx_driver` and its two branches once upstream FineSub supports
-the AOTI path on POSIX. Delete the patch when both halves are gone.
+---
+ .../preprocessing/separator/separator_aoti.py | 84 ++++++++++++++++++-
+ 1 file changed, 80 insertions(+), 4 deletions(-)
 
 diff --git a/src/finesub/speech/preprocessing/separator/separator_aoti.py b/src/finesub/speech/preprocessing/separator/separator_aoti.py
 index a13240f..d5ad5cf 100644

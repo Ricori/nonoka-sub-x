@@ -132,11 +132,6 @@ def _issue(code: str, message: str) -> dict[str, str]:
 _IGNORED_WORKER_LOG_SUBSTRINGS = (
     "CUDAExecutionProvider not available in ONNXruntime",
 )
-#: Engine warnings that describe what the task is doing right now, so they also
-#: replace the card's progress text instead of only reaching the log.
-#: `llm-cooldown-wait` is vendor patch 0013: the only provider is cooling down
-#: and the window sleeps until it can retry.
-_PROGRESS_WARNING_CODES = frozenset({"llm-cooldown-wait"})
 
 
 def _clear_legacy_separator_decode_probes(environment: Mapping[str, str]) -> None:
@@ -1583,8 +1578,6 @@ class LocalProvider:
                         continue
                     if event_type in {"stage", "progress"}:
                         self._update_progress(task_id, event_type, payload)
-                    elif event_type == "warning" and payload.get("code") in _PROGRESS_WARNING_CODES:
-                        self._note_progress_message(task_id, str(payload.get("message") or ""))
                     elif event_type == "completed":
                         manifest = payload.get("artifacts")
                         if isinstance(manifest, dict):
@@ -1755,23 +1748,6 @@ class LocalProvider:
             "unit": payload.get("unit", ""),
             "message": payload.get("message") or payload.get("detail", ""),
         }
-        snapshot["updated_at"] = utc_now()
-        _atomic_json(self._task_dir(task_id) / "snapshot.json", snapshot)
-
-    def _note_progress_message(self, task_id: str, message: str) -> None:
-        """Show `message` on the task card, keeping the progress counts.
-
-        For a wait that leaves the stage's counts where they are: the card reads
-        `progress.message`, and a warning alone only reaches the log. The next
-        progress event replaces it.
-        """
-
-        if not message:
-            return
-        snapshot = self.status(task_id)
-        progress = dict(snapshot.get("progress") or {})
-        progress["message"] = message
-        snapshot["progress"] = progress
         snapshot["updated_at"] = utc_now()
         _atomic_json(self._task_dir(task_id) / "snapshot.json", snapshot)
 

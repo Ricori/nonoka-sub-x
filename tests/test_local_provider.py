@@ -17,7 +17,6 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from nonoka_x.local_provider import (
-    _PROGRESS_WARNING_CODES,
     LocalProvider,
     ProviderError,
     _clear_legacy_separator_decode_probes,
@@ -129,21 +128,6 @@ class LocalProviderTests(ProviderFixture):
         self.assertEqual(provider.status(task_id)["progress"]["message"], "正在处理")
         provider._set_state(task_id, "completed")
         self.assertEqual(provider.status(task_id)["progress"]["message"], "字幕已完成")
-        provider.shutdown()
-
-    def test_cooldown_wait_message_replaces_progress_text_and_keeps_counts(self) -> None:
-        provider = self.provider()
-        task = provider.start(self.request())
-        task_id = task["task_id"]
-        wait_state(provider, task_id, {"completed"})
-        provider._update_progress(
-            task_id, "progress", {"stage": "translated-srt", "completed": 3, "total": 8, "unit": "窗口", "message": "纠错中"}
-        )
-        provider._note_progress_message(task_id, "模型提供商冷却中，没有可切换的备用提供商；等待至 15:08:02 后自动重试")
-        progress = provider.status(task_id)["progress"]
-        self.assertEqual(progress["message"], "模型提供商冷却中，没有可切换的备用提供商；等待至 15:08:02 后自动重试")
-        self.assertEqual((progress["completed"], progress["total"], progress["unit"]), (3, 8, "窗口"))
-        self.assertIn("llm-cooldown-wait", _PROGRESS_WARNING_CODES)
         provider.shutdown()
 
     def test_local_provider_rejects_cloud_vocal_profile(self) -> None:

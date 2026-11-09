@@ -138,7 +138,7 @@ class VendorContractTests(unittest.TestCase):
         self.assertTrue(any(prompt_root.glob("*.md")))
         self.assertTrue((prompt_root / "LICENSE.md").is_file())
         routing = DEFAULT_VENDOR / "src/finesub/llm/routing"
-        self.assertTrue((routing / "model_catalog.psv").is_file())
+        self.assertTrue((routing / "model_catalog.toml").is_file())
         self.assertTrue((routing / "model_routes.toml").is_file())
         bootstrap = DEFAULT_VENDOR / "src/finesub_bootstrap"
         self.assertTrue((bootstrap / "model-manifest.json").is_file())

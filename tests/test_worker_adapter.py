@@ -9,6 +9,7 @@ import sys
 import tempfile
 import types
 import unittest
+from unittest import mock
 from pathlib import Path
 from types import SimpleNamespace
 from urllib.parse import urlparse
@@ -179,6 +180,7 @@ class WorkerAdapterTests(unittest.TestCase):
                     aligned_json=output.with_name(f"{output.stem}-aligned.json"),
                     stable_json=stable,
                     diar_json=output.with_name(f"{output.stem}-diar.json"),
+                    diar_rows_json=output.with_name(f"{output.stem}-diar-rows.json"),
                     speaker_judge_json=output.with_name(f"{output.stem}-speaker-judge.json"),
                     raw_srt=raw,
                     translated_srt=output.with_name(f"{output.stem}-translated.srt"),
@@ -215,7 +217,9 @@ class WorkerAdapterTests(unittest.TestCase):
             old_cuda_visible = os.environ.get("CUDA_VISIBLE_DEVICES")
             try:
                 sys.stdin = io.StringIO(json.dumps(request) + "\n")
-                with contextlib.redirect_stdout(output):
+                with contextlib.redirect_stdout(output), mock.patch(
+                    "nonoka_x.settings.correction_proofread", return_value="auto"
+                ):
                     result = worker.main(
                         [
                             "--task-id",
@@ -241,6 +245,7 @@ class WorkerAdapterTests(unittest.TestCase):
             self.assertEqual(captured["input"], str(source))
             self.assertEqual(captured["stage"], "raw-srt")
             self.assertEqual(captured["device"], "cuda")
+            self.assertEqual(captured["llm_proofread"], "auto")
             self.assertEqual(captured["task_summary"], "字幕任务：video")
             # Upstream 0.5.0 retired `--gpu-budget-gb` for `--gpu-tier`, and a
             # request queued before the upgrade still carries the number.
@@ -332,7 +337,7 @@ class WorkerAdapterTests(unittest.TestCase):
 
         Run in a child whose import system refuses torch, numpy and the rest:
         a module-level import anywhere between `nonoka_x.worker` and the raw
-        SRT -- vendor patch 0010 is what removed the last ones -- fails this
+        SRT -- vendor patch 0006 is what removed the last ones -- fails this
         rather than the first user without the managed runtime.
         """
 
@@ -351,11 +356,11 @@ class WorkerAdapterTests(unittest.TestCase):
             self.assertTrue({"vocal", "aligned", "stable"} <= reused)
 
     def test_a_cloud_speaker_timeline_labels_the_continuation_without_the_asr_stack(self) -> None:
-        """The diarize stage reuses the cloud's timeline instead of recomputing it.
+        """The diarize stage labels from the cloud's timeline instead of recomputing it.
 
-        The cloud delivers stable.json already labelled from that timeline, so
-        the stage has nothing to run and a diarized cloud task continues on the
-        launcher, which has neither the models nor numpy.
+        Since engine 0.7.0 the labels live in `-diar-rows.json`, which the
+        desktop writes from the delivered timeline. That takes no model and no
+        numpy, so a diarized cloud task continues on the launcher.
         """
 
         sys.path.insert(0, str(ROOT / "third_party/finesub/src"))
@@ -381,12 +386,10 @@ class WorkerAdapterTests(unittest.TestCase):
             artifacts = completed["payload"]["artifacts"]["artifacts"]
             self.assertIn("diar_json", artifacts)
             self.assertEqual(file_of(artifacts["diar_json"]["uri"]).name, "片子-diar.json")
-            stable = json.loads(file_of(artifacts["stable_json"]["uri"]).read_text(encoding="utf-8"))
-            self.assertIn("speaker", stable["metadata"])
-            self.assertTrue(any(
-                event["type"] == "stage" and event["payload"].get("stage") == "diarize"
-                and event["payload"].get("reused") for event in events
-            ))
+            rows_file = file_of(artifacts["diar_rows_json"]["uri"])
+            self.assertEqual(rows_file.name, "片子-diar-rows.json")
+            rows = json.loads(rows_file.read_text(encoding="utf-8"))["rows"]
+            self.assertTrue(any(row.get("speaker") for row in rows))
 
     def continue_without_the_asr_stack(
         self, root: Path, source: dict, request: dict, *, stable: dict | None = None
@@ -539,8 +542,8 @@ raise SystemExit(worker.main(sys.argv[1:]))
             self.assertEqual(set(manifest["artifacts"]), {"stable_json", "annotated_csv", "final_srt"})
 
     def test_diarization_request_maps_to_pipeline_keys(self) -> None:
-        self.assertEqual(worker.diarization_kwargs({}), {})
-        self.assertEqual(worker.diarization_kwargs({"diarization": {"level": "off"}}), {})
+        self.assertEqual(worker.diarization_kwargs({}), {"diarize": "off"})
+        self.assertEqual(worker.diarization_kwargs({"diarization": {"level": "off"}}), {"diarize": "off"})
         self.assertEqual(
             worker.diarization_kwargs({"diarization": {"level": "acoustics", "max_speakers": None}}),
             {"diarize": "acoustics"},
@@ -567,22 +570,17 @@ raise SystemExit(worker.main(sys.argv[1:]))
         from finesub.llm.routing.model_routes import (
             default_model_routes,
             install_runtime_preferred,
-            runtime_preferred,
         )
 
         try:
             worker.install_llm_model_override(
-                {"llm_model": {"correction": "local-agy-media-gemini-3_7-flash"}}
+                {"llm_model": {"correction": "local-agy-gemini-3_8-flash"}}
             )
-            self.assertEqual(
-                runtime_preferred(),
-                {
-                    "correction-mm": "local-agy-media-gemini-3_7-flash",
-                    "correction-text": "local-agy-media-gemini-3_7-flash",
-                },
-            )
-            # Exercise the real 0.5 route validator, not only the adapter's map.
-            default_model_routes()
+            # Through the real route validator, not only the adapter's map.
+            routes = default_model_routes()
+            for group_id in ("correction-mm", "correction-text"):
+                group, _cell = routes.resolve_binding(routes.active_preset_id, group_id, "quality")
+                self.assertEqual(group.target_ids, ("local-agy-gemini-3_8-flash",))
         finally:
             install_runtime_preferred({})
 

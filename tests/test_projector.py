@@ -5,9 +5,13 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "third_party" / "finesub" / "src"))
 
+from finesub.speech.diarization.judgments import Inserted, Judgments
+from finesub.subtitles.stable_rows import lines_hash
 from nonoka_x.document_store import DocumentError, DocumentStore, RevisionConflict
 from nonoka_x.projector import ProjectionError, parse_srt, project_edit_document
 
@@ -70,6 +74,102 @@ class ProjectorTests(unittest.TestCase):
         self.assertEqual(document["subtitles"][0]["zh"], "")
         self.assertEqual(document["subtitles"][0]["words"][0]["word"], "おはよう")
         self.assertTrue(document["subtitles"][2]["low_conf"])
+
+    @staticmethod
+    def _split_stable(directory: Path) -> Path:
+        """A stable of two lines whose first is cut by acoustic row splitting."""
+
+        def word(text: str, start: float, end: float) -> dict[str, object]:
+            return {"word": text, "start": start, "end": end}
+
+        segments = [
+            {"id": "1", "start": 0.0, "end": 2.0, "text": "AB",
+             "words": [word("A", 0.0, 1.0), word("B", 1.0, 2.0)]},
+            {"id": "2", "start": 3.0, "end": 4.0, "text": "C", "words": [word("C", 3.0, 4.0)]},
+        ]
+        stable = directory / "task-stable.json"
+        stable.write_text(json.dumps({"segments": segments}), encoding="utf-8")
+        (directory / "task-diar-rows.json").write_text(
+            json.dumps({
+                "version": 1,
+                "stable": lines_hash(segments),
+                "speaker": {},
+                "split": {"chosen": True, "version": 1, "cuts": 1},
+                "rows": [
+                    {"split": {"at": 1, "speakers": [{"track": 0}, {"track": 1}]}},
+                    {"speaker": {"track": 0}},
+                ],
+            }),
+            encoding="utf-8",
+        )
+        return stable
+
+    def test_acoustic_split_rows_and_labels_come_from_the_rows_file(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            stable = self._split_stable(Path(temporary))
+            document = project_edit_document(stable, video_id="video-1", title="Sample")
+        self.assertEqual(
+            [(item["ja"], item["t0"], item["t1"], item.get("spk")) for item in document["subtitles"]],
+            [("A", 0.0, 1.0, "s0"), ("B", 1.0, 2.0, "s1"), ("C", 3.0, 4.0, "s0")],
+        )
+
+    def test_annotated_ids_count_the_split_rows(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            stable = self._split_stable(directory)
+            annotated = directory / "task-annotated.csv"
+            annotated.write_text(
+                "# type|position|duration|gap|corrected|translation|conf|char_count|note\n"
+                "sub|2|1.0|0.0|B|乙|high|1|\n"
+                "sub|3|1.0|1.0|C|丙|high|1|\n",
+                encoding="utf-8",
+            )
+            final = directory / "task.srt"
+            final.write_text(
+                "1\n00:00:01,000 --> 00:00:02,000\n乙\n\n2\n00:00:03,000 --> 00:00:04,000\n丙\n",
+                encoding="utf-8",
+            )
+            document = project_edit_document(
+                stable, annotated_csv=annotated, final_srt=final, video_id="video-1", title="Sample"
+            )
+        self.assertEqual([item["words"][0]["word"] for item in document["subtitles"]], ["B", "C"])
+        self.assertEqual([item["spk"] for item in document["subtitles"]], ["s1", "s0"])
+
+    def test_a_judges_second_half_and_inserted_line_have_ids(self) -> None:
+        judgments = Judgments(
+            moved={},
+            halves={"1": (1, 1)},
+            inserts=(Inserted(after="2", text="X", track=1, heard=(4.0, 5.0), shown=(4.0, 5.0)),),
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            segments = [
+                {"id": "1", "start": 0.0, "end": 2.0, "text": "AB", "speaker": {"track": 0},
+                 "words": [{"word": "A", "start": 0.0, "end": 1.0}, {"word": "B", "start": 1.0, "end": 2.0}]},
+                {"id": "2", "start": 3.0, "end": 4.0, "text": "C", "speaker": {"track": 0},
+                 "words": [{"word": "C", "start": 3.0, "end": 4.0}]},
+            ]
+            stable = directory / "task-stable.json"
+            stable.write_text(json.dumps({"segments": segments}), encoding="utf-8")
+            annotated = directory / "task-annotated.csv"
+            annotated.write_text(
+                "# type|position|duration|gap|corrected|translation|conf|char_count|note\n"
+                "sub|1b|1.0|0.0|B|乙|high|1|\n"
+                "sub|2i|1.0|1.0|X|丁|high|1|\n",
+                encoding="utf-8",
+            )
+            final = directory / "task.srt"
+            final.write_text(
+                "1\n00:00:01,000 --> 00:00:02,000\n乙\n\n2\n00:00:04,000 --> 00:00:05,000\n丁\n",
+                encoding="utf-8",
+            )
+            with mock.patch("finesub.speech.diarization.product.read_judgments", return_value=judgments):
+                document = project_edit_document(
+                    stable, annotated_csv=annotated, final_srt=final, video_id="video-1", title="Sample"
+                )
+        self.assertEqual([item["zh"] for item in document["subtitles"]], ["乙", "丁"])
+        self.assertEqual(document["subtitles"][0]["words"][0]["word"], "B")
+        self.assertNotIn("words", document["subtitles"][1])
 
     def test_final_projection_merges_source_words_and_uses_final_timeline(self) -> None:
         document = project_edit_document(

@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import sys
 import tempfile
+import tomllib
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -12,7 +13,26 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "third_party/finesub/src"))
 
-from nonoka_x.settings import FineSubSettings, LOCAL_AGENT_PROVIDERS
+from nonoka_x.settings import FineSubSettings, LOCAL_AGENT_PROVIDERS, correction_proofread
+
+
+def _only_row(catalog: str) -> dict:
+    """The single table of a generated `model_catalog.toml`."""
+
+    rows = list(tomllib.loads(catalog)["models"].values())
+    assert len(rows) == 1, rows
+    return rows[0]
+
+
+def _spec_fields(row: dict) -> tuple:
+    return tuple(
+        row[key]
+        for key in (
+            "display_name", "api_model_id", "max_input_tokens", "max_output_tokens",
+            "supports_audio", "supports_video", "supports_native_search",
+            "thinking", "token_scale", "capability",
+        )
+    )
 
 
 class FineSubSettingsTests(unittest.TestCase):
@@ -95,9 +115,12 @@ class FineSubSettingsTests(unittest.TestCase):
                 snapshot["modelRouting"]["defaultRoute"],
                 {"provider": "openai", "model": "gpt-custom"},
             )
-            catalog = (Path(temporary) / "model_catalog.psv").read_text(encoding="utf-8")
-            self.assertIn("openai_compat|https://proxy.example/v1|OPENAI_API_KEY", catalog)
-            self.assertIn("|gpt-custom|gpt-custom|", catalog)
+            catalog = (Path(temporary) / "model_catalog.toml").read_text(encoding="utf-8")
+            row = _only_row(catalog)
+            self.assertEqual(row["provider_kind"], "openai_compat")
+            self.assertEqual(row["base_url"], "https://proxy.example/v1")
+            self.assertEqual(row["key_env"], "OPENAI_API_KEY")
+            self.assertEqual((row["display_name"], row["api_model_id"]), ("gpt-custom", "gpt-custom"))
             config = (Path(temporary) / "finesub.toml").read_text(encoding="utf-8")
             self.assertIn("[llm.preferred_targets]", config)
             self.assertIn('default = "nonoka-openai-', config)
@@ -260,7 +283,7 @@ class FineSubSettingsTests(unittest.TestCase):
             snapshot = settings.snapshot()
             self.assertFalse(snapshot["llmReady"])
             self.assertEqual(snapshot["modelRouting"]["defaultRoute"], {"provider": "nonoka-cloud", "model": "gpt-6.1-terra"})
-            self.assertNotIn(target_id, (Path(temporary) / "model_catalog.psv").read_text(encoding="utf-8"))
+            self.assertNotIn(target_id, (Path(temporary) / "model_catalog.toml").read_text(encoding="utf-8"))
 
     def test_withdrawn_nonoka_cloud_model_moves_to_the_cloud_default(self) -> None:
         """GPT-6 Luna left the relay's allow list on 2026-11-08.
@@ -437,7 +460,7 @@ class FineSubSettingsTests(unittest.TestCase):
                 {"provider": "local-codex", "model": "gpt-6-luna"},
             )
             config = (Path(temporary) / "finesub.toml").read_text(encoding="utf-8")
-            self.assertIn('default = "local-codex-completion-gpt-6-luna"', config)
+            self.assertIn('default = "local-codex-gpt-6-luna"', config)
 
             from finesub.config import clear_config_cache
             from finesub.llm.routing.model_catalog import default_model_catalog
@@ -456,17 +479,16 @@ class FineSubSettingsTests(unittest.TestCase):
             # its capability check naming the CLI, instead of quietly
             # continuing on a Gemini tier that may have no key at all.
             self.assertEqual(
-                correction.target_ids, ("local-codex-completion-gpt-6-luna",)
+                correction.target_ids, ("local-codex-gpt-6-luna",)
             )
 
     def test_new_local_models_save_and_resolve_global_and_task_routes(self) -> None:
         from finesub.llm.routing.model_routes import default_model_routes
 
         cases = (
-            ("local-codex", "gpt-6.1-sol", "local-codex-completion-gpt-6_1-sol", False),
-            ("local-codex", "gpt-6-luna", "local-codex-completion-gpt-6-luna", False),
-            ("local-agy", "gemini-3.8-flash", "local-agy-media-gemini-3_8-flash", True),
-            ("local-agy", "gemini-3.6-flash", "local-agy-media-gemini-3_6-flash", True),
+            ("local-codex", "gpt-6.1-sol", "local-codex-gpt-6_1-sol", False),
+            ("local-codex", "gpt-6-luna", "local-codex-gpt-6-luna", False),
+            ("local-agy", "gemini-3.8-flash", "local-agy-gemini-3_8-flash", True),
             ("local-agy", "claude-sonnet-5-5", "local-agy-sonnet-5_5", False),
             ("local-codebuddy", "hy3", "local-codebuddy-hy3", False),
         )
@@ -493,12 +515,6 @@ class FineSubSettingsTests(unittest.TestCase):
                 self.assertEqual(fact.api_model_id, model)
                 self.assertEqual(fact.supports_audio, media)
                 self.assertEqual(fact.supports_video, media)
-                self.assertFalse(routes.execution_profiles[target.execution_profile].native_search_tool)
-                if model.startswith("gpt-6"):
-                    native_id = target_id.replace("-completion-", "-native-")
-                    native = routes.targets[native_id]
-                    self.assertEqual(native.fact_id, target.fact_id)
-                    self.assertEqual(routes.execution_profiles[native.execution_profile].native_search_tool, "web_search")
                 # Reloading the settings must keep the selected model and target.
                 restarted = FineSubSettings(temporary)
                 restarted.refresh_model_catalog()
@@ -516,9 +532,9 @@ class FineSubSettingsTests(unittest.TestCase):
                 settings.update_keys({"LLM_DEFAULT_PROVIDER": "local-codex", "LLM_DEFAULT_MODEL": model})
                 routes = default_model_routes()
                 binding, _ = routes.resolve_binding(routes.active_preset_id, "research", "quality")
-                self.assertEqual(binding.target_ids, (f"local-codex-completion-{model.replace('.', '_')}",))
+                self.assertEqual(binding.target_ids, (f"local-codex-{model.replace('.', '_')}",))
 
-    def test_native_search_switches_saved_cli_routes_for_one_run_only(self) -> None:
+    def test_native_search_runs_on_the_saved_cli_target(self) -> None:
         from finesub.llm.routing.model_routes import default_model_routes, install_runtime_preferred
         from finesub.llm.routing.config import role_config_for
         from finesub.llm.routing.model_router import ModelRouter
@@ -539,8 +555,7 @@ class FineSubSettingsTests(unittest.TestCase):
                 snapshot = settings.update_keys({"LLM_DEFAULT_PROVIDER": provider, "LLM_DEFAULT_MODEL": model})
                 selected = next(p for p in snapshot["modelRouting"]["providers"] if p["id"] == provider)
                 option = next(item for item in selected["models"] if item["id"] == model)
-                supported = model not in {"claude-sonnet-5-5", "claude-opus-5-5"}
-                self.assertEqual(option["supportsNativeSearch"], supported)
+                supported = option["supportsNativeSearch"]
                 before = settings.config_file.read_bytes()
                 install_llm_model_override({"correction": {"retrieval": "native"}})
                 routes = default_model_routes()
@@ -551,42 +566,6 @@ class FineSubSettingsTests(unittest.TestCase):
                     plan = ModelRouter().plan(role_config_for(group_id, "quality"), native_search=True)
                     self.assertEqual(bool(plan.candidates[0].endpoint.native_search_tool), supported)
                 self.assertEqual(settings.config_file.read_bytes(), before)
-                install_llm_model_override({"correction": {"retrieval": "none"}})
-                routes = default_model_routes()
-                group, _ = routes.resolve_binding(routes.active_preset_id, "correction-text", "quality")
-                self.assertFalse(routes.target_profile(group.target_ids[0]).native_search_tool)
-
-    def test_native_search_keeps_task_routes_and_run_override_precedence(self) -> None:
-        from finesub.llm.routing.model_routes import default_model_routes, install_runtime_preferred
-        from nonoka_x.worker import install_llm_model_override
-
-        self.addCleanup(install_runtime_preferred, {})
-        with tempfile.TemporaryDirectory() as temporary, patch.dict(
-            os.environ, {"FINESUB_ENV_PROTECT": "0"}, clear=False
-        ):
-            settings = FineSubSettings(temporary)
-            settings.bind_environment()
-            settings.update_keys({
-                "LLM_DEFAULT_PROVIDER": "local-codex",
-                "LLM_DEFAULT_MODEL": "gpt-6.1-sol",
-                "LLM_ROUTE_CORRECTION_PROVIDER": "local-agy",
-                "LLM_ROUTE_CORRECTION_MODEL": "gemini-3.7-flash",
-            })
-            request = {"correction": {"retrieval": "native", "difficulty": "efficiency"}}
-            for overrides, research_target in (
-                ({}, "local-codex-native-gpt-6_1-sol"),
-                ({"research": "local-codebuddy-glm-5_3-flash"}, "local-codebuddy-native-glm-5_3-flash"),
-            ):
-                install_llm_model_override({**request, "llm_model": overrides})
-                routes = default_model_routes()
-                for group_id, expected in (
-                    ("correction-text", "local-agy-native-gemini-3_7-flash"),
-                    ("research", research_target),
-                    # Knowledge work never searches: its pin stays the plain target.
-                    ("knowledge", "local-codex-completion-gpt-6_1-sol"),
-                ):
-                    group, _ = routes.resolve_binding(routes.active_preset_id, group_id, "efficiency")
-                    self.assertEqual(group.target_ids, (expected,))
 
     def test_local_agy_route_binds_the_packaged_agent_target(self) -> None:
         with tempfile.TemporaryDirectory() as temporary, patch.dict(
@@ -597,7 +576,7 @@ class FineSubSettingsTests(unittest.TestCase):
             snapshot = settings.update_keys(
                 {
                     "LLM_DEFAULT_PROVIDER": "local-agy",
-                    "LLM_DEFAULT_MODEL": "gemini-3.7-flash",
+                    "LLM_DEFAULT_MODEL": "gemini-3.8-flash",
                 }
             )
             agy = next(
@@ -608,14 +587,12 @@ class FineSubSettingsTests(unittest.TestCase):
             self.assertEqual(
                 [model["id"] for model in agy["models"]],
                 [
-                    "gemini-3.7-flash",
                     "gemini-3.8-flash",
-                    "gemini-3.6-flash",
                     "claude-sonnet-5-5",
                     "claude-opus-5-5",
                 ],
             )
-            self.assertEqual(agy["defaultModel"], "gemini-3.7-flash")
+            self.assertEqual(agy["defaultModel"], "gemini-3.8-flash")
             # The multimodal model is why agy leads with it; the snapshot has
             # to carry that through to the picker.
             self.assertTrue(agy["models"][0]["supportsAudio"])
@@ -624,7 +601,7 @@ class FineSubSettingsTests(unittest.TestCase):
             # The media target, not the search-entitled twin: a pinned target
             # is prepended to the bound group, so `retrieval=native` has to
             # stay free to fall through.
-            self.assertIn('default = "local-agy-media-gemini-3_7-flash"', config)
+            self.assertIn('default = "local-agy-gemini-3_8-flash"', config)
 
             from finesub.config import clear_config_cache
             from finesub.llm.routing.model_catalog import default_model_catalog
@@ -638,7 +615,7 @@ class FineSubSettingsTests(unittest.TestCase):
                 routes.active_preset_id, "correction-text", "quality"
             )
             self.assertEqual(
-                correction.target_ids, ("local-agy-media-gemini-3_7-flash",)
+                correction.target_ids, ("local-agy-gemini-3_8-flash",)
             )
 
     def test_local_agy_claude_route_binds_its_own_target(self) -> None:
@@ -768,7 +745,7 @@ class FineSubSettingsTests(unittest.TestCase):
                 "\n[llm.preferred_targets]\n"
                 'planning-mm = "local-agy-opus-4_6"\n'
                 'planning-text = "local-agy-opus-4_6"\n'
-                'search_judge = "local-codex-completion-gpt-6-astra"\n',
+                'search_judge = "local-codex-gpt-6-astra"\n',
                 encoding="utf-8",
             )
             settings = FineSubSettings(temporary)
@@ -795,7 +772,7 @@ class FineSubSettingsTests(unittest.TestCase):
             binding, _ = routes_table.resolve_binding(
                 routes_table.active_preset_id, "correction-text", "quality"
             )
-            self.assertEqual(binding.target_ids, ("local-codex-completion-gpt-6-luna",))
+            self.assertEqual(binding.target_ids, ("local-codex-gpt-6-luna",))
 
     def test_retired_route_names_are_not_settings(self) -> None:
         with tempfile.TemporaryDirectory() as temporary, patch.dict(
@@ -922,9 +899,11 @@ class FineSubSettingsTests(unittest.TestCase):
             self.assertTrue(provider["customEndpoint"])
             self.assertTrue(provider["keyConfigured"])
             self.assertEqual(provider["keyName"], "OPENAI_COMPAT_API_KEY")
-            catalog = (Path(temporary) / "model_catalog.psv").read_text(encoding="utf-8")
-            self.assertIn(
-                "openai_compat|https://vendor.example/v1|OPENAI_COMPAT_API_KEY", catalog
+            catalog = (Path(temporary) / "model_catalog.toml").read_text(encoding="utf-8")
+            row = _only_row(catalog)
+            self.assertEqual(
+                (row["provider_kind"], row["base_url"], row["key_env"]),
+                ("openai_compat", "https://vendor.example/v1", "OPENAI_COMPAT_API_KEY"),
             )
             # The official OpenAI address is untouched by the compat endpoint.
             official = next(
@@ -975,11 +954,11 @@ class FineSubSettingsTests(unittest.TestCase):
                     "LLM_DEFAULT_MODEL": "deepseek-v4-flash",
                 }
             )
-            catalog = (Path(temporary) / "model_catalog.psv").read_text(encoding="utf-8")
-            self.assertIn(
-                "|DeepSeek-V4-Flash|deepseek-v4-flash|1000000|384000|"
-                "false|false|false|max,high,low|1.15|70",
-                catalog,
+            catalog = (Path(temporary) / "model_catalog.toml").read_text(encoding="utf-8")
+            self.assertEqual(
+                _spec_fields(_only_row(catalog)),
+                ("DeepSeek-V4-Flash", "deepseek-v4-flash", 1000000, 384000,
+                 False, False, False, ["max", "high", "low"], 1.15, 70),
             )
 
             from finesub.config import clear_config_cache
@@ -1026,12 +1005,12 @@ class FineSubSettingsTests(unittest.TestCase):
                     "LLM_DEFAULT_MODEL": "claude-sonnet-5",
                 }
             )
-            catalog = (Path(temporary) / "model_catalog.psv").read_text(encoding="utf-8")
-            self.assertIn("|anthropic|https://relay.example|", catalog)
-            self.assertIn(
-                "|Claude Sonnet 5|claude-sonnet-5|1000000|65536|"
-                "false|false|false|true|1|77",
-                catalog,
+            catalog = (Path(temporary) / "model_catalog.toml").read_text(encoding="utf-8")
+            row = _only_row(catalog)
+            self.assertEqual((row["provider_kind"], row["base_url"]), ("anthropic", "https://relay.example"))
+            self.assertEqual(
+                _spec_fields(row),
+                ("Claude Sonnet 5", "claude-sonnet-5", 1000000, 65536, False, False, False, True, 1, 77),
             )
 
             from finesub.config import clear_config_cache
@@ -1064,16 +1043,39 @@ class FineSubSettingsTests(unittest.TestCase):
                     "LLM_DEFAULT_MODEL": "deepseek-v4-pro",
                 }
             )
-            catalog = Path(temporary) / "model_catalog.psv"
+            catalog = Path(temporary) / "model_catalog.toml"
             catalog.write_text(
-                catalog.read_text(encoding="utf-8").replace("1000000|384000", "128000|16384"),
+                catalog.read_text(encoding="utf-8").replace("max_output_tokens = 384000", "max_output_tokens = 16384"),
                 encoding="utf-8",
             )
 
             restarted = FineSubSettings(temporary)
             restarted.bind_environment()
             restarted.refresh_model_catalog()
-            self.assertIn("|1000000|384000|", catalog.read_text(encoding="utf-8"))
+            self.assertIn("max_output_tokens = 384000", catalog.read_text(encoding="utf-8"))
+
+    def test_a_catalog_in_the_retired_format_is_removed_at_startup(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            legacy = Path(temporary) / "model_catalog.psv"
+            legacy.write_text("fact_id|provider_tier\n", encoding="utf-8")
+            with patch.dict(os.environ, {}, clear=False):
+                FineSubSettings(temporary).bind_environment()
+                self.assertEqual(os.environ["FINESUB_MODEL_CATALOG"], str(Path(temporary).resolve() / "model_catalog.toml"))
+            self.assertFalse(legacy.exists())
+
+    def test_a_correction_on_nonoka_cloud_is_not_proofread(self) -> None:
+        from finesub.llm.routing.model_routes import install_runtime_preferred
+
+        self.addCleanup(install_runtime_preferred, {})
+        with tempfile.TemporaryDirectory() as temporary, patch.dict(
+            os.environ, {"FINESUB_ENV_PROTECT": "0"}, clear=False
+        ):
+            settings = FineSubSettings(temporary)
+            settings.bind_environment()
+            self.assertEqual(correction_proofread({"difficulty": "quality"}), "auto")
+            settings.set_cloud_account("https://cloud.example", "cloud-secret")
+            settings.update_keys({"LLM_DEFAULT_PROVIDER": "nonoka-cloud", "LLM_DEFAULT_MODEL": "gpt-6.1-terra"})
+            self.assertEqual(correction_proofread({"difficulty": "quality"}), "off")
 
     def test_unknown_model_row_clears_the_engines_refusal_line(self) -> None:
         with tempfile.TemporaryDirectory() as temporary, patch.dict(
@@ -1089,7 +1091,7 @@ class FineSubSettingsTests(unittest.TestCase):
                     "LLM_DEFAULT_MODEL": "vendor-large",
                 }
             )
-            catalog = (Path(temporary) / "model_catalog.psv").read_text(encoding="utf-8")
+            catalog = (Path(temporary) / "model_catalog.toml").read_text(encoding="utf-8")
             # No display name to borrow, and no reasoning parameter: an endpoint
             # nobody has declared may 400 on a field it does not know. The two
             # window figures sit at FineSub 0.5.0's warning line rather than
@@ -1097,9 +1099,9 @@ class FineSubSettingsTests(unittest.TestCase):
             # declares `max_output < 32,000`, and the old 16,384 placeholder
             # would have stopped every task pinned to an endpoint this table
             # does not recognise.
-            self.assertIn(
-                "|vendor-large|vendor-large|194000|64000|false|false|false|false|1|70",
-                catalog,
+            self.assertEqual(
+                _spec_fields(_only_row(catalog)),
+                ("vendor-large", "vendor-large", 194000, 64000, False, False, False, False, 1, 70),
             )
             from finesub.llm.routing.capabilities import (
                 WINDOW_REFUSE_INPUT,

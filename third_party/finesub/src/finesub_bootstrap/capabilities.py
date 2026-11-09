@@ -52,8 +52,9 @@ def preferred_capabilities(*, stage: str = "raw-srt") -> tuple[str, ...]:
     task on that list, and everything here has a working fallback in the
     pipeline. Gating on an optimisation turns a slower run into no run at all.
 
-    `tokcount` is the local tokenizer binary. The LLM layer estimates token
-    counts without it, so the run still works, on slightly larger budgets.
+    `tokcount` is the local tokenizer binary. The LLM layer counts tokens
+    through the free `countTokens` endpoint without it, so the run still works
+    -- it just needs the network and a key to plan, even for a dry run.
     """
 
     return ("tokcount",) if stage in LLM_STAGES else ()
@@ -70,7 +71,6 @@ def _run_properties(arguments: Sequence[str]) -> dict[str, str]:
     knowledge = "none"
     source = ""
     stage = ""
-    correct_translate = False
     for index, argument in enumerate(arguments):
         if argument == "--knowledge" and index + 1 < len(arguments):
             knowledge = arguments[index + 1]
@@ -80,18 +80,10 @@ def _run_properties(arguments: Sequence[str]) -> dict[str, str]:
             stage = arguments[index + 1]
         elif argument.startswith("--stage="):
             stage = argument.split("=", 1)[1]
-        elif argument == "--llm-correct-translate":
-            correct_translate = True
         elif is_url(argument) and not source:
             source = argument
-    # `pipeline.main`: `args.stage or ("final-srt" if correct_translate else
-    # "raw-srt")`. An explicit stage always wins, whichever order they were
-    # typed in -- reading them as one value in argument order made
-    # `--stage raw-srt --llm-correct-translate` look like an LLM run to
-    # everything here while the pipeline stopped at the transcript.
-    if not stage:
-        stage = "final-srt" if correct_translate else "raw-srt"
-    return {"knowledge": knowledge, "source": source, "stage": stage}
+    # `pipeline.main`: `args.stage or "raw-srt"`.
+    return {"knowledge": knowledge, "source": source, "stage": stage or "raw-srt"}
 
 
 def capabilities_from_arguments(arguments: Sequence[str]) -> tuple[str, ...]:
