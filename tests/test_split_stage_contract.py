@@ -183,17 +183,14 @@ class PurelyAdditiveTests(unittest.TestCase):
             TAIL_PATCH: [
                 "src/finesub/speech/recognition/vad_asr_stage.py",
             ],
-            # Toolchain compatibility on Windows MSVC with C11: Triton's
-            # launcher generator uses empty struct initializers `{}`.
-            "0003-triton-msvc-c11-empty-struct.patch": [
-                "src/finesub/speech/preprocessing/separator/separator_aoti.py",
-            ],
-            # Build reachability, not transcription: upstream's toolchain
-            # probe is deliberately Windows-shaped, and the cloud's Linux
-            # containers need it to answer for a POSIX compiler before the
-            # accelerated separator can be compiled at all. What it decides
-            # is whether AOTI compiles, never what the separator outputs.
-            "0004-aoti-posix-compiler.patch": [
+            # Build reachability, not transcription: Triton's launcher
+            # generator uses empty struct initializers `{}` that MSVC rejects
+            # under C11, and upstream's toolchain probe is deliberately
+            # Windows-shaped, while the cloud's Linux containers need it to
+            # answer for a POSIX compiler before the accelerated separator can
+            # be compiled at all. What it decides is whether AOTI compiles,
+            # never what the separator outputs.
+            "0003-aoti-toolchain-portability.patch": [
                 "src/finesub/speech/preprocessing/separator/separator_aoti.py",
             ],
             # Additive and opt-in: user-picked knowledge subjects pinned into

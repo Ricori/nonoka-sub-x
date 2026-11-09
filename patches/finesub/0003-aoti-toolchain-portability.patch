@@ -1,0 +1,145 @@
+Subject: [PATCH 3/14] Let AOTInductor compile under MSVC /std:c11 and off Windows
+
+Reason: Upstream's AOTI builder only ever ran on one toolchain, and Nonoka X
+needs it to compile on two more shapes of it. Both halves decide whether AOTI
+compiles, never what the separator outputs.
+
+MSVC /std:c11: On Windows, Triton generates launch stubs with empty struct
+initializers `CUlaunchAttribute clusterAttr = {};`. Standard C11 forbids empty
+struct initializers, causing error C2059: syntax error: '}'. Additionally,
+Windows SDK winbase.h causes warning C5105 under /std:c11. This monkey-patches
+Triton's launcher generator and build command to replace `{}` with `{0}` and add
+`/wd5105` before `/link`.
+
+POSIX: `build_packages` calls `_activate_msvc()` unconditionally and
+`cxx_toolchain_available()` mirrors it, both looking only for `cl.exe` or
+vcvars, because Windows is the only platform upstream runs the AOTI path on.
+Nonoka X runs it on Linux too: the cloud Vocal worker's `vocal_accel` module is
+exactly the installer FineSub does not provide, and `vocal_accel_image`
+assembles the CUDA headers Inductor needs under CUDA_HOME for that purpose.
+Without a POSIX branch every Linux build raised `AOTInductor on Windows requires
+MSVC (cl.exe)`; `vocal_accel.install` catches it and degrades to eager, so every
+cloud task >= 270 s silently ran unaccelerated and no package was ever written
+to the models Volume for a later task to load. Measured on a T4
+(`testing/throughput_probe.py`, 2026-09-04).
+
+This adds `_posix_cxx_driver()` and routes both the activation and the
+availability check through it off Windows. Windows behaviour is untouched --
+`_patch_triton_windows_driver` and the vcvars activation still run there, and
+only there.
+
+Removal: Drop `_patch_triton_windows_driver` once upstream Triton replaces empty
+struct initializers with `{0}` under C11 or upstream FineSub incorporates the
+fix. Drop `_posix_cxx_driver` and its two branches once upstream FineSub supports
+the AOTI path on POSIX. Delete the patch when both halves are gone.
+
+diff --git a/src/finesub/speech/preprocessing/separator/separator_aoti.py b/src/finesub/speech/preprocessing/separator/separator_aoti.py
+index a13240f..d5ad5cf 100644
+--- a/src/finesub/speech/preprocessing/separator/separator_aoti.py
++++ b/src/finesub/speech/preprocessing/separator/separator_aoti.py
+@@ -138,6 +138,22 @@ def _msvc_include_ready() -> bool:
+     )
+ 
+ 
++def _posix_cxx_driver() -> str | None:
++    """The C++ driver Inductor will invoke on a non-Windows host, if any.
++
++    Inductor compiles the AOTI wrapper by shelling out to the platform C++
++    driver and asking Torch for its include paths; on POSIX there is no vcvars
++    to source and nothing to activate, so finding the driver *is* the whole
++    toolchain check.
++    """
++
++    for name in ("g++", "c++", "clang++"):
++        found = shutil.which(name)
++        if found is not None:
++            return found
++    return None
++
++
+ def cxx_toolchain_available() -> bool:
+     """Whether :func:`build_packages` would find a compiler, without side effects.
+ 
+@@ -146,18 +162,78 @@ def cxx_toolchain_available() -> bool:
+     then land on eager, on exactly the run where the JIT tier was available.
+ 
+     Deliberately mirrors what ``_activate_msvc`` checks, so the two cannot
+-    disagree -- including that it is Windows-shaped, which is the only platform
+-    the AOTI path has been run on. ``cl.exe`` alone does not count: only the
+-    pair of it and a reachable ``INCLUDE`` is a toolchain, and vcvars is
+-    trusted on its own because activating it is what sets ``INCLUDE`` up.
++    disagree -- including its split by platform. On Windows ``cl.exe`` alone
++    does not count: only the pair of it and a reachable ``INCLUDE`` is a
++    toolchain, and vcvars is trusted on its own because activating it is what
++    sets ``INCLUDE`` up. Everywhere else the question is only whether a C++
++    driver is on PATH.
+     """
+ 
++    if os.name != "nt":
++        return _posix_cxx_driver() is not None
+     return (
+         shutil.which("cl.exe") is not None and _msvc_include_ready()
+     ) or _find_vcvars() is not None
+ 
+ 
++def _patch_triton_windows_driver() -> None:
++    """Fix Triton's invalid empty struct initializers `{}` under MSVC `/std:c11`."""
++    try:
++        import triton.backends.nvidia.driver as nv_driver
++
++        if hasattr(nv_driver, "make_launcher"):
++            orig_make = nv_driver.make_launcher
++
++            def patched_make(*args: Any, **kwargs: Any) -> str:
++                src = orig_make(*args, **kwargs)
++                return src.replace(
++                    "CUlaunchAttribute clusterAttr = {};",
++                    "CUlaunchAttribute clusterAttr = {0};",
++                ).replace(
++                    "CUlaunchAttribute clusterSchedulingAttr = {};",
++                    "CUlaunchAttribute clusterSchedulingAttr = {0};",
++                )
++
++            nv_driver.make_launcher = patched_make
++    except Exception:
++        pass
++    try:
++        import triton.runtime.build as triton_build
++
++        if hasattr(triton_build, "_cc_cmd"):
++            orig_cc_cmd = triton_build._cc_cmd
++
++            def patched_cc_cmd(*args: Any, **kwargs: Any) -> list[str]:
++                cmd = orig_cc_cmd(*args, **kwargs)
++                if os.name == "nt":
++                    if "/link" in cmd:
++                        link_idx = cmd.index("/link")
++                        if "/wd5105" not in cmd:
++                            cmd.insert(link_idx, "/wd5105")
++                    elif "/wd5105" not in cmd:
++                        cmd.append("/wd5105")
++                return cmd
++
++            triton_build._cc_cmd = patched_cc_cmd
++    except Exception:
++        pass
++
++
+ def _activate_msvc() -> str:
++    if os.name != "nt":
++        # Nothing to activate off Windows: Inductor drives the platform C++
++        # compiler directly, and the CUDA headers it asks Torch for are resolved
++        # under CUDA_HOME by the caller's image. Raising here instead is what
++        # made every Linux build attempt fail with a message about MSVC --
++        # including the cloud Vocal worker's, which then degraded to eager on
++        # every task without anything upstream of it noticing.
++        compiler = _posix_cxx_driver()
++        if compiler is None:
++            raise RuntimeError(
++                "AOTInductor requires a C++ compiler on PATH (g++, c++ or clang++)"
++            )
++        return compiler
++    _patch_triton_windows_driver()
+     existing = shutil.which("cl.exe")
+     if existing is not None and _msvc_include_ready():
+         return existing

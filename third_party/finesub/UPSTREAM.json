@@ -15,12 +15,8 @@
       "sha256": "f231b5c9f28b99e693610337aa04f3334098acd62b3d93c57a7aac536052df8d"
     },
     {
-      "path": "0003-triton-msvc-c11-empty-struct.patch",
-      "sha256": "9b95c1089f270af4c9ee77aead5a1cf8cc571ec19fa251397b2dc3eb6dd3ce9d"
-    },
-    {
-      "path": "0004-aoti-posix-compiler.patch",
-      "sha256": "88f7d7463d510d375cb7d2e1898e4aa14fce98527555f4654b3b9f182de41e1e"
+      "path": "0003-aoti-toolchain-portability.patch",
+      "sha256": "2b786f47fa563291e4baba6d66b594c3aac4323bcd7f38720f44f31afa1f9b13"
     },
     {
       "path": "0005-remove-managed-git.patch",
