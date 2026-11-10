@@ -21,7 +21,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  WAILS_VERSION: v3.0.0-beta.12
+  WAILS_VERSION: v3.1.0
   NODE_VERSION: "24"
 
 jobs:
