@@ -40,7 +40,6 @@ TRANSITIONAL: dict[tuple[str, str], str] = {
     ("provision.py", "import:finesub_bootstrap"): "WP-R3",
     ("provision.py", "env:FINESUB_"): "WP-R5",
     ("local_provider.py", "env:FINESUB_"): "WP-R5",
-    ("axis.py", "import:finesub"): "WP4b",
     ("worker.py", "import:finesub"): "WP-P1",  # WP4c removes finesub.stages first
     ("worker.py", "env:FINESUB_"): "WP-P1",
     ("settings.py", "import:finesub"): "WP-P1",

@@ -83,17 +83,29 @@ class CorrectionJob:
     source: Path
     target: str
     task_dir: Path
-    #: `TaskRequest.correction` as the provider normalized it.
+    #: `TaskRequest.correction` as the caller prepared it for the engine: the
+    #: provider's normalized block, with `extra_info` already composed with the
+    #: picked knowledge subjects, and `fast` and `proofread` already resolved
+    #: to the values the engine takes (the caller owns those two decisions).
     options: Mapping[str, Any] = field(default_factory=dict)
-    #: `knowledge` and `knowledge_subjects` from the request.
+    #: `knowledge` (the mode) and `knowledge_subjects` -- the subjects to pin,
+    #: as the names the engine takes, resolved by the caller (empty: none).
     knowledge: Mapping[str, Any] = field(default_factory=dict)
     diarization_level: str = "off"
+    #: Names the task's subtitle files (`<title>.srt`); empty: the source's stem.
+    title: str = ""
+    task_id: str = ""
+    #: What the post-correction knowledge update is told the task was.
+    task_summary: str = ""
 
     def __post_init__(self) -> None:
         if not isinstance(self.transcription, TranscriptionResult):
             raise ContractError("job.transcription must be a TranscriptionResult")
         if self.target not in CORRECTION_TARGETS:
             raise ContractError(f"job.target must be one of {', '.join(CORRECTION_TARGETS)}, got {self.target!r}")
+        for name in ("title", "task_id", "task_summary"):
+            if not isinstance(getattr(self, name), str):
+                raise ContractError(f"job.{name} must be a string")
         object.__setattr__(self, "source", Path(self.source))
         object.__setattr__(self, "task_dir", Path(self.task_dir))
         object.__setattr__(self, "options", _frozen(self.options))
@@ -108,6 +120,9 @@ class CorrectionJob:
             "options": _plain(self.options),
             "knowledge": _plain(self.knowledge),
             "diarization_level": self.diarization_level,
+            "title": self.title,
+            "task_id": self.task_id,
+            "task_summary": self.task_summary,
         }
 
     @classmethod
@@ -120,6 +135,9 @@ class CorrectionJob:
             options=data.get("options") or {},
             knowledge=data.get("knowledge") or {},
             diarization_level=str(data.get("diarization_level") or "off"),
+            title=str(data.get("title") or ""),
+            task_id=str(data.get("task_id") or ""),
+            task_summary=str(data.get("task_summary") or ""),
         )
 
 
