@@ -1300,24 +1300,6 @@
         ]
       },
       {
-        "name": "onnx",
-        "sdist": {
-          "file": "onnx-1.23.2.tar.gz",
-          "sha256": "008cb0467b2bbee41448acc7da8b6f4e704624cb0d327a2d5adafc7ce19bc5b8",
-          "size": 6023090,
-          "url": "https://pypi.tuna.tsinghua.edu.cn/packages/3f/62/bc2dfadb63ecf04cb2d65a6b17751863039d36c65de51d6a3128ab35f1e7/onnx-1.23.2.tar.gz"
-        },
-        "version": "1.23.2",
-        "wheels": [
-          {
-            "file": "onnx-1.23.2-cp312-abi3-win_amd64.whl",
-            "sha256": "9b382ba898a7c142a0801d03cf04ecabced96c1543c7b643a86f0928143802de",
-            "size": 7872489,
-            "url": "https://pypi.tuna.tsinghua.edu.cn/packages/38/ce/102fd4a0b2a6d111a9c86745e084c4c68c0ee020eaa359a03a8d43e4646f/onnx-1.23.2-cp312-abi3-win_amd64.whl"
-          }
-        ]
-      },
-      {
         "name": "onnx-weekly",
         "sdist": {
           "file": "onnx_weekly-1.23.0.dev20260805.tar.gz",
@@ -3056,24 +3038,6 @@
             "sha256": "d8e8286dd7cea7895157318d1b91cdacac64c479f3cbc8dce548331728484751",
             "size": 12321687,
             "url": "https://files.pythonhosted.org/packages/ab/ca/feab00bd44aa5fe1ad2c18f08b4d3bb92e26484b0b1d1443897809ed528c/numpy-2.4.6-cp312-cp312-win_amd64.whl"
-          }
-        ]
-      },
-      {
-        "name": "onnx",
-        "sdist": {
-          "file": "onnx-1.23.2.tar.gz",
-          "sha256": "008cb0467b2bbee41448acc7da8b6f4e704624cb0d327a2d5adafc7ce19bc5b8",
-          "size": 6023090,
-          "url": "https://files.pythonhosted.org/packages/3f/62/bc2dfadb63ecf04cb2d65a6b17751863039d36c65de51d6a3128ab35f1e7/onnx-1.23.2.tar.gz"
-        },
-        "version": "1.23.2",
-        "wheels": [
-          {
-            "file": "onnx-1.23.2-cp312-abi3-win_amd64.whl",
-            "sha256": "9b382ba898a7c142a0801d03cf04ecabced96c1543c7b643a86f0928143802de",
-            "size": 7872489,
-            "url": "https://files.pythonhosted.org/packages/38/ce/102fd4a0b2a6d111a9c86745e084c4c68c0ee020eaa359a03a8d43e4646f/onnx-1.23.2-cp312-abi3-win_amd64.whl"
           }
         ]
       },
