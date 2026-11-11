@@ -178,6 +178,8 @@ def _worker_launch(run_dir: Path) -> tuple[list[str], dict[str, str], Path, list
 
     from .hygiene import scrubbed_environment
 
+    # Read before the scrub, which removes NONOKA_QUALITY_* along with the rest.
+    override = python_override()
     saved = dict(os.environ)
     clean, removed = scrubbed_environment()
     os.environ.clear()
@@ -195,7 +197,6 @@ def _worker_launch(run_dir: Path) -> tuple[list[str], dict[str, str], Path, list
         environment = provider._engine_environment()
         task_dir = run_dir / "tasks" / "gate-real"
         command = provider._default_worker_command("gate-real", task_dir)
-        override = python_override()
         if override is not None:
             command[0] = str(override)
     finally:
