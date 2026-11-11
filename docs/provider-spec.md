@@ -141,6 +141,40 @@ interface ExecutionProvider {
 
 > **分档互不继承**：`raw-srt` 是识别档（平台、ASR 运行时、模型）；`harness` 是从 stable.json 往后所需的一切（FFmpeg 与 FineSub `[harness]` 依赖，不含 torch）；`final-srt` 是 `harness` 加上已配置的模型。本地 Provider 从媒体跑 LLM 目标时要同时过 `raw-srt` 与 `final-srt`，从 `cloud_stable` 续跑时只看 `harness`（`raw-srt` 目标）或 `final-srt`。
 
+#### 4.1.1 转写引擎与纠错引擎（`transcription_engines`、`correction_engines`）
+
+> 转写引擎重构（`docs/transcription-engines-plan.md` 第 5.3 节）新增的两个字段；类型定义在 `nonoka_x.transcription`、`nonoka_x.correction`。尚未接入的 Provider 可以不提供，宿主此时视为只有默认的 `finesub` 一项。
+
+```jsonc
+"transcription_engines": [
+  {
+    "id": "mai2",                  // 引擎 ID：小写字母、数字与 -
+    "label": "MAI-Transcribe-2",
+    "kind": "cloud-api",           // local-gpu | cloud-api | cloud-service
+    "provider": "local",           // 由 kind 推出：cloud-service → cloud，其余 → local
+    "ready": false,
+    "issues": [{ "code": "missing_key", "message": "…" }],
+    "features": {
+      "speakers": true,            // 能区分说话人
+      "word_timestamps": true,     // 给出词级时间
+      "separate": false,           // 支持 separate（人声分离）
+      "diarization_levels": ["off", "acoustics", "judge-text", "judge-audio"],
+      "languages": []              // 支持的语言码；空数组表示不限
+    },
+    "billing": "按音频时长计费，约 $0.10/小时"   // 一句计费说明；不计费时为空字符串
+  }
+],
+"correction_engines": [{ "id": "finesub", "ready": true, "issues": [] }]
+```
+
+| 字段 | 说明 |
+| :--- | :--- |
+| `kind` | `local-gpu`：在本机用托管运行时跑；`cloud-api`：在本机跑、调用第三方 API（音频会离开本机）；`cloud-service`：不在本机跑，任务交给云端 Provider（Nonoka Cloud 的 FineSub，ID 为 `finesub-cloud`） |
+| `provider` | 选中该引擎时任务请求的 `provider`；与 `kind` 矛盾的条目无效 |
+| `ready` / `issues` | 与 `runtime` 同义：`ready=false` 时 `issues` 不得为空，`ready=true` 时必须为空 |
+
+`runtime.stages` 里 `raw-srt` 的就绪改为按所选转写引擎判断：云 API 引擎只要 FFmpeg 和它自己的密钥，不要求 ASR 运行时与模型。
+
 ### 4.2 TaskRequest
 
 ```jsonc
@@ -196,6 +230,8 @@ interface ExecutionProvider {
 | `knowledge_subjects` | `[{id?, kind, subject, aliases, description}]` | `knowledge=update` 的新任务至少一项 | 用户手动选择的知识主体，最多 8 个，读取与写回共用。每项的 `kind` 为 `streamer`、`work` 或 `topic`，`subject` 是必填的官方/源语言名称，`aliases` 与 `description` 用于消歧。带 `id` 的是知识库里已有的主体；不带 `id` 的是新建主体，仅 `knowledge=update` 允许，Local Provider 会在任务开始前幂等建好词条。所选主体的词条常驻每个纠错窗口（引擎补丁 `0006`），`update` 时也固定为知识更新的写回目标。`read` 可不选，此时由模型按内容挑选条目；`none` 时忽略。旧版请求的单个 `knowledge_context` 在 `update` 下按一项列表处理，两个字段都没有的已排队请求仍可重试 |
 | `llm_model` | `string` \| `{任务组: string}` | — | 本次运行的模型覆盖，等价于引擎的 `--llm-model`。字符串钉住所有任务组，对象只钉它点名的那些。值是模型组或路由 target；名字由引擎的路由加载器校验。⚠ 钉住即**替换整条链**——钉住的模型做不了的调用会直接失败，后面不再挂任何兜底 |
 | `diarization` | `{level, max_speakers?}` | — | 说话人分离，需 `features.diarization=true`；缺省或 `level=off` 即不分离。`level` 为 `acoustics`（按声音区分）、`judge-text` / `judge-audio`（再由 LLM 在纠错阶段按窗口复核，实验）。裁判只在 `final-srt` 下运行，其余目标降为 `acoustics`；云端的纠错只读文本，`judge-audio` 降为 `judge-text`。有日文轴时拒绝（不跑识别）。`max_speakers` 为 1–32，上游建议不设。结果写在 `stable_json` 的 `speaker` 与 `annotated_csv` 的 `spk` 列里，只决定每行放进哪条说话人轨，不改变字幕文本与时间；`-diar.json`（说话人时间线）留作复用，删掉才会重算 |
+| `transcription` | `{engine, options?}` | — | 转写引擎选择。`engine` 是 `Capabilities.transcription_engines` 里的 ID，缺省（或整个字段缺省）视为 `finesub`；`options` 是交给该引擎的选项对象，缺省为 `{}`。旧请求和已落盘的任务不用迁移。引擎记在请求里，重试与续跑沿用原引擎 |
+| `correction.engine` | 纠错引擎 ID | — | 缺省为 `finesub`；界面不提供选择 |
 | `cleanup_intermediate` | `boolean` | — | 完成后是否清理中间产物 |
 | `axis` | `Axis` | — | 用户导入的已有产物；见 4.2.2。只在 `kind="ja"` 时出现，其余轴型不进任务请求 |
 
