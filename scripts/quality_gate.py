@@ -24,12 +24,14 @@ Checks (docs/transcription-engines-plan.md, section 0 and WP-Q):
                     managed runtime, against test_data/quality-baseline/real/
 6. cloud samples    (--cloud) the samples rerun to stable by the unchanged
                     Modal compute legs (nonoka-sub-cloud/modal_compute, one L4
-                    per GPU leg), against test_data/quality-baseline/cloud/
+                    per GPU leg), against test_data/quality-baseline/cloud/ by
+                    structure and statistics, not bytes (plan section 0.1, rule 3)
 
 Exit status: 0 every check passed; 1 a check failed; 2 nothing failed, but
 something was left undecided -- a replay case whose inputs are missing here,
-or an artifact `--real`/`--cloud` cannot judge by bytes (see the report). That
-is a decision for the owner, not a pass.
+an artifact `--real` cannot judge by bytes, or a `--cloud` statistic whose
+threshold the owner has not approved yet (see the report). That is a decision
+for the owner, not a pass.
 
 `--record PART` rewrites a baseline from the current code. Doing that to make
 the gate pass is exactly what the gate exists to prevent: only with the
@@ -44,6 +46,7 @@ import shutil
 import sys
 import tempfile
 import time
+from dataclasses import asdict
 from pathlib import Path
 from typing import Any, Callable
 
@@ -270,8 +273,8 @@ def _judge_sample(name: str, comparison: dict[str, Any], baseline_comparison: di
 
     An artifact the baseline's two runs reproduced byte for byte must match
     byte for byte; one they did not is judged by its accepted standard (plan
-    section 0, rule 3), or left undecided when it has none. Shared by `--real`
-    and `--cloud`.
+    section 0, rule 3), or left undecided when it has none. Used by `--real`;
+    `--cloud` judges structure and statistics instead (`cloud.judge`).
     """
 
     by_bytes = by_standard = 0
@@ -365,7 +368,14 @@ def check_real(args: argparse.Namespace) -> Result:
 
 
 def check_cloud(args: argparse.Namespace) -> Result:
-    from tests.quality_harness import cloud, real
+    """Structure and statistics against the baseline's `run-1` (plan section 0.1, rule 3).
+
+    Not bytes: the cloud does not reproduce itself (plan 2.10). A structural
+    problem fails; a statistic fails over its threshold and is undecided while
+    its threshold is not approved (`cloud.THRESHOLDS`).
+    """
+
+    from tests.quality_harness import cloud
 
     result = Result(f"cloud samples (stable, Modal {cloud.GPU})")
     if not args.cloud:
@@ -389,7 +399,7 @@ def check_cloud(args: argparse.Namespace) -> Result:
     recorded = json.loads(report_path.read_text(encoding="utf-8"))
     scratch = Path(tempfile.mkdtemp(prefix="nonoka-quality-cloud-"))
     failures, undecided, lines = [], [], []
-    by_bytes = by_standard = 0
+    lines.append(f"thresholds: {json.dumps(asdict(cloud.THRESHOLDS))}")
     try:
         outcome = cloud.check(scratch)
         if "skipped" in outcome:
@@ -408,10 +418,13 @@ def check_cloud(args: argparse.Namespace) -> Result:
             # explains a difference, it does not excuse one.
             for note in cloud.environment_changes(recorded["samples"][name]["runs"][0], sample["run"]):
                 lines.append(f"  note      {name}: {note}")
-            counts = _judge_sample(name, sample["comparison"], recorded["samples"][name]["comparison"],
-                                   real.ACCEPTED_STANDARDS, lines, failures, undecided)
-            by_bytes += counts[0]
-            by_standard += counts[1]
+            separations = sample["run"].get("separations") or []
+            lines.append(f"  note      {name}: separator accelerator {[entry.get('accel') for entry in separations]}")
+            verdict = cloud.judge(sample["statistics"]["comparison"])
+            failures += [f"{name}: {failure}" for failure in verdict["failures"]]
+            undecided += [f"{name}: {statistic}" for statistic in verdict["undecided"]]
+            lines += [f"  {line.split(' ', 1)[0]:<9} {name}: {line.split(' ', 1)[1].lstrip()}"
+                      for line in verdict["lines"]]
     finally:
         if not args.keep:
             shutil.rmtree(scratch, ignore_errors=True)
@@ -419,14 +432,14 @@ def check_cloud(args: argparse.Namespace) -> Result:
             lines.append(f"runs kept in {scratch}")
     result.details = lines
     if failures:
-        result.status, result.summary = FAIL, f"{len(failures)} reproducible artifact(s) or run(s) changed"
+        result.status, result.summary = FAIL, f"{len(failures)} structural problem(s), statistic(s) or run(s) failed"
     elif undecided:
         result.status = UNDECIDED
-        result.summary = (f"every reproducible artifact matches; {len(undecided)} artifact(s) cannot be judged "
-                          "by bytes (owner decision, see test_data/quality-baseline/cloud/report.json)")
+        result.summary = (f"structure matches; {len(undecided)} statistic(s) have no approved threshold yet "
+                          "(plan section 0.1 rule 3, appendix C item 3)")
     else:
-        result.summary = (f"every artifact matches: {by_bytes} byte for byte, {by_standard} by the accepted "
-                          "standards (plan section 0, rule 3)")
+        result.summary = ("structure matches and every statistic is within its approved threshold "
+                          "(plan section 0.1, rule 3)")
     return result
 
 

@@ -34,11 +34,21 @@ directory is removed before and after every run.
 
 Two halves live in this file:
 
-- the gate half (any Python, standard library only): `issues`, `record`,
-  `check`, `compare_runs`. It starts the runner below with the cloud
-  checkout's own interpreter (`modal_compute/.venv`), from `modal_compute/`,
-  because the images resolve their `add_local_dir` paths from there;
+- the gate half (any Python, standard library only, plus the locked engine's
+  own stdlib-only readers): `issues`, `record`, `check`, `compare_runs`,
+  `run_statistics`, `compare_statistics`, `judge`. It starts the runner below
+  with the cloud checkout's own interpreter (`modal_compute/.venv`), from
+  `modal_compute/`, because the images resolve their `add_local_dir` paths
+  from there;
 - the Modal half, defined only in that runner and in the containers it starts.
+
+How a cloud run is judged (plan section 0.1, rule 3; owner 2026-11-11): not by
+bytes. A Vocal container picks AOTI or eager from the first input it sees
+(plan 2.10), so the cloud cannot reproduce itself run to run, and the gate
+compares structure and statistics instead: the same artifacts, each one
+readable the way the desktop reads it, and the segment count, the text, the
+speaker count and the covered time within `THRESHOLDS` of the baseline.
+`compare_runs` (bytes) is still written into the report, as information.
 
 Layout under `test_data/quality-baseline/cloud/` (never committed):
 
@@ -51,6 +61,7 @@ Layout under `test_data/quality-baseline/cloud/` (never committed):
 from __future__ import annotations
 
 import argparse
+import bisect
 import hashlib
 import json
 import os
@@ -59,6 +70,8 @@ import subprocess
 import sys
 import tempfile
 import time
+import zipfile
+from dataclasses import dataclass, fields
 from pathlib import Path
 from typing import Any
 
@@ -644,6 +657,373 @@ def compare_runs(first: Path, second: Path) -> dict[str, Any]:
     return result
 
 
+# --- structure and statistics (plan section 0.1, rule 3) ---------------------------
+
+
+#: What a desktop continuation receives from a cloud task: the key the scheduler
+#: hands back under (`summary.json` `handed_back`), and the engine file name the
+#: desktop seeds it as (`nonoka_x.worker.seed_cloud_stable`).
+HANDED_BACK = {"stable_json": "subtitle-stable.json", "diar_json": "subtitle-diar.json"}
+
+
+@dataclass(frozen=True)
+class Thresholds:
+    """How far a cloud run's statistics may sit from the baseline's.
+
+    `None` means "not approved yet": the statistic is measured and reported,
+    and the gate leaves it undecided (exit 2) instead of passing it. The values
+    are the owner's to approve after WP-C has measured the natural spread on
+    unchanged code (plan section 0.1 rule 3, appendix B questions 5 and 11),
+    and are never widened to let a run through (section 0, rule 6).
+    """
+
+    #: |lines - baseline lines| / baseline lines, in `-stable.json`.
+    segment_count_ratio: float | None = None
+    #: The edit distance between each baseline line and the run's words timed
+    #: into it, summed over the lines, over the baseline's characters.
+    text_distance_ratio: float | None = None
+    #: |speakers - baseline speakers|, in `-diar.json` (samples with `acoustics`).
+    speaker_count_delta: int | None = None
+    #: |covered - baseline covered|, each the share of the audio the stable's
+    #: lines span.
+    coverage_delta: float | None = None
+
+
+#: Not approved yet: every statistic is reported, none is judged.
+THRESHOLDS = Thresholds()
+
+
+def edit_distance(a: str, b: str) -> int:
+    """Levenshtein distance between two strings, by code point."""
+
+    if a == b:
+        return 0
+    start = 0
+    while start < len(a) and start < len(b) and a[start] == b[start]:
+        start += 1
+    end_a, end_b = len(a), len(b)
+    while end_a > start and end_b > start and a[end_a - 1] == b[end_b - 1]:
+        end_a, end_b = end_a - 1, end_b - 1
+    a, b = a[start:end_a], b[start:end_b]
+    if len(a) < len(b):
+        a, b = b, a
+    if not b:
+        return len(a)
+    previous = list(range(len(b) + 1))
+    for i, char_a in enumerate(a, 1):
+        current = [i]
+        for j, char_b in enumerate(b, 1):
+            current.append(min(previous[j] + 1, current[j - 1] + 1, previous[j - 1] + (char_a != char_b)))
+        previous = current
+    return previous[-1]
+
+
+def _format_problems(path: Path) -> list[str]:
+    """Why one captured artifact is not a well-formed file of its kind; empty when it is."""
+
+    try:
+        if path.suffix == ".json":
+            json.loads(path.read_text(encoding="utf-8"))
+        elif path.suffix == ".npz":
+            if not zipfile.is_zipfile(path):
+                return [f"{path.name}: not a zip archive"]
+            with zipfile.ZipFile(path) as archive:
+                members = archive.namelist()
+                if not members:
+                    return [f"{path.name}: no arrays"]
+                for member in members:
+                    with archive.open(member) as handle:
+                        if not member.endswith(".npy") or handle.read(6) != b"\x93NUMPY":
+                            return [f"{path.name}: {member} is not a .npy array"]
+        elif path.suffix == ".ogg":
+            with path.open("rb") as handle:
+                if handle.read(4) != b"OggS":
+                    return [f"{path.name}: no Ogg page at the start"]
+    except (OSError, ValueError, zipfile.BadZipFile) as error:
+        return [f"{path.name}: {type(error).__name__}: {error}"]
+    return []
+
+
+def _desktop_reading(run_dir: Path, handed_back: list[str]) -> tuple[dict[str, Any], list[str]]:
+    """Read what was handed back the way the desktop's correction half reads it.
+
+    The desktop gets only the handed-back files, seeded under the engine's
+    names (`seed_cloud_stable`); the locked engine's own readers then load the
+    stable's rows (`subtitles.stable_rows.read_rows`), the lines the correction
+    reads (`llm.chunking.load_product_segments`) and the speaker timeline
+    (`speech.diarization.stage.read_timeline`). All three are standard library
+    only, so they run in the gate's interpreter.
+    """
+
+    from . import VENDOR_SOURCE
+
+    if str(VENDOR_SOURCE) not in sys.path:
+        sys.path.insert(0, str(VENDOR_SOURCE))
+    facts: dict[str, Any] = {}
+    problems: list[str] = []
+    with tempfile.TemporaryDirectory(prefix="nonoka-quality-cloud-read-") as seeded:
+        for key in handed_back:
+            name = HANDED_BACK.get(key)
+            if name is None:
+                problems.append(f"handed back {key!r}, which the desktop does not seed")
+            elif not (run_dir / "artifacts" / name).is_file():
+                problems.append(f"handed back {key!r}, but {name} was not captured")
+            else:
+                shutil.copyfile(run_dir / "artifacts" / name, Path(seeded) / name)
+        stable = Path(seeded) / HANDED_BACK["stable_json"]
+        if stable.is_file():
+            try:
+                from finesub.llm.chunking import load_product_segments
+                from finesub.subtitles.stable_rows import read_rows
+
+                rows = read_rows(stable)
+                lines, _layer = load_product_segments(stable)
+                facts["rows"], facts["correction_lines"] = len(rows), len(lines)
+                if not lines:
+                    problems.append("the correction half reads no lines from the stable")
+            except Exception as error:  # noqa: BLE001 - an unreadable stable is the finding
+                problems.append(f"the correction half cannot read the stable: {type(error).__name__}: {error}")
+        diar = Path(seeded) / HANDED_BACK["diar_json"]
+        if diar.is_file():
+            try:
+                from finesub.speech.diarization.stage import read_timeline
+
+                timeline = read_timeline(diar)
+                facts["timeline_tracks"] = len(timeline.tracks)
+                if not timeline.tracks:
+                    problems.append("the speaker timeline has no tracks")
+            except Exception as error:  # noqa: BLE001
+                problems.append(f"the desktop cannot read the speaker timeline: {type(error).__name__}: {error}")
+    return facts, problems
+
+
+def _stable_lines(stable: Any) -> tuple[list[dict[str, Any]], list[str]]:
+    """The stable's lines as (start, end, text, words); the shape problems found on the way."""
+
+    segments = stable.get("segments") if isinstance(stable, dict) else None
+    if not isinstance(segments, list) or not segments:
+        return [], ["-stable.json has no segments"]
+    lines, problems = [], []
+    for index, segment in enumerate(segments):
+        start = segment.get("start") if isinstance(segment, dict) else None
+        end = segment.get("end") if isinstance(segment, dict) else None
+        text = segment.get("text") if isinstance(segment, dict) else None
+        if not isinstance(start, (int, float)) or not isinstance(end, (int, float)) or not isinstance(text, str):
+            problems.append(f"-stable.json segment {index}: no numeric start/end or no text")
+            continue
+        if end < start:
+            problems.append(f"-stable.json segment {index}: ends at {end} before it starts at {start}")
+        words = []
+        for word in segment.get("words") or []:
+            if isinstance(word, dict) and isinstance(word.get("start"), (int, float)) \
+                    and isinstance(word.get("end"), (int, float)) and isinstance(word.get("word"), str):
+                words.append(((word["start"] + word["end"]) / 2, word["word"], bool(word.get("space_before"))))
+        if not words and text.strip():
+            # A line without timed words still has its text, at its middle.
+            words = [((start + end) / 2, text.strip(), False)]
+        lines.append({"start": float(start), "end": float(end), "text": text.strip(), "words": words})
+    return lines, problems
+
+
+def _covered_seconds(lines: list[dict[str, Any]]) -> float:
+    spans = sorted((line["start"], line["end"]) for line in lines if line["end"] > line["start"])
+    covered, reach = 0.0, None
+    for start, end in spans:
+        if reach is None or start > reach:
+            covered += end - start
+            reach = end
+        elif end > reach:
+            covered += end - reach
+            reach = end
+    return covered
+
+
+def run_statistics(run_dir: Path) -> dict[str, Any]:
+    """The structure and statistics of one captured cloud run (`<sample>/run-N/` or a check's scratch)."""
+
+    folder = run_dir / "artifacts"
+    names = sorted(path.name for path in folder.iterdir() if path.is_file() and not path.name.startswith(".")) \
+        if folder.is_dir() else []
+    summary_path = run_dir / "summary.json"
+    summary = json.loads(summary_path.read_text(encoding="utf-8")) if summary_path.is_file() else {}
+    request_path = run_dir / "request.json"
+    request = json.loads(request_path.read_text(encoding="utf-8")) if request_path.is_file() else {}
+    problems = [problem for name in names for problem in _format_problems(folder / name)]
+    handed_back = sorted(summary.get("handed_back") or [])
+    reading, reading_problems = _desktop_reading(run_dir, handed_back)
+    problems += reading_problems
+    stats: dict[str, Any] = {
+        "artifacts": names,
+        "handed_back": handed_back,
+        "reading": reading,
+        "audio_sec": (request.get("source") or {}).get("duration"),
+    }
+    stable_path = folder / HANDED_BACK["stable_json"]
+    lines: list[dict[str, Any]] = []
+    if stable_path.is_file() and not _format_problems(stable_path):
+        lines, shape = _stable_lines(json.loads(stable_path.read_text(encoding="utf-8")))
+        problems += shape
+    if stats["audio_sec"] is None:
+        vad = folder / "subtitle-vad.json"
+        if vad.is_file() and not _format_problems(vad):
+            stats["audio_sec"] = json.loads(vad.read_text(encoding="utf-8")).get("audio_duration")
+    stats["segments"] = len(lines)
+    stats["characters"] = sum(len(line["text"]) for line in lines)
+    stats["covered_sec"] = round(_covered_seconds(lines), 3)
+    stats["coverage"] = (round(stats["covered_sec"] / stats["audio_sec"], 6)
+                         if lines and stats["audio_sec"] else None)
+    diar_path = folder / HANDED_BACK["diar_json"]
+    if diar_path.is_file() and not _format_problems(diar_path):
+        tracks = json.loads(diar_path.read_text(encoding="utf-8")).get("tracks") or []
+        stats["speakers"] = len({track.get("track") for track in tracks if isinstance(track, dict)})
+    else:
+        stats["speakers"] = None
+    stats["problems"] = problems
+    stats["_lines"] = lines
+    return stats
+
+
+def _nearest_line(lines: list[dict[str, Any]], starts: list[float], moment: float) -> int:
+    """The line `moment` falls in; in a gap, the nearer neighbour (the earlier on a tie).
+
+    Lines are in time order and may overlap; the latest-starting line at or
+    before `moment` and the one after it are the only candidates that matter
+    for a stable's lines, which overlap their neighbours at most.
+    """
+
+    index = bisect.bisect_right(starts, moment) - 1
+    candidates = [i for i in (index - 1, index, index + 1) if 0 <= i < len(lines)]
+    return min(candidates, key=lambda i: (max(lines[i]["start"] - moment, moment - lines[i]["end"], 0.0), i))
+
+
+def _text_distance(baseline: list[dict[str, Any]], run: list[dict[str, Any]]) -> dict[str, Any]:
+    """Each baseline line against the run's words timed into it.
+
+    The two runs need not cut their lines in the same places, so lines are not
+    paired by index: every word of the run goes to the baseline line its middle
+    falls in (or the nearest one, for a word in a gap), and each baseline line
+    is compared with the words it received, joined the way the stable joins
+    them. Every word lands somewhere, so text the run added counts as well as
+    text it lost.
+    """
+
+    starts = [line["start"] for line in baseline]
+    received: list[list[tuple[str, bool]]] = [[] for _ in baseline]
+    for line in run:
+        for middle, word, space_before in line["words"]:
+            received[_nearest_line(baseline, starts, middle)].append((word, space_before))
+    distance = changed = 0
+    for line, words in zip(baseline, received):
+        text = "".join((" " if space_before else "") + word for word, space_before in words).strip()
+        apart = edit_distance(line["text"], text)
+        distance += apart
+        changed += apart > 0
+    characters = sum(len(line["text"]) for line in baseline)
+    whole = edit_distance("".join(line["text"] for line in baseline), "".join(line["text"] for line in run))
+    return {
+        "distance": distance,
+        "baseline_characters": characters,
+        "ratio": round(distance / characters, 6) if characters else None,
+        "changed_lines": changed,
+        "changed_line_ratio": round(changed / len(baseline), 6) if baseline else None,
+        # Reported, not judged: the same texts joined end to end, line cuts ignored.
+        "whole_text_distance_ratio": round(whole / characters, 6) if characters else None,
+    }
+
+
+def compare_statistics(baseline: dict[str, Any], run: dict[str, Any]) -> dict[str, Any]:
+    """A run's structure and statistics against the baseline's (both from `run_statistics`)."""
+
+    comparison: dict[str, Any] = {
+        "missing_artifacts": sorted(set(baseline["artifacts"]) - set(run["artifacts"])),
+        "extra_artifacts": sorted(set(run["artifacts"]) - set(baseline["artifacts"])),
+        "missing_handed_back": sorted(set(baseline["handed_back"]) - set(run["handed_back"])),
+        "extra_handed_back": sorted(set(run["handed_back"]) - set(baseline["handed_back"])),
+        "problems": list(run["problems"]),
+        "baseline_problems": list(baseline["problems"]),
+        "reading": run["reading"],
+    }
+    lines_a, lines_b = baseline["_lines"], run["_lines"]
+    statistics: dict[str, Any] = {}
+    if lines_a and lines_b:
+        statistics["segment_count_ratio"] = {
+            "baseline": baseline["segments"], "run": run["segments"],
+            "value": round(abs(run["segments"] - baseline["segments"]) / baseline["segments"], 6),
+        }
+        text = _text_distance(lines_a, lines_b)
+        statistics["text_distance_ratio"] = {"value": text.pop("ratio"), **text}
+    if baseline["speakers"] is not None:
+        statistics["speaker_count_delta"] = {
+            "baseline": baseline["speakers"], "run": run["speakers"],
+            "value": None if run["speakers"] is None else abs(run["speakers"] - baseline["speakers"]),
+        }
+    if baseline["coverage"] is not None and run["coverage"] is not None:
+        statistics["coverage_delta"] = {
+            "baseline": baseline["coverage"], "run": run["coverage"],
+            "value": round(abs(run["coverage"] - baseline["coverage"]), 6),
+        }
+    comparison["statistics"] = statistics
+    return comparison
+
+
+def judge(comparison: dict[str, Any], thresholds: Thresholds | None = None) -> dict[str, list[str]]:
+    """Failures, undecided statistics and report lines for one sample's comparison.
+
+    `thresholds` defaults to `THRESHOLDS`, the approved values.
+
+    Structure is never a matter of thresholds: an artifact missing or extra, a
+    handed-back result missing, or a file the desktop cannot read fails the
+    run. A statistic over its threshold fails it; one whose threshold is not
+    approved yet is left undecided.
+    """
+
+    thresholds = THRESHOLDS if thresholds is None else thresholds
+    failures: list[str] = []
+    undecided: list[str] = []
+    lines: list[str] = []
+    structure = [
+        *(f"artifact missing: {name}" for name in comparison["missing_artifacts"]),
+        *(f"artifact not in the baseline: {name}" for name in comparison["extra_artifacts"]),
+        *(f"not handed back: {key}" for key in comparison["missing_handed_back"]),
+        *(f"handed back, not in the baseline: {key}" for key in comparison["extra_handed_back"]),
+        *(f"malformed: {problem}" for problem in comparison["problems"]),
+    ]
+    for problem in structure:
+        failures.append(problem)
+        lines.append(f"STRUCTURE {problem}")
+    if not structure:
+        lines.append(f"ok        structure: same artifacts, all readable ({json.dumps(comparison['reading'])})")
+    statistics = comparison["statistics"]
+    for field in fields(Thresholds):
+        name, limit = field.name, getattr(thresholds, field.name)
+        entry = statistics.get(name)
+        if entry is None:
+            if name != "speaker_count_delta":
+                failures.append(f"{name}: not measurable")
+                lines.append(f"FAIL      {name}: not measurable (no lines on one side)")
+            continue
+        shown = {key: value for key, value in entry.items() if key != "value"}
+        value = entry["value"]
+        if value is None:
+            failures.append(f"{name}: not measurable")
+            lines.append(f"FAIL      {name}: not measurable {json.dumps(shown)}")
+        elif limit is None:
+            undecided.append(name)
+            lines.append(f"UNJUDGED  {name} = {value} (threshold not approved) {json.dumps(shown)}")
+        elif value > limit:
+            failures.append(f"{name} = {value} > {limit}")
+            lines.append(f"OVER      {name} = {value} > {limit} {json.dumps(shown)}")
+        else:
+            lines.append(f"ok        {name} = {value} <= {limit} {json.dumps(shown)}")
+    return {"failures": failures, "undecided": undecided, "lines": lines}
+
+
+def public_statistics(stats: dict[str, Any]) -> dict[str, Any]:
+    """`run_statistics` without the per-line working copy, for reports."""
+
+    return {key: value for key, value in stats.items() if not key.startswith("_")}
+
+
 def record() -> dict[str, Any]:
     """Run every sample twice into the baseline directory and write the report."""
 
@@ -664,6 +1044,7 @@ def record() -> dict[str, Any]:
         report["samples"][name] = {
             "runs": [runs[1][name], runs[2][name]],
             "comparison": compare_runs(BASELINE_ROOT / name / "run-1", BASELINE_ROOT / name / "run-2"),
+            "statistics": _statistics_between(BASELINE_ROOT / name / "run-1", BASELINE_ROOT / name / "run-2"),
         }
     for index in (1, 2):
         log = BASELINE_ROOT / f"run-{index}" / "runner.log"
@@ -674,8 +1055,20 @@ def record() -> dict[str, Any]:
     return report
 
 
+def _statistics_between(baseline: Path, run: Path) -> dict[str, Any]:
+    """`compare_statistics` of two run directories, with each side's own statistics."""
+
+    left, right = run_statistics(baseline), run_statistics(run)
+    return {"baseline": public_statistics(left), "run": public_statistics(right),
+            "comparison": compare_statistics(left, right)}
+
+
 def check(scratch: Path) -> dict[str, Any]:
-    """Run every sample once into `scratch` and compare with the recorded `run-1`."""
+    """Run every sample once into `scratch` and compare with the recorded `run-1`.
+
+    `comparison` is the byte comparison (information); `statistics` is what
+    the gate judges (`judge`).
+    """
 
     found = issues()
     if found:
@@ -689,7 +1082,8 @@ def check(scratch: Path) -> dict[str, Any]:
         summaries = run_samples(scratch, names)
         for name in names:
             result[name] = {"run": summaries[name],
-                            "comparison": compare_runs(BASELINE_ROOT / name / "run-1", scratch / name)}
+                            "comparison": compare_runs(BASELINE_ROOT / name / "run-1", scratch / name),
+                            "statistics": _statistics_between(BASELINE_ROOT / name / "run-1", scratch / name)}
     return result
 
 
@@ -718,13 +1112,25 @@ if __name__ == "__main__":
     if _modal_side():
         raise SystemExit(_runner_main(sys.argv[1:]))
     parser = argparse.ArgumentParser()
-    parser.add_argument("command", choices=("record", "issues", "check", "compare"))
+    parser.add_argument("command", choices=("record", "issues", "check", "compare", "stats"))
     parser.add_argument("--scratch", type=Path)
+    parser.add_argument("runs", nargs="*", type=Path,
+                        help="stats: a baseline run directory, then the run directories to judge against it")
     args = parser.parse_args()
     sys.path.insert(0, str(ROOT))
     from tests.quality_harness import cloud as _self  # the gate half, with its package for `real`
 
-    if args.command == "issues":
+    if args.command == "stats":
+        # Offline: no Modal, nothing written. For measuring the spread between captured runs.
+        if len(args.runs) < 2:
+            raise SystemExit("stats takes a baseline run directory and at least one run directory")
+        reference = _self.run_statistics(args.runs[0])
+        for run_dir in args.runs[1:]:
+            comparison = _self.compare_statistics(reference, _self.run_statistics(run_dir))
+            print(json.dumps({"baseline": str(args.runs[0]), "run": str(run_dir),
+                              "statistics": comparison["statistics"],
+                              "judged": _self.judge(comparison)}, ensure_ascii=False, indent=2))
+    elif args.command == "issues":
         print(json.dumps(_self.issues(), ensure_ascii=False, indent=2))
     elif args.command == "compare":
         report_path = BASELINE_ROOT / "report.json"
