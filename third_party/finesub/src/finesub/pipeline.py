@@ -29,7 +29,7 @@ import traceback
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
-from . import jsonl, settings
+from . import jsonl
 from .paths import resolve_logs_dir, resolve_name_output_path
 from .reporting import (
     LEVELS,
@@ -62,17 +62,12 @@ from .scheduler import (
     DEFAULT_BATCH_ROOT,
     DEFAULT_RETRY_FAILED,
     DEFAULT_WORKERS,
-    GPU_LANE,
     IntakePoll,
     ItemResult,
-    NETWORK_LANE,
     NETWORK_WORKERS,
     STATUS_FILENAME,
     run_batch,
 )
-from .speech import joint as joint_asr
-from .speech.joint import repair as cloud_repair
-from .speech.joint import stage as joint_stage
 from .speech.postprocessing import stabilization as asr_stabilize
 from .speech.preprocessing.separator.rates import SEPARATOR_SAMPLE_RATES
 from .speech.runtime.native_paths import use_utf8_crt_locale
@@ -172,38 +167,6 @@ def build_parser() -> argparse.ArgumentParser:
         choices=gpu_tier_cli_choices(),
         default=None,
         help=gpu_tier_help(),
-    )
-    parser.add_argument(
-        "--asr",
-        choices=joint_asr.CHOICES,
-        default=None,
-        help=(
-            "Who transcribes: local (default: separation, VAD, Whisper here), a cloud service fed "
-            "the mix (the audio leaves this machine) -- mai2 (paid per hour), gemini / gemini-35t "
-            "(GEMINI_FREE keys), moss / moss-pro (MOSS_PRO keys) -- or moss-local (open MOSS on an "
-            "NVIDIA GPU of compute capability 8.0+, 1.7 GB download on first use). A task keeps the "
-            "backend its -aligned.json / -stable.json came from; see docs/manual/joint-asr.md."
-        ),
-    )
-    parser.add_argument(
-        "--asr-aligner",
-        action=argparse.BooleanOptionalAction,
-        default=None,
-        help=(
-            "moss-pro / moss-local: time their long segments' units with a forced aligner; gemini-35t: "
-            "the text its repair adds (heavier: about 2.4 GB RAM on CPU; default off, Silero timing)."
-        ),
-    )
-    parser.add_argument(
-        "--asr-repair",
-        choices=cloud_repair.MODES,
-        default=None,
-        help=(
-            "gemini-35t and mai2: repair what the cloud transcript missed or garbled. on (default) fills "
-            "gaps the local VAD hears speech in -- mai2 by asking it again (a few %% more billed audio), "
-            "gemini-35t through Gemini Live (no daily requests) -- and trims runaway repeats; quota also "
-            "lets gemini-35t re-ask on its daily requests; off does none of it."
-        ),
     )
     parser.add_argument(
         "--separate",
@@ -663,6 +626,59 @@ def explicit_row_keys(argv: Sequence[str] | None = None) -> frozenset[str]:
     return frozenset(_DEST_ROW_KEYS.get(dest, dest) for dest in given)
 
 
+#: How many logs the directory keeps (`finesub_bootstrap.logs.DEFAULT_KEEP`, which installs and app
+#: sessions share the budget of).
+_LOG_KEEP = 100
+
+
+def _prune_logs(directory: Path | None, *, keep: int = _LOG_KEEP) -> None:
+    """Drop all but the newest `keep` logs, whatever wrote them.
+
+    A copy of `finesub_bootstrap.logs.prune`, so that the command line needs
+    nothing of `finesub_bootstrap` beyond what the engine itself imports.
+    """
+
+    if directory is None:
+        return
+    try:
+        # By modification time, not by name: the names are
+        # install-<resource>-<stamp> and session-<stamp>, so sorting them puts
+        # the prefix ahead of the timestamp and "the newest hundred" would mean
+        # the hundred belonging to whichever prefix sorts last.
+        logs = sorted(
+            Path(directory).glob("*.log"),
+            key=lambda path: path.stat().st_mtime,
+            reverse=True,
+        )
+    except OSError:
+        return
+    for stale in logs[keep:]:
+        try:
+            stale.unlink()
+        except OSError:
+            # Someone has it open; the next prune will try again.
+            pass
+
+
+def _open_log(directory: Path | None, name: str):
+    """Open `name` in `directory` for appending, or return None.
+
+    Never fatal: a log that cannot be written is not a reason to fail whatever
+    was going to be logged. A copy of `finesub_bootstrap.logs.open_log`, for
+    the reason `_prune_logs` gives.
+    """
+
+    if directory is None:
+        return None
+    path = Path(directory) / name
+    try:
+        Path(directory).mkdir(parents=True, exist_ok=True)
+        return path.open("a", encoding="utf-8", errors="replace")
+    except OSError as error:
+        print(f"Warning: cannot write the log {name}: {error}", file=sys.stderr)
+        return None
+
+
 def _prune_run_logs() -> None:
     """Trim the log directory once per process, before its first log opens.
 
@@ -671,9 +687,7 @@ def _prune_run_logs() -> None:
     mtime -- which are the files a batch most needs (audit O-6).
     """
 
-    from finesub_bootstrap.logs import prune
-
-    prune(resolve_logs_dir())
+    _prune_logs(resolve_logs_dir())
 
 
 @contextmanager
@@ -688,12 +702,10 @@ def _run_log(stem: str) -> Iterator[FileReporter | None]:
     front (`_prune_run_logs`).
     """
 
-    from finesub_bootstrap.logs import open_log
-
     directory = resolve_logs_dir()
     stamp = time.strftime("%Y%m%d-%H%M%S")
     safe = re.sub(r"[^\w.-]+", "-", stem)[:60].strip("-") or "run"
-    handle = open_log(directory, f"run-{stamp}-{safe}.log")
+    handle = _open_log(directory, f"run-{stamp}-{safe}.log")
     if handle is None:
         yield None
         return
@@ -1222,38 +1234,6 @@ def build_item(opts: Mapping[str, Any], *, claims: "OutputClaims | None" = None)
         return _build_item(opts, claims=claims)
 
 
-def _refuse_moss_local_without_its_card(
-    source: str, output: Any, shared: Mapping[str, Any], asr_stage: str
-) -> None:
-    """Stop a task that would decode with local MOSS on a run that cannot (`moss_local_unusable_reason`) when it
-    is built -- before a download, a model fetch or a place in the asr queue. A startup row stops the run; a row
-    appended later is skipped. Only a task that will decode: at or past `aligned`, its `-aligned.json` not there
-    (nor its `-stable.json`, unless it stops at aligned). A URL's products are not known before it downloads, so
-    without an explicit output it counts as decoding with this run's `--asr`."""
-
-    from .media.source import is_url
-
-    if PIPELINE_STAGE_ORDER[asr_stage] < PIPELINE_STAGE_ORDER["aligned"]:
-        return
-    requested = shared.get("asr")
-    if is_url(source) and not output:
-        backend = joint_stage.resolve_backend(settings.ASR_BACKEND.resolve(requested))
-    else:
-        # resolved as `run_pipeline` resolves a local source, or a link to it would look for other products
-        local = source if is_url(source) else Path(source).expanduser().resolve()
-        paths = default_pipeline_paths(local, output_path=output)
-        if paths.aligned_json.exists() or (asr_stage != "aligned" and paths.stable_json.exists()):
-            return
-        backend = joint_stage.task_backend(paths.stable_json, paths.aligned_json, requested)
-    if backend != joint_asr.MOSS_LOCAL:
-        return
-    from .speech.runtime.device import moss_local_unusable_reason
-
-    reason = moss_local_unusable_reason(shared.get("gpu_tier"), shared.get("device"))
-    if reason is not None:
-        raise ValueError(f"{source}: {reason}")
-
-
 def _build_item(opts: Mapping[str, Any], *, claims: "OutputClaims | None" = None) -> BatchItem:
     from .media.source import is_url
 
@@ -1281,7 +1261,6 @@ def _build_item(opts: Mapping[str, Any], *, claims: "OutputClaims | None" = None
     )
     diarize_default = default_diarize(target_stage, profile)
     warn_if_the_judge_cannot_run(diarize or diarize_default, target_stage)
-    _refuse_moss_local_without_its_card(source, opts.get("output"), shared, asr_stage)
 
     def _run(payload: dict[str, Any], stage: str) -> None:
         # The reporter is bound by `run_batch` around every stage, so that
@@ -1422,21 +1401,12 @@ def _build_item(opts: Mapping[str, Any], *, claims: "OutputClaims | None" = None
         segments = read_rows(stable)
         return float(len(segments)) if isinstance(segments, list) else 0.0
 
-    def _asr_lane(item_payload: Any) -> str:
-        # The task's own backend (`joint_stage.task_backend`), from the paths
-        # the run will use: a cloud task waits on the network, not the GPU.
-        payload = item_payload or {}
-        paths = default_pipeline_paths(payload["audio"], output_path=payload.get("output"))
-        backend = joint_stage.task_backend(paths.stable_json, paths.aligned_json, shared.get("asr"))
-        return GPU_LANE if backend in (joint_asr.LOCAL, joint_asr.MOSS_LOCAL) else NETWORK_LANE
-
     return BatchItem(
         label=(
             claims.unique_label(source) if claims is not None else Path(source).name or source
         ),
         stages=stages,
         payload=payload,
-        asr_lane=_asr_lane,
         group=str(opts.get("group") or ""),
         priority=int(opts.get("priority") or 0),
         row=dict(opts),

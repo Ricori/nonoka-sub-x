@@ -3,9 +3,13 @@
     source audio -> vocal separation -> VAD + ASR alignment -> stabilization -> SRT
     (-> LLM correction/translation, when the target stage asks for it)
 
-`run_pipeline` is the whole contract: it derives every artifact path from the
-final SRT, skips a stage whose output already exists, and records what it did in
-the run metadata sidecar. It knows nothing about command lines, manifests or how
+Three entry points, one contract. `run_transcription` runs up to `stable`
+(acoustic diarization included); `run_post_stable` continues from an existing
+`-stable.json`, told explicitly where its speaker labels come from and which
+track the speaker judge hears; `run_pipeline` is the two in one run. Each
+derives every artifact path from the final SRT, skips a stage whose output
+already exists, and records what it did in the run metadata sidecar. They know
+nothing about command lines, manifests or how
 many sources are in flight -- `pipeline.py` is the front end that builds requests
 and presents results. It imports this module, never the reverse: that direction
 is also what keeps `python -m finesub.pipeline` from executing its own module a
@@ -19,17 +23,18 @@ from __future__ import annotations
 
 from collections.abc import Callable
 import glob
+import inspect
 import json
 import os
 import secrets
 import sys
 import time
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, Mapping, NamedTuple, Optional, Sequence
 
 from . import settings
 from .reporting import current_reporter
-from .speech.joint import stage as joint_stage
 from .speech.postprocessing import stabilization as asr_stabilize
 from .speech.runtime.resources import AUTO_GPU_TIER
 from .run_metadata import (
@@ -481,7 +486,7 @@ def _correction_request(
     refined_srt: str | Path | None,
     task_id: str,
     postprocess_profile: int,
-    joint: bool,
+    judge_audio: str,
     **options: Any,
 ) -> Any:
     """``run_pipeline``'s LLM keys as the one value the correction task takes,
@@ -508,9 +513,9 @@ def _correction_request(
             refined_srt=Path(refined_srt) if refined_srt else None,
             task_id=task_id or paths.final_srt.stem,
             task_artifact_dir=paths.task_artifact_dir,
-            # What the speaker judge listens to (separation may not have run yet); a joint-ASR task has no vocal
-            # track, and its labels came from the mix.
-            vocal_audio=source_path if joint else paths.resolve_vocal_audio(),
+            # What the speaker judge listens to (separation may not have run yet): `judge_audio`, the
+            # caller's say -- the source mix for a task with no vocal track whose labels came from the mix.
+            vocal_audio=source_path if judge_audio == "source" else paths.resolve_vocal_audio(),
             # Targeting translated-srt stops before the final postprocess.
             postprocess_profile=None if stage == "translated-srt" else postprocess_profile,
             **options,
@@ -766,75 +771,41 @@ def _write_raw_srt(paths: PipelinePaths, *, word: bool, postprocess_profile: int
     )
 
 
-def _note_task_backend(paths: PipelinePaths, backend: str, requested: str | None, aligner: bool | None) -> None:
-    """Say where a resumed task's recognition came from when this run asked for something else -- either way
-    round: local products under `--asr <joint>` as much as joint products under `--asr local` -- and that
-    an explicit `--asr-aligner` does nothing for this backend (`[asr] aligner` is a standing preference for
-    the MOSS and 35t tasks, not worth a line on every other one). A batch item's two halves each call this, so a run
-    past raw-srt says it twice; that is the price of saying it wherever `run_pipeline` is entered."""
-    if aligner is True and backend not in (*joint_stage.SEGMENT_BACKENDS, joint_stage.GEMINI_35T):
-        print(f"Warning: --asr-aligner only applies to moss-pro, moss-local and gemini-35t; ignored for {backend}",  # product output
-              file=sys.stderr)
-    if requested is None or not (paths.stable_json.exists() or paths.aligned_json.exists()):
-        return
-    if joint_stage.resolve_backend(requested) == backend:
-        return
-    print(  # product output
-        f"Warning: this task's recognition came from {backend} and is reused; --asr {requested} applies only "
-        "after deleting -aligned.json, -stable.json and everything after them",
-        file=sys.stderr,
-    )
+#: `run_post_stable`'s `speaker_source`: the acoustic timeline (`-diar.json`, made by `run_transcription`), or
+#: the labels the transcription gave its own lines (each stable line's `line_speaker`).
+SPEAKER_SOURCES = ("acoustic", "line-labels")
+#: `run_post_stable`'s `judge_audio`: what the speaker judge hears -- the vocal track, or the source mix.
+JUDGE_AUDIO_TRACKS = ("vocal", "source")
+#: The stable's metadata record naming the transcription that labelled its lines (the key the joint-ASR
+#: backend wrote, `speech/joint/stage.METADATA_KEY`), and the name used when a stable carries none.
+_LINE_LABEL_RECORD = "joint_asr"
+_UNNAMED_LINE_LABELS = "line-labels"
 
 
-def _backend_diarize(
-    paths: PipelinePaths, backend: str, requested: str | None, diarize: str, aligner: bool | None,
-) -> str:
-    """The task's `--diarize` level for its backend, having said where a resumed task's recognition came from."""
-    _note_task_backend(paths, backend, requested, aligner)
-    # A joint-ASR task's own transcription labels its lines; writing them costs nothing (`docs/joint-asr.md`).
-    return "acoustics" if backend != joint_stage.LOCAL and diarize == "off" else diarize
-
-
-def _run_joint_aligned(
-    paths: PipelinePaths, source_path: Path, *, backend: str, language: str | None, aligner: bool | None,
-    repair: str | None, split_length_scale: float | None, gpu_tier: str, device: str | None,
-    stage_timing: dict[str, Any], announce: Callable[..., None],
+def _run_line_label_rows(
+    paths: PipelinePaths, *, announce: Callable[..., None], diarize_backend: str | None,
 ) -> None:
-    """A joint-ASR task's `-aligned.json`: the joint transcription through production's sentence DP."""
-    aligner = settings.ASR_ALIGNER.resolve(aligner)
-    aligned_existed = paths.aligned_json.exists()
-    announce("aligned", "reused" if aligned_existed else "running")
-    asr_t0 = _stage_clock()
-    _use_or_create(
-        paths.aligned_json,
-        "joint ASR",
-        lambda temporary: joint_stage.run(
-            source_path, backend=backend, output_path=temporary, cache_root=paths.cloud_dir, language=language,
-            aligner=aligner, repair=repair, split_length_scale=split_length_scale, gpu_tier=gpu_tier, device=device,
-        ),
-    )
-    _record_stage_time(paths, stage_timing, "asr", asr_t0, status="reused" if aligned_existed else "executed")
-
-
-def _run_joint_labels(
-    paths: PipelinePaths, *, backend: str, announce: Callable[..., None], diarize_backend: str | None,
-) -> None:
-    """A joint-ASR task's speaker labels: its own transcription's, from each stable line's
-    `line_speaker`, at every `--diarize` level. `-diar.json` is neither read nor written; one already in the
-    directory stays for the task's local recognition."""
+    """Speaker labels from the transcription itself: each stable line's `line_speaker`, at every `--diarize`
+    level (`speaker_source="line-labels"`). `-diar.json` is neither read nor written; one already in the
+    directory stays for the task's acoustic labels. The backend and model named in `-diar-rows.json` are the
+    ones the stable's own record gives, else `line-labels`."""
     from .speech.diarization import stage as diarization
 
+    try:
+        payload = json.loads(paths.stable_json.read_text(encoding="utf-8"))
+    except (OSError, ValueError):  # unreadable: `write_joint_rows` reports it where it reads the lines
+        payload = {}
+    record = ((payload.get("metadata") or {}).get(_LINE_LABEL_RECORD) or {}) if isinstance(payload, dict) else {}
+    backend = str(record.get("backend") or _UNNAMED_LINE_LABELS)
     if diarize_backend is not None:
         print(  # product output
-            f"Warning: --diarize-backend {diarize_backend} is ignored: a joint-ASR task's speakers come from "
+            f"Warning: --diarize-backend {diarize_backend} is ignored: this task's speakers come from "
             f"{backend}'s own labels", file=sys.stderr)
     if diarization.rows_current(paths.stable_json):
         announce("diarize", "reused")
         return
     unused = "；目录里的声学时间线不用" if paths.diar_json.exists() else ""
     announce("diarize", "running", detail=f"说话人来自 {backend} 的标签{unused}")
-    record = ((json.loads(paths.stable_json.read_text(encoding="utf-8")).get("metadata") or {})
-              .get(joint_stage.METADATA_KEY) or {})
     diarization.write_joint_rows(paths.stable_json, backend=backend, model=str(record.get("model", backend)))
 
 
@@ -846,12 +817,11 @@ def _run_diarization_stage(
     gpu_tier: str,
     announce: Callable[..., None],
     backend: str | None = None,
-    joint_backend: str | None = None,
     max_speakers: int | None = None,
     diarize_split: bool,
 ) -> None:
-    """Speaker timeline after stabilization, and what it says about each line, when asked for. A joint-ASR
-    task (`joint_backend`) takes its own transcription's labels instead, at every level (`_run_joint_labels`).
+    """Speaker timeline after stabilization, and what it says about each line, when asked for. Labels from
+    the transcription's own lines are `run_post_stable`'s instead (`_run_line_label_rows`).
 
     Two files with opposite properties, so two existence checks rather than one: the timeline
     (`-diar.json`) is cached because it cannot be reproduced; `-diar-rows.json` is cheap to compute
@@ -868,9 +838,6 @@ def _run_diarization_stage(
 
     if diarize not in DIARIZE_LEVELS:
         raise ValueError(f"--diarize takes {'/'.join(DIARIZE_LEVELS)}, got {diarize!r}")
-    if joint_backend is not None:
-        _run_joint_labels(paths, backend=joint_backend, announce=announce, diarize_backend=backend)
-        return
     if diarize == "off":
         return
 
@@ -937,7 +904,6 @@ def _run_vocal_stage(
     separator_sample_rate: int | None,
     stage_timing: dict[str, Any],
     announce: Callable[..., None],
-    joint: bool = False,
 ) -> None:
     """The vocal stage: decide whether it is wanted, then deliver or skip it.
 
@@ -952,11 +918,6 @@ def _run_vocal_stage(
     """
 
     reporter = current_reporter()
-    if joint:
-        # A joint backend transcribes the original mix: no vocal track is made.
-        if target_order >= PIPELINE_STAGE_ORDER["vocal"]:
-            announce("vocal", "skipped", detail="一体转写，读原始混音")
-        return
     if target_order >= PIPELINE_STAGE_ORDER["vocal"]:
         # Vocal audio only feeds VAD-ASR. A stable JSON satisfies every later
         # consumer without requiring the aligned artifact to be backfilled.
@@ -1084,6 +1045,11 @@ def _run_vocal_stage(
             )
 
 
+#: The stages each half stops at: `run_transcription` up to the stable, `run_post_stable` after it.
+TRANSCRIPTION_STAGES = ("vocal", "aligned", "stable")
+POST_STABLE_STAGES = ("raw-srt", "translated-srt", "final-srt")
+
+
 def run_pipeline(
     input_path: str | Path,
     *,
@@ -1095,11 +1061,6 @@ def run_pipeline(
     # `auto` = ask the card. A tier names what CLASS of card this is, not a
     # cap on what the pipeline may use; `resolve_gpu_tier` owns the answer.
     gpu_tier: str = AUTO_GPU_TIER,
-    # None = `[asr] backend`, then local; a task's own products win over both (`joint_stage.task_backend`).
-    asr: str | None = None,
-    # None = `[asr] aligner`, then off. MOSS Pro only.
-    asr_aligner: bool | None = None,
-    asr_repair: str | None = None,
     separator_sample_rate: int | None = None,
     # None = follow `[separator] enabled`, then the stage's default (on).
     # `--no-separate` is for input that is already a clean vocal track: the
@@ -1170,70 +1131,178 @@ def run_pipeline(
     _batch_workers: Mapping[str, int] | None = None,
     _diarize_default: str | None = None,
 ) -> PipelinePaths:
+    """`run_transcription` and `run_post_stable` in one run, from the source to `stage`.
+
+    The thin composition of the two: one preparation, the transcription's stages, the stages after the
+    stable, one finish. Prepared once, so everything still fails before separation that failed there (the
+    correction request included), a URL is resolved once, the `diarize` level is chosen once for the whole
+    run, and one plan and one completion are reported. Its speakers are the acoustic timeline's and the
+    speaker judge hears the vocal track: `run_post_stable`'s `acoustic` and `vocal`.
+
+    These keywords are also the two halves' (`_pipeline_options`): this signature is the one copy of their
+    defaults.
+    """
+    # Every parameter, as given: the first statement, so `locals()` holds nothing else yet.
+    options = {name: value for name, value in locals().items() if name != "input_path"}
+    run = _prepare_run(input_path, options, scope="pipeline", speaker_source="acoustic", judge_audio="vocal")
+    _run_transcription_stages(run)
+    _run_post_stable_stages(run)
+    return _finish_run(run)
+
+
+#: `run_pipeline`'s keywords and their defaults, taken where it is defined: a caller that replaces the
+#: module's `run_pipeline` (a test double, a wrapper) must not change what the halves accept.
+_PIPELINE_DEFAULTS: dict[str, Any] = {
+    name: parameter.default
+    for name, parameter in inspect.signature(run_pipeline).parameters.items()
+    if parameter.kind is parameter.KEYWORD_ONLY
+}
+
+
+def run_transcription(input_path: str | Path, *, stage: str = "stable", **options: Any) -> PipelinePaths:
+    """From the source to `stage` (`vocal`, `aligned` or `stable`): separation, VAD + ASR, stabilization
+    and, when `diarize` asks for it, the acoustic speaker timeline and what it says about each line.
+
+    Takes `run_pipeline`'s keywords, resolved the same way. Its own `stage` is what defaults read: a
+    `diarize` left unset is `off` here (`default_diarize`), so a caller going on to the LLM stage passes the
+    level -- or `_diarize_default` -- that stage wants, as a batch item's first half does.
+    """
+    if stage not in TRANSCRIPTION_STAGES:
+        raise ValueError(f"run_transcription stops at {'/'.join(TRANSCRIPTION_STAGES)}, got {stage!r}")
+    run = _prepare_run(input_path, _pipeline_options(stage=stage, **options), scope="transcription",
+                       speaker_source="acoustic", judge_audio="vocal")
+    _run_transcription_stages(run)
+    return _finish_run(run)
+
+
+def run_post_stable(
+    input_path: str | Path,
+    *,
+    speaker_source: str,
+    judge_audio: str,
+    stage: str = "raw-srt",
+    **options: Any,
+) -> PipelinePaths:
+    """From the task's existing `-stable.json` to `stage` (`raw-srt`, `translated-srt` or `final-srt`): the
+    raw SRT, the speaker exports and the LLM correction. Nothing before the stable runs; a missing stable
+    is an error.
+
+    Takes `run_pipeline`'s keywords, resolved the same way, and two that it does not infer from the products:
+
+    - `speaker_source` (`SPEAKER_SOURCES`): `acoustic` reads the labels `run_transcription` wrote from the
+      acoustic timeline, and computes none; `line-labels` first writes `-diar-rows.json` from each stable
+      line's `line_speaker`, at every `diarize` level (`off` counts as `acoustics`: the labels cost nothing).
+    - `judge_audio` (`JUDGE_AUDIO_TRACKS`): what the speaker judge hears, the `vocal` track or the `source`
+      mix (for a task with no vocal track, whose labels came from the mix).
+    """
+    if stage not in POST_STABLE_STAGES:
+        raise ValueError(f"run_post_stable stops at {'/'.join(POST_STABLE_STAGES)}, got {stage!r}")
+    if speaker_source not in SPEAKER_SOURCES:
+        raise ValueError(f"speaker_source takes {'/'.join(SPEAKER_SOURCES)}, got {speaker_source!r}")
+    if judge_audio not in JUDGE_AUDIO_TRACKS:
+        raise ValueError(f"judge_audio takes {'/'.join(JUDGE_AUDIO_TRACKS)}, got {judge_audio!r}")
+    run = _prepare_run(input_path, _pipeline_options(stage=stage, **options), scope="post-stable",
+                       speaker_source=speaker_source, judge_audio=judge_audio)
+    if speaker_source == "line-labels":
+        _run_line_label_rows(run.paths, announce=run.announce, diarize_backend=run.diarize_backend)
+    _run_post_stable_stages(run)
+    return _finish_run(run)
+
+
+def _pipeline_options(**given: Any) -> dict[str, Any]:
+    """`run_pipeline`'s keywords, `given` over its own defaults: the signature is the one copy of them."""
+    unknown = sorted(set(given) - set(_PIPELINE_DEFAULTS))
+    if unknown:
+        raise TypeError(f"unexpected keyword argument(s): {', '.join(unknown)}")
+    return {**_PIPELINE_DEFAULTS, **given}
+
+
+class _Run(SimpleNamespace):
+    """One run as its stages read it: `run_pipeline`'s keywords as resolved by `_prepare_run`, plus what it
+    found -- `paths`, `source_path`, `source_arg`, `target_order`, `stage_timing`, `run_t0`, `llm_request`,
+    and the `reporter` and `announce` every stage reports through."""
+
+
+def _prepare_run(
+    input_path: str | Path,
+    options: Mapping[str, Any],
+    *,
+    scope: str,
+    speaker_source: str,
+    judge_audio: str,
+) -> _Run:
+    """Everything before the first stage, for each entry point (`scope`: `pipeline`, `transcription` or
+    `post-stable`): the request resolved and checked -- the correction request included, so that a
+    contradictory one fails before separation -- the source resolved (a URL downloaded), the run metadata
+    begun and the plan reported."""
+    run = _Run(**options)
     # Taken from the caller's binding rather than passed in: the stages deep
     # inside this call tree read it the same way, and two mechanisms for one
     # thing is how they drift apart. A front end wraps its run in
     # `reporting_to(...)`; nothing bound means nothing shown.
     reporter = current_reporter()
-    run_t0 = (
-        float(_run_started_monotonic)
-        if _run_started_monotonic is not None
+    run.reporter = reporter
+    run.run_t0 = (
+        float(run._run_started_monotonic)
+        if run._run_started_monotonic is not None
         else time.perf_counter()
     )
-    stage_timing: dict[str, Any] = dict(_prior_timing or {})
+    run.stage_timing = dict(run._prior_timing or {})
+    stage = run.stage
     if stage not in PIPELINE_STAGE_ORDER:
         raise ValueError(f"Unknown pipeline stage: {stage}")
-    if word and PIPELINE_STAGE_ORDER[stage] > PIPELINE_STAGE_ORDER["raw-srt"]:
+    if run.word and PIPELINE_STAGE_ORDER[stage] > PIPELINE_STAGE_ORDER["raw-srt"]:
         raise ValueError("--word can only be used through the raw-srt stage.")
-    separate = settings.SEPARATE.resolve(separate)
+    run.separate = settings.SEPARATE.resolve(run.separate)
     # Their stage resolves these itself; they are checked here too so that a
     # bad value -- a manifest row, a typo in config.toml -- fails the run
     # before separation, the heaviest stage, rather than after it.
-    settings.VAD_SILERO_ASSIST.resolve(vad_silero_assist)
-    settings.SPLIT_LENGTH_SCALE.resolve(split_length_scale)
-    empty_cues = settings.EMPTY_CUES.resolve(empty_cues)
+    settings.VAD_SILERO_ASSIST.resolve(run.vad_silero_assist)
+    settings.SPLIT_LENGTH_SCALE.resolve(run.split_length_scale)
+    run.empty_cues = settings.EMPTY_CUES.resolve(run.empty_cues)
     # `None` is "not chosen" -- a front end sends it so that a bare `cpu` tier
     # can be told apart from an explicit `cuda` -- and it means the code
     # default. Normalised here, once, so no stage ever sees None and reads it
     # as something other than "the user asked for the card".
-    device = str(device or "cuda")
-    switches, profile = resolve_llm_switches(stage, llm_media, llm_retrieval, llm_difficulty, llm_continuity,
-                                       knowledge, llm_output_scale, llm_parallel_windows)
-    llm_media, llm_retrieval, llm_difficulty, llm_continuity, knowledge = switches.vector()
-    asr_context = resolve_asr_context(asr_context, knowledge=knowledge)
+    run.device = str(run.device or "cuda")
+    switches, profile = resolve_llm_switches(stage, run.llm_media, run.llm_retrieval, run.llm_difficulty,
+                                             run.llm_continuity, run.knowledge, run.llm_output_scale,
+                                             run.llm_parallel_windows)
+    run.llm_media, run.llm_retrieval, run.llm_difficulty, run.llm_continuity, run.knowledge = switches.vector()
+    run.asr_context = resolve_asr_context(run.asr_context, knowledge=run.knowledge)
     if PIPELINE_STAGE_ORDER[stage] > PIPELINE_STAGE_ORDER["raw-srt"]:
         _validate_llm_configuration(
-            knowledge_root=knowledge_root,
-            style=style,
-            style_mode=style_mode,
-            llm_difficulty=llm_difficulty,
-            knowledge=knowledge,
-            knowledge_subjects=knowledge_subjects,
+            knowledge_root=run.knowledge_root,
+            style=run.style,
+            style_mode=run.style_mode,
+            llm_difficulty=run.llm_difficulty,
+            knowledge=run.knowledge,
+            knowledge_subjects=run.knowledge_subjects,
         )
     # Normalize "auto" to None: whisper uses None for auto-detection;
     # the string "auto" is not a valid language code and would raise.
-    if language and language.strip().lower() == "auto":
-        language = None
+    if run.language and run.language.strip().lower() == "auto":
+        run.language = None
     source_arg = str(input_path)
     input_is_url = _is_media_url(source_arg)
     if input_is_url:
         # Wall only, no CPU: a download is network wait by construction, so a
         # wall:CPU ratio here would be a large number that means nothing.
         download_t0 = time.perf_counter()
-        source_path, paths, llm_video, source_extra_info = prepare_url_input(
+        source_path, paths, run.llm_video, source_extra_info = prepare_url_input(
             source_arg,
-            output_path=output_path,
-            llm_video=llm_video,
-            download_video_source=download_video_source,
+            output_path=run.output_path,
+            llm_video=run.llm_video,
+            download_video_source=run.download_video_source,
         )
-        extra_info = compose_url_extra_info(
+        run.extra_info = compose_url_extra_info(
             source_arg,
             source_extra_info,
-            extra_info,
+            run.extra_info,
             stage=stage,
-            asr_context=asr_context,
+            asr_context=run.asr_context,
         )
-        stage_timing["download"] = stage_record(
+        run.stage_timing["download"] = stage_record(
             status="executed",
             elapsed_sec=time.perf_counter() - download_t0,
         )
@@ -1241,12 +1310,12 @@ def run_pipeline(
         source_path = Path(input_path).expanduser().resolve()
         if not source_path.exists():
             raise FileNotFoundError(f"Input not found: {source_path}")
-        paths = default_pipeline_paths(source_path, output_path)
-        llm_media, llm_video, media_notice = resolve_llm_media_for_source(
+        paths = default_pipeline_paths(source_path, run.output_path)
+        run.llm_media, run.llm_video, media_notice = resolve_llm_media_for_source(
             source_path,
             stage=stage,
-            llm_media=llm_media,
-            llm_video=llm_video,
+            llm_media=run.llm_media,
+            llm_video=run.llm_video,
         )
         if media_notice:
             # Says the LLM stage will not get the video it was asked for, which
@@ -1258,52 +1327,56 @@ def run_pipeline(
         # narrowing the audio here used to cost a lossy generation and a mono
         # 16 kHz downmix before separation -- which runs a 44.1 kHz stereo
         # model -- for an artifact nothing needed.
+    if scope == "post-stable" and not paths.stable_json.exists():
+        raise FileNotFoundError(f"run_post_stable continues from {paths.stable_json}, which is not there")
     paths.final_srt.parent.mkdir(parents=True, exist_ok=True)
     resolved_task_artifact_dir = (
-        Path(task_artifact_dir).expanduser()
-        if task_artifact_dir is not None
+        Path(run.task_artifact_dir).expanduser()
+        if run.task_artifact_dir is not None
         else paths.task_artifact_dir
     )
     if resolved_task_artifact_dir != paths.task_artifact_dir:
         paths = paths._replace(task_artifact_dir=resolved_task_artifact_dir)
-    diarize = task_diarize(paths, diarize, _diarize_default or default_diarize(stage, profile), resume=resume)
-    backend = joint_stage.task_backend(paths.stable_json, paths.aligned_json, asr)
-    joint = backend != joint_stage.LOCAL
-    diarize = _backend_diarize(paths, backend, asr, diarize, asr_aligner)
+    run.diarize = task_diarize(paths, run.diarize, run._diarize_default or default_diarize(stage, profile),
+                               resume=run.resume)
+    if speaker_source == "line-labels" and run.diarize == "off":
+        # The transcription's own labels cost nothing to write (`docs/joint-asr.md`).
+        run.diarize = "acoustics"
     # The LLM keys become the one value the correction task takes, here and not
     # at the LLM stage: building it is where a contradictory request is found
     # (a speaker judge at efficiency, a video switch without a video), and
     # finding that after ASR is finding it at the most expensive moment.
-    llm_request = None
+    run.llm_request = None
     if PIPELINE_STAGE_ORDER[stage] >= PIPELINE_STAGE_ORDER["translated-srt"]:
-        llm_request = _correction_request(
+        run.llm_request = _correction_request(
             paths, source_path, stage,
-            axes=(llm_media, llm_retrieval, llm_difficulty, llm_continuity, llm_output_scale),
-            llm_video=llm_video, fast=llm_fast, parallel_windows=switches.parallel_windows,
-            extra_info=extra_info, extra_style=extra_style, style=style, style_mode=style_mode,
-            knowledge=knowledge, knowledge_root=knowledge_root, refined_srt=refined_srt,
-            knowledge_subjects=knowledge_subjects,
+            axes=(run.llm_media, run.llm_retrieval, run.llm_difficulty, run.llm_continuity,
+                  run.llm_output_scale),
+            llm_video=run.llm_video, fast=run.llm_fast, parallel_windows=switches.parallel_windows,
+            extra_info=run.extra_info, extra_style=run.extra_style, style=run.style, style_mode=run.style_mode,
+            knowledge=run.knowledge, knowledge_root=run.knowledge_root, refined_srt=run.refined_srt,
+            knowledge_subjects=run.knowledge_subjects,
             switch_sources=switches.sources,
-            task_id=task_id, task_summary=task_summary, postprocess_profile=postprocess_profile,
-            max_retries_per_window=max_retries_per_window,
-            max_replacements_per_window=max_replacements_per_window,
-            speaker_judge=judge_of(diarize), proofread=llm_proofread, resume=resume, test_profile=test_profile,
-            split_length_scale=split_length_scale, joint=joint,
+            task_id=run.task_id, task_summary=run.task_summary, postprocess_profile=run.postprocess_profile,
+            max_retries_per_window=run.max_retries_per_window,
+            max_replacements_per_window=run.max_replacements_per_window,
+            speaker_judge=judge_of(run.diarize), proofread=run.llm_proofread, resume=run.resume,
+            test_profile=run.test_profile, split_length_scale=run.split_length_scale, judge_audio=judge_audio,
         )
 
     from .media.ffmpeg import describe_ffmpeg
     update_run_metadata(
         paths.metadata_json,
         {
-            "task_id": task_id or paths.final_srt.stem,
+            "task_id": run.task_id or paths.final_srt.stem,
             "source": source_arg,
-            "timing": {"stages": stage_timing},
+            "timing": {"stages": run.stage_timing},
             # The launchers may reuse a system ffmpeg instead of the managed
             # one, so which binary ran is no longer implied by the install.
             "tools": {"ffmpeg": describe_ffmpeg()},
             **(
-                {"workers": {"batch": dict(_batch_workers)}}
-                if _batch_workers
+                {"workers": {"batch": dict(run._batch_workers)}}
+                if run._batch_workers
                 else {}
             ),
         },
@@ -1313,7 +1386,7 @@ def run_pipeline(
 
         Deliberately at the branch level rather than inside `_use_or_create`:
         a stage skipped outright never reaches that helper (see the `elif`
-        arms below), the LLM stage does not go through it at all, and one of
+        arms in the stage functions), the LLM stage does not go through it at all, and one of
         its call sites is not a pipeline stage in the first place. Reporting
         from the branches is also what keeps this in step with the
         executed/reused/skipped status written into the run metadata.
@@ -1329,7 +1402,27 @@ def run_pipeline(
     target_order = PIPELINE_STAGE_ORDER[stage]
     # Every stage at or below the target may be announced, reused ones
     # included -- which is exactly the denominator a person watching wants.
-    reporter.planned(_planned_stages(target_order, diarize=diarize))
+    # A run continuing from the stable plans only what comes after it.
+    if scope == "post-stable":
+        planned = ["diarize"] if speaker_source == "line-labels" else []
+        planned += [name for name, order in PIPELINE_STAGE_ORDER.items()
+                    if PIPELINE_STAGE_ORDER["raw-srt"] <= order <= target_order]
+    else:
+        planned = _planned_stages(target_order, diarize=run.diarize)
+    reporter.planned(planned)
+    run.paths = paths
+    run.source_path = source_path
+    run.source_arg = source_arg
+    run.target_order = target_order
+    run.announce = announce
+    return run
+
+
+def _run_transcription_stages(run: _Run) -> None:
+    """`run_transcription`'s stages up to the run's target: vocal, aligned, stable and the acoustic speaker
+    labels, each skipped when its product is on disk."""
+    paths, stage, target_order = run.paths, run.stage, run.target_order
+    stage_timing, announce = run.stage_timing, run.announce
     aligned_required = stage == "aligned" or (
         target_order >= PIPELINE_STAGE_ORDER["stable"]
         and not paths.stable_json.exists()
@@ -1339,32 +1432,27 @@ def run_pipeline(
         stage=stage,
         target_order=target_order,
         aligned_required=aligned_required,
-        source_path=source_path,
-        separate=separate,
-        gpu_tier=gpu_tier,
-        device=device,
-        separator_sample_rate=separator_sample_rate,
+        source_path=run.source_path,
+        separate=run.separate,
+        gpu_tier=run.gpu_tier,
+        device=run.device,
+        separator_sample_rate=run.separator_sample_rate,
         stage_timing=stage_timing,
         announce=announce,
-        joint=joint and stage != "vocal",
     )
-    if joint and target_order >= PIPELINE_STAGE_ORDER["aligned"] and aligned_required:
-        _run_joint_aligned(paths, source_path, backend=backend, language=language, aligner=asr_aligner,
-                           repair=asr_repair, split_length_scale=split_length_scale, gpu_tier=gpu_tier,
-                           device=device, stage_timing=stage_timing, announce=announce)
-    elif target_order >= PIPELINE_STAGE_ORDER["aligned"] and aligned_required:
+    if target_order >= PIPELINE_STAGE_ORDER["aligned"] and aligned_required:
         aligned_existed = paths.aligned_json.exists()
         announce("aligned", "reused" if aligned_existed else "running")
         # Built here, not inside the stage: the selection needs the knowledge
         # base and `speech` must not import `llm`, so what crosses is a string.
         asr_context_text, asr_context_report = build_asr_context(
-            asr_context,
-            knowledge_root=knowledge_root,
+            run.asr_context,
+            knowledge_root=run.knowledge_root,
             # The extra-info block already carries the scraped title when
             # there is one (`compose_url_extra_info`), plus whatever the user
             # wrote -- a user who names the subject is at least as good a
             # signal as a title, and costs nothing to read.
-            text=extra_info,
+            text=run.extra_info,
         )
         if asr_context_text:
             update_run_metadata(
@@ -1381,16 +1469,16 @@ def run_pipeline(
             lambda temporary: vad_asr.run_vad_asr(
                 paths.resolve_vocal_audio(),
                 output_path=temporary,
-                model_name=model_name,
-                device=device,
-                language=language,
-                gap_sec=gap_sec,
-                gpu_tier=gpu_tier,
-                vad_silero_assist=vad_silero_assist,
-                qwen_verify=qwen_verify,
-                lang_redecode=lang_redecode,
-                split_length_scale=split_length_scale,
-                asr_decode_batch=asr_decode_batch,
+                model_name=run.model_name,
+                device=run.device,
+                language=run.language,
+                gap_sec=run.gap_sec,
+                gpu_tier=run.gpu_tier,
+                vad_silero_assist=run.vad_silero_assist,
+                qwen_verify=run.qwen_verify,
+                lang_redecode=run.lang_redecode,
+                split_length_scale=run.split_length_scale,
+                asr_decode_batch=run.asr_decode_batch,
                 asr_context=asr_context_text,
                 run_metadata_path=paths.metadata_json,
                 vad_prefix_path=paths.vad_json,
@@ -1423,18 +1511,16 @@ def run_pipeline(
         stable_existed = paths.stable_json.exists()
         announce("stable", "reused" if stable_existed else "running")
         stable_t0 = _stage_clock()
-        # Stabilization and its recall repair are written for Whisper's failures: a joint-ASR task's stable is its aligned.
-        stable_profile = -1 if joint else asr_stabilize_profile
         _use_or_create(
             paths.stable_json,
             "ASR stabilization",
             lambda temporary: asr_stabilize.run_asr_stabilize(
                 paths.aligned_json,
                 output_path=temporary,
-                profile=stable_profile,
-                repair=_recall_repair(paths, squeeze=squeeze_repair, gap=gap_fill, row_fill=row_fill,
-                                      qwen_verify=qwen_verify, device=device, gpu_tier=gpu_tier,
-                                      profile=stable_profile),
+                profile=run.asr_stabilize_profile,
+                repair=_recall_repair(paths, squeeze=run.squeeze_repair, gap=run.gap_fill, row_fill=run.row_fill,
+                                      qwen_verify=run.qwen_verify, device=run.device, gpu_tier=run.gpu_tier,
+                                      profile=run.asr_stabilize_profile),
             ),
         )
         _record_stage_time(
@@ -1444,16 +1530,23 @@ def run_pipeline(
             stable_t0,
             status="reused" if stable_existed else "executed",
         )
-        _run_diarization_stage(paths, diarize=diarize, device=device, gpu_tier=gpu_tier,
-                               announce=announce, backend=diarize_backend, joint_backend=backend if joint else None,
-                               max_speakers=diarize_max_speakers, diarize_split=diarize_split)
+        _run_diarization_stage(paths, diarize=run.diarize, device=run.device, gpu_tier=run.gpu_tier,
+                               announce=announce, backend=run.diarize_backend,
+                               max_speakers=run.diarize_max_speakers, diarize_split=run.diarize_split)
+
+
+def _run_post_stable_stages(run: _Run) -> None:
+    """`run_post_stable`'s stages up to the run's target: the raw SRT and the speaker exports, then the LLM
+    correction, each skipped when its product is on disk."""
+    paths, target_order = run.paths, run.target_order
+    stage_timing, announce = run.stage_timing, run.announce
     if target_order >= PIPELINE_STAGE_ORDER["raw-srt"]:
         raw_srt_existed = paths.raw_srt.exists()
         announce("raw-srt", "reused" if raw_srt_existed else "running")
         raw_srt_t0 = _stage_clock()
-        _write_raw_srt(paths, word=word, postprocess_profile=postprocess_profile, empty_cues=empty_cues)
+        _write_raw_srt(paths, word=run.word, postprocess_profile=run.postprocess_profile, empty_cues=run.empty_cues)
         _run_speaker_export_stage(
-            paths, speaker_tracks=speaker_tracks, empty_cues=empty_cues, announce=announce
+            paths, speaker_tracks=run.speaker_tracks, empty_cues=run.empty_cues, announce=announce
         )
         _record_stage_time(
             paths,
@@ -1481,9 +1574,10 @@ def run_pipeline(
 
         # The task skips what is on disk itself (and still owes the knowledge
         # update for an output an earlier run left behind).
-        run_correction_task(llm_request)
-        if judge_of(diarize) != "off":
-            _run_speaker_export_stage(paths, speaker_tracks=speaker_tracks, empty_cues=empty_cues, announce=announce)
+        run_correction_task(run.llm_request)
+        if judge_of(run.diarize) != "off":
+            _run_speaker_export_stage(paths, speaker_tracks=run.speaker_tracks, empty_cues=run.empty_cues,
+                                      announce=announce)
         if wants_final and not translated_done:
             # The single correction pass above produced the final SRT itself,
             # post-processing included. This marks the transition; there is no
@@ -1500,8 +1594,14 @@ def run_pipeline(
             paths.metadata_json,
             {"llm_rounds": summarize_llm_rounds(paths.task_artifact_dir)},
         )
+
+
+def _finish_run(run: _Run) -> PipelinePaths:
+    """After the last stage, for each entry point: the run metadata closed, the task report written for a
+    run that reached the LLM stage, and the completion reported."""
+    paths, stage, target_order = run.paths, run.stage, run.target_order
     completed = _stage_output(paths, stage)
-    total_sec = time.perf_counter() - run_t0
+    total_sec = time.perf_counter() - run.run_t0
     update_run_metadata(
         paths.metadata_json,
         {
@@ -1515,7 +1615,7 @@ def run_pipeline(
 
         write_task_report(
             paths.task_artifact_dir,
-            task_id=task_id or paths.final_srt.stem,
+            task_id=run.task_id or paths.final_srt.stem,
             outputs={
                 "raw_srt": str(paths.raw_srt),
                 "translated_srt": str(paths.translated_srt),
@@ -1527,7 +1627,7 @@ def run_pipeline(
             },
             run_metadata_path=paths.metadata_json,
         )
-    reporter.completed(completed, total_sec)
+    run.reporter.completed(completed, total_sec)
     return paths
 
 
