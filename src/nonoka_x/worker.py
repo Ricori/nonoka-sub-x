@@ -8,7 +8,6 @@ import json
 import logging
 import os
 import re
-import shutil
 import sys
 import traceback
 from pathlib import Path
@@ -360,21 +359,12 @@ def seed_cloud_stable(request: Mapping[str, Any], output: Path) -> Path | None:
     source = request["source"]
     if source.get("kind") != "cloud_stable":
         return None
-    from finesub.stages import default_pipeline_paths
+    from .correction.finesub import NATIVE_DIAR, NATIVE_STABLE, place_native
 
-    paths = default_pipeline_paths(source["path"], output)
-    seeded = Path(paths.stable_json)
-    _seed_once(Path(source["stable_json"]), seeded)
+    native = {NATIVE_STABLE: source["stable_json"]}
     if source.get("diar_json"):
-        _seed_once(Path(source["diar_json"]), Path(paths.diar_json))
-    return seeded
-
-
-def _seed_once(origin: Path, seeded: Path) -> None:
-    if not seeded.exists():
-        partial = seeded.with_name(f".{seeded.name}.part")
-        shutil.copyfile(origin, partial)
-        os.replace(partial, seeded)
+        native[NATIVE_DIAR] = source["diar_json"]
+    return Path(place_native(source["path"], output, native).stable_json)
 
 
 def diarization_kwargs(request: Mapping[str, Any]) -> dict[str, Any]:

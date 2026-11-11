@@ -114,23 +114,17 @@ def axis_speakers(rows: Sequence[Mapping[str, Any]]) -> list[str]:
 def stable_from_axis(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     """The stable-JSON view of a source-text axis, for the LLM stage alone.
 
-    Rows with no source text are dropped rather than carried as empty segments:
-    the correction windows are built from this list, and a blank row is one the
-    model would be asked to correct into something. Their timings survive in
+    Built by finesub correction (`stable_from_source_rows`), whose input format
+    it is. Rows with no source text are dropped there; their timings survive in
     `axis.json` and are re-applied by `conform_to_axis` after projection.
     """
 
-    segments = []
-    for index, row in enumerate(rows, start=1):
-        text = str(row.get("ja") or "").strip()
-        if not text:
-            continue
-        segments.append(
-            {"id": str(index), "start": float(row["t0"]), "end": float(row["t1"]), "text": text}
-        )
-    if not segments:
-        raise AxisError("this axis has no source text to translate")
-    return {"segments": segments}
+    from .correction.finesub import NoSourceText, stable_from_source_rows
+
+    try:
+        return stable_from_source_rows(rows)
+    except NoSourceText as error:
+        raise AxisError(str(error)) from None
 
 
 @dataclass(frozen=True)
@@ -160,9 +154,9 @@ def translate_axis(
 
     A source-text axis has everything separation, VAD and ASR would produce, so
     the whole speech half of the pipeline is skipped -- no GPU, no models, no
-    audio decode. Stable JSON is the LLM stage's own input format, so writing
-    one is the entire adaptation; `run_correction_task` is the same task
-    `run_pipeline`'s LLM stage runs for a normal run's second half.
+    audio decode. The run itself is finesub correction's
+    (`correction.finesub.run_source_text`); what is decided here is what
+    Nonoka decides for any task: the fast-mode switch and whether to proofread.
 
     Shared by both execution modes: the desktop worker passes the media file so
     an audio or video correction reference stays available, the cloud passes
@@ -170,71 +164,31 @@ def translate_axis(
     reference to text either way.
     """
 
-    import json
-
-    from finesub.llm.correction_request import CorrectionRequest
-    from finesub.llm.correction_translation import run_correction_task
-    from finesub.llm.routing.profiles import resolve_profile
-
+    from .correction.finesub import NoSourceText, run_source_text
     from .settings import correction_proofread
 
-    output = Path(output_path)
-    output.parent.mkdir(parents=True, exist_ok=True)
-    stable_json = output.with_name(f"{output.stem}.stable.json")
-    stable_json.write_text(
-        json.dumps(stable_from_axis(rows), ensure_ascii=False, indent=2), encoding="utf-8"
-    )
-
-    media = str(correction.get("media") or "text")
-    video_path: str | Path | None = None
-    if source_path is not None and media != "text":
-        from finesub.stages import resolve_llm_media_for_source
-
-        media, video_path, notice = resolve_llm_media_for_source(
-            Path(source_path), stage="final-srt", llm_media=media, llm_video=None
+    options = {
+        **correction,
+        "fast": resolve_request_fast(correction, warn=on_notice),
+        "proofread": correction_proofread(correction),
+    }
+    try:
+        run = run_source_text(
+            rows,
+            output_path=output_path,
+            task_id=task_id,
+            task_artifact_dir=task_artifact_dir,
+            task_summary=task_summary,
+            options=options,
+            knowledge=knowledge,
+            source_path=source_path,
+            knowledge_root=knowledge_root,
+            knowledge_subjects=knowledge_subjects,
+            on_notice=on_notice,
         )
-        if notice and on_notice is not None:
-            on_notice(notice)
-    elif source_path is None:
-        media = "text"
-
-    profile = resolve_profile(
-        media,
-        str(correction.get("retrieval") or "none"),
-        str(correction.get("difficulty") or "quality"),
-        "serial",
-    )
-    extra: dict[str, Any] = {} if knowledge_root is None else {"knowledge_root": knowledge_root}
-    if knowledge_subjects:
-        extra["knowledge_subjects"] = tuple(knowledge_subjects)
-    outcome = run_correction_task(CorrectionRequest(
-        stable_json=stable_json,
-        output_path=output,
-        # A text reference reads nothing but the stable JSON, so the media file
-        # is not opened at all -- which is what lets the cloud run this without
-        # ever receiving one.
-        audio_path=Path(source_path) if source_path is not None and media != "text" else None,
-        video_path=Path(video_path) if video_path else None,
-        profile=profile,
-        fast=resolve_request_fast(correction, warn=on_notice),
-        extra_info=str(correction.get("extra_info") or ""),
-        extra_style=str(correction.get("extra_style") or ""),
-        knowledge=knowledge,
-        proofread=correction_proofread(correction),
-        task_id=task_id,
-        task_summary=task_summary,
-        task_artifact_dir=Path(task_artifact_dir),
-        resume=True,
-        **extra,
-    ))
-    if outcome.result is None:
-        raise RuntimeError("the correction task produced no subtitle file")
-    final_srt = Path(outcome.result)
-    return AxisTranslation(
-        stable_json=stable_json,
-        final_srt=final_srt,
-        annotated_csv=final_srt.with_name(f"{final_srt.stem}-annotated.csv"),
-    )
+    except NoSourceText as error:
+        raise AxisError(str(error)) from None
+    return AxisTranslation(stable_json=run.stable_json, final_srt=run.final_srt, annotated_csv=run.annotated_csv)
 
 
 def _track_meta(name: str) -> dict[str, Any]:
