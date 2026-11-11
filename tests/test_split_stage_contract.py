@@ -266,6 +266,20 @@ class EntryPointTests(unittest.TestCase):
         }
         self.assertEqual(options, {**defaults, "stage": "stable", "model_name": "x"})
 
+    def test_replacing_run_pipeline_does_not_change_what_the_halves_take(self) -> None:
+        """A test double or wrapper in `stages.run_pipeline`'s place (the worker tests install one)."""
+
+        from finesub import stages
+
+        original = stages.run_pipeline
+        try:
+            stages.run_pipeline = lambda input_path, **options: None
+            options = stages._pipeline_options(stage="stable", language="ja")  # noqa: SLF001
+        finally:
+            stages.run_pipeline = original
+        self.assertEqual(options["language"], "ja")
+        self.assertIn("diarize", options)
+
 
 #: A stable whose lines carry nothing but the transcription's own speaker labels: no `-diar.json`, no
 #: acoustic labels, no record of which backend made it.

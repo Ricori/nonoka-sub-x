@@ -1150,6 +1150,15 @@ def run_pipeline(
     return _finish_run(run)
 
 
+#: `run_pipeline`'s keywords and their defaults, taken where it is defined: a caller that replaces the
+#: module's `run_pipeline` (a test double, a wrapper) must not change what the halves accept.
+_PIPELINE_DEFAULTS: dict[str, Any] = {
+    name: parameter.default
+    for name, parameter in inspect.signature(run_pipeline).parameters.items()
+    if parameter.kind is parameter.KEYWORD_ONLY
+}
+
+
 def run_transcription(input_path: str | Path, *, stage: str = "stable", **options: Any) -> PipelinePaths:
     """From the source to `stage` (`vocal`, `aligned` or `stable`): separation, VAD + ASR, stabilization
     and, when `diarize` asks for it, the acoustic speaker timeline and what it says about each line.
@@ -1202,15 +1211,10 @@ def run_post_stable(
 
 def _pipeline_options(**given: Any) -> dict[str, Any]:
     """`run_pipeline`'s keywords, `given` over its own defaults: the signature is the one copy of them."""
-    defaults = {
-        name: parameter.default
-        for name, parameter in inspect.signature(run_pipeline).parameters.items()
-        if parameter.kind is parameter.KEYWORD_ONLY
-    }
-    unknown = sorted(set(given) - set(defaults))
+    unknown = sorted(set(given) - set(_PIPELINE_DEFAULTS))
     if unknown:
         raise TypeError(f"unexpected keyword argument(s): {', '.join(unknown)}")
-    return {**defaults, **given}
+    return {**_PIPELINE_DEFAULTS, **given}
 
 
 class _Run(SimpleNamespace):
