@@ -1,6 +1,6 @@
 # 转写引擎重构计划
 
-> 状态（2026-11-11）：WP-Q、WP-A、WP0、WP-R0 已完成并合进 main；WP-C 的 harness 已合进 main，云端基线还没录成（见 WP-C）；编译加速已在 `85ae2b9` 关闭；WP-R2、WP-B、WP-R1、WP1、WP4a、WP4b 已完成并合进 main（WP-R2 的范围按附录 B 第 24、25 问调整，WP-R1 按第 26–29 问补完，WP1 按第 33–36 问）；WP-C 的剩余部分在进行；其余未开工。本文档是交给子代理执行的工作说明，每个工作包可以单独领走。
+> 状态（2026-11-11）：WP-Q、WP-A、WP0、WP-R0 已完成并合进 main；WP-C 的 harness 已合进 main，云端基线还没录成（见 WP-C）；编译加速已在 `85ae2b9` 关闭；WP-R2、WP-B、WP-R1、WP1、WP4a、WP4b 已完成并合进 main（WP-R2 的范围按附录 B 第 24、25 问调整，WP-R1 按第 26–29 问补完，WP1 按第 33–36 问）；WP-C 的剩余部分在进行；2026-11-12 用户决定知识库独立成第三个包、全部经协议访问（第 0.1 节第 5 条、4.6 第 35a 条、WP-K）；其余未开工。本文档是交给子代理执行的工作说明，每个工作包可以单独领走。
 > 写于 2026-11-10，基于 `main@1f14db3`、FineSub `v0.7.0@7123055`。
 > **2026-11-11 整理成干净版本**（用户决定，附录 B 第 1 问）：现行决定直接写在正文里，不再有「以后者为准」的追加条款。每个决定的来历、被推翻的旧说法，以及旧条款编号到新编号的对照，见附录 A；向用户问过的问题和答复见附录 B；还没定的事见附录 C。整理前的版本在 git 历史里（`main` 上的 `docs/transcription-engines-plan.md`）。
 > 相关文档：`docs/runtime-and-config.md`（WP-R0 的调查与设计答复 D1–D23，下称「R0 文档」；其中被本计划取代的答复已在那边标注，对照见附录 A.3）；`docs/engine-sandbox-experiment.md`（预制环境包与进程级沙箱两个前提的实验报告，下称「实验报告」）。本文档与 R0 文档冲突时以本文档为准。
@@ -12,7 +12,7 @@
 落到可检查的规则：
 
 1. **算法文件上锁。** `third_party/finesub/src/finesub/` 下默认全部文件不许改，包括识别、分离、稳定化、说话人分离、纠错翻译的全部 LLM 代码、提示词模板、配置默认值。分包之后（WP-P1）这些文件搬进两个引擎包，锁跟着走：包里每个 FineSub 文件的哈希等于搬之前的值。运行时锁（`pylock.*.toml`）、运行时清单、模型清单**按内容**上锁：钉住的每一项记在 `src/nonoka_x/resources/RUNTIME_PINS.json`，由 `tests/test_runtime_pins.py` 看住，放在哪个文件里都一样。
-2. **只解锁四处**，它们是编排、入口和安装设施，不是算法：
+2. **只解锁四处**，它们是编排、入口和安装设施，不是算法（另有一处按第 0.1 节第 5 条批准：知识库的访问点，由 WP-K 改）：
    - `finesub/stages.py`（`run_pipeline` 所在，要拆，WP-B）
    - `finesub/pipeline.py`（命令行前端，跟着删选项，WP-B）
    - `finesub/speech/joint/`（联合 ASR 后端，整个迁走，WP1）
@@ -37,6 +37,7 @@
 2. **锁里去掉 `onnx`**（2026-11-11，附录 B 第 4 问）：`onnx` 与 `onnx-weekly` 往同一个 `onnx/` 目录写文件，装出来的结果取决于安装顺序（2.9）。去掉 `onnx`，留 `onnx-weekly`。由 WP-R1 单独提交，`RUNTIME_PINS.json` 从 98 个包变成 97 个。
 3. **云端只比结构和统计**（2026-11-11，附录 B 第 5 问）：Modal 容器按第一个输入的时长自行选择加速（2.10），云端结果不能逐次复现，所以 `--cloud` 不用第 0 节第 3 条，只比产物齐全、格式合法、段数、文字距离、说话人数等统计量是否在阈值内。阈值由 WP-C 实测后提案，**用户批准后**才写进闸门。
 4. **环境基线随密钥交付方式重录一次**（R0 文档 D19）：密钥改走进程环境变量后，`environment.json` 里 `FINESUB_ENV_FILE` 的内容必然对不上，WP-R5 按新方式重录，单独提交。
+5. **知识库的访问点可以改**（2026-11-12，附录 B 第 37–40 问）：知识库独立成第三个包（4.6 第 35a 条），转写和纠错两半对知识库的**直接访问**（读条目、匹配、写回知识更新、加写锁等）改成经知识库包的协议调用。批准范围只限访问方式：选哪些条目、怎么匹配、怎么渲染、提示词、知识更新的内容一律不变。涉及的上锁文件包括 `stages.build_asr_context`（WP-B 之后已冻结）和纠错那一半读写知识库的模块，精确清单由 WP-P0 第 10 问列出，由 WP-K 实施。标准不降：发给 LLM 的请求序列、ASR 上下文文本、知识更新写出的内容都与基线逐字节一致。`QUALITY_LOCK.json` 只在 WP-K 的专门提交里更新，提交信息写明本条。
 
 ## 1. 目标
 
@@ -46,7 +47,7 @@
 2. **转写引擎是可选的一等概念**，FineSub 只是其中一个，没有特权：worker、provider、就绪检查、界面里没有「FineSub 专属」的分支，它和别的引擎走同一个注册表、同一套 `EngineSpec`、同一个 `transcript.json` 出口。
 3. **MAI-Transcribe-2、Gemini 3.5 Transcribe、MOSS Pro 由 Nonoka X 自己维护**：API 客户端、拼窗、断行、密钥、配额、缓存、就绪检查和运行环境都归 Nonoka，不再是 FineSub 的 `--asr` 后端。
 4. **纠错翻译继续用 FineSub 的，封装成 finesub correction**，和 FineSub 转写引擎互不依赖：两者各自声明运行环境，各自就绪检查；只用其中一个时不需要另一个的任何东西。
-5. **彻底隔离**：FineSub 分装成两个引擎包（转写包、纠错翻译包），随时可以删掉其中任何一个或两个而不影响 Nonoka 运行；Nonoka 核心对 FineSub 零引用；包的产物由包转换成 Nonoka 的格式后交给核心保存（4.6）。分包之前的过渡形态见第 5 节。
+5. **彻底隔离**：FineSub 分装成两个引擎包（转写包、纠错翻译包）和一个知识库包（4.6 第 35a 条），随时可以删掉其中任何一个或几个而不影响 Nonoka 运行；Nonoka 核心对 FineSub 零引用；包的产物由包转换成 Nonoka 的格式后交给核心保存（4.6）。分包之前的过渡形态见第 5 节。
 6. **运行环境由 Nonoka 构建和托管**：FineSub 转写引擎的 Python 环境（连同 Python 解释器）、模型、工具做成预制环境包，由 Nonoka 的构建流水线产出、托管在 Cloudflare R2，用户机器下载解压即用，不再在用户机器上用 uv 逐个装包、去 Hugging Face 下模型，也不再用用户机器上的系统 Python（4.2）。配置和密钥的存储也归 Nonoka（4.3）。
 7. **FineSub 的代码只留核心文件**：引擎源码、许可证文件、`UPSTREAM.json`、质量锁、`LOCAL_CHANGES.md`。分包后 `third_party/finesub/` 不再存在，两个引擎包是 FineSub 代码唯一的家。
 8. **数据目录重新组织**：所有数据目录都可以改名和搬动；FineSub 相关的文件不再散落在主数据目录里（只在包的私有目录 `engines\<包>\` 下）。**旧版用户由迁移工具搬到新布局**，随第一个采用新布局的版本发布（4.4）。
@@ -274,7 +275,7 @@
     - **Python 环境和工具重新下载**，旧的清空：删掉旧的 Python 环境（`runtime\python\`、`runtime\python-builds\`）、旧工具（`runtime\{ffmpeg,uv,tokcount,yt-dlp,aria2c,node,pot-provider}\`）、缓存（`cache\`、uv 缓存、编译缓存，含 `third_party\finesub\cache\`、`app-resources\<版本>\…\cache\` 这类检出模式下的编译缓存）、`.finesub-store.json`、`register-location.cmd`。系统 Python 不碰。
     - **先删后下**（用户 2026-11-11，附录 B 第 2 问）：清空旧环境后再下载新的层。从清空到下载完成之间 FineSub 转写不可用，界面要说明并显示进度；下载失败可以重试，不回退到旧环境（旧环境已删）。
     - 设置和密钥读进 `settings.json`、`secrets.json`；`finesub.env`、`finesub.toml` 里 Nonoka 不认识的键和变量**丢弃**，迁移报告里列出被丢弃的表名、键名、变量名（不列值），旧文件改名留作备份（D11、D11c、D13）。迁移后派生出的 `finesub.toml` 与迁移前的语义相同，**只对 Nonoka 认识的键成立**：用户手写过 `[segmentation]`、`[pools]` 之类的表的，行为回到默认值，迁移报告里写明。
-    - 知识库、限流状态搬进 `engines\finesub-correct\`，内容一字不改；任务目录里的 FineSub 产物归进 `native\<包 id>\`。
+    - 知识库搬进 `engines\finesub-knowledge\`、限流状态搬进 `engines\finesub-correct\`，内容一字不改；任务目录里的 FineSub 产物归进 `native\<包 id>\`。
     - 迁移规则的其余部分（先出计划、目标已存在就停下不合并、同盘改名、`storage.json` 改写）按 R0 文档 2.7，其中涉及 venv 与 `pyvenv.cfg` 的条目（D10、D23）作废。
 
 ### 4.5 沙箱与密闭运行
@@ -296,22 +297,27 @@
 31. **密闭有边界，如实列出**：显卡与驱动、网络本身；Nonoka 管理的目录里的层、缓存、状态文件、知识库；用户选用的本地 Agent CLI 自己的登录状态和配置（纠错进程）；由 Agent CLI 拉起的 MCP 服务子进程里用户级 site-packages 仍然生效（R0 文档 3.2 第 5 条）；沙箱管不到的写入途径——注册表、`C:\Windows\Temp`、用 Known Folder API 找目录的原生库（2.7）；系统的 VC++ 2015–2022 运行库（torch 的 `c10.dll` 要 `msvcp140.dll` ≥ 14.40，wheel 和 PBS 都不带，`src/nonoka_x/msvc_runtime.py` 在下载前检查）。MSVC 工具链不再是边界（2.8），系统 Python 也不再是（第 14 条）。
 32. **用三种办法证明密闭，两个进程都做**（WP-H）：分类表覆盖扫描、投毒测试、读取审计；转写进程另加沙箱写入检查（运行前后对沙箱外的受保护位置做快照比对，做法同实验报告 1.0）。
 
-### 4.6 彻底隔离：两个引擎包
+### 4.6 彻底隔离：两个引擎包与知识库包
 
 33. **FineSub 分装成两个引擎包，Nonoka 核心对它零引用。** `engines/finesub-transcribe/`（转写包）和 `engines/finesub-correct/`（纠错翻译包）。`src/nonoka_x/` 里不 import `finesub`、`finesub_bootstrap`，不出现 `FINESUB_`，不读写 FineSub 的任何文件格式，没有白名单。分包前在 `src/` 下的适配器、桥接在 WP-P1 搬进包里。`third_party/finesub/` 在分装后删除。
     - **代码冻结后原样分装。** 冻结点是 WP-B 和 WP1 做完之后。分装只搬文件，不改内容：包里每个 FineSub 文件的 sha256 等于 `QUALITY_LOCK.json` 里同一路径的值。依据（2026-11-11 查实）：`speech/` 不 import `llm/`；`llm/` 只用到 `speech/diarization/` 的 `labels`、`judgments`、`product`、`assign` 和 `speech/postprocessing/recall_repair` 的一个函数；其余共用的是顶层 16 个文件、`subtitles/`、`media/`。精确的文件清单由 WP-P0 算出。
     - **共用的底座两个包各带一份**，内容相同，各自上锁。`run_transcription` 归转写包、`run_post_stable` 归纠错包。
     - **两个包各跑各的进程**（顶层包名都是 `finesub`，不能在同一个进程里加载）。核心和包之间是进程协议（请求 JSON 进，事件流出，与现在的 worker 协议同形），核心不 import 包里的任何代码。包的就绪检查、模型路由与目录等需要问引擎的信息，也通过这个协议问。
-    - **包靠清单被发现，可以随时删。** 每个包根目录有 `PACKAGE.json`：标识、种类（转写 / 纠错）、入口、能力声明、需要的层（第 15 条）、要的密钥名。核心启动时扫描 `engines/`，有哪个包就注册哪个。删掉转写包：其余引擎加 FineSub 纠错照常。删掉纠错包：所有转写引擎照常出原始字幕，纠错翻译、知识库、LLM 模型设置显示「未安装」。两个都删：核心照常启动，云 API 引擎照常转写。为此原始字幕的渲染（`transcript.json` 到 SRT）由核心自己做。删除指代码层面可分离、打包时可以不带；界面不提供卸载。
+    - **包靠清单被发现，可以随时删。** 每个包根目录有 `PACKAGE.json`：标识、种类（转写 / 纠错）、入口、能力声明、需要的层（第 15 条）、要的密钥名。核心启动时扫描 `engines/`，有哪个包就注册哪个。删掉转写包：其余引擎加 FineSub 纠错照常。删掉纠错包：所有转写引擎照常出原始字幕，纠错翻译、LLM 模型设置显示「未安装」。删掉知识库包：知识库页显示「未安装」，开了知识库或 ASR 上下文的请求被就绪检查拦下（第 35a 条）。两个都删：核心照常启动，云 API 引擎照常转写。为此原始字幕的渲染（`transcript.json` 到 SRT）由核心自己做。删除指代码层面可分离、打包时可以不带；界面不提供卸载。
     - **包目录不许是「源码检出」的形状**：不能同时有 `pyproject.toml` 和 `src\finesub`（2.5），测试断言。
     - **启动上下文**：运行时位置（层的当前版本目录）、模型目录、这个包的数据目录、派生文件目录、任务目录、按名字给的密钥、代理、设备、设置项、LLM 路由与端点（R0 文档 1.15，去掉 `runtime.manifests` 和 `download` 两个字段：转写包不再下载，纠错包不碰模型）。
 34. **产物由包转换成 Nonoka 的格式后交给核心保存；原生产物是包的私有附件。**
     - 转写包交出 `transcript.json` 和 Nonoka 格式的说话人信息。它的原生产物（`-stable.json`、`-aligned.json`、`-diar*.json`、`-vad*.json`、`-vocal.ogg` 等）放在 `tasks\<id>\native\finesub-transcribe\`，核心只当不透明的附件登记，不解析。
     - 纠错包拿到任务时，如果附件里有 FineSub 的 stable，**原样使用，一个字节都不改写**（红线：FineSub 转写接 FineSub 纠错的输入与现在相同）；没有或被删了，就从 `transcript.json` 构造。
     - 纠错包交出字幕和 Nonoka 需要的结构化结果，转换在包的适配器里做；`projector.py` 现在解析 FineSub 说话人产物的部分搬进适配器。
-    - 知识库归纠错包：数据在 `engines\finesub-correct\knowledge\`。删掉纠错包后数据留着，装回来继续用。
+    - 知识库不归纠错包，归知识库包（第 35a 条）。
     - 主数据目录和任务目录里，除包的私有目录外，没有 FineSub 格式的文件。
 35. **分包之前写的东西按「将来要搬进包」来写。** WP4a、WP4b 的适配器、WP-R5 的桥接先落在 `src/` 下，但除协议类型外不 import `nonoka_x` 的其他模块，WP-P1 搬的时候就不用重写。
+35a. **知识库独立成第三个包**（用户 2026-11-12，附录 B 第 37–40 问；编号是插入的，后面的条款号不变）：
+    - `engines/finesub-knowledge/`（知识库包）持有知识库的数据和全部知识库代码（FineSub 的 `llm/knowledge/` 及其依赖、现 `knowledge_worker.py` 的管理操作）。数据在 `engines\finesub-knowledge\`，迁移时从主数据目录搬来，内容一字不改（WP-M2）。
+    - **只有知识库包碰知识库数据。** 转写包（ASR 上下文的条目选择）和纠错包（读条目、注入、写回知识更新、写锁）都经知识库包的协议访问；为此改上锁文件里的访问点，按第 0.1 节第 5 条由 WP-K 实施。界面上的知识库管理也走这个协议。
+    - 知识库包不在时：开了知识库（`knowledge` 不是 `off`）或 ASR 上下文要用知识库的请求，由就绪检查拦下并说明，不静默当作关闭（附录 B 第 39 问）。其余功能照常。
+    - 待 WP-P0 第 10 问回答：协议的形状（包进程之间是否经核心转发、沙箱里的转写进程怎么连到知识库包）、知识库包自己的 LLM 调用（知识维护与更新要用 LLM）跑在哪个进程、用谁的 LLM 设施、调用开销。
 
 ### 4.7 云端
 
@@ -504,8 +510,8 @@ WP-E3 ──► WP-R6（桌面、脚本、离线包）
 WP-A、WP-B、WP-R5、WP-R6、WP-CL0、WP-C ──► WP-R7（删自下载、vendor 只留核心）
 
 分包线：
-WP-B、WP1 ──► WP-P0 ─┐
-WP4c、WP5、WP-R7 ────┴─► WP-P1 ──┬─► WP-H（密闭与沙箱）
+WP-B、WP1 ──► WP-P0 ──► WP-K（知识库访问点改协议）─┐
+WP4c、WP5、WP-R7 ──────────────────────────────────┴─► WP-P1 ──┬─► WP-H（密闭与沙箱）
                                  ├─► WP-L ──► WP-M2（迁移集成）
                                  └─► WP-CL（云端重做）
 
@@ -836,13 +842,25 @@ harness 已在 main（`tests/quality_harness/cloud.py`、`quality_gate.py --clou
   5. 核心现在直接用 FineSub 的每一处（`settings.py` 的模型路由与目录、`projector.py` 的说话人产物解析、`gpu_tier.py` 的档位选项、`axis.py`、`worker.py`、`llm_worker.py`、`knowledge_worker.py`、`local_provider.py`）：各归哪个包的适配器，协议上要加什么查询。
   6. 现有产物清单里每一项：是 Nonoka 格式、是中性格式（SRT），还是 FineSub 格式；FineSub 格式的由哪个包转换成什么，哪些只作私有附件。
   7. 任务续跑和重试现在靠盘上的 FineSub 产物跳过已完成的阶段；产物进了私有目录之后这个行为怎么保持。
-  8. 知识库目录搬进纠错包数据目录后，界面上知识库管理的每个操作走协议的哪个查询。
+  8. 知识库包（4.6 第 35a 条，数据在 `engines\finesub-knowledge\`）：界面上知识库管理的每个操作走协议的哪个查询。
   9. 进程拆成两段后启动开销多少（转写进程还要算上沙箱准备）；默认路径的任务日志和进度事件怎么保持与现在一致。
-- 完成标准：九个问题各有带文件位置的答案；两份文件清单可以被脚本直接读；任何一条意味着必须改冻结文件的，单独标出并交回。
+  10. **知识库的访问点**（第 0.1 节第 5 条）：转写和纠错两半每一处直接读写知识库的调用点（文件、函数、读还是写、要不要写锁）；知识库包的协议设计（查询与写入的种类、包进程之间怎么连、沙箱里的转写进程怎么连、调用开销）；每个要改的上锁文件怎么改（只换访问方式）；闸门现有基线覆盖没覆盖这些路径，没覆盖的列出要补录的用例（在未改动的代码上录，录之前经用户批准）。
+- 完成标准：十个问题各有带文件位置的答案；三份文件清单（转写包、纠错包、知识库包）可以被脚本直接读；任何一条意味着必须改冻结文件的，单独标出并交回。
+
+### WP-K 知识库访问点改走协议（新，2026-11-12）
+
+等 WP-P0 做完再开工，排在 WP-P1 之前。按第 0.1 节第 5 条、4.6 第 35a 条。
+
+- 文件：WP-P0 第 10 问列出的上锁文件（只改访问方式）、知识库包的协议客户端与服务端（先放在 `third_party/finesub/` 之外、按「将来要搬进包」来写，WP-P1 搬进三个包）、`knowledge_worker.py`、`QUALITY_LOCK.json` 与 `tests/test_finesub_quality_lock.py`、对应测试、`third_party/finesub/LOCAL_CHANGES.md`。
+- 内容：
+  - 闸门没覆盖到的知识库路径，先按 WP-P0 的用例清单在未改动的代码上补录基线（用户批准后单独提交）。
+  - 把每个访问点换成协议调用；协议的服务端在知识库包里，用原来的知识库代码原样完成读、匹配、写更新和加锁。
+  - 更新质量锁：只有 WP-P0 清单上的文件哈希变；单独提交，提交信息写明第 0.1 节第 5 条。
+- 完成标准：闸门全部通过，含 `--real`；LLM 请求序列、ASR 上下文文本、知识更新写出的文件与基线逐字节一致；转写和纠错两半的进程里不再直接打开知识库目录（测试断言）；知识库包不在时，开了知识库的请求被就绪检查拦下（测试）。
 
 ### WP-P1 分装成两个引擎包
 
-等 WP-P0、WP4c、WP5、WP-R7 做完再开工。做完之后才做 WP-H、WP-L、WP-CL。
+等 WP-P0、WP-K、WP4c、WP5、WP-R7 做完再开工。做完之后才做 WP-H、WP-L、WP-CL。**按 4.6 第 35a 条分装成三个包**（转写包、纠错包、知识库包），下面写「两个包」的地方都按三个包理解。
 
 - 文件：`engines/finesub-transcribe/**`、`engines/finesub-correct/**`（新建）；`third_party/finesub/**`（搬空后删除）；`src/nonoka_x/finesub_bridge.py`、`transcription/engines/finesub.py`、`correction/finesub.py`（搬进包）；`src/nonoka_x/engine_host.py`（新建）、`worker.py`、`local_provider.py`、`settings.py`、`projector.py`、`gpu_tier.py`、`axis.py`、`llm_worker.py`、`knowledge_worker.py` 里用 FineSub 的地方；桌面暂存工具与离线包脚本；`tests/quality_harness/`（只改定位与入口，基线不动）。
 - 内容：
@@ -1041,6 +1059,7 @@ harness 已在 main（`tests/quality_harness/cloud.py`、`quality_gate.py --clou
   - D. 锁里 `onnx` 和 `onnx-weekly` 互相覆盖，从锁里去掉一个（去掉哪个见附录 B 第 4 问）。
   - E. 新方案必须遵守的约束：每个引擎进程有自己的临时目录；`.pyc` 不能写进引擎源码目录；模型层的 `probe.json` 改写（查实加速关闭后不再发生，2.8）；模型层里的符号链接；引擎目录里不放 `pyproject.toml`。
   - 同日把计划整理成本版（附录 B 第 1 问）。
+- **2026-11-12 知识库独立拆包**（附录 B 第 37–40 问）：知识库成为第三个包，只有它碰知识库数据，转写和纠错两半经协议访问；为此批准改上锁文件里的知识库访问点（第 0.1 节第 5 条），新增 WP-K；数据放 `engines\finesub-knowledge\`；知识库包不在时就绪检查拦下。起因是 WP4a 交回：转写引擎做 ASR 上下文要读知识库，而原计划知识库归纠错包。
 
 ### A.2 旧条款编号对照（整理前 → 本版）
 
@@ -1137,6 +1156,10 @@ R0 文档里这几条已按此加了标注（只加标注，不删原文）。
 | 34 | WP1：`enhance/`、`moss_local/` 依赖 FineSub 的 Silero 加载、声纹与 PLDA、`hf_weights` 自下载、device/resources | 用到的函数复制进 Nonoka，注明来源；模型目录由 `nonoka_x.runtime` 新增的 `model_dir()` 给，不自下载，缺模型就跳过增强（推荐项） |
 | 35 | WP1：清单外的 `repair.py`、`stage.py`、`__init__.py`、`quota.py` 等放哪 | `transcription/repair.py`；`engines/joint_stage.py`（原样搬，WP3 拆）；后端名常量进 `engines/__init__.py`，`GPU_LOCK` 进 `enhance/__init__.py`；`quota.py` 并进 `keys.py`；`lines.py` 用到的 segments、line_groups 函数复制进 `segmentation/`（推荐项） |
 | 36 | WP1：云引擎密钥名与配置 | 改名 `OPENROUTER_STT_KEY`、`AZURE_SPEECH_KEY`、`AZURE_SPEECH_ENDPOINT`（`MOSS_PRO`、`GEMINI_FREE` 不变），只读 Nonoka 的存储、不读进程环境变量；照搬「取前 N 个」，不认 FineSub 的 `[pools]`/`[providers]`；`[asr] repair`、`moss_pro_paid`、`split_length_scale` 改成参数、沿用原默认值；配额台账 `<主数据目录>\state\cloud-asr-quota.json`（`config.state_file()`）。旧名字到新名字的映射由 WP-R4 的迁移做（推荐项） |
+| 37 | 知识库独立拆包，包里放什么 | **全部经知识库包的协议**：只有知识库包碰知识库数据，转写和纠错两半经协议访问（推荐的是数据和管理归新包、两边各带原样的知识库代码直接读写，不动上锁文件） |
+| 38 | 这等于按第 0 节第 7 条改上锁文件，怎么推进 | **现在就批准这类改动**：知识库访问点都可以改，由 WP-K 实施，闸门证明结果逐字节不变（推荐的是 WP-P0 先列清单、按清单批准） |
+| 39 | 知识库包不在时，开了知识库或 ASR 上下文的任务怎么办 | 就绪检查拦下，不静默关闭（推荐项） |
+| 40 | 知识库数据放哪 | `engines\finesub-knowledge\`，迁移时搬过去（推荐项） |
 
 更早的问答：WP-R0 的 D1–D23 见 R0 文档第 0 节；WP0 的细节见附录 A.1；沙箱实验中的决定见实验报告。
 
