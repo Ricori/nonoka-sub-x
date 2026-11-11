@@ -1127,6 +1127,10 @@ R0 文档里这几条已按此加了标注（只加标注，不删原文）。
 | 30 | VC++ 运行库继续依赖系统安装，还是随 Python 环境层带上（原附录 C 第 4 项） | 继续依赖系统安装：`msvc_runtime.py` 下载前检查并引导安装，列为密闭边界（推荐项） |
 | 31 | macOS 的工具层在哪里构建（原附录 C 第 7 项） | **这次先不做 macOS**：WP-E1 只做 Windows 三层，macOS 工具层另定（推荐的是本机打包、Mac 上验证） |
 | 32 | 模型层放哪些模型（原附录 C 第 6 项） | 由 WP-E1 先查清每条模型在什么设置下会被加载、云 API 引擎的可选增强要哪些，列表带大小交用户定，定了再构建（推荐项）；仍未定，见附录 C 第 6 项 |
+| 33 | WP1：sbd 的断句模型（xlm-roberta，约 1.1 GB，不在模型清单里）本机没有，行为基线怎么录 | 下到主检出 `.tmp\sbd-hf\` 录真基线，未改动代码 + 已装运行时解释器（只读）录、PBS 环境里比；取模型的位置本包不动，放哪由 WP-E1 定（推荐项） |
+| 34 | WP1：`enhance/`、`moss_local/` 依赖 FineSub 的 Silero 加载、声纹与 PLDA、`hf_weights` 自下载、device/resources | 用到的函数复制进 Nonoka，注明来源；模型目录由 `nonoka_x.runtime` 新增的 `model_dir()` 给，不自下载，缺模型就跳过增强（推荐项） |
+| 35 | WP1：清单外的 `repair.py`、`stage.py`、`__init__.py`、`quota.py` 等放哪 | `transcription/repair.py`；`engines/joint_stage.py`（原样搬，WP3 拆）；后端名常量进 `engines/__init__.py`，`GPU_LOCK` 进 `enhance/__init__.py`；`quota.py` 并进 `keys.py`；`lines.py` 用到的 segments、line_groups 函数复制进 `segmentation/`（推荐项） |
+| 36 | WP1：云引擎密钥名与配置 | 改名 `OPENROUTER_STT_KEY`、`AZURE_SPEECH_KEY`、`AZURE_SPEECH_ENDPOINT`（`MOSS_PRO`、`GEMINI_FREE` 不变），只读 Nonoka 的存储、不读进程环境变量；照搬「取前 N 个」，不认 FineSub 的 `[pools]`/`[providers]`；`[asr] repair`、`moss_pro_paid`、`split_length_scale` 改成参数、沿用原默认值；配额台账 `<主数据目录>\state\cloud-asr-quota.json`（`config.state_file()`）。旧名字到新名字的映射由 WP-R4 的迁移做（推荐项） |
 
 更早的问答：WP-R0 的 D1–D23 见 R0 文档第 0 节；WP0 的细节见附录 A.1；沙箱实验中的决定见实验报告。
 
