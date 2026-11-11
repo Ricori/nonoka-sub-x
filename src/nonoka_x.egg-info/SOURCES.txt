@@ -22,6 +22,5 @@ tests/test_peaks.py
 tests/test_projector.py
 tests/test_provision.py
 tests/test_settings.py
-tests/test_sync_finesub.py
 tests/test_vendor_contract.py
 tests/test_worker_adapter.py

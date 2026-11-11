@@ -4,8 +4,7 @@
 `third_party/finesub/src/` except the orchestration the refactor is allowed to
 change (plan section 0, rule 2). Bytes are hashed as stored: `.gitattributes`
 marks `third_party/finesub/**` as `-text`, so a checkout on any platform has
-exactly the committed bytes -- the same rule `scripts/sync_finesub.py` relies
-on for `FILES.json`.
+exactly the committed bytes.
 
 Changing the lock is a separate, user-approved engine change; `write` exists
 for that commit and for nothing else.

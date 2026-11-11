@@ -1,6 +1,6 @@
 """Where the second-model referee runs, and whether it says anything.
 
-Both promises started as ``patches/finesub/0007-referee-live-vram-and-verify-progress.patch``
+Both promises started as a former Nonoka X patch (``0007-referee-live-vram-and-verify-progress``)
 and both were paid for in silence:
 
 * The referee used to be put on the card from the *tier's* VRAM budget alone.

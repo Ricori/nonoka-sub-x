@@ -6,8 +6,8 @@ handle inside the tree -- the antivirus scan of a freshly unpacked ffmpeg.exe
 is the one users actually hit. A bare `os.replace` lets that `[WinError 5]`
 end a multi-minute install and surfaces it verbatim in the desktop UI.
 
-This used to be the contract for
-`patches/finesub/0002-retry-directory-publish-rename.patch`. Upstream 0.5.0
+This used to be the contract for a former Nonoka X patch
+(`0002-retry-directory-publish-rename`). Upstream 0.5.0
 took the behaviour (`fsops.ReplaceBudget`, `PUBLISH_REPLACE`,
 `RECORD_REPLACE`) and the patch is gone, so what remains here is a regression
 guard: the promise is Nonoka X's desktop UX, the implementation is now

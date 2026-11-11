@@ -1,40 +1,30 @@
-"""What Nonoka X's FineSub engine patches are allowed to be.
+"""The seams Nonoka X's cloud calls in the FineSub engine.
 
 The cloud runs one task across three containers and only the Whisper leg needs
 the GPU. Upstream 0.5.0 split the VAD half out by itself -- `run_vad_prefix`,
 `write_vad_prefix`/`read_vad_prefix`, `run_vad_asr(vad_prefix_path=...)`, and
-the referee's `warm` seam -- so the CPU container that used to need a patch now
-calls upstream code with upstream arguments. What is still ours is the other
-end: ``patches/finesub/0001-qwen-tail-entry-point.patch`` adds
-`finalize_qwen_verification`, which attaches the referee's evidence to an
+the referee's `warm` seam -- so the CPU container calls upstream code with
+upstream arguments. What is still ours is the other end:
+`finalize_qwen_verification` (local change 0001 in
+``third_party/finesub/LOCAL_CHANGES.md``) attaches the referee's evidence to an
 aligned artifact the GPU container already wrote.
 
-Everything else about the cloud is upstream code called with upstream
-arguments, and the value of that claim is exactly the value of this file: it
-pins the seams the cloud depends on -- upstream's and ours alike, because a
-sync can take either away -- *and* pins our patch to being additive, so nothing
-local can change underneath a caller that never opts in.
-
-That claim is about ``src/finesub`` -- the engine both sides import. A patch
-confined to ``src/finesub_bootstrap`` fixes how *this machine* installs the
-engine (the container installs nothing at run time), so it cannot make the two
-sides compute anything different, and the stack is allowed to carry those.
+This file pins the seams the cloud depends on -- upstream's and ours alike,
+because an upgrade can take either away. That the engine files themselves are
+unchanged is the quality lock's job (``tests/test_finesub_quality_lock.py``).
 """
 
 from __future__ import annotations
 
 import ast
-import json
 import unittest
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
 VENDOR = ROOT / "third_party" / "finesub"
-PATCH_ROOT = ROOT / "patches" / "finesub"
 STAGE_PATH = VENDOR / "src/finesub/speech/recognition/vad_asr_stage.py"
 REFEREE_PATH = VENDOR / "src/finesub/speech/verification/qwen_referee.py"
-TAIL_PATCH = "0001-qwen-tail-entry-point.patch"
 
 
 def _module(path: Path) -> ast.Module:
@@ -56,44 +46,11 @@ def _top_level_names(module: ast.Module) -> set[str]:
     return names
 
 
-def _touched_paths(patch: Path) -> list[str]:
-    """The vendor-relative files a patch writes to, sorted.
-
-    Read from the `---`/`+++` file headers rather than `diff --git` lines: a
-    plain unified diff has no `diff --git` line at all, and keying on it let
-    such a patch report touching nothing and pass every check below.
-    """
-
-    paths: set[str] = set()
-    previous = ""
-    for line in patch.read_text(encoding="utf-8", errors="replace").splitlines():
-        if line.startswith("+++ ") and previous.startswith("--- "):
-            new, old = line[4:].strip(), previous[4:].strip()
-            # A deleted file's new side is /dev/null; its path is the old side.
-            path = new if new != "/dev/null" else old
-            paths.add(path.split("/", 1)[1] if path[:2] in ("a/", "b/") else path)
-        previous = line
-    return sorted(paths)
-
-
-def _is_installer_plumbing(path: str) -> bool:
-    """Whether a patched file only affects how this machine installs.
-
-    One prefix, and the runtime manifest is inside it since upstream 0.5.0 made
-    it package data: the catalog the installer downloads binaries from now
-    lives at ``src/finesub_bootstrap/runtime-manifest.json``, read there by
-    `finesub_bootstrap.resources`, and no container ever runs it.
-    """
-
-    return path.startswith("src/finesub_bootstrap/")
-
-
-#: What the tail patch adds. A cloud container imports it by name, and the
-#: patch's whole job is to put it there.
+#: What local change 0001 adds. A cloud container imports it by name.
 ADDED_NAMES = ("finalize_qwen_verification",)
 
 #: Upstream's own split seams, which the cloud's CPU container calls instead of
-#: the ones our patch used to add. Listed here because a sync can retire them
+#: the ones a local change used to add. Listed here because an upgrade can retire them
 #: as easily as it introduced them, and the failure would otherwise be a
 #: traceback on the first cloud task rather than a red test.
 UPSTREAM_NAMES = (
@@ -156,125 +113,7 @@ class SplitSeamTests(unittest.TestCase):
         self.assertIn("warm", methods)
 
 
-class PurelyAdditiveTests(unittest.TestCase):
-    """The stack may add; it may not rewrite what local execution runs."""
-
-    def test_engine_patches_are_explicit_and_the_rest_is_installer_plumbing(self) -> None:
-        """Every engine patch is named here; all remaining patches are bootstrap-only.
-
-        The cloud is meant to run upstream code. A patch under ``src/finesub``
-        is a second thing local and cloud no longer share, so it has to be
-        justified in ``docs/engine.md`` before it is added here. One under
-        ``src/finesub_bootstrap`` is not: no container ever runs it.
-        """
-
-        upstream = json.loads((VENDOR / "UPSTREAM.json").read_text(encoding="utf-8"))
-        names = [item["path"] for item in upstream["patches"]]
-        self.assertEqual(names[0], TAIL_PATCH)
-        # Three engine patches left this table when upstream 0.5.1 took the
-        # work over: the referee's offline load and failure containment, the
-        # live-VRAM placement veto with the verification progress it reports,
-        # and the escaped-tool-argument repair. Upstream 0.6.0 took three more:
-        # agy's workspace read grant (`AGY_READ_PERMISSION_RULES`), the Silero
-        # non-ASCII path load (`native_paths.load_torchscript`) and the GPT-6
-        # Codex rows, which Nonoka X now follows rather than extends. Nothing
-        # replaced them here -- the cloud reaches upstream's implementations.
-        engine_patches = {
-            TAIL_PATCH: [
-                "src/finesub/speech/recognition/vad_asr_stage.py",
-            ],
-            # Build reachability, not transcription: Triton's launcher
-            # generator uses empty struct initializers `{}` that MSVC rejects
-            # under C11, and upstream's toolchain probe is deliberately
-            # Windows-shaped, while the cloud's Linux containers need it to
-            # answer for a POSIX compiler before the accelerated separator can
-            # be compiled at all. What it decides is whether AOTI compiles,
-            # never what the separator outputs.
-            "0003-aoti-toolchain-portability.patch": [
-                "src/finesub/speech/preprocessing/separator/separator_aoti.py",
-            ],
-            # Additive and opt-in: user-picked knowledge subjects pinned into
-            # the windows and the post-task update. Without
-            # `knowledge_subjects=` every path is upstream's, and the cloud
-            # never sends one (its runs read no local knowledge base).
-            "0004-pinned-knowledge-subjects.patch": [
-                "src/finesub/llm/correction_request.py",
-                "src/finesub/llm/correction_translation.py",
-                "src/finesub/llm/knowledge/entries.py",
-                "src/finesub/llm/knowledge/subjects.py",
-                "src/finesub/llm/knowledge/update.py",
-                "src/finesub/stages.py",
-            ],
-            # Local-agent setup, not transcription: agy 1.3 silently swaps an
-            # unknown `--project` id for its default project, and the check
-            # now notices and re-registers. Only the local agy driver runs
-            # it; the cloud never starts a local agent CLI.
-            "0005-agy-compatibility.patch": [
-                "src/finesub/llm/agent/local_agent.py",
-            ],
-            # Import placement only: recognition and separation load where
-            # their stages run, so resuming from a stable.json needs no torch.
-            # A run that recognises imports the same modules a stage later,
-            # with the same defaults; nothing it computes changes.
-            "0006-lazy-asr-import-in-stages.patch": [
-                "src/finesub/speech/diarization/marks.py",
-                "src/finesub/stages.py",
-            ],
-            # Log lines only: a research round says when it waits and how
-            # long the answer took, a parse retry is a warning, and a call in
-            # flight notes every 5 minutes that it still is. No call, timeout
-            # or result changes.
-            "0007-llm-wait-visibility.patch": [
-                "src/finesub/llm/http.py",
-                "src/finesub/llm/llm_runtime.py",
-                "src/finesub/llm/research.py",
-            ],
-            # LLM calls only, which the cloud never runs: a streamed call is
-            # judged by replies rather than bytes, gets a backup after 10
-            # minutes without one and is cut after 10 more.
-            "0008-llm-stream-reply-timeout.patch": [
-                "src/finesub/llm/http.py",
-                "src/finesub/llm/llm_runtime.py",
-                "src/finesub/llm/provider_transports.py",
-                "src/finesub/llm/streaming.py",
-            ],
-        }
-        for name in names:
-            with self.subTest(patch=name):
-                outside = [
-                    path
-                    for path in _touched_paths(PATCH_ROOT / name)
-                    if not _is_installer_plumbing(path)
-                ]
-                if name in engine_patches:
-                    self.assertEqual(outside, engine_patches[name])
-                else:
-                    self.assertEqual(outside, [])
-
-    def test_the_tail_patch_touches_one_file(self) -> None:
-        self.assertEqual(
-            _touched_paths(PATCH_ROOT / TAIL_PATCH),
-            ["src/finesub/speech/recognition/vad_asr_stage.py"],
-        )
-
-    def test_the_tail_patch_removes_nothing_at_all(self) -> None:
-        """Additive with no exceptions, which upstream 0.5.0 made possible.
-
-        The old split patch had to move upstream's prefix block into an
-        ``else:`` arm, so it removed and re-added real statements and this test
-        had to reason about re-indentation. Upstream owns the prefix now, and
-        what is left adds one function: a single removed line would mean the
-        patch had started editing what local execution runs.
-        """
-
-        patch = (PATCH_ROOT / TAIL_PATCH).read_text(encoding="utf-8", errors="replace")
-        removed = [
-            line
-            for line in patch.splitlines()
-            if line.startswith("-") and not line.startswith("---")
-        ]
-        self.assertEqual(removed, [])
-
+class RetiredMechanismTests(unittest.TestCase):
     def test_no_execution_profile_switch_survives_in_the_engine(self) -> None:
         """The retired mechanism, kept retired.
 
@@ -296,7 +135,7 @@ class PurelyAdditiveTests(unittest.TestCase):
 
 class AddedCodeTests(unittest.TestCase):
     def test_added_functions_are_documented_where_they_are_defined(self) -> None:
-        """A patched-in seam with no docstring is one upstream cannot review."""
+        """A seam we added with no docstring is one upstream cannot review."""
 
         module = _module(STAGE_PATH)
         public = {

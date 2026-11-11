@@ -7,8 +7,8 @@ metadata request succeeds, so the failure lands at the end of the preparation
 step -- `401 Unauthorized` against a host the mirror never proxied, and no
 model installed at all on a machine routed to `cn`.
 
-This used to be the contract for
-`patches/finesub/0008-hf-mirror-disable-xet.patch`. Upstream 0.5.0 fixed it
+This used to be the contract for a former Nonoka X patch that disabled Xet
+on mirrors (`0008-hf-mirror-disable-xet`). Upstream 0.5.0 fixed it
 itself (`model_fetch.apply_xet_policy`) and the patch is gone; what remains is
 a regression guard, because the machine that loses this is one Nonoka X routes
 to `cn` and cannot install a single model on.

@@ -9,9 +9,8 @@ import tomllib
 import unittest
 from pathlib import Path
 
-from scripts.sync_finesub import DEFAULT_VENDOR, sha256_file, verify_snapshot
-
 ROOT = Path(__file__).resolve().parents[1]
+DEFAULT_VENDOR = ROOT / "third_party" / "finesub"
 sys.path.insert(0, str(ROOT / "src"))
 
 
@@ -42,7 +41,19 @@ def _enum_members(path: Path, name: str) -> set[str]:
 class VendorContractTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
-        cls.upstream = verify_snapshot(DEFAULT_VENDOR)
+        cls.upstream = json.loads((DEFAULT_VENDOR / "UPSTREAM.json").read_text(encoding="utf-8"))
+
+    def test_upstream_record_names_the_version_and_nothing_else(self) -> None:
+        """Which upstream the vendor is based on; integrity is the quality lock's job."""
+
+        self.assertEqual(
+            set(self.upstream),
+            {"repository", "ref", "commit", "engine_version", "engine_bundle_id"},
+        )
+        self.assertEqual(
+            self.upstream["engine_bundle_id"],
+            f"finesub-{self.upstream['engine_version']}+{self.upstream['commit'][:12]}",
+        )
 
     def test_engine_packages_import_without_loading_models(self) -> None:
         source = DEFAULT_VENDOR / "src"
@@ -166,19 +177,6 @@ class VendorContractTests(unittest.TestCase):
         bootstrap = DEFAULT_VENDOR / "src/finesub_bootstrap"
         self.assertTrue((bootstrap / "model-manifest.json").is_file())
         self.assertTrue((bootstrap / "download-sources.json").is_file())
-
-    def test_recorded_finesub_patches_are_present_and_hashed(self) -> None:
-        patch_root = DEFAULT_VENDOR.parents[1] / "patches" / "finesub"
-        patches = self.upstream.get("patches") or []
-        self.assertTrue(patches)
-        self.assertEqual(
-            [entry["path"] for entry in patches],
-            [path.name for path in sorted(patch_root.glob("*.patch"))],
-        )
-        for entry in patches:
-            path = patch_root / entry["path"]
-            self.assertTrue(path.is_file())
-            self.assertEqual(sha256_file(path), entry["sha256"])
 
 
 if __name__ == "__main__":

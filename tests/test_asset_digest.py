@@ -1,7 +1,12 @@
 from __future__ import annotations
 
+import sys
+from pathlib import Path
+
 import httpx
 import pytest
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from finesub_bootstrap import asset_resolve, http_client
 from finesub_bootstrap.http_client import NetworkRoute

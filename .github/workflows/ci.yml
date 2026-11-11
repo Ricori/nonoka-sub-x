@@ -17,10 +17,8 @@ jobs:
           python-version: "3.12"
       - name: Install contract test dependencies
         run: python -m pip install -e . pytest
-      - name: Verify generated FineSub snapshot
-        run: python scripts/sync_finesub.py check
-      - name: Build reproducible engine bundle
-        run: python -m scripts.build_finesub_bundle
+      - name: Verify the FineSub quality lock
+        run: python -m pytest -q tests/test_finesub_quality_lock.py
 
   go-contract:
     runs-on: windows-latest
@@ -45,7 +43,7 @@ jobs:
       - name: Install sidecar bootstrap dependencies from a fresh cache
         run: python -m pip install -e . pytest
       - name: Verify pinned engine and managed runtime manifests on Windows
-        run: python -m pytest -q tests/test_vendor_contract.py tests/test_sync_finesub.py tests/test_provision.py
+        run: python -m pytest -q tests/test_vendor_contract.py tests/test_finesub_quality_lock.py tests/test_provision.py
 
   frontend-contract:
     runs-on: ubuntu-latest

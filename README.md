@@ -95,9 +95,9 @@ task dev
 #### 算法引擎与云端命令
 | 命令 | 说明 |
 | :--- | :--- |
-| `python scripts/sync_finesub.py check` | 离线校验 FineSub 固定快照与补丁完整性 |
+| `python -m pytest -q tests/test_finesub_quality_lock.py` | 校验 FineSub 上锁文件未被改动 |
+| `python scripts/quality_gate.py` | FineSub 质量回归闸门 |
 | `python -m pytest -q` | 运行 Python 引擎契约、Projector 与文档存储测试 |
-| `python -m scripts.build_finesub_bundle` | 构建本地/云端通用的 Engine Bundle |
 
 ---
 
@@ -214,9 +214,8 @@ nonoka-x/
 │   ├── internal/app/         # Wails 核心服务、本地流媒体网关、缓存与更新
 │   └── frontend/             # React 19 前端工程（媒体库、JASSUB 编辑器、轨道视图）
 ├── src/nonoka_x/             # Python 适配层、Artifact Projector 与 DocumentStore
-├── third_party/finesub/      # 固定 commit 的 FineSub 算法引擎快照（生成目录）
-├── patches/finesub/          # 维护的 FineSub 专用补丁栈
-├── scripts/                  # 引擎同步、构建与运维脚本
+├── third_party/finesub/      # FineSub 算法引擎（算法文件由质量锁看住，本地改动见 LOCAL_CHANGES.md）
+├── scripts/                  # 质量闸门、上游对齐报告、构建与运维脚本
 └── docs/                     # 架构与核心规范文档
 ```
 

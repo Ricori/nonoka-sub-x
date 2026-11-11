@@ -161,18 +161,6 @@ class PinnedUpstreamCopyTests(unittest.TestCase):
         self.assertEqual(completed.returncode, 0, completed.stderr)
         self.assertEqual(completed.stdout.strip(), "")
 
-    def test_the_vendored_engine_is_left_alone(self) -> None:
-        """The reason for copying: no patch in the stack touches the planner."""
-
-        patches = sorted((ROOT / "patches" / "finesub").glob("*.patch"))
-        self.assertTrue(patches)
-        for patch in patches:
-            body = patch.read_text(encoding="utf-8", errors="replace")
-            with self.subTest(patch=patch.name):
-                for name in PINNED:
-                    self.assertNotIn(f"def {name}(", body)
-                    self.assertNotIn(f"class {name}:", body)
-
 
 class BlockPlanTests(unittest.TestCase):
     """The numbers the cloud Vocal worker was sized around."""

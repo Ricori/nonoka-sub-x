@@ -14,11 +14,10 @@ stage this comes from: that image carries audio-separator but deliberately no
 torchaudio, and ``finesub...separator.separation`` reaches torchaudio through
 its audio readers long before it reaches any planning code.
 
-A copy rather than a vendor patch, because the planner is untouched upstream
-code. It sits in the one stretch of ``separation.py`` that no patch in
-``patches/finesub`` touches, and moving it there would trade forty-five lines
-of arithmetic for a file-move hunk that has to be redone against new code at
-every upstream sync.
+A copy rather than a vendor change, because the planner is untouched upstream
+code: ``separation.py`` is under the quality lock, and moving the planner there
+would trade forty-five lines of arithmetic for a local change that has to be
+redone against new code at every upstream upgrade.
 
 What keeps a copy from drifting is ``tests/test_separator_block_plan.py``: it
 compares the block below to the vendored source character for character, and
