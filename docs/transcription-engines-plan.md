@@ -1,6 +1,6 @@
 # 转写引擎重构计划
 
-> 状态（2026-11-11）：WP-Q、WP-A、WP0、WP-R0 已完成并合进 main；WP-C 的 harness 已合进 main，云端基线还没录成（见 WP-C）；编译加速已在 `85ae2b9` 关闭；WP-R2、WP-B 已完成并合进 main（WP-R2 的范围按附录 B 第 24、25 问调整）；WP-R1 已评审，按附录 B 第 26–29 问补完后合并；WP-C 的剩余部分在进行；其余未开工。本文档是交给子代理执行的工作说明，每个工作包可以单独领走。
+> 状态（2026-11-11）：WP-Q、WP-A、WP0、WP-R0 已完成并合进 main；WP-C 的 harness 已合进 main，云端基线还没录成（见 WP-C）；编译加速已在 `85ae2b9` 关闭；WP-R2、WP-B、WP-R1 已完成并合进 main（WP-R2 的范围按附录 B 第 24、25 问调整，WP-R1 按第 26–29 问补完）；WP-C 的剩余部分在进行；其余未开工。本文档是交给子代理执行的工作说明，每个工作包可以单独领走。
 > 写于 2026-11-10，基于 `main@1f14db3`、FineSub `v0.7.0@7123055`。
 > **2026-11-11 整理成干净版本**（用户决定，附录 B 第 1 问）：现行决定直接写在正文里，不再有「以后者为准」的追加条款。每个决定的来历、被推翻的旧说法，以及旧条款编号到新编号的对照，见附录 A；向用户问过的问题和答复见附录 B；还没定的事见附录 C。整理前的版本在 git 历史里（`main` 上的 `docs/transcription-engines-plan.md`）。
 > 相关文档：`docs/runtime-and-config.md`（WP-R0 的调查与设计答复 D1–D23，下称「R0 文档」；其中被本计划取代的答复已在那边标注，对照见附录 A.3）；`docs/engine-sandbox-experiment.md`（预制环境包与进程级沙箱两个前提的实验报告，下称「实验报告」）。本文档与 R0 文档冲突时以本文档为准。
@@ -486,7 +486,7 @@ FineSub 转写引擎也要写 `transcript.json`（从它的 stable 投影出来�
 ## 6. 工作包
 
 ```text
-已完成：WP-Q、WP-A、WP0、WP-R0、WP-R2、WP-B；WP-C 的 harness（基线未录成）
+已完成：WP-Q、WP-A、WP0、WP-R0、WP-R2、WP-B、WP-R1；WP-C 的 harness（基线未录成）
 
 引擎线：
 WP-B ──┬─► WP1 ──► WP3a / WP3b / WP3c ───────────────┐
@@ -531,6 +531,8 @@ D:\Envir\Python312\python scripts/quality_gate.py          # 不用 GPU 的各�
 D:\Envir\Python312\python scripts/quality_gate.py --real   # 再加真实样本与已装运行时实测，约 3 分钟
 D:\Envir\Python312\python scripts/quality_gate.py --cloud  # 云端（WP-C；基线未录成）
 ```
+
+**WP-R1 之后**，本机已装的运行时与新锁对不上（锁里去掉了 `onnx`），`--real` 改用按新锁装的 PBS 环境，跑之前设 `NONOKA_QUALITY_PYTHON=D:\Development\nonoka-sub-x\.tmp\pbs-3.12.1\python\python.exe`（附录 B 第 27 问；模型与工具仍只读地取自已装运行时）。WP-E1 出层后改为指向层。几个会话同时工作时，跑 `--real` 前先 `mkdir .tmp\real-gpu.lock` 抢锁（里面写 `owner.txt`），跑完删掉。
 
 退出码 0 通过、1 有一项失败、2 没有失败但有「未判定」的产物。每项失败都会指出哪个场景、哪个算法入口的哪个参数、或哪个文件不一样，以及基线文件的位置。`--record <calls|environment|replay|real|cloud>` 用当前代码重录某项基线，只能在用户批准后单独提交（第 0 节第 7 条）。
 
@@ -677,7 +679,9 @@ harness 已在 main（`tests/quality_harness/cloud.py`、`quality_gate.py --clou
 
 结论与设计答复在 R0 文档。其中被本计划取代的答复（D5、D10、D12、D23 整条，D18、D21 部分）已在 R0 文档里标注，对照见附录 A.3。
 
-### WP-R1 Nonoka 自己的清单，去掉 `onnx`
+### WP-R1 Nonoka 自己的清单，去掉 `onnx`（已完成 2026-11-11）
+
+> 交付：`src/nonoka_x/resources/` 下的 `pylock.win-py312.toml`、`runtime-manifest.windows-x64.json`（含 `interpreter`：PBS 3.12.1，sha256 `fd5a9e0f…eae08a`）、`model-manifest.json`，读取接口 `runtime/manifests.py`；三份锁去掉 `onnx`（98 → 97，单独提交 `4c138fd`）。`tests/quality_harness/pins.py` 的 `derive()` 改读 Nonoka 的清单，`problems()` 同时对照 `finesub_bootstrap` 自己的文件（转写包运行时还读它们）；`pins.py write` 重新生成的记录与提交的逐字节相同。`pyproject.toml` 打包 `resources/*.toml`，桌面暂存本来就整目录复制。harness 认 `NONOKA_QUALITY_PYTHON`（见 WP-Q 用法）。合并后的 main 上 `--real` 通过。已知：仓库里跟踪的 `src/nonoka_x.egg-info/` 与代码不同步（原有问题）。下面是原始说明。
 
 - 文件：`src/nonoka_x/resources/` 下的运行时锁、工具清单、模型清单，`runtime/manifests.py`，`tests/test_runtime_pins.py`，`RUNTIME_PINS.json`；`third_party/finesub/src/finesub_bootstrap/pylock.win-py312.toml`、`pylock.win-py312.cn.toml`（只删 `onnx` 一项）。
 - 内容：
