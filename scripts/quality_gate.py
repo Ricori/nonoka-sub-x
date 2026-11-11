@@ -3,6 +3,7 @@
 
     python scripts/quality_gate.py            # the checks that need no GPU
     python scripts/quality_gate.py --real     # also rerun the real samples
+    python scripts/quality_gate.py --cloud    # also rerun the samples on Modal (costs money)
 
 Checks (docs/transcription-engines-plan.md, section 0 and WP-Q):
 
@@ -21,10 +22,14 @@ Checks (docs/transcription-engines-plan.md, section 0 and WP-Q):
                     built on the real sample, test_data/quality-baseline/replay/)
 5. real samples     (--real) the samples rerun to raw-srt on this machine's
                     managed runtime, against test_data/quality-baseline/real/
+6. cloud samples    (--cloud) the samples rerun to stable by the unchanged
+                    Modal compute legs (nonoka-sub-cloud/modal_compute, one L4
+                    per GPU leg), against test_data/quality-baseline/cloud/
 
 Exit status: 0 every check passed; 1 a check failed; 2 nothing failed, but
-`--real` left artifacts it cannot judge by bytes (see the report) -- that is a
-decision for the owner, not a pass.
+something was left undecided -- a replay case whose inputs are missing here,
+or an artifact `--real`/`--cloud` cannot judge by bytes (see the report). That
+is a decision for the owner, not a pass.
 
 `--record PART` rewrites a baseline from the current code. Doing that to make
 the gate pass is exactly what the gate exists to prevent: only with the
@@ -225,19 +230,27 @@ def check_replay(args: argparse.Namespace) -> Result:
 
     result = Result("LLM replay")
     records = replay.run_all()
+    unavailable = replay.unavailable()
     skipped = sorted(set(replay.CASES) - set(records))
     if args.record == "replay":
         replay.write_baselines(records)
-        result.summary = f"RECORDED {len(records)} replay baselines"
+        result.summary = f"RECORDED {len(records)} replay baselines" + (
+            f" ({len(skipped)} not recorded: inputs missing here)" if skipped else "")
         return result
     found = replay.differences(records)
     broken = [name for name, record in records.items() if record.get("exit") != 0]
-    note = f" ({len(skipped)} skipped: no real-sample recognition here)" if skipped else ""
+    note = f"; {len(skipped)} case(s) not run: inputs missing here" if skipped else ""
+    # A case whose inputs are missing compared nothing: undecided, never a pass.
+    not_run = [f"NOT RUN   {name}: missing {', '.join(unavailable.get(name) or ['inputs'])}" for name in skipped]
     if not found and not broken:
         requests = sum(len(record.get("exchanges", [])) for record in records.values())
         result.summary = f"{len(records)} cases, {requests} requests and their outputs match{note}"
+        if skipped:
+            result.status = UNDECIDED
+            result.details = not_run + ["(real-sample recognition is kept under test_data/, outside the "
+                                        "repository; run the gate in the main checkout that has it)"]
         return result
-    details = []
+    details = list(not_run)
     for name in sorted(set(found) | set(broken)):
         details.append(f"{name}  [{replay.baseline_path(name).relative_to(ROOT).as_posix()}]")
         if records[name].get("exit") != 0:
@@ -248,6 +261,49 @@ def check_replay(args: argparse.Namespace) -> Result:
 
 
 # --- 5. real samples -----------------------------------------------------------------
+
+
+def _judge_sample(name: str, comparison: dict[str, Any], baseline_comparison: dict[str, Any],
+                  standards: dict[str, str], lines: list[str], failures: list[str],
+                  undecided: list[str]) -> tuple[int, int]:
+    """Judge one sample's artifacts against the baseline; returns (by bytes, by standard).
+
+    An artifact the baseline's two runs reproduced byte for byte must match
+    byte for byte; one they did not is judged by its accepted standard (plan
+    section 0, rule 3), or left undecided when it has none. Shared by `--real`
+    and `--cloud`.
+    """
+
+    by_bytes = by_standard = 0
+    for artifact, entry in sorted(comparison.items()):
+        reproducible = baseline_comparison.get(artifact, {}).get("status") == "identical"
+        standard = standards.get(artifact)
+        where = f"{name}/{artifact}"
+        if entry["status"] == "identical":
+            by_bytes += 1
+            lines.append(f"  ok        {where}")
+        elif entry["status"] == "missing":
+            failures.append(where)
+            lines.append(f"  MISSING   {where}: only in the {'baseline' if entry.get('in') == 'first' else 'new run'}")
+        elif reproducible:
+            failures.append(where)
+            lines.append(f"  DIFFERS   {where}: {json.dumps(entry.get('first_difference', ''), ensure_ascii=False)[:300]}")
+        elif standard is not None:
+            if entry.get(standard) is True:
+                by_standard += 1
+                lines.append(f"  ok        {where} (by the accepted standard: {standard})")
+            else:
+                failures.append(where)
+                detail = entry.get("first_difference") or entry.get("decoded_pcm_sha256") or entry.get("status")
+                lines.append(f"  DIFFERS   {where} under the accepted standard {standard}: "
+                             f"{json.dumps(detail, ensure_ascii=False)[:300]}")
+        else:
+            undecided.append(where)
+            facts = {key: entry[key] for key in (
+                "identical_outside_metadata", "identical_decoded_samples", "differing_path_count",
+            ) if key in entry}
+            lines.append(f"  UNJUDGED  {where}: not byte-reproducible even on unchanged code; {facts}")
+    return by_bytes, by_standard
 
 
 def check_real(args: argparse.Namespace) -> Result:
@@ -283,32 +339,10 @@ def check_real(args: argparse.Namespace) -> Result:
                 failures.append(name)
                 lines.append(f"{name}: the run failed (exit {sample['run']['exit']}); see {scratch / name / 'events.ndjson'}")
                 continue
-            baseline_comparison = recorded["samples"][name]["comparison"]
-            for artifact, entry in sorted(sample["comparison"].items()):
-                reproducible = baseline_comparison.get(artifact, {}).get("status") == "identical"
-                standard = real.ACCEPTED_STANDARDS.get(artifact)
-                where = f"{name}/{artifact}"
-                if entry["status"] == "identical":
-                    by_bytes += 1
-                    lines.append(f"  ok        {where}")
-                elif reproducible:
-                    failures.append(where)
-                    lines.append(f"  DIFFERS   {where}: {json.dumps(entry.get('first_difference', ''), ensure_ascii=False)[:300]}")
-                elif standard is not None:
-                    if entry.get(standard) is True:
-                        by_standard += 1
-                        lines.append(f"  ok        {where} (by the accepted standard: {standard})")
-                    else:
-                        failures.append(where)
-                        detail = entry.get("first_difference") or entry.get("decoded_pcm_sha256") or entry.get("status")
-                        lines.append(f"  DIFFERS   {where} under the accepted standard {standard}: "
-                                     f"{json.dumps(detail, ensure_ascii=False)[:300]}")
-                else:
-                    undecided.append(where)
-                    facts = {key: entry[key] for key in (
-                        "identical_outside_metadata", "identical_decoded_samples", "differing_path_count",
-                    ) if key in entry}
-                    lines.append(f"  UNJUDGED  {where}: not byte-reproducible even on unchanged code; {facts}")
+            counts = _judge_sample(name, sample["comparison"], recorded["samples"][name]["comparison"],
+                                   real.ACCEPTED_STANDARDS, lines, failures, undecided)
+            by_bytes += counts[0]
+            by_standard += counts[1]
     finally:
         if not args.keep:
             shutil.rmtree(scratch, ignore_errors=True)
@@ -327,6 +361,75 @@ def check_real(args: argparse.Namespace) -> Result:
     return result
 
 
+# --- 6. cloud samples ---------------------------------------------------------------
+
+
+def check_cloud(args: argparse.Namespace) -> Result:
+    from tests.quality_harness import cloud, real
+
+    result = Result(f"cloud samples (stable, Modal {cloud.GPU})")
+    if not args.cloud:
+        result.status, result.summary = SKIP, "not requested (pass --cloud; rents GPUs on Modal)"
+        return result
+    if args.record == "cloud":
+        report = cloud.record()
+        result.summary = "RECORDED test_data/quality-baseline/cloud/ (two runs per sample, see report.json)"
+        result.details = [json.dumps(report["samples"][name]["runs"], ensure_ascii=False, default=str)
+                          for name in report["samples"]]
+        if not all(run.get("ok") for sample in report["samples"].values() for run in sample["runs"]):
+            result.status = FAIL
+            result.summary += "; a run failed, so this baseline is not usable"
+        return result
+    issues = cloud.issues()
+    if issues:
+        return result.fail("cannot run here", issues)
+    report_path = cloud.BASELINE_ROOT / "report.json"
+    if not report_path.is_file():
+        return result.fail(f"no baseline: {report_path.relative_to(ROOT).as_posix()} (record one first)")
+    recorded = json.loads(report_path.read_text(encoding="utf-8"))
+    scratch = Path(tempfile.mkdtemp(prefix="nonoka-quality-cloud-"))
+    failures, undecided, lines = [], [], []
+    by_bytes = by_standard = 0
+    try:
+        outcome = cloud.check(scratch)
+        if "skipped" in outcome:
+            return result.fail("cannot run here", outcome["skipped"])
+        for name, sample in outcome.items():
+            if "error" in sample:
+                failures.append(name)
+                lines.append(f"{name}: {sample['error']}")
+                continue
+            if not sample["run"].get("ok"):
+                failures.append(name)
+                lines.append(f"{name}: the run failed ({sample['run'].get('error') or sample['run'].get('failures')}); "
+                             f"see {scratch / 'runner.log'} and {scratch / name / 'run.json'}")
+                continue
+            # Reported, not judged: a different card or a rebuilt accelerator
+            # explains a difference, it does not excuse one.
+            for note in cloud.environment_changes(recorded["samples"][name]["runs"][0], sample["run"]):
+                lines.append(f"  note      {name}: {note}")
+            counts = _judge_sample(name, sample["comparison"], recorded["samples"][name]["comparison"],
+                                   real.ACCEPTED_STANDARDS, lines, failures, undecided)
+            by_bytes += counts[0]
+            by_standard += counts[1]
+    finally:
+        if not args.keep:
+            shutil.rmtree(scratch, ignore_errors=True)
+        else:
+            lines.append(f"runs kept in {scratch}")
+    result.details = lines
+    if failures:
+        result.status, result.summary = FAIL, f"{len(failures)} reproducible artifact(s) or run(s) changed"
+    elif undecided:
+        result.status = UNDECIDED
+        result.summary = (f"every reproducible artifact matches; {len(undecided)} artifact(s) cannot be judged "
+                          "by bytes (owner decision, see test_data/quality-baseline/cloud/report.json)")
+    else:
+        result.summary = (f"every artifact matches: {by_bytes} byte for byte, {by_standard} by the accepted "
+                          "standards (plan section 0, rule 3)")
+    return result
+
+
 CHECKS: dict[str, Callable[[argparse.Namespace], Result]] = {
     "lock": check_lock,
     "pins": check_pins,
@@ -334,6 +437,7 @@ CHECKS: dict[str, Callable[[argparse.Namespace], Result]] = {
     "environment": check_environment,
     "replay": check_replay,
     "real": check_real,
+    "cloud": check_cloud,
 }
 
 
@@ -342,12 +446,16 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--real", action="store_true", help="also rerun the real samples (needs the managed runtime and GPU)")
     parser.add_argument("--only", choices=sorted(CHECKS), action="append", help="run only this check (repeatable)")
     parser.add_argument("--full", action="store_true", help="print whole diffs")
-    parser.add_argument("--keep", action="store_true", help="keep the --real runs' directories")
-    parser.add_argument("--record", choices=("calls", "environment", "replay", "real"),
+    parser.add_argument("--cloud", action="store_true",
+                        help="also rerun the samples on Modal with the unchanged compute legs (rents GPUs, costs money)")
+    parser.add_argument("--keep", action="store_true", help="keep the --real / --cloud runs' directories")
+    parser.add_argument("--record", choices=("calls", "environment", "replay", "real", "cloud"),
                         help="rewrite that baseline from the current code (owner approval only)")
     args = parser.parse_args(argv)
     if args.record == "real":
         args.real = True
+    if args.record == "cloud":
+        args.cloud = True
     selected = args.only or (list(CHECKS) if not args.record else ["lock", args.record])
 
     print("FineSub quality gate")
@@ -375,7 +483,7 @@ def main(argv: list[str] | None = None) -> int:
     if FAIL in statuses:
         verdict, code = "FAIL", 1
     elif UNDECIDED in statuses:
-        verdict, code = "UNDECIDED (nothing failed; see the real-sample report)", 2
+        verdict, code = "UNDECIDED (nothing failed; see the UNDECIDED check above)", 2
     else:
         verdict, code = "PASS", 0
     print(f"RESULT: {verdict}")

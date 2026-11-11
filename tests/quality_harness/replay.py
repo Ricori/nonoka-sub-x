@@ -45,8 +45,12 @@ BASELINE_DIR = FIXTURES / "replay"
 #: Baselines made from the real sample's recognition. They quote a real
 #: recording's transcript, so they stay beside it, outside the repository.
 PRIVATE_BASELINE_DIR = ROOT / "test_data" / "quality-baseline" / "replay"
-REAL_STABLE = "test_data/quality-baseline/real/sample_ja/run-1/tasks/gate-real/workspace/sample_ja-stable.json"
-MULTI_WORKSPACE = "test_data/quality-baseline/real/sample_multi_person/run-1/tasks/gate-real/workspace"
+#: The stable inputs of the private cases, kept apart from the real-sample
+#: baseline: the replay fixes one recognition and checks what the LLM half does
+#: with it, so re-recording the real samples (as on 2026-11-11, when compiled
+#: acceleration was turned off) must not move these inputs.
+REAL_STABLE = "test_data/quality-baseline/replay-inputs/sample_ja-stable.json"
+MULTI_WORKSPACE = "test_data/quality-baseline/replay-inputs"
 TASK_ID = "gate-replay"
 
 #: One replay per stable input; `stable` and `media` are relative to the
@@ -464,9 +468,27 @@ def run_case(name: str, scratch: Path, *, responder: str | None = None) -> dict[
     return record
 
 
-def available(name: str) -> bool:
+def missing_inputs(name: str) -> list[str]:
+    """The inputs of case `name` that are not on this machine (repository-relative)."""
+
     case = CASES[name]
-    return (ROOT / case["stable"]).is_file() and (not case.get("media") or (ROOT / case["media"]).is_file())
+    wanted = [case["stable"]] + ([case["media"]] if case.get("media") else [])
+    return [relative for relative in wanted if not (ROOT / relative).is_file()]
+
+
+def available(name: str) -> bool:
+    return not missing_inputs(name)
+
+
+def unavailable() -> dict[str, list[str]]:
+    """Case -> its missing inputs, for every case that cannot run here.
+
+    Such a case is not a pass: nothing was compared. The gate reports it as
+    undecided, so a checkout without `test_data/` (another machine, a fresh
+    worktree) does not read as having passed every replay.
+    """
+
+    return {name: missing for name in CASES if (missing := missing_inputs(name))}
 
 
 def baseline_path(name: str) -> Path:
