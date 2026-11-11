@@ -1,0 +1,363 @@
+{
+  "schemaVersion": 1,
+  "_note": [
+    "Sizes and digests were taken from the official sources on 2026-08-10, not",
+    "from a developer's cache: the separator files were re-downloaded from",
+    "GitHub and compared byte for byte, and the Hugging Face digests come from",
+    "the Hub's own file-metadata API at the pinned revision.",
+    "",
+    "Hugging Face entries pin a revision rather than listing every file. The",
+    "revision is a commit hash, which pins the whole tree on the official",
+    "source but not on a mirror; the per-file digests recorded here are the",
+    "LFS objects (and, for listedOnly entries, every listed file). The small",
+    "files a mirror serves alongside them are taken on trust: why, and when",
+    "that changes, in docs/download-routes.md, Hugging Face models.",
+    "",
+    "download_checks.json deliberately carries no digest: it is an upstream",
+    "index on a moving branch, so pinning it would fail every machine the day",
+    "upstream edits it. It is fetched once and not verified.",
+    "",
+    "whisper-ja was added on 2026-09-02 from the same Hub file-metadata API,",
+    "and is the one entry that has NOT been through a release drill: no",
+    "default run fetches it, so the first machine to pass --model",
+    "TransWithAI/whisper-ja-1.5B-ct2 is the one that exercises it.",
+    "",
+    "nemotron3 was added on 2026-09-25: the safetensors digest is the Hub's",
+    "LFS oid, config.json was hashed from the bytes at the pinned URL.",
+    "listedOnly fetches just these two files: the repository also carries a",
+    ".nemo, a GGUF and demo media the port never opens. speaker-embedding",
+    "(same day) is ours; its digests were checked against the Hub's LFS oids",
+    "after the upload.",
+    "",
+    "moss-transcribe-diarize was added on 2026-11-05 for --asr moss-local: the two",
+    "LFS digests are the Hub's lfs.oid, the other files were hashed from the bytes",
+    "at the pinned URLs. listedOnly fetches what from_pretrained opens, the three",
+    "remote-code .py files included (trust_remote_code runs them); the repository",
+    "also carries a README, a figure and eval results. Like whisper-ja, no default",
+    "run fetches it."
+  ],
+  "models": {
+    "separator": {
+      "files": [
+        {
+          "name": "model_bs_roformer_ep_317_sdr_12.9755.ckpt",
+          "url": "https://github.com/TRvlvr/model_repo/releases/download/all_public_uvr_models/model_bs_roformer_ep_317_sdr_12.9755.ckpt",
+          "size": 639331213,
+          "sha256": "5b84f37e8d444c8cb30c79d77f613a41c05868ff9c9ac6c7049c00aefae115aa"
+        },
+        {
+          "name": "model_bs_roformer_ep_317_sdr_12.9755.yaml",
+          "url": "https://github.com/nomadkaraoke/python-audio-separator/releases/download/model-configs/model_bs_roformer_ep_317_sdr_12.9755.yaml",
+          "size": 2273,
+          "sha256": "2bfdd16c656bd9519aba757cc4f8834b7ede675eb1e00ec4772d74ae1c41af7f"
+        },
+        {
+          "name": "download_checks.json",
+          "url": "https://raw.githubusercontent.com/TRvlvr/application_data/main/filelists/download_checks.json"
+        }
+      ]
+    },
+    "whisper": {
+      "repo": "mobiuslabsgmbh/faster-whisper-large-v3-turbo",
+      "revision": "0a363e9161cbc7ed1431c9597a8ceaf0c4f78fcf",
+      "files": [
+        {
+          "name": "model.bin",
+          "url": "https://huggingface.co/mobiuslabsgmbh/faster-whisper-large-v3-turbo/resolve/0a363e9161cbc7ed1431c9597a8ceaf0c4f78fcf/model.bin",
+          "size": 1617884929,
+          "sha256": "e76620f83d5f5b69efd3d87e3dc180c1bd21df9fbebacfd4335e5e1efcc018da"
+        }
+      ]
+    },
+    "whisper-ja": {
+      "repo": "TransWithAI/whisper-ja-1.5B-ct2",
+      "revision": "1527314b14da5bdf0d14e7328649d4fa26840188",
+      "files": [
+        {
+          "name": "model.bin",
+          "url": "https://huggingface.co/TransWithAI/whisper-ja-1.5B-ct2/resolve/1527314b14da5bdf0d14e7328649d4fa26840188/model.bin",
+          "size": 3087284237,
+          "sha256": "01041dbc312122f6f0f5ef6dd89f2ad7dc0bba7b746e8e1bc3c4f04f0af0befd"
+        }
+      ]
+    },
+    "qwen-referee": {
+      "repo": "Qwen/Qwen3-ASR-0.6B-hf",
+      "revision": "7f1569a48a89f3e3f4dc3a5c9d28bddd903bc76c",
+      "files": [
+        {
+          "name": "model.safetensors",
+          "url": "https://huggingface.co/Qwen/Qwen3-ASR-0.6B-hf/resolve/7f1569a48a89f3e3f4dc3a5c9d28bddd903bc76c/model.safetensors",
+          "size": 1564928088,
+          "sha256": "d3f212dd20abecd315d830bc54ae3865e56ebfc3276484e57b771288ba27fd35"
+        },
+        {
+          "name": "tokenizer.json",
+          "url": "https://huggingface.co/Qwen/Qwen3-ASR-0.6B-hf/resolve/7f1569a48a89f3e3f4dc3a5c9d28bddd903bc76c/tokenizer.json",
+          "size": 11429653,
+          "sha256": "fe1fad59be22a41ee293363fcf95fdedbc7c93f3b49270b1d2e18bd1399a7a05"
+        }
+      ]
+    },
+    "diarizen": {
+      "repo": "BUT-FIT/diarizen-wavlm-large-s80-md-v2",
+      "revision": "027b3e221b9d81dce2be794084f1dbd3ba2da403",
+      "files": [
+        {
+          "name": "config.json",
+          "url": "https://huggingface.co/BUT-FIT/diarizen-wavlm-large-s80-md-v2/resolve/027b3e221b9d81dce2be794084f1dbd3ba2da403/config.json",
+          "size": 37,
+          "sha256": "633e7186b0040f09a929161607dce933fb956e738b78b31dcb18fdb159f219d9"
+        },
+        {
+          "name": "config.toml",
+          "url": "https://huggingface.co/BUT-FIT/diarizen-wavlm-large-s80-md-v2/resolve/027b3e221b9d81dce2be794084f1dbd3ba2da403/config.toml",
+          "size": 657,
+          "sha256": "6eb3dab9c3892efc4a271ef5f88b5453e6e96789961084a15e88ca352de98503"
+        },
+        {
+          "name": "plda/plda.npz",
+          "url": "https://huggingface.co/BUT-FIT/diarizen-wavlm-large-s80-md-v2/resolve/027b3e221b9d81dce2be794084f1dbd3ba2da403/plda/plda.npz",
+          "size": 133852,
+          "sha256": "9b77bcd840692710dd3496f62ecfeed8d8e5f002fd991b785079b244eab7d255"
+        },
+        {
+          "name": "plda/xvec_transform.npz",
+          "url": "https://huggingface.co/BUT-FIT/diarizen-wavlm-large-s80-md-v2/resolve/027b3e221b9d81dce2be794084f1dbd3ba2da403/plda/xvec_transform.npz",
+          "size": 134376,
+          "sha256": "325f1ce8e48f7e55e9c8aa47e05d2766b7c48c4b25b8de8dd751e7a4cc5fbe8f"
+        },
+        {
+          "name": "pytorch_model.bin",
+          "url": "https://huggingface.co/BUT-FIT/diarizen-wavlm-large-s80-md-v2/resolve/027b3e221b9d81dce2be794084f1dbd3ba2da403/pytorch_model.bin",
+          "size": 278071526,
+          "sha256": "689a10f0cbde6345b4bf9b1670cf3196488634b34e5b07bea0fe40d508e1196b"
+        }
+      ]
+    },
+    "wespeaker": {
+      "repo": "pyannote/wespeaker-voxceleb-resnet34-LM",
+      "revision": "837717ddb9ff5507820346191109dc79c958d614",
+      "files": [
+        {
+          "name": "pytorch_model.bin",
+          "url": "https://huggingface.co/pyannote/wespeaker-voxceleb-resnet34-LM/resolve/837717ddb9ff5507820346191109dc79c958d614/pytorch_model.bin",
+          "size": 26645418,
+          "sha256": "366edf44f4c80889a3eb7a9d7bdf02c4aede3127f7dd15e274dcdb826b143c56"
+        }
+      ]
+    },
+    "diarizen-ts-cuda": {
+      "repo": "spurtcarl/finesub-diarizen-cuda",
+      "revision": "bc0cf6e316658713bceac6db3183cd667f21c4b6",
+      "files": [
+        {
+          "name": "diarizen_segmentation.ts",
+          "url": "https://huggingface.co/spurtcarl/finesub-diarizen-cuda/resolve/bc0cf6e316658713bceac6db3183cd667f21c4b6/diarizen_segmentation.ts",
+          "size": 278871333,
+          "sha256": "77da8135a8868013520fbe3ab68c234df18e8560d3b4b4a70f0b15118b5d0c55"
+        },
+        {
+          "name": "diarizen_embedding.ts",
+          "url": "https://huggingface.co/spurtcarl/finesub-diarizen-cuda/resolve/bc0cf6e316658713bceac6db3183cd667f21c4b6/diarizen_embedding.ts",
+          "size": 26811768,
+          "sha256": "0e1bdd0f81a368f2e47ec7951937278c83a55de4cd29d5dfffb2c5b12ef51a96"
+        },
+        {
+          "name": "plda/plda.npz",
+          "url": "https://huggingface.co/spurtcarl/finesub-diarizen-cuda/resolve/bc0cf6e316658713bceac6db3183cd667f21c4b6/plda/plda.npz",
+          "size": 133852,
+          "sha256": "9b77bcd840692710dd3496f62ecfeed8d8e5f002fd991b785079b244eab7d255"
+        },
+        {
+          "name": "plda/xvec_transform.npz",
+          "url": "https://huggingface.co/spurtcarl/finesub-diarizen-cuda/resolve/bc0cf6e316658713bceac6db3183cd667f21c4b6/plda/xvec_transform.npz",
+          "size": 134376,
+          "sha256": "325f1ce8e48f7e55e9c8aa47e05d2766b7c48c4b25b8de8dd751e7a4cc5fbe8f"
+        }
+      ]
+    },
+    "diarizen-ts-cpu": {
+      "repo": "spurtcarl/finesub-diarizen-cpu",
+      "revision": "5b6014b682fd75b9cd9caf366a2a692a8d73654d",
+      "files": [
+        {
+          "name": "diarizen_segmentation.ts",
+          "url": "https://huggingface.co/spurtcarl/finesub-diarizen-cpu/resolve/5b6014b682fd75b9cd9caf366a2a692a8d73654d/diarizen_segmentation.ts",
+          "size": 278863909,
+          "sha256": "46c52d47a0b7755e715e5ef0cc3633e32ed561b863548a0fe079fcb5df06e95f"
+        },
+        {
+          "name": "diarizen_embedding.ts",
+          "url": "https://huggingface.co/spurtcarl/finesub-diarizen-cpu/resolve/5b6014b682fd75b9cd9caf366a2a692a8d73654d/diarizen_embedding.ts",
+          "size": 26810488,
+          "sha256": "0a3e9baaa186ffffb6b5a7e5d4899549f3beafb1e87724638b449eda623e86da"
+        },
+        {
+          "name": "plda/plda.npz",
+          "url": "https://huggingface.co/spurtcarl/finesub-diarizen-cpu/resolve/5b6014b682fd75b9cd9caf366a2a692a8d73654d/plda/plda.npz",
+          "size": 133852,
+          "sha256": "9b77bcd840692710dd3496f62ecfeed8d8e5f002fd991b785079b244eab7d255"
+        },
+        {
+          "name": "plda/xvec_transform.npz",
+          "url": "https://huggingface.co/spurtcarl/finesub-diarizen-cpu/resolve/5b6014b682fd75b9cd9caf366a2a692a8d73654d/plda/xvec_transform.npz",
+          "size": 134376,
+          "sha256": "325f1ce8e48f7e55e9c8aa47e05d2766b7c48c4b25b8de8dd751e7a4cc5fbe8f"
+        }
+      ]
+    },
+    "nemotron3": {
+      "repo": "nvidia/Nemotron-3-Diarization",
+      "revision": "f667ed73aee57d40cc39428eb768b4fd87a0a29e",
+      "listedOnly": true,
+      "files": [
+        {
+          "name": "config.json",
+          "url": "https://huggingface.co/nvidia/Nemotron-3-Diarization/resolve/f667ed73aee57d40cc39428eb768b4fd87a0a29e/config.json",
+          "size": 1458,
+          "sha256": "dd795ec07ffa09acf18d231aa3fa8642aa5c521760953754e02559a7413b6873"
+        },
+        {
+          "name": "model.safetensors",
+          "url": "https://huggingface.co/nvidia/Nemotron-3-Diarization/resolve/f667ed73aee57d40cc39428eb768b4fd87a0a29e/model.safetensors",
+          "size": 396954592,
+          "sha256": "c074d86335b3b794f8fa5edc25594558f128bdb3914d27806a3a5a2e44963cb6"
+        }
+      ]
+    },
+    "speaker-embedding": {
+      "repo": "spurtcarl/finesub-speaker-embedding",
+      "revision": "92e0ffb2cf50cdedd7f9b5e3849eeca4c0c54598",
+      "files": [
+        {
+          "name": "wespeaker-cuda.ts",
+          "url": "https://huggingface.co/spurtcarl/finesub-speaker-embedding/resolve/92e0ffb2cf50cdedd7f9b5e3849eeca4c0c54598/wespeaker-cuda.ts",
+          "size": 26811768,
+          "sha256": "0e1bdd0f81a368f2e47ec7951937278c83a55de4cd29d5dfffb2c5b12ef51a96"
+        },
+        {
+          "name": "wespeaker-cpu.ts",
+          "url": "https://huggingface.co/spurtcarl/finesub-speaker-embedding/resolve/92e0ffb2cf50cdedd7f9b5e3849eeca4c0c54598/wespeaker-cpu.ts",
+          "size": 26810488,
+          "sha256": "0a3e9baaa186ffffb6b5a7e5d4899549f3beafb1e87724638b449eda623e86da"
+        },
+        {
+          "name": "plda/plda.npz",
+          "url": "https://huggingface.co/spurtcarl/finesub-speaker-embedding/resolve/92e0ffb2cf50cdedd7f9b5e3849eeca4c0c54598/plda/plda.npz",
+          "size": 133852,
+          "sha256": "9b77bcd840692710dd3496f62ecfeed8d8e5f002fd991b785079b244eab7d255"
+        },
+        {
+          "name": "plda/xvec_transform.npz",
+          "url": "https://huggingface.co/spurtcarl/finesub-speaker-embedding/resolve/92e0ffb2cf50cdedd7f9b5e3849eeca4c0c54598/plda/xvec_transform.npz",
+          "size": 134376,
+          "sha256": "325f1ce8e48f7e55e9c8aa47e05d2766b7c48c4b25b8de8dd751e7a4cc5fbe8f"
+        }
+      ]
+    },
+    "moss-transcribe-diarize": {
+      "repo": "OpenMOSS-Team/MOSS-Transcribe-Diarize",
+      "revision": "10304d926740cf5a5cee05a268086e3265197910",
+      "listedOnly": true,
+      "files": [
+        {
+          "name": "added_tokens.json",
+          "url": "https://huggingface.co/OpenMOSS-Team/MOSS-Transcribe-Diarize/resolve/10304d926740cf5a5cee05a268086e3265197910/added_tokens.json",
+          "size": 707,
+          "sha256": "c0284b582e14987fbd3d5a2cb2bd139084371ed9acbae488829a1c900833c680"
+        },
+        {
+          "name": "chat_template.jinja",
+          "url": "https://huggingface.co/OpenMOSS-Team/MOSS-Transcribe-Diarize/resolve/10304d926740cf5a5cee05a268086e3265197910/chat_template.jinja",
+          "size": 4762,
+          "sha256": "8641466a16b184ebaf7c4903391e607cfd532ab937e81a64120628ab79d827f4"
+        },
+        {
+          "name": "config.json",
+          "url": "https://huggingface.co/OpenMOSS-Team/MOSS-Transcribe-Diarize/resolve/10304d926740cf5a5cee05a268086e3265197910/config.json",
+          "size": 2335,
+          "sha256": "2b2b7a6e61334152bdd7ecf8a4da3073b4940a097e193d1d2b22093e77535234"
+        },
+        {
+          "name": "configuration_moss_transcribe_diarize.py",
+          "url": "https://huggingface.co/OpenMOSS-Team/MOSS-Transcribe-Diarize/resolve/10304d926740cf5a5cee05a268086e3265197910/configuration_moss_transcribe_diarize.py",
+          "size": 2663,
+          "sha256": "b4d12b0f4609af69b61c2fe3aa5fbaf476af22278369e4540745bc47d1d37892"
+        },
+        {
+          "name": "generation_config.json",
+          "url": "https://huggingface.co/OpenMOSS-Team/MOSS-Transcribe-Diarize/resolve/10304d926740cf5a5cee05a268086e3265197910/generation_config.json",
+          "size": 107,
+          "sha256": "e53a4b3ce4f944230cf1ca8fed0c42f4ff0d8c1443eaf98b5315d987334dd9e4"
+        },
+        {
+          "name": "merges.txt",
+          "url": "https://huggingface.co/OpenMOSS-Team/MOSS-Transcribe-Diarize/resolve/10304d926740cf5a5cee05a268086e3265197910/merges.txt",
+          "size": 1671853,
+          "sha256": "8831e4f1a044471340f7c0a83d7bd71306a5b867e95fd870f74d0c5308a904d5"
+        },
+        {
+          "name": "model-00000-of-00001.safetensors",
+          "url": "https://huggingface.co/OpenMOSS-Team/MOSS-Transcribe-Diarize/resolve/10304d926740cf5a5cee05a268086e3265197910/model-00000-of-00001.safetensors",
+          "size": 1817113576,
+          "sha256": "9a0ceb4ab7330357db3ff583dba8d83625d5b733b00e1d55d6970e11b07026c4"
+        },
+        {
+          "name": "model.safetensors.index.json",
+          "url": "https://huggingface.co/OpenMOSS-Team/MOSS-Transcribe-Diarize/resolve/10304d926740cf5a5cee05a268086e3265197910/model.safetensors.index.json",
+          "size": 65401,
+          "sha256": "0345ac5d8f360abe4e9adadb5fecd38e7730052b75f64bb58182818b1544cc36"
+        },
+        {
+          "name": "modeling_moss_transcribe_diarize.py",
+          "url": "https://huggingface.co/OpenMOSS-Team/MOSS-Transcribe-Diarize/resolve/10304d926740cf5a5cee05a268086e3265197910/modeling_moss_transcribe_diarize.py",
+          "size": 15101,
+          "sha256": "a01da90fe1f7cb88942b8c56f443e7b4ecd307ed4b4c356ac08d7503dd7422c1"
+        },
+        {
+          "name": "preprocessor_config.json",
+          "url": "https://huggingface.co/OpenMOSS-Team/MOSS-Transcribe-Diarize/resolve/10304d926740cf5a5cee05a268086e3265197910/preprocessor_config.json",
+          "size": 315,
+          "sha256": "ba2e601484abc80f4cded977f9a4fd4a53175b7d35c2f2511f0cfc3a32ad2499"
+        },
+        {
+          "name": "processing_moss_transcribe_diarize.py",
+          "url": "https://huggingface.co/OpenMOSS-Team/MOSS-Transcribe-Diarize/resolve/10304d926740cf5a5cee05a268086e3265197910/processing_moss_transcribe_diarize.py",
+          "size": 10975,
+          "sha256": "6f228d22d9379e2f6a6830b18ce7336b22da8267547e96e65545d871d7f48766"
+        },
+        {
+          "name": "processor_config.json",
+          "url": "https://huggingface.co/OpenMOSS-Team/MOSS-Transcribe-Diarize/resolve/10304d926740cf5a5cee05a268086e3265197910/processor_config.json",
+          "size": 292,
+          "sha256": "a978c2dd54a65b576c3dae4b654fe9bcbac1184c6db2df0afb2c90fcdc872ae7"
+        },
+        {
+          "name": "special_tokens_map.json",
+          "url": "https://huggingface.co/OpenMOSS-Team/MOSS-Transcribe-Diarize/resolve/10304d926740cf5a5cee05a268086e3265197910/special_tokens_map.json",
+          "size": 613,
+          "sha256": "76862e765266b85aa9459767e33cbaf13970f327a0e88d1c65846c2ddd3a1ecd"
+        },
+        {
+          "name": "tokenizer.json",
+          "url": "https://huggingface.co/OpenMOSS-Team/MOSS-Transcribe-Diarize/resolve/10304d926740cf5a5cee05a268086e3265197910/tokenizer.json",
+          "size": 11423222,
+          "sha256": "bcf03774334462d6e34b5005cb11120a62275f146ee2953e68731ecdbce84fbb"
+        },
+        {
+          "name": "tokenizer_config.json",
+          "url": "https://huggingface.co/OpenMOSS-Team/MOSS-Transcribe-Diarize/resolve/10304d926740cf5a5cee05a268086e3265197910/tokenizer_config.json",
+          "size": 503,
+          "sha256": "61d04c96104177240688396655ae3f7cf38ce2ea036db867a1d2b6883e27c3d5"
+        },
+        {
+          "name": "vocab.json",
+          "url": "https://huggingface.co/OpenMOSS-Team/MOSS-Transcribe-Diarize/resolve/10304d926740cf5a5cee05a268086e3265197910/vocab.json",
+          "size": 2776833,
+          "sha256": "ca10d7e9fb3ed18575dd1e277a2579c16d108e32f27439684afa0e10b1440910"
+        }
+      ]
+    }
+  }
+}

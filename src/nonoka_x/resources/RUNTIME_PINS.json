@@ -97,6 +97,15 @@
       "WHISPER_REPO_ID": "mobiuslabsgmbh/faster-whisper-large-v3-turbo"
     }
   },
+  "interpreter": {
+    "build": "cpython-3.12.1+20240107-x86_64-pc-windows-msvc-shared-install_only",
+    "implementation": "cpython",
+    "platform": "windows-x64",
+    "sha256": "fd5a9e0f41959d0341246d3643f2b8794f638adc0cec8dd5e1b6465198eae08a",
+    "size": 41069105,
+    "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20240107/cpython-3.12.1%2B20240107-x86_64-pc-windows-msvc-shared-install_only.tar.gz",
+    "version": "3.12.1"
+  },
   "models": {
     "diarizen": {
       "files": [
