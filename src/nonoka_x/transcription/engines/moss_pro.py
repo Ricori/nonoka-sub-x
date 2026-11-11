@@ -35,17 +35,16 @@ import unicodedata
 from pathlib import Path
 from typing import Callable
 
-from finesub import api_keys, settings
-from finesub.api_http import CONNECT_TIMEOUT_SECONDS, api_http_client
-from finesub.media.ffmpeg import extract_upload_mp3, probe_media_duration
-from finesub.reporting import current_reporter
-
+from .. import keys
+from ..audio import extract_upload_mp3, probe_media_duration
+from ..cache import CallCache, audio_fingerprint
+from ..enhance.relink import VOICEPRINTS, Relinker, Voiceprints
+from ..http import CONNECT_TIMEOUT_SECONDS, api_http_client
+from ..keys import BEIJING, KeyLedger, QuotaExhausted
+from ..reporting import current_reporter
+from ..stitch import stitch, windows
+from ..units import Transcript, Unit, segment_turns
 from . import MOSS_PRO
-from .cache import CallCache, audio_fingerprint
-from .model import Transcript, Unit, segment_turns
-from .quota import BEIJING, KeyLedger, QuotaExhausted
-from .relink import VOICEPRINTS, Relinker, Voiceprints
-from .stitch import stitch, windows
 
 MODEL = "moss-transcribe-diarize-pro"
 API = "https://api.mosi.cn/v1/audio/transcriptions"
@@ -65,6 +64,10 @@ POLL_DEADLINE = 1800.0
 #: Languages whose transcript is in Latin script, and those whose is not; others are not checked.
 LATIN = {"en", "de", "fr", "es", "it", "pt", "nl", "id", "vi"}
 NON_LATIN = {"ja", "zh", "ko", "ru", "ar", "th"}
+
+#: Whether the pool's last key goes on past its free hours, billed to its prepaid balance (FineSub's
+#: `[asr] moss_pro_paid`, default true, owner 2026-11-09); a `Caller(paid=...)` overrides it.
+PAID_DEFAULT = True
 
 
 class MossProError(RuntimeError):
@@ -140,13 +143,13 @@ class Caller:
                  sleep: Callable[[float], None] = time.sleep):
         self.ledger = ledger or KeyLedger(MOSS_PRO, MODEL, BEIJING)
         self._entries = entries
-        self.paid = settings.ASR_MOSS_PRO_PAID.resolve(paid)
+        self.paid = PAID_DEFAULT if paid is None else paid
         self._sleep = sleep
         self.refused: list[str] = []
 
     def entries(self):
         if self._entries is None:
-            self._entries = api_keys.resolve_pool(api_keys.MOSS_PRO_POOL, api_keys.read_dotenv())
+            self._entries = keys.pool(keys.MOSS_PRO)
         return self._entries
 
     def __call__(self, audio: Path, *, seconds: float) -> dict:
@@ -245,7 +248,7 @@ class SpeechSpans:
         if self._pcm is None:
             import numpy as np
 
-            from finesub.media.ffmpeg import decode_pcm16k
+            from ..audio import decode_pcm16k
 
             self._pcm = np.frombuffer(decode_pcm16k(self._source), np.int16)
         return self._pcm
@@ -260,7 +263,7 @@ def _silero_spans(pcm) -> list[tuple[float, float]]:
     import numpy as np
     import torch
 
-    from finesub.speech.preprocessing.silero_ghost import silero_exclusive
+    from ..enhance.silero import silero_exclusive
 
     wav = torch.from_numpy(pcm.astype(np.float32) / 32768)
     with silero_exclusive() as model:
@@ -318,7 +321,7 @@ def transcribe(
     def request(name: str, start: float, end: float) -> dict:
         def ask() -> dict:
             current_reporter().debug("moss-pro call", {"start": round(start, 1), "end": round(end, 1)})
-            with tempfile.TemporaryDirectory(prefix="finesub-moss-") as tmp:
+            with tempfile.TemporaryDirectory(prefix="nonoka-moss-") as tmp:
                 clip = extract_upload_mp3(src, start, end, Path(tmp) / "part.mp3")
                 return call(clip, seconds=end - start)
 

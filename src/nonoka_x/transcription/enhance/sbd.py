@@ -20,7 +20,7 @@ import unicodedata
 from pathlib import Path
 from typing import Sequence
 
-from ..postprocessing.segmentation import SENTENCE_END_BONUS_KEY
+from ..segmentation.dp import SENTENCE_END_BONUS_KEY
 
 REPO = "1-800-BAD-CODE/xlm-roberta_punctuation_fullstop_truecase"
 REVISION = "d1769a597ce8dfaa070d436bc67d4ee761f58884"
@@ -61,7 +61,7 @@ class SbdModel:
             import onnxruntime as ort
             import sentencepiece as spm
         except ImportError as error:
-            raise SbdUnavailable(f"{error.name} is not installed (pip install -e \".[cloud]\")") from error
+            raise SbdUnavailable(f"{error.name} is not installed (the Python environment layer)") from error
         original = Path(_fetch("model.onnx"))
         exposed = original.with_name(EXPOSED)
         if not exposed.exists():

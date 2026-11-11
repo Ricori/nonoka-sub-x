@@ -25,11 +25,11 @@ import re
 import unicodedata
 from typing import Any, Iterable, Sequence
 
-from ..postprocessing import segmentation as seg
-from ..recognition import segments as segment_ops
-from ...subtitles import line_groups
-from ...subtitles.metrics import weighted_char_count
-from .model import UNKNOWN_SPEAKER
+from .segmentation import dp as seg
+from .segmentation import line_groups
+from .segmentation import segments as segment_ops
+from .segmentation.metrics import weighted_char_count
+from .units import UNKNOWN_SPEAKER
 
 #: A pause longer than this starts a new input segment (35t, MAI2; arm M1's, owner 2026-10-30).
 SEAM_PAUSE = 1.0

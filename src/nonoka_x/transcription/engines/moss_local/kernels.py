@@ -15,6 +15,8 @@ K/V are bf16, or fp8 (e4m3) with one fp32 scale per (head, position): the row's 
 All kernels read the position from a device tensor, so a CUDA graph captured once per bucket stays valid as it moves.
 """
 
+# ruff: noqa: E741 -- the kernels keep their Triton-style names (`l`, a row's running sum), as moved from FineSub
+
 from __future__ import annotations
 
 import math
@@ -31,7 +33,7 @@ BLOCK = 64
 def splits_for(kv_heads: int) -> int:
     """Splits per KV head: about two programs per SM (16-64, a power of two for the merge): 32 on the 5070 Ti's 70
     SMs, where 32 and 64 timed within 10% of each other."""
-    from ...runtime.device import multiprocessor_count
+    from ...enhance.device import multiprocessor_count
 
     want = 2 * multiprocessor_count() / kv_heads
     return min(64, max(16, 1 << max(0, math.ceil(math.log2(want)))))

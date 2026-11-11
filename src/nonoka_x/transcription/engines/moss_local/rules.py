@@ -13,9 +13,9 @@ from typing import Callable, Mapping, Sequence
 
 import numpy as np
 
-from ....subtitles.metrics import weighted_char_count
-from ..mosspro import LATIN, NON_LATIN
-from ..stitch import norm
+from ...segmentation.metrics import weighted_char_count
+from ...stitch import norm
+from ..moss_pro import LATIN, NON_LATIN
 
 #: A hole in the transcript this long (s), with GATE_VOICED s of Silero speech in it, is talk the pass skipped.
 GAP = 30.0

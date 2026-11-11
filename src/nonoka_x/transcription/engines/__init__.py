@@ -1,20 +1,20 @@
-"""Joint ASR backends: one model hands back the whole transcript with its times and speakers, in place of
-separation, VAD, Whisper and acoustic diarization. In the cloud: MAI2, Gemini 3.5 Transcribe ("35t") and MOSS Pro;
-on this machine's GPU: open MOSS-Transcribe-Diarize with run-time rescues (`moss_local`).
+"""The transcription engines. This package imports none of its modules: each is imported where it is used.
 
-Each provider module turns the source audio into a `model.Transcript` -- the
-provider's words (or, for the two MOSS, its segments) grouped into speaker turns in
-the order the provider emitted them. The cloud ones cache every call's raw answer in the
-task directory (`cache.CallCache`), so a rerun spends no quota; local MOSS caches nothing (its
-`-aligned.json` is the result). What happens to the turns after that (line building, timing,
-overlap rules) is not here.
+Moved out of FineSub's `speech/joint/` (WP1; it was the "joint ASR" backends' package): the three cloud
+backends as they were -- `mai2` (MAI-Transcribe-2), `gemini` (Gemini 3.5 Transcribe, "35t"), `moss_pro`
+(MOSS Pro) -- with `joint_stage`, FineSub's stage that ran them, and local MOSS (`moss_local`), which is not
+registered. WP3 wraps each cloud backend as a `TranscriptionEngine`; the FineSub transcription engine
+(`finesub`, WP4a) lives here too.
 
-What each provider does and why it is wired this way: `docs/joint-asr.md`.
+Each backend turns the source audio into a `units.Transcript` -- the provider's words (or, for the two MOSS, its
+segments) grouped into speaker turns in the order the provider emitted them. The cloud ones cache every call's
+raw answer in the task directory (`cache.CallCache`), so a rerun spends no quota; local MOSS caches nothing.
+What happens to the turns after that (line building, timing, overlap rules) is `lines.py`.
+
+What each provider does and why it is wired this way: FineSub's `docs/joint-asr.md`.
 """
 
 from __future__ import annotations
-
-import threading
 
 LOCAL = "local"
 MAI2 = "mai2"
@@ -29,10 +29,6 @@ SEGMENT_BACKENDS = (MOSS_PRO, MOSS_LOCAL)
 #: Owner 2026-10-30: the short names follow the provider's current model, so a
 #: newer model moves the alias instead of renaming the option. `moss` is MOSS Pro.
 ALIASES = {"gemini": GEMINI_35T, "moss": MOSS_PRO}
-#: One joint model computing on the GPU at a time: the forced aligner (`--asr-aligner`, cloud items on the batch's
-#: network lane) and local MOSS (the GPU lane). ⚠ Take it before Silero's lock (`silero_exclusive`), never inside
-#: it: local MOSS runs Silero while holding this one.
-GPU_LOCK = threading.Lock()
 CHOICES = (*BACKENDS, *ALIASES)
 
 

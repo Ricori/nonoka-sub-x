@@ -15,7 +15,8 @@ Component ids, as engines name them in `EngineEnvironment`:
 - every managed tool by its own id (`ffmpeg`, `tokcount`, `yt-dlp`, ...).
 
 Model ids are the provisioner's (`separator`, `whisper`, `qwen-referee`,
-`nemotron3`, `speaker-embedding`).
+`nemotron3`, `speaker-embedding`); `model_dir` (WP1) takes any id of Nonoka's
+model manifest (`resources/model-manifest.json`) and says where its files are.
 """
 
 from __future__ import annotations
@@ -99,6 +100,38 @@ class RuntimeManager:
             raise UnknownComponent(f"no managed model {model_id!r}")
         item = by_id.get(model_id)
         return item is not None and item.get("state") == "ready"
+
+    def model_dir(self, model_id: str) -> Path | None:
+        """The installed files of model `model_id` (an id of Nonoka's model manifest), or None.
+
+        Today the pinned snapshot in the managed Hugging Face cache
+        (`<models>/huggingface/hub/models--<repo>/snapshots/<revision>`), and
+        only when every file the manifest lists is there at its listed size
+        (stats only: the installer verified the digests). Nothing is ever
+        downloaded here; a caller without the model goes without it. WP-E3
+        answers it from the model layer instead.
+        """
+
+        from nonoka_x.runtime import manifests
+
+        entry = manifests.model_manifest().get("models", {}).get(model_id)
+        if entry is None:
+            raise UnknownComponent(f"no model {model_id!r} in the model manifest")
+        if self._provisioner is None:
+            return None
+        repo, revision = entry.get("repo"), entry.get("revision")
+        if not repo or not revision:
+            return None
+        models = Path(self._provisioner.paths.models)
+        snapshot = models / "huggingface" / "hub" / ("models--" + repo.replace("/", "--")) / "snapshots" / revision
+        for item in entry.get("files") or ():
+            path = snapshot / item["name"]
+            try:
+                if not path.is_file() or ("size" in item and path.stat().st_size != int(item["size"])):
+                    return None
+            except OSError:
+                return None
+        return snapshot
 
     def worker_environment(self) -> dict[str, str]:
         """The environment a worker process is spawned into.

@@ -5,7 +5,7 @@ routes there are, and a new endpoint will most likely speak one of them):
 
 * OpenRouter (`microsoft/mai-transcribe-2`, routed to Azure): JSON with the
   audio base64 in `input_audio`, `verbose_json`, diarization as the Azure
-  option under `provider.options`. Key: `FINESUB_KEY_OPENROUTER_STT`.
+  option under `provider.options`. Key: `OPENROUTER_STT_KEY` (`keys.py`).
 * Azure fast transcription: multipart, the resource's endpoint and key.
 
 Word times and speakers; words never overlap in time (MAI2 does not mark
@@ -34,22 +34,22 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
-from finesub.api_http import CONNECT_TIMEOUT_SECONDS, RETRYABLE_TRANSPORT, api_http_client, retryable_status
-from finesub.media.ffmpeg import extract_upload_mp3, probe_media_duration
-from finesub.reporting import current_reporter
-
+from .. import repair as R
+from ..audio import extract_upload_mp3, probe_media_duration
+from ..cache import CacheMiss, CallCache, audio_fingerprint
+from ..enhance.relink import VOICEPRINTS, Voiceprints, Voices
+from ..http import CONNECT_TIMEOUT_SECONDS, RETRYABLE_TRANSPORT, api_http_client, retryable_status
+from ..keys import OPENROUTER_STT_KEY
+from ..reporting import current_reporter
+from ..stitch import stitch, windows
+from ..units import Transcript, Unit, turns_from_units
 from . import MAI2
-from . import repair as R
-from .cache import CacheMiss, CallCache, audio_fingerprint
-from .model import Transcript, Unit, turns_from_units
-from .mosspro import SpeechSpans
-from .relink import VOICEPRINTS, Voiceprints, Voices
-from .stitch import stitch, windows
+from .moss_pro import SpeechSpans
 
 MODEL = "mai-transcribe-2"
 OPENROUTER_API = "https://openrouter.ai/api/v1/audio/transcriptions"
 AZURE_PATH = "/speechtotext/transcriptions:transcribe?api-version=2025-10-15"
-OPENROUTER_KEY_ENV = "FINESUB_KEY_OPENROUTER_STT"
+OPENROUTER_KEY_ENV = OPENROUTER_STT_KEY
 OVERLAP = 60.0
 WINDOW = {"azure": 6000.0, "openrouter": 1800.0}
 #: The task's language forced where the experiment forced it; the rest is auto-detected.
@@ -208,7 +208,7 @@ def transcribe(
             if caller is None:
                 raise Mai2Error("no MAI2 key configured")
             current_reporter().debug("mai2 call", {"start": round(start, 1), "end": round(end, 1), "via": via})
-            with tempfile.TemporaryDirectory(prefix="finesub-mai2-") as tmp:
+            with tempfile.TemporaryDirectory(prefix="nonoka-mai2-") as tmp:
                 clip = extract_upload_mp3(src, start, end, Path(tmp) / "window.mp3")
                 return caller(clip, locale=locale)
 
@@ -227,7 +227,7 @@ def transcribe(
                 if caller is None:
                     raise Mai2Error("no MAI2 key configured")
                 current_reporter().debug("mai2 repair call", {"start": round(lo, 1), "end": round(hi, 1), "via": via})
-                with tempfile.TemporaryDirectory(prefix="finesub-mai2-") as tmp:
+                with tempfile.TemporaryDirectory(prefix="nonoka-mai2-") as tmp:
                     return caller(extract_upload_mp3(src, lo, hi, Path(tmp) / "span.mp3"), locale=locale)
 
             return answer_words(repair_cache.fetch(f"r-{lo:.1f}-{hi:.1f}", call), lo)

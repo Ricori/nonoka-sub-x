@@ -25,7 +25,7 @@ from dataclasses import dataclass, field
 import numpy as np
 import torch
 
-from ....reporting import current_reporter
+from ...reporting import current_reporter
 from . import decoder as D
 from . import rules as R
 
@@ -385,8 +385,8 @@ def transcribe(model, processor, audio: np.ndarray, language: str | None, budget
     prompt and the language test. A source longer than one pass holds in the budget is cut into parts overlapping
     by PART_OVERLAP and stitched as production stitches MOSS Pro's (hand-over in a gap near the overlap's middle,
     speakers linked by co-speaking seconds there)."""
-    from ..mosspro import PART_OVERLAP, _silero_spans
-    from ..stitch import stitch, windows
+    from ...stitch import stitch, windows
+    from ..moss_pro import PART_OVERLAP, _silero_spans
 
     pcm = (np.clip(audio, -1, 1) * 32767).astype(np.int16)
     spans = _silero_spans(pcm)
@@ -419,7 +419,7 @@ def _merge_by_voice(segs: list[dict], pcm: np.ndarray) -> list[tuple[str, str, f
     """`rules.merge_labels` on the voiceprint centroids MOSS Pro's relink builds (WeSpeaker ResNet34 in PLDA space,
     weighted by clean seconds, labels under MIN_LABEL s left alone), at its threshold. Without the voiceprint model
     nothing is merged."""
-    from .. import relink as RL
+    from ...enhance import relink as RL
 
     embed = RL.VOICEPRINTS.embed()
     if embed is None:
@@ -431,7 +431,7 @@ def _merge_by_voice(segs: list[dict], pcm: np.ndarray) -> list[tuple[str, str, f
 def _part(model, processor, audio: np.ndarray, pcm: np.ndarray, spans: list[tuple[float, float]],
           language: str | None, prompt: str, budget_gib: float) -> tuple[list[dict], list[dict]]:
     """One pass and its gap fills over `audio` (times relative to it)."""
-    from ..relink import VOICEPRINTS, Relinker
+    from ...enhance.relink import VOICEPRINTS, Relinker
 
     p = Pass(model, processor, audio, spans, prompt, language, budget_gib)
     segs = p.run()

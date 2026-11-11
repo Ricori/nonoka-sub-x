@@ -29,11 +29,10 @@ from typing import Iterator
 import numpy as np
 import torch
 
-from ....reporting import current_reporter
-from ...runtime import hf_weights
+from ...reporting import current_reporter
 
 MODEL = "OpenMOSS-Team/MOSS-Transcribe-Diarize"
-#: Its entry in `finesub_bootstrap/model-manifest.json` (revision pinned, every file's digest).
+#: Its entry in Nonoka's model manifest (`nonoka_x/resources/model-manifest.json`: revision pinned, every file's digest).
 MANIFEST_ID = "moss-transcribe-diarize"
 SR = 16000
 BUCKET = 2048
@@ -68,17 +67,15 @@ def prompt_for(language: str | None) -> str:
     return PROMPTS.get((language or "").lower(), DEFAULT_PROMPT)
 
 
-def load(plan: hf_weights.HfLoad):
-    """Model and processor on the GPU in bf16, at the manifest's revision."""
+def load(directory):
+    """Model and processor on the GPU in bf16, from the installed snapshot at the manifest's revision (`directory`,
+    `enhance.model_dir(MANIFEST_ID)`). Never fetched: WP1 dropped FineSub's `hf_weights` self-download."""
     from transformers import AutoModelForCausalLM, AutoProcessor
 
-    def fetch(p: hf_weights.HfLoad):
-        kw = {"revision": p.revision, "local_files_only": p.local_files_only, "trust_remote_code": True}
-        processor = AutoProcessor.from_pretrained(MODEL, **kw)
-        model = AutoModelForCausalLM.from_pretrained(MODEL, dtype=torch.bfloat16, attn_implementation="sdpa", **kw)
-        return model.to("cuda").eval(), processor
-
-    return hf_weights.offline_first(fetch, plan, what="moss-local")
+    kw = {"local_files_only": True, "trust_remote_code": True}
+    processor = AutoProcessor.from_pretrained(str(directory), **kw)
+    model = AutoModelForCausalLM.from_pretrained(str(directory), dtype=torch.bfloat16, attn_implementation="sdpa", **kw)
+    return model.to("cuda").eval(), processor
 
 
 def kv_row_bytes(model) -> dict[str, int]:

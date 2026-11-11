@@ -20,8 +20,8 @@ import threading
 import time
 from typing import Any, Callable
 
-from finesub import api_keys
-from finesub.api_http import websocket_kwargs
+from .. import keys
+from ..http import websocket_kwargs
 
 HOST = "generativelanguage.googleapis.com"
 URL = f"wss://{HOST}/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent"
@@ -72,7 +72,7 @@ class Live:
 
     def _key(self) -> str:
         if self._entries is None:
-            self._entries = api_keys.resolve_pool(api_keys.GEMINI_FREE_POOL, api_keys.read_dotenv())
+            self._entries = keys.pool(keys.GEMINI_FREE)
         if not self._entries:
             raise LiveError("35t Live needs a GEMINI_FREE key")
         return self._entries[0].key
@@ -85,7 +85,7 @@ class Live:
                 with _SLOTS:
                     return self._once(pcm + b"\x00" * int(SR * 2 * TAIL), key, language)
             except ImportError:  # no websocket-client: nothing a retry fixes
-                raise LiveError("35t Live needs websocket-client (pip install -e \".[cloud]\")") from None
+                raise LiveError("35t Live needs websocket-client (the Python environment layer)") from None
             except Exception as error:  # noqa: BLE001 -- 1011 while connecting is the session cap; any failure is retried
                 last = f"{type(error).__name__}: {error}".replace(key, "<key>")
             if attempt + 1 < ATTEMPTS:

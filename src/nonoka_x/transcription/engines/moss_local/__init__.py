@@ -23,8 +23,9 @@ from typing import Any, Iterator
 
 import numpy as np
 
-from .. import GPU_LOCK, MOSS_LOCAL
-from ..model import Transcript, Unit, segment_turns
+from ...enhance import GPU_LOCK
+from ...units import Transcript, Unit, segment_turns
+from .. import MOSS_LOCAL
 
 #: What the metadata records as the model; the revision goes beside it.
 MODEL_NAME = "moss-transcribe-diarize"
@@ -34,10 +35,10 @@ def transcribe(source: Path, *, language: str | None, duration: float, gpu_tier:
                device: str | None) -> tuple[Transcript, dict[str, Any]]:
     """(transcript, what the metadata records about the run). Raises `JointAsrError` when this run cannot use
     local MOSS (no suitable card, `--gpu-tier cpu`, `--device cpu`, no usable transformers)."""
-    from ...runtime import hf_weights
-    from ...runtime.device import moss_local_unusable_reason
-    from ...runtime.resources import get_resource_profile
-    from ..stage import JointAsrError
+    from ...enhance import model_dir
+    from ...enhance.device import moss_local_unusable_reason
+    from ...enhance.resources import get_resource_profile
+    from ..joint_stage import JointAsrError
     from . import decoder as D
 
     reason = moss_local_unusable_reason(gpu_tier, device)
@@ -52,16 +53,18 @@ def transcribe(source: Path, *, language: str | None, duration: float, gpu_tier:
               "transcript is in the source's language; an English source may come out in another language. "
               "Give --language.", file=sys.stderr)
     budget_gib = get_resource_profile(gpu_tier, device=device).usable_gib - D.CONTEXT_GIB
-    plan = hf_weights.prepare(D.MANIFEST_ID)
+    directory = model_dir(D.MANIFEST_ID)
+    if directory is None:
+        raise JointAsrError(f"local MOSS needs the {D.MANIFEST_ID} model, which is not installed")
     audio = _decode(source)
     with GPU_LOCK, _allocator_capped(budget_gib), _triton_cache_in_checkout(), _quiet_transformers():
-        result = _decode_with_model(plan, audio, language, budget_gib)
+        result = _decode_with_model(directory, audio, language, budget_gib)
     units = [Unit.from_dict(s) for s in result.segments if s["end"] > s["start"]]
     transcript = Transcript(MOSS_LOCAL, MODEL_NAME, duration, "segment", segment_turns(units))
-    return transcript, {"revision": plan.revision, "kv": result.passes, "events": event_counts(result.events)}
+    return transcript, {"revision": directory.name, "kv": result.passes, "events": event_counts(result.events)}
 
 
-def _decode_with_model(plan, audio: np.ndarray, language: str | None, budget_gib: float):
+def _decode_with_model(directory, audio: np.ndarray, language: str | None, budget_gib: float):
     import torch
 
     from . import decoder as D
@@ -69,7 +72,7 @@ def _decode_with_model(plan, audio: np.ndarray, language: str | None, budget_gib
 
     loaded = None
     try:
-        loaded = D.load(plan)
+        loaded = D.load(directory)
         return rescue.transcribe(*loaded, audio, language, budget_gib)
     except BaseException as e:
         # The traceback's frames -- of this exception and of every one in its chain -- hold the model and a pass's
@@ -113,7 +116,7 @@ def event_counts(events: list[dict]) -> dict[str, int]:
 
 def _decode(source: Path) -> np.ndarray:
     """The whole source as 16 kHz mono float32: the input the model was measured on (through int16 it differs)."""
-    from ....media.ffmpeg import decode_pcm16k
+    from ...audio import decode_pcm16k
 
     return np.frombuffer(decode_pcm16k(source, sample_format="f32le"), dtype=np.float32).copy()
 
@@ -124,7 +127,7 @@ def _allocator_capped(budget_gib: float) -> Iterator[None]:
     process-wide, and the stages after it (separation, the referee, the aligner) have budgets of their own."""
     import torch
 
-    from ...runtime.device import total_vram_gib
+    from ...enhance.device import total_vram_gib
 
     card = torch.cuda.current_device()
     total = total_vram_gib()
@@ -160,16 +163,17 @@ def _quiet_transformers() -> Iterator[None]:
 
 @contextlib.contextmanager
 def _triton_cache_in_checkout() -> Iterator[None]:
-    """Triton's compiled kernels beside the other compile caches (a checkout's `cache/`) instead of `~/.triton`,
+    """Triton's compiled kernels in a directory of their own under the temporary directory (FineSub put them beside
+    its compile caches, a checkout's `cache/`) instead of `~/.triton`,
     unless the user set TRITON_CACHE_DIR; Triton keys the files by source, version and card itself. Only while this
     step runs: Inductor reads the same variable, and the separator's and the referee's kernels belong in their own
     keyed directories. Every Triton compile of local MOSS (the probes, each bucket's graph capture) is inside it."""
     if os.environ.get("TRITON_CACHE_DIR"):
         yield
         return
-    from ....paths import resolve_cache_dir
+    import tempfile
 
-    path = resolve_cache_dir() / "moss-local-triton"
+    path = Path(tempfile.gettempdir()) / "nonoka-moss-local-triton"
     path.mkdir(parents=True, exist_ok=True)
     os.environ["TRITON_CACHE_DIR"] = str(path)
     try:

@@ -23,7 +23,7 @@ import unicodedata
 from dataclasses import dataclass
 from typing import Callable, Sequence
 
-from ...subtitles.metrics import weighted_char_count
+from .segmentation.metrics import weighted_char_count
 from .stitch import by_label, link
 
 #: `--asr-repair`: `on` repairs at no quota (35t through Live), `quota` also re-asks 35t on its daily requests.
@@ -207,7 +207,7 @@ def anchored(answer: str, left: str, right: str) -> tuple[str, str | None]:
 
 def implausible(text: str, voiced: float, language: str | None, *, script: bool = True) -> str | None:
     """Why a text that came back for a spot is not used, or None; the script is checked only with `script`."""
-    from .mosspro import wrong_script
+    from .engines.moss_pro import wrong_script
 
     if not key(text):
         return "empty"

@@ -18,9 +18,9 @@ from typing import Callable, Sequence
 
 import numpy as np
 
-from ..postprocessing import segmentation as seg
-from ...subtitles.metrics import weighted_char_count
-from .lines import interpolated, unit_weight, units_of
+from ..lines import interpolated, unit_weight, units_of
+from ..segmentation import dp as seg
+from ..segmentation.metrics import weighted_char_count
 
 SR = 16000
 HOP = 512  # Silero's frame at 16 kHz: 32 ms
@@ -51,7 +51,7 @@ def frame_probabilities(pcm16k: np.ndarray) -> np.ndarray:
     """Silero's speech probability per HOP-sample frame of 16 kHz mono int16 samples (production's model)."""
     import torch
 
-    from ..preprocessing.silero_ghost import silero_exclusive
+    from .silero import silero_exclusive
 
     wav = torch.from_numpy(pcm16k.astype(np.float32) / 32768)
     out = np.empty(len(wav) // HOP, np.float32)

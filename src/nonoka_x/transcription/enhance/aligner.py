@@ -17,9 +17,9 @@ from typing import Sequence
 
 import numpy as np
 
-from ...subtitles.metrics import weighted_char_count
+from ..lines import units_of
+from ..segmentation.metrics import weighted_char_count
 from . import GPU_LOCK
-from .lines import units_of
 
 MODEL = "Qwen/Qwen3-ForcedAligner-0.6B-hf"
 SR = 16000
@@ -74,7 +74,7 @@ def _model():
         import torch
         from transformers import AutoModelForTokenClassification, AutoProcessor
 
-        from ..runtime.device import resolve_device
+        from .device import resolve_device
 
         device = resolve_device("cuda", context="the forced aligner (--asr-aligner)")
         dtype = torch.bfloat16 if str(device).startswith("cuda") else torch.float32

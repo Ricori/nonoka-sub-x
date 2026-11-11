@@ -19,7 +19,7 @@ from __future__ import annotations
 import threading
 from typing import TYPE_CHECKING, Callable, Sequence
 
-from ...reporting import current_reporter
+from ..reporting import current_reporter
 
 SR = 16000
 #: A segment shorter than this is not embedded; a longer one only its centre MAX_CROP.
@@ -68,20 +68,15 @@ def _wespeaker() -> Embed:
     import numpy as np
     import torch
 
-    from ..diarization.backend import artifact_candidates
-    from ..diarization.diarizen_cluster import load_plda
-    from ..diarization.diarizen_features import compute_fbank
-    from ..diarization.nemotron3_backend import HOSTED_EMBEDDING, PLDA_FILES
-    from ..runtime.native_paths import load_torchscript
+    from . import model_dir
+    from .native_paths import load_torchscript
+    from .voiceprint import MODEL_FILES, MODEL_ID, compute_fbank, load_plda
 
-    files = ("wespeaker-cpu.ts", *PLDA_FILES)
-    directory = next((c for c in artifact_candidates(None) if all((c / f).exists() for f in files)), None)
-    if directory is None:
-        from ..runtime import hf_weights
-
-        directory = hf_weights.prepare_directory(HOSTED_EMBEDDING)
-        if directory is None:
-            raise RuntimeError("could not fetch the speaker embedding model")
+    # Nonoka's installed copy of the model (`enhance.model_dir`); never downloaded here (WP1). FineSub looked in
+    # its diarization artifact directories first and fetched the pinned snapshot when they had none.
+    directory = model_dir(MODEL_ID)
+    if directory is None or not all((directory / f).exists() for f in MODEL_FILES):
+        raise RuntimeError("the speaker embedding model is not installed")
     model = load_torchscript(directory / "wespeaker-cpu.ts", map_location="cpu").eval()
     xvec_tf, plda_tf, _ = load_plda(directory / "plda")
 

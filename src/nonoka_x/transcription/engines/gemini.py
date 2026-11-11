@@ -30,27 +30,26 @@ import time
 from pathlib import Path
 from typing import Any, Callable
 
-from finesub import api_keys
-from finesub.api_http import (
+from .. import keys
+from .. import repair as R
+from ..audio import extract_upload_mp3, probe_media_duration
+from ..cache import CacheMiss, CallCache, audio_fingerprint
+from ..enhance import live as live_client
+from ..enhance.relink import VOICEPRINTS, Voiceprints, Voices
+from ..http import (
     CONNECT_TIMEOUT_SECONDS,
     RETRYABLE_TRANSPORT,
     api_http_client,
     is_retryable_http_error,
     retryable_status,
 )
-from finesub.media.ffmpeg import extract_upload_mp3, probe_media_duration
-from finesub.reporting import bind_reporter, current_reporter
-
-from ...subtitles.metrics import weighted_char_count
+from ..keys import PACIFIC, KeyLedger, QuotaExhausted, pick_key
+from ..reporting import bind_reporter, current_reporter
+from ..segmentation.metrics import weighted_char_count
+from ..stitch import stitch
+from ..units import Transcript, Unit, turns_from_units
 from . import GEMINI_35T
-from . import live as live_client
-from . import repair as R
-from .cache import CacheMiss, CallCache, audio_fingerprint
-from .model import Transcript, Unit, turns_from_units
-from .mosspro import SpeechSpans
-from .quota import PACIFIC, KeyLedger, QuotaExhausted, pick_key
-from .relink import VOICEPRINTS, Voiceprints, Voices
-from .stitch import stitch
+from .moss_pro import SpeechSpans
 
 MODEL = "gemini-3.5-transcribe"
 UPLOAD = "https://generativelanguage.googleapis.com/upload/v1beta/files"
@@ -275,7 +274,7 @@ class Caller:
 
     def entries(self):
         if self._entries is None:
-            self._entries = api_keys.resolve_pool(api_keys.GEMINI_FREE_POOL, api_keys.read_dotenv())
+            self._entries = keys.pool(keys.GEMINI_FREE)
         return self._entries
 
     def __call__(self, audio: Path, *, language: str | None, seconds: float) -> dict:
@@ -441,7 +440,7 @@ def _timed(text: str, a: float, b: float, speaker, heard: list[tuple[float, floa
            align) -> tuple[list[dict], str]:
     """Live's text as units over [a, b], and which timing: the forced aligner's (`align`, `--asr-aligner`; its
     audio stops at the `neighbours`' speech) where it gives them, else S5b on `heard`, Silero's speech in the span."""
-    from . import moss_timing
+    from ..enhance import moss_timing
 
     segment = {"start": a, "end": b, "text": text, "speaker": speaker}
     if align is not None:
@@ -452,7 +451,7 @@ def _timed(text: str, a: float, b: float, speaker, heard: list[tuple[float, floa
 
 
 def _voiced_spans(pcm, a: float, b: float) -> list[tuple[float, float]]:
-    from . import moss_timing
+    from ..enhance import moss_timing
 
     lo, hi = int(a * live_client.SR), int(b * live_client.SR)
     return [(x + a, y + a) for x, y in moss_timing.speech_spans(moss_timing.frame_probabilities(pcm[lo:hi]))]
@@ -579,7 +578,7 @@ def repaired(units: list[dict], *, total: float, language: str | None, live_cach
     pcm = speech.pcm() if spots else None
     align = None
     if aligner and spots:
-        from .aligner import aligned_units
+        from ..enhance.aligner import aligned_units
 
         broken: list[str] = []
 
@@ -742,7 +741,7 @@ def transcribe(
     def window(start: float, end: float) -> dict:
         def ask() -> dict:
             current_reporter().debug("gemini-35t call", {"start": round(start, 1), "end": round(end, 1)})
-            with tempfile.TemporaryDirectory(prefix="finesub-35t-") as tmp:
+            with tempfile.TemporaryDirectory(prefix="nonoka-35t-") as tmp:
                 clip = extract_upload_mp3(src, start, end, Path(tmp) / "window.mp3")
                 return call(clip, language=code, seconds=end - start)
 
@@ -800,7 +799,7 @@ def transcribe(
             def reask(lo: float, hi: float) -> list[dict]:
                 def ask() -> dict:
                     current_reporter().debug("gemini-35t repair call", {"start": round(lo, 1), "end": round(hi, 1)})
-                    with tempfile.TemporaryDirectory(prefix="finesub-35t-") as tmp:
+                    with tempfile.TemporaryDirectory(prefix="nonoka-35t-") as tmp:
                         clip = extract_upload_mp3(src, lo, hi, Path(tmp) / "span.mp3")
                         return call(clip, language=code, seconds=hi - lo)
 

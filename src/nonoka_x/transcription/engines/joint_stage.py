@@ -1,5 +1,10 @@
 """The recognition stage of a joint-ASR task: the source's mix -> one provider -> `-aligned.json`.
 
+Moved out of FineSub's `speech/joint/stage.py` as it was (WP1); WP3 takes it apart into the engines' own
+`transcribe` (they hand on `transcript.json`, not FineSub's aligned JSON). The FineSub settings it read
+(`[asr] backend`, `[asr] repair`, `[segmentation] length_scale`) are its arguments now, with FineSub's
+defaults; the keys come from `keys.py`.
+
 Takes the place of separation, VAD and Whisper for a task whose `--asr` is a joint backend. For a cloud backend the
 local work is light: decoding the audio, Silero frame probabilities (the MOSS segments' unit times and MOSS Pro's
 gap gate), 35t's sentence-boundary model, production's DP and the timeline contract. Local MOSS decodes on this
@@ -10,29 +15,31 @@ task a joint-ASR task from then on (`task_backend`).
 from __future__ import annotations
 
 import json
-import os
 import sys
 import threading
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Mapping
 
-from ... import api_keys, settings
-from ...reporting import current_reporter
-from ..postprocessing import segmentation as seg
+from .. import keys
+from .. import lines as joint_lines
+from .. import repair as cloud_repair
+from ..reporting import current_reporter
+from ..segmentation import dp as seg
 from . import GEMINI_35T, LOCAL, MAI2, MOSS_LOCAL, MOSS_PRO, SEGMENT_BACKENDS, resolve_backend
-from . import lines as joint_lines
-from . import repair as cloud_repair
 
 if TYPE_CHECKING:
-    from .mosspro import SpeechSpans
+    from .moss_pro import SpeechSpans
 
 #: `metadata` key of a joint-ASR task's aligned and stable artifacts.
 METADATA_KEY = "joint_asr"
 #: The S5b / S6b names `docs/joint-asr.md` uses, recorded with the MOSS segments' lines.
 TIMING = {False: "S5b", True: "S6b"}
 
-AZURE_ENDPOINT_ENV = "FINESUB_AZURE_SPEECH_ENDPOINT"
-AZURE_KEY_ENV = "FINESUB_KEY_AZURE_SPEECH"
+AZURE_ENDPOINT_ENV = keys.AZURE_SPEECH_ENDPOINT
+AZURE_KEY_ENV = keys.AZURE_SPEECH_KEY
+#: FineSub's defaults of the settings this stage read (`[asr] backend`, `[asr] repair`).
+BACKEND_DEFAULT = LOCAL
+REPAIR_DEFAULT = "on"
 #: MAI2's price per audio hour on both routes (OpenRouter and Azure, 2026-10), for the estimate it prints.
 MAI2_USD_PER_HOUR = 0.10
 #: What the repair's re-asks add to MAI2's audio, by the survey (about 7 re-asks of 30 s per hour of source).
@@ -62,13 +69,13 @@ def _read_backend(path: Path) -> str | None:
 def task_backend(stable_json: Path, aligned_json: Path, requested: str | None) -> str:
     """The task's ASR backend: what its products record, not this run's `--asr` (a task keeps its own
     products and choices). The stable first (profile -1 copies the aligned's metadata, and the aligned may
-    be gone), then the aligned, then the request, then `[asr] backend`, then local."""
+    be gone), then the aligned, then the request, then local (FineSub: `[asr] backend`, default local)."""
     for path in (stable_json, aligned_json):
         if path.exists():
             # A product that does not parse reads as local: a corrupt product is outside the resume
             # contract (delete it and its downstream to rerun), so this only picks which error comes first.
             return _read_backend(path) or LOCAL
-    return resolve_backend(settings.ASR_BACKEND.resolve(requested))
+    return resolve_backend(BACKEND_DEFAULT if requested is None else requested)
 
 
 # --- calling ---------------------------------------------------------------------------------------------
@@ -98,24 +105,19 @@ def _announcing(backend: str, caller: Callable[..., Any]) -> Callable[..., Any]:
     return _announcer(backend)(caller)
 
 
-def _single_key(env_name: str, env: Mapping[str, str]) -> str | None:
-    entries = api_keys.key_entries(env_name, env)
-    return entries[0].key if entries else None
-
-
-def _mai2_caller(env: Mapping[str, str]):
+def _mai2_caller():
     from . import mai2
 
-    key = _single_key(mai2.OPENROUTER_KEY_ENV, env)
+    key = keys.single(mai2.OPENROUTER_KEY_ENV)
     if key:
         return "openrouter", mai2.Caller("openrouter", key)
-    endpoint = os.getenv(AZURE_ENDPOINT_ENV) or env.get(AZURE_ENDPOINT_ENV)
-    key = _single_key(AZURE_KEY_ENV, env)
+    endpoint = keys.single(AZURE_ENDPOINT_ENV)
+    key = keys.single(AZURE_KEY_ENV)
     if endpoint and key:
         return "azure", mai2.Caller("azure", key, endpoint)
     raise JointAsrError(
-        f"--asr mai2 needs {mai2.OPENROUTER_KEY_ENV} (OpenRouter), or {AZURE_ENDPOINT_ENV} and {AZURE_KEY_ENV} "
-        "(your Azure Speech resource), in .env")
+        f"MAI2 needs {mai2.OPENROUTER_KEY_ENV} (OpenRouter), or {AZURE_ENDPOINT_ENV} and {AZURE_KEY_ENV} "
+        "(your Azure Speech resource), in Nonoka's keys")
 
 
 def transcribe(backend: str, source: Path, *, cache_root: Path, language: str | None, duration: float,
@@ -126,7 +128,7 @@ def transcribe(backend: str, source: Path, *, cache_root: Path, language: str | 
     if backend == MAI2:
         from . import mai2
 
-        via, caller = _mai2_caller(api_keys.read_dotenv())
+        via, caller = _mai2_caller()
         hours = duration / 3600
         more = (f", about {MAI2_REPAIR_SHARE:.0%} more for re-asking gaps (--asr-repair off: none)"
                 if repair != "off" else "")
@@ -138,18 +140,18 @@ def transcribe(backend: str, source: Path, *, cache_root: Path, language: str | 
                                      caller=_announcing(backend, caller), duration=duration)
         return transcript, {"via": via}
     if backend == GEMINI_35T:
-        from . import gemini35t
-        from .live import Live
+        from ..enhance.live import Live
+        from . import gemini
 
         announced = _announcer(backend)
-        return gemini35t.transcribe(source, cache_root=cache_root, language=language, repair=repair,
-                                    caller=announced(gemini35t.Caller()), live=announced(Live()),
-                                    duration=duration, aligner=aligner), {}
+        return gemini.transcribe(source, cache_root=cache_root, language=language, repair=repair,
+                                 caller=announced(gemini.Caller()), live=announced(Live()),
+                                 duration=duration, aligner=aligner), {}
     if backend == MOSS_PRO:
-        from . import mosspro
+        from . import moss_pro
 
-        caller = _announcing(backend, mosspro.Caller())
-        return mosspro.transcribe(source, cache_root=cache_root, language=language, caller=caller,
+        caller = _announcing(backend, moss_pro.Caller())
+        return moss_pro.transcribe(source, cache_root=cache_root, language=language, caller=caller,
                                   duration=duration, speech=speech), {}
     if backend == MOSS_LOCAL:
         from . import moss_local
@@ -176,14 +178,15 @@ def run(
     device: str | None = None,
 ) -> Path:
     """Transcribe `source` with `backend` and write the aligned artifact to `output_path`. `repair` is
-    `--asr-repair` (None: `[asr] repair`); `gpu_tier` and `device` are the run's (local MOSS)."""
-    from ...media.ffmpeg import probe_media_duration
-    from .mosspro import SpeechSpans
+    `--asr-repair` (None: `REPAIR_DEFAULT`); `gpu_tier` and `device` are the run's (local MOSS)."""
+    from ..audio import probe_media_duration
+    from .moss_pro import SpeechSpans
 
     src, out = Path(source), Path(output_path)
     duration = probe_media_duration(src)
-    params = seg.split_params_for_length_scale(settings.SPLIT_LENGTH_SCALE.resolve(split_length_scale))
-    repair = cloud_repair.mode(settings.ASR_REPAIR.resolve(repair))
+    params = seg.split_params_for_length_scale(
+        seg.LENGTH_SCALE_DEFAULT if split_length_scale is None else split_length_scale)
+    repair = cloud_repair.mode(REPAIR_DEFAULT if repair is None else repair)
     # Decoded once, on first use: MOSS Pro's gap check and the line timing below read the same samples. Only
     # the segment backends time lines from it; MAI2's and 35t's repairs keep their own, freed when they return.
     speech = SpeechSpans(src) if backend in SEGMENT_BACKENDS else None
@@ -195,12 +198,12 @@ def run(
     if backend not in SEGMENT_BACKENDS and repair != "off":
         record["repair"] = repair
     if backend in SEGMENT_BACKENDS:
-        from . import moss_timing
+        from ..enhance import moss_timing
 
         pcm = speech.pcm()
         align = None
         if aligner:
-            from .aligner import aligned_units
+            from ..enhance.aligner import aligned_units
 
             def align(long_ones: list[dict], every: list[dict]) -> dict[int, list[dict]]:
                 return aligned_units(long_ones, all_segments=every, pcm16k=pcm)
@@ -212,7 +215,7 @@ def run(
     else:
         sentence_ends = None
         if backend == GEMINI_35T:
-            from .sbd import sentence_ends
+            from ..enhance.sbd import sentence_ends
         segments, vad = joint_lines.word_lines(units, duration=duration, params=params, language=language,
                                                per_turn=backend == GEMINI_35T, grid=backend == GEMINI_35T,
                                                sentence_ends=sentence_ends)

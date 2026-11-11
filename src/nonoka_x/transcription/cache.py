@@ -22,7 +22,7 @@ import threading
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
-from finesub.reporting import current_reporter
+from .reporting import current_reporter
 
 IDENTITY_FILE = "identity.json"
 #: The identity field that invalidates rather than warns (see the module docstring).
