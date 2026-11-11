@@ -1,0 +1,8 @@
+{
+ "provider": "moss-pro",
+ "model": "moss-transcribe-diarize-pro",
+ "part": 3600.0,
+ "part_overlap": 60.0,
+ "language": "zh",
+ "audio": "4096:ba1294845ca96561"
+}

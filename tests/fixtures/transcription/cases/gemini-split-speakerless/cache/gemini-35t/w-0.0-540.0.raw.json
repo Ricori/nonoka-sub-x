@@ -1,0 +1,188 @@
+{
+ "status": "completed",
+ "steps": [
+  {
+   "content": [
+    {
+     "annotations": [
+      {
+       "type": "word_info",
+       "start_offset": "1.0s",
+       "end_offset": "1.3s",
+       "speaker": "speaker_1",
+       "text": "はい"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "1.4s",
+       "end_offset": "1.7s",
+       "speaker": "speaker_1",
+       "text": "はい"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "1.8s",
+       "end_offset": "2.1s",
+       "speaker": "speaker_1",
+       "text": "はい"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "2.2s",
+       "end_offset": "2.5s",
+       "speaker": "speaker_1",
+       "text": "はい"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "2.6s",
+       "end_offset": "2.9s",
+       "speaker": "speaker_1",
+       "text": "はい"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "3.0s",
+       "end_offset": "3.3s",
+       "speaker": "speaker_1",
+       "text": "はい"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "3.4s",
+       "end_offset": "3.7s",
+       "speaker": "speaker_1",
+       "text": "はい"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "3.8s",
+       "end_offset": "4.1s",
+       "speaker": "speaker_1",
+       "text": "はい"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "4.2s",
+       "end_offset": "4.5s",
+       "speaker": "speaker_1",
+       "text": "はい"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "4.6s",
+       "end_offset": "4.9s",
+       "speaker": "speaker_1",
+       "text": "はい"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "5.0s",
+       "end_offset": "5.3s",
+       "speaker": "speaker_1",
+       "text": "はい"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "5.4s",
+       "end_offset": "5.7s",
+       "speaker": "speaker_1",
+       "text": "はい"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "5.8s",
+       "end_offset": "6.1s",
+       "speaker": "speaker_1",
+       "text": "はい"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "6.2s",
+       "end_offset": "6.5s",
+       "speaker": "speaker_1",
+       "text": "はい"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "6.6s",
+       "end_offset": "6.9s",
+       "speaker": "speaker_1",
+       "text": "はい"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "7.0s",
+       "end_offset": "7.3s",
+       "speaker": "speaker_1",
+       "text": "はい"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "7.4s",
+       "end_offset": "7.7s",
+       "speaker": "speaker_1",
+       "text": "はい"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "7.8s",
+       "end_offset": "8.1s",
+       "speaker": "speaker_1",
+       "text": "はい"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "8.2s",
+       "end_offset": "8.5s",
+       "speaker": "speaker_1",
+       "text": "はい"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "8.6s",
+       "end_offset": "8.9s",
+       "speaker": "speaker_1",
+       "text": "はい"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "9.0s",
+       "end_offset": "9.3s",
+       "speaker": "speaker_1",
+       "text": "はい"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "9.4s",
+       "end_offset": "9.7s",
+       "speaker": "speaker_1",
+       "text": "はい"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "9.8s",
+       "end_offset": "10.1s",
+       "speaker": "speaker_1",
+       "text": "はい"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "10.2s",
+       "end_offset": "10.5s",
+       "speaker": "speaker_1",
+       "text": "はい"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "10.6s",
+       "end_offset": "10.9s",
+       "speaker": "speaker_1",
+       "text": "はい"
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

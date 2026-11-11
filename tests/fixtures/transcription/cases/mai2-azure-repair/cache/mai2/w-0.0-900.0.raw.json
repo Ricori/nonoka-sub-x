@@ -1,0 +1,6294 @@
+{
+ "durationMilliseconds": 900000,
+ "phrases": [
+  {
+   "speaker": 2,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Good",
+     "offsetMilliseconds": 1374,
+     "durationMilliseconds": 405
+    },
+    {
+     "text": "morning,",
+     "offsetMilliseconds": 1856,
+     "durationMilliseconds": 901
+    },
+    {
+     "text": "everyone.",
+     "offsetMilliseconds": 2810,
+     "durationMilliseconds": 550
+    }
+   ]
+  },
+  {
+   "speaker": 0,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Thanks",
+     "offsetMilliseconds": 3891,
+     "durationMilliseconds": 535
+    },
+    {
+     "text": "for",
+     "offsetMilliseconds": 4428,
+     "durationMilliseconds": 506
+    },
+    {
+     "text": "having",
+     "offsetMilliseconds": 4962,
+     "durationMilliseconds": 613
+    },
+    {
+     "text": "me",
+     "offsetMilliseconds": 5646,
+     "durationMilliseconds": 372
+    },
+    {
+     "text": "today.",
+     "offsetMilliseconds": 6060,
+     "durationMilliseconds": 740
+    }
+   ]
+  },
+  {
+   "speaker": 2,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "No",
+     "offsetMilliseconds": 7739,
+     "durationMilliseconds": 378
+    },
+    {
+     "text": "way,",
+     "offsetMilliseconds": 8145,
+     "durationMilliseconds": 359
+    },
+    {
+     "text": "that's",
+     "offsetMilliseconds": 8576,
+     "durationMilliseconds": 544
+    },
+    {
+     "text": "incredible!",
+     "offsetMilliseconds": 9185,
+     "durationMilliseconds": 595
+    }
+   ]
+  },
+  {
+   "speaker": 2,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "So",
+     "offsetMilliseconds": 10269,
+     "durationMilliseconds": 506
+    },
+    {
+     "text": "what",
+     "offsetMilliseconds": 10823,
+     "durationMilliseconds": 378
+    },
+    {
+     "text": "happened",
+     "offsetMilliseconds": 11212,
+     "durationMilliseconds": 819
+    },
+    {
+     "text": "next?",
+     "offsetMilliseconds": 12579,
+     "durationMilliseconds": 680
+    }
+   ]
+  },
+  {
+   "speaker": 0,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "That's",
+     "offsetMilliseconds": 13564,
+     "durationMilliseconds": 675
+    },
+    {
+     "text": "a",
+     "offsetMilliseconds": 14240,
+     "durationMilliseconds": 425
+    },
+    {
+     "text": "great",
+     "offsetMilliseconds": 14699,
+     "durationMilliseconds": 456
+    },
+    {
+     "text": "point,",
+     "offsetMilliseconds": 15203,
+     "durationMilliseconds": 653
+    },
+    {
+     "text": "actually.",
+     "offsetMilliseconds": 15890,
+     "durationMilliseconds": 970
+    }
+   ]
+  },
+  {
+   "speaker": 2,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "So",
+     "offsetMilliseconds": 17589,
+     "durationMilliseconds": 535
+    },
+    {
+     "text": "what",
+     "offsetMilliseconds": 18152,
+     "durationMilliseconds": 395
+    },
+    {
+     "text": "happened",
+     "offsetMilliseconds": 19084,
+     "durationMilliseconds": 667
+    },
+    {
+     "text": "next?",
+     "offsetMilliseconds": 19801,
+     "durationMilliseconds": 408
+    }
+   ]
+  },
+  {
+   "speaker": 0,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Well,",
+     "offsetMilliseconds": 22604,
+     "durationMilliseconds": 692
+    },
+    {
+     "text": "it",
+     "offsetMilliseconds": 23316,
+     "durationMilliseconds": 373
+    },
+    {
+     "text": "depends",
+     "offsetMilliseconds": 23724,
+     "durationMilliseconds": 672
+    },
+    {
+     "text": "on",
+     "offsetMilliseconds": 24431,
+     "durationMilliseconds": 538
+    },
+    {
+     "text": "the",
+     "offsetMilliseconds": 24974,
+     "durationMilliseconds": 472
+    },
+    {
+     "text": "budget.",
+     "offsetMilliseconds": 25503,
+     "durationMilliseconds": 657
+    }
+   ]
+  },
+  {
+   "speaker": 0,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Sure.",
+     "offsetMilliseconds": 27169,
+     "durationMilliseconds": 660
+    }
+   ]
+  },
+  {
+   "speaker": 3,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "I",
+     "offsetMilliseconds": 28522,
+     "durationMilliseconds": 307
+    },
+    {
+     "text": "honestly",
+     "offsetMilliseconds": 29269,
+     "durationMilliseconds": 903
+    },
+    {
+     "text": "have",
+     "offsetMilliseconds": 30244,
+     "durationMilliseconds": 624
+    },
+    {
+     "text": "no",
+     "offsetMilliseconds": 30878,
+     "durationMilliseconds": 477
+    },
+    {
+     "text": "idea,",
+     "offsetMilliseconds": 31365,
+     "durationMilliseconds": 453
+    },
+    {
+     "text": "it",
+     "offsetMilliseconds": 31879,
+     "durationMilliseconds": 377
+    },
+    {
+     "text": "was",
+     "offsetMilliseconds": 32328,
+     "durationMilliseconds": 500
+    },
+    {
+     "text": "a",
+     "offsetMilliseconds": 32838,
+     "durationMilliseconds": 408
+    },
+    {
+     "text": "mess.",
+     "offsetMilliseconds": 33320,
+     "durationMilliseconds": 658
+    }
+   ]
+  },
+  {
+   "speaker": 2,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "That's",
+     "offsetMilliseconds": 34387,
+     "durationMilliseconds": 647
+    },
+    {
+     "text": "a",
+     "offsetMilliseconds": 35538,
+     "durationMilliseconds": 276
+    },
+    {
+     "text": "great",
+     "offsetMilliseconds": 35888,
+     "durationMilliseconds": 625
+    },
+    {
+     "text": "point,",
+     "offsetMilliseconds": 36734,
+     "durationMilliseconds": 486
+    },
+    {
+     "text": "actually.",
+     "offsetMilliseconds": 37251,
+     "durationMilliseconds": 729
+    }
+   ]
+  },
+  {
+   "speaker": 3,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Good",
+     "offsetMilliseconds": 38953,
+     "durationMilliseconds": 397
+    },
+    {
+     "text": "morning,",
+     "offsetMilliseconds": 39350,
+     "durationMilliseconds": 886
+    },
+    {
+     "text": "everyone.",
+     "offsetMilliseconds": 40298,
+     "durationMilliseconds": 665
+    }
+   ]
+  },
+  {
+   "speaker": 2,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Thanks",
+     "offsetMilliseconds": 41808,
+     "durationMilliseconds": 560
+    },
+    {
+     "text": "for",
+     "offsetMilliseconds": 42391,
+     "durationMilliseconds": 501
+    },
+    {
+     "text": "having",
+     "offsetMilliseconds": 42941,
+     "durationMilliseconds": 777
+    },
+    {
+     "text": "me",
+     "offsetMilliseconds": 43794,
+     "durationMilliseconds": 431
+    },
+    {
+     "text": "today.",
+     "offsetMilliseconds": 44238,
+     "durationMilliseconds": 563
+    }
+   ]
+  },
+  {
+   "speaker": 0,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Sure.",
+     "offsetMilliseconds": 48517,
+     "durationMilliseconds": 712
+    }
+   ]
+  },
+  {
+   "speaker": 3,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Right,",
+     "offsetMilliseconds": 52886,
+     "durationMilliseconds": 751
+    },
+    {
+     "text": "right.",
+     "offsetMilliseconds": 53647,
+     "durationMilliseconds": 677
+    }
+   ]
+  },
+  {
+   "speaker": 0,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Right,",
+     "offsetMilliseconds": 55499,
+     "durationMilliseconds": 454
+    },
+    {
+     "text": "right.",
+     "offsetMilliseconds": 55971,
+     "durationMilliseconds": 651
+    }
+   ]
+  },
+  {
+   "speaker": 0,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "That's",
+     "offsetMilliseconds": 57181,
+     "durationMilliseconds": 785
+    },
+    {
+     "text": "a",
+     "offsetMilliseconds": 57994,
+     "durationMilliseconds": 454
+    },
+    {
+     "text": "great",
+     "offsetMilliseconds": 58503,
+     "durationMilliseconds": 458
+    },
+    {
+     "text": "point,",
+     "offsetMilliseconds": 58978,
+     "durationMilliseconds": 743
+    },
+    {
+     "text": "actually.",
+     "offsetMilliseconds": 59754,
+     "durationMilliseconds": 948
+    }
+   ]
+  },
+  {
+   "speaker": 0,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "I",
+     "offsetMilliseconds": 60973,
+     "durationMilliseconds": 398
+    },
+    {
+     "text": "honestly",
+     "offsetMilliseconds": 61852,
+     "durationMilliseconds": 821
+    },
+    {
+     "text": "have",
+     "offsetMilliseconds": 62706,
+     "durationMilliseconds": 608
+    },
+    {
+     "text": "no",
+     "offsetMilliseconds": 63355,
+     "durationMilliseconds": 537
+    },
+    {
+     "text": "idea,",
+     "offsetMilliseconds": 63946,
+     "durationMilliseconds": 696
+    },
+    {
+     "text": "it",
+     "offsetMilliseconds": 64643,
+     "durationMilliseconds": 471
+    },
+    {
+     "text": "was",
+     "offsetMilliseconds": 65163,
+     "durationMilliseconds": 500
+    },
+    {
+     "text": "a",
+     "offsetMilliseconds": 65731,
+     "durationMilliseconds": 433
+    },
+    {
+     "text": "mess.",
+     "offsetMilliseconds": 66172,
+     "durationMilliseconds": 452
+    }
+   ]
+  },
+  {
+   "speaker": 2,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Wait,",
+     "offsetMilliseconds": 67363,
+     "durationMilliseconds": 443
+    },
+    {
+     "text": "can",
+     "offsetMilliseconds": 67848,
+     "durationMilliseconds": 592
+    },
+    {
+     "text": "you",
+     "offsetMilliseconds": 68481,
+     "durationMilliseconds": 433
+    },
+    {
+     "text": "say",
+     "offsetMilliseconds": 68978,
+     "durationMilliseconds": 393
+    },
+    {
+     "text": "that",
+     "offsetMilliseconds": 69425,
+     "durationMilliseconds": 430
+    },
+    {
+     "text": "again?",
+     "offsetMilliseconds": 69905,
+     "durationMilliseconds": 574
+    }
+   ]
+  },
+  {
+   "speaker": 2,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "So",
+     "offsetMilliseconds": 71178,
+     "durationMilliseconds": 328
+    },
+    {
+     "text": "what",
+     "offsetMilliseconds": 71583,
+     "durationMilliseconds": 653
+    },
+    {
+     "text": "happened",
+     "offsetMilliseconds": 72308,
+     "durationMilliseconds": 621
+    },
+    {
+     "text": "next?",
+     "offsetMilliseconds": 72990,
+     "durationMilliseconds": 657
+    }
+   ]
+  },
+  {
+   "speaker": 2,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Let's",
+     "offsetMilliseconds": 74391,
+     "durationMilliseconds": 612
+    },
+    {
+     "text": "move",
+     "offsetMilliseconds": 75066,
+     "durationMilliseconds": 461
+    },
+    {
+     "text": "on",
+     "offsetMilliseconds": 76020,
+     "durationMilliseconds": 451
+    },
+    {
+     "text": "to",
+     "offsetMilliseconds": 77034,
+     "durationMilliseconds": 486
+    },
+    {
+     "text": "the",
+     "offsetMilliseconds": 77578,
+     "durationMilliseconds": 590
+    },
+    {
+     "text": "next",
+     "offsetMilliseconds": 78236,
+     "durationMilliseconds": 561
+    },
+    {
+     "text": "question.",
+     "offsetMilliseconds": 78845,
+     "durationMilliseconds": 552
+    }
+   ]
+  },
+  {
+   "speaker": 0,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "I",
+     "offsetMilliseconds": 80200,
+     "durationMilliseconds": 429
+    },
+    {
+     "text": "honestly",
+     "offsetMilliseconds": 80691,
+     "durationMilliseconds": 694
+    },
+    {
+     "text": "have",
+     "offsetMilliseconds": 81422,
+     "durationMilliseconds": 383
+    },
+    {
+     "text": "no",
+     "offsetMilliseconds": 81817,
+     "durationMilliseconds": 424
+    },
+    {
+     "text": "idea,",
+     "offsetMilliseconds": 82304,
+     "durationMilliseconds": 539
+    },
+    {
+     "text": "it",
+     "offsetMilliseconds": 82903,
+     "durationMilliseconds": 347
+    },
+    {
+     "text": "was",
+     "offsetMilliseconds": 83293,
+     "durationMilliseconds": 583
+    },
+    {
+     "text": "a",
+     "offsetMilliseconds": 83882,
+     "durationMilliseconds": 273
+    },
+    {
+     "text": "mess.",
+     "offsetMilliseconds": 84555,
+     "durationMilliseconds": 536
+    }
+   ]
+  },
+  {
+   "speaker": 3,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Let's",
+     "offsetMilliseconds": 89804,
+     "durationMilliseconds": 641
+    },
+    {
+     "text": "move",
+     "offsetMilliseconds": 90814,
+     "durationMilliseconds": 463
+    },
+    {
+     "text": "on",
+     "offsetMilliseconds": 91291,
+     "durationMilliseconds": 525
+    },
+    {
+     "text": "to",
+     "offsetMilliseconds": 91872,
+     "durationMilliseconds": 371
+    },
+    {
+     "text": "the",
+     "offsetMilliseconds": 92293,
+     "durationMilliseconds": 379
+    },
+    {
+     "text": "next",
+     "offsetMilliseconds": 92692,
+     "durationMilliseconds": 488
+    },
+    {
+     "text": "question.",
+     "offsetMilliseconds": 93240,
+     "durationMilliseconds": 691
+    }
+   ]
+  },
+  {
+   "speaker": 2,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Good",
+     "offsetMilliseconds": 94515,
+     "durationMilliseconds": 504
+    },
+    {
+     "text": "morning,",
+     "offsetMilliseconds": 95057,
+     "durationMilliseconds": 756
+    },
+    {
+     "text": "everyone.",
+     "offsetMilliseconds": 95848,
+     "durationMilliseconds": 917
+    }
+   ]
+  },
+  {
+   "speaker": 3,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Wait,",
+     "offsetMilliseconds": 97209,
+     "durationMilliseconds": 619
+    },
+    {
+     "text": "can",
+     "offsetMilliseconds": 98059,
+     "durationMilliseconds": 534
+    },
+    {
+     "text": "you",
+     "offsetMilliseconds": 98656,
+     "durationMilliseconds": 492
+    },
+    {
+     "text": "say",
+     "offsetMilliseconds": 99414,
+     "durationMilliseconds": 579
+    },
+    {
+     "text": "that",
+     "offsetMilliseconds": 99996,
+     "durationMilliseconds": 644
+    },
+    {
+     "text": "again?",
+     "offsetMilliseconds": 100701,
+     "durationMilliseconds": 594
+    }
+   ]
+  },
+  {
+   "speaker": 3,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Let's",
+     "offsetMilliseconds": 104942,
+     "durationMilliseconds": 638
+    },
+    {
+     "text": "move",
+     "offsetMilliseconds": 105614,
+     "durationMilliseconds": 410
+    },
+    {
+     "text": "on",
+     "offsetMilliseconds": 106062,
+     "durationMilliseconds": 347
+    },
+    {
+     "text": "to",
+     "offsetMilliseconds": 106421,
+     "durationMilliseconds": 309
+    },
+    {
+     "text": "the",
+     "offsetMilliseconds": 106987,
+     "durationMilliseconds": 478
+    },
+    {
+     "text": "next",
+     "offsetMilliseconds": 107495,
+     "durationMilliseconds": 518
+    },
+    {
+     "text": "question.",
+     "offsetMilliseconds": 108085,
+     "durationMilliseconds": 672
+    }
+   ]
+  },
+  {
+   "speaker": 2,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "So",
+     "offsetMilliseconds": 114035,
+     "durationMilliseconds": 380
+    },
+    {
+     "text": "what",
+     "offsetMilliseconds": 114462,
+     "durationMilliseconds": 379
+    },
+    {
+     "text": "happened",
+     "offsetMilliseconds": 114860,
+     "durationMilliseconds": 573
+    },
+    {
+     "text": "next?",
+     "offsetMilliseconds": 115466,
+     "durationMilliseconds": 717
+    }
+   ]
+  },
+  {
+   "speaker": 3,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "I",
+     "offsetMilliseconds": 116955,
+     "durationMilliseconds": 291
+    },
+    {
+     "text": "honestly",
+     "offsetMilliseconds": 117489,
+     "durationMilliseconds": 549
+    },
+    {
+     "text": "have",
+     "offsetMilliseconds": 118610,
+     "durationMilliseconds": 465
+    },
+    {
+     "text": "no",
+     "offsetMilliseconds": 119643,
+     "durationMilliseconds": 527
+    },
+    {
+     "text": "idea,",
+     "offsetMilliseconds": 120187,
+     "durationMilliseconds": 704
+    },
+    {
+     "text": "it",
+     "offsetMilliseconds": 120943,
+     "durationMilliseconds": 312
+    },
+    {
+     "text": "was",
+     "offsetMilliseconds": 121797,
+     "durationMilliseconds": 376
+    },
+    {
+     "text": "a",
+     "offsetMilliseconds": 122237,
+     "durationMilliseconds": 301
+    },
+    {
+     "text": "mess.",
+     "offsetMilliseconds": 122610,
+     "durationMilliseconds": 666
+    }
+   ]
+  },
+  {
+   "speaker": 3,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Okay,",
+     "offsetMilliseconds": 123571,
+     "durationMilliseconds": 421
+    },
+    {
+     "text": "I",
+     "offsetMilliseconds": 123993,
+     "durationMilliseconds": 280
+    },
+    {
+     "text": "think",
+     "offsetMilliseconds": 124304,
+     "durationMilliseconds": 426
+    },
+    {
+     "text": "we're",
+     "offsetMilliseconds": 124792,
+     "durationMilliseconds": 681
+    },
+    {
+     "text": "done",
+     "offsetMilliseconds": 125543,
+     "durationMilliseconds": 449
+    },
+    {
+     "text": "here.",
+     "offsetMilliseconds": 126031,
+     "durationMilliseconds": 637
+    }
+   ]
+  },
+  {
+   "speaker": 2,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Wait,",
+     "offsetMilliseconds": 127642,
+     "durationMilliseconds": 696
+    },
+    {
+     "text": "can",
+     "offsetMilliseconds": 128352,
+     "durationMilliseconds": 581
+    },
+    {
+     "text": "you",
+     "offsetMilliseconds": 128979,
+     "durationMilliseconds": 481
+    },
+    {
+     "text": "say",
+     "offsetMilliseconds": 129481,
+     "durationMilliseconds": 328
+    },
+    {
+     "text": "that",
+     "offsetMilliseconds": 130340,
+     "durationMilliseconds": 387
+    },
+    {
+     "text": "again?",
+     "offsetMilliseconds": 131174,
+     "durationMilliseconds": 444
+    }
+   ]
+  },
+  {
+   "speaker": 0,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Well,",
+     "offsetMilliseconds": 132312,
+     "durationMilliseconds": 617
+    },
+    {
+     "text": "it",
+     "offsetMilliseconds": 133295,
+     "durationMilliseconds": 313
+    },
+    {
+     "text": "depends",
+     "offsetMilliseconds": 133681,
+     "durationMilliseconds": 678
+    },
+    {
+     "text": "on",
+     "offsetMilliseconds": 134427,
+     "durationMilliseconds": 438
+    },
+    {
+     "text": "the",
+     "offsetMilliseconds": 134890,
+     "durationMilliseconds": 387
+    },
+    {
+     "text": "budget.",
+     "offsetMilliseconds": 135342,
+     "durationMilliseconds": 653
+    }
+   ]
+  },
+  {
+   "speaker": 0,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "No",
+     "offsetMilliseconds": 141499,
+     "durationMilliseconds": 327
+    },
+    {
+     "text": "way,",
+     "offsetMilliseconds": 141892,
+     "durationMilliseconds": 406
+    },
+    {
+     "text": "that's",
+     "offsetMilliseconds": 142318,
+     "durationMilliseconds": 743
+    },
+    {
+     "text": "incredible!",
+     "offsetMilliseconds": 143098,
+     "durationMilliseconds": 631
+    }
+   ]
+  },
+  {
+   "speaker": 0,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "No",
+     "offsetMilliseconds": 144906,
+     "durationMilliseconds": 470
+    },
+    {
+     "text": "way,",
+     "offsetMilliseconds": 145445,
+     "durationMilliseconds": 540
+    },
+    {
+     "text": "that's",
+     "offsetMilliseconds": 146017,
+     "durationMilliseconds": 616
+    },
+    {
+     "text": "incredible!",
+     "offsetMilliseconds": 146646,
+     "durationMilliseconds": 978
+    }
+   ]
+  },
+  {
+   "speaker": 3,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "That's",
+     "offsetMilliseconds": 149164,
+     "durationMilliseconds": 602
+    },
+    {
+     "text": "a",
+     "offsetMilliseconds": 149795,
+     "durationMilliseconds": 461
+    },
+    {
+     "text": "great",
+     "offsetMilliseconds": 150280,
+     "durationMilliseconds": 666
+    },
+    {
+     "text": "point,",
+     "offsetMilliseconds": 151003,
+     "durationMilliseconds": 702
+    },
+    {
+     "text": "actually.",
+     "offsetMilliseconds": 151726,
+     "durationMilliseconds": 952
+    }
+   ]
+  },
+  {
+   "speaker": 3,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "So",
+     "offsetMilliseconds": 153834,
+     "durationMilliseconds": 449
+    },
+    {
+     "text": "what",
+     "offsetMilliseconds": 154303,
+     "durationMilliseconds": 663
+    },
+    {
+     "text": "happened",
+     "offsetMilliseconds": 155013,
+     "durationMilliseconds": 647
+    },
+    {
+     "text": "next?",
+     "offsetMilliseconds": 155689,
+     "durationMilliseconds": 409
+    }
+   ]
+  },
+  {
+   "speaker": 0,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "That's",
+     "offsetMilliseconds": 157129,
+     "durationMilliseconds": 776
+    },
+    {
+     "text": "a",
+     "offsetMilliseconds": 157928,
+     "durationMilliseconds": 388
+    },
+    {
+     "text": "great",
+     "offsetMilliseconds": 158351,
+     "durationMilliseconds": 548
+    },
+    {
+     "text": "point,",
+     "offsetMilliseconds": 158937,
+     "durationMilliseconds": 542
+    },
+    {
+     "text": "actually.",
+     "offsetMilliseconds": 159903,
+     "durationMilliseconds": 807
+    }
+   ]
+  },
+  {
+   "speaker": 2,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "That's",
+     "offsetMilliseconds": 161297,
+     "durationMilliseconds": 555
+    },
+    {
+     "text": "a",
+     "offsetMilliseconds": 161877,
+     "durationMilliseconds": 264
+    },
+    {
+     "text": "great",
+     "offsetMilliseconds": 162346,
+     "durationMilliseconds": 612
+    },
+    {
+     "text": "point,",
+     "offsetMilliseconds": 162987,
+     "durationMilliseconds": 772
+    },
+    {
+     "text": "actually.",
+     "offsetMilliseconds": 163815,
+     "durationMilliseconds": 794
+    }
+   ]
+  },
+  {
+   "speaker": 3,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "I",
+     "offsetMilliseconds": 165711,
+     "durationMilliseconds": 405
+    },
+    {
+     "text": "honestly",
+     "offsetMilliseconds": 166160,
+     "durationMilliseconds": 836
+    },
+    {
+     "text": "have",
+     "offsetMilliseconds": 166999,
+     "durationMilliseconds": 374
+    },
+    {
+     "text": "no",
+     "offsetMilliseconds": 167434,
+     "durationMilliseconds": 421
+    },
+    {
+     "text": "idea,",
+     "offsetMilliseconds": 168335,
+     "durationMilliseconds": 625
+    },
+    {
+     "text": "it",
+     "offsetMilliseconds": 169025,
+     "durationMilliseconds": 422
+    },
+    {
+     "text": "was",
+     "offsetMilliseconds": 169500,
+     "durationMilliseconds": 573
+    },
+    {
+     "text": "a",
+     "offsetMilliseconds": 170138,
+     "durationMilliseconds": 444
+    },
+    {
+     "text": "mess.",
+     "offsetMilliseconds": 170924,
+     "durationMilliseconds": 628
+    }
+   ]
+  },
+  {
+   "speaker": 3,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Wait,",
+     "offsetMilliseconds": 172321,
+     "durationMilliseconds": 605
+    },
+    {
+     "text": "can",
+     "offsetMilliseconds": 172953,
+     "durationMilliseconds": 369
+    },
+    {
+     "text": "you",
+     "offsetMilliseconds": 173341,
+     "durationMilliseconds": 519
+    },
+    {
+     "text": "say",
+     "offsetMilliseconds": 173911,
+     "durationMilliseconds": 433
+    },
+    {
+     "text": "that",
+     "offsetMilliseconds": 174363,
+     "durationMilliseconds": 567
+    },
+    {
+     "text": "again?",
+     "offsetMilliseconds": 174945,
+     "durationMilliseconds": 555
+    }
+   ]
+  },
+  {
+   "speaker": 3,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Sure.",
+     "offsetMilliseconds": 179472,
+     "durationMilliseconds": 447
+    }
+   ]
+  },
+  {
+   "speaker": 3,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Okay,",
+     "offsetMilliseconds": 180907,
+     "durationMilliseconds": 639
+    },
+    {
+     "text": "I",
+     "offsetMilliseconds": 181578,
+     "durationMilliseconds": 312
+    },
+    {
+     "text": "think",
+     "offsetMilliseconds": 181914,
+     "durationMilliseconds": 450
+    },
+    {
+     "text": "we're",
+     "offsetMilliseconds": 182912,
+     "durationMilliseconds": 591
+    },
+    {
+     "text": "done",
+     "offsetMilliseconds": 183529,
+     "durationMilliseconds": 581
+    },
+    {
+     "text": "here.",
+     "offsetMilliseconds": 184164,
+     "durationMilliseconds": 693
+    }
+   ]
+  },
+  {
+   "speaker": 0,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Good",
+     "offsetMilliseconds": 185876,
+     "durationMilliseconds": 499
+    },
+    {
+     "text": "morning,",
+     "offsetMilliseconds": 186443,
+     "durationMilliseconds": 686
+    },
+    {
+     "text": "everyone.",
+     "offsetMilliseconds": 187200,
+     "durationMilliseconds": 776
+    }
+   ]
+  },
+  {
+   "speaker": 3,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Let's",
+     "offsetMilliseconds": 188987,
+     "durationMilliseconds": 537
+    },
+    {
+     "text": "move",
+     "offsetMilliseconds": 189529,
+     "durationMilliseconds": 557
+    },
+    {
+     "text": "on",
+     "offsetMilliseconds": 190110,
+     "durationMilliseconds": 486
+    },
+    {
+     "text": "to",
+     "offsetMilliseconds": 190623,
+     "durationMilliseconds": 538
+    },
+    {
+     "text": "the",
+     "offsetMilliseconds": 191485,
+     "durationMilliseconds": 357
+    },
+    {
+     "text": "next",
+     "offsetMilliseconds": 191873,
+     "durationMilliseconds": 635
+    },
+    {
+     "text": "question.",
+     "offsetMilliseconds": 192916,
+     "durationMilliseconds": 644
+    }
+   ]
+  },
+  {
+   "speaker": 0,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "That's",
+     "offsetMilliseconds": 194337,
+     "durationMilliseconds": 717
+    },
+    {
+     "text": "a",
+     "offsetMilliseconds": 195063,
+     "durationMilliseconds": 466
+    },
+    {
+     "text": "great",
+     "offsetMilliseconds": 195562,
+     "durationMilliseconds": 712
+    },
+    {
+     "text": "point,",
+     "offsetMilliseconds": 196346,
+     "durationMilliseconds": 486
+    },
+    {
+     "text": "actually.",
+     "offsetMilliseconds": 196898,
+     "durationMilliseconds": 649
+    }
+   ]
+  },
+  {
+   "speaker": 3,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "No",
+     "offsetMilliseconds": 198556,
+     "durationMilliseconds": 497
+    },
+    {
+     "text": "way,",
+     "offsetMilliseconds": 199062,
+     "durationMilliseconds": 467
+    },
+    {
+     "text": "that's",
+     "offsetMilliseconds": 199594,
+     "durationMilliseconds": 651
+    },
+    {
+     "text": "incredible!",
+     "offsetMilliseconds": 200266,
+     "durationMilliseconds": 918
+    }
+   ]
+  },
+  {
+   "speaker": 3,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Good",
+     "offsetMilliseconds": 201562,
+     "durationMilliseconds": 481
+    },
+    {
+     "text": "morning,",
+     "offsetMilliseconds": 202630,
+     "durationMilliseconds": 888
+    },
+    {
+     "text": "everyone.",
+     "offsetMilliseconds": 203546,
+     "durationMilliseconds": 642
+    }
+   ]
+  },
+  {
+   "speaker": 3,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Thanks",
+     "offsetMilliseconds": 204572,
+     "durationMilliseconds": 647
+    },
+    {
+     "text": "for",
+     "offsetMilliseconds": 205420,
+     "durationMilliseconds": 350
+    },
+    {
+     "text": "having",
+     "offsetMilliseconds": 205801,
+     "durationMilliseconds": 771
+    },
+    {
+     "text": "me",
+     "offsetMilliseconds": 206628,
+     "durationMilliseconds": 459
+    },
+    {
+     "text": "today.",
+     "offsetMilliseconds": 207102,
+     "durationMilliseconds": 517
+    }
+   ]
+  },
+  {
+   "speaker": 2,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Good",
+     "offsetMilliseconds": 207937,
+     "durationMilliseconds": 466
+    },
+    {
+     "text": "morning,",
+     "offsetMilliseconds": 208416,
+     "durationMilliseconds": 906
+    },
+    {
+     "text": "everyone.",
+     "offsetMilliseconds": 209332,
+     "durationMilliseconds": 883
+    }
+   ]
+  },
+  {
+   "speaker": 3,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Wait,",
+     "offsetMilliseconds": 214902,
+     "durationMilliseconds": 590
+    },
+    {
+     "text": "can",
+     "offsetMilliseconds": 215529,
+     "durationMilliseconds": 463
+    },
+    {
+     "text": "you",
+     "offsetMilliseconds": 216012,
+     "durationMilliseconds": 533
+    },
+    {
+     "text": "say",
+     "offsetMilliseconds": 216622,
+     "durationMilliseconds": 355
+    },
+    {
+     "text": "that",
+     "offsetMilliseconds": 216995,
+     "durationMilliseconds": 443
+    },
+    {
+     "text": "again?",
+     "offsetMilliseconds": 217469,
+     "durationMilliseconds": 710
+    }
+   ]
+  },
+  {
+   "speaker": 2,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Thanks",
+     "offsetMilliseconds": 219357,
+     "durationMilliseconds": 535
+    },
+    {
+     "text": "for",
+     "offsetMilliseconds": 219932,
+     "durationMilliseconds": 471
+    },
+    {
+     "text": "having",
+     "offsetMilliseconds": 220427,
+     "durationMilliseconds": 593
+    },
+    {
+     "text": "me",
+     "offsetMilliseconds": 221090,
+     "durationMilliseconds": 436
+    },
+    {
+     "text": "today.",
+     "offsetMilliseconds": 221569,
+     "durationMilliseconds": 782
+    }
+   ]
+  },
+  {
+   "speaker": 0,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Sure.",
+     "offsetMilliseconds": 223086,
+     "durationMilliseconds": 538
+    }
+   ]
+  },
+  {
+   "speaker": 3,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Right,",
+     "offsetMilliseconds": 224757,
+     "durationMilliseconds": 545
+    },
+    {
+     "text": "right.",
+     "offsetMilliseconds": 225850,
+     "durationMilliseconds": 592
+    }
+   ]
+  },
+  {
+   "speaker": 0,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "I",
+     "offsetMilliseconds": 226859,
+     "durationMilliseconds": 313
+    },
+    {
+     "text": "honestly",
+     "offsetMilliseconds": 227251,
+     "durationMilliseconds": 539
+    },
+    {
+     "text": "have",
+     "offsetMilliseconds": 227833,
+     "durationMilliseconds": 361
+    },
+    {
+     "text": "no",
+     "offsetMilliseconds": 228234,
+     "durationMilliseconds": 437
+    },
+    {
+     "text": "idea,",
+     "offsetMilliseconds": 228979,
+     "durationMilliseconds": 689
+    },
+    {
+     "text": "it",
+     "offsetMilliseconds": 229687,
+     "durationMilliseconds": 513
+    },
+    {
+     "text": "was",
+     "offsetMilliseconds": 230258,
+     "durationMilliseconds": 506
+    },
+    {
+     "text": "a",
+     "offsetMilliseconds": 231284,
+     "durationMilliseconds": 449
+    },
+    {
+     "text": "mess.",
+     "offsetMilliseconds": 231764,
+     "durationMilliseconds": 430
+    }
+   ]
+  },
+  {
+   "speaker": 3,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Let's",
+     "offsetMilliseconds": 233369,
+     "durationMilliseconds": 439
+    },
+    {
+     "text": "move",
+     "offsetMilliseconds": 234031,
+     "durationMilliseconds": 389
+    },
+    {
+     "text": "on",
+     "offsetMilliseconds": 234461,
+     "durationMilliseconds": 489
+    },
+    {
+     "text": "to",
+     "offsetMilliseconds": 234986,
+     "durationMilliseconds": 356
+    },
+    {
+     "text": "the",
+     "offsetMilliseconds": 235911,
+     "durationMilliseconds": 561
+    },
+    {
+     "text": "next",
+     "offsetMilliseconds": 236537,
+     "durationMilliseconds": 406
+    },
+    {
+     "text": "question.",
+     "offsetMilliseconds": 237021,
+     "durationMilliseconds": 647
+    }
+   ]
+  },
+  {
+   "speaker": 0,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Let's",
+     "offsetMilliseconds": 238858,
+     "durationMilliseconds": 679
+    },
+    {
+     "text": "move",
+     "offsetMilliseconds": 239591,
+     "durationMilliseconds": 365
+    },
+    {
+     "text": "on",
+     "offsetMilliseconds": 240033,
+     "durationMilliseconds": 294
+    },
+    {
+     "text": "to",
+     "offsetMilliseconds": 240403,
+     "durationMilliseconds": 381
+    },
+    {
+     "text": "the",
+     "offsetMilliseconds": 240820,
+     "durationMilliseconds": 497
+    },
+    {
+     "text": "next",
+     "offsetMilliseconds": 241346,
+     "durationMilliseconds": 659
+    },
+    {
+     "text": "question.",
+     "offsetMilliseconds": 242083,
+     "durationMilliseconds": 641
+    }
+   ]
+  },
+  {
+   "speaker": 0,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Okay,",
+     "offsetMilliseconds": 245528,
+     "durationMilliseconds": 438
+    },
+    {
+     "text": "I",
+     "offsetMilliseconds": 245979,
+     "durationMilliseconds": 269
+    },
+    {
+     "text": "think",
+     "offsetMilliseconds": 246292,
+     "durationMilliseconds": 664
+    },
+    {
+     "text": "we're",
+     "offsetMilliseconds": 247026,
+     "durationMilliseconds": 506
+    },
+    {
+     "text": "done",
+     "offsetMilliseconds": 247564,
+     "durationMilliseconds": 619
+    },
+    {
+     "text": "here.",
+     "offsetMilliseconds": 248207,
+     "durationMilliseconds": 628
+    }
+   ]
+  },
+  {
+   "speaker": 2,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Let's",
+     "offsetMilliseconds": 249174,
+     "durationMilliseconds": 514
+    },
+    {
+     "text": "move",
+     "offsetMilliseconds": 250219,
+     "durationMilliseconds": 490
+    },
+    {
+     "text": "on",
+     "offsetMilliseconds": 251105,
+     "durationMilliseconds": 532
+    },
+    {
+     "text": "to",
+     "offsetMilliseconds": 251688,
+     "durationMilliseconds": 291
+    },
+    {
+     "text": "the",
+     "offsetMilliseconds": 252054,
+     "durationMilliseconds": 517
+    },
+    {
+     "text": "next",
+     "offsetMilliseconds": 252622,
+     "durationMilliseconds": 623
+    },
+    {
+     "text": "question.",
+     "offsetMilliseconds": 253295,
+     "durationMilliseconds": 588
+    }
+   ]
+  },
+  {
+   "speaker": 2,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "I",
+     "offsetMilliseconds": 254244,
+     "durationMilliseconds": 282
+    },
+    {
+     "text": "honestly",
+     "offsetMilliseconds": 254584,
+     "durationMilliseconds": 644
+    },
+    {
+     "text": "have",
+     "offsetMilliseconds": 255299,
+     "durationMilliseconds": 522
+    },
+    {
+     "text": "no",
+     "offsetMilliseconds": 255880,
+     "durationMilliseconds": 370
+    },
+    {
+     "text": "idea,",
+     "offsetMilliseconds": 256307,
+     "durationMilliseconds": 417
+    },
+    {
+     "text": "it",
+     "offsetMilliseconds": 257215,
+     "durationMilliseconds": 491
+    },
+    {
+     "text": "was",
+     "offsetMilliseconds": 257722,
+     "durationMilliseconds": 344
+    },
+    {
+     "text": "a",
+     "offsetMilliseconds": 258106,
+     "durationMilliseconds": 346
+    },
+    {
+     "text": "mess.",
+     "offsetMilliseconds": 258490,
+     "durationMilliseconds": 589
+    }
+   ]
+  },
+  {
+   "speaker": 3,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Wait,",
+     "offsetMilliseconds": 259824,
+     "durationMilliseconds": 496
+    },
+    {
+     "text": "can",
+     "offsetMilliseconds": 260393,
+     "durationMilliseconds": 334
+    },
+    {
+     "text": "you",
+     "offsetMilliseconds": 260731,
+     "durationMilliseconds": 473
+    },
+    {
+     "text": "say",
+     "offsetMilliseconds": 261224,
+     "durationMilliseconds": 414
+    },
+    {
+     "text": "that",
+     "offsetMilliseconds": 261705,
+     "durationMilliseconds": 506
+    },
+    {
+     "text": "again?",
+     "offsetMilliseconds": 262717,
+     "durationMilliseconds": 769
+    }
+   ]
+  },
+  {
+   "speaker": 0,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Let's",
+     "offsetMilliseconds": 263947,
+     "durationMilliseconds": 530
+    },
+    {
+     "text": "move",
+     "offsetMilliseconds": 264502,
+     "durationMilliseconds": 546
+    },
+    {
+     "text": "on",
+     "offsetMilliseconds": 265113,
+     "durationMilliseconds": 372
+    },
+    {
+     "text": "to",
+     "offsetMilliseconds": 265832,
+     "durationMilliseconds": 370
+    },
+    {
+     "text": "the",
+     "offsetMilliseconds": 266687,
+     "durationMilliseconds": 520
+    },
+    {
+     "text": "next",
+     "offsetMilliseconds": 267277,
+     "durationMilliseconds": 478
+    },
+    {
+     "text": "question.",
+     "offsetMilliseconds": 267798,
+     "durationMilliseconds": 911
+    }
+   ]
+  },
+  {
+   "speaker": 2,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Okay,",
+     "offsetMilliseconds": 271608,
+     "durationMilliseconds": 562
+    },
+    {
+     "text": "I",
+     "offsetMilliseconds": 272185,
+     "durationMilliseconds": 354
+    },
+    {
+     "text": "think",
+     "offsetMilliseconds": 272555,
+     "durationMilliseconds": 402
+    },
+    {
+     "text": "we're",
+     "offsetMilliseconds": 273463,
+     "durationMilliseconds": 597
+    },
+    {
+     "text": "done",
+     "offsetMilliseconds": 274133,
+     "durationMilliseconds": 596
+    },
+    {
+     "text": "here.",
+     "offsetMilliseconds": 274769,
+     "durationMilliseconds": 547
+    }
+   ]
+  },
+  {
+   "speaker": 2,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Okay,",
+     "offsetMilliseconds": 275887,
+     "durationMilliseconds": 643
+    },
+    {
+     "text": "I",
+     "offsetMilliseconds": 276530,
+     "durationMilliseconds": 264
+    },
+    {
+     "text": "think",
+     "offsetMilliseconds": 276794,
+     "durationMilliseconds": 451
+    },
+    {
+     "text": "we're",
+     "offsetMilliseconds": 277265,
+     "durationMilliseconds": 526
+    },
+    {
+     "text": "done",
+     "offsetMilliseconds": 277819,
+     "durationMilliseconds": 601
+    },
+    {
+     "text": "here.",
+     "offsetMilliseconds": 278455,
+     "durationMilliseconds": 430
+    }
+   ]
+  },
+  {
+   "speaker": 0,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "No",
+     "offsetMilliseconds": 279172,
+     "durationMilliseconds": 344
+    },
+    {
+     "text": "way,",
+     "offsetMilliseconds": 279728,
+     "durationMilliseconds": 562
+    },
+    {
+     "text": "that's",
+     "offsetMilliseconds": 280293,
+     "durationMilliseconds": 638
+    },
+    {
+     "text": "incredible!",
+     "offsetMilliseconds": 281004,
+     "durationMilliseconds": 745
+    }
+   ]
+  },
+  {
+   "speaker": 3,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "That's",
+     "offsetMilliseconds": 282924,
+     "durationMilliseconds": 617
+    },
+    {
+     "text": "a",
+     "offsetMilliseconds": 283574,
+     "durationMilliseconds": 359
+    },
+    {
+     "text": "great",
+     "offsetMilliseconds": 283994,
+     "durationMilliseconds": 604
+    },
+    {
+     "text": "point,",
+     "offsetMilliseconds": 284624,
+     "durationMilliseconds": 462
+    },
+    {
+     "text": "actually.",
+     "offsetMilliseconds": 285632,
+     "durationMilliseconds": 937
+    }
+   ]
+  },
+  {
+   "speaker": 2,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Sure.",
+     "offsetMilliseconds": 287081,
+     "durationMilliseconds": 520
+    }
+   ]
+  },
+  {
+   "speaker": 2,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Sure.",
+     "offsetMilliseconds": 287937,
+     "durationMilliseconds": 669
+    }
+   ]
+  },
+  {
+   "speaker": 2,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Good",
+     "offsetMilliseconds": 289435,
+     "durationMilliseconds": 368
+    },
+    {
+     "text": "morning,",
+     "offsetMilliseconds": 289836,
+     "durationMilliseconds": 883
+    },
+    {
+     "text": "everyone.",
+     "offsetMilliseconds": 290744,
+     "durationMilliseconds": 921
+    }
+   ]
+  },
+  {
+   "speaker": 3,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "That's",
+     "offsetMilliseconds": 292482,
+     "durationMilliseconds": 678
+    },
+    {
+     "text": "a",
+     "offsetMilliseconds": 293169,
+     "durationMilliseconds": 431
+    },
+    {
+     "text": "great",
+     "offsetMilliseconds": 293620,
+     "durationMilliseconds": 482
+    },
+    {
+     "text": "point,",
+     "offsetMilliseconds": 294138,
+     "durationMilliseconds": 734
+    },
+    {
+     "text": "actually.",
+     "offsetMilliseconds": 294895,
+     "durationMilliseconds": 869
+    }
+   ]
+  },
+  {
+   "speaker": 2,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Sure.",
+     "offsetMilliseconds": 295954,
+     "durationMilliseconds": 675
+    }
+   ]
+  },
+  {
+   "speaker": 3,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Let's",
+     "offsetMilliseconds": 297521,
+     "durationMilliseconds": 640
+    },
+    {
+     "text": "move",
+     "offsetMilliseconds": 298181,
+     "durationMilliseconds": 588
+    },
+    {
+     "text": "on",
+     "offsetMilliseconds": 298831,
+     "durationMilliseconds": 500
+    },
+    {
+     "text": "to",
+     "offsetMilliseconds": 299403,
+     "durationMilliseconds": 453
+    },
+    {
+     "text": "the",
+     "offsetMilliseconds": 299898,
+     "durationMilliseconds": 469
+    },
+    {
+     "text": "next",
+     "offsetMilliseconds": 300397,
+     "durationMilliseconds": 462
+    },
+    {
+     "text": "question.",
+     "offsetMilliseconds": 300916,
+     "durationMilliseconds": 768
+    }
+   ]
+  },
+  {
+   "speaker": 2,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Well,",
+     "offsetMilliseconds": 326699,
+     "durationMilliseconds": 631
+    },
+    {
+     "text": "it",
+     "offsetMilliseconds": 327377,
+     "durationMilliseconds": 422
+    },
+    {
+     "text": "depends",
+     "offsetMilliseconds": 327828,
+     "durationMilliseconds": 832
+    },
+    {
+     "text": "on",
+     "offsetMilliseconds": 328732,
+     "durationMilliseconds": 433
+    },
+    {
+     "text": "the",
+     "offsetMilliseconds": 329756,
+     "durationMilliseconds": 527
+    },
+    {
+     "text": "budget.",
+     "offsetMilliseconds": 330288,
+     "durationMilliseconds": 523
+    }
+   ]
+  },
+  {
+   "speaker": 0,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Well,",
+     "offsetMilliseconds": 331605,
+     "durationMilliseconds": 664
+    },
+    {
+     "text": "it",
+     "offsetMilliseconds": 332314,
+     "durationMilliseconds": 292
+    },
+    {
+     "text": "depends",
+     "offsetMilliseconds": 333044,
+     "durationMilliseconds": 788
+    },
+    {
+     "text": "on",
+     "offsetMilliseconds": 333895,
+     "durationMilliseconds": 503
+    },
+    {
+     "text": "the",
+     "offsetMilliseconds": 334625,
+     "durationMilliseconds": 415
+    },
+    {
+     "text": "budget.",
+     "offsetMilliseconds": 335087,
+     "durationMilliseconds": 835
+    }
+   ]
+  },
+  {
+   "speaker": 3,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "I",
+     "offsetMilliseconds": 336446,
+     "durationMilliseconds": 471
+    },
+    {
+     "text": "honestly",
+     "offsetMilliseconds": 337430,
+     "durationMilliseconds": 819
+    },
+    {
+     "text": "have",
+     "offsetMilliseconds": 338270,
+     "durationMilliseconds": 514
+    },
+    {
+     "text": "no",
+     "offsetMilliseconds": 338792,
+     "durationMilliseconds": 304
+    },
+    {
+     "text": "idea,",
+     "offsetMilliseconds": 339159,
+     "durationMilliseconds": 698
+    },
+    {
+     "text": "it",
+     "offsetMilliseconds": 339914,
+     "durationMilliseconds": 308
+    },
+    {
+     "text": "was",
+     "offsetMilliseconds": 340256,
+     "durationMilliseconds": 489
+    },
+    {
+     "text": "a",
+     "offsetMilliseconds": 340793,
+     "durationMilliseconds": 320
+    },
+    {
+     "text": "mess.",
+     "offsetMilliseconds": 341133,
+     "durationMilliseconds": 664
+    }
+   ]
+  },
+  {
+   "speaker": 3,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Right,",
+     "offsetMilliseconds": 342062,
+     "durationMilliseconds": 673
+    },
+    {
+     "text": "right.",
+     "offsetMilliseconds": 342798,
+     "durationMilliseconds": 691
+    }
+   ]
+  },
+  {
+   "speaker": 2,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Right,",
+     "offsetMilliseconds": 344224,
+     "durationMilliseconds": 495
+    },
+    {
+     "text": "right.",
+     "offsetMilliseconds": 344792,
+     "durationMilliseconds": 637
+    }
+   ]
+  },
+  {
+   "speaker": 3,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Thanks",
+     "offsetMilliseconds": 346064,
+     "durationMilliseconds": 618
+    },
+    {
+     "text": "for",
+     "offsetMilliseconds": 347016,
+     "durationMilliseconds": 451
+    },
+    {
+     "text": "having",
+     "offsetMilliseconds": 348030,
+     "durationMilliseconds": 639
+    },
+    {
+     "text": "me",
+     "offsetMilliseconds": 348742,
+     "durationMilliseconds": 516
+    },
+    {
+     "text": "today.",
+     "offsetMilliseconds": 349680,
+     "durationMilliseconds": 657
+    }
+   ]
+  },
+  {
+   "speaker": 0,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Right,",
+     "offsetMilliseconds": 351450,
+     "durationMilliseconds": 489
+    },
+    {
+     "text": "right.",
+     "offsetMilliseconds": 351990,
+     "durationMilliseconds": 534
+    }
+   ]
+  },
+  {
+   "speaker": 2,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Sure.",
+     "offsetMilliseconds": 353168,
+     "durationMilliseconds": 494
+    }
+   ]
+  },
+  {
+   "speaker": 0,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Sure.",
+     "offsetMilliseconds": 354440,
+     "durationMilliseconds": 634
+    }
+   ]
+  },
+  {
+   "speaker": 3,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "That's",
+     "offsetMilliseconds": 356115,
+     "durationMilliseconds": 736
+    },
+    {
+     "text": "a",
+     "offsetMilliseconds": 356904,
+     "durationMilliseconds": 473
+    },
+    {
+     "text": "great",
+     "offsetMilliseconds": 357390,
+     "durationMilliseconds": 591
+    },
+    {
+     "text": "point,",
+     "offsetMilliseconds": 357985,
+     "durationMilliseconds": 507
+    },
+    {
+     "text": "actually.",
+     "offsetMilliseconds": 358532,
+     "durationMilliseconds": 622
+    }
+   ]
+  },
+  {
+   "speaker": 0,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Good",
+     "offsetMilliseconds": 359494,
+     "durationMilliseconds": 495
+    },
+    {
+     "text": "morning,",
+     "offsetMilliseconds": 360044,
+     "durationMilliseconds": 692
+    },
+    {
+     "text": "everyone.",
+     "offsetMilliseconds": 360798,
+     "durationMilliseconds": 622
+    }
+   ]
+  },
+  {
+   "speaker": 0,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Okay,",
+     "offsetMilliseconds": 362268,
+     "durationMilliseconds": 557
+    },
+    {
+     "text": "I",
+     "offsetMilliseconds": 363166,
+     "durationMilliseconds": 409
+    },
+    {
+     "text": "think",
+     "offsetMilliseconds": 363599,
+     "durationMilliseconds": 473
+    },
+    {
+     "text": "we're",
+     "offsetMilliseconds": 364122,
+     "durationMilliseconds": 534
+    },
+    {
+     "text": "done",
+     "offsetMilliseconds": 364944,
+     "durationMilliseconds": 374
+    },
+    {
+     "text": "here.",
+     "offsetMilliseconds": 365379,
+     "durationMilliseconds": 502
+    }
+   ]
+  },
+  {
+   "speaker": 3,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Thanks",
+     "offsetMilliseconds": 366793,
+     "durationMilliseconds": 543
+    },
+    {
+     "text": "for",
+     "offsetMilliseconds": 367342,
+     "durationMilliseconds": 432
+    },
+    {
+     "text": "having",
+     "offsetMilliseconds": 367839,
+     "durationMilliseconds": 570
+    },
+    {
+     "text": "me",
+     "offsetMilliseconds": 368451,
+     "durationMilliseconds": 351
+    },
+    {
+     "text": "today.",
+     "offsetMilliseconds": 368825,
+     "durationMilliseconds": 678
+    }
+   ]
+  },
+  {
+   "speaker": 2,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Let's",
+     "offsetMilliseconds": 370417,
+     "durationMilliseconds": 496
+    },
+    {
+     "text": "move",
+     "offsetMilliseconds": 371473,
+     "durationMilliseconds": 530
+    },
+    {
+     "text": "on",
+     "offsetMilliseconds": 372028,
+     "durationMilliseconds": 509
+    },
+    {
+     "text": "to",
+     "offsetMilliseconds": 372540,
+     "durationMilliseconds": 389
+    },
+    {
+     "text": "the",
+     "offsetMilliseconds": 373005,
+     "durationMilliseconds": 380
+    },
+    {
+     "text": "next",
+     "offsetMilliseconds": 373432,
+     "durationMilliseconds": 480
+    },
+    {
+     "text": "question.",
+     "offsetMilliseconds": 373947,
+     "durationMilliseconds": 965
+    }
+   ]
+  },
+  {
+   "speaker": 3,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Okay,",
+     "offsetMilliseconds": 376978,
+     "durationMilliseconds": 577
+    },
+    {
+     "text": "I",
+     "offsetMilliseconds": 377596,
+     "durationMilliseconds": 302
+    },
+    {
+     "text": "think",
+     "offsetMilliseconds": 378418,
+     "durationMilliseconds": 621
+    },
+    {
+     "text": "we're",
+     "offsetMilliseconds": 379058,
+     "durationMilliseconds": 649
+    },
+    {
+     "text": "done",
+     "offsetMilliseconds": 379769,
+     "durationMilliseconds": 451
+    },
+    {
+     "text": "here.",
+     "offsetMilliseconds": 380236,
+     "durationMilliseconds": 601
+    }
+   ]
+  },
+  {
+   "speaker": 0,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Sure.",
+     "offsetMilliseconds": 381587,
+     "durationMilliseconds": 393
+    }
+   ]
+  },
+  {
+   "speaker": 3,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Okay,",
+     "offsetMilliseconds": 382148,
+     "durationMilliseconds": 599
+    },
+    {
+     "text": "I",
+     "offsetMilliseconds": 382825,
+     "durationMilliseconds": 262
+    },
+    {
+     "text": "think",
+     "offsetMilliseconds": 383113,
+     "durationMilliseconds": 587
+    },
+    {
+     "text": "we're",
+     "offsetMilliseconds": 383759,
+     "durationMilliseconds": 550
+    },
+    {
+     "text": "done",
+     "offsetMilliseconds": 384314,
+     "durationMilliseconds": 554
+    },
+    {
+     "text": "here.",
+     "offsetMilliseconds": 385328,
+     "durationMilliseconds": 628
+    }
+   ]
+  },
+  {
+   "speaker": 3,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "So",
+     "offsetMilliseconds": 386357,
+     "durationMilliseconds": 530
+    },
+    {
+     "text": "what",
+     "offsetMilliseconds": 386952,
+     "durationMilliseconds": 630
+    },
+    {
+     "text": "happened",
+     "offsetMilliseconds": 387603,
+     "durationMilliseconds": 599
+    },
+    {
+     "text": "next?",
+     "offsetMilliseconds": 388204,
+     "durationMilliseconds": 653
+    }
+   ]
+  },
+  {
+   "speaker": 3,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Well,",
+     "offsetMilliseconds": 389045,
+     "durationMilliseconds": 399
+    },
+    {
+     "text": "it",
+     "offsetMilliseconds": 389492,
+     "durationMilliseconds": 370
+    },
+    {
+     "text": "depends",
+     "offsetMilliseconds": 390138,
+     "durationMilliseconds": 803
+    },
+    {
+     "text": "on",
+     "offsetMilliseconds": 390976,
+     "durationMilliseconds": 531
+    },
+    {
+     "text": "the",
+     "offsetMilliseconds": 391508,
+     "durationMilliseconds": 518
+    },
+    {
+     "text": "budget.",
+     "offsetMilliseconds": 392078,
+     "durationMilliseconds": 604
+    }
+   ]
+  },
+  {
+   "speaker": 3,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Good",
+     "offsetMilliseconds": 393086,
+     "durationMilliseconds": 411
+    },
+    {
+     "text": "morning,",
+     "offsetMilliseconds": 393518,
+     "durationMilliseconds": 722
+    },
+    {
+     "text": "everyone.",
+     "offsetMilliseconds": 394532,
+     "durationMilliseconds": 948
+    }
+   ]
+  },
+  {
+   "speaker": 0,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "No",
+     "offsetMilliseconds": 396065,
+     "durationMilliseconds": 390
+    },
+    {
+     "text": "way,",
+     "offsetMilliseconds": 396510,
+     "durationMilliseconds": 393
+    },
+    {
+     "text": "that's",
+     "offsetMilliseconds": 396934,
+     "durationMilliseconds": 482
+    },
+    {
+     "text": "incredible!",
+     "offsetMilliseconds": 397496,
+     "durationMilliseconds": 959
+    }
+   ]
+  },
+  {
+   "speaker": 3,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Wait,",
+     "offsetMilliseconds": 399105,
+     "durationMilliseconds": 610
+    },
+    {
+     "text": "can",
+     "offsetMilliseconds": 399755,
+     "durationMilliseconds": 519
+    },
+    {
+     "text": "you",
+     "offsetMilliseconds": 400677,
+     "durationMilliseconds": 331
+    },
+    {
+     "text": "say",
+     "offsetMilliseconds": 401052,
+     "durationMilliseconds": 461
+    },
+    {
+     "text": "that",
+     "offsetMilliseconds": 401519,
+     "durationMilliseconds": 508
+    },
+    {
+     "text": "again?",
+     "offsetMilliseconds": 402069,
+     "durationMilliseconds": 475
+    }
+   ]
+  },
+  {
+   "speaker": 3,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Okay,",
+     "offsetMilliseconds": 430949,
+     "durationMilliseconds": 532
+    },
+    {
+     "text": "I",
+     "offsetMilliseconds": 431539,
+     "durationMilliseconds": 309
+    },
+    {
+     "text": "think",
+     "offsetMilliseconds": 431909,
+     "durationMilliseconds": 562
+    },
+    {
+     "text": "we're",
+     "offsetMilliseconds": 432549,
+     "durationMilliseconds": 474
+    },
+    {
+     "text": "done",
+     "offsetMilliseconds": 433076,
+     "durationMilliseconds": 409
+    },
+    {
+     "text": "here.",
+     "offsetMilliseconds": 433540,
+     "durationMilliseconds": 710
+    }
+   ]
+  },
+  {
+   "speaker": 3,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "So",
+     "offsetMilliseconds": 434874,
+     "durationMilliseconds": 359
+    },
+    {
+     "text": "what",
+     "offsetMilliseconds": 435297,
+     "durationMilliseconds": 617
+    },
+    {
+     "text": "happened",
+     "offsetMilliseconds": 435983,
+     "durationMilliseconds": 896
+    },
+    {
+     "text": "next?",
+     "offsetMilliseconds": 436936,
+     "durationMilliseconds": 423
+    }
+   ]
+  },
+  {
+   "speaker": 3,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "So",
+     "offsetMilliseconds": 437916,
+     "durationMilliseconds": 388
+    },
+    {
+     "text": "what",
+     "offsetMilliseconds": 438331,
+     "durationMilliseconds": 475
+    },
+    {
+     "text": "happened",
+     "offsetMilliseconds": 439387,
+     "durationMilliseconds": 532
+    },
+    {
+     "text": "next?",
+     "offsetMilliseconds": 439959,
+     "durationMilliseconds": 639
+    }
+   ]
+  },
+  {
+   "speaker": 0,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Thanks",
+     "offsetMilliseconds": 445348,
+     "durationMilliseconds": 512
+    },
+    {
+     "text": "for",
+     "offsetMilliseconds": 446410,
+     "durationMilliseconds": 387
+    },
+    {
+     "text": "having",
+     "offsetMilliseconds": 446807,
+     "durationMilliseconds": 612
+    },
+    {
+     "text": "me",
+     "offsetMilliseconds": 447429,
+     "durationMilliseconds": 519
+    },
+    {
+     "text": "today.",
+     "offsetMilliseconds": 448019,
+     "durationMilliseconds": 553
+    }
+   ]
+  },
+  {
+   "speaker": 0,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Good",
+     "offsetMilliseconds": 449668,
+     "durationMilliseconds": 464
+    },
+    {
+     "text": "morning,",
+     "offsetMilliseconds": 450181,
+     "durationMilliseconds": 794
+    },
+    {
+     "text": "everyone.",
+     "offsetMilliseconds": 450998,
+     "durationMilliseconds": 735
+    }
+   ]
+  },
+  {
+   "speaker": 2,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Right,",
+     "offsetMilliseconds": 452843,
+     "durationMilliseconds": 546
+    },
+    {
+     "text": "right.",
+     "offsetMilliseconds": 453711,
+     "durationMilliseconds": 466
+    }
+   ]
+  },
+  {
+   "speaker": 3,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Let's",
+     "offsetMilliseconds": 458637,
+     "durationMilliseconds": 717
+    },
+    {
+     "text": "move",
+     "offsetMilliseconds": 459399,
+     "durationMilliseconds": 427
+    },
+    {
+     "text": "on",
+     "offsetMilliseconds": 459870,
+     "durationMilliseconds": 294
+    },
+    {
+     "text": "to",
+     "offsetMilliseconds": 460203,
+     "durationMilliseconds": 438
+    },
+    {
+     "text": "the",
+     "offsetMilliseconds": 460644,
+     "durationMilliseconds": 410
+    },
+    {
+     "text": "next",
+     "offsetMilliseconds": 461354,
+     "durationMilliseconds": 416
+    },
+    {
+     "text": "question.",
+     "offsetMilliseconds": 461835,
+     "durationMilliseconds": 935
+    }
+   ]
+  },
+  {
+   "speaker": 3,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "No",
+     "offsetMilliseconds": 463228,
+     "durationMilliseconds": 504
+    },
+    {
+     "text": "way,",
+     "offsetMilliseconds": 463761,
+     "durationMilliseconds": 578
+    },
+    {
+     "text": "that's",
+     "offsetMilliseconds": 464347,
+     "durationMilliseconds": 437
+    },
+    {
+     "text": "incredible!",
+     "offsetMilliseconds": 464829,
+     "durationMilliseconds": 797
+    }
+   ]
+  },
+  {
+   "speaker": 0,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Let's",
+     "offsetMilliseconds": 465808,
+     "durationMilliseconds": 720
+    },
+    {
+     "text": "move",
+     "offsetMilliseconds": 466595,
+     "durationMilliseconds": 415
+    },
+    {
+     "text": "on",
+     "offsetMilliseconds": 467081,
+     "durationMilliseconds": 354
+    },
+    {
+     "text": "to",
+     "offsetMilliseconds": 467507,
+     "durationMilliseconds": 455
+    },
+    {
+     "text": "the",
+     "offsetMilliseconds": 468037,
+     "durationMilliseconds": 586
+    },
+    {
+     "text": "next",
+     "offsetMilliseconds": 468630,
+     "durationMilliseconds": 493
+    },
+    {
+     "text": "question.",
+     "offsetMilliseconds": 469191,
+     "durationMilliseconds": 604
+    }
+   ]
+  },
+  {
+   "speaker": 2,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Let's",
+     "offsetMilliseconds": 470163,
+     "durationMilliseconds": 540
+    },
+    {
+     "text": "move",
+     "offsetMilliseconds": 470760,
+     "durationMilliseconds": 509
+    },
+    {
+     "text": "on",
+     "offsetMilliseconds": 471335,
+     "durationMilliseconds": 338
+    },
+    {
+     "text": "to",
+     "offsetMilliseconds": 471701,
+     "durationMilliseconds": 395
+    },
+    {
+     "text": "the",
+     "offsetMilliseconds": 472356,
+     "durationMilliseconds": 369
+    },
+    {
+     "text": "next",
+     "offsetMilliseconds": 472755,
+     "durationMilliseconds": 650
+    },
+    {
+     "text": "question.",
+     "offsetMilliseconds": 473452,
+     "durationMilliseconds": 648
+    }
+   ]
+  },
+  {
+   "speaker": 0,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "I",
+     "offsetMilliseconds": 480014,
+     "durationMilliseconds": 296
+    },
+    {
+     "text": "honestly",
+     "offsetMilliseconds": 480543,
+     "durationMilliseconds": 776
+    },
+    {
+     "text": "have",
+     "offsetMilliseconds": 481384,
+     "durationMilliseconds": 588
+    },
+    {
+     "text": "no",
+     "offsetMilliseconds": 481972,
+     "durationMilliseconds": 408
+    },
+    {
+     "text": "idea,",
+     "offsetMilliseconds": 482408,
+     "durationMilliseconds": 616
+    },
+    {
+     "text": "it",
+     "offsetMilliseconds": 483070,
+     "durationMilliseconds": 296
+    },
+    {
+     "text": "was",
+     "offsetMilliseconds": 483389,
+     "durationMilliseconds": 446
+    },
+    {
+     "text": "a",
+     "offsetMilliseconds": 483907,
+     "durationMilliseconds": 423
+    },
+    {
+     "text": "mess.",
+     "offsetMilliseconds": 484379,
+     "durationMilliseconds": 598
+    }
+   ]
+  },
+  {
+   "speaker": 0,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Wait,",
+     "offsetMilliseconds": 489297,
+     "durationMilliseconds": 419
+    },
+    {
+     "text": "can",
+     "offsetMilliseconds": 490149,
+     "durationMilliseconds": 574
+    },
+    {
+     "text": "you",
+     "offsetMilliseconds": 490769,
+     "durationMilliseconds": 371
+    },
+    {
+     "text": "say",
+     "offsetMilliseconds": 491611,
+     "durationMilliseconds": 326
+    },
+    {
+     "text": "that",
+     "offsetMilliseconds": 492254,
+     "durationMilliseconds": 546
+    },
+    {
+     "text": "again?",
+     "offsetMilliseconds": 492849,
+     "durationMilliseconds": 632
+    }
+   ]
+  },
+  {
+   "speaker": 0,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Okay,",
+     "offsetMilliseconds": 495942,
+     "durationMilliseconds": 569
+    },
+    {
+     "text": "I",
+     "offsetMilliseconds": 496568,
+     "durationMilliseconds": 269
+    },
+    {
+     "text": "think",
+     "offsetMilliseconds": 496873,
+     "durationMilliseconds": 514
+    },
+    {
+     "text": "we're",
+     "offsetMilliseconds": 497465,
+     "durationMilliseconds": 477
+    },
+    {
+     "text": "done",
+     "offsetMilliseconds": 497990,
+     "durationMilliseconds": 627
+    },
+    {
+     "text": "here.",
+     "offsetMilliseconds": 498656,
+     "durationMilliseconds": 401
+    }
+   ]
+  },
+  {
+   "speaker": 2,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "No",
+     "offsetMilliseconds": 500244,
+     "durationMilliseconds": 388
+    },
+    {
+     "text": "way,",
+     "offsetMilliseconds": 500704,
+     "durationMilliseconds": 654
+    },
+    {
+     "text": "that's",
+     "offsetMilliseconds": 501429,
+     "durationMilliseconds": 603
+    },
+    {
+     "text": "incredible!",
+     "offsetMilliseconds": 502053,
+     "durationMilliseconds": 707
+    }
+   ]
+  },
+  {
+   "speaker": 0,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "So",
+     "offsetMilliseconds": 503837,
+     "durationMilliseconds": 462
+    },
+    {
+     "text": "what",
+     "offsetMilliseconds": 504328,
+     "durationMilliseconds": 501
+    },
+    {
+     "text": "happened",
+     "offsetMilliseconds": 504837,
+     "durationMilliseconds": 671
+    },
+    {
+     "text": "next?",
+     "offsetMilliseconds": 506035,
+     "durationMilliseconds": 558
+    }
+   ]
+  },
+  {
+   "speaker": 0,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Let's",
+     "offsetMilliseconds": 509347,
+     "durationMilliseconds": 452
+    },
+    {
+     "text": "move",
+     "offsetMilliseconds": 509866,
+     "durationMilliseconds": 610
+    },
+    {
+     "text": "on",
+     "offsetMilliseconds": 510539,
+     "durationMilliseconds": 321
+    },
+    {
+     "text": "to",
+     "offsetMilliseconds": 510878,
+     "durationMilliseconds": 524
+    },
+    {
+     "text": "the",
+     "offsetMilliseconds": 511415,
+     "durationMilliseconds": 344
+    },
+    {
+     "text": "next",
+     "offsetMilliseconds": 511812,
+     "durationMilliseconds": 588
+    },
+    {
+     "text": "question.",
+     "offsetMilliseconds": 512401,
+     "durationMilliseconds": 559
+    }
+   ]
+  },
+  {
+   "speaker": 2,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Okay,",
+     "offsetMilliseconds": 513733,
+     "durationMilliseconds": 558
+    },
+    {
+     "text": "I",
+     "offsetMilliseconds": 514307,
+     "durationMilliseconds": 278
+    },
+    {
+     "text": "think",
+     "offsetMilliseconds": 514601,
+     "durationMilliseconds": 438
+    },
+    {
+     "text": "we're",
+     "offsetMilliseconds": 515094,
+     "durationMilliseconds": 720
+    },
+    {
+     "text": "done",
+     "offsetMilliseconds": 515882,
+     "durationMilliseconds": 453
+    },
+    {
+     "text": "here.",
+     "offsetMilliseconds": 516400,
+     "durationMilliseconds": 638
+    }
+   ]
+  },
+  {
+   "speaker": 3,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Good",
+     "offsetMilliseconds": 518209,
+     "durationMilliseconds": 578
+    },
+    {
+     "text": "morning,",
+     "offsetMilliseconds": 518855,
+     "durationMilliseconds": 504
+    },
+    {
+     "text": "everyone.",
+     "offsetMilliseconds": 519625,
+     "durationMilliseconds": 761
+    }
+   ]
+  },
+  {
+   "speaker": 2,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "That's",
+     "offsetMilliseconds": 520549,
+     "durationMilliseconds": 670
+    },
+    {
+     "text": "a",
+     "offsetMilliseconds": 521531,
+     "durationMilliseconds": 444
+    },
+    {
+     "text": "great",
+     "offsetMilliseconds": 522009,
+     "durationMilliseconds": 681
+    },
+    {
+     "text": "point,",
+     "offsetMilliseconds": 522731,
+     "durationMilliseconds": 658
+    },
+    {
+     "text": "actually.",
+     "offsetMilliseconds": 523462,
+     "durationMilliseconds": 649
+    }
+   ]
+  },
+  {
+   "speaker": 3,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Okay,",
+     "offsetMilliseconds": 524599,
+     "durationMilliseconds": 609
+    },
+    {
+     "text": "I",
+     "offsetMilliseconds": 525231,
+     "durationMilliseconds": 366
+    },
+    {
+     "text": "think",
+     "offsetMilliseconds": 525637,
+     "durationMilliseconds": 516
+    },
+    {
+     "text": "we're",
+     "offsetMilliseconds": 526188,
+     "durationMilliseconds": 502
+    },
+    {
+     "text": "done",
+     "offsetMilliseconds": 526747,
+     "durationMilliseconds": 437
+    },
+    {
+     "text": "here.",
+     "offsetMilliseconds": 527185,
+     "durationMilliseconds": 501
+    }
+   ]
+  },
+  {
+   "speaker": 3,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Let's",
+     "offsetMilliseconds": 529691,
+     "durationMilliseconds": 707
+    },
+    {
+     "text": "move",
+     "offsetMilliseconds": 530912,
+     "durationMilliseconds": 489
+    },
+    {
+     "text": "on",
+     "offsetMilliseconds": 531413,
+     "durationMilliseconds": 499
+    },
+    {
+     "text": "to",
+     "offsetMilliseconds": 532289,
+     "durationMilliseconds": 384
+    },
+    {
+     "text": "the",
+     "offsetMilliseconds": 532705,
+     "durationMilliseconds": 462
+    },
+    {
+     "text": "next",
+     "offsetMilliseconds": 533175,
+     "durationMilliseconds": 550
+    },
+    {
+     "text": "question.",
+     "offsetMilliseconds": 533984,
+     "durationMilliseconds": 759
+    }
+   ]
+  },
+  {
+   "speaker": 3,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "No",
+     "offsetMilliseconds": 535042,
+     "durationMilliseconds": 322
+    },
+    {
+     "text": "way,",
+     "offsetMilliseconds": 535371,
+     "durationMilliseconds": 455
+    },
+    {
+     "text": "that's",
+     "offsetMilliseconds": 536038,
+     "durationMilliseconds": 552
+    },
+    {
+     "text": "incredible!",
+     "offsetMilliseconds": 536610,
+     "durationMilliseconds": 725
+    }
+   ]
+  },
+  {
+   "speaker": 3,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Sure.",
+     "offsetMilliseconds": 538109,
+     "durationMilliseconds": 551
+    }
+   ]
+  },
+  {
+   "speaker": 0,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Wait,",
+     "offsetMilliseconds": 539513,
+     "durationMilliseconds": 726
+    },
+    {
+     "text": "can",
+     "offsetMilliseconds": 540297,
+     "durationMilliseconds": 360
+    },
+    {
+     "text": "you",
+     "offsetMilliseconds": 540699,
+     "durationMilliseconds": 509
+    },
+    {
+     "text": "say",
+     "offsetMilliseconds": 541774,
+     "durationMilliseconds": 586
+    },
+    {
+     "text": "that",
+     "offsetMilliseconds": 542436,
+     "durationMilliseconds": 486
+    },
+    {
+     "text": "again?",
+     "offsetMilliseconds": 543347,
+     "durationMilliseconds": 548
+    }
+   ]
+  },
+  {
+   "speaker": 3,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Thanks",
+     "offsetMilliseconds": 544801,
+     "durationMilliseconds": 776
+    },
+    {
+     "text": "for",
+     "offsetMilliseconds": 545847,
+     "durationMilliseconds": 561
+    },
+    {
+     "text": "having",
+     "offsetMilliseconds": 546484,
+     "durationMilliseconds": 657
+    },
+    {
+     "text": "me",
+     "offsetMilliseconds": 547165,
+     "durationMilliseconds": 297
+    },
+    {
+     "text": "today.",
+     "offsetMilliseconds": 547493,
+     "durationMilliseconds": 713
+    }
+   ]
+  },
+  {
+   "speaker": 0,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "I",
+     "offsetMilliseconds": 551397,
+     "durationMilliseconds": 268
+    },
+    {
+     "text": "honestly",
+     "offsetMilliseconds": 551667,
+     "durationMilliseconds": 540
+    },
+    {
+     "text": "have",
+     "offsetMilliseconds": 552577,
+     "durationMilliseconds": 484
+    },
+    {
+     "text": "no",
+     "offsetMilliseconds": 553123,
+     "durationMilliseconds": 513
+    },
+    {
+     "text": "idea,",
+     "offsetMilliseconds": 553656,
+     "durationMilliseconds": 667
+    },
+    {
+     "text": "it",
+     "offsetMilliseconds": 554679,
+     "durationMilliseconds": 452
+    },
+    {
+     "text": "was",
+     "offsetMilliseconds": 555191,
+     "durationMilliseconds": 597
+    },
+    {
+     "text": "a",
+     "offsetMilliseconds": 556052,
+     "durationMilliseconds": 355
+    },
+    {
+     "text": "mess.",
+     "offsetMilliseconds": 556424,
+     "durationMilliseconds": 530
+    }
+   ]
+  },
+  {
+   "speaker": 2,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Right,",
+     "offsetMilliseconds": 557851,
+     "durationMilliseconds": 458
+    },
+    {
+     "text": "right.",
+     "offsetMilliseconds": 558364,
+     "durationMilliseconds": 672
+    }
+   ]
+  },
+  {
+   "speaker": 3,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Good",
+     "offsetMilliseconds": 559749,
+     "durationMilliseconds": 577
+    },
+    {
+     "text": "morning,",
+     "offsetMilliseconds": 560384,
+     "durationMilliseconds": 545
+    },
+    {
+     "text": "everyone.",
+     "offsetMilliseconds": 560997,
+     "durationMilliseconds": 557
+    }
+   ]
+  },
+  {
+   "speaker": 2,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "No",
+     "offsetMilliseconds": 561846,
+     "durationMilliseconds": 429
+    },
+    {
+     "text": "way,",
+     "offsetMilliseconds": 562347,
+     "durationMilliseconds": 420
+    },
+    {
+     "text": "that's",
+     "offsetMilliseconds": 562799,
+     "durationMilliseconds": 787
+    },
+    {
+     "text": "incredible!",
+     "offsetMilliseconds": 563622,
+     "durationMilliseconds": 1092
+    }
+   ]
+  },
+  {
+   "speaker": 0,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "So",
+     "offsetMilliseconds": 565857,
+     "durationMilliseconds": 404
+    },
+    {
+     "text": "what",
+     "offsetMilliseconds": 566835,
+     "durationMilliseconds": 644
+    },
+    {
+     "text": "happened",
+     "offsetMilliseconds": 567517,
+     "durationMilliseconds": 835
+    },
+    {
+     "text": "next?",
+     "offsetMilliseconds": 568417,
+     "durationMilliseconds": 443
+    }
+   ]
+  },
+  {
+   "speaker": 2,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Well,",
+     "offsetMilliseconds": 569685,
+     "durationMilliseconds": 713
+    },
+    {
+     "text": "it",
+     "offsetMilliseconds": 570447,
+     "durationMilliseconds": 401
+    },
+    {
+     "text": "depends",
+     "offsetMilliseconds": 570858,
+     "durationMilliseconds": 523
+    },
+    {
+     "text": "on",
+     "offsetMilliseconds": 571423,
+     "durationMilliseconds": 415
+    },
+    {
+     "text": "the",
+     "offsetMilliseconds": 571910,
+     "durationMilliseconds": 456
+    },
+    {
+     "text": "budget.",
+     "offsetMilliseconds": 572622,
+     "durationMilliseconds": 691
+    }
+   ]
+  },
+  {
+   "speaker": 0,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Thanks",
+     "offsetMilliseconds": 574089,
+     "durationMilliseconds": 610
+    },
+    {
+     "text": "for",
+     "offsetMilliseconds": 574747,
+     "durationMilliseconds": 601
+    },
+    {
+     "text": "having",
+     "offsetMilliseconds": 575421,
+     "durationMilliseconds": 711
+    },
+    {
+     "text": "me",
+     "offsetMilliseconds": 576207,
+     "durationMilliseconds": 457
+    },
+    {
+     "text": "today.",
+     "offsetMilliseconds": 576680,
+     "durationMilliseconds": 600
+    }
+   ]
+  },
+  {
+   "speaker": 2,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Well,",
+     "offsetMilliseconds": 577727,
+     "durationMilliseconds": 461
+    },
+    {
+     "text": "it",
+     "offsetMilliseconds": 578243,
+     "durationMilliseconds": 520
+    },
+    {
+     "text": "depends",
+     "offsetMilliseconds": 578828,
+     "durationMilliseconds": 807
+    },
+    {
+     "text": "on",
+     "offsetMilliseconds": 579692,
+     "durationMilliseconds": 343
+    },
+    {
+     "text": "the",
+     "offsetMilliseconds": 580579,
+     "durationMilliseconds": 454
+    },
+    {
+     "text": "budget.",
+     "offsetMilliseconds": 581111,
+     "durationMilliseconds": 636
+    }
+   ]
+  },
+  {
+   "speaker": 0,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Good",
+     "offsetMilliseconds": 582384,
+     "durationMilliseconds": 572
+    },
+    {
+     "text": "morning,",
+     "offsetMilliseconds": 583007,
+     "durationMilliseconds": 830
+    },
+    {
+     "text": "everyone.",
+     "offsetMilliseconds": 584115,
+     "durationMilliseconds": 706
+    }
+   ]
+  },
+  {
+   "speaker": 0,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Thanks",
+     "offsetMilliseconds": 585042,
+     "durationMilliseconds": 783
+    },
+    {
+     "text": "for",
+     "offsetMilliseconds": 585849,
+     "durationMilliseconds": 409
+    },
+    {
+     "text": "having",
+     "offsetMilliseconds": 586262,
+     "durationMilliseconds": 489
+    },
+    {
+     "text": "me",
+     "offsetMilliseconds": 586802,
+     "durationMilliseconds": 418
+    },
+    {
+     "text": "today.",
+     "offsetMilliseconds": 587465,
+     "durationMilliseconds": 510
+    }
+   ]
+  },
+  {
+   "speaker": 3,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Sure.",
+     "offsetMilliseconds": 588965,
+     "durationMilliseconds": 581
+    }
+   ]
+  },
+  {
+   "speaker": 2,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Wait,",
+     "offsetMilliseconds": 592988,
+     "durationMilliseconds": 445
+    },
+    {
+     "text": "can",
+     "offsetMilliseconds": 593499,
+     "durationMilliseconds": 492
+    },
+    {
+     "text": "you",
+     "offsetMilliseconds": 594037,
+     "durationMilliseconds": 594
+    },
+    {
+     "text": "say",
+     "offsetMilliseconds": 594684,
+     "durationMilliseconds": 434
+    },
+    {
+     "text": "that",
+     "offsetMilliseconds": 595155,
+     "durationMilliseconds": 592
+    },
+    {
+     "text": "again?",
+     "offsetMilliseconds": 595792,
+     "durationMilliseconds": 581
+    }
+   ]
+  },
+  {
+   "speaker": 3,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Right,",
+     "offsetMilliseconds": 602256,
+     "durationMilliseconds": 479
+    },
+    {
+     "text": "right.",
+     "offsetMilliseconds": 602768,
+     "durationMilliseconds": 645
+    }
+   ]
+  },
+  {
+   "speaker": 2,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Wait,",
+     "offsetMilliseconds": 605288,
+     "durationMilliseconds": 413
+    },
+    {
+     "text": "can",
+     "offsetMilliseconds": 605718,
+     "durationMilliseconds": 444
+    },
+    {
+     "text": "you",
+     "offsetMilliseconds": 606195,
+     "durationMilliseconds": 498
+    },
+    {
+     "text": "say",
+     "offsetMilliseconds": 606698,
+     "durationMilliseconds": 584
+    },
+    {
+     "text": "that",
+     "offsetMilliseconds": 607667,
+     "durationMilliseconds": 633
+    },
+    {
+     "text": "again?",
+     "offsetMilliseconds": 608786,
+     "durationMilliseconds": 731
+    }
+   ]
+  },
+  {
+   "speaker": 0,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Let's",
+     "offsetMilliseconds": 610191,
+     "durationMilliseconds": 615
+    },
+    {
+     "text": "move",
+     "offsetMilliseconds": 610866,
+     "durationMilliseconds": 438
+    },
+    {
+     "text": "on",
+     "offsetMilliseconds": 611358,
+     "durationMilliseconds": 418
+    },
+    {
+     "text": "to",
+     "offsetMilliseconds": 611835,
+     "durationMilliseconds": 412
+    },
+    {
+     "text": "the",
+     "offsetMilliseconds": 612740,
+     "durationMilliseconds": 386
+    },
+    {
+     "text": "next",
+     "offsetMilliseconds": 613488,
+     "durationMilliseconds": 560
+    },
+    {
+     "text": "question.",
+     "offsetMilliseconds": 614072,
+     "durationMilliseconds": 940
+    }
+   ]
+  },
+  {
+   "speaker": 3,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Wait,",
+     "offsetMilliseconds": 616042,
+     "durationMilliseconds": 509
+    },
+    {
+     "text": "can",
+     "offsetMilliseconds": 616621,
+     "durationMilliseconds": 527
+    },
+    {
+     "text": "you",
+     "offsetMilliseconds": 617215,
+     "durationMilliseconds": 557
+    },
+    {
+     "text": "say",
+     "offsetMilliseconds": 618000,
+     "durationMilliseconds": 499
+    },
+    {
+     "text": "that",
+     "offsetMilliseconds": 618862,
+     "durationMilliseconds": 471
+    },
+    {
+     "text": "again?",
+     "offsetMilliseconds": 619339,
+     "durationMilliseconds": 710
+    }
+   ]
+  },
+  {
+   "speaker": 0,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Right,",
+     "offsetMilliseconds": 620521,
+     "durationMilliseconds": 697
+    },
+    {
+     "text": "right.",
+     "offsetMilliseconds": 621728,
+     "durationMilliseconds": 542
+    }
+   ]
+  },
+  {
+   "speaker": 0,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "So",
+     "offsetMilliseconds": 622878,
+     "durationMilliseconds": 419
+    },
+    {
+     "text": "what",
+     "offsetMilliseconds": 623314,
+     "durationMilliseconds": 658
+    },
+    {
+     "text": "happened",
+     "offsetMilliseconds": 624000,
+     "durationMilliseconds": 900
+    },
+    {
+     "text": "next?",
+     "offsetMilliseconds": 624954,
+     "durationMilliseconds": 717
+    }
+   ]
+  },
+  {
+   "speaker": 2,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Let's",
+     "offsetMilliseconds": 626377,
+     "durationMilliseconds": 498
+    },
+    {
+     "text": "move",
+     "offsetMilliseconds": 626891,
+     "durationMilliseconds": 374
+    },
+    {
+     "text": "on",
+     "offsetMilliseconds": 627339,
+     "durationMilliseconds": 426
+    },
+    {
+     "text": "to",
+     "offsetMilliseconds": 627768,
+     "durationMilliseconds": 313
+    },
+    {
+     "text": "the",
+     "offsetMilliseconds": 628109,
+     "durationMilliseconds": 347
+    },
+    {
+     "text": "next",
+     "offsetMilliseconds": 628883,
+     "durationMilliseconds": 608
+    },
+    {
+     "text": "question.",
+     "offsetMilliseconds": 629567,
+     "durationMilliseconds": 593
+    }
+   ]
+  },
+  {
+   "speaker": 0,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Well,",
+     "offsetMilliseconds": 630436,
+     "durationMilliseconds": 705
+    },
+    {
+     "text": "it",
+     "offsetMilliseconds": 631142,
+     "durationMilliseconds": 426
+    },
+    {
+     "text": "depends",
+     "offsetMilliseconds": 631853,
+     "durationMilliseconds": 777
+    },
+    {
+     "text": "on",
+     "offsetMilliseconds": 633230,
+     "durationMilliseconds": 310
+    },
+    {
+     "text": "the",
+     "offsetMilliseconds": 633583,
+     "durationMilliseconds": 561
+    },
+    {
+     "text": "budget.",
+     "offsetMilliseconds": 634689,
+     "durationMilliseconds": 834
+    }
+   ]
+  },
+  {
+   "speaker": 2,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "That's",
+     "offsetMilliseconds": 636208,
+     "durationMilliseconds": 688
+    },
+    {
+     "text": "a",
+     "offsetMilliseconds": 636922,
+     "durationMilliseconds": 282
+    },
+    {
+     "text": "great",
+     "offsetMilliseconds": 637207,
+     "durationMilliseconds": 655
+    },
+    {
+     "text": "point,",
+     "offsetMilliseconds": 637887,
+     "durationMilliseconds": 692
+    },
+    {
+     "text": "actually.",
+     "offsetMilliseconds": 638655,
+     "durationMilliseconds": 600
+    }
+   ]
+  },
+  {
+   "speaker": 3,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "No",
+     "offsetMilliseconds": 639935,
+     "durationMilliseconds": 413
+    },
+    {
+     "text": "way,",
+     "offsetMilliseconds": 640565,
+     "durationMilliseconds": 533
+    },
+    {
+     "text": "that's",
+     "offsetMilliseconds": 641124,
+     "durationMilliseconds": 453
+    },
+    {
+     "text": "incredible!",
+     "offsetMilliseconds": 641608,
+     "durationMilliseconds": 1014
+    }
+   ]
+  },
+  {
+   "speaker": 3,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Wait,",
+     "offsetMilliseconds": 642984,
+     "durationMilliseconds": 483
+    },
+    {
+     "text": "can",
+     "offsetMilliseconds": 643888,
+     "durationMilliseconds": 421
+    },
+    {
+     "text": "you",
+     "offsetMilliseconds": 644378,
+     "durationMilliseconds": 507
+    },
+    {
+     "text": "say",
+     "offsetMilliseconds": 644943,
+     "durationMilliseconds": 409
+    },
+    {
+     "text": "that",
+     "offsetMilliseconds": 645377,
+     "durationMilliseconds": 547
+    },
+    {
+     "text": "again?",
+     "offsetMilliseconds": 645945,
+     "durationMilliseconds": 633
+    }
+   ]
+  },
+  {
+   "speaker": 3,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "That's",
+     "offsetMilliseconds": 647016,
+     "durationMilliseconds": 450
+    },
+    {
+     "text": "a",
+     "offsetMilliseconds": 647498,
+     "durationMilliseconds": 460
+    },
+    {
+     "text": "great",
+     "offsetMilliseconds": 648009,
+     "durationMilliseconds": 618
+    },
+    {
+     "text": "point,",
+     "offsetMilliseconds": 648627,
+     "durationMilliseconds": 482
+    },
+    {
+     "text": "actually.",
+     "offsetMilliseconds": 649180,
+     "durationMilliseconds": 534
+    }
+   ]
+  },
+  {
+   "speaker": 2,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "No",
+     "offsetMilliseconds": 650336,
+     "durationMilliseconds": 358
+    },
+    {
+     "text": "way,",
+     "offsetMilliseconds": 650747,
+     "durationMilliseconds": 428
+    },
+    {
+     "text": "that's",
+     "offsetMilliseconds": 651194,
+     "durationMilliseconds": 700
+    },
+    {
+     "text": "incredible!",
+     "offsetMilliseconds": 652418,
+     "durationMilliseconds": 872
+    }
+   ]
+  },
+  {
+   "speaker": 0,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "That's",
+     "offsetMilliseconds": 653926,
+     "durationMilliseconds": 531
+    },
+    {
+     "text": "a",
+     "offsetMilliseconds": 654506,
+     "durationMilliseconds": 361
+    },
+    {
+     "text": "great",
+     "offsetMilliseconds": 654932,
+     "durationMilliseconds": 709
+    },
+    {
+     "text": "point,",
+     "offsetMilliseconds": 655717,
+     "durationMilliseconds": 555
+    },
+    {
+     "text": "actually.",
+     "offsetMilliseconds": 656345,
+     "durationMilliseconds": 943
+    }
+   ]
+  },
+  {
+   "speaker": 2,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Good",
+     "offsetMilliseconds": 657972,
+     "durationMilliseconds": 381
+    },
+    {
+     "text": "morning,",
+     "offsetMilliseconds": 658401,
+     "durationMilliseconds": 846
+    },
+    {
+     "text": "everyone.",
+     "offsetMilliseconds": 659262,
+     "durationMilliseconds": 583
+    }
+   ]
+  },
+  {
+   "speaker": 3,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "That's",
+     "offsetMilliseconds": 660214,
+     "durationMilliseconds": 549
+    },
+    {
+     "text": "a",
+     "offsetMilliseconds": 660770,
+     "durationMilliseconds": 309
+    },
+    {
+     "text": "great",
+     "offsetMilliseconds": 661132,
+     "durationMilliseconds": 646
+    },
+    {
+     "text": "point,",
+     "offsetMilliseconds": 661785,
+     "durationMilliseconds": 605
+    },
+    {
+     "text": "actually.",
+     "offsetMilliseconds": 662608,
+     "durationMilliseconds": 648
+    }
+   ]
+  },
+  {
+   "speaker": 3,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Right,",
+     "offsetMilliseconds": 664017,
+     "durationMilliseconds": 683
+    },
+    {
+     "text": "right.",
+     "offsetMilliseconds": 664730,
+     "durationMilliseconds": 713
+    }
+   ]
+  },
+  {
+   "speaker": 2,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "No",
+     "offsetMilliseconds": 666038,
+     "durationMilliseconds": 471
+    },
+    {
+     "text": "way,",
+     "offsetMilliseconds": 666745,
+     "durationMilliseconds": 626
+    },
+    {
+     "text": "that's",
+     "offsetMilliseconds": 667417,
+     "durationMilliseconds": 507
+    },
+    {
+     "text": "incredible!",
+     "offsetMilliseconds": 667946,
+     "durationMilliseconds": 914
+    }
+   ]
+  },
+  {
+   "speaker": 3,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Right,",
+     "offsetMilliseconds": 669122,
+     "durationMilliseconds": 562
+    },
+    {
+     "text": "right.",
+     "offsetMilliseconds": 669701,
+     "durationMilliseconds": 511
+    }
+   ]
+  },
+  {
+   "speaker": 3,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Well,",
+     "offsetMilliseconds": 671183,
+     "durationMilliseconds": 457
+    },
+    {
+     "text": "it",
+     "offsetMilliseconds": 672140,
+     "durationMilliseconds": 473
+    },
+    {
+     "text": "depends",
+     "offsetMilliseconds": 672679,
+     "durationMilliseconds": 831
+    },
+    {
+     "text": "on",
+     "offsetMilliseconds": 673564,
+     "durationMilliseconds": 412
+    },
+    {
+     "text": "the",
+     "offsetMilliseconds": 674032,
+     "durationMilliseconds": 414
+    },
+    {
+     "text": "budget.",
+     "offsetMilliseconds": 674498,
+     "durationMilliseconds": 793
+    }
+   ]
+  },
+  {
+   "speaker": 2,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Let's",
+     "offsetMilliseconds": 675888,
+     "durationMilliseconds": 497
+    },
+    {
+     "text": "move",
+     "offsetMilliseconds": 676412,
+     "durationMilliseconds": 477
+    },
+    {
+     "text": "on",
+     "offsetMilliseconds": 676927,
+     "durationMilliseconds": 315
+    },
+    {
+     "text": "to",
+     "offsetMilliseconds": 677305,
+     "durationMilliseconds": 340
+    },
+    {
+     "text": "the",
+     "offsetMilliseconds": 677723,
+     "durationMilliseconds": 398
+    },
+    {
+     "text": "next",
+     "offsetMilliseconds": 678458,
+     "durationMilliseconds": 389
+    },
+    {
+     "text": "question.",
+     "offsetMilliseconds": 678921,
+     "durationMilliseconds": 816
+    }
+   ]
+  },
+  {
+   "speaker": 2,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Sure.",
+     "offsetMilliseconds": 682965,
+     "durationMilliseconds": 588
+    }
+   ]
+  },
+  {
+   "speaker": 2,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Let's",
+     "offsetMilliseconds": 684700,
+     "durationMilliseconds": 674
+    },
+    {
+     "text": "move",
+     "offsetMilliseconds": 685435,
+     "durationMilliseconds": 580
+    },
+    {
+     "text": "on",
+     "offsetMilliseconds": 686019,
+     "durationMilliseconds": 494
+    },
+    {
+     "text": "to",
+     "offsetMilliseconds": 686538,
+     "durationMilliseconds": 326
+    },
+    {
+     "text": "the",
+     "offsetMilliseconds": 687310,
+     "durationMilliseconds": 437
+    },
+    {
+     "text": "next",
+     "offsetMilliseconds": 687806,
+     "durationMilliseconds": 538
+    },
+    {
+     "text": "question.",
+     "offsetMilliseconds": 688901,
+     "durationMilliseconds": 629
+    }
+   ]
+  },
+  {
+   "speaker": 0,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "No",
+     "offsetMilliseconds": 690242,
+     "durationMilliseconds": 370
+    },
+    {
+     "text": "way,",
+     "offsetMilliseconds": 690659,
+     "durationMilliseconds": 563
+    },
+    {
+     "text": "that's",
+     "offsetMilliseconds": 691249,
+     "durationMilliseconds": 550
+    },
+    {
+     "text": "incredible!",
+     "offsetMilliseconds": 691822,
+     "durationMilliseconds": 1029
+    }
+   ]
+  },
+  {
+   "speaker": 0,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Thanks",
+     "offsetMilliseconds": 693262,
+     "durationMilliseconds": 558
+    },
+    {
+     "text": "for",
+     "offsetMilliseconds": 693826,
+     "durationMilliseconds": 400
+    },
+    {
+     "text": "having",
+     "offsetMilliseconds": 694278,
+     "durationMilliseconds": 491
+    },
+    {
+     "text": "me",
+     "offsetMilliseconds": 695284,
+     "durationMilliseconds": 422
+    },
+    {
+     "text": "today.",
+     "offsetMilliseconds": 695764,
+     "durationMilliseconds": 713
+    }
+   ]
+  },
+  {
+   "speaker": 0,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Good",
+     "offsetMilliseconds": 696934,
+     "durationMilliseconds": 425
+    },
+    {
+     "text": "morning,",
+     "offsetMilliseconds": 697393,
+     "durationMilliseconds": 904
+    },
+    {
+     "text": "everyone.",
+     "offsetMilliseconds": 698354,
+     "durationMilliseconds": 603
+    }
+   ]
+  },
+  {
+   "speaker": 0,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Wait,",
+     "offsetMilliseconds": 699666,
+     "durationMilliseconds": 640
+    },
+    {
+     "text": "can",
+     "offsetMilliseconds": 700327,
+     "durationMilliseconds": 427
+    },
+    {
+     "text": "you",
+     "offsetMilliseconds": 700769,
+     "durationMilliseconds": 535
+    },
+    {
+     "text": "say",
+     "offsetMilliseconds": 701356,
+     "durationMilliseconds": 351
+    },
+    {
+     "text": "that",
+     "offsetMilliseconds": 701777,
+     "durationMilliseconds": 616
+    },
+    {
+     "text": "again?",
+     "offsetMilliseconds": 702458,
+     "durationMilliseconds": 552
+    }
+   ]
+  },
+  {
+   "speaker": 0,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Sure.",
+     "offsetMilliseconds": 703789,
+     "durationMilliseconds": 681
+    }
+   ]
+  },
+  {
+   "speaker": 2,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Wait,",
+     "offsetMilliseconds": 704968,
+     "durationMilliseconds": 703
+    },
+    {
+     "text": "can",
+     "offsetMilliseconds": 706190,
+     "durationMilliseconds": 482
+    },
+    {
+     "text": "you",
+     "offsetMilliseconds": 706705,
+     "durationMilliseconds": 451
+    },
+    {
+     "text": "say",
+     "offsetMilliseconds": 707177,
+     "durationMilliseconds": 504
+    },
+    {
+     "text": "that",
+     "offsetMilliseconds": 707734,
+     "durationMilliseconds": 578
+    },
+    {
+     "text": "again?",
+     "offsetMilliseconds": 708326,
+     "durationMilliseconds": 547
+    }
+   ]
+  },
+  {
+   "speaker": 0,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Let's",
+     "offsetMilliseconds": 709779,
+     "durationMilliseconds": 659
+    },
+    {
+     "text": "move",
+     "offsetMilliseconds": 710957,
+     "durationMilliseconds": 473
+    },
+    {
+     "text": "on",
+     "offsetMilliseconds": 711632,
+     "durationMilliseconds": 448
+    },
+    {
+     "text": "to",
+     "offsetMilliseconds": 712126,
+     "durationMilliseconds": 409
+    },
+    {
+     "text": "the",
+     "offsetMilliseconds": 712612,
+     "durationMilliseconds": 494
+    },
+    {
+     "text": "next",
+     "offsetMilliseconds": 713123,
+     "durationMilliseconds": 457
+    },
+    {
+     "text": "question.",
+     "offsetMilliseconds": 713582,
+     "durationMilliseconds": 954
+    }
+   ]
+  },
+  {
+   "speaker": 2,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "So",
+     "offsetMilliseconds": 719358,
+     "durationMilliseconds": 398
+    },
+    {
+     "text": "what",
+     "offsetMilliseconds": 719812,
+     "durationMilliseconds": 590
+    },
+    {
+     "text": "happened",
+     "offsetMilliseconds": 720461,
+     "durationMilliseconds": 833
+    },
+    {
+     "text": "next?",
+     "offsetMilliseconds": 721322,
+     "durationMilliseconds": 533
+    }
+   ]
+  },
+  {
+   "speaker": 3,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Okay,",
+     "offsetMilliseconds": 722749,
+     "durationMilliseconds": 525
+    },
+    {
+     "text": "I",
+     "offsetMilliseconds": 723288,
+     "durationMilliseconds": 452
+    },
+    {
+     "text": "think",
+     "offsetMilliseconds": 723801,
+     "durationMilliseconds": 463
+    },
+    {
+     "text": "we're",
+     "offsetMilliseconds": 724284,
+     "durationMilliseconds": 593
+    },
+    {
+     "text": "done",
+     "offsetMilliseconds": 724925,
+     "durationMilliseconds": 642
+    },
+    {
+     "text": "here.",
+     "offsetMilliseconds": 725601,
+     "durationMilliseconds": 413
+    }
+   ]
+  },
+  {
+   "speaker": 0,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Okay,",
+     "offsetMilliseconds": 726534,
+     "durationMilliseconds": 515
+    },
+    {
+     "text": "I",
+     "offsetMilliseconds": 727056,
+     "durationMilliseconds": 258
+    },
+    {
+     "text": "think",
+     "offsetMilliseconds": 727368,
+     "durationMilliseconds": 659
+    },
+    {
+     "text": "we're",
+     "offsetMilliseconds": 728291,
+     "durationMilliseconds": 696
+    },
+    {
+     "text": "done",
+     "offsetMilliseconds": 729012,
+     "durationMilliseconds": 418
+    },
+    {
+     "text": "here.",
+     "offsetMilliseconds": 729507,
+     "durationMilliseconds": 538
+    }
+   ]
+  },
+  {
+   "speaker": 0,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Well,",
+     "offsetMilliseconds": 730445,
+     "durationMilliseconds": 463
+    },
+    {
+     "text": "it",
+     "offsetMilliseconds": 730975,
+     "durationMilliseconds": 477
+    },
+    {
+     "text": "depends",
+     "offsetMilliseconds": 731505,
+     "durationMilliseconds": 674
+    },
+    {
+     "text": "on",
+     "offsetMilliseconds": 732213,
+     "durationMilliseconds": 421
+    },
+    {
+     "text": "the",
+     "offsetMilliseconds": 732657,
+     "durationMilliseconds": 434
+    },
+    {
+     "text": "budget.",
+     "offsetMilliseconds": 733153,
+     "durationMilliseconds": 722
+    }
+   ]
+  },
+  {
+   "speaker": 0,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "I",
+     "offsetMilliseconds": 734919,
+     "durationMilliseconds": 407
+    },
+    {
+     "text": "honestly",
+     "offsetMilliseconds": 735336,
+     "durationMilliseconds": 612
+    },
+    {
+     "text": "have",
+     "offsetMilliseconds": 735989,
+     "durationMilliseconds": 604
+    },
+    {
+     "text": "no",
+     "offsetMilliseconds": 736645,
+     "durationMilliseconds": 375
+    },
+    {
+     "text": "idea,",
+     "offsetMilliseconds": 737092,
+     "durationMilliseconds": 407
+    },
+    {
+     "text": "it",
+     "offsetMilliseconds": 737555,
+     "durationMilliseconds": 399
+    },
+    {
+     "text": "was",
+     "offsetMilliseconds": 737987,
+     "durationMilliseconds": 466
+    },
+    {
+     "text": "a",
+     "offsetMilliseconds": 738463,
+     "durationMilliseconds": 373
+    },
+    {
+     "text": "mess.",
+     "offsetMilliseconds": 738858,
+     "durationMilliseconds": 516
+    }
+   ]
+  },
+  {
+   "speaker": 0,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Let's",
+     "offsetMilliseconds": 739619,
+     "durationMilliseconds": 630
+    },
+    {
+     "text": "move",
+     "offsetMilliseconds": 740481,
+     "durationMilliseconds": 475
+    },
+    {
+     "text": "on",
+     "offsetMilliseconds": 740969,
+     "durationMilliseconds": 416
+    },
+    {
+     "text": "to",
+     "offsetMilliseconds": 741441,
+     "durationMilliseconds": 303
+    },
+    {
+     "text": "the",
+     "offsetMilliseconds": 741783,
+     "durationMilliseconds": 474
+    },
+    {
+     "text": "next",
+     "offsetMilliseconds": 742330,
+     "durationMilliseconds": 434
+    },
+    {
+     "text": "question.",
+     "offsetMilliseconds": 742812,
+     "durationMilliseconds": 878
+    }
+   ]
+  },
+  {
+   "speaker": 3,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "So",
+     "offsetMilliseconds": 744858,
+     "durationMilliseconds": 447
+    },
+    {
+     "text": "what",
+     "offsetMilliseconds": 745324,
+     "durationMilliseconds": 462
+    },
+    {
+     "text": "happened",
+     "offsetMilliseconds": 745798,
+     "durationMilliseconds": 873
+    },
+    {
+     "text": "next?",
+     "offsetMilliseconds": 746681,
+     "durationMilliseconds": 535
+    }
+   ]
+  },
+  {
+   "speaker": 0,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Sure.",
+     "offsetMilliseconds": 748180,
+     "durationMilliseconds": 696
+    }
+   ]
+  },
+  {
+   "speaker": 0,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Sure.",
+     "offsetMilliseconds": 750474,
+     "durationMilliseconds": 659
+    }
+   ]
+  },
+  {
+   "speaker": 0,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Right,",
+     "offsetMilliseconds": 752255,
+     "durationMilliseconds": 731
+    },
+    {
+     "text": "right.",
+     "offsetMilliseconds": 753014,
+     "durationMilliseconds": 593
+    }
+   ]
+  },
+  {
+   "speaker": 3,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Wait,",
+     "offsetMilliseconds": 754490,
+     "durationMilliseconds": 503
+    },
+    {
+     "text": "can",
+     "offsetMilliseconds": 755062,
+     "durationMilliseconds": 594
+    },
+    {
+     "text": "you",
+     "offsetMilliseconds": 755713,
+     "durationMilliseconds": 324
+    },
+    {
+     "text": "say",
+     "offsetMilliseconds": 756264,
+     "durationMilliseconds": 542
+    },
+    {
+     "text": "that",
+     "offsetMilliseconds": 756833,
+     "durationMilliseconds": 577
+    },
+    {
+     "text": "again?",
+     "offsetMilliseconds": 757476,
+     "durationMilliseconds": 747
+    }
+   ]
+  },
+  {
+   "speaker": 0,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Good",
+     "offsetMilliseconds": 759041,
+     "durationMilliseconds": 659
+    },
+    {
+     "text": "morning,",
+     "offsetMilliseconds": 759747,
+     "durationMilliseconds": 715
+    },
+    {
+     "text": "everyone.",
+     "offsetMilliseconds": 760488,
+     "durationMilliseconds": 538
+    }
+   ]
+  },
+  {
+   "speaker": 0,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Thanks",
+     "offsetMilliseconds": 761973,
+     "durationMilliseconds": 691
+    },
+    {
+     "text": "for",
+     "offsetMilliseconds": 762718,
+     "durationMilliseconds": 408
+    },
+    {
+     "text": "having",
+     "offsetMilliseconds": 763158,
+     "durationMilliseconds": 643
+    },
+    {
+     "text": "me",
+     "offsetMilliseconds": 763870,
+     "durationMilliseconds": 523
+    },
+    {
+     "text": "today.",
+     "offsetMilliseconds": 764437,
+     "durationMilliseconds": 465
+    }
+   ]
+  },
+  {
+   "speaker": 3,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Sure.",
+     "offsetMilliseconds": 765634,
+     "durationMilliseconds": 654
+    }
+   ]
+  },
+  {
+   "speaker": 3,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "I",
+     "offsetMilliseconds": 766528,
+     "durationMilliseconds": 322
+    },
+    {
+     "text": "honestly",
+     "offsetMilliseconds": 767114,
+     "durationMilliseconds": 760
+    },
+    {
+     "text": "have",
+     "offsetMilliseconds": 767934,
+     "durationMilliseconds": 548
+    },
+    {
+     "text": "no",
+     "offsetMilliseconds": 768485,
+     "durationMilliseconds": 470
+    },
+    {
+     "text": "idea,",
+     "offsetMilliseconds": 768979,
+     "durationMilliseconds": 716
+    },
+    {
+     "text": "it",
+     "offsetMilliseconds": 769769,
+     "durationMilliseconds": 484
+    },
+    {
+     "text": "was",
+     "offsetMilliseconds": 770292,
+     "durationMilliseconds": 326
+    },
+    {
+     "text": "a",
+     "offsetMilliseconds": 770647,
+     "durationMilliseconds": 326
+    },
+    {
+     "text": "mess.",
+     "offsetMilliseconds": 771034,
+     "durationMilliseconds": 551
+    }
+   ]
+  },
+  {
+   "speaker": 0,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Sure.",
+     "offsetMilliseconds": 772303,
+     "durationMilliseconds": 424
+    }
+   ]
+  },
+  {
+   "speaker": 2,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Okay,",
+     "offsetMilliseconds": 773246,
+     "durationMilliseconds": 520
+    },
+    {
+     "text": "I",
+     "offsetMilliseconds": 774265,
+     "durationMilliseconds": 407
+    },
+    {
+     "text": "think",
+     "offsetMilliseconds": 774688,
+     "durationMilliseconds": 435
+    },
+    {
+     "text": "we're",
+     "offsetMilliseconds": 775576,
+     "durationMilliseconds": 398
+    },
+    {
+     "text": "done",
+     "offsetMilliseconds": 775997,
+     "durationMilliseconds": 379
+    },
+    {
+     "text": "here.",
+     "offsetMilliseconds": 776447,
+     "durationMilliseconds": 460
+    }
+   ]
+  },
+  {
+   "speaker": 0,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Okay,",
+     "offsetMilliseconds": 778758,
+     "durationMilliseconds": 429
+    },
+    {
+     "text": "I",
+     "offsetMilliseconds": 779231,
+     "durationMilliseconds": 477
+    },
+    {
+     "text": "think",
+     "offsetMilliseconds": 780161,
+     "durationMilliseconds": 577
+    },
+    {
+     "text": "we're",
+     "offsetMilliseconds": 780791,
+     "durationMilliseconds": 434
+    },
+    {
+     "text": "done",
+     "offsetMilliseconds": 781292,
+     "durationMilliseconds": 384
+    },
+    {
+     "text": "here.",
+     "offsetMilliseconds": 782218,
+     "durationMilliseconds": 542
+    }
+   ]
+  },
+  {
+   "speaker": 0,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Well,",
+     "offsetMilliseconds": 783840,
+     "durationMilliseconds": 610
+    },
+    {
+     "text": "it",
+     "offsetMilliseconds": 784494,
+     "durationMilliseconds": 367
+    },
+    {
+     "text": "depends",
+     "offsetMilliseconds": 784910,
+     "durationMilliseconds": 738
+    },
+    {
+     "text": "on",
+     "offsetMilliseconds": 785971,
+     "durationMilliseconds": 480
+    },
+    {
+     "text": "the",
+     "offsetMilliseconds": 786522,
+     "durationMilliseconds": 384
+    },
+    {
+     "text": "budget.",
+     "offsetMilliseconds": 786965,
+     "durationMilliseconds": 774
+    }
+   ]
+  },
+  {
+   "speaker": 3,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Let's",
+     "offsetMilliseconds": 788447,
+     "durationMilliseconds": 694
+    },
+    {
+     "text": "move",
+     "offsetMilliseconds": 789448,
+     "durationMilliseconds": 452
+    },
+    {
+     "text": "on",
+     "offsetMilliseconds": 789903,
+     "durationMilliseconds": 493
+    },
+    {
+     "text": "to",
+     "offsetMilliseconds": 790447,
+     "durationMilliseconds": 408
+    },
+    {
+     "text": "the",
+     "offsetMilliseconds": 791100,
+     "durationMilliseconds": 551
+    },
+    {
+     "text": "next",
+     "offsetMilliseconds": 792104,
+     "durationMilliseconds": 538
+    },
+    {
+     "text": "question.",
+     "offsetMilliseconds": 792681,
+     "durationMilliseconds": 702
+    }
+   ]
+  },
+  {
+   "speaker": 2,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Good",
+     "offsetMilliseconds": 794163,
+     "durationMilliseconds": 499
+    },
+    {
+     "text": "morning,",
+     "offsetMilliseconds": 794706,
+     "durationMilliseconds": 611
+    },
+    {
+     "text": "everyone.",
+     "offsetMilliseconds": 795388,
+     "durationMilliseconds": 684
+    }
+   ]
+  },
+  {
+   "speaker": 2,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "I",
+     "offsetMilliseconds": 798956,
+     "durationMilliseconds": 421
+    },
+    {
+     "text": "honestly",
+     "offsetMilliseconds": 799378,
+     "durationMilliseconds": 915
+    },
+    {
+     "text": "have",
+     "offsetMilliseconds": 800530,
+     "durationMilliseconds": 401
+    },
+    {
+     "text": "no",
+     "offsetMilliseconds": 800985,
+     "durationMilliseconds": 539
+    },
+    {
+     "text": "idea,",
+     "offsetMilliseconds": 801599,
+     "durationMilliseconds": 683
+    },
+    {
+     "text": "it",
+     "offsetMilliseconds": 802337,
+     "durationMilliseconds": 323
+    },
+    {
+     "text": "was",
+     "offsetMilliseconds": 802661,
+     "durationMilliseconds": 544
+    },
+    {
+     "text": "a",
+     "offsetMilliseconds": 803275,
+     "durationMilliseconds": 297
+    },
+    {
+     "text": "mess.",
+     "offsetMilliseconds": 804038,
+     "durationMilliseconds": 648
+    }
+   ]
+  },
+  {
+   "speaker": 3,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Well,",
+     "offsetMilliseconds": 805253,
+     "durationMilliseconds": 440
+    },
+    {
+     "text": "it",
+     "offsetMilliseconds": 806049,
+     "durationMilliseconds": 327
+    },
+    {
+     "text": "depends",
+     "offsetMilliseconds": 806868,
+     "durationMilliseconds": 828
+    },
+    {
+     "text": "on",
+     "offsetMilliseconds": 807717,
+     "durationMilliseconds": 528
+    },
+    {
+     "text": "the",
+     "offsetMilliseconds": 808280,
+     "durationMilliseconds": 591
+    },
+    {
+     "text": "budget.",
+     "offsetMilliseconds": 808933,
+     "durationMilliseconds": 559
+    }
+   ]
+  },
+  {
+   "speaker": 0,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Okay,",
+     "offsetMilliseconds": 809769,
+     "durationMilliseconds": 462
+    },
+    {
+     "text": "I",
+     "offsetMilliseconds": 810307,
+     "durationMilliseconds": 473
+    },
+    {
+     "text": "think",
+     "offsetMilliseconds": 810844,
+     "durationMilliseconds": 724
+    },
+    {
+     "text": "we're",
+     "offsetMilliseconds": 811640,
+     "durationMilliseconds": 553
+    },
+    {
+     "text": "done",
+     "offsetMilliseconds": 812263,
+     "durationMilliseconds": 452
+    },
+    {
+     "text": "here.",
+     "offsetMilliseconds": 812778,
+     "durationMilliseconds": 482
+    }
+   ]
+  },
+  {
+   "speaker": 3,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Sure.",
+     "offsetMilliseconds": 813905,
+     "durationMilliseconds": 529
+    }
+   ]
+  },
+  {
+   "speaker": 0,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "That's",
+     "offsetMilliseconds": 814640,
+     "durationMilliseconds": 466
+    },
+    {
+     "text": "a",
+     "offsetMilliseconds": 815158,
+     "durationMilliseconds": 292
+    },
+    {
+     "text": "great",
+     "offsetMilliseconds": 815459,
+     "durationMilliseconds": 630
+    },
+    {
+     "text": "point,",
+     "offsetMilliseconds": 816098,
+     "durationMilliseconds": 615
+    },
+    {
+     "text": "actually.",
+     "offsetMilliseconds": 816761,
+     "durationMilliseconds": 841
+    }
+   ]
+  },
+  {
+   "speaker": 2,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Right,",
+     "offsetMilliseconds": 823511,
+     "durationMilliseconds": 646
+    },
+    {
+     "text": "right.",
+     "offsetMilliseconds": 824228,
+     "durationMilliseconds": 746
+    }
+   ]
+  },
+  {
+   "speaker": 3,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Right,",
+     "offsetMilliseconds": 829009,
+     "durationMilliseconds": 757
+    },
+    {
+     "text": "right.",
+     "offsetMilliseconds": 829799,
+     "durationMilliseconds": 445
+    }
+   ]
+  },
+  {
+   "speaker": 3,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Okay,",
+     "offsetMilliseconds": 830923,
+     "durationMilliseconds": 543
+    },
+    {
+     "text": "I",
+     "offsetMilliseconds": 831502,
+     "durationMilliseconds": 418
+    },
+    {
+     "text": "think",
+     "offsetMilliseconds": 831965,
+     "durationMilliseconds": 702
+    },
+    {
+     "text": "we're",
+     "offsetMilliseconds": 832744,
+     "durationMilliseconds": 646
+    },
+    {
+     "text": "done",
+     "offsetMilliseconds": 833875,
+     "durationMilliseconds": 405
+    },
+    {
+     "text": "here.",
+     "offsetMilliseconds": 834491,
+     "durationMilliseconds": 681
+    }
+   ]
+  },
+  {
+   "speaker": 0,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Okay,",
+     "offsetMilliseconds": 836184,
+     "durationMilliseconds": 431
+    },
+    {
+     "text": "I",
+     "offsetMilliseconds": 836646,
+     "durationMilliseconds": 279
+    },
+    {
+     "text": "think",
+     "offsetMilliseconds": 836936,
+     "durationMilliseconds": 412
+    },
+    {
+     "text": "we're",
+     "offsetMilliseconds": 837372,
+     "durationMilliseconds": 660
+    },
+    {
+     "text": "done",
+     "offsetMilliseconds": 838445,
+     "durationMilliseconds": 552
+    },
+    {
+     "text": "here.",
+     "offsetMilliseconds": 839038,
+     "durationMilliseconds": 583
+    }
+   ]
+  },
+  {
+   "speaker": 2,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Well,",
+     "offsetMilliseconds": 840375,
+     "durationMilliseconds": 440
+    },
+    {
+     "text": "it",
+     "offsetMilliseconds": 840869,
+     "durationMilliseconds": 490
+    },
+    {
+     "text": "depends",
+     "offsetMilliseconds": 841387,
+     "durationMilliseconds": 508
+    },
+    {
+     "text": "on",
+     "offsetMilliseconds": 841936,
+     "durationMilliseconds": 494
+    },
+    {
+     "text": "the",
+     "offsetMilliseconds": 842466,
+     "durationMilliseconds": 549
+    },
+    {
+     "text": "budget.",
+     "offsetMilliseconds": 843077,
+     "durationMilliseconds": 775
+    }
+   ]
+  },
+  {
+   "speaker": 3,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Sure.",
+     "offsetMilliseconds": 844023,
+     "durationMilliseconds": 615
+    }
+   ]
+  },
+  {
+   "speaker": 3,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "So",
+     "offsetMilliseconds": 848931,
+     "durationMilliseconds": 373
+    },
+    {
+     "text": "what",
+     "offsetMilliseconds": 849377,
+     "durationMilliseconds": 515
+    },
+    {
+     "text": "happened",
+     "offsetMilliseconds": 849893,
+     "durationMilliseconds": 624
+    },
+    {
+     "text": "next?",
+     "offsetMilliseconds": 851071,
+     "durationMilliseconds": 488
+    }
+   ]
+  },
+  {
+   "speaker": 0,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "I",
+     "offsetMilliseconds": 853757,
+     "durationMilliseconds": 417
+    },
+    {
+     "text": "honestly",
+     "offsetMilliseconds": 854174,
+     "durationMilliseconds": 673
+    },
+    {
+     "text": "have",
+     "offsetMilliseconds": 854872,
+     "durationMilliseconds": 556
+    },
+    {
+     "text": "no",
+     "offsetMilliseconds": 855480,
+     "durationMilliseconds": 431
+    },
+    {
+     "text": "idea,",
+     "offsetMilliseconds": 855958,
+     "durationMilliseconds": 611
+    },
+    {
+     "text": "it",
+     "offsetMilliseconds": 856631,
+     "durationMilliseconds": 529
+    },
+    {
+     "text": "was",
+     "offsetMilliseconds": 857237,
+     "durationMilliseconds": 564
+    },
+    {
+     "text": "a",
+     "offsetMilliseconds": 858112,
+     "durationMilliseconds": 384
+    },
+    {
+     "text": "mess.",
+     "offsetMilliseconds": 858501,
+     "durationMilliseconds": 438
+    }
+   ]
+  },
+  {
+   "speaker": 3,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Okay,",
+     "offsetMilliseconds": 859891,
+     "durationMilliseconds": 546
+    },
+    {
+     "text": "I",
+     "offsetMilliseconds": 860941,
+     "durationMilliseconds": 410
+    },
+    {
+     "text": "think",
+     "offsetMilliseconds": 861402,
+     "durationMilliseconds": 549
+    },
+    {
+     "text": "we're",
+     "offsetMilliseconds": 861972,
+     "durationMilliseconds": 567
+    },
+    {
+     "text": "done",
+     "offsetMilliseconds": 862581,
+     "durationMilliseconds": 398
+    },
+    {
+     "text": "here.",
+     "offsetMilliseconds": 863018,
+     "durationMilliseconds": 407
+    }
+   ]
+  },
+  {
+   "speaker": 3,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "That's",
+     "offsetMilliseconds": 863940,
+     "durationMilliseconds": 759
+    },
+    {
+     "text": "a",
+     "offsetMilliseconds": 864771,
+     "durationMilliseconds": 476
+    },
+    {
+     "text": "great",
+     "offsetMilliseconds": 865263,
+     "durationMilliseconds": 565
+    },
+    {
+     "text": "point,",
+     "offsetMilliseconds": 865883,
+     "durationMilliseconds": 429
+    },
+    {
+     "text": "actually.",
+     "offsetMilliseconds": 866322,
+     "durationMilliseconds": 818
+    }
+   ]
+  },
+  {
+   "speaker": 2,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Wait,",
+     "offsetMilliseconds": 868980,
+     "durationMilliseconds": 532
+    },
+    {
+     "text": "can",
+     "offsetMilliseconds": 869570,
+     "durationMilliseconds": 476
+    },
+    {
+     "text": "you",
+     "offsetMilliseconds": 870052,
+     "durationMilliseconds": 533
+    },
+    {
+     "text": "say",
+     "offsetMilliseconds": 870623,
+     "durationMilliseconds": 410
+    },
+    {
+     "text": "that",
+     "offsetMilliseconds": 871098,
+     "durationMilliseconds": 624
+    },
+    {
+     "text": "again?",
+     "offsetMilliseconds": 871761,
+     "durationMilliseconds": 647
+    }
+   ]
+  },
+  {
+   "speaker": 2,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "I",
+     "offsetMilliseconds": 872954,
+     "durationMilliseconds": 468
+    },
+    {
+     "text": "honestly",
+     "offsetMilliseconds": 873433,
+     "durationMilliseconds": 739
+    },
+    {
+     "text": "have",
+     "offsetMilliseconds": 874242,
+     "durationMilliseconds": 588
+    },
+    {
+     "text": "no",
+     "offsetMilliseconds": 875231,
+     "durationMilliseconds": 521
+    },
+    {
+     "text": "idea,",
+     "offsetMilliseconds": 875827,
+     "durationMilliseconds": 615
+    },
+    {
+     "text": "it",
+     "offsetMilliseconds": 876477,
+     "durationMilliseconds": 351
+    },
+    {
+     "text": "was",
+     "offsetMilliseconds": 876842,
+     "durationMilliseconds": 548
+    },
+    {
+     "text": "a",
+     "offsetMilliseconds": 877415,
+     "durationMilliseconds": 371
+    },
+    {
+     "text": "mess.",
+     "offsetMilliseconds": 877852,
+     "durationMilliseconds": 583
+    }
+   ]
+  },
+  {
+   "speaker": 3,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Wait,",
+     "offsetMilliseconds": 878960,
+     "durationMilliseconds": 674
+    },
+    {
+     "text": "can",
+     "offsetMilliseconds": 879678,
+     "durationMilliseconds": 548
+    },
+    {
+     "text": "you",
+     "offsetMilliseconds": 880230,
+     "durationMilliseconds": 482
+    },
+    {
+     "text": "say",
+     "offsetMilliseconds": 880779,
+     "durationMilliseconds": 341
+    },
+    {
+     "text": "that",
+     "offsetMilliseconds": 881173,
+     "durationMilliseconds": 556
+    },
+    {
+     "text": "again?",
+     "offsetMilliseconds": 881776,
+     "durationMilliseconds": 649
+    }
+   ]
+  },
+  {
+   "speaker": 2,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Well,",
+     "offsetMilliseconds": 883393,
+     "durationMilliseconds": 594
+    },
+    {
+     "text": "it",
+     "offsetMilliseconds": 884566,
+     "durationMilliseconds": 487
+    },
+    {
+     "text": "depends",
+     "offsetMilliseconds": 885056,
+     "durationMilliseconds": 698
+    },
+    {
+     "text": "on",
+     "offsetMilliseconds": 885823,
+     "durationMilliseconds": 440
+    },
+    {
+     "text": "the",
+     "offsetMilliseconds": 886699,
+     "durationMilliseconds": 454
+    },
+    {
+     "text": "budget.",
+     "offsetMilliseconds": 887185,
+     "durationMilliseconds": 511
+    }
+   ]
+  },
+  {
+   "speaker": 3,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Well,",
+     "offsetMilliseconds": 887923,
+     "durationMilliseconds": 582
+    },
+    {
+     "text": "it",
+     "offsetMilliseconds": 888584,
+     "durationMilliseconds": 405
+    },
+    {
+     "text": "depends",
+     "offsetMilliseconds": 889388,
+     "durationMilliseconds": 603
+    },
+    {
+     "text": "on",
+     "offsetMilliseconds": 889997,
+     "durationMilliseconds": 441
+    },
+    {
+     "text": "the",
+     "offsetMilliseconds": 890510,
+     "durationMilliseconds": 343
+    },
+    {
+     "text": "budget.",
+     "offsetMilliseconds": 890890,
+     "durationMilliseconds": 550
+    }
+   ]
+  },
+  {
+   "speaker": 0,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Right,",
+     "offsetMilliseconds": 891635,
+     "durationMilliseconds": 685
+    },
+    {
+     "text": "right.",
+     "offsetMilliseconds": 892354,
+     "durationMilliseconds": 587
+    }
+   ]
+  },
+  {
+   "speaker": 2,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Well,",
+     "offsetMilliseconds": 893324,
+     "durationMilliseconds": 552
+    },
+    {
+     "text": "it",
+     "offsetMilliseconds": 893937,
+     "durationMilliseconds": 316
+    },
+    {
+     "text": "depends",
+     "offsetMilliseconds": 894297,
+     "durationMilliseconds": 574
+    },
+    {
+     "text": "on",
+     "offsetMilliseconds": 894928,
+     "durationMilliseconds": 356
+    },
+    {
+     "text": "the",
+     "offsetMilliseconds": 895325,
+     "durationMilliseconds": 372
+    },
+    {
+     "text": "budget.",
+     "offsetMilliseconds": 895716,
+     "durationMilliseconds": 633
+    }
+   ]
+  },
+  {
+   "speaker": 3,
+   "offsetMilliseconds": 0,
+   "durationMilliseconds": 0,
+   "words": [
+    {
+     "text": "Right,",
+     "offsetMilliseconds": 896561,
+     "durationMilliseconds": 491
+    },
+    {
+     "text": "right.",
+     "offsetMilliseconds": 897111,
+     "durationMilliseconds": 451
+    }
+   ]
+  }
+ ]
+}

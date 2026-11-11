@@ -13,7 +13,9 @@ For now this is a thin layer over `settings.FineSubSettings`:
 - `register_key_spec(...)` only records a new key's spec in memory. It does
   not add to the settings' key list and writes nothing: new keys go straight
   into Nonoka's own secret store once WP-R4 has built it, and until then a
-  registered name reads as an empty pool.
+  registered name reads as an empty pool;
+- `ConfigStore.state_file(name)` is where Nonoka's own small state files live
+  (`<data dir>/state/<name>.json`, WP1).
 """
 
 from __future__ import annotations
@@ -25,6 +27,7 @@ import threading
 from typing import Any, Mapping
 
 _KEY_NAME = re.compile(r"^[A-Z][A-Z0-9_]{0,63}$")
+_STATE_NAME = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}$")
 
 
 @dataclass(frozen=True)
@@ -142,6 +145,18 @@ class ConfigStore:
 
     def has_key(self, name: str) -> bool:
         return bool(self.key_pool(name))
+
+    def state_file(self, name: str) -> Path:
+        """Where Nonoka's own small state `name` lives: `<data dir>/state/<name>.json`.
+
+        Only the path; the caller reads, locks and writes it (e.g. the cloud ASR
+        quota ledger, `transcription.keys`). `name` is lower-case letters,
+        digits and `-`.
+        """
+
+        if not isinstance(name, str) or not _STATE_NAME.match(name):
+            raise ValueError(f"state name must be lower-case letters, digits and '-', got {name!r}")
+        return self.root / "state" / f"{name}.json"
 
     def snapshot(self) -> dict[str, Any]:
         """The settings as the desktop sees them; secret values never appear."""

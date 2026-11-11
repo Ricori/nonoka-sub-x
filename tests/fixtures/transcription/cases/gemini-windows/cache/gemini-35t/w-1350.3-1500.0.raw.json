@@ -1,0 +1,2044 @@
+{
+ "status": "completed",
+ "steps": [
+  {
+   "content": [
+    {
+     "type": "text",
+     "annotations": [
+      {
+       "type": "word_info",
+       "start_offset": "1.8s",
+       "end_offset": "1.9s",
+       "speaker": "speaker_4",
+       "text": "そ"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "2.5s",
+       "end_offset": "2.6s",
+       "speaker": "speaker_4",
+       "text": "れ"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "2.7s",
+       "end_offset": "2.8s",
+       "speaker": "speaker_4",
+       "text": "で、"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "2.9s",
+       "end_offset": "3.0s",
+       "speaker": "speaker_4",
+       "text": "最"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "3.0s",
+       "end_offset": "3.1s",
+       "speaker": "speaker_4",
+       "text": "後"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "3.2s",
+       "end_offset": "3.4s",
+       "speaker": "speaker_4",
+       "text": "ど"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "3.7s",
+       "end_offset": "3.9s",
+       "speaker": "speaker_4",
+       "text": "う"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "3.9s",
+       "end_offset": "4.1s",
+       "speaker": "speaker_4",
+       "text": "な"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "4.4s",
+       "end_offset": "4.6s",
+       "speaker": "speaker_4",
+       "text": "っ"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "4.8s",
+       "end_offset": "5.0s",
+       "speaker": "speaker_4",
+       "text": "た"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "5.0s",
+       "end_offset": "5.1s",
+       "speaker": "speaker_4",
+       "text": "ん"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "5.2s",
+       "end_offset": "5.3s",
+       "speaker": "speaker_4",
+       "text": "で"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "5.3s",
+       "end_offset": "5.4s",
+       "speaker": "speaker_4",
+       "text": "す"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "5.6s",
+       "end_offset": "5.8s",
+       "speaker": "speaker_4",
+       "text": "か？"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "6.7s",
+       "end_offset": "6.8s",
+       "speaker": "speaker_3",
+       "text": "そ"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "7.2s",
+       "end_offset": "7.4s",
+       "speaker": "speaker_3",
+       "text": "う"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "7.4s",
+       "end_offset": "7.6s",
+       "speaker": "speaker_3",
+       "text": "で"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "7.6s",
+       "end_offset": "7.7s",
+       "speaker": "speaker_3",
+       "text": "す"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "7.8s",
+       "end_offset": "7.9s",
+       "speaker": "speaker_3",
+       "text": "ね、"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "8.0s",
+       "end_offset": "8.1s",
+       "speaker": "speaker_3",
+       "text": "散"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "8.2s",
+       "end_offset": "8.3s",
+       "speaker": "speaker_3",
+       "text": "歩"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "8.3s",
+       "end_offset": "8.4s",
+       "speaker": "speaker_3",
+       "text": "に"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "8.5s",
+       "end_offset": "8.6s",
+       "speaker": "speaker_3",
+       "text": "行"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "8.6s",
+       "end_offset": "8.8s",
+       "speaker": "speaker_3",
+       "text": "き"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "8.8s",
+       "end_offset": "9.0s",
+       "speaker": "speaker_3",
+       "text": "ま"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "9.0s",
+       "end_offset": "9.2s",
+       "speaker": "speaker_3",
+       "text": "し"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "9.4s",
+       "end_offset": "9.5s",
+       "speaker": "speaker_3",
+       "text": "ょ"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "9.6s",
+       "end_offset": "9.7s",
+       "speaker": "speaker_3",
+       "text": "う"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "9.8s",
+       "end_offset": "10.0s",
+       "speaker": "speaker_3",
+       "text": "か。"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "67.8s",
+       "end_offset": "68.0s",
+       "speaker": "speaker_4",
+       "text": "今"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "68.0s",
+       "end_offset": "68.1s",
+       "speaker": "speaker_4",
+       "text": "日"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "68.1s",
+       "end_offset": "68.3s",
+       "speaker": "speaker_4",
+       "text": "は"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "68.3s",
+       "end_offset": "68.5s",
+       "speaker": "speaker_4",
+       "text": "い"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "68.9s",
+       "end_offset": "69.1s",
+       "speaker": "speaker_4",
+       "text": "い"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "69.1s",
+       "end_offset": "69.2s",
+       "speaker": "speaker_4",
+       "text": "天"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "69.2s",
+       "end_offset": "69.3s",
+       "speaker": "speaker_4",
+       "text": "気"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "69.4s",
+       "end_offset": "69.5s",
+       "speaker": "speaker_4",
+       "text": "で"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "69.5s",
+       "end_offset": "69.7s",
+       "speaker": "speaker_4",
+       "text": "す"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "69.8s",
+       "end_offset": "69.9s",
+       "speaker": "speaker_4",
+       "text": "ね。"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "70.7s",
+       "end_offset": "70.8s",
+       "speaker": "speaker_2",
+       "text": "え"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "71.2s",
+       "end_offset": "71.3s",
+       "speaker": "speaker_2",
+       "text": "っ"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "71.3s",
+       "end_offset": "71.4s",
+       "speaker": "speaker_2",
+       "text": "と、"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "71.5s",
+       "end_offset": "71.6s",
+       "speaker": "speaker_2",
+       "text": "そ"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "71.7s",
+       "end_offset": "71.8s",
+       "speaker": "speaker_2",
+       "text": "れ"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "71.8s",
+       "end_offset": "72.0s",
+       "speaker": "speaker_2",
+       "text": "は"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "72.0s",
+       "end_offset": "72.2s",
+       "speaker": "speaker_2",
+       "text": "ち"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "72.2s",
+       "end_offset": "72.4s",
+       "speaker": "speaker_2",
+       "text": "ょ"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "72.6s",
+       "end_offset": "72.8s",
+       "speaker": "speaker_2",
+       "text": "っ"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "72.8s",
+       "end_offset": "72.9s",
+       "speaker": "speaker_2",
+       "text": "と"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "72.9s",
+       "end_offset": "73.1s",
+       "speaker": "speaker_2",
+       "text": "待"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "73.1s",
+       "end_offset": "73.3s",
+       "speaker": "speaker_2",
+       "text": "っ"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "73.3s",
+       "end_offset": "73.4s",
+       "speaker": "speaker_2",
+       "text": "て"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "73.4s",
+       "end_offset": "73.5s",
+       "speaker": "speaker_2",
+       "text": "く"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "73.5s",
+       "end_offset": "73.6s",
+       "speaker": "speaker_2",
+       "text": "だ"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "74.1s",
+       "end_offset": "74.3s",
+       "speaker": "speaker_2",
+       "text": "さ"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "74.4s",
+       "end_offset": "74.5s",
+       "speaker": "speaker_2",
+       "text": "い。"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "74.7s",
+       "end_offset": "74.8s",
+       "speaker": "speaker_3",
+       "text": "見"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "75.4s",
+       "end_offset": "75.6s",
+       "speaker": "speaker_3",
+       "text": "ま"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "75.6s",
+       "end_offset": "75.8s",
+       "speaker": "speaker_3",
+       "text": "し"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "75.8s",
+       "end_offset": "76.0s",
+       "speaker": "speaker_3",
+       "text": "た！"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "76.0s",
+       "end_offset": "76.2s",
+       "speaker": "speaker_3",
+       "text": "す"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "76.2s",
+       "end_offset": "76.3s",
+       "speaker": "speaker_3",
+       "text": "ご"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "76.4s",
+       "end_offset": "76.5s",
+       "speaker": "speaker_3",
+       "text": "く"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "76.5s",
+       "end_offset": "76.7s",
+       "speaker": "speaker_3",
+       "text": "面"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "76.7s",
+       "end_offset": "76.9s",
+       "speaker": "speaker_3",
+       "text": "白"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "76.9s",
+       "end_offset": "77.1s",
+       "speaker": "speaker_3",
+       "text": "か"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "77.1s",
+       "end_offset": "77.2s",
+       "speaker": "speaker_3",
+       "text": "っ"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "77.3s",
+       "end_offset": "77.5s",
+       "speaker": "speaker_3",
+       "text": "た"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "77.7s",
+       "end_offset": "77.8s",
+       "speaker": "speaker_3",
+       "text": "で"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "77.9s",
+       "end_offset": "78.1s",
+       "speaker": "speaker_3",
+       "text": "す。"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "78.7s",
+       "end_offset": "78.8s",
+       "speaker": "speaker_2",
+       "text": "じ"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "78.9s",
+       "end_offset": "79.0s",
+       "speaker": "speaker_2",
+       "text": "ゃ"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "79.1s",
+       "end_offset": "79.2s",
+       "speaker": "speaker_2",
+       "text": "あ、"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "79.2s",
+       "end_offset": "79.4s",
+       "speaker": "speaker_2",
+       "text": "次"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "79.5s",
+       "end_offset": "79.6s",
+       "speaker": "speaker_2",
+       "text": "の"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "79.6s",
+       "end_offset": "79.8s",
+       "speaker": "speaker_2",
+       "text": "質"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "80.1s",
+       "end_offset": "80.2s",
+       "speaker": "speaker_2",
+       "text": "問"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "80.2s",
+       "end_offset": "80.4s",
+       "speaker": "speaker_2",
+       "text": "に"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "80.5s",
+       "end_offset": "80.6s",
+       "speaker": "speaker_2",
+       "text": "行"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "80.7s",
+       "end_offset": "80.8s",
+       "speaker": "speaker_2",
+       "text": "き"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "80.9s",
+       "end_offset": "81.0s",
+       "speaker": "speaker_2",
+       "text": "ま"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "81.0s",
+       "end_offset": "81.2s",
+       "speaker": "speaker_2",
+       "text": "す。"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "82.0s",
+       "end_offset": "82.1s",
+       "speaker": "speaker_2",
+       "text": "な"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "82.2s",
+       "end_offset": "82.3s",
+       "speaker": "speaker_2",
+       "text": "る"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "82.7s",
+       "end_offset": "82.9s",
+       "speaker": "speaker_2",
+       "text": "ほ"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "82.9s",
+       "end_offset": "83.0s",
+       "speaker": "speaker_2",
+       "text": "ど、"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "83.3s",
+       "end_offset": "83.4s",
+       "speaker": "speaker_2",
+       "text": "そ"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "83.4s",
+       "end_offset": "83.5s",
+       "speaker": "speaker_2",
+       "text": "う"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "83.6s",
+       "end_offset": "83.7s",
+       "speaker": "speaker_2",
+       "text": "い"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "84.2s",
+       "end_offset": "84.3s",
+       "speaker": "speaker_2",
+       "text": "う"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "84.8s",
+       "end_offset": "84.9s",
+       "speaker": "speaker_2",
+       "text": "こ"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "85.4s",
+       "end_offset": "85.6s",
+       "speaker": "speaker_2",
+       "text": "と"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "85.6s",
+       "end_offset": "85.7s",
+       "speaker": "speaker_2",
+       "text": "か。"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "85.4s",
+       "end_offset": "85.5s",
+       "speaker": "speaker_3",
+       "text": "じ"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "86.0s",
+       "end_offset": "86.2s",
+       "speaker": "speaker_3",
+       "text": "ゃ"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "86.2s",
+       "end_offset": "86.3s",
+       "speaker": "speaker_3",
+       "text": "あ、"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "86.3s",
+       "end_offset": "86.5s",
+       "speaker": "speaker_3",
+       "text": "次"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "86.6s",
+       "end_offset": "86.7s",
+       "speaker": "speaker_3",
+       "text": "の"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "86.8s",
+       "end_offset": "86.9s",
+       "speaker": "speaker_3",
+       "text": "質"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "87.0s",
+       "end_offset": "87.1s",
+       "speaker": "speaker_3",
+       "text": "問"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "87.1s",
+       "end_offset": "87.3s",
+       "speaker": "speaker_3",
+       "text": "に"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "87.4s",
+       "end_offset": "87.5s",
+       "speaker": "speaker_3",
+       "text": "行"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "87.5s",
+       "end_offset": "87.7s",
+       "speaker": "speaker_3",
+       "text": "き"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "87.7s",
+       "end_offset": "87.8s",
+       "speaker": "speaker_3",
+       "text": "ま"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "88.1s",
+       "end_offset": "88.3s",
+       "speaker": "speaker_3",
+       "text": "す。"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "88.4s",
+       "end_offset": "88.6s",
+       "speaker": "speaker_4",
+       "text": "じ"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "88.6s",
+       "end_offset": "88.8s",
+       "speaker": "speaker_4",
+       "text": "ゃ"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "88.8s",
+       "end_offset": "88.9s",
+       "speaker": "speaker_4",
+       "text": "あ、"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "88.9s",
+       "end_offset": "89.1s",
+       "speaker": "speaker_4",
+       "text": "次"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "89.1s",
+       "end_offset": "89.2s",
+       "speaker": "speaker_4",
+       "text": "の"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "89.3s",
+       "end_offset": "89.4s",
+       "speaker": "speaker_4",
+       "text": "質"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "89.5s",
+       "end_offset": "89.6s",
+       "speaker": "speaker_4",
+       "text": "問"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "89.7s",
+       "end_offset": "89.8s",
+       "speaker": "speaker_4",
+       "text": "に"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "89.8s",
+       "end_offset": "90.0s",
+       "speaker": "speaker_4",
+       "text": "行"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "90.3s",
+       "end_offset": "90.5s",
+       "speaker": "speaker_4",
+       "text": "き"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "90.5s",
+       "end_offset": "90.7s",
+       "speaker": "speaker_4",
+       "text": "ま"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "90.8s",
+       "end_offset": "90.9s",
+       "speaker": "speaker_4",
+       "text": "す。"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "91.1s",
+       "end_offset": "91.2s",
+       "speaker": "speaker_3",
+       "text": "見"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "91.2s",
+       "end_offset": "91.4s",
+       "speaker": "speaker_3",
+       "text": "ま"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "91.4s",
+       "end_offset": "91.6s",
+       "speaker": "speaker_3",
+       "text": "し"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "91.6s",
+       "end_offset": "91.7s",
+       "speaker": "speaker_3",
+       "text": "た！"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "92.3s",
+       "end_offset": "92.5s",
+       "speaker": "speaker_3",
+       "text": "す"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "92.5s",
+       "end_offset": "92.6s",
+       "speaker": "speaker_3",
+       "text": "ご"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "92.7s",
+       "end_offset": "92.8s",
+       "speaker": "speaker_3",
+       "text": "く"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "92.8s",
+       "end_offset": "93.0s",
+       "speaker": "speaker_3",
+       "text": "面"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "93.0s",
+       "end_offset": "93.2s",
+       "speaker": "speaker_3",
+       "text": "白"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "93.2s",
+       "end_offset": "93.4s",
+       "speaker": "speaker_3",
+       "text": "か"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "93.4s",
+       "end_offset": "93.6s",
+       "speaker": "speaker_3",
+       "text": "っ"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "93.6s",
+       "end_offset": "93.8s",
+       "speaker": "speaker_3",
+       "text": "た"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "94.2s",
+       "end_offset": "94.3s",
+       "speaker": "speaker_3",
+       "text": "で"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "94.4s",
+       "end_offset": "94.5s",
+       "speaker": "speaker_3",
+       "text": "す。"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "95.2s",
+       "end_offset": "95.4s",
+       "speaker": "speaker_2",
+       "text": "見"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "95.4s",
+       "end_offset": "95.5s",
+       "speaker": "speaker_2",
+       "text": "ま"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "95.9s",
+       "end_offset": "96.0s",
+       "speaker": "speaker_2",
+       "text": "し"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "96.3s",
+       "end_offset": "96.4s",
+       "speaker": "speaker_2",
+       "text": "た！"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "96.4s",
+       "end_offset": "96.6s",
+       "speaker": "speaker_2",
+       "text": "す"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "96.6s",
+       "end_offset": "96.8s",
+       "speaker": "speaker_2",
+       "text": "ご"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "96.8s",
+       "end_offset": "96.9s",
+       "speaker": "speaker_2",
+       "text": "く"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "96.9s",
+       "end_offset": "97.1s",
+       "speaker": "speaker_2",
+       "text": "面"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "97.1s",
+       "end_offset": "97.2s",
+       "speaker": "speaker_2",
+       "text": "白"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "97.3s",
+       "end_offset": "97.5s",
+       "speaker": "speaker_2",
+       "text": "か"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "97.5s",
+       "end_offset": "97.6s",
+       "speaker": "speaker_2",
+       "text": "っ"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "97.6s",
+       "end_offset": "97.8s",
+       "speaker": "speaker_2",
+       "text": "た"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "97.9s",
+       "end_offset": "98.0s",
+       "speaker": "speaker_2",
+       "text": "で"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "98.0s",
+       "end_offset": "98.2s",
+       "speaker": "speaker_2",
+       "text": "す。"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "98.5s",
+       "end_offset": "98.7s",
+       "speaker": "speaker_4",
+       "text": "え"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "98.8s",
+       "end_offset": "98.9s",
+       "speaker": "speaker_4",
+       "text": "っ"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "98.9s",
+       "end_offset": "99.1s",
+       "speaker": "speaker_4",
+       "text": "と、"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "99.5s",
+       "end_offset": "99.6s",
+       "speaker": "speaker_4",
+       "text": "そ"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "99.6s",
+       "end_offset": "99.7s",
+       "speaker": "speaker_4",
+       "text": "れ"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "99.8s",
+       "end_offset": "99.9s",
+       "speaker": "speaker_4",
+       "text": "は"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "100.3s",
+       "end_offset": "100.4s",
+       "speaker": "speaker_4",
+       "text": "ち"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "100.5s",
+       "end_offset": "100.6s",
+       "speaker": "speaker_4",
+       "text": "ょ"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "101.1s",
+       "end_offset": "101.3s",
+       "speaker": "speaker_4",
+       "text": "っ"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "101.3s",
+       "end_offset": "101.5s",
+       "speaker": "speaker_4",
+       "text": "と"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "101.5s",
+       "end_offset": "101.6s",
+       "speaker": "speaker_4",
+       "text": "待"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "101.7s",
+       "end_offset": "101.8s",
+       "speaker": "speaker_4",
+       "text": "っ"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "101.9s",
+       "end_offset": "102.1s",
+       "speaker": "speaker_4",
+       "text": "て"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "102.1s",
+       "end_offset": "102.2s",
+       "speaker": "speaker_4",
+       "text": "く"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "102.3s",
+       "end_offset": "102.4s",
+       "speaker": "speaker_4",
+       "text": "だ"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "102.4s",
+       "end_offset": "102.6s",
+       "speaker": "speaker_4",
+       "text": "さ"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "102.6s",
+       "end_offset": "102.8s",
+       "speaker": "speaker_4",
+       "text": "い。"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "102.2s",
+       "end_offset": "102.3s",
+       "speaker": "speaker_3",
+       "text": "今"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "102.4s",
+       "end_offset": "102.5s",
+       "speaker": "speaker_3",
+       "text": "日"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "102.6s",
+       "end_offset": "102.7s",
+       "speaker": "speaker_3",
+       "text": "は"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "102.8s",
+       "end_offset": "102.9s",
+       "speaker": "speaker_3",
+       "text": "い"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "102.9s",
+       "end_offset": "103.1s",
+       "speaker": "speaker_3",
+       "text": "い"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "103.3s",
+       "end_offset": "103.4s",
+       "speaker": "speaker_3",
+       "text": "天"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "103.5s",
+       "end_offset": "103.7s",
+       "speaker": "speaker_3",
+       "text": "気"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "103.7s",
+       "end_offset": "103.9s",
+       "speaker": "speaker_3",
+       "text": "で"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "103.9s",
+       "end_offset": "104.0s",
+       "speaker": "speaker_3",
+       "text": "す"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "104.0s",
+       "end_offset": "104.2s",
+       "speaker": "speaker_3",
+       "text": "ね。"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "106.0s",
+       "end_offset": "106.1s",
+       "speaker": "speaker_4",
+       "text": "え"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "106.2s",
+       "end_offset": "106.4s",
+       "speaker": "speaker_4",
+       "text": "っ"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "106.4s",
+       "end_offset": "106.5s",
+       "speaker": "speaker_4",
+       "text": "と、"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "106.6s",
+       "end_offset": "106.7s",
+       "speaker": "speaker_4",
+       "text": "そ"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "106.7s",
+       "end_offset": "106.9s",
+       "speaker": "speaker_4",
+       "text": "れ"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "106.9s",
+       "end_offset": "107.1s",
+       "speaker": "speaker_4",
+       "text": "は"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "107.1s",
+       "end_offset": "107.2s",
+       "speaker": "speaker_4",
+       "text": "ち"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "107.3s",
+       "end_offset": "107.4s",
+       "speaker": "speaker_4",
+       "text": "ょ"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "107.5s",
+       "end_offset": "107.6s",
+       "speaker": "speaker_4",
+       "text": "っ"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "107.7s",
+       "end_offset": "107.8s",
+       "speaker": "speaker_4",
+       "text": "と"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "107.8s",
+       "end_offset": "107.9s",
+       "speaker": "speaker_4",
+       "text": "待"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "108.0s",
+       "end_offset": "108.1s",
+       "speaker": "speaker_4",
+       "text": "っ"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "108.1s",
+       "end_offset": "108.2s",
+       "speaker": "speaker_4",
+       "text": "て"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "108.3s",
+       "end_offset": "108.5s",
+       "speaker": "speaker_4",
+       "text": "く"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "108.5s",
+       "end_offset": "108.7s",
+       "speaker": "speaker_4",
+       "text": "だ"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "108.7s",
+       "end_offset": "108.9s",
+       "speaker": "speaker_4",
+       "text": "さ"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "109.1s",
+       "end_offset": "109.2s",
+       "speaker": "speaker_4",
+       "text": "い。"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "109.6s",
+       "end_offset": "109.7s",
+       "speaker": "speaker_2",
+       "text": "そ"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "110.1s",
+       "end_offset": "110.2s",
+       "speaker": "speaker_2",
+       "text": "れ"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "110.2s",
+       "end_offset": "110.4s",
+       "speaker": "speaker_2",
+       "text": "で、"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "110.9s",
+       "end_offset": "111.0s",
+       "speaker": "speaker_2",
+       "text": "最"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "111.1s",
+       "end_offset": "111.2s",
+       "speaker": "speaker_2",
+       "text": "後"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "111.2s",
+       "end_offset": "111.4s",
+       "speaker": "speaker_2",
+       "text": "ど"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "111.8s",
+       "end_offset": "112.0s",
+       "speaker": "speaker_2",
+       "text": "う"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "112.1s",
+       "end_offset": "112.2s",
+       "speaker": "speaker_2",
+       "text": "な"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "112.2s",
+       "end_offset": "112.4s",
+       "speaker": "speaker_2",
+       "text": "っ"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "112.4s",
+       "end_offset": "112.5s",
+       "speaker": "speaker_2",
+       "text": "た"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "112.6s",
+       "end_offset": "112.7s",
+       "speaker": "speaker_2",
+       "text": "ん"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "112.7s",
+       "end_offset": "112.8s",
+       "speaker": "speaker_2",
+       "text": "で"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "112.9s",
+       "end_offset": "113.1s",
+       "speaker": "speaker_2",
+       "text": "す"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "113.1s",
+       "end_offset": "113.2s",
+       "speaker": "speaker_2",
+       "text": "か？"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "115.3s",
+       "end_offset": "115.5s",
+       "speaker": "speaker_3",
+       "text": "う"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "115.5s",
+       "end_offset": "115.7s",
+       "speaker": "speaker_3",
+       "text": "ん、"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "115.7s",
+       "end_offset": "115.9s",
+       "speaker": "speaker_3",
+       "text": "う"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "115.9s",
+       "end_offset": "116.1s",
+       "speaker": "speaker_3",
+       "text": "ん。"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "115.6s",
+       "end_offset": "115.7s",
+       "speaker": "speaker_4",
+       "text": "あ"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "115.8s",
+       "end_offset": "115.9s",
+       "speaker": "speaker_4",
+       "text": "の、"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "115.9s",
+       "end_offset": "116.1s",
+       "speaker": "speaker_4",
+       "text": "ゲ"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "116.1s",
+       "end_offset": "116.2s",
+       "speaker": "speaker_4",
+       "text": "ー"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "116.7s",
+       "end_offset": "116.8s",
+       "speaker": "speaker_4",
+       "text": "ム"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "117.1s",
+       "end_offset": "117.3s",
+       "speaker": "speaker_4",
+       "text": "の"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "117.8s",
+       "end_offset": "117.9s",
+       "speaker": "speaker_4",
+       "text": "話"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "118.0s",
+       "end_offset": "118.2s",
+       "speaker": "speaker_4",
+       "text": "な"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "118.2s",
+       "end_offset": "118.4s",
+       "speaker": "speaker_4",
+       "text": "ん"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "118.8s",
+       "end_offset": "119.0s",
+       "speaker": "speaker_4",
+       "text": "で"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "119.0s",
+       "end_offset": "119.1s",
+       "speaker": "speaker_4",
+       "text": "す"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "119.1s",
+       "end_offset": "119.3s",
+       "speaker": "speaker_4",
+       "text": "け"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "119.3s",
+       "end_offset": "119.4s",
+       "speaker": "speaker_4",
+       "text": "ど。"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "119.7s",
+       "end_offset": "119.8s",
+       "speaker": "speaker_4",
+       "text": "そ"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "119.9s",
+       "end_offset": "120.0s",
+       "speaker": "speaker_4",
+       "text": "れ"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "120.0s",
+       "end_offset": "120.1s",
+       "speaker": "speaker_4",
+       "text": "で、"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "120.2s",
+       "end_offset": "120.3s",
+       "speaker": "speaker_4",
+       "text": "最"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "120.4s",
+       "end_offset": "120.5s",
+       "speaker": "speaker_4",
+       "text": "後"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "120.5s",
+       "end_offset": "120.6s",
+       "speaker": "speaker_4",
+       "text": "ど"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "120.7s",
+       "end_offset": "120.8s",
+       "speaker": "speaker_4",
+       "text": "う"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "121.3s",
+       "end_offset": "121.4s",
+       "speaker": "speaker_4",
+       "text": "な"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "121.5s",
+       "end_offset": "121.6s",
+       "speaker": "speaker_4",
+       "text": "っ"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "121.7s",
+       "end_offset": "121.8s",
+       "speaker": "speaker_4",
+       "text": "た"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "122.4s",
+       "end_offset": "122.5s",
+       "speaker": "speaker_4",
+       "text": "ん"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "122.6s",
+       "end_offset": "122.7s",
+       "speaker": "speaker_4",
+       "text": "で"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "122.7s",
+       "end_offset": "122.8s",
+       "speaker": "speaker_4",
+       "text": "す"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "123.4s",
+       "end_offset": "123.6s",
+       "speaker": "speaker_4",
+       "text": "か？"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "125.8s",
+       "end_offset": "125.9s",
+       "speaker": "speaker_3",
+       "text": "今"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "126.0s",
+       "end_offset": "126.1s",
+       "speaker": "speaker_3",
+       "text": "日"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "126.2s",
+       "end_offset": "126.3s",
+       "speaker": "speaker_3",
+       "text": "は"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "126.7s",
+       "end_offset": "126.8s",
+       "speaker": "speaker_3",
+       "text": "い"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "126.8s",
+       "end_offset": "126.9s",
+       "speaker": "speaker_3",
+       "text": "い"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "127.0s",
+       "end_offset": "127.2s",
+       "speaker": "speaker_3",
+       "text": "天"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "127.2s",
+       "end_offset": "127.3s",
+       "speaker": "speaker_3",
+       "text": "気"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "127.6s",
+       "end_offset": "127.8s",
+       "speaker": "speaker_3",
+       "text": "で"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "127.8s",
+       "end_offset": "128.0s",
+       "speaker": "speaker_3",
+       "text": "す"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "128.0s",
+       "end_offset": "128.1s",
+       "speaker": "speaker_3",
+       "text": "ね。"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "129.0s",
+       "end_offset": "129.1s",
+       "speaker": "speaker_4",
+       "text": "じ"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "129.3s",
+       "end_offset": "129.4s",
+       "speaker": "speaker_4",
+       "text": "ゃ"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "129.5s",
+       "end_offset": "129.7s",
+       "speaker": "speaker_4",
+       "text": "あ、"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "129.7s",
+       "end_offset": "129.8s",
+       "speaker": "speaker_4",
+       "text": "次"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "130.2s",
+       "end_offset": "130.3s",
+       "speaker": "speaker_4",
+       "text": "の"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "130.6s",
+       "end_offset": "130.7s",
+       "speaker": "speaker_4",
+       "text": "質"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "131.1s",
+       "end_offset": "131.2s",
+       "speaker": "speaker_4",
+       "text": "問"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "131.3s",
+       "end_offset": "131.4s",
+       "speaker": "speaker_4",
+       "text": "に"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "131.9s",
+       "end_offset": "132.0s",
+       "speaker": "speaker_4",
+       "text": "行"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "132.1s",
+       "end_offset": "132.2s",
+       "speaker": "speaker_4",
+       "text": "き"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "132.3s",
+       "end_offset": "132.4s",
+       "speaker": "speaker_4",
+       "text": "ま"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "132.4s",
+       "end_offset": "132.5s",
+       "speaker": "speaker_4",
+       "text": "す。"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "131.6s",
+       "end_offset": "131.8s",
+       "speaker": "speaker_3",
+       "text": "え"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "131.8s",
+       "end_offset": "131.9s",
+       "speaker": "speaker_3",
+       "text": "っ"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "132.4s",
+       "end_offset": "132.5s",
+       "speaker": "speaker_3",
+       "text": "と、"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "132.5s",
+       "end_offset": "132.6s",
+       "speaker": "speaker_3",
+       "text": "そ"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "132.7s",
+       "end_offset": "132.8s",
+       "speaker": "speaker_3",
+       "text": "れ"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "132.8s",
+       "end_offset": "133.0s",
+       "speaker": "speaker_3",
+       "text": "は"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "133.0s",
+       "end_offset": "133.2s",
+       "speaker": "speaker_3",
+       "text": "ち"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "133.2s",
+       "end_offset": "133.3s",
+       "speaker": "speaker_3",
+       "text": "ょ"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "133.4s",
+       "end_offset": "133.5s",
+       "speaker": "speaker_3",
+       "text": "っ"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "133.6s",
+       "end_offset": "133.8s",
+       "speaker": "speaker_3",
+       "text": "と"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "133.8s",
+       "end_offset": "133.9s",
+       "speaker": "speaker_3",
+       "text": "待"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "133.9s",
+       "end_offset": "134.0s",
+       "speaker": "speaker_3",
+       "text": "っ"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "134.1s",
+       "end_offset": "134.2s",
+       "speaker": "speaker_3",
+       "text": "て"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "134.2s",
+       "end_offset": "134.3s",
+       "speaker": "speaker_3",
+       "text": "く"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "134.3s",
+       "end_offset": "134.5s",
+       "speaker": "speaker_3",
+       "text": "だ"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "134.6s",
+       "end_offset": "134.7s",
+       "speaker": "speaker_3",
+       "text": "さ"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "134.7s",
+       "end_offset": "134.8s",
+       "speaker": "speaker_3",
+       "text": "い。"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "135.9s",
+       "end_offset": "136.0s",
+       "speaker": "speaker_2",
+       "text": "あ"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "136.0s",
+       "end_offset": "136.2s",
+       "speaker": "speaker_2",
+       "text": "の、"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "136.2s",
+       "end_offset": "136.4s",
+       "speaker": "speaker_2",
+       "text": "ゲ"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "136.4s",
+       "end_offset": "136.5s",
+       "speaker": "speaker_2",
+       "text": "ー"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "136.5s",
+       "end_offset": "136.6s",
+       "speaker": "speaker_2",
+       "text": "ム"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "136.6s",
+       "end_offset": "136.8s",
+       "speaker": "speaker_2",
+       "text": "の"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "136.9s",
+       "end_offset": "137.0s",
+       "speaker": "speaker_2",
+       "text": "話"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "137.1s",
+       "end_offset": "137.2s",
+       "speaker": "speaker_2",
+       "text": "な"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "137.2s",
+       "end_offset": "137.3s",
+       "speaker": "speaker_2",
+       "text": "ん"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "137.8s",
+       "end_offset": "138.0s",
+       "speaker": "speaker_2",
+       "text": "で"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "138.0s",
+       "end_offset": "138.1s",
+       "speaker": "speaker_2",
+       "text": "す"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "138.2s",
+       "end_offset": "138.3s",
+       "speaker": "speaker_2",
+       "text": "け"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "138.4s",
+       "end_offset": "138.5s",
+       "speaker": "speaker_2",
+       "text": "ど。"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "140.6s",
+       "end_offset": "140.8s",
+       "speaker": "speaker_2",
+       "text": "う"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "141.0s",
+       "end_offset": "141.1s",
+       "speaker": "speaker_2",
+       "text": "ん、"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "141.6s",
+       "end_offset": "141.7s",
+       "speaker": "speaker_2",
+       "text": "う"
+      },
+      {
+       "type": "word_info",
+       "start_offset": "141.8s",
+       "end_offset": "141.9s",
+       "speaker": "speaker_2",
+       "text": "ん。"
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}
