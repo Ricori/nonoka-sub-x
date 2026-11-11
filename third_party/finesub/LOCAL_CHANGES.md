@@ -113,3 +113,29 @@
 - `src/finesub/llm/llm_runtime.py`
 - `src/finesub/llm/provider_transports.py`
 - `src/finesub/llm/streaming.py`
+
+## 0009 拆分 `run_pipeline`，删掉联合 ASR 分支
+
+工作包：WP-B（`docs/transcription-engines-plan.md` 第 6 节，4.1 第 2、3 条），2026-11-11；不是原补丁栈里的补丁，只动解锁的 `stages.py`、`pipeline.py`
+
+**改了什么、为什么**：FineSub 要拆成「转写引擎」和「纠错」两个可插拔部件，编排得先在 stable 处分开，联合 ASR（`speech/joint/`）也要迁出 FineSub（WP1）。只做搬移和拆分：每个阶段调用的算法函数、参数、跳过条件都照原样。
+
+- **`stages.py` 三个入口**：`run_transcription`（`vocal`/`aligned`/`stable`，默认 `stable`；含声学说话人分离）、`run_post_stable`（`raw-srt`/`translated-srt`/`final-srt`，默认 `raw-srt`；stable 不在就报 `FileNotFoundError`，什么都不写）、`run_pipeline`（两者在一次运行里的薄组合）。原 `run_pipeline` 的函数体原样分成 `_prepare_run`（校验、URL 解析、diarize 级别、纠错请求、运行元数据、进度计划）、`_run_transcription_stages`、`_run_post_stable_stages`、`_finish_run`（用户 2026-11-11 选定：共用准备与收尾）。所以 `run_pipeline` 的校验时机（纠错请求仍在识别前建好）、URL 只解析一次、diarize 只定一次、进度只报一次计划与完成、运行元数据都与之前相同。
+- **参数**：两半都收 `run_pipeline` 的全部关键字参数，按同一套规则解析（用户选定：都收全套参数），默认值只在 `run_pipeline` 的签名里有一份（`_pipeline_options`）。默认值按各自的 `stage` 算：`run_transcription` 不给 `diarize` 时是 `off`，要接着跑 LLM 的调用方自己给级别或 `_diarize_default`，与批处理的前半段一样。
+- **`run_post_stable` 两个显式参数**，取代原先从产物元数据里推断的联合 ASR 后端：`speaker_source`（`acoustic`：读 `run_transcription` 按声学时间线写好的标签，这里不算；`line-labels`：先按每行的 `line_speaker` 写 `-diar-rows.json`，任何 `diarize` 级别都写，`off` 当作 `acoustics`，`-diar.json` 不读不写）和 `judge_audio`（`vocal` 人声轨 / `source` 原始混音，说话人裁判听哪条）。两者都必填；`run_pipeline` 不暴露它们，固定 `acoustic` + `vocal`。`line-labels` 写进 `-diar-rows.json` 的后端名与模型名照旧取 stable 的 `metadata.joint_asr` 记录；没有这条记录时都记 `line-labels`（后端字段因此是 `joint:line-labels`；用户选定）。
+- **删掉联合 ASR**：`run_pipeline` 的 `asr`、`asr_aligner`、`asr_repair` 参数，`_note_task_backend`、`_backend_diarize`、`_run_joint_aligned`，`_run_vocal_stage` 的 `joint` 分支，stable 的 `profile=-1` 分支，`_run_diarization_stage` 的 `joint_backend`；`pipeline.py` 的 `--asr`、`--asr-aligner`、`--asr-repair`，`_refuse_moss_local_without_its_card`，按后端分车道的 `_asr_lane`（每个任务都走 GPU 车道，`asr_lane=None` 的默认）。两个文件都不再 import `speech.joint`；`speech/joint/` 目录本身留给 WP1。`PipelinePaths.cloud_dir` 留着没动。
+- **`pipeline.py` 的依赖面**：`finesub_bootstrap.logs` 的 `prune`、`open_log` 原样复制成 `_prune_logs`、`_open_log`（用户选定）；批处理锁 `finesub_bootstrap.locks.holding_lock`/`LockUnavailable` 是跨进程文件锁，没有去掉，交回 WP-P1 的纠错兼容包。`stages.py` 本来就不 import `finesub_bootstrap`。
+
+**行为上的后果**（删分支的必然结果，不是顺手改的）：
+
+- 产物来自联合 ASR 的旧任务续跑时按本地识别对待：不再强制 `acoustics`、不再改读原始混音、不再打印后端不符的提示。
+- 存下来的批处理清单里如果有 `asr`、`asr_aligner`、`asr_repair` 这几个键，续跑时报「unknown manifest keys」。
+- 配置里的 `[asr] backend`、`[asr] aligner`（`settings.py`，上锁文件）不再有人读。
+
+**测试**：`tests/test_split_stage_contract.py`（原有的云端接缝测试保留，新增入口、联合分支、两半端到端的合同测试）。
+
+**何时可以去掉**：分包（WP-P1）之后这两个文件随转写包走；上游若自己在 stable 处拆开编排，改为跟上游
+
+**文件**：
+- `src/finesub/pipeline.py`
+- `src/finesub/stages.py`
