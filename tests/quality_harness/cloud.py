@@ -100,6 +100,16 @@ SAMPLES: dict[str, dict[str, Any]] = {
     },
 }
 RUN_ID = "run-quality-gate"
+#: Measurement only (WP-C, owner 2026-11-11), never set by the gate. `on`/`off`
+#: pins the separator accelerator through the compute code's own switch
+#: (`vocal_accel.ENABLED_ENV`, "for pinning the behaviour while measuring"),
+#: handed to the Vocal container as an environment variable; the image and
+#: the code are unchanged. Unset is production's `auto`.
+VOCAL_ACCEL_ENV = "NONOKA_QUALITY_CLOUD_VOCAL_ACCEL"
+#: Measurement only: a Volume name mounted at the Vocal container's accel root
+#: in place of the production models Volume, so AOTI builds from nothing and
+#: publishes nowhere that production reads. Created if missing.
+ACCEL_VOLUME_ENV = "NONOKA_QUALITY_CLOUD_ACCEL_VOLUME"
 #: The engine's own artifact names, by suffix, as `real.COMPARED_SUFFIXES` has
 #: them, minus `-raw.srt`: the cloud stops at `stable`.
 COMPARED_SUFFIXES = (
@@ -161,6 +171,10 @@ if _modal_side():
             facts["torch"] = torch.__version__
         except Exception as error:  # noqa: BLE001 - a fact we could not read is recorded as such
             facts["torch_error"] = f"{type(error).__name__}: {error}"
+        # Measurement switches, when set (`VOCAL_ACCEL_ENV`, `ACCEL_VOLUME_ENV`).
+        for name in ("NONOKA_VOCAL_ACCEL", ACCEL_VOLUME_ENV):
+            if os.environ.get(name):
+                facts[name] = os.environ[name]
         try:
             from nonoka_x_compute.vocal_accel import cpu_tag
 
@@ -270,6 +284,14 @@ if _modal_side():
                     found[path.relative_to(work).as_posix()] = path.read_bytes()
         return found
 
+    # Measurement switches (see VOCAL_ACCEL_ENV, ACCEL_VOLUME_ENV): read where
+    # the app is defined, reach the Vocal container as plain environment.
+    _measure_env = {name: os.environ[name] for name in (VOCAL_ACCEL_ENV, ACCEL_VOLUME_ENV) if os.environ.get(name)}
+    if VOCAL_ACCEL_ENV in _measure_env:
+        _measure_env["NONOKA_VOCAL_ACCEL"] = _measure_env[VOCAL_ACCEL_ENV]
+    _accel_volume = (modal.Volume.from_name(_measure_env[ACCEL_VOLUME_ENV], create_if_missing=True)
+                     if ACCEL_VOLUME_ENV in _measure_env else _resources.models_volume)
+
     @app.cls(
         image=_vocal_image,
         gpu=GPU,
@@ -277,7 +299,8 @@ if _modal_side():
         memory=3072,
         timeout=60 * 30,
         scaledown_window=2,
-        volumes={"/data": _resources.scratch_volume, str(_ACCEL_ROOT): _resources.models_volume},
+        volumes={"/data": _resources.scratch_volume, str(_ACCEL_ROOT): _accel_volume},
+        secrets=[modal.Secret.from_dict(_measure_env)] if _measure_env else [],
     )
     class QualityVocal:
         """`VocalSeparator`'s own `load` and `run`, on the production envelope but one card."""
@@ -286,6 +309,10 @@ if _modal_side():
         def load(self) -> None:
             from nonoka_x_compute import vocal
 
+            if os.environ.get(ACCEL_VOLUME_ENV):
+                # The separator reloads and commits the Volume it installs
+                # from by its module name; point that at the one mounted here.
+                vocal.models_volume = modal.Volume.from_name(os.environ[ACCEL_VOLUME_ENV])
             user_cls = vocal.VocalSeparator._get_user_cls()
             self.separator = user_cls()
             user_cls.__dict__["load"]._get_raw_f()(self.separator)
@@ -475,6 +502,7 @@ def _write_run(out: Path, name: str, request: dict, result: dict, images: dict[s
                 "cpu_tag": leg["facts"].get("cpu_tag"),
                 "cpu_model": leg["facts"].get("cpu_model"),
                 "image_id": leg["facts"].get("MODAL_IMAGE_ID"),
+                **{key: leg["facts"][key] for key in ("NONOKA_VOCAL_ACCEL", ACCEL_VOLUME_ENV) if key in leg["facts"]},
                 **({"accel": leg["accel"]} if "accel" in leg else {}),
                 **({"reused_delivery": leg["reused_delivery"]} if "reused_delivery" in leg else {}),
             }
@@ -538,12 +566,22 @@ def issues() -> list[str]:
     return found
 
 
-def run_samples(out: Path, names: list[str] | None = None) -> dict[str, Any]:
-    """One cloud run of each sample into `out/<sample>/`, all samples side by side."""
+def run_samples(out: Path, names: list[str] | None = None, *, measure: dict[str, str] | None = None) -> dict[str, Any]:
+    """One cloud run of each sample into `out/<sample>/`, all samples side by side.
+
+    `measure` sets the measurement switches (`VOCAL_ACCEL_ENV`,
+    `ACCEL_VOLUME_ENV`); without it they are removed, so the gate and `record`
+    always run production's own choice whatever this shell has set.
+    """
 
     names = names or list(SAMPLES)
+    # The runner works in the compute checkout; a relative `out` would land there.
+    out = out.resolve()
     out.mkdir(parents=True, exist_ok=True)
     environment = dict(os.environ)
+    for name in (VOCAL_ACCEL_ENV, ACCEL_VOLUME_ENV):
+        environment.pop(name, None)
+    environment.update(measure or {})
     environment[RUNNER_FLAG] = "1"
     environment["NONOKA_X_CHECKOUT"] = str(ROOT)
     # Pins the separator tier for every task when set; the request must carry
@@ -559,7 +597,7 @@ def run_samples(out: Path, names: list[str] | None = None) -> dict[str, Any]:
             timeout=RUN_TIMEOUT_SEC + 600, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
     log_facts = _runner_log_facts(out / "runner.log")
-    summaries = {}
+    summaries = {"_app": log_facts["app"]} if measure is not None else {}
     for name in names:
         summary_path = out / name / "summary.json"
         summary = (json.loads(summary_path.read_text(encoding="utf-8")) if summary_path.is_file()
@@ -584,6 +622,9 @@ def _runner_log_facts(log: Path) -> dict[str, Any]:
     separations: dict[str, list[dict[str, Any]]] = {}
     preemptions = 0
     text = log.read_text(encoding="utf-8", errors="replace") if log.is_file() else ""
+    import re
+
+    apps = re.findall(r"/apps/[^/\s]+/[^/\s]+/(ap-[A-Za-z0-9]+)", text)
     for line in text.splitlines():
         if "preemption" in line.lower():
             preemptions += 1
@@ -597,7 +638,7 @@ def _runner_log_facts(log: Path) -> dict[str, Any]:
         separations.setdefault(str(record.get("task_id")), []).append(
             {key: fields.get(key) for key in ("accel", "tier", "blocks", "separation_sec", "total_sec")}
         )
-    return {"separations": separations, "preemptions": preemptions}
+    return {"separations": separations, "preemptions": preemptions, "app": apps[0] if apps else None}
 
 
 def artifacts(run_dir: Path) -> dict[str, Path]:
@@ -1112,15 +1153,36 @@ if __name__ == "__main__":
     if _modal_side():
         raise SystemExit(_runner_main(sys.argv[1:]))
     parser = argparse.ArgumentParser()
-    parser.add_argument("command", choices=("record", "issues", "check", "compare", "stats"))
+    parser.add_argument("command", choices=("record", "issues", "check", "compare", "stats", "measure"))
     parser.add_argument("--scratch", type=Path)
+    parser.add_argument("--out", type=Path, help="measure: where the runs go (never test_data/)")
+    parser.add_argument("--accel", choices=("on", "off"), help="measure: pin the separator accelerator")
+    parser.add_argument("--accel-volume", help="measure: a scratch Volume for the accel root (forces a build)")
     parser.add_argument("runs", nargs="*", type=Path,
                         help="stats: a baseline run directory, then the run directories to judge against it")
     args = parser.parse_args()
     sys.path.insert(0, str(ROOT))
     from tests.quality_harness import cloud as _self  # the gate half, with its package for `real`
 
-    if args.command == "stats":
+    if args.command == "measure":
+        # WP-C's spread measurement (owner-approved plan, 2026-11-11). Writes
+        # only under --out; the baseline directory is refused.
+        if args.out is None or BASELINE_ROOT in (args.out.resolve(), *args.out.resolve().parents):
+            raise SystemExit("measure needs --out outside the baseline directory")
+        found = _self.issues()
+        if found:
+            raise SystemExit("cannot run the cloud samples:\n  " + "\n  ".join(found))
+        switches = {}
+        if args.accel:
+            switches[VOCAL_ACCEL_ENV] = args.accel
+        if args.accel_volume:
+            switches[ACCEL_VOLUME_ENV] = args.accel_volume
+        started = time.time()
+        summaries = _self.run_samples(args.out, measure=switches)
+        summaries["_measure"] = {"switches": switches, "wall_sec": round(time.time() - started, 1)}
+        (args.out / "measure.json").write_text(json.dumps(summaries, ensure_ascii=False, indent=2), encoding="utf-8")
+        print(json.dumps(summaries, ensure_ascii=False, indent=2))
+    elif args.command == "stats":
         # Offline: no Modal, nothing written. For measuring the spread between captured runs.
         if len(args.runs) < 2:
             raise SystemExit("stats takes a baseline run directory and at least one run directory")
