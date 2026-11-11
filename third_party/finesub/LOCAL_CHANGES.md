@@ -139,3 +139,24 @@
 **文件**：
 - `src/finesub/pipeline.py`
 - `src/finesub/stages.py`
+
+## 0010 迁出 `speech/joint/`（联合 ASR）
+
+工作包：WP1（`docs/transcription-engines-plan.md` 第 6 节，4.1 第 3、5、6、8 条），2026-11-11；不是原补丁栈里的补丁，只动解锁的 `speech/joint/`
+
+**改了什么、为什么**：MAI-Transcribe-2、Gemini 3.5 Transcribe、MOSS Pro 改由 Nonoka X 自己维护，不再是 FineSub 的 `--asr` 后端（0009 已删掉编排里的联合 ASR 分支）。`src/finesub/speech/joint/` 整个用 `git mv` 迁进 Nonoka 的 `src/nonoka_x/transcription/`，FineSub 里不再有这个目录：
+
+- `model.py` → `units.py`；`lines.py`、`stitch.py`、`cache.py`、`repair.py` 原名放在 `transcription/` 下；`quota.py` 并进 `keys.py`；`__init__.py` 的后端名常量进 `transcription/engines/__init__.py`，`GPU_LOCK` 进 `transcription/enhance/__init__.py`；
+- 三个云后端进 `transcription/engines/`（`mai2.py`、`gemini.py`、`moss_pro.py`），`stage.py` 原样成 `engines/joint_stage.py`，本地 MOSS 成 `engines/moss_local/`（不注册）；
+- `sbd`、`relink`、`aligner`、`moss_timing`、`live` 进 `transcription/enhance/`。
+
+迁出后的代码不 import `finesub`：句子 DP（`speech/postprocessing/segmentation.py`）及它用到的纯 Python 部分，Silero 加载、声纹与 PLDA、`device`/`resources` 里用到的定义，都**复制**进 Nonoka（`transcription/segmentation/`、`transcription/enhance/`），注明来源；FineSub 里的原件一个字没动。
+
+**FineSub 这边的后果**：没有任何上锁文件 import `speech.joint`（0009 之后只有 `stages.py`、`pipeline.py` 用过它）。上锁的 `settings.py`、`api_keys.py` 里给联合 ASR 留的配置项与密钥池定义原样留着，已没有读取方；`pyproject.toml` 的 `[cloud]` extra（原本给 `sbd.py` 装 `onnx`）也已没有消费者，随 WP-R7 删 `pyproject.toml` 一起消失。
+
+**测试**：搬之前在未改动的代码上录的行为基线（`tests/fixtures/transcription/`），搬后逐项一致（`tests/test_transcription_*.py`）。
+
+**何时可以去掉**：不会还原；以后升级上游时 `speech/joint/` 不再跟（第 3.2 节）
+
+**文件**：
+- `src/finesub/speech/joint/`（已删除，迁到 `src/nonoka_x/transcription/`）

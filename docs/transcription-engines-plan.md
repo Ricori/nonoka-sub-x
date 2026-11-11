@@ -1,6 +1,6 @@
 # 转写引擎重构计划
 
-> 状态（2026-11-11）：WP-Q、WP-A、WP0、WP-R0 已完成并合进 main；WP-C 的 harness 已合进 main，云端基线还没录成（见 WP-C）；编译加速已在 `85ae2b9` 关闭；WP-R2、WP-B、WP-R1 已完成并合进 main（WP-R2 的范围按附录 B 第 24、25 问调整，WP-R1 按第 26–29 问补完）；WP-C 的剩余部分在进行；WP1、WP4a、WP4b 已派给各自的会话；其余未开工。本文档是交给子代理执行的工作说明，每个工作包可以单独领走。
+> 状态（2026-11-11）：WP-Q、WP-A、WP0、WP-R0 已完成并合进 main；WP-C 的 harness 已合进 main，云端基线还没录成（见 WP-C）；编译加速已在 `85ae2b9` 关闭；WP-R2、WP-B、WP-R1、WP1、WP4a、WP4b 已完成并合进 main（WP-R2 的范围按附录 B 第 24、25 问调整，WP-R1 按第 26–29 问补完，WP1 按第 33–36 问）；WP-C 的剩余部分在进行；其余未开工。本文档是交给子代理执行的工作说明，每个工作包可以单独领走。
 > 写于 2026-11-10，基于 `main@1f14db3`、FineSub `v0.7.0@7123055`。
 > **2026-11-11 整理成干净版本**（用户决定，附录 B 第 1 问）：现行决定直接写在正文里，不再有「以后者为准」的追加条款。每个决定的来历、被推翻的旧说法，以及旧条款编号到新编号的对照，见附录 A；向用户问过的问题和答复见附录 B；还没定的事见附录 C。整理前的版本在 git 历史里（`main` 上的 `docs/transcription-engines-plan.md`）。
 > 相关文档：`docs/runtime-and-config.md`（WP-R0 的调查与设计答复 D1–D23，下称「R0 文档」；其中被本计划取代的答复已在那边标注，对照见附录 A.3）；`docs/engine-sandbox-experiment.md`（预制环境包与进程级沙箱两个前提的实验报告，下称「实验报告」）。本文档与 R0 文档冲突时以本文档为准。
@@ -486,7 +486,7 @@ FineSub 转写引擎也要写 `transcript.json`（从它的 stable 投影出来�
 ## 6. 工作包
 
 ```text
-已完成：WP-Q、WP-A、WP0、WP-R0、WP-R2、WP-B、WP-R1；WP-C 的 harness（基线未录成）
+已完成：WP-Q、WP-A、WP0、WP-R0、WP-R2、WP-B、WP-R1、WP1、WP4a、WP4b；WP-C 的 harness（基线未录成）
 
 引擎线：
 WP-B ──┬─► WP1 ──► WP3a / WP3b / WP3c ───────────────┐
@@ -601,7 +601,9 @@ harness 已在 main（`tests/quality_harness/cloud.py`、`quality_gate.py --clou
 
 5.1–5.3 的类型、两个注册表、`transcript.json` 的读写与校验、`nonoka_x.config` 与 `nonoka_x.runtime` 两个薄门面、FineSub 边界测试与过渡白名单都已建。向用户确认过的细节见附录 A.1。
 
-### WP1 迁出 `speech/joint/`
+### WP1 迁出 `speech/joint/`（已完成 2026-11-11）
+
+> 交付：`speech/joint/` 已 `git mv` 进 `transcription/`（布局按附录 B 第 35 问，记在 `LOCAL_CHANGES.md` 第 0010 节）；句子 DP 等纯 Python 部分复制进 `transcription/segmentation/`，Silero、声纹与 PLDA、device/resources 复制进 `enhance/`（第 34 问）；`http.py`、`audio.py`、`keys.py`、`reporting.py` 换成 Nonoka 自己的。门面新增 `ConfigStore.state_file(name)`、`RuntimeManager.model_dir(model_id)`（只比文件大小，不自下载）。行为基线：6 个合成场景（假 provider 按三家真实回答格式作答）加句子 DP 与 sbd，搬前录、搬后逐项一致；sbd 模型在主检出 `.tmp\sbd-hf\`。密钥新旧名对照（交 WP-R4）：`FINESUB_KEY_OPENROUTER_STT` → `OPENROUTER_STT_KEY`、`FINESUB_KEY_AZURE_SPEECH` → `AZURE_SPEECH_KEY`、`FINESUB_AZURE_SPEECH_ENDPOINT` → `AZURE_SPEECH_ENDPOINT`。有意的行为差异：密钥不认进程环境变量；`relink` 不再搜 FineSub 的说话人产物目录、不自下载；本地 MOSS 的 Triton 缓存在 `%TEMP%`；SOCKS 代理走直连并经报告器告警。下面是原始说明。
 
 - 文件：`third_party/finesub/src/finesub/speech/joint/**`（迁走后删除）、`transcription/units.py`、`lines.py`、`stitch.py`、`cache.py`、`keys.py`、`audio.py`、`http.py`、`segmentation/**`、`enhance/**` 及对应测试。`speech/joint/model.py` 里的 `Unit`、`Turn`、`Transcript` 搬进 `transcription/units.py`：`transcription/model.py` 已被 WP0 用作 `transcript.json` 的类型，不要往里加。
 - 内容：
@@ -632,13 +634,17 @@ harness 已在 main（`tests/quality_harness/cloud.py`、`quality_gate.py --clou
 - 内容：包成 `TranscriptionEngine`；段内定时在 Python 环境层可用时走 Silero，否则插值；声纹重连接到 `enhance/`，不可用时只靠重叠时间对齐说话人，对不上的记为新说话人。
 - 完成标准：段级拼接、上限续问、配额台账各有测试；有无 Python 环境层两种情况都有测试。
 
-### WP4a FineSub 转写引擎
+### WP4a FineSub 转写引擎（已完成 2026-11-11）
+
+> 交付：`FineSubEngine` 与 `SPEC`（id `finesub`，层暂按现有门面 id 声明，WP-E3 后换成三层）；`job.options` 由 worker 填好解析后的值，适配器只做 FineSub 侧映射。参数等价：26 个本地识别场景，算法入口参数与传给 `run_transcription` 的关键字都与基线的转写那一半相同（发现闸门盲区：调用矩阵里 ASR 上下文文本恒为空，单看算法入口查不出 `extra_info` 漏传）。`transcript.json` 只从 stable 投影，不写 speaker；`native` 交出 `finesub.*` 原生产物。真实样本经适配器跑到 stable 与基线一致。交回 WP4c：自相矛盾的请求要到 ASR 之后才报错（原先在分离前）；知识主体要在转写前建好；`install_proxy_route_policy()` 仍由 worker 装。交回分包：转写引擎读纠错包的知识库做 ASR 上下文；`TranscriptionJob.source` 是 `Path`，装不了 URL。下面是原始说明。
 
 - 文件：`transcription/engines/finesub.py`、`tests/test_engine_finesub.py`。
 - 内容：调 `run_transcription`。传的参数以 WP-Q 的调用基线为准，包括供 ASR 上下文用的 `extra_info`、`knowledge`。跑完只读 stable 投影出 `transcript.json`，并在 `native` 里交出 `finesub.stable_json`、`finesub.diar_json` 等。按 4.6 第 35 条写成将来要搬进包的样子。
 - 完成标准：不 import `nonoka_x.correction`；闸门通过，尤其是 `--real` 下真实样本的 `stable.json` 按第 0 节第 3 条一致；`EngineSpec` 如实声明它要的三层，就绪检查只从这里来。
 
-### WP4b finesub correction
+### WP4b finesub correction（已完成 2026-11-11）
+
+> 交付：`FineSubCorrection`（不要任何层）、`place_native`（`worker.seed_cloud_stable` 改调它）、`run_source_text`（日文轴，`axis.translate_axis` 转调）；`CorrectionJob` 加了 `title`、`task_id`、`task_summary`（有默认值）。有原生 stable 走 `acoustic` + `vocal`，否则由 `transcript.json` 转 stable 走 `line-labels` + `source`。云端续跑只带时间线不带行标签时，由本模块调 FineSub 自己的 `_run_diarization_stage` 从已在盘上的时间线写行标签（不跑模型；不写的话裁判请求从 3 个变 2 个）。回放 10 个用例与 4 个云端续跑场景经新模块逐字节一致。交回 WP4c：没绑 FineSub reporter 时报告直接转给 Nonoka 的 `Reporter`，没有 `NonokaXReporter` 的去重与过滤；`prepare_knowledge_subjects` 的归属。已知：日文轴里「音频源却要视频参考」与 `fast=on` 同时出现时两条提示的先后对调。下面是原始说明。
 
 - 文件：`correction/finesub.py`、`axis.py`、`tests/test_finesub_correction.py`。
 - 内容：按 5.2 取得 stable，放到 FineSub 的路径，调 `run_post_stable`，参数以 WP-Q 的调用基线为准。`worker.seed_cloud_stable` 和 `axis.translate_axis` 里调 FineSub 的部分收进来。`axis.translate_axis` 内部改为转调本模块（签名保留只为少改桌面侧的调用点）。按 4.6 第 35 条写。
