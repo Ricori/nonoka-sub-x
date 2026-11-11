@@ -1,6 +1,6 @@
 # 转写引擎重构计划
 
-> 状态（2026-11-11）：WP-Q、WP-A、WP0、WP-R0 已完成并合进 main；WP-C 的 harness 已合进 main，云端基线还没录成（见 WP-C）；编译加速已在 `85ae2b9` 关闭；WP-B、WP-R1、WP-R2 与 WP-C 的剩余部分已派给各自的会话；其余未开工。本文档是交给子代理执行的工作说明，每个工作包可以单独领走。
+> 状态（2026-11-11）：WP-Q、WP-A、WP0、WP-R0 已完成并合进 main；WP-C 的 harness 已合进 main，云端基线还没录成（见 WP-C）；编译加速已在 `85ae2b9` 关闭；WP-R2 已完成并合进 main（范围按附录 B 第 24、25 问调整）；WP-B、WP-R1 与 WP-C 的剩余部分已派给各自的会话；其余未开工。本文档是交给子代理执行的工作说明，每个工作包可以单独领走。
 > 写于 2026-11-10，基于 `main@1f14db3`、FineSub `v0.7.0@7123055`。
 > **2026-11-11 整理成干净版本**（用户决定，附录 B 第 1 问）：现行决定直接写在正文里，不再有「以后者为准」的追加条款。每个决定的来历、被推翻的旧说法，以及旧条款编号到新编号的对照，见附录 A；向用户问过的问题和答复见附录 B；还没定的事见附录 C。整理前的版本在 git 历史里（`main` 上的 `docs/transcription-engines-plan.md`）。
 > 相关文档：`docs/runtime-and-config.md`（WP-R0 的调查与设计答复 D1–D23，下称「R0 文档」；其中被本计划取代的答复已在那边标注，对照见附录 A.3）；`docs/engine-sandbox-experiment.md`（预制环境包与进程级沙箱两个前提的实验报告，下称「实验报告」）。本文档与 R0 文档冲突时以本文档为准。
@@ -486,7 +486,7 @@ FineSub 转写引擎也要写 `transcript.json`（从它的 stable 投影出来�
 ## 6. 工作包
 
 ```text
-已完成：WP-Q、WP-A、WP0、WP-R0；WP-C 的 harness（基线未录成）
+已完成：WP-Q、WP-A、WP0、WP-R0、WP-R2；WP-C 的 harness（基线未录成）
 
 引擎线：
 WP-B ──┬─► WP1 ──► WP3a / WP3b / WP3c ───────────────┐
@@ -687,7 +687,9 @@ harness 已在 main（`tests/quality_harness/cloud.py`、`quality_gate.py --clou
      - 提交信息写明用户 2026-11-11 批准。
 - 完成标准：`derived_pins()` 改为从 Nonoka 的清单推导后通过，钉住的每一项（含 `engine_constants`）与 WP-Q 记录的基线相同，只有 `onnx` 一项按批准去掉、解释器一项按批准新增。
 
-### WP-R2 下载与文件设施
+### WP-R2 下载与文件设施（已完成 2026-11-11）
+
+> 交付：`runtime/fsops.py`、`fetch.py`、`paths.py`；对 FineSub 的运行时补丁搬进 `finesub_bridge.py`（附录 B 第 24 问，WP-R5 接手）；镜像连同 `runtime_install.py` 里的调用方一起删（第 25 问），下载阶梯为「离线包 → 代理 → 直连 → 报错」。交回的调用方：WP-R6 管 `desktop/internal/app/python_bootstrap.go`、`download_route.go` 里的镜像与文案和 `publish-github-mirror.mjs`；WP-E3 管 `model_install.py:183` 的 `resolve_region` 和 `provision.py` 沿用的 `is_mirror_failure`。下面是原始说明。
 
 - 文件：`runtime/fsops.py`、`runtime/fetch.py`、`runtime/paths.py` 及测试；`download_route.py`、`asset_digest.py`、`config_file.py` 改为用它们。
 - 内容：原子写、文件锁、目录链接判断、进程树终止、断点下载与大小/sha256 校验、代理（按 Nonoka 的代理设置，D17）、目录布局（4.4 第 24 条，含 `runtime\layers\`）。以 `finesub_bootstrap` 的 `fsops`、`locks`、`processes`、`downloader`、`http_client`、`paths` 为起点复制过来，注明来源。**不做国内镜像和线路选择**（4.2 第 18 条）：`download_route.py` 的镜像与线路逻辑删掉，只留直连加代理；`download_route.py:366` 不再读 `FINESUB_GITHUB_FILE_PROXY`。
@@ -1110,6 +1112,8 @@ R0 文档里这几条已按此加了标注（只加标注，不删原文）。
 | 21 | 纠错兼容包在分包之前放哪 | 分包时再建，直接建在 `engines/finesub-correct/src/finesub_bootstrap/`（推荐项） |
 | 22 | 迁移搬来的模型与模型层对不上时怎么办 | 哈希对上的留下，缺的或不对的按文件从 R2 补（推荐项） |
 | 23 | cn 锁不复制进 Nonoka 的清单（原附录 C 第 5 项，WP-R1 开工前问） | 确认不复制；Nonoka 的清单只留标准锁，`finesub_bootstrap` 自带的 cn 锁照旧，WP-R1 只删其中的 `onnx`（推荐项） |
+| 24 | WP-R2：`download_route.py`、`asset_digest.py` 运行时给 `finesub_bootstrap` 和 `finesub.api_http` 打的补丁（代理线路策略、应用代理策略、云端摘要源），不 import FineSub 就留不住，怎么办 | 补丁代码原样搬进新建的 `src/nonoka_x/finesub_bridge.py`（WP-R5 的文件，提前建），旧函数名保留并委托过去，调用方不改，行为不变（推荐项） |
+| 25 | WP-R2：`runtime_install.py`、`provision.py` 还在用镜像/备用源阶梯，删镜像时调用方怎么办 | **连调用方一起删**，`tests/test_runtime_install.py` 里断言镜像的测试按新行为改；这三个文件加进 WP-R2 的清单，只删镜像那一块（推荐的是随 WP-E3 删） |
 
 更早的问答：WP-R0 的 D1–D23 见 R0 文档第 0 节；WP0 的细节见附录 A.1；沙箱实验中的决定见实验报告。
 
