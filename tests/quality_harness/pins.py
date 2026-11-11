@@ -322,9 +322,13 @@ def measure(python: Path, models_dir: Path, runtime_dir: Path, pins: dict[str, A
 
 
 def measure_installed() -> dict[str, Any]:
-    """`measure` on the runtime `real.locate_runtime` finds; written to test_data/."""
+    """`measure` on the runtime `real.locate_runtime` finds; written to test_data/.
 
-    from .real import locate_runtime
+    The packages are those of `NONOKA_QUALITY_PYTHON` when it is set
+    (`real.python_override`); models and tools are always the located runtime's.
+    """
+
+    from .real import locate_runtime, python_override
 
     import sys
 
@@ -333,7 +337,7 @@ def measure_installed() -> dict[str, Any]:
 
     data_dir, install_dir = locate_runtime()
     provisioner = RuntimeProvisioner(data_dir, ROOT / "third_party" / "finesub", install_dir)
-    python = provisioner.worker_python()
+    python = python_override() or provisioner.worker_python()
     if python is None:
         return {"skipped": f"no ready managed runtime under {provisioner.install_root}"}
     result = measure(Path(python), Path(provisioner.paths.models), Path(provisioner.paths.runtime))
