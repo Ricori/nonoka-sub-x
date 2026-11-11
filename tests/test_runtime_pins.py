@@ -8,8 +8,20 @@ the download sources, and the `finesub_bootstrap` constants that decide which
 model files are loaded and what the products are called. Since the owner
 unlocked `finesub_bootstrap/` (2026-11-11), this is what guards those
 contents: whatever Nonoka ships in their place has to state the same pins.
-Today the source is `finesub_bootstrap`'s own files; WP-R1 points
-`derived_pins()` at Nonoka's manifests.
+
+Since WP-R1 the source is Nonoka's own manifests (`nonoka_x.runtime.manifests`):
+the runtime lock, the tools and the models, plus the Python interpreter build
+the environment layer is based on (plan 4.2 items 13 and 14). Three sections
+are not Nonoka's to restate and still come from `finesub_bootstrap`: the
+China-mirror lock (`python.cn`; not copied, plan 4.2 item 13), the download
+sources, and the engine constants. The transcription package keeps reading
+`finesub_bootstrap`'s own copies at run time, so those are held to the same
+record too (what `scripts/quality_gate.py` checks).
+
+The derivation lives in `tests/quality_harness/pins.py`. Regenerate the record
+with `python -m tests.quality_harness.pins write` (or
+`python tests/test_runtime_pins.py --write`) -- only for a pin change the owner
+approved, committed on its own.
 
 `tests/fixtures/quality/bootstrap-surface.json` lists every `finesub_bootstrap`
 name the locked engine files use. Whatever supplies `finesub_bootstrap` to
@@ -19,21 +31,31 @@ the engine must provide each of them, importable without torch or numpy.
 from __future__ import annotations
 
 import json
+import re
 import sys
 import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
+for entry in (ROOT, ROOT / "src"):
+    if str(entry) not in sys.path:
+        sys.path.insert(0, str(entry))
 
+from nonoka_x.runtime import manifests  # noqa: E402
 from tests.quality_harness import pins  # noqa: E402
+
+BOOTSTRAP_SECTIONS = pins.BOOTSTRAP_SECTIONS
+SECTIONS = pins.SECTIONS
 
 
 def derived_pins() -> dict:
-    """The pins as the runtime's current source of truth states them."""
+    """The pins as Nonoka's manifests state them (`pins.derive`, with the engine constants)."""
 
     return pins.with_constants(pins.derive())
+
+
+def write() -> Path:
+    return pins.write()
 
 
 class RuntimePinsTests(unittest.TestCase):
@@ -42,11 +64,47 @@ class RuntimePinsTests(unittest.TestCase):
     def setUp(self) -> None:
         self.recorded = json.loads(pins.PINS_FILE.read_text(encoding="utf-8"))
 
-    def test_the_record_matches_what_the_runtime_is_pinned_to(self) -> None:
+    def test_the_record_matches_what_nonokas_manifests_pin(self) -> None:
         derived = derived_pins()
-        for section in ("python", "tools", "models", "download_sources", "engine_constants"):
+        self.assertEqual(sorted(derived), sorted(self.recorded))
+        for section in SECTIONS:
             with self.subTest(section):
                 self.assertEqual(derived[section], self.recorded[section])
+        # Nothing left out and nothing added: the whole document, rule and schema included.
+        self.assertEqual(json.loads(pins.render(derived)), self.recorded)
+        self.assertEqual(pins.problems(self.recorded), [])
+
+    def test_a_section_left_out_or_added_is_reported(self) -> None:
+        without = {key: value for key, value in self.recorded.items() if key != "interpreter"}
+        self.assertIn("RUNTIME_PINS.json section differs from Nonoka's manifests: interpreter",
+                      pins.problems(without))
+        extra = {**self.recorded, "unrecorded": {}}
+        self.assertIn("RUNTIME_PINS.json section differs from Nonoka's manifests: unrecorded",
+                      pins.problems(extra))
+
+    def test_finesub_bootstraps_own_files_state_the_same_pins(self) -> None:
+        derived = pins.with_constants(pins.derive_bootstrap())
+        for section in BOOTSTRAP_SECTIONS:
+            with self.subTest(section):
+                self.assertEqual(derived[section], self.recorded[section])
+
+    def test_the_interpreter_is_the_pinned_standalone_build(self) -> None:
+        interpreter = self.recorded["interpreter"]
+        self.assertEqual(interpreter["build"], "cpython-3.12.1+20240107-x86_64-pc-windows-msvc-shared-install_only")
+        self.assertEqual((interpreter["implementation"], interpreter["version"]), ("cpython", "3.12.1"))
+        self.assertTrue(interpreter["url"].startswith("https://github.com/astral-sh/python-build-standalone/"))
+        self.assertTrue(interpreter["url"].endswith(".tar.gz"))
+        self.assertRegex(interpreter["sha256"], r"^[0-9a-f]{64}$")
+        # The prefix the sandbox experiment recorded (docs/engine-sandbox-experiment.md, 2.0).
+        self.assertTrue(interpreter["sha256"].startswith("fd5a9e0f"))
+        self.assertGreater(interpreter["size"], 0)
+
+    def test_the_lock_is_for_the_pinned_interpreter(self) -> None:
+        version = tuple(int(part) for part in self.recorded["interpreter"]["version"].split("."))
+        requires = re.fullmatch(r">=(\d+)\.(\d+)", self.recorded["python"]["requires"])
+        self.assertIsNotNone(requires)
+        self.assertGreaterEqual(version[:2], tuple(int(part) for part in requires.groups()))
+        self.assertTrue(manifests.RUNTIME_LOCK.name.endswith(f"py{version[0]}{version[1]}.toml"))
 
     def test_every_package_is_pinned_by_version_and_hash(self) -> None:
         for lock in ("global", "cn"):
@@ -95,4 +153,7 @@ class BootstrapSurfaceTests(unittest.TestCase):
 
 
 if __name__ == "__main__":
-    unittest.main()
+    if sys.argv[1:] == ["--write"]:
+        print(write())
+    else:
+        unittest.main()

@@ -12,6 +12,14 @@ fails instead.
 Settings, knowledge base and engine state come from a fresh directory beside
 the run, so the user's own configuration does not leak in.
 
+`NONOKA_QUALITY_PYTHON` names another interpreter to run the worker with in
+place of the managed runtime's (`worker_python`), for an environment built
+outside the install root -- a python-build-standalone with the lock installed
+straight into it (plan 4.2 item 14, WP-R1). Models and tools still come from
+the runtime `locate_runtime` finds, read as before; only the interpreter, and
+with it the installed packages, changes. The managed runtime's own
+readiness (its venv and version marker) is then not asked for.
+
 Layout under `test_data/quality-baseline/real/` (never committed: `test_data/`
 is ignored):
 
@@ -117,6 +125,13 @@ def locate_runtime() -> tuple[Path, Path | None]:
     return appdata, install
 
 
+def python_override() -> Path | None:
+    """The interpreter `NONOKA_QUALITY_PYTHON` names, or None for the managed runtime's."""
+
+    named = os.environ.get("NONOKA_QUALITY_PYTHON")
+    return Path(named) if named else None
+
+
 def runtime_issues() -> list[str]:
     """Why the real runs cannot happen here; empty when they can."""
 
@@ -129,7 +144,11 @@ def runtime_issues() -> list[str]:
     issues = []
     if provisioner._bootstrap_error:
         issues.append(f"bootstrap: {provisioner._bootstrap_error}")
-    if provisioner.worker_python() is None:
+    override = python_override()
+    if override is not None:
+        if not override.is_file():
+            issues.append(f"NONOKA_QUALITY_PYTHON is not a file: {override}")
+    elif provisioner.worker_python() is None:
         issues.append(f"no ready managed runtime under {provisioner.install_root}")
     elif provisioner._runtime_outdated():
         issues.append("the managed runtime does not match this vendor's lock")
@@ -159,6 +178,8 @@ def _worker_launch(run_dir: Path) -> tuple[list[str], dict[str, str], Path, list
 
     from .hygiene import scrubbed_environment
 
+    # Read before the scrub, which removes NONOKA_QUALITY_* along with the rest.
+    override = python_override()
     saved = dict(os.environ)
     clean, removed = scrubbed_environment()
     os.environ.clear()
@@ -176,6 +197,8 @@ def _worker_launch(run_dir: Path) -> tuple[list[str], dict[str, str], Path, list
         environment = provider._engine_environment()
         task_dir = run_dir / "tasks" / "gate-real"
         command = provider._default_worker_command("gate-real", task_dir)
+        if override is not None:
+            command[0] = str(override)
     finally:
         os.environ.clear()
         os.environ.update(saved)

@@ -1,0 +1,138 @@
+{
+  "schema_version": 1,
+  "platform": "windows-x64",
+  "_note": [
+    "Every asset is pinned by size and sha256. ffmpeg is pinned to one of the",
+    "month-end autobuilds, the ones the builder keeps once its daily builds are",
+    "pruned; its `latest` tag replaces the bytes on every build, so no copy kept",
+    "elsewhere could stay verifiable against it."
+  ],
+  "interpreter": {
+    "_note": [
+      "The base of the Python environment layer (plan 4.2 item 14): packages",
+      "go straight into its own Lib/site-packages, no venv. The sha256 is the",
+      "one the release publishes in SHA256SUMS (checked 2026-11-11 against",
+      "the downloaded bytes); size is the downloaded file's."
+    ],
+    "id": "python",
+    "implementation": "cpython",
+    "version": "3.12.1",
+    "build": "cpython-3.12.1+20240107-x86_64-pc-windows-msvc-shared-install_only",
+    "archive_type": "tar.gz",
+    "asset": {
+      "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20240107/cpython-3.12.1%2B20240107-x86_64-pc-windows-msvc-shared-install_only.tar.gz",
+      "size": 41069105,
+      "sha256": "fd5a9e0f41959d0341246d3643f2b8794f638adc0cec8dd5e1b6465198eae08a"
+    }
+  },
+  "resources": [
+    {
+      "id": "uv",
+      "version": "0.11.32",
+      "destination": "runtime",
+      "directory": "uv",
+      "archive_type": "zip",
+      "required_files": [
+        "uv.exe",
+        "uvx.exe"
+      ],
+      "asset": {
+        "url": "https://github.com/astral-sh/uv/releases/download/0.11.32/uv-x86_64-pc-windows-msvc.zip",
+        "size": 25726255,
+        "sha256": "acfde570451cfdb8689fa159a138ee805ba4e241c466432750302c86254b0984"
+      }
+    },
+    {
+      "id": "ffmpeg",
+      "version": "n9.0.2-39-g7adfbe40dc",
+      "destination": "runtime",
+      "directory": "ffmpeg",
+      "archive_type": "zip",
+      "required_files": [
+        "ffmpeg-n9.0.2-39-g7adfbe40dc-win64-gpl-9.0/bin/ffmpeg.exe",
+        "ffmpeg-n9.0.2-39-g7adfbe40dc-win64-gpl-9.0/bin/ffprobe.exe"
+      ],
+      "asset": {
+        "url": "https://github.com/FFmpeg-Builds/FFmpeg-Builds/releases/download/autobuild-2026-10-31-12-59/ffmpeg-n9.0.2-39-g7adfbe40dc-win64-gpl-9.0.zip",
+        "size": 195110184,
+        "sha256": "693f3e224bc184b40524a62ca47526cfebaf2504414021b92fe75f677ad868b9"
+      }
+    },
+    {
+      "id": "yt-dlp",
+      "version": "2026.8.19",
+      "destination": "runtime",
+      "directory": "yt-dlp",
+      "archive_type": "zip",
+      "required_files": [
+        "yt_dlp/__init__.py"
+      ],
+      "asset": {
+        "url": "https://files.pythonhosted.org/packages/69/b2/8cd1613f56eed7ceb64fbd4df3f1c01246bfb098e6f398228bafda22b80b/yt_dlp-2026.8.19-py3-none-any.whl",
+        "size": 3185533,
+        "sha256": "1d57897e94c6665a0a6f9bc54b34e584284e32c034ffab3a7df25d8f7b24eedf"
+      }
+    },
+    {
+      "id": "tokcount",
+      "version": "0.7.0-gemma3-0",
+      "destination": "runtime",
+      "directory": "tokcount",
+      "archive_type": "zip",
+      "required_files": [
+        "tokcount.exe"
+      ],
+      "asset": {
+        "url": "https://github.com/caca2331/finesub/releases/download/tokcount-0.7.0-gemma3-0/tokcount-0.7.0-gemma3-0-windows-amd64.zip",
+        "size": 3768375,
+        "sha256": "94207e6e17eae3fd68ac5df74841032729284e852ae254ce3b4c4e0306feace5"
+      }
+    },
+    {
+      "id": "aria2c",
+      "version": "1.37.0",
+      "destination": "runtime",
+      "directory": "aria2c",
+      "archive_type": "zip",
+      "required_files": [
+        "aria2-1.37.0-win-64bit-build1/aria2c.exe"
+      ],
+      "asset": {
+        "url": "https://github.com/aria2/aria2/releases/download/release-1.37.0/aria2-1.37.0-win-64bit-build1.zip",
+        "size": 2475379,
+        "sha256": "67d015301eef0b612191212d564c5bb0a14b5b9c4796b76454276a4d28d9b288"
+      }
+    },
+    {
+      "id": "node",
+      "version": "24.20.0",
+      "destination": "runtime",
+      "directory": "node",
+      "archive_type": "zip",
+      "required_files": [
+        "node-v24.20.0-win-x64/node.exe"
+      ],
+      "asset": {
+        "url": "https://nodejs.org/dist/v24.20.0/node-v24.20.0-win-x64.zip",
+        "size": 37539751,
+        "sha256": "6cac9ffbca8f6a47091e4b5c772e0606049c3871cb67d900c0cedde630e545ba"
+      }
+    },
+    {
+      "id": "pot-provider",
+      "version": "1.3.2",
+      "destination": "runtime",
+      "directory": "pot-provider",
+      "archive_type": "zip",
+      "required_files": [
+        "build/generate_once.js",
+        "yt_dlp_plugins/extractor/getpot_bgutil_http.py"
+      ],
+      "asset": {
+        "url": "https://github.com/Ricori/nonoka-sub-x/releases/download/pot-provider/pot-provider-1.3.2-windows-amd64.zip",
+        "size": 28601990,
+        "sha256": "5c269e87efb307a8ca034417af8e620ddc30ee3109b9231e684351561214d70e"
+      }
+    }
+  ]
+}

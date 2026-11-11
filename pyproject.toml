@@ -30,7 +30,7 @@ where = ["src"]
 include = ["nonoka_x*"]
 
 [tool.setuptools.package-data]
-nonoka_x = ["resources/*.json"]
+nonoka_x = ["resources/*.json", "resources/*.toml"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
