@@ -208,7 +208,8 @@ class RuntimeProvisioner:
     """Own one asynchronous FineSub provisioning operation.
 
     FineSub's bootstrap remains the authority for downloads, hashes, safe
-    extraction, mirrors and the Python lock. Nonoka X only exposes its state to
+    extraction and the Python lock; every download goes to the official source,
+    through the live proxy or directly (`nonoka_x.download_route`). Nonoka X only exposes its state to
     Wails and selects the resulting interpreter for workers.
     """
 

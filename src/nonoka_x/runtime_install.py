@@ -16,29 +16,23 @@ from urllib.parse import unquote, urlparse
 import httpx
 
 from finesub_bootstrap.downloader import (
-    DigestMismatch,
     DownloadPaused,
-    SizeMismatch,
     download_asset,
 )
 from finesub_bootstrap.environment import (
     RuntimeEnvironment,
-    _is_retryable_from_mirror,
     _is_retryable_install,
 )
 from finesub_bootstrap.models import DownloadAsset, DownloadProgress
 from finesub_bootstrap.runtime_health import site_packages_of
 
 from nonoka_x.download_route import (
-    PYTHON_BUILD_RELEASES,
     PYTHON_BUILD_SAMPLE,
     DownloadStage,
     apply_proxy_environment,
     climb,
     download_stages,
     ensure_fast_enough,
-    github_stages,
-    github_url_on,
     is_transport_failure,
     offline_file,
     offline_pack,
@@ -131,8 +125,6 @@ def _format_size(size: int) -> str:
     return f"{size / 1024**3:.1f} GiB" if size >= 1024**3 else f"{size / 1024**2:.0f} MiB"
 
 
-#: A locked file's URL, as uv's PEP 751 lock spells it.
-_LOCK_URL = re.compile(r'url = "([^"]+)"')
 #: A wheel or archive with the digest that follows it on the line. Not an sdist:
 #: uv never takes one when the package has a wheel, and the offline package has none.
 _LOCK_FILE = re.compile(r'(?<!sdist = \{ )url = "([^"]+)"([^\n]*?sha256 = "([0-9a-f]{64})")')
@@ -145,8 +137,6 @@ def _install_advances(stage: DownloadStage, error: Exception) -> bool:
         return False
     if stage.kind == "local" or isinstance(error, httpx.HTTPError) or is_transport_failure(error):
         return True
-    if stage.mirror:
-        return isinstance(error, (DigestMismatch, SizeMismatch)) or _is_retryable_from_mirror(error)
     return _is_retryable_install(error)
 
 
@@ -164,8 +154,6 @@ def _speed_sample(lock: Path) -> str | None:
 
 
 def _prefetch_message(stage: DownloadStage) -> str:
-    if stage.mirror:
-        return "正在从中国大陆镜像下载 {package}（{size}）"
     if stage.proxy:
         return f"正在通过{stage.label} 下载 {{package}}（{{size}}）"
     return "正在从官方源下载 {package}（{size}）"
@@ -197,43 +185,20 @@ class ProgressRuntimeEnvironment(RuntimeEnvironment):
             super()._run(command, environment, log=log, should_pause=should_pause)
             return
         chosen = bool(environment.get("UV_PYTHON_INSTALL_MIRROR"))
-        stages = download_stages(has_mirror=False) if chosen else github_stages(PYTHON_BUILD_RELEASES)
+        stages = download_stages()
         local = None if chosen else offline_python()
         if local is not None:
             stages.insert(0, DownloadStage("local"))
 
         def attempt(stage: DownloadStage) -> None:
             if stage.kind != "local":
-                ensure_fast_enough(github_url_on(stage, PYTHON_BUILD_SAMPLE), stage)
+                ensure_fast_enough(PYTHON_BUILD_SAMPLE, stage)
             routed = stage_environment(environment, stage)
             if stage.kind == "local":
                 routed["UV_PYTHON_INSTALL_MIRROR"] = local.resolve().as_uri()
-            elif stage.mirror:
-                routed["UV_PYTHON_INSTALL_MIRROR"] = github_url_on(stage, PYTHON_BUILD_RELEASES)
             super(ProgressRuntimeEnvironment, self)._run(command, routed, log=log, should_pause=should_pause)
 
         climb(stages, attempt, advances=_install_advances, announce=log)
-
-    def _mirror_lock(self, stage: DownloadStage = DownloadStage("mirror")) -> Path | None:
-        """The cn lock with its GitHub files on this rung's host, or None.
-
-        The cn lock moves only the PyPI and PyTorch hosts: its ctranslate2 wheel
-        still names github.com, the very host these rungs exist to avoid. The
-        digests stay as they were, so uv holds every file to the same hashes.
-        """
-
-        source = self.runtime_lock.with_name(self.runtime_lock.name.replace(".toml", ".cn.toml"))
-        if not source.is_file():
-            return None
-        body = source.read_text(encoding="utf-8")
-        rewritten = _LOCK_URL.sub(lambda found: f'url = "{github_url_on(stage, found[1])}"', body)
-        if rewritten == body:
-            return source
-        # uv recognises a PEP 751 lock by its file name, so it keeps this one.
-        destination = self.paths.cache / f"{stage.kind}-lock" / source.name
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        destination.write_text(rewritten, encoding="utf-8", newline="\n")
-        return destination
 
     def _offline_lock(self, log) -> Path | None:
         """The lock with every file the offline package holds pointing at it, or None.
@@ -274,14 +239,11 @@ class ProgressRuntimeEnvironment(RuntimeEnvironment):
     ) -> None:
         """Install the runtime lock, one whole attempt per rung.
 
-        Whole attempts because uv installs a lock as a unit, and a half-mirrored
-        environment is not something either lock describes.
+        Whole attempts because uv installs a lock as a unit.
         """
 
-        mirror_lock = self._mirror_lock()
-        backup_lock = self._mirror_lock(DownloadStage("backup"))
         local_lock = self._offline_lock(log)
-        locks = {"local": local_lock, "mirror": mirror_lock, "backup": backup_lock}
+        locks = {"local": local_lock}
         # A wheel the target already holds needs neither a download nor a
         # reinstall: true of every unchanged large wheel in an in-place update,
         # never of a fresh staging tree.
@@ -346,7 +308,7 @@ class ProgressRuntimeEnvironment(RuntimeEnvironment):
         climb(
             [
                 *([DownloadStage("local")] if local_lock is not None else []),
-                *download_stages(has_mirror=mirror_lock is not None, has_backup=backup_lock not in (None, mirror_lock)),
+                *download_stages(),
             ],
             attempt,
             advances=_install_advances,

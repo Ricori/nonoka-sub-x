@@ -29,20 +29,14 @@ from urllib.parse import quote, urlsplit
 
 CLOUD_BACKEND = "https://cloud.nonoka.online"
 
-_INSTALLED_ATTRIBUTE = "_nonoka_cloud_digest_source"
-
 
 def cloud_asset(owner: str, repo: str, tag: str, name: str) -> dict[str, Any] | None:
     """The cloud's entry for one release asset, or None when it has no answer."""
 
-    try:
-        import httpx
-
-        from finesub_bootstrap.http_client import create_client, network_routes
-    except ImportError:
-        return None
+    import httpx
 
     from .cloud_route import BACKUP_HOSTS, STATE
+    from .runtime.fetch import create_client, network_routes
 
     path = f"/releases/github/{quote(owner, safe='')}/{quote(repo, safe='')}/{quote(tag, safe='')}"
     primary = urlsplit(CLOUD_BACKEND).hostname or ""
@@ -75,26 +69,13 @@ def cloud_asset(owner: str, repo: str, tag: str, name: str) -> dict[str, Any] | 
 
 
 def install_cloud_digest_source() -> None:
-    """Wrap `asset_resolve._find_asset` so the cloud is asked before GitHub.
+    """Make FineSub's release-asset lookup ask the cloud (`cloud_asset`) before GitHub.
 
-    `resolve_asset` looks `_find_asset` up in its module at call time, so
-    replacing the module attribute reaches it. Idempotent, like
+    The patch itself is FineSub-facing and lives in the bridge
+    (`nonoka_x.finesub_bridge.install_cloud_digest_source`). Idempotent, like
     `install_proxy_route_policy`.
     """
 
-    try:
-        from finesub_bootstrap import asset_resolve
-    except ImportError:
-        return
+    from . import finesub_bridge
 
-    original = asset_resolve._find_asset
-    if getattr(original, _INSTALLED_ATTRIBUTE, False):
-        return
-
-    def _find_asset(owner: str, repo: str, tag: str, name: str) -> dict:
-        entry = cloud_asset(owner, repo, tag, name)
-        return entry if entry is not None else original(owner, repo, tag, name)
-
-    setattr(_find_asset, _INSTALLED_ATTRIBUTE, True)
-    _find_asset.__doc__ = original.__doc__
-    asset_resolve._find_asset = _find_asset
+    finesub_bridge.install_cloud_digest_source(cloud_asset)

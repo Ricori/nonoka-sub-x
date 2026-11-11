@@ -6,11 +6,11 @@ from types import SimpleNamespace
 
 import pytest
 
-from finesub_bootstrap import http_client
 from finesub_bootstrap.environment import RuntimeEnvironment
-from finesub_bootstrap.http_client import NetworkRoute
 from finesub_bootstrap.models import DownloadProgress
-from nonoka_x.download_route import DownloadStage, DownloadTooSlow, DownloadUnreachable
+from nonoka_x.download_route import DownloadTooSlow, DownloadUnreachable
+from nonoka_x.runtime import fetch
+from nonoka_x.runtime.fetch import NetworkRoute
 import nonoka_x.runtime_install as runtime_install
 from nonoka_x.runtime_install import (
     KNOWN_WHEEL_SIZES,
@@ -111,9 +111,8 @@ def test_an_installed_wheel_is_neither_downloaded_nor_reinstalled(tmp_path: Path
 def _ladder_runtime(tmp_path: Path, monkeypatch, *, proxy: str | None, fail: int, output: str):
     """A runtime whose uv records each `--requirement` run and fails the first `fail`."""
 
-    monkeypatch.delenv("FINESUB_GITHUB_FILE_PROXY", raising=False)
     monkeypatch.setattr(
-        http_client,
+        fetch,
         "network_routes",
         lambda: ([NetworkRoute("代理", proxy)] if proxy else []) + [NetworkRoute("直连", None)],
     )
@@ -139,44 +138,24 @@ def _install(runtime) -> None:
     runtime._install_dependencies(Path("uv.exe"), Path("python.exe"), {"PATH": "x"}, log=None, should_pause=None)
 
 
-def test_dependencies_climb_proxy_direct_then_the_mirror_lock(tmp_path: Path, monkeypatch) -> None:
+def test_dependencies_climb_proxy_then_direct_with_the_same_lock(tmp_path: Path, monkeypatch) -> None:
     proxy = "http://127.0.0.1:7890"
     network_error = "error sending request for url\ntcp connect error\n由于连接方没有响应 (os error 10060)"
-    runtime, runs = _ladder_runtime(tmp_path, monkeypatch, proxy=proxy, fail=2, output=network_error)
+    runtime, runs = _ladder_runtime(tmp_path, monkeypatch, proxy=proxy, fail=1, output=network_error)
 
     _install(runtime)
 
-    assert [environment["HTTPS_PROXY"] for _lock, environment in runs] == [proxy, "", ""]
-    assert [lock.name for lock, _environment in runs] == [
-        "pylock.win-py312.toml",
-        "pylock.win-py312.toml",
-        "pylock.win-py312.cn.toml",
-    ]
+    assert [environment["HTTPS_PROXY"] for _lock, environment in runs] == [proxy, ""]
+    # No mirror lock: every rung installs the official lock (plan 4.2 item 18).
+    assert [lock for lock, _environment in runs] == [runtime.runtime_lock, runtime.runtime_lock]
 
 
-def test_the_mirror_lock_sends_github_files_to_the_github_mirror(tmp_path: Path, monkeypatch) -> None:
+def test_there_is_no_mirror_lock_any_more(tmp_path: Path, monkeypatch) -> None:
     runtime, _runs = _ladder_runtime(tmp_path, monkeypatch, proxy=None, fail=0, output="")
 
-    lock = runtime._mirror_lock()
-
-    body = lock.read_text(encoding="utf-8")
-    assert lock.name == "pylock.win-py312.cn.toml"
-    assert 'url = "https://gh-proxy.com/https://github.com/caca2331/finesub/' in body
-    assert 'url = "https://github.com/' not in body
-    assert "pypi.tuna.tsinghua.edu.cn" in body
-    assert tomllib.loads(body)["packages"]
+    assert not hasattr(runtime, "_mirror_lock")
 
 
-def test_the_backup_lock_sends_github_files_to_our_own_copy(tmp_path: Path, monkeypatch) -> None:
-    runtime, _runs = _ladder_runtime(tmp_path, monkeypatch, proxy=None, fail=0, output="")
-
-    lock = runtime._mirror_lock(DownloadStage("backup"))
-
-    body = lock.read_text(encoding="utf-8")
-    assert lock.name == "pylock.win-py312.cn.toml"
-    assert 'url = "https://cloudfile.nonoka.online/github-mirror/github.com/caca2331/finesub/' in body
-    assert 'url = "https://github.com/' not in body
-    assert "pypi.tuna.tsinghua.edu.cn" in body
 
 
 def _offline_pack_holding(tmp_path: Path, monkeypatch, *wheels: tuple[str, str]) -> Path:
@@ -228,7 +207,7 @@ def test_a_failed_offline_install_falls_through_to_the_network(tmp_path: Path, m
 def test_the_interpreter_comes_from_the_offline_package(tmp_path: Path, monkeypatch) -> None:
     pack = _offline_pack_holding(tmp_path, monkeypatch)
     (pack / "python").mkdir()
-    monkeypatch.setattr(http_client, "network_routes", lambda: [NetworkRoute("直连", None)])
+    monkeypatch.setattr(fetch, "network_routes", lambda: [NetworkRoute("直连", None)])
     samples: list[str] = []
     monkeypatch.setattr(runtime_install, "ensure_fast_enough", lambda url, stage: samples.append(url))
     attempts: list[dict[str, str]] = []
@@ -250,8 +229,8 @@ def test_exhausted_dependency_ladder_asks_for_a_proxy(tmp_path: Path, monkeypatc
     with pytest.raises(DownloadUnreachable, match="请开启代理"):
         _install(runtime)
 
-    assert len(runs) == 3
-    assert "backup-lock" in str(runs[-1][0])
+    # Direct is the only rung without a proxy, and it installs the official lock.
+    assert [lock for lock, _environment in runs] == [runtime.runtime_lock]
 
 
 def test_a_non_network_uv_failure_stops_the_climb(tmp_path: Path, monkeypatch) -> None:
@@ -278,19 +257,20 @@ def test_mending_a_tree_can_ask_for_packages_to_be_reinstalled(tmp_path: Path, m
 
 
 def test_a_slow_rung_is_left_before_uv_starts_on_it(tmp_path: Path, monkeypatch) -> None:
-    runtime, runs = _ladder_runtime(tmp_path, monkeypatch, proxy=None, fail=0, output="")
+    proxy = "http://127.0.0.1:7890"
+    runtime, runs = _ladder_runtime(tmp_path, monkeypatch, proxy=proxy, fail=0, output="")
     samples: list[str] = []
 
     def sample(url: str, stage) -> None:
         samples.append(url)
-        if stage.kind == "direct":
+        if stage.kind == "proxy":
             raise DownloadTooSlow("slow")
 
     monkeypatch.setattr(runtime_install, "ensure_fast_enough", sample)
 
     _install(runtime)
 
-    assert [lock.name for lock, _environment in runs] == ["pylock.win-py312.cn.toml"]
+    assert [environment["HTTPS_PROXY"] for _lock, environment in runs] == [""]
     assert samples[0].startswith("https://files.pythonhosted.org/")
 
 
@@ -302,13 +282,13 @@ def test_the_speed_sample_is_a_file_uv_itself_would_fetch() -> None:
 
 
 def test_interpreter_download_is_timed_before_uv_starts(monkeypatch) -> None:
-    monkeypatch.delenv("FINESUB_GITHUB_FILE_PROXY", raising=False)
-    monkeypatch.setattr(http_client, "network_routes", lambda: [NetworkRoute("直连", None)])
+    proxy = "http://127.0.0.1:7890"
+    monkeypatch.setattr(fetch, "network_routes", lambda: [NetworkRoute("代理", proxy), NetworkRoute("直连", None)])
     samples: list[str] = []
 
     def sample(url: str, stage) -> None:
         samples.append(url)
-        if stage.kind == "direct":
+        if stage.kind == "proxy":
             raise DownloadTooSlow("slow")
 
     monkeypatch.setattr(runtime_install, "ensure_fast_enough", sample)
@@ -321,14 +301,17 @@ def test_interpreter_download_is_timed_before_uv_starts(monkeypatch) -> None:
     runtime._run(["uv.exe", "python", "install", "3.12"], {}, log=None, should_pause=None)
 
     assert len(attempts) == 1
-    assert attempts[0]["UV_PYTHON_INSTALL_MIRROR"].startswith("https://gh-proxy.com/")
-    assert "python-build-standalone" in samples[0]
+    # Direct, from GitHub itself: no mirror is named for uv.
+    assert attempts[0]["HTTPS_PROXY"] == ""
+    assert "UV_PYTHON_INSTALL_MIRROR" not in attempts[0]
+    assert samples[0].startswith("https://github.com/astral-sh/python-build-standalone/")
 
 
-def test_interpreter_download_climbs_to_the_github_mirror(tmp_path: Path, monkeypatch) -> None:
-    monkeypatch.delenv("FINESUB_GITHUB_FILE_PROXY", raising=False)
-    monkeypatch.setattr(http_client, "network_routes", lambda: [NetworkRoute("直连", None)])
-    monkeypatch.setattr(runtime_install, "ensure_fast_enough", lambda url, stage: None)
+def test_interpreter_download_moves_from_the_proxy_to_direct(tmp_path: Path, monkeypatch) -> None:
+    proxy = "http://127.0.0.1:7890"
+    monkeypatch.setattr(fetch, "network_routes", lambda: [NetworkRoute("代理", proxy), NetworkRoute("直连", None)])
+    samples: list[str] = []
+    monkeypatch.setattr(runtime_install, "ensure_fast_enough", lambda url, stage: samples.append(url))
     attempts: list[dict[str, str]] = []
 
     def base_run(self, command, environment, *, log, should_pause) -> None:
@@ -341,36 +324,32 @@ def test_interpreter_download_climbs_to_the_github_mirror(tmp_path: Path, monkey
 
     runtime._run(["uv.exe", "python", "install", "3.12"], {}, log=None, should_pause=None)
 
-    assert "UV_PYTHON_INSTALL_MIRROR" not in attempts[0]
-    assert attempts[1]["UV_PYTHON_INSTALL_MIRROR"].startswith("https://gh-proxy.com/https://github.com/astral-sh/")
+    assert [environment["HTTPS_PROXY"] for environment in attempts] == [proxy, ""]
+    assert all("UV_PYTHON_INSTALL_MIRROR" not in environment for environment in attempts)
+    # Every rung is timed against GitHub itself.
+    assert samples == [runtime_install.PYTHON_BUILD_SAMPLE] * 2
 
 
-def test_interpreter_download_ends_on_our_own_copy(monkeypatch) -> None:
-    monkeypatch.delenv("FINESUB_GITHUB_FILE_PROXY", raising=False)
-    monkeypatch.setattr(http_client, "network_routes", lambda: [NetworkRoute("直连", None)])
-    samples: list[str] = []
-    monkeypatch.setattr(runtime_install, "ensure_fast_enough", lambda url, stage: samples.append(url))
+def test_an_unreachable_interpreter_download_asks_for_a_proxy(monkeypatch) -> None:
+    monkeypatch.setattr(fetch, "network_routes", lambda: [NetworkRoute("直连", None)])
+    monkeypatch.setattr(runtime_install, "ensure_fast_enough", lambda url, stage: None)
     attempts: list[dict[str, str]] = []
 
     def base_run(self, command, environment, *, log, should_pause) -> None:
         attempts.append(environment)
-        if len(attempts) < 3:
-            raise subprocess.CalledProcessError(1, command, output="error sending request for url")
+        raise subprocess.CalledProcessError(1, command, output="error sending request for url")
 
     monkeypatch.setattr(RuntimeEnvironment, "_run", base_run)
     runtime = object.__new__(ProgressRuntimeEnvironment)
 
-    runtime._run(["uv.exe", "python", "install", "3.12"], {}, log=None, should_pause=None)
+    with pytest.raises(DownloadUnreachable, match="请开启代理"):
+        runtime._run(["uv.exe", "python", "install", "3.12"], {}, log=None, should_pause=None)
 
-    assert attempts[2]["UV_PYTHON_INSTALL_MIRROR"] == (
-        "https://cloudfile.nonoka.online/github-mirror/github.com/astral-sh/python-build-standalone/releases/download"
-    )
-    # A rung is timed on its own host: the mirror's speed says nothing about GitHub's.
-    assert samples[1].startswith("https://gh-proxy.com/")
+    assert len(attempts) == 1
 
 
-def test_a_mirror_the_user_chose_for_the_interpreter_gets_no_copy_rungs(monkeypatch) -> None:
-    monkeypatch.setattr(http_client, "network_routes", lambda: [NetworkRoute("直连", None)])
+def test_an_interpreter_mirror_the_user_chose_is_left_alone(monkeypatch) -> None:
+    monkeypatch.setattr(fetch, "network_routes", lambda: [NetworkRoute("直连", None)])
     monkeypatch.setattr(runtime_install, "ensure_fast_enough", lambda url, stage: None)
     attempts: list[dict[str, str]] = []
 

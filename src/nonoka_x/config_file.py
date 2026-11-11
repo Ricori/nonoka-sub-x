@@ -10,7 +10,7 @@ setting, write the rest back untouched.
 Vendored from FineSub 0.4.2's ``finesub_bootstrap/config_file.py``, which the
 0.5.0 desktop split deleted along with the desktop that was its only caller.
 Nonoka X is now that caller, so the module lives here; ``write_atomic`` and
-``holding_lock`` are still upstream's and are imported rather than copied.
+``holding_lock`` are Nonoka's copies of upstream's (``nonoka_x.runtime.fsops``).
 
 Deliberately limited to scalar values. Rewriting an array means re-serializing
 a container, which is where a line-based editor would start losing the user's
@@ -27,8 +27,7 @@ import re
 import tomllib
 from typing import Any, Mapping
 
-from finesub_bootstrap.fsops import write_atomic
-from finesub_bootstrap.locks import holding_lock
+from nonoka_x.runtime.fsops import holding_lock, write_atomic
 
 _LOCK_TIMEOUT_SECONDS = 10.0
 
