@@ -1,0 +1,10 @@
+{
+ "provider": "mai2-repair",
+ "model": "mai-transcribe-2",
+ "via": "azure",
+ "window": 6000.0,
+ "overlap": 60.0,
+ "language": null,
+ "audio": "4096:ba1294845ca96561",
+ "pad": 10.0
+}

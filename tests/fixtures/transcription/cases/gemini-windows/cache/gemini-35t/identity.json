@@ -1,0 +1,8 @@
+{
+ "provider": "gemini-35t",
+ "model": "gemini-3.5-transcribe",
+ "window": 540.0,
+ "overlap": 60.0,
+ "language": "ja-JP",
+ "audio": "4096:ba1294845ca96561"
+}

@@ -1,0 +1,9 @@
+{
+ "provider": "mai2",
+ "model": "mai-transcribe-2",
+ "via": "openrouter",
+ "window": 1800.0,
+ "overlap": 60.0,
+ "language": "ja",
+ "audio": "4096:ba1294845ca96561"
+}

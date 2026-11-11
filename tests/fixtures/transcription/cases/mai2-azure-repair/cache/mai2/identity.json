@@ -1,0 +1,9 @@
+{
+ "provider": "mai2",
+ "model": "mai-transcribe-2",
+ "via": "azure",
+ "window": 6000.0,
+ "overlap": 60.0,
+ "language": null,
+ "audio": "4096:ba1294845ca96561"
+}

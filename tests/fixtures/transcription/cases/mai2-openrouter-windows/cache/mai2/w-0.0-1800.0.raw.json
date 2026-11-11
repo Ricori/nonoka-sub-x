@@ -1,0 +1,8867 @@
+{
+ "text": "...",
+ "words": [
+  {
+   "word": "あ",
+   "start": 1.036,
+   "end": 1.147,
+   "speaker": 2
+  },
+  {
+   "word": "の、",
+   "start": 1.199,
+   "end": 1.346,
+   "speaker": 2
+  },
+  {
+   "word": "ゲ",
+   "start": 1.352,
+   "end": 1.489,
+   "speaker": 2
+  },
+  {
+   "word": "ー",
+   "start": 1.558,
+   "end": 1.687,
+   "speaker": 2
+  },
+  {
+   "word": "ム",
+   "start": 1.709,
+   "end": 1.823,
+   "speaker": 2
+  },
+  {
+   "word": "の",
+   "start": 1.882,
+   "end": 1.984,
+   "speaker": 2
+  },
+  {
+   "word": "話",
+   "start": 2.054,
+   "end": 2.159,
+   "speaker": 2
+  },
+  {
+   "word": "な",
+   "start": 2.188,
+   "end": 2.362,
+   "speaker": 2
+  },
+  {
+   "word": "ん",
+   "start": 2.386,
+   "end": 2.547,
+   "speaker": 2
+  },
+  {
+   "word": "で",
+   "start": 2.618,
+   "end": 2.774,
+   "speaker": 2
+  },
+  {
+   "word": "す",
+   "start": 2.83,
+   "end": 2.942,
+   "speaker": 2
+  },
+  {
+   "word": "け",
+   "start": 2.957,
+   "end": 3.096,
+   "speaker": 2
+  },
+  {
+   "word": "ど。",
+   "start": 3.372,
+   "end": 3.505,
+   "speaker": 2
+  },
+  {
+   "word": "そ",
+   "start": 24.051,
+   "end": 24.208,
+   "speaker": 0
+  },
+  {
+   "word": "れ",
+   "start": 24.278,
+   "end": 24.422,
+   "speaker": 0
+  },
+  {
+   "word": "で、",
+   "start": 24.462,
+   "end": 24.597,
+   "speaker": 0
+  },
+  {
+   "word": "最",
+   "start": 24.65,
+   "end": 24.772,
+   "speaker": 0
+  },
+  {
+   "word": "後",
+   "start": 24.838,
+   "end": 24.957,
+   "speaker": 0
+  },
+  {
+   "word": "ど",
+   "start": 25.028,
+   "end": 25.127,
+   "speaker": 0
+  },
+  {
+   "word": "う",
+   "start": 25.139,
+   "end": 25.305,
+   "speaker": 0
+  },
+  {
+   "word": "な",
+   "start": 25.356,
+   "end": 25.503,
+   "speaker": 0
+  },
+  {
+   "word": "っ",
+   "start": 25.513,
+   "end": 25.657,
+   "speaker": 0
+  },
+  {
+   "word": "た",
+   "start": 25.691,
+   "end": 25.795,
+   "speaker": 0
+  },
+  {
+   "word": "ん",
+   "start": 25.846,
+   "end": 26.019,
+   "speaker": 0
+  },
+  {
+   "word": "で",
+   "start": 26.267,
+   "end": 26.433,
+   "speaker": 0
+  },
+  {
+   "word": "す",
+   "start": 26.455,
+   "end": 26.621,
+   "speaker": 0
+  },
+  {
+   "word": "か？",
+   "start": 27.219,
+   "end": 27.331,
+   "speaker": 0
+  },
+  {
+   "word": "見",
+   "start": 59.623,
+   "end": 59.73,
+   "speaker": 1
+  },
+  {
+   "word": "ま",
+   "start": 60.262,
+   "end": 60.408,
+   "speaker": 1
+  },
+  {
+   "word": "し",
+   "start": 60.928,
+   "end": 61.049,
+   "speaker": 1
+  },
+  {
+   "word": "た！",
+   "start": 61.116,
+   "end": 61.275,
+   "speaker": 1
+  },
+  {
+   "word": "す",
+   "start": 61.295,
+   "end": 61.42,
+   "speaker": 1
+  },
+  {
+   "word": "ご",
+   "start": 61.766,
+   "end": 61.868,
+   "speaker": 1
+  },
+  {
+   "word": "く",
+   "start": 61.886,
+   "end": 62.049,
+   "speaker": 1
+  },
+  {
+   "word": "面",
+   "start": 62.127,
+   "end": 62.288,
+   "speaker": 1
+  },
+  {
+   "word": "白",
+   "start": 62.301,
+   "end": 62.453,
+   "speaker": 1
+  },
+  {
+   "word": "か",
+   "start": 62.514,
+   "end": 62.656,
+   "speaker": 1
+  },
+  {
+   "word": "っ",
+   "start": 62.681,
+   "end": 62.8,
+   "speaker": 1
+  },
+  {
+   "word": "た",
+   "start": 62.864,
+   "end": 63.043,
+   "speaker": 1
+  },
+  {
+   "word": "で",
+   "start": 63.061,
+   "end": 63.178,
+   "speaker": 1
+  },
+  {
+   "word": "す。",
+   "start": 63.205,
+   "end": 63.342,
+   "speaker": 1
+  },
+  {
+   "word": "あ",
+   "start": 63.825,
+   "end": 63.953,
+   "speaker": 2
+  },
+  {
+   "word": "り",
+   "start": 64.451,
+   "end": 64.586,
+   "speaker": 2
+  },
+  {
+   "word": "が",
+   "start": 64.61,
+   "end": 64.763,
+   "speaker": 2
+  },
+  {
+   "word": "と",
+   "start": 65.331,
+   "end": 65.43,
+   "speaker": 2
+  },
+  {
+   "word": "う",
+   "start": 65.432,
+   "end": 65.551,
+   "speaker": 2
+  },
+  {
+   "word": "ご",
+   "start": 65.594,
+   "end": 65.754,
+   "speaker": 2
+  },
+  {
+   "word": "ざ",
+   "start": 65.757,
+   "end": 65.882,
+   "speaker": 2
+  },
+  {
+   "word": "い",
+   "start": 65.961,
+   "end": 66.074,
+   "speaker": 2
+  },
+  {
+   "word": "ま",
+   "start": 66.086,
+   "end": 66.194,
+   "speaker": 2
+  },
+  {
+   "word": "す、",
+   "start": 66.75,
+   "end": 66.867,
+   "speaker": 2
+  },
+  {
+   "word": "本",
+   "start": 66.903,
+   "end": 67.018,
+   "speaker": 2
+  },
+  {
+   "word": "当",
+   "start": 67.082,
+   "end": 67.194,
+   "speaker": 2
+  },
+  {
+   "word": "に",
+   "start": 67.265,
+   "end": 67.366,
+   "speaker": 2
+  },
+  {
+   "word": "嬉",
+   "start": 67.443,
+   "end": 67.616,
+   "speaker": 2
+  },
+  {
+   "word": "し",
+   "start": 68.178,
+   "end": 68.305,
+   "speaker": 2
+  },
+  {
+   "word": "い",
+   "start": 68.337,
+   "end": 68.499,
+   "speaker": 2
+  },
+  {
+   "word": "で",
+   "start": 68.568,
+   "end": 68.705,
+   "speaker": 2
+  },
+  {
+   "word": "す。",
+   "start": 69.081,
+   "end": 69.203,
+   "speaker": 2
+  },
+  {
+   "word": "あ",
+   "start": 69.96,
+   "end": 70.111,
+   "speaker": 0
+  },
+  {
+   "word": "り",
+   "start": 70.131,
+   "end": 70.277,
+   "speaker": 0
+  },
+  {
+   "word": "が",
+   "start": 70.297,
+   "end": 70.413,
+   "speaker": 0
+  },
+  {
+   "word": "と",
+   "start": 70.448,
+   "end": 70.623,
+   "speaker": 0
+  },
+  {
+   "word": "う",
+   "start": 71.216,
+   "end": 71.353,
+   "speaker": 0
+  },
+  {
+   "word": "ご",
+   "start": 71.411,
+   "end": 71.555,
+   "speaker": 0
+  },
+  {
+   "word": "ざ",
+   "start": 71.613,
+   "end": 71.769,
+   "speaker": 0
+  },
+  {
+   "word": "い",
+   "start": 71.828,
+   "end": 71.982,
+   "speaker": 0
+  },
+  {
+   "word": "ま",
+   "start": 72.031,
+   "end": 72.146,
+   "speaker": 0
+  },
+  {
+   "word": "す、",
+   "start": 72.182,
+   "end": 72.327,
+   "speaker": 0
+  },
+  {
+   "word": "本",
+   "start": 72.38,
+   "end": 72.537,
+   "speaker": 0
+  },
+  {
+   "word": "当",
+   "start": 72.562,
+   "end": 72.718,
+   "speaker": 0
+  },
+  {
+   "word": "に",
+   "start": 72.744,
+   "end": 72.898,
+   "speaker": 0
+  },
+  {
+   "word": "嬉",
+   "start": 73.149,
+   "end": 73.329,
+   "speaker": 0
+  },
+  {
+   "word": "し",
+   "start": 73.364,
+   "end": 73.487,
+   "speaker": 0
+  },
+  {
+   "word": "い",
+   "start": 73.529,
+   "end": 73.706,
+   "speaker": 0
+  },
+  {
+   "word": "で",
+   "start": 73.756,
+   "end": 73.936,
+   "speaker": 0
+  },
+  {
+   "word": "す。",
+   "start": 74.015,
+   "end": 74.189,
+   "speaker": 0
+  },
+  {
+   "word": "え",
+   "start": 121.118,
+   "end": 121.281,
+   "speaker": 1
+  },
+  {
+   "word": "っ",
+   "start": 121.332,
+   "end": 121.469,
+   "speaker": 1
+  },
+  {
+   "word": "と、",
+   "start": 121.983,
+   "end": 122.084,
+   "speaker": 1
+  },
+  {
+   "word": "そ",
+   "start": 122.13,
+   "end": 122.311,
+   "speaker": 1
+  },
+  {
+   "word": "れ",
+   "start": 122.346,
+   "end": 122.512,
+   "speaker": 1
+  },
+  {
+   "word": "は",
+   "start": 122.772,
+   "end": 122.936,
+   "speaker": 1
+  },
+  {
+   "word": "ち",
+   "start": 122.974,
+   "end": 123.113,
+   "speaker": 1
+  },
+  {
+   "word": "ょ",
+   "start": 123.18,
+   "end": 123.351,
+   "speaker": 1
+  },
+  {
+   "word": "っ",
+   "start": 123.401,
+   "end": 123.5,
+   "speaker": 1
+  },
+  {
+   "word": "と",
+   "start": 123.551,
+   "end": 123.66,
+   "speaker": 1
+  },
+  {
+   "word": "待",
+   "start": 123.662,
+   "end": 123.77,
+   "speaker": 1
+  },
+  {
+   "word": "っ",
+   "start": 123.835,
+   "end": 123.982,
+   "speaker": 1
+  },
+  {
+   "word": "て",
+   "start": 123.983,
+   "end": 124.115,
+   "speaker": 1
+  },
+  {
+   "word": "く",
+   "start": 124.703,
+   "end": 124.861,
+   "speaker": 1
+  },
+  {
+   "word": "だ",
+   "start": 124.936,
+   "end": 125.041,
+   "speaker": 1
+  },
+  {
+   "word": "さ",
+   "start": 125.513,
+   "end": 125.682,
+   "speaker": 1
+  },
+  {
+   "word": "い。",
+   "start": 125.762,
+   "end": 125.879,
+   "speaker": 1
+  },
+  {
+   "word": "じ",
+   "start": 126.331,
+   "end": 126.457,
+   "speaker": 0
+  },
+  {
+   "word": "ゃ",
+   "start": 126.459,
+   "end": 126.622,
+   "speaker": 0
+  },
+  {
+   "word": "あ、",
+   "start": 126.932,
+   "end": 127.075,
+   "speaker": 0
+  },
+  {
+   "word": "次",
+   "start": 127.358,
+   "end": 127.506,
+   "speaker": 0
+  },
+  {
+   "word": "の",
+   "start": 127.821,
+   "end": 127.982,
+   "speaker": 0
+  },
+  {
+   "word": "質",
+   "start": 128.509,
+   "end": 128.688,
+   "speaker": 0
+  },
+  {
+   "word": "問",
+   "start": 128.711,
+   "end": 128.879,
+   "speaker": 0
+  },
+  {
+   "word": "に",
+   "start": 128.949,
+   "end": 129.056,
+   "speaker": 0
+  },
+  {
+   "word": "行",
+   "start": 129.056,
+   "end": 129.218,
+   "speaker": 0
+  },
+  {
+   "word": "き",
+   "start": 129.288,
+   "end": 129.445,
+   "speaker": 0
+  },
+  {
+   "word": "ま",
+   "start": 129.476,
+   "end": 129.651,
+   "speaker": 0
+  },
+  {
+   "word": "す。",
+   "start": 129.708,
+   "end": 129.815,
+   "speaker": 0
+  },
+  {
+   "word": "う",
+   "start": 169.057,
+   "end": 169.171,
+   "speaker": 0
+  },
+  {
+   "word": "ん、",
+   "start": 169.184,
+   "end": 169.286,
+   "speaker": 0
+  },
+  {
+   "word": "う",
+   "start": 169.286,
+   "end": 169.422,
+   "speaker": 0
+  },
+  {
+   "word": "ん。",
+   "start": 169.63,
+   "end": 169.802,
+   "speaker": 0
+  },
+  {
+   "word": "う",
+   "start": 170.831,
+   "end": 171.012,
+   "speaker": 1
+  },
+  {
+   "word": "ん、",
+   "start": 171.013,
+   "end": 171.184,
+   "speaker": 1
+  },
+  {
+   "word": "う",
+   "start": 171.617,
+   "end": 171.782,
+   "speaker": 1
+  },
+  {
+   "word": "ん。",
+   "start": 171.795,
+   "end": 171.905,
+   "speaker": 1
+  },
+  {
+   "word": "そ",
+   "start": 172.259,
+   "end": 172.388,
+   "speaker": 0
+  },
+  {
+   "word": "う",
+   "start": 172.397,
+   "end": 172.574,
+   "speaker": 0
+  },
+  {
+   "word": "で",
+   "start": 172.622,
+   "end": 172.79,
+   "speaker": 0
+  },
+  {
+   "word": "す",
+   "start": 172.798,
+   "end": 172.951,
+   "speaker": 0
+  },
+  {
+   "word": "ね、",
+   "start": 172.986,
+   "end": 173.12,
+   "speaker": 0
+  },
+  {
+   "word": "散",
+   "start": 173.172,
+   "end": 173.331,
+   "speaker": 0
+  },
+  {
+   "word": "歩",
+   "start": 173.338,
+   "end": 173.488,
+   "speaker": 0
+  },
+  {
+   "word": "に",
+   "start": 173.509,
+   "end": 173.634,
+   "speaker": 0
+  },
+  {
+   "word": "行",
+   "start": 174.003,
+   "end": 174.139,
+   "speaker": 0
+  },
+  {
+   "word": "き",
+   "start": 174.15,
+   "end": 174.287,
+   "speaker": 0
+  },
+  {
+   "word": "ま",
+   "start": 174.331,
+   "end": 174.511,
+   "speaker": 0
+  },
+  {
+   "word": "し",
+   "start": 174.578,
+   "end": 174.732,
+   "speaker": 0
+  },
+  {
+   "word": "ょ",
+   "start": 174.797,
+   "end": 174.955,
+   "speaker": 0
+  },
+  {
+   "word": "う",
+   "start": 175.011,
+   "end": 175.146,
+   "speaker": 0
+  },
+  {
+   "word": "か。",
+   "start": 175.379,
+   "end": 175.522,
+   "speaker": 0
+  },
+  {
+   "word": "あ",
+   "start": 176.246,
+   "end": 176.4,
+   "speaker": 1
+  },
+  {
+   "word": "の、",
+   "start": 176.473,
+   "end": 176.641,
+   "speaker": 1
+  },
+  {
+   "word": "ゲ",
+   "start": 176.856,
+   "end": 177.009,
+   "speaker": 1
+  },
+  {
+   "word": "ー",
+   "start": 177.058,
+   "end": 177.215,
+   "speaker": 1
+  },
+  {
+   "word": "ム",
+   "start": 177.251,
+   "end": 177.406,
+   "speaker": 1
+  },
+  {
+   "word": "の",
+   "start": 177.409,
+   "end": 177.526,
+   "speaker": 1
+  },
+  {
+   "word": "話",
+   "start": 177.526,
+   "end": 177.651,
+   "speaker": 1
+  },
+  {
+   "word": "な",
+   "start": 178.073,
+   "end": 178.252,
+   "speaker": 1
+  },
+  {
+   "word": "ん",
+   "start": 178.295,
+   "end": 178.459,
+   "speaker": 1
+  },
+  {
+   "word": "で",
+   "start": 178.536,
+   "end": 178.646,
+   "speaker": 1
+  },
+  {
+   "word": "す",
+   "start": 179.198,
+   "end": 179.314,
+   "speaker": 1
+  },
+  {
+   "word": "け",
+   "start": 179.633,
+   "end": 179.748,
+   "speaker": 1
+  },
+  {
+   "word": "ど。",
+   "start": 179.818,
+   "end": 179.941,
+   "speaker": 1
+  },
+  {
+   "word": "あ",
+   "start": 216.277,
+   "end": 216.436,
+   "speaker": 2
+  },
+  {
+   "word": "り",
+   "start": 216.481,
+   "end": 216.657,
+   "speaker": 2
+  },
+  {
+   "word": "が",
+   "start": 217.007,
+   "end": 217.159,
+   "speaker": 2
+  },
+  {
+   "word": "と",
+   "start": 217.168,
+   "end": 217.338,
+   "speaker": 2
+  },
+  {
+   "word": "う",
+   "start": 217.365,
+   "end": 217.487,
+   "speaker": 2
+  },
+  {
+   "word": "ご",
+   "start": 217.551,
+   "end": 217.67,
+   "speaker": 2
+  },
+  {
+   "word": "ざ",
+   "start": 217.723,
+   "end": 217.86,
+   "speaker": 2
+  },
+  {
+   "word": "い",
+   "start": 217.93,
+   "end": 218.09,
+   "speaker": 2
+  },
+  {
+   "word": "ま",
+   "start": 218.34,
+   "end": 218.517,
+   "speaker": 2
+  },
+  {
+   "word": "す、",
+   "start": 218.532,
+   "end": 218.676,
+   "speaker": 2
+  },
+  {
+   "word": "本",
+   "start": 218.731,
+   "end": 218.899,
+   "speaker": 2
+  },
+  {
+   "word": "当",
+   "start": 218.948,
+   "end": 219.127,
+   "speaker": 2
+  },
+  {
+   "word": "に",
+   "start": 219.198,
+   "end": 219.333,
+   "speaker": 2
+  },
+  {
+   "word": "嬉",
+   "start": 219.373,
+   "end": 219.481,
+   "speaker": 2
+  },
+  {
+   "word": "し",
+   "start": 219.496,
+   "end": 219.597,
+   "speaker": 2
+  },
+  {
+   "word": "い",
+   "start": 219.605,
+   "end": 219.749,
+   "speaker": 2
+  },
+  {
+   "word": "で",
+   "start": 219.763,
+   "end": 219.865,
+   "speaker": 2
+  },
+  {
+   "word": "す。",
+   "start": 219.934,
+   "end": 220.056,
+   "speaker": 2
+  },
+  {
+   "word": "あ",
+   "start": 220.356,
+   "end": 220.533,
+   "speaker": 1
+  },
+  {
+   "word": "り",
+   "start": 220.534,
+   "end": 220.668,
+   "speaker": 1
+  },
+  {
+   "word": "が",
+   "start": 220.687,
+   "end": 220.85,
+   "speaker": 1
+  },
+  {
+   "word": "と",
+   "start": 220.869,
+   "end": 221.013,
+   "speaker": 1
+  },
+  {
+   "word": "う",
+   "start": 221.055,
+   "end": 221.218,
+   "speaker": 1
+  },
+  {
+   "word": "ご",
+   "start": 221.267,
+   "end": 221.419,
+   "speaker": 1
+  },
+  {
+   "word": "ざ",
+   "start": 221.462,
+   "end": 221.593,
+   "speaker": 1
+  },
+  {
+   "word": "い",
+   "start": 221.594,
+   "end": 221.745,
+   "speaker": 1
+  },
+  {
+   "word": "ま",
+   "start": 221.824,
+   "end": 221.952,
+   "speaker": 1
+  },
+  {
+   "word": "す、",
+   "start": 222.281,
+   "end": 222.38,
+   "speaker": 1
+  },
+  {
+   "word": "本",
+   "start": 222.418,
+   "end": 222.534,
+   "speaker": 1
+  },
+  {
+   "word": "当",
+   "start": 222.613,
+   "end": 222.744,
+   "speaker": 1
+  },
+  {
+   "word": "に",
+   "start": 222.806,
+   "end": 222.946,
+   "speaker": 1
+  },
+  {
+   "word": "嬉",
+   "start": 222.992,
+   "end": 223.141,
+   "speaker": 1
+  },
+  {
+   "word": "し",
+   "start": 223.194,
+   "end": 223.321,
+   "speaker": 1
+  },
+  {
+   "word": "い",
+   "start": 223.347,
+   "end": 223.476,
+   "speaker": 1
+  },
+  {
+   "word": "で",
+   "start": 223.544,
+   "end": 223.643,
+   "speaker": 1
+  },
+  {
+   "word": "す。",
+   "start": 223.655,
+   "end": 223.792,
+   "speaker": 1
+  },
+  {
+   "word": "そ",
+   "start": 265.996,
+   "end": 266.158,
+   "speaker": 0
+  },
+  {
+   "word": "う",
+   "start": 266.196,
+   "end": 266.329,
+   "speaker": 0
+  },
+  {
+   "word": "で",
+   "start": 266.408,
+   "end": 266.516,
+   "speaker": 0
+  },
+  {
+   "word": "す",
+   "start": 266.519,
+   "end": 266.676,
+   "speaker": 0
+  },
+  {
+   "word": "ね、",
+   "start": 266.713,
+   "end": 266.873,
+   "speaker": 0
+  },
+  {
+   "word": "散",
+   "start": 267.36,
+   "end": 267.466,
+   "speaker": 0
+  },
+  {
+   "word": "歩",
+   "start": 267.525,
+   "end": 267.656,
+   "speaker": 0
+  },
+  {
+   "word": "に",
+   "start": 267.917,
+   "end": 268.061,
+   "speaker": 0
+  },
+  {
+   "word": "行",
+   "start": 268.102,
+   "end": 268.2,
+   "speaker": 0
+  },
+  {
+   "word": "き",
+   "start": 268.253,
+   "end": 268.411,
+   "speaker": 0
+  },
+  {
+   "word": "ま",
+   "start": 268.448,
+   "end": 268.575,
+   "speaker": 0
+  },
+  {
+   "word": "し",
+   "start": 269.069,
+   "end": 269.173,
+   "speaker": 0
+  },
+  {
+   "word": "ょ",
+   "start": 269.216,
+   "end": 269.323,
+   "speaker": 0
+  },
+  {
+   "word": "う",
+   "start": 269.369,
+   "end": 269.498,
+   "speaker": 0
+  },
+  {
+   "word": "か。",
+   "start": 269.559,
+   "end": 269.731,
+   "speaker": 0
+  },
+  {
+   "word": "え",
+   "start": 269.946,
+   "end": 270.046,
+   "speaker": 2
+  },
+  {
+   "word": "っ",
+   "start": 270.047,
+   "end": 270.196,
+   "speaker": 2
+  },
+  {
+   "word": "と、",
+   "start": 270.203,
+   "end": 270.373,
+   "speaker": 2
+  },
+  {
+   "word": "そ",
+   "start": 270.39,
+   "end": 270.555,
+   "speaker": 2
+  },
+  {
+   "word": "れ",
+   "start": 270.603,
+   "end": 270.72,
+   "speaker": 2
+  },
+  {
+   "word": "は",
+   "start": 270.774,
+   "end": 270.933,
+   "speaker": 2
+  },
+  {
+   "word": "ち",
+   "start": 270.965,
+   "end": 271.114,
+   "speaker": 2
+  },
+  {
+   "word": "ょ",
+   "start": 271.182,
+   "end": 271.343,
+   "speaker": 2
+  },
+  {
+   "word": "っ",
+   "start": 271.761,
+   "end": 271.919,
+   "speaker": 2
+  },
+  {
+   "word": "と",
+   "start": 271.934,
+   "end": 272.09,
+   "speaker": 2
+  },
+  {
+   "word": "待",
+   "start": 272.167,
+   "end": 272.305,
+   "speaker": 2
+  },
+  {
+   "word": "っ",
+   "start": 272.36,
+   "end": 272.483,
+   "speaker": 2
+  },
+  {
+   "word": "て",
+   "start": 272.484,
+   "end": 272.656,
+   "speaker": 2
+  },
+  {
+   "word": "く",
+   "start": 272.667,
+   "end": 272.837,
+   "speaker": 2
+  },
+  {
+   "word": "だ",
+   "start": 272.889,
+   "end": 273.033,
+   "speaker": 2
+  },
+  {
+   "word": "さ",
+   "start": 273.578,
+   "end": 273.748,
+   "speaker": 2
+  },
+  {
+   "word": "い。",
+   "start": 273.793,
+   "end": 273.91,
+   "speaker": 2
+  },
+  {
+   "word": "今",
+   "start": 275.001,
+   "end": 275.118,
+   "speaker": 0
+  },
+  {
+   "word": "日",
+   "start": 275.137,
+   "end": 275.285,
+   "speaker": 0
+  },
+  {
+   "word": "は",
+   "start": 275.348,
+   "end": 275.503,
+   "speaker": 0
+  },
+  {
+   "word": "い",
+   "start": 275.814,
+   "end": 275.919,
+   "speaker": 0
+  },
+  {
+   "word": "い",
+   "start": 275.954,
+   "end": 276.115,
+   "speaker": 0
+  },
+  {
+   "word": "天",
+   "start": 276.188,
+   "end": 276.345,
+   "speaker": 0
+  },
+  {
+   "word": "気",
+   "start": 276.406,
+   "end": 276.547,
+   "speaker": 0
+  },
+  {
+   "word": "で",
+   "start": 276.623,
+   "end": 276.771,
+   "speaker": 0
+  },
+  {
+   "word": "す",
+   "start": 276.794,
+   "end": 276.896,
+   "speaker": 0
+  },
+  {
+   "word": "ね。",
+   "start": 276.897,
+   "end": 277.051,
+   "speaker": 0
+  },
+  {
+   "word": "そ",
+   "start": 277.261,
+   "end": 277.436,
+   "speaker": 1
+  },
+  {
+   "word": "う",
+   "start": 277.437,
+   "end": 277.556,
+   "speaker": 1
+  },
+  {
+   "word": "で",
+   "start": 278.118,
+   "end": 278.27,
+   "speaker": 1
+  },
+  {
+   "word": "す",
+   "start": 278.801,
+   "end": 278.904,
+   "speaker": 1
+  },
+  {
+   "word": "ね、",
+   "start": 278.922,
+   "end": 279.035,
+   "speaker": 1
+  },
+  {
+   "word": "散",
+   "start": 279.086,
+   "end": 279.245,
+   "speaker": 1
+  },
+  {
+   "word": "歩",
+   "start": 279.595,
+   "end": 279.708,
+   "speaker": 1
+  },
+  {
+   "word": "に",
+   "start": 279.741,
+   "end": 279.842,
+   "speaker": 1
+  },
+  {
+   "word": "行",
+   "start": 279.857,
+   "end": 280.032,
+   "speaker": 1
+  },
+  {
+   "word": "き",
+   "start": 280.038,
+   "end": 280.19,
+   "speaker": 1
+  },
+  {
+   "word": "ま",
+   "start": 280.208,
+   "end": 280.373,
+   "speaker": 1
+  },
+  {
+   "word": "し",
+   "start": 280.389,
+   "end": 280.496,
+   "speaker": 1
+  },
+  {
+   "word": "ょ",
+   "start": 280.528,
+   "end": 280.654,
+   "speaker": 1
+  },
+  {
+   "word": "う",
+   "start": 280.682,
+   "end": 280.832,
+   "speaker": 1
+  },
+  {
+   "word": "か。",
+   "start": 281.176,
+   "end": 281.352,
+   "speaker": 1
+  },
+  {
+   "word": "う",
+   "start": 281.725,
+   "end": 281.836,
+   "speaker": 1
+  },
+  {
+   "word": "ん、",
+   "start": 281.868,
+   "end": 282.024,
+   "speaker": 1
+  },
+  {
+   "word": "う",
+   "start": 282.063,
+   "end": 282.191,
+   "speaker": 1
+  },
+  {
+   "word": "ん。",
+   "start": 282.435,
+   "end": 282.541,
+   "speaker": 1
+  },
+  {
+   "word": "見",
+   "start": 319.406,
+   "end": 319.544,
+   "speaker": 0
+  },
+  {
+   "word": "ま",
+   "start": 319.602,
+   "end": 319.745,
+   "speaker": 0
+  },
+  {
+   "word": "し",
+   "start": 319.753,
+   "end": 319.927,
+   "speaker": 0
+  },
+  {
+   "word": "た！",
+   "start": 319.954,
+   "end": 320.127,
+   "speaker": 0
+  },
+  {
+   "word": "す",
+   "start": 320.19,
+   "end": 320.346,
+   "speaker": 0
+  },
+  {
+   "word": "ご",
+   "start": 320.657,
+   "end": 320.781,
+   "speaker": 0
+  },
+  {
+   "word": "く",
+   "start": 321.372,
+   "end": 321.487,
+   "speaker": 0
+  },
+  {
+   "word": "面",
+   "start": 321.533,
+   "end": 321.693,
+   "speaker": 0
+  },
+  {
+   "word": "白",
+   "start": 321.731,
+   "end": 321.839,
+   "speaker": 0
+  },
+  {
+   "word": "か",
+   "start": 321.913,
+   "end": 322.065,
+   "speaker": 0
+  },
+  {
+   "word": "っ",
+   "start": 322.094,
+   "end": 322.237,
+   "speaker": 0
+  },
+  {
+   "word": "た",
+   "start": 322.588,
+   "end": 322.701,
+   "speaker": 0
+  },
+  {
+   "word": "で",
+   "start": 323.015,
+   "end": 323.162,
+   "speaker": 0
+  },
+  {
+   "word": "す。",
+   "start": 323.22,
+   "end": 323.386,
+   "speaker": 0
+  },
+  {
+   "word": "え",
+   "start": 328.662,
+   "end": 328.794,
+   "speaker": 0
+  },
+  {
+   "word": "っ",
+   "start": 328.862,
+   "end": 329.013,
+   "speaker": 0
+  },
+  {
+   "word": "と、",
+   "start": 329.326,
+   "end": 329.473,
+   "speaker": 0
+  },
+  {
+   "word": "そ",
+   "start": 329.543,
+   "end": 329.677,
+   "speaker": 0
+  },
+  {
+   "word": "れ",
+   "start": 329.708,
+   "end": 329.823,
+   "speaker": 0
+  },
+  {
+   "word": "は",
+   "start": 329.855,
+   "end": 330.026,
+   "speaker": 0
+  },
+  {
+   "word": "ち",
+   "start": 330.232,
+   "end": 330.335,
+   "speaker": 0
+  },
+  {
+   "word": "ょ",
+   "start": 330.398,
+   "end": 330.558,
+   "speaker": 0
+  },
+  {
+   "word": "っ",
+   "start": 330.611,
+   "end": 330.719,
+   "speaker": 0
+  },
+  {
+   "word": "と",
+   "start": 331.075,
+   "end": 331.214,
+   "speaker": 0
+  },
+  {
+   "word": "待",
+   "start": 331.224,
+   "end": 331.349,
+   "speaker": 0
+  },
+  {
+   "word": "っ",
+   "start": 331.422,
+   "end": 331.56,
+   "speaker": 0
+  },
+  {
+   "word": "て",
+   "start": 331.567,
+   "end": 331.693,
+   "speaker": 0
+  },
+  {
+   "word": "く",
+   "start": 331.902,
+   "end": 332.03,
+   "speaker": 0
+  },
+  {
+   "word": "だ",
+   "start": 332.036,
+   "end": 332.145,
+   "speaker": 0
+  },
+  {
+   "word": "さ",
+   "start": 332.157,
+   "end": 332.312,
+   "speaker": 0
+  },
+  {
+   "word": "い。",
+   "start": 332.536,
+   "end": 332.656,
+   "speaker": 0
+  },
+  {
+   "word": "そ",
+   "start": 382.916,
+   "end": 383.066,
+   "speaker": 1
+  },
+  {
+   "word": "う",
+   "start": 383.577,
+   "end": 383.756,
+   "speaker": 1
+  },
+  {
+   "word": "で",
+   "start": 383.812,
+   "end": 383.952,
+   "speaker": 1
+  },
+  {
+   "word": "す",
+   "start": 383.962,
+   "end": 384.121,
+   "speaker": 1
+  },
+  {
+   "word": "ね、",
+   "start": 384.195,
+   "end": 384.319,
+   "speaker": 1
+  },
+  {
+   "word": "散",
+   "start": 384.694,
+   "end": 384.868,
+   "speaker": 1
+  },
+  {
+   "word": "歩",
+   "start": 384.873,
+   "end": 385.014,
+   "speaker": 1
+  },
+  {
+   "word": "に",
+   "start": 385.06,
+   "end": 385.182,
+   "speaker": 1
+  },
+  {
+   "word": "行",
+   "start": 385.186,
+   "end": 385.345,
+   "speaker": 1
+  },
+  {
+   "word": "き",
+   "start": 385.364,
+   "end": 385.533,
+   "speaker": 1
+  },
+  {
+   "word": "ま",
+   "start": 385.539,
+   "end": 385.64,
+   "speaker": 1
+  },
+  {
+   "word": "し",
+   "start": 386.114,
+   "end": 386.257,
+   "speaker": 1
+  },
+  {
+   "word": "ょ",
+   "start": 386.306,
+   "end": 386.41,
+   "speaker": 1
+  },
+  {
+   "word": "う",
+   "start": 386.473,
+   "end": 386.63,
+   "speaker": 1
+  },
+  {
+   "word": "か。",
+   "start": 386.677,
+   "end": 386.806,
+   "speaker": 1
+  },
+  {
+   "word": "な",
+   "start": 435.596,
+   "end": 435.712,
+   "speaker": 0
+  },
+  {
+   "word": "る",
+   "start": 436.123,
+   "end": 436.268,
+   "speaker": 0
+  },
+  {
+   "word": "ほ",
+   "start": 436.32,
+   "end": 436.436,
+   "speaker": 0
+  },
+  {
+   "word": "ど、",
+   "start": 436.45,
+   "end": 436.63,
+   "speaker": 0
+  },
+  {
+   "word": "そ",
+   "start": 436.689,
+   "end": 436.822,
+   "speaker": 0
+  },
+  {
+   "word": "う",
+   "start": 436.887,
+   "end": 437.035,
+   "speaker": 0
+  },
+  {
+   "word": "い",
+   "start": 437.076,
+   "end": 437.245,
+   "speaker": 0
+  },
+  {
+   "word": "う",
+   "start": 437.259,
+   "end": 437.422,
+   "speaker": 0
+  },
+  {
+   "word": "こ",
+   "start": 437.479,
+   "end": 437.589,
+   "speaker": 0
+  },
+  {
+   "word": "と",
+   "start": 437.589,
+   "end": 437.756,
+   "speaker": 0
+  },
+  {
+   "word": "か。",
+   "start": 437.768,
+   "end": 437.898,
+   "speaker": 0
+  },
+  {
+   "word": "昨",
+   "start": 438.645,
+   "end": 438.788,
+   "speaker": 0
+  },
+  {
+   "word": "日",
+   "start": 438.822,
+   "end": 438.934,
+   "speaker": 0
+  },
+  {
+   "word": "の",
+   "start": 438.997,
+   "end": 439.099,
+   "speaker": 0
+  },
+  {
+   "word": "配",
+   "start": 439.124,
+   "end": 439.265,
+   "speaker": 0
+  },
+  {
+   "word": "信、",
+   "start": 439.711,
+   "end": 439.83,
+   "speaker": 0
+  },
+  {
+   "word": "見",
+   "start": 439.884,
+   "end": 440.014,
+   "speaker": 0
+  },
+  {
+   "word": "ま",
+   "start": 440.091,
+   "end": 440.257,
+   "speaker": 0
+  },
+  {
+   "word": "し",
+   "start": 440.274,
+   "end": 440.388,
+   "speaker": 0
+  },
+  {
+   "word": "た",
+   "start": 440.404,
+   "end": 440.569,
+   "speaker": 0
+  },
+  {
+   "word": "か？",
+   "start": 440.581,
+   "end": 440.697,
+   "speaker": 0
+  },
+  {
+   "word": "う",
+   "start": 441.53,
+   "end": 441.698,
+   "speaker": 2
+  },
+  {
+   "word": "ん、",
+   "start": 441.723,
+   "end": 441.885,
+   "speaker": 2
+  },
+  {
+   "word": "う",
+   "start": 441.908,
+   "end": 442.052,
+   "speaker": 2
+  },
+  {
+   "word": "ん。",
+   "start": 442.101,
+   "end": 442.221,
+   "speaker": 2
+  },
+  {
+   "word": "え",
+   "start": 443.248,
+   "end": 443.398,
+   "speaker": 0
+  },
+  {
+   "word": "っ",
+   "start": 443.398,
+   "end": 443.515,
+   "speaker": 0
+  },
+  {
+   "word": "と、",
+   "start": 443.574,
+   "end": 443.742,
+   "speaker": 0
+  },
+  {
+   "word": "そ",
+   "start": 443.819,
+   "end": 443.967,
+   "speaker": 0
+  },
+  {
+   "word": "れ",
+   "start": 444.018,
+   "end": 444.155,
+   "speaker": 0
+  },
+  {
+   "word": "は",
+   "start": 444.161,
+   "end": 444.337,
+   "speaker": 0
+  },
+  {
+   "word": "ち",
+   "start": 444.641,
+   "end": 444.752,
+   "speaker": 0
+  },
+  {
+   "word": "ょ",
+   "start": 445.081,
+   "end": 445.191,
+   "speaker": 0
+  },
+  {
+   "word": "っ",
+   "start": 445.249,
+   "end": 445.37,
+   "speaker": 0
+  },
+  {
+   "word": "と",
+   "start": 445.436,
+   "end": 445.566,
+   "speaker": 0
+  },
+  {
+   "word": "待",
+   "start": 445.642,
+   "end": 445.774,
+   "speaker": 0
+  },
+  {
+   "word": "っ",
+   "start": 445.785,
+   "end": 445.964,
+   "speaker": 0
+  },
+  {
+   "word": "て",
+   "start": 446.435,
+   "end": 446.608,
+   "speaker": 0
+  },
+  {
+   "word": "く",
+   "start": 446.647,
+   "end": 446.746,
+   "speaker": 0
+  },
+  {
+   "word": "だ",
+   "start": 446.808,
+   "end": 446.944,
+   "speaker": 0
+  },
+  {
+   "word": "さ",
+   "start": 446.981,
+   "end": 447.108,
+   "speaker": 0
+  },
+  {
+   "word": "い。",
+   "start": 447.115,
+   "end": 447.246,
+   "speaker": 0
+  },
+  {
+   "word": "え",
+   "start": 480.745,
+   "end": 480.849,
+   "speaker": 2
+  },
+  {
+   "word": "っ",
+   "start": 480.858,
+   "end": 481.025,
+   "speaker": 2
+  },
+  {
+   "word": "と、",
+   "start": 481.057,
+   "end": 481.185,
+   "speaker": 2
+  },
+  {
+   "word": "そ",
+   "start": 481.233,
+   "end": 481.405,
+   "speaker": 2
+  },
+  {
+   "word": "れ",
+   "start": 481.633,
+   "end": 481.809,
+   "speaker": 2
+  },
+  {
+   "word": "は",
+   "start": 481.846,
+   "end": 481.959,
+   "speaker": 2
+  },
+  {
+   "word": "ち",
+   "start": 481.962,
+   "end": 482.079,
+   "speaker": 2
+  },
+  {
+   "word": "ょ",
+   "start": 482.089,
+   "end": 482.229,
+   "speaker": 2
+  },
+  {
+   "word": "っ",
+   "start": 482.554,
+   "end": 482.716,
+   "speaker": 2
+  },
+  {
+   "word": "と",
+   "start": 482.788,
+   "end": 482.923,
+   "speaker": 2
+  },
+  {
+   "word": "待",
+   "start": 483.437,
+   "end": 483.589,
+   "speaker": 2
+  },
+  {
+   "word": "っ",
+   "start": 483.665,
+   "end": 483.801,
+   "speaker": 2
+  },
+  {
+   "word": "て",
+   "start": 483.871,
+   "end": 484.007,
+   "speaker": 2
+  },
+  {
+   "word": "く",
+   "start": 484.321,
+   "end": 484.443,
+   "speaker": 2
+  },
+  {
+   "word": "だ",
+   "start": 484.463,
+   "end": 484.562,
+   "speaker": 2
+  },
+  {
+   "word": "さ",
+   "start": 484.58,
+   "end": 484.744,
+   "speaker": 2
+  },
+  {
+   "word": "い。",
+   "start": 484.807,
+   "end": 484.972,
+   "speaker": 2
+  },
+  {
+   "word": "今",
+   "start": 503.587,
+   "end": 503.756,
+   "speaker": 2
+  },
+  {
+   "word": "日",
+   "start": 503.784,
+   "end": 503.884,
+   "speaker": 2
+  },
+  {
+   "word": "は",
+   "start": 503.959,
+   "end": 504.075,
+   "speaker": 2
+  },
+  {
+   "word": "い",
+   "start": 504.499,
+   "end": 504.667,
+   "speaker": 2
+  },
+  {
+   "word": "い",
+   "start": 504.743,
+   "end": 504.885,
+   "speaker": 2
+  },
+  {
+   "word": "天",
+   "start": 504.958,
+   "end": 505.091,
+   "speaker": 2
+  },
+  {
+   "word": "気",
+   "start": 505.144,
+   "end": 505.257,
+   "speaker": 2
+  },
+  {
+   "word": "で",
+   "start": 505.31,
+   "end": 505.476,
+   "speaker": 2
+  },
+  {
+   "word": "す",
+   "start": 505.493,
+   "end": 505.645,
+   "speaker": 2
+  },
+  {
+   "word": "ね。",
+   "start": 505.705,
+   "end": 505.838,
+   "speaker": 2
+  },
+  {
+   "word": "そ",
+   "start": 506.181,
+   "end": 506.327,
+   "speaker": 2
+  },
+  {
+   "word": "う",
+   "start": 506.541,
+   "end": 506.684,
+   "speaker": 2
+  },
+  {
+   "word": "で",
+   "start": 506.753,
+   "end": 506.883,
+   "speaker": 2
+  },
+  {
+   "word": "す",
+   "start": 506.932,
+   "end": 507.08,
+   "speaker": 2
+  },
+  {
+   "word": "ね、",
+   "start": 507.101,
+   "end": 507.229,
+   "speaker": 2
+  },
+  {
+   "word": "散",
+   "start": 507.256,
+   "end": 507.378,
+   "speaker": 2
+  },
+  {
+   "word": "歩",
+   "start": 507.437,
+   "end": 507.581,
+   "speaker": 2
+  },
+  {
+   "word": "に",
+   "start": 507.66,
+   "end": 507.772,
+   "speaker": 2
+  },
+  {
+   "word": "行",
+   "start": 507.822,
+   "end": 507.961,
+   "speaker": 2
+  },
+  {
+   "word": "き",
+   "start": 508.181,
+   "end": 508.359,
+   "speaker": 2
+  },
+  {
+   "word": "ま",
+   "start": 508.387,
+   "end": 508.535,
+   "speaker": 2
+  },
+  {
+   "word": "し",
+   "start": 508.606,
+   "end": 508.777,
+   "speaker": 2
+  },
+  {
+   "word": "ょ",
+   "start": 508.815,
+   "end": 508.995,
+   "speaker": 2
+  },
+  {
+   "word": "う",
+   "start": 509.026,
+   "end": 509.204,
+   "speaker": 2
+  },
+  {
+   "word": "か。",
+   "start": 509.238,
+   "end": 509.366,
+   "speaker": 2
+  },
+  {
+   "word": "う",
+   "start": 509.562,
+   "end": 509.689,
+   "speaker": 1
+  },
+  {
+   "word": "ん、",
+   "start": 509.689,
+   "end": 509.788,
+   "speaker": 1
+  },
+  {
+   "word": "う",
+   "start": 509.84,
+   "end": 509.968,
+   "speaker": 1
+  },
+  {
+   "word": "ん。",
+   "start": 510.516,
+   "end": 510.672,
+   "speaker": 1
+  },
+  {
+   "word": "じ",
+   "start": 511.396,
+   "end": 511.511,
+   "speaker": 1
+  },
+  {
+   "word": "ゃ",
+   "start": 512.094,
+   "end": 512.251,
+   "speaker": 1
+  },
+  {
+   "word": "あ、",
+   "start": 512.282,
+   "end": 512.435,
+   "speaker": 1
+  },
+  {
+   "word": "次",
+   "start": 512.48,
+   "end": 512.629,
+   "speaker": 1
+  },
+  {
+   "word": "の",
+   "start": 512.703,
+   "end": 512.83,
+   "speaker": 1
+  },
+  {
+   "word": "質",
+   "start": 512.875,
+   "end": 513.05,
+   "speaker": 1
+  },
+  {
+   "word": "問",
+   "start": 513.118,
+   "end": 513.289,
+   "speaker": 1
+  },
+  {
+   "word": "に",
+   "start": 513.335,
+   "end": 513.497,
+   "speaker": 1
+  },
+  {
+   "word": "行",
+   "start": 513.926,
+   "end": 514.054,
+   "speaker": 1
+  },
+  {
+   "word": "き",
+   "start": 514.057,
+   "end": 514.199,
+   "speaker": 1
+  },
+  {
+   "word": "ま",
+   "start": 514.236,
+   "end": 514.348,
+   "speaker": 1
+  },
+  {
+   "word": "す。",
+   "start": 514.361,
+   "end": 514.507,
+   "speaker": 1
+  },
+  {
+   "word": "見",
+   "start": 534.448,
+   "end": 534.559,
+   "speaker": 1
+  },
+  {
+   "word": "ま",
+   "start": 534.563,
+   "end": 534.719,
+   "speaker": 1
+  },
+  {
+   "word": "し",
+   "start": 534.747,
+   "end": 534.88,
+   "speaker": 1
+  },
+  {
+   "word": "た！",
+   "start": 534.9,
+   "end": 535.049,
+   "speaker": 1
+  },
+  {
+   "word": "す",
+   "start": 535.069,
+   "end": 535.19,
+   "speaker": 1
+  },
+  {
+   "word": "ご",
+   "start": 535.233,
+   "end": 535.404,
+   "speaker": 1
+  },
+  {
+   "word": "く",
+   "start": 535.427,
+   "end": 535.552,
+   "speaker": 1
+  },
+  {
+   "word": "面",
+   "start": 535.63,
+   "end": 535.765,
+   "speaker": 1
+  },
+  {
+   "word": "白",
+   "start": 536.069,
+   "end": 536.247,
+   "speaker": 1
+  },
+  {
+   "word": "か",
+   "start": 536.559,
+   "end": 536.741,
+   "speaker": 1
+  },
+  {
+   "word": "っ",
+   "start": 537.012,
+   "end": 537.174,
+   "speaker": 1
+  },
+  {
+   "word": "た",
+   "start": 537.207,
+   "end": 537.357,
+   "speaker": 1
+  },
+  {
+   "word": "で",
+   "start": 537.621,
+   "end": 537.79,
+   "speaker": 1
+  },
+  {
+   "word": "す。",
+   "start": 537.858,
+   "end": 538.025,
+   "speaker": 1
+  },
+  {
+   "word": "あ",
+   "start": 539.094,
+   "end": 539.197,
+   "speaker": 0
+  },
+  {
+   "word": "り",
+   "start": 539.223,
+   "end": 539.363,
+   "speaker": 0
+  },
+  {
+   "word": "が",
+   "start": 539.405,
+   "end": 539.524,
+   "speaker": 0
+  },
+  {
+   "word": "と",
+   "start": 539.79,
+   "end": 539.95,
+   "speaker": 0
+  },
+  {
+   "word": "う",
+   "start": 540.172,
+   "end": 540.317,
+   "speaker": 0
+  },
+  {
+   "word": "ご",
+   "start": 540.331,
+   "end": 540.463,
+   "speaker": 0
+  },
+  {
+   "word": "ざ",
+   "start": 540.479,
+   "end": 540.593,
+   "speaker": 0
+  },
+  {
+   "word": "い",
+   "start": 540.608,
+   "end": 540.713,
+   "speaker": 0
+  },
+  {
+   "word": "ま",
+   "start": 540.792,
+   "end": 540.904,
+   "speaker": 0
+  },
+  {
+   "word": "す、",
+   "start": 540.908,
+   "end": 541.04,
+   "speaker": 0
+  },
+  {
+   "word": "本",
+   "start": 541.057,
+   "end": 541.18,
+   "speaker": 0
+  },
+  {
+   "word": "当",
+   "start": 541.233,
+   "end": 541.378,
+   "speaker": 0
+  },
+  {
+   "word": "に",
+   "start": 541.457,
+   "end": 541.608,
+   "speaker": 0
+  },
+  {
+   "word": "嬉",
+   "start": 541.685,
+   "end": 541.81,
+   "speaker": 0
+  },
+  {
+   "word": "し",
+   "start": 541.868,
+   "end": 542.043,
+   "speaker": 0
+  },
+  {
+   "word": "い",
+   "start": 542.4,
+   "end": 542.577,
+   "speaker": 0
+  },
+  {
+   "word": "で",
+   "start": 542.852,
+   "end": 542.997,
+   "speaker": 0
+  },
+  {
+   "word": "す。",
+   "start": 543.004,
+   "end": 543.123,
+   "speaker": 0
+  },
+  {
+   "word": "じ",
+   "start": 543.439,
+   "end": 543.575,
+   "speaker": 2
+  },
+  {
+   "word": "ゃ",
+   "start": 543.584,
+   "end": 543.719,
+   "speaker": 2
+  },
+  {
+   "word": "あ、",
+   "start": 543.771,
+   "end": 543.901,
+   "speaker": 2
+  },
+  {
+   "word": "次",
+   "start": 543.909,
+   "end": 544.024,
+   "speaker": 2
+  },
+  {
+   "word": "の",
+   "start": 544.048,
+   "end": 544.206,
+   "speaker": 2
+  },
+  {
+   "word": "質",
+   "start": 544.658,
+   "end": 544.823,
+   "speaker": 2
+  },
+  {
+   "word": "問",
+   "start": 544.839,
+   "end": 544.989,
+   "speaker": 2
+  },
+  {
+   "word": "に",
+   "start": 545.214,
+   "end": 545.343,
+   "speaker": 2
+  },
+  {
+   "word": "行",
+   "start": 545.676,
+   "end": 545.855,
+   "speaker": 2
+  },
+  {
+   "word": "き",
+   "start": 546.291,
+   "end": 546.464,
+   "speaker": 2
+  },
+  {
+   "word": "ま",
+   "start": 546.486,
+   "end": 546.602,
+   "speaker": 2
+  },
+  {
+   "word": "す。",
+   "start": 546.628,
+   "end": 546.754,
+   "speaker": 2
+  },
+  {
+   "word": "あ",
+   "start": 602.379,
+   "end": 602.555,
+   "speaker": 2
+  },
+  {
+   "word": "り",
+   "start": 602.614,
+   "end": 602.744,
+   "speaker": 2
+  },
+  {
+   "word": "が",
+   "start": 602.761,
+   "end": 602.878,
+   "speaker": 2
+  },
+  {
+   "word": "と",
+   "start": 602.899,
+   "end": 603.013,
+   "speaker": 2
+  },
+  {
+   "word": "う",
+   "start": 603.058,
+   "end": 603.203,
+   "speaker": 2
+  },
+  {
+   "word": "ご",
+   "start": 603.224,
+   "end": 603.374,
+   "speaker": 2
+  },
+  {
+   "word": "ざ",
+   "start": 603.452,
+   "end": 603.6,
+   "speaker": 2
+  },
+  {
+   "word": "い",
+   "start": 604.165,
+   "end": 604.321,
+   "speaker": 2
+  },
+  {
+   "word": "ま",
+   "start": 604.889,
+   "end": 605.03,
+   "speaker": 2
+  },
+  {
+   "word": "す、",
+   "start": 605.086,
+   "end": 605.234,
+   "speaker": 2
+  },
+  {
+   "word": "本",
+   "start": 605.25,
+   "end": 605.381,
+   "speaker": 2
+  },
+  {
+   "word": "当",
+   "start": 605.436,
+   "end": 605.56,
+   "speaker": 2
+  },
+  {
+   "word": "に",
+   "start": 605.575,
+   "end": 605.677,
+   "speaker": 2
+  },
+  {
+   "word": "嬉",
+   "start": 605.723,
+   "end": 605.873,
+   "speaker": 2
+  },
+  {
+   "word": "し",
+   "start": 605.935,
+   "end": 606.094,
+   "speaker": 2
+  },
+  {
+   "word": "い",
+   "start": 606.153,
+   "end": 606.275,
+   "speaker": 2
+  },
+  {
+   "word": "で",
+   "start": 606.859,
+   "end": 606.989,
+   "speaker": 2
+  },
+  {
+   "word": "す。",
+   "start": 607.066,
+   "end": 607.185,
+   "speaker": 2
+  },
+  {
+   "word": "そ",
+   "start": 607.952,
+   "end": 608.081,
+   "speaker": 1
+  },
+  {
+   "word": "う",
+   "start": 608.111,
+   "end": 608.254,
+   "speaker": 1
+  },
+  {
+   "word": "で",
+   "start": 608.67,
+   "end": 608.846,
+   "speaker": 1
+  },
+  {
+   "word": "す",
+   "start": 608.864,
+   "end": 608.97,
+   "speaker": 1
+  },
+  {
+   "word": "ね、",
+   "start": 608.987,
+   "end": 609.162,
+   "speaker": 1
+  },
+  {
+   "word": "散",
+   "start": 609.242,
+   "end": 609.354,
+   "speaker": 1
+  },
+  {
+   "word": "歩",
+   "start": 609.431,
+   "end": 609.567,
+   "speaker": 1
+  },
+  {
+   "word": "に",
+   "start": 609.598,
+   "end": 609.703,
+   "speaker": 1
+  },
+  {
+   "word": "行",
+   "start": 609.729,
+   "end": 609.896,
+   "speaker": 1
+  },
+  {
+   "word": "き",
+   "start": 609.916,
+   "end": 610.034,
+   "speaker": 1
+  },
+  {
+   "word": "ま",
+   "start": 610.093,
+   "end": 610.216,
+   "speaker": 1
+  },
+  {
+   "word": "し",
+   "start": 610.28,
+   "end": 610.385,
+   "speaker": 1
+  },
+  {
+   "word": "ょ",
+   "start": 610.404,
+   "end": 610.52,
+   "speaker": 1
+  },
+  {
+   "word": "う",
+   "start": 611.08,
+   "end": 611.253,
+   "speaker": 1
+  },
+  {
+   "word": "か。",
+   "start": 611.3,
+   "end": 611.442,
+   "speaker": 1
+  },
+  {
+   "word": "そ",
+   "start": 638.702,
+   "end": 638.866,
+   "speaker": 2
+  },
+  {
+   "word": "う",
+   "start": 639.241,
+   "end": 639.415,
+   "speaker": 2
+  },
+  {
+   "word": "で",
+   "start": 639.487,
+   "end": 639.613,
+   "speaker": 2
+  },
+  {
+   "word": "す",
+   "start": 639.661,
+   "end": 639.799,
+   "speaker": 2
+  },
+  {
+   "word": "ね、",
+   "start": 639.81,
+   "end": 639.981,
+   "speaker": 2
+  },
+  {
+   "word": "散",
+   "start": 640.03,
+   "end": 640.182,
+   "speaker": 2
+  },
+  {
+   "word": "歩",
+   "start": 640.665,
+   "end": 640.844,
+   "speaker": 2
+  },
+  {
+   "word": "に",
+   "start": 640.914,
+   "end": 641.091,
+   "speaker": 2
+  },
+  {
+   "word": "行",
+   "start": 641.091,
+   "end": 641.22,
+   "speaker": 2
+  },
+  {
+   "word": "き",
+   "start": 641.231,
+   "end": 641.389,
+   "speaker": 2
+  },
+  {
+   "word": "ま",
+   "start": 641.458,
+   "end": 641.638,
+   "speaker": 2
+  },
+  {
+   "word": "し",
+   "start": 641.711,
+   "end": 641.854,
+   "speaker": 2
+  },
+  {
+   "word": "ょ",
+   "start": 641.923,
+   "end": 642.065,
+   "speaker": 2
+  },
+  {
+   "word": "う",
+   "start": 642.092,
+   "end": 642.25,
+   "speaker": 2
+  },
+  {
+   "word": "か。",
+   "start": 642.318,
+   "end": 642.471,
+   "speaker": 2
+  },
+  {
+   "word": "そ",
+   "start": 642.925,
+   "end": 643.042,
+   "speaker": 0
+  },
+  {
+   "word": "れ",
+   "start": 643.072,
+   "end": 643.189,
+   "speaker": 0
+  },
+  {
+   "word": "で、",
+   "start": 643.199,
+   "end": 643.339,
+   "speaker": 0
+  },
+  {
+   "word": "最",
+   "start": 643.369,
+   "end": 643.497,
+   "speaker": 0
+  },
+  {
+   "word": "後",
+   "start": 643.503,
+   "end": 643.625,
+   "speaker": 0
+  },
+  {
+   "word": "ど",
+   "start": 643.662,
+   "end": 643.823,
+   "speaker": 0
+  },
+  {
+   "word": "う",
+   "start": 643.878,
+   "end": 644.049,
+   "speaker": 0
+  },
+  {
+   "word": "な",
+   "start": 644.119,
+   "end": 644.26,
+   "speaker": 0
+  },
+  {
+   "word": "っ",
+   "start": 644.301,
+   "end": 644.468,
+   "speaker": 0
+  },
+  {
+   "word": "た",
+   "start": 644.531,
+   "end": 644.631,
+   "speaker": 0
+  },
+  {
+   "word": "ん",
+   "start": 644.689,
+   "end": 644.849,
+   "speaker": 0
+  },
+  {
+   "word": "で",
+   "start": 644.914,
+   "end": 645.021,
+   "speaker": 0
+  },
+  {
+   "word": "す",
+   "start": 645.023,
+   "end": 645.138,
+   "speaker": 0
+  },
+  {
+   "word": "か？",
+   "start": 645.206,
+   "end": 645.314,
+   "speaker": 0
+  },
+  {
+   "word": "い",
+   "start": 690.92,
+   "end": 691.026,
+   "speaker": 0
+  },
+  {
+   "word": "や、",
+   "start": 691.494,
+   "end": 691.634,
+   "speaker": 0
+  },
+  {
+   "word": "全",
+   "start": 691.713,
+   "end": 691.87,
+   "speaker": 0
+  },
+  {
+   "word": "然",
+   "start": 691.884,
+   "end": 692.024,
+   "speaker": 0
+  },
+  {
+   "word": "わ",
+   "start": 692.095,
+   "end": 692.25,
+   "speaker": 0
+  },
+  {
+   "word": "か",
+   "start": 692.259,
+   "end": 692.415,
+   "speaker": 0
+  },
+  {
+   "word": "ら",
+   "start": 692.441,
+   "end": 692.603,
+   "speaker": 0
+  },
+  {
+   "word": "な",
+   "start": 692.672,
+   "end": 692.811,
+   "speaker": 0
+  },
+  {
+   "word": "か",
+   "start": 692.883,
+   "end": 693.013,
+   "speaker": 0
+  },
+  {
+   "word": "っ",
+   "start": 693.079,
+   "end": 693.21,
+   "speaker": 0
+  },
+  {
+   "word": "た",
+   "start": 693.24,
+   "end": 693.407,
+   "speaker": 0
+  },
+  {
+   "word": "で",
+   "start": 693.897,
+   "end": 694.077,
+   "speaker": 0
+  },
+  {
+   "word": "す。",
+   "start": 694.131,
+   "end": 694.287,
+   "speaker": 0
+  },
+  {
+   "word": "え",
+   "start": 695.414,
+   "end": 695.59,
+   "speaker": 0
+  },
+  {
+   "word": "っ",
+   "start": 695.921,
+   "end": 696.066,
+   "speaker": 0
+  },
+  {
+   "word": "と、",
+   "start": 696.118,
+   "end": 696.253,
+   "speaker": 0
+  },
+  {
+   "word": "そ",
+   "start": 696.306,
+   "end": 696.485,
+   "speaker": 0
+  },
+  {
+   "word": "れ",
+   "start": 696.496,
+   "end": 696.65,
+   "speaker": 0
+  },
+  {
+   "word": "は",
+   "start": 696.659,
+   "end": 696.765,
+   "speaker": 0
+  },
+  {
+   "word": "ち",
+   "start": 697.124,
+   "end": 697.248,
+   "speaker": 0
+  },
+  {
+   "word": "ょ",
+   "start": 697.327,
+   "end": 697.501,
+   "speaker": 0
+  },
+  {
+   "word": "っ",
+   "start": 697.549,
+   "end": 697.681,
+   "speaker": 0
+  },
+  {
+   "word": "と",
+   "start": 697.757,
+   "end": 697.882,
+   "speaker": 0
+  },
+  {
+   "word": "待",
+   "start": 697.956,
+   "end": 698.072,
+   "speaker": 0
+  },
+  {
+   "word": "っ",
+   "start": 698.089,
+   "end": 698.235,
+   "speaker": 0
+  },
+  {
+   "word": "て",
+   "start": 698.752,
+   "end": 698.909,
+   "speaker": 0
+  },
+  {
+   "word": "く",
+   "start": 698.955,
+   "end": 699.097,
+   "speaker": 0
+  },
+  {
+   "word": "だ",
+   "start": 699.162,
+   "end": 699.333,
+   "speaker": 0
+  },
+  {
+   "word": "さ",
+   "start": 699.702,
+   "end": 699.846,
+   "speaker": 0
+  },
+  {
+   "word": "い。",
+   "start": 699.907,
+   "end": 700.083,
+   "speaker": 0
+  },
+  {
+   "word": "そ",
+   "start": 700.893,
+   "end": 701.033,
+   "speaker": 1
+  },
+  {
+   "word": "う",
+   "start": 701.077,
+   "end": 701.22,
+   "speaker": 1
+  },
+  {
+   "word": "で",
+   "start": 701.803,
+   "end": 701.92,
+   "speaker": 1
+  },
+  {
+   "word": "す",
+   "start": 701.922,
+   "end": 702.048,
+   "speaker": 1
+  },
+  {
+   "word": "ね、",
+   "start": 702.072,
+   "end": 702.21,
+   "speaker": 1
+  },
+  {
+   "word": "散",
+   "start": 702.259,
+   "end": 702.44,
+   "speaker": 1
+  },
+  {
+   "word": "歩",
+   "start": 702.504,
+   "end": 702.677,
+   "speaker": 1
+  },
+  {
+   "word": "に",
+   "start": 702.732,
+   "end": 702.881,
+   "speaker": 1
+  },
+  {
+   "word": "行",
+   "start": 703.227,
+   "end": 703.391,
+   "speaker": 1
+  },
+  {
+   "word": "き",
+   "start": 703.418,
+   "end": 703.516,
+   "speaker": 1
+  },
+  {
+   "word": "ま",
+   "start": 703.871,
+   "end": 704.039,
+   "speaker": 1
+  },
+  {
+   "word": "し",
+   "start": 704.059,
+   "end": 704.192,
+   "speaker": 1
+  },
+  {
+   "word": "ょ",
+   "start": 704.223,
+   "end": 704.379,
+   "speaker": 1
+  },
+  {
+   "word": "う",
+   "start": 704.454,
+   "end": 704.57,
+   "speaker": 1
+  },
+  {
+   "word": "か。",
+   "start": 705.15,
+   "end": 705.308,
+   "speaker": 1
+  },
+  {
+   "word": "な",
+   "start": 705.46,
+   "end": 705.56,
+   "speaker": 1
+  },
+  {
+   "word": "る",
+   "start": 705.565,
+   "end": 705.714,
+   "speaker": 1
+  },
+  {
+   "word": "ほ",
+   "start": 706.313,
+   "end": 706.48,
+   "speaker": 1
+  },
+  {
+   "word": "ど、",
+   "start": 706.752,
+   "end": 706.863,
+   "speaker": 1
+  },
+  {
+   "word": "そ",
+   "start": 706.899,
+   "end": 707.079,
+   "speaker": 1
+  },
+  {
+   "word": "う",
+   "start": 707.122,
+   "end": 707.297,
+   "speaker": 1
+  },
+  {
+   "word": "い",
+   "start": 707.335,
+   "end": 707.498,
+   "speaker": 1
+  },
+  {
+   "word": "う",
+   "start": 707.566,
+   "end": 707.71,
+   "speaker": 1
+  },
+  {
+   "word": "こ",
+   "start": 708.275,
+   "end": 708.435,
+   "speaker": 1
+  },
+  {
+   "word": "と",
+   "start": 708.503,
+   "end": 708.617,
+   "speaker": 1
+  },
+  {
+   "word": "か。",
+   "start": 708.677,
+   "end": 708.787,
+   "speaker": 1
+  },
+  {
+   "word": "じ",
+   "start": 709.284,
+   "end": 709.424,
+   "speaker": 1
+  },
+  {
+   "word": "ゃ",
+   "start": 709.828,
+   "end": 710.0,
+   "speaker": 1
+  },
+  {
+   "word": "あ、",
+   "start": 710.066,
+   "end": 710.19,
+   "speaker": 1
+  },
+  {
+   "word": "次",
+   "start": 710.26,
+   "end": 710.401,
+   "speaker": 1
+  },
+  {
+   "word": "の",
+   "start": 710.895,
+   "end": 711.035,
+   "speaker": 1
+  },
+  {
+   "word": "質",
+   "start": 711.423,
+   "end": 711.594,
+   "speaker": 1
+  },
+  {
+   "word": "問",
+   "start": 711.872,
+   "end": 712.0,
+   "speaker": 1
+  },
+  {
+   "word": "に",
+   "start": 712.288,
+   "end": 712.388,
+   "speaker": 1
+  },
+  {
+   "word": "行",
+   "start": 712.45,
+   "end": 712.573,
+   "speaker": 1
+  },
+  {
+   "word": "き",
+   "start": 712.619,
+   "end": 712.769,
+   "speaker": 1
+  },
+  {
+   "word": "ま",
+   "start": 712.826,
+   "end": 712.932,
+   "speaker": 1
+  },
+  {
+   "word": "す。",
+   "start": 712.963,
+   "end": 713.131,
+   "speaker": 1
+  },
+  {
+   "word": "え",
+   "start": 715.996,
+   "end": 716.148,
+   "speaker": 2
+  },
+  {
+   "word": "っ",
+   "start": 716.227,
+   "end": 716.392,
+   "speaker": 2
+  },
+  {
+   "word": "と、",
+   "start": 716.454,
+   "end": 716.573,
+   "speaker": 2
+  },
+  {
+   "word": "そ",
+   "start": 716.582,
+   "end": 716.699,
+   "speaker": 2
+  },
+  {
+   "word": "れ",
+   "start": 716.718,
+   "end": 716.842,
+   "speaker": 2
+  },
+  {
+   "word": "は",
+   "start": 716.868,
+   "end": 717.022,
+   "speaker": 2
+  },
+  {
+   "word": "ち",
+   "start": 717.026,
+   "end": 717.189,
+   "speaker": 2
+  },
+  {
+   "word": "ょ",
+   "start": 717.189,
+   "end": 717.324,
+   "speaker": 2
+  },
+  {
+   "word": "っ",
+   "start": 717.341,
+   "end": 717.506,
+   "speaker": 2
+  },
+  {
+   "word": "と",
+   "start": 717.517,
+   "end": 717.689,
+   "speaker": 2
+  },
+  {
+   "word": "待",
+   "start": 718.174,
+   "end": 718.296,
+   "speaker": 2
+  },
+  {
+   "word": "っ",
+   "start": 718.557,
+   "end": 718.657,
+   "speaker": 2
+  },
+  {
+   "word": "て",
+   "start": 719.09,
+   "end": 719.257,
+   "speaker": 2
+  },
+  {
+   "word": "く",
+   "start": 719.271,
+   "end": 719.383,
+   "speaker": 2
+  },
+  {
+   "word": "だ",
+   "start": 719.416,
+   "end": 719.591,
+   "speaker": 2
+  },
+  {
+   "word": "さ",
+   "start": 719.598,
+   "end": 719.754,
+   "speaker": 2
+  },
+  {
+   "word": "い。",
+   "start": 720.289,
+   "end": 720.4,
+   "speaker": 2
+  },
+  {
+   "word": "そ",
+   "start": 720.555,
+   "end": 720.692,
+   "speaker": 0
+  },
+  {
+   "word": "れ",
+   "start": 721.004,
+   "end": 721.175,
+   "speaker": 0
+  },
+  {
+   "word": "で、",
+   "start": 721.233,
+   "end": 721.365,
+   "speaker": 0
+  },
+  {
+   "word": "最",
+   "start": 721.704,
+   "end": 721.849,
+   "speaker": 0
+  },
+  {
+   "word": "後",
+   "start": 722.125,
+   "end": 722.23,
+   "speaker": 0
+  },
+  {
+   "word": "ど",
+   "start": 722.26,
+   "end": 722.396,
+   "speaker": 0
+  },
+  {
+   "word": "う",
+   "start": 722.459,
+   "end": 722.608,
+   "speaker": 0
+  },
+  {
+   "word": "な",
+   "start": 722.649,
+   "end": 722.824,
+   "speaker": 0
+  },
+  {
+   "word": "っ",
+   "start": 722.901,
+   "end": 723.068,
+   "speaker": 0
+  },
+  {
+   "word": "た",
+   "start": 723.077,
+   "end": 723.211,
+   "speaker": 0
+  },
+  {
+   "word": "ん",
+   "start": 723.555,
+   "end": 723.695,
+   "speaker": 0
+  },
+  {
+   "word": "で",
+   "start": 724.231,
+   "end": 724.382,
+   "speaker": 0
+  },
+  {
+   "word": "す",
+   "start": 724.423,
+   "end": 724.567,
+   "speaker": 0
+  },
+  {
+   "word": "か？",
+   "start": 724.577,
+   "end": 724.724,
+   "speaker": 0
+  },
+  {
+   "word": "い",
+   "start": 725.528,
+   "end": 725.702,
+   "speaker": 0
+  },
+  {
+   "word": "や、",
+   "start": 725.707,
+   "end": 725.861,
+   "speaker": 0
+  },
+  {
+   "word": "全",
+   "start": 725.916,
+   "end": 726.093,
+   "speaker": 0
+  },
+  {
+   "word": "然",
+   "start": 726.166,
+   "end": 726.312,
+   "speaker": 0
+  },
+  {
+   "word": "わ",
+   "start": 726.334,
+   "end": 726.496,
+   "speaker": 0
+  },
+  {
+   "word": "か",
+   "start": 726.538,
+   "end": 726.653,
+   "speaker": 0
+  },
+  {
+   "word": "ら",
+   "start": 726.661,
+   "end": 726.808,
+   "speaker": 0
+  },
+  {
+   "word": "な",
+   "start": 726.883,
+   "end": 727.03,
+   "speaker": 0
+  },
+  {
+   "word": "か",
+   "start": 727.076,
+   "end": 727.24,
+   "speaker": 0
+  },
+  {
+   "word": "っ",
+   "start": 727.253,
+   "end": 727.41,
+   "speaker": 0
+  },
+  {
+   "word": "た",
+   "start": 727.437,
+   "end": 727.582,
+   "speaker": 0
+  },
+  {
+   "word": "で",
+   "start": 727.621,
+   "end": 727.738,
+   "speaker": 0
+  },
+  {
+   "word": "す。",
+   "start": 727.813,
+   "end": 727.968,
+   "speaker": 0
+  },
+  {
+   "word": "あ",
+   "start": 728.742,
+   "end": 728.846,
+   "speaker": 1
+  },
+  {
+   "word": "り",
+   "start": 729.226,
+   "end": 729.357,
+   "speaker": 1
+  },
+  {
+   "word": "が",
+   "start": 729.4,
+   "end": 729.567,
+   "speaker": 1
+  },
+  {
+   "word": "と",
+   "start": 729.64,
+   "end": 729.778,
+   "speaker": 1
+  },
+  {
+   "word": "う",
+   "start": 730.2,
+   "end": 730.313,
+   "speaker": 1
+  },
+  {
+   "word": "ご",
+   "start": 730.704,
+   "end": 730.874,
+   "speaker": 1
+  },
+  {
+   "word": "ざ",
+   "start": 730.952,
+   "end": 731.059,
+   "speaker": 1
+  },
+  {
+   "word": "い",
+   "start": 731.065,
+   "end": 731.236,
+   "speaker": 1
+  },
+  {
+   "word": "ま",
+   "start": 731.24,
+   "end": 731.376,
+   "speaker": 1
+  },
+  {
+   "word": "す、",
+   "start": 731.446,
+   "end": 731.622,
+   "speaker": 1
+  },
+  {
+   "word": "本",
+   "start": 731.881,
+   "end": 732.044,
+   "speaker": 1
+  },
+  {
+   "word": "当",
+   "start": 732.1,
+   "end": 732.273,
+   "speaker": 1
+  },
+  {
+   "word": "に",
+   "start": 732.316,
+   "end": 732.427,
+   "speaker": 1
+  },
+  {
+   "word": "嬉",
+   "start": 732.476,
+   "end": 732.575,
+   "speaker": 1
+  },
+  {
+   "word": "し",
+   "start": 732.649,
+   "end": 732.77,
+   "speaker": 1
+  },
+  {
+   "word": "い",
+   "start": 732.8,
+   "end": 732.91,
+   "speaker": 1
+  },
+  {
+   "word": "で",
+   "start": 732.919,
+   "end": 733.028,
+   "speaker": 1
+  },
+  {
+   "word": "す。",
+   "start": 733.097,
+   "end": 733.255,
+   "speaker": 1
+  },
+  {
+   "word": "そ",
+   "start": 734.454,
+   "end": 734.585,
+   "speaker": 2
+  },
+  {
+   "word": "れ",
+   "start": 734.623,
+   "end": 734.795,
+   "speaker": 2
+  },
+  {
+   "word": "で、",
+   "start": 734.83,
+   "end": 734.945,
+   "speaker": 2
+  },
+  {
+   "word": "最",
+   "start": 735.012,
+   "end": 735.117,
+   "speaker": 2
+  },
+  {
+   "word": "後",
+   "start": 735.152,
+   "end": 735.317,
+   "speaker": 2
+  },
+  {
+   "word": "ど",
+   "start": 735.327,
+   "end": 735.491,
+   "speaker": 2
+  },
+  {
+   "word": "う",
+   "start": 735.549,
+   "end": 735.72,
+   "speaker": 2
+  },
+  {
+   "word": "な",
+   "start": 735.786,
+   "end": 735.942,
+   "speaker": 2
+  },
+  {
+   "word": "っ",
+   "start": 735.987,
+   "end": 736.087,
+   "speaker": 2
+  },
+  {
+   "word": "た",
+   "start": 736.137,
+   "end": 736.304,
+   "speaker": 2
+  },
+  {
+   "word": "ん",
+   "start": 736.332,
+   "end": 736.457,
+   "speaker": 2
+  },
+  {
+   "word": "で",
+   "start": 737.021,
+   "end": 737.139,
+   "speaker": 2
+  },
+  {
+   "word": "す",
+   "start": 737.499,
+   "end": 737.617,
+   "speaker": 2
+  },
+  {
+   "word": "か？",
+   "start": 737.883,
+   "end": 738.052,
+   "speaker": 2
+  },
+  {
+   "word": "じ",
+   "start": 738.735,
+   "end": 738.852,
+   "speaker": 1
+  },
+  {
+   "word": "ゃ",
+   "start": 738.915,
+   "end": 739.016,
+   "speaker": 1
+  },
+  {
+   "word": "あ、",
+   "start": 739.059,
+   "end": 739.222,
+   "speaker": 1
+  },
+  {
+   "word": "次",
+   "start": 739.276,
+   "end": 739.443,
+   "speaker": 1
+  },
+  {
+   "word": "の",
+   "start": 739.746,
+   "end": 739.905,
+   "speaker": 1
+  },
+  {
+   "word": "質",
+   "start": 739.959,
+   "end": 740.095,
+   "speaker": 1
+  },
+  {
+   "word": "問",
+   "start": 740.156,
+   "end": 740.275,
+   "speaker": 1
+  },
+  {
+   "word": "に",
+   "start": 740.338,
+   "end": 740.495,
+   "speaker": 1
+  },
+  {
+   "word": "行",
+   "start": 740.927,
+   "end": 741.042,
+   "speaker": 1
+  },
+  {
+   "word": "き",
+   "start": 741.093,
+   "end": 741.274,
+   "speaker": 1
+  },
+  {
+   "word": "ま",
+   "start": 741.538,
+   "end": 741.698,
+   "speaker": 1
+  },
+  {
+   "word": "す。",
+   "start": 741.748,
+   "end": 741.878,
+   "speaker": 1
+  },
+  {
+   "word": "い",
+   "start": 742.082,
+   "end": 742.252,
+   "speaker": 2
+  },
+  {
+   "word": "や、",
+   "start": 742.301,
+   "end": 742.409,
+   "speaker": 2
+  },
+  {
+   "word": "全",
+   "start": 742.457,
+   "end": 742.614,
+   "speaker": 2
+  },
+  {
+   "word": "然",
+   "start": 742.636,
+   "end": 742.793,
+   "speaker": 2
+  },
+  {
+   "word": "わ",
+   "start": 742.813,
+   "end": 742.987,
+   "speaker": 2
+  },
+  {
+   "word": "か",
+   "start": 743.062,
+   "end": 743.195,
+   "speaker": 2
+  },
+  {
+   "word": "ら",
+   "start": 743.263,
+   "end": 743.436,
+   "speaker": 2
+  },
+  {
+   "word": "な",
+   "start": 743.452,
+   "end": 743.607,
+   "speaker": 2
+  },
+  {
+   "word": "か",
+   "start": 743.636,
+   "end": 743.771,
+   "speaker": 2
+  },
+  {
+   "word": "っ",
+   "start": 743.788,
+   "end": 743.927,
+   "speaker": 2
+  },
+  {
+   "word": "た",
+   "start": 744.355,
+   "end": 744.473,
+   "speaker": 2
+  },
+  {
+   "word": "で",
+   "start": 744.486,
+   "end": 744.652,
+   "speaker": 2
+  },
+  {
+   "word": "す。",
+   "start": 744.694,
+   "end": 744.824,
+   "speaker": 2
+  },
+  {
+   "word": "じ",
+   "start": 780.724,
+   "end": 780.878,
+   "speaker": 0
+  },
+  {
+   "word": "ゃ",
+   "start": 780.885,
+   "end": 781.005,
+   "speaker": 0
+  },
+  {
+   "word": "あ、",
+   "start": 781.039,
+   "end": 781.145,
+   "speaker": 0
+  },
+  {
+   "word": "次",
+   "start": 781.211,
+   "end": 781.31,
+   "speaker": 0
+  },
+  {
+   "word": "の",
+   "start": 781.719,
+   "end": 781.873,
+   "speaker": 0
+  },
+  {
+   "word": "質",
+   "start": 781.931,
+   "end": 782.037,
+   "speaker": 0
+  },
+  {
+   "word": "問",
+   "start": 782.049,
+   "end": 782.211,
+   "speaker": 0
+  },
+  {
+   "word": "に",
+   "start": 782.263,
+   "end": 782.425,
+   "speaker": 0
+  },
+  {
+   "word": "行",
+   "start": 782.452,
+   "end": 782.597,
+   "speaker": 0
+  },
+  {
+   "word": "き",
+   "start": 782.618,
+   "end": 782.775,
+   "speaker": 0
+  },
+  {
+   "word": "ま",
+   "start": 783.242,
+   "end": 783.41,
+   "speaker": 0
+  },
+  {
+   "word": "す。",
+   "start": 783.419,
+   "end": 783.591,
+   "speaker": 0
+  },
+  {
+   "word": "そ",
+   "start": 840.98,
+   "end": 841.08,
+   "speaker": 1
+  },
+  {
+   "word": "れ",
+   "start": 841.081,
+   "end": 841.208,
+   "speaker": 1
+  },
+  {
+   "word": "で、",
+   "start": 841.226,
+   "end": 841.339,
+   "speaker": 1
+  },
+  {
+   "word": "最",
+   "start": 841.367,
+   "end": 841.522,
+   "speaker": 1
+  },
+  {
+   "word": "後",
+   "start": 841.53,
+   "end": 841.669,
+   "speaker": 1
+  },
+  {
+   "word": "ど",
+   "start": 841.738,
+   "end": 841.905,
+   "speaker": 1
+  },
+  {
+   "word": "う",
+   "start": 841.913,
+   "end": 842.075,
+   "speaker": 1
+  },
+  {
+   "word": "な",
+   "start": 842.121,
+   "end": 842.292,
+   "speaker": 1
+  },
+  {
+   "word": "っ",
+   "start": 842.316,
+   "end": 842.475,
+   "speaker": 1
+  },
+  {
+   "word": "た",
+   "start": 842.484,
+   "end": 842.62,
+   "speaker": 1
+  },
+  {
+   "word": "ん",
+   "start": 842.632,
+   "end": 842.761,
+   "speaker": 1
+  },
+  {
+   "word": "で",
+   "start": 843.275,
+   "end": 843.418,
+   "speaker": 1
+  },
+  {
+   "word": "す",
+   "start": 843.486,
+   "end": 843.655,
+   "speaker": 1
+  },
+  {
+   "word": "か？",
+   "start": 844.096,
+   "end": 844.218,
+   "speaker": 1
+  },
+  {
+   "word": "い",
+   "start": 847.895,
+   "end": 848.044,
+   "speaker": 0
+  },
+  {
+   "word": "や、",
+   "start": 848.123,
+   "end": 848.268,
+   "speaker": 0
+  },
+  {
+   "word": "全",
+   "start": 848.282,
+   "end": 848.456,
+   "speaker": 0
+  },
+  {
+   "word": "然",
+   "start": 848.464,
+   "end": 848.596,
+   "speaker": 0
+  },
+  {
+   "word": "わ",
+   "start": 848.643,
+   "end": 848.767,
+   "speaker": 0
+  },
+  {
+   "word": "か",
+   "start": 848.842,
+   "end": 848.946,
+   "speaker": 0
+  },
+  {
+   "word": "ら",
+   "start": 848.982,
+   "end": 849.105,
+   "speaker": 0
+  },
+  {
+   "word": "な",
+   "start": 849.166,
+   "end": 849.328,
+   "speaker": 0
+  },
+  {
+   "word": "か",
+   "start": 849.399,
+   "end": 849.506,
+   "speaker": 0
+  },
+  {
+   "word": "っ",
+   "start": 849.569,
+   "end": 849.718,
+   "speaker": 0
+  },
+  {
+   "word": "た",
+   "start": 849.788,
+   "end": 849.956,
+   "speaker": 0
+  },
+  {
+   "word": "で",
+   "start": 850.526,
+   "end": 850.659,
+   "speaker": 0
+  },
+  {
+   "word": "す。",
+   "start": 850.706,
+   "end": 850.886,
+   "speaker": 0
+  },
+  {
+   "word": "な",
+   "start": 851.73,
+   "end": 851.844,
+   "speaker": 1
+  },
+  {
+   "word": "る",
+   "start": 851.868,
+   "end": 852.027,
+   "speaker": 1
+  },
+  {
+   "word": "ほ",
+   "start": 852.066,
+   "end": 852.205,
+   "speaker": 1
+  },
+  {
+   "word": "ど、",
+   "start": 852.277,
+   "end": 852.422,
+   "speaker": 1
+  },
+  {
+   "word": "そ",
+   "start": 852.494,
+   "end": 852.625,
+   "speaker": 1
+  },
+  {
+   "word": "う",
+   "start": 852.684,
+   "end": 852.841,
+   "speaker": 1
+  },
+  {
+   "word": "い",
+   "start": 852.843,
+   "end": 852.982,
+   "speaker": 1
+  },
+  {
+   "word": "う",
+   "start": 853.46,
+   "end": 853.626,
+   "speaker": 1
+  },
+  {
+   "word": "こ",
+   "start": 853.693,
+   "end": 853.791,
+   "speaker": 1
+  },
+  {
+   "word": "と",
+   "start": 854.173,
+   "end": 854.328,
+   "speaker": 1
+  },
+  {
+   "word": "か。",
+   "start": 854.714,
+   "end": 854.884,
+   "speaker": 1
+  },
+  {
+   "word": "昨",
+   "start": 855.102,
+   "end": 855.229,
+   "speaker": 0
+  },
+  {
+   "word": "日",
+   "start": 855.234,
+   "end": 855.415,
+   "speaker": 0
+  },
+  {
+   "word": "の",
+   "start": 855.454,
+   "end": 855.612,
+   "speaker": 0
+  },
+  {
+   "word": "配",
+   "start": 855.63,
+   "end": 855.73,
+   "speaker": 0
+  },
+  {
+   "word": "信、",
+   "start": 855.807,
+   "end": 855.963,
+   "speaker": 0
+  },
+  {
+   "word": "見",
+   "start": 855.995,
+   "end": 856.103,
+   "speaker": 0
+  },
+  {
+   "word": "ま",
+   "start": 856.121,
+   "end": 856.226,
+   "speaker": 0
+  },
+  {
+   "word": "し",
+   "start": 856.249,
+   "end": 856.392,
+   "speaker": 0
+  },
+  {
+   "word": "た",
+   "start": 856.404,
+   "end": 856.518,
+   "speaker": 0
+  },
+  {
+   "word": "か？",
+   "start": 856.522,
+   "end": 856.632,
+   "speaker": 0
+  },
+  {
+   "word": "あ",
+   "start": 873.989,
+   "end": 874.099,
+   "speaker": 0
+  },
+  {
+   "word": "の、",
+   "start": 874.125,
+   "end": 874.295,
+   "speaker": 0
+  },
+  {
+   "word": "ゲ",
+   "start": 874.533,
+   "end": 874.641,
+   "speaker": 0
+  },
+  {
+   "word": "ー",
+   "start": 874.652,
+   "end": 874.817,
+   "speaker": 0
+  },
+  {
+   "word": "ム",
+   "start": 874.885,
+   "end": 875.007,
+   "speaker": 0
+  },
+  {
+   "word": "の",
+   "start": 875.288,
+   "end": 875.457,
+   "speaker": 0
+  },
+  {
+   "word": "話",
+   "start": 875.91,
+   "end": 876.087,
+   "speaker": 0
+  },
+  {
+   "word": "な",
+   "start": 876.387,
+   "end": 876.503,
+   "speaker": 0
+  },
+  {
+   "word": "ん",
+   "start": 876.518,
+   "end": 876.618,
+   "speaker": 0
+  },
+  {
+   "word": "で",
+   "start": 876.627,
+   "end": 876.787,
+   "speaker": 0
+  },
+  {
+   "word": "す",
+   "start": 876.804,
+   "end": 876.962,
+   "speaker": 0
+  },
+  {
+   "word": "け",
+   "start": 877.028,
+   "end": 877.171,
+   "speaker": 0
+  },
+  {
+   "word": "ど。",
+   "start": 877.189,
+   "end": 877.331,
+   "speaker": 0
+  },
+  {
+   "word": "今",
+   "start": 925.525,
+   "end": 925.694,
+   "speaker": 2
+  },
+  {
+   "word": "日",
+   "start": 925.73,
+   "end": 925.886,
+   "speaker": 2
+  },
+  {
+   "word": "は",
+   "start": 925.944,
+   "end": 926.084,
+   "speaker": 2
+  },
+  {
+   "word": "い",
+   "start": 926.163,
+   "end": 926.302,
+   "speaker": 2
+  },
+  {
+   "word": "い",
+   "start": 926.345,
+   "end": 926.465,
+   "speaker": 2
+  },
+  {
+   "word": "天",
+   "start": 926.493,
+   "end": 926.6,
+   "speaker": 2
+  },
+  {
+   "word": "気",
+   "start": 926.61,
+   "end": 926.782,
+   "speaker": 2
+  },
+  {
+   "word": "で",
+   "start": 926.847,
+   "end": 926.995,
+   "speaker": 2
+  },
+  {
+   "word": "す",
+   "start": 927.035,
+   "end": 927.17,
+   "speaker": 2
+  },
+  {
+   "word": "ね。",
+   "start": 927.245,
+   "end": 927.361,
+   "speaker": 2
+  },
+  {
+   "word": "あ",
+   "start": 979.527,
+   "end": 979.697,
+   "speaker": 2
+  },
+  {
+   "word": "の、",
+   "start": 979.728,
+   "end": 979.858,
+   "speaker": 2
+  },
+  {
+   "word": "ゲ",
+   "start": 979.868,
+   "end": 979.985,
+   "speaker": 2
+  },
+  {
+   "word": "ー",
+   "start": 979.988,
+   "end": 980.116,
+   "speaker": 2
+  },
+  {
+   "word": "ム",
+   "start": 980.159,
+   "end": 980.273,
+   "speaker": 2
+  },
+  {
+   "word": "の",
+   "start": 980.297,
+   "end": 980.422,
+   "speaker": 2
+  },
+  {
+   "word": "話",
+   "start": 980.434,
+   "end": 980.596,
+   "speaker": 2
+  },
+  {
+   "word": "な",
+   "start": 981.121,
+   "end": 981.277,
+   "speaker": 2
+  },
+  {
+   "word": "ん",
+   "start": 981.349,
+   "end": 981.521,
+   "speaker": 2
+  },
+  {
+   "word": "で",
+   "start": 981.589,
+   "end": 981.754,
+   "speaker": 2
+  },
+  {
+   "word": "す",
+   "start": 981.792,
+   "end": 981.969,
+   "speaker": 2
+  },
+  {
+   "word": "け",
+   "start": 981.994,
+   "end": 982.141,
+   "speaker": 2
+  },
+  {
+   "word": "ど。",
+   "start": 982.213,
+   "end": 982.368,
+   "speaker": 2
+  },
+  {
+   "word": "そ",
+   "start": 982.997,
+   "end": 983.13,
+   "speaker": 2
+  },
+  {
+   "word": "う",
+   "start": 983.197,
+   "end": 983.341,
+   "speaker": 2
+  },
+  {
+   "word": "で",
+   "start": 983.407,
+   "end": 983.535,
+   "speaker": 2
+  },
+  {
+   "word": "す",
+   "start": 983.601,
+   "end": 983.748,
+   "speaker": 2
+  },
+  {
+   "word": "ね、",
+   "start": 983.817,
+   "end": 983.987,
+   "speaker": 2
+  },
+  {
+   "word": "散",
+   "start": 984.036,
+   "end": 984.187,
+   "speaker": 2
+  },
+  {
+   "word": "歩",
+   "start": 984.264,
+   "end": 984.429,
+   "speaker": 2
+  },
+  {
+   "word": "に",
+   "start": 985.0,
+   "end": 985.145,
+   "speaker": 2
+  },
+  {
+   "word": "行",
+   "start": 985.168,
+   "end": 985.308,
+   "speaker": 2
+  },
+  {
+   "word": "き",
+   "start": 985.368,
+   "end": 985.536,
+   "speaker": 2
+  },
+  {
+   "word": "ま",
+   "start": 985.954,
+   "end": 986.124,
+   "speaker": 2
+  },
+  {
+   "word": "し",
+   "start": 986.188,
+   "end": 986.311,
+   "speaker": 2
+  },
+  {
+   "word": "ょ",
+   "start": 986.346,
+   "end": 986.495,
+   "speaker": 2
+  },
+  {
+   "word": "う",
+   "start": 986.519,
+   "end": 986.673,
+   "speaker": 2
+  },
+  {
+   "word": "か。",
+   "start": 986.748,
+   "end": 986.902,
+   "speaker": 2
+  },
+  {
+   "word": "え",
+   "start": 987.702,
+   "end": 987.83,
+   "speaker": 1
+  },
+  {
+   "word": "っ",
+   "start": 987.887,
+   "end": 988.005,
+   "speaker": 1
+  },
+  {
+   "word": "と、",
+   "start": 988.056,
+   "end": 988.167,
+   "speaker": 1
+  },
+  {
+   "word": "そ",
+   "start": 988.235,
+   "end": 988.337,
+   "speaker": 1
+  },
+  {
+   "word": "れ",
+   "start": 988.398,
+   "end": 988.552,
+   "speaker": 1
+  },
+  {
+   "word": "は",
+   "start": 988.607,
+   "end": 988.783,
+   "speaker": 1
+  },
+  {
+   "word": "ち",
+   "start": 988.823,
+   "end": 988.994,
+   "speaker": 1
+  },
+  {
+   "word": "ょ",
+   "start": 989.411,
+   "end": 989.531,
+   "speaker": 1
+  },
+  {
+   "word": "っ",
+   "start": 990.056,
+   "end": 990.202,
+   "speaker": 1
+  },
+  {
+   "word": "と",
+   "start": 990.255,
+   "end": 990.353,
+   "speaker": 1
+  },
+  {
+   "word": "待",
+   "start": 990.372,
+   "end": 990.552,
+   "speaker": 1
+  },
+  {
+   "word": "っ",
+   "start": 990.976,
+   "end": 991.135,
+   "speaker": 1
+  },
+  {
+   "word": "て",
+   "start": 991.2,
+   "end": 991.337,
+   "speaker": 1
+  },
+  {
+   "word": "く",
+   "start": 991.344,
+   "end": 991.445,
+   "speaker": 1
+  },
+  {
+   "word": "だ",
+   "start": 991.901,
+   "end": 992.019,
+   "speaker": 1
+  },
+  {
+   "word": "さ",
+   "start": 992.053,
+   "end": 992.173,
+   "speaker": 1
+  },
+  {
+   "word": "い。",
+   "start": 992.187,
+   "end": 992.324,
+   "speaker": 1
+  },
+  {
+   "word": "な",
+   "start": 991.047,
+   "end": 991.207,
+   "speaker": 0
+  },
+  {
+   "word": "る",
+   "start": 991.223,
+   "end": 991.371,
+   "speaker": 0
+  },
+  {
+   "word": "ほ",
+   "start": 991.423,
+   "end": 991.559,
+   "speaker": 0
+  },
+  {
+   "word": "ど、",
+   "start": 991.632,
+   "end": 991.766,
+   "speaker": 0
+  },
+  {
+   "word": "そ",
+   "start": 992.235,
+   "end": 992.387,
+   "speaker": 0
+  },
+  {
+   "word": "う",
+   "start": 992.418,
+   "end": 992.56,
+   "speaker": 0
+  },
+  {
+   "word": "い",
+   "start": 992.561,
+   "end": 992.714,
+   "speaker": 0
+  },
+  {
+   "word": "う",
+   "start": 993.288,
+   "end": 993.413,
+   "speaker": 0
+  },
+  {
+   "word": "こ",
+   "start": 993.442,
+   "end": 993.551,
+   "speaker": 0
+  },
+  {
+   "word": "と",
+   "start": 993.604,
+   "end": 993.75,
+   "speaker": 0
+  },
+  {
+   "word": "か。",
+   "start": 993.751,
+   "end": 993.932,
+   "speaker": 0
+  },
+  {
+   "word": "え",
+   "start": 1010.657,
+   "end": 1010.819,
+   "speaker": 0
+  },
+  {
+   "word": "っ",
+   "start": 1010.861,
+   "end": 1010.989,
+   "speaker": 0
+  },
+  {
+   "word": "と、",
+   "start": 1011.06,
+   "end": 1011.233,
+   "speaker": 0
+  },
+  {
+   "word": "そ",
+   "start": 1011.251,
+   "end": 1011.394,
+   "speaker": 0
+  },
+  {
+   "word": "れ",
+   "start": 1011.397,
+   "end": 1011.524,
+   "speaker": 0
+  },
+  {
+   "word": "は",
+   "start": 1011.566,
+   "end": 1011.708,
+   "speaker": 0
+  },
+  {
+   "word": "ち",
+   "start": 1011.741,
+   "end": 1011.921,
+   "speaker": 0
+  },
+  {
+   "word": "ょ",
+   "start": 1012.213,
+   "end": 1012.317,
+   "speaker": 0
+  },
+  {
+   "word": "っ",
+   "start": 1012.394,
+   "end": 1012.501,
+   "speaker": 0
+  },
+  {
+   "word": "と",
+   "start": 1012.514,
+   "end": 1012.694,
+   "speaker": 0
+  },
+  {
+   "word": "待",
+   "start": 1012.711,
+   "end": 1012.84,
+   "speaker": 0
+  },
+  {
+   "word": "っ",
+   "start": 1013.144,
+   "end": 1013.307,
+   "speaker": 0
+  },
+  {
+   "word": "て",
+   "start": 1013.314,
+   "end": 1013.464,
+   "speaker": 0
+  },
+  {
+   "word": "く",
+   "start": 1013.5,
+   "end": 1013.651,
+   "speaker": 0
+  },
+  {
+   "word": "だ",
+   "start": 1013.681,
+   "end": 1013.815,
+   "speaker": 0
+  },
+  {
+   "word": "さ",
+   "start": 1013.889,
+   "end": 1014.037,
+   "speaker": 0
+  },
+  {
+   "word": "い。",
+   "start": 1014.08,
+   "end": 1014.179,
+   "speaker": 0
+  },
+  {
+   "word": "な",
+   "start": 1014.694,
+   "end": 1014.845,
+   "speaker": 1
+  },
+  {
+   "word": "る",
+   "start": 1015.179,
+   "end": 1015.358,
+   "speaker": 1
+  },
+  {
+   "word": "ほ",
+   "start": 1015.917,
+   "end": 1016.018,
+   "speaker": 1
+  },
+  {
+   "word": "ど、",
+   "start": 1016.038,
+   "end": 1016.212,
+   "speaker": 1
+  },
+  {
+   "word": "そ",
+   "start": 1016.26,
+   "end": 1016.374,
+   "speaker": 1
+  },
+  {
+   "word": "う",
+   "start": 1016.395,
+   "end": 1016.538,
+   "speaker": 1
+  },
+  {
+   "word": "い",
+   "start": 1016.556,
+   "end": 1016.732,
+   "speaker": 1
+  },
+  {
+   "word": "う",
+   "start": 1016.755,
+   "end": 1016.891,
+   "speaker": 1
+  },
+  {
+   "word": "こ",
+   "start": 1016.928,
+   "end": 1017.081,
+   "speaker": 1
+  },
+  {
+   "word": "と",
+   "start": 1017.425,
+   "end": 1017.59,
+   "speaker": 1
+  },
+  {
+   "word": "か。",
+   "start": 1017.605,
+   "end": 1017.732,
+   "speaker": 1
+  },
+  {
+   "word": "見",
+   "start": 1018.781,
+   "end": 1018.91,
+   "speaker": 2
+  },
+  {
+   "word": "ま",
+   "start": 1019.154,
+   "end": 1019.262,
+   "speaker": 2
+  },
+  {
+   "word": "し",
+   "start": 1019.335,
+   "end": 1019.485,
+   "speaker": 2
+  },
+  {
+   "word": "た！",
+   "start": 1020.056,
+   "end": 1020.225,
+   "speaker": 2
+  },
+  {
+   "word": "す",
+   "start": 1020.251,
+   "end": 1020.379,
+   "speaker": 2
+  },
+  {
+   "word": "ご",
+   "start": 1020.406,
+   "end": 1020.549,
+   "speaker": 2
+  },
+  {
+   "word": "く",
+   "start": 1020.551,
+   "end": 1020.655,
+   "speaker": 2
+  },
+  {
+   "word": "面",
+   "start": 1020.677,
+   "end": 1020.835,
+   "speaker": 2
+  },
+  {
+   "word": "白",
+   "start": 1020.837,
+   "end": 1020.971,
+   "speaker": 2
+  },
+  {
+   "word": "か",
+   "start": 1020.99,
+   "end": 1021.168,
+   "speaker": 2
+  },
+  {
+   "word": "っ",
+   "start": 1021.606,
+   "end": 1021.727,
+   "speaker": 2
+  },
+  {
+   "word": "た",
+   "start": 1021.744,
+   "end": 1021.915,
+   "speaker": 2
+  },
+  {
+   "word": "で",
+   "start": 1021.941,
+   "end": 1022.049,
+   "speaker": 2
+  },
+  {
+   "word": "す。",
+   "start": 1022.068,
+   "end": 1022.201,
+   "speaker": 2
+  },
+  {
+   "word": "う",
+   "start": 1049.106,
+   "end": 1049.233,
+   "speaker": 0
+  },
+  {
+   "word": "ん、",
+   "start": 1049.237,
+   "end": 1049.37,
+   "speaker": 0
+  },
+  {
+   "word": "う",
+   "start": 1049.433,
+   "end": 1049.613,
+   "speaker": 0
+  },
+  {
+   "word": "ん。",
+   "start": 1049.658,
+   "end": 1049.794,
+   "speaker": 0
+  },
+  {
+   "word": "な",
+   "start": 1099.105,
+   "end": 1099.244,
+   "speaker": 0
+  },
+  {
+   "word": "る",
+   "start": 1099.32,
+   "end": 1099.471,
+   "speaker": 0
+  },
+  {
+   "word": "ほ",
+   "start": 1099.524,
+   "end": 1099.67,
+   "speaker": 0
+  },
+  {
+   "word": "ど、",
+   "start": 1099.723,
+   "end": 1099.822,
+   "speaker": 0
+  },
+  {
+   "word": "そ",
+   "start": 1099.891,
+   "end": 1100.065,
+   "speaker": 0
+  },
+  {
+   "word": "う",
+   "start": 1100.126,
+   "end": 1100.26,
+   "speaker": 0
+  },
+  {
+   "word": "い",
+   "start": 1100.314,
+   "end": 1100.435,
+   "speaker": 0
+  },
+  {
+   "word": "う",
+   "start": 1100.805,
+   "end": 1100.966,
+   "speaker": 0
+  },
+  {
+   "word": "こ",
+   "start": 1101.011,
+   "end": 1101.186,
+   "speaker": 0
+  },
+  {
+   "word": "と",
+   "start": 1101.235,
+   "end": 1101.406,
+   "speaker": 0
+  },
+  {
+   "word": "か。",
+   "start": 1101.665,
+   "end": 1101.767,
+   "speaker": 0
+  },
+  {
+   "word": "あ",
+   "start": 1102.087,
+   "end": 1102.259,
+   "speaker": 2
+  },
+  {
+   "word": "り",
+   "start": 1102.297,
+   "end": 1102.452,
+   "speaker": 2
+  },
+  {
+   "word": "が",
+   "start": 1102.518,
+   "end": 1102.653,
+   "speaker": 2
+  },
+  {
+   "word": "と",
+   "start": 1102.985,
+   "end": 1103.141,
+   "speaker": 2
+  },
+  {
+   "word": "う",
+   "start": 1103.204,
+   "end": 1103.366,
+   "speaker": 2
+  },
+  {
+   "word": "ご",
+   "start": 1103.421,
+   "end": 1103.539,
+   "speaker": 2
+  },
+  {
+   "word": "ざ",
+   "start": 1103.585,
+   "end": 1103.729,
+   "speaker": 2
+  },
+  {
+   "word": "い",
+   "start": 1103.768,
+   "end": 1103.926,
+   "speaker": 2
+  },
+  {
+   "word": "ま",
+   "start": 1103.961,
+   "end": 1104.109,
+   "speaker": 2
+  },
+  {
+   "word": "す、",
+   "start": 1104.585,
+   "end": 1104.72,
+   "speaker": 2
+  },
+  {
+   "word": "本",
+   "start": 1104.742,
+   "end": 1104.843,
+   "speaker": 2
+  },
+  {
+   "word": "当",
+   "start": 1105.06,
+   "end": 1105.2,
+   "speaker": 2
+  },
+  {
+   "word": "に",
+   "start": 1105.268,
+   "end": 1105.433,
+   "speaker": 2
+  },
+  {
+   "word": "嬉",
+   "start": 1105.487,
+   "end": 1105.657,
+   "speaker": 2
+  },
+  {
+   "word": "し",
+   "start": 1105.73,
+   "end": 1105.878,
+   "speaker": 2
+  },
+  {
+   "word": "い",
+   "start": 1106.217,
+   "end": 1106.39,
+   "speaker": 2
+  },
+  {
+   "word": "で",
+   "start": 1106.445,
+   "end": 1106.622,
+   "speaker": 2
+  },
+  {
+   "word": "す。",
+   "start": 1106.681,
+   "end": 1106.786,
+   "speaker": 2
+  },
+  {
+   "word": "え",
+   "start": 1107.033,
+   "end": 1107.213,
+   "speaker": 1
+  },
+  {
+   "word": "っ",
+   "start": 1107.245,
+   "end": 1107.376,
+   "speaker": 1
+  },
+  {
+   "word": "と、",
+   "start": 1107.411,
+   "end": 1107.572,
+   "speaker": 1
+  },
+  {
+   "word": "そ",
+   "start": 1107.645,
+   "end": 1107.801,
+   "speaker": 1
+  },
+  {
+   "word": "れ",
+   "start": 1107.812,
+   "end": 1107.97,
+   "speaker": 1
+  },
+  {
+   "word": "は",
+   "start": 1108.191,
+   "end": 1108.37,
+   "speaker": 1
+  },
+  {
+   "word": "ち",
+   "start": 1108.379,
+   "end": 1108.519,
+   "speaker": 1
+  },
+  {
+   "word": "ょ",
+   "start": 1108.545,
+   "end": 1108.704,
+   "speaker": 1
+  },
+  {
+   "word": "っ",
+   "start": 1108.706,
+   "end": 1108.821,
+   "speaker": 1
+  },
+  {
+   "word": "と",
+   "start": 1108.845,
+   "end": 1109.015,
+   "speaker": 1
+  },
+  {
+   "word": "待",
+   "start": 1109.025,
+   "end": 1109.15,
+   "speaker": 1
+  },
+  {
+   "word": "っ",
+   "start": 1109.688,
+   "end": 1109.834,
+   "speaker": 1
+  },
+  {
+   "word": "て",
+   "start": 1109.881,
+   "end": 1110.046,
+   "speaker": 1
+  },
+  {
+   "word": "く",
+   "start": 1110.066,
+   "end": 1110.169,
+   "speaker": 1
+  },
+  {
+   "word": "だ",
+   "start": 1110.215,
+   "end": 1110.322,
+   "speaker": 1
+  },
+  {
+   "word": "さ",
+   "start": 1110.358,
+   "end": 1110.475,
+   "speaker": 1
+  },
+  {
+   "word": "い。",
+   "start": 1110.483,
+   "end": 1110.609,
+   "speaker": 1
+  },
+  {
+   "word": "あ",
+   "start": 1139.06,
+   "end": 1139.202,
+   "speaker": 1
+  },
+  {
+   "word": "り",
+   "start": 1139.502,
+   "end": 1139.655,
+   "speaker": 1
+  },
+  {
+   "word": "が",
+   "start": 1139.707,
+   "end": 1139.844,
+   "speaker": 1
+  },
+  {
+   "word": "と",
+   "start": 1139.914,
+   "end": 1140.069,
+   "speaker": 1
+  },
+  {
+   "word": "う",
+   "start": 1140.326,
+   "end": 1140.474,
+   "speaker": 1
+  },
+  {
+   "word": "ご",
+   "start": 1140.486,
+   "end": 1140.607,
+   "speaker": 1
+  },
+  {
+   "word": "ざ",
+   "start": 1140.638,
+   "end": 1140.751,
+   "speaker": 1
+  },
+  {
+   "word": "い",
+   "start": 1140.827,
+   "end": 1140.946,
+   "speaker": 1
+  },
+  {
+   "word": "ま",
+   "start": 1140.99,
+   "end": 1141.109,
+   "speaker": 1
+  },
+  {
+   "word": "す、",
+   "start": 1141.173,
+   "end": 1141.298,
+   "speaker": 1
+  },
+  {
+   "word": "本",
+   "start": 1141.366,
+   "end": 1141.5,
+   "speaker": 1
+  },
+  {
+   "word": "当",
+   "start": 1141.528,
+   "end": 1141.665,
+   "speaker": 1
+  },
+  {
+   "word": "に",
+   "start": 1141.714,
+   "end": 1141.862,
+   "speaker": 1
+  },
+  {
+   "word": "嬉",
+   "start": 1142.074,
+   "end": 1142.204,
+   "speaker": 1
+  },
+  {
+   "word": "し",
+   "start": 1142.23,
+   "end": 1142.411,
+   "speaker": 1
+  },
+  {
+   "word": "い",
+   "start": 1142.75,
+   "end": 1142.896,
+   "speaker": 1
+  },
+  {
+   "word": "で",
+   "start": 1143.394,
+   "end": 1143.529,
+   "speaker": 1
+  },
+  {
+   "word": "す。",
+   "start": 1143.759,
+   "end": 1143.898,
+   "speaker": 1
+  },
+  {
+   "word": "な",
+   "start": 1144.89,
+   "end": 1144.997,
+   "speaker": 0
+  },
+  {
+   "word": "る",
+   "start": 1145.065,
+   "end": 1145.177,
+   "speaker": 0
+  },
+  {
+   "word": "ほ",
+   "start": 1145.235,
+   "end": 1145.369,
+   "speaker": 0
+  },
+  {
+   "word": "ど、",
+   "start": 1145.4,
+   "end": 1145.504,
+   "speaker": 0
+  },
+  {
+   "word": "そ",
+   "start": 1145.509,
+   "end": 1145.622,
+   "speaker": 0
+  },
+  {
+   "word": "う",
+   "start": 1145.638,
+   "end": 1145.794,
+   "speaker": 0
+  },
+  {
+   "word": "い",
+   "start": 1145.825,
+   "end": 1145.988,
+   "speaker": 0
+  },
+  {
+   "word": "う",
+   "start": 1146.002,
+   "end": 1146.137,
+   "speaker": 0
+  },
+  {
+   "word": "こ",
+   "start": 1146.169,
+   "end": 1146.338,
+   "speaker": 0
+  },
+  {
+   "word": "と",
+   "start": 1146.339,
+   "end": 1146.437,
+   "speaker": 0
+  },
+  {
+   "word": "か。",
+   "start": 1146.516,
+   "end": 1146.655,
+   "speaker": 0
+  },
+  {
+   "word": "い",
+   "start": 1146.996,
+   "end": 1147.117,
+   "speaker": 0
+  },
+  {
+   "word": "や、",
+   "start": 1147.149,
+   "end": 1147.321,
+   "speaker": 0
+  },
+  {
+   "word": "全",
+   "start": 1147.704,
+   "end": 1147.86,
+   "speaker": 0
+  },
+  {
+   "word": "然",
+   "start": 1147.864,
+   "end": 1147.981,
+   "speaker": 0
+  },
+  {
+   "word": "わ",
+   "start": 1147.987,
+   "end": 1148.14,
+   "speaker": 0
+  },
+  {
+   "word": "か",
+   "start": 1148.198,
+   "end": 1148.334,
+   "speaker": 0
+  },
+  {
+   "word": "ら",
+   "start": 1148.403,
+   "end": 1148.514,
+   "speaker": 0
+  },
+  {
+   "word": "な",
+   "start": 1148.565,
+   "end": 1148.744,
+   "speaker": 0
+  },
+  {
+   "word": "か",
+   "start": 1148.812,
+   "end": 1148.979,
+   "speaker": 0
+  },
+  {
+   "word": "っ",
+   "start": 1149.027,
+   "end": 1149.201,
+   "speaker": 0
+  },
+  {
+   "word": "た",
+   "start": 1149.26,
+   "end": 1149.407,
+   "speaker": 0
+  },
+  {
+   "word": "で",
+   "start": 1149.468,
+   "end": 1149.593,
+   "speaker": 0
+  },
+  {
+   "word": "す。",
+   "start": 1149.596,
+   "end": 1149.739,
+   "speaker": 0
+  },
+  {
+   "word": "見",
+   "start": 1184.966,
+   "end": 1185.095,
+   "speaker": 0
+  },
+  {
+   "word": "ま",
+   "start": 1185.317,
+   "end": 1185.484,
+   "speaker": 0
+  },
+  {
+   "word": "し",
+   "start": 1185.503,
+   "end": 1185.651,
+   "speaker": 0
+  },
+  {
+   "word": "た！",
+   "start": 1185.714,
+   "end": 1185.841,
+   "speaker": 0
+  },
+  {
+   "word": "す",
+   "start": 1185.868,
+   "end": 1185.968,
+   "speaker": 0
+  },
+  {
+   "word": "ご",
+   "start": 1186.282,
+   "end": 1186.427,
+   "speaker": 0
+  },
+  {
+   "word": "く",
+   "start": 1186.464,
+   "end": 1186.606,
+   "speaker": 0
+  },
+  {
+   "word": "面",
+   "start": 1186.622,
+   "end": 1186.738,
+   "speaker": 0
+  },
+  {
+   "word": "白",
+   "start": 1187.226,
+   "end": 1187.394,
+   "speaker": 0
+  },
+  {
+   "word": "か",
+   "start": 1187.45,
+   "end": 1187.582,
+   "speaker": 0
+  },
+  {
+   "word": "っ",
+   "start": 1187.647,
+   "end": 1187.763,
+   "speaker": 0
+  },
+  {
+   "word": "た",
+   "start": 1187.819,
+   "end": 1187.92,
+   "speaker": 0
+  },
+  {
+   "word": "で",
+   "start": 1187.938,
+   "end": 1188.103,
+   "speaker": 0
+  },
+  {
+   "word": "す。",
+   "start": 1188.125,
+   "end": 1188.273,
+   "speaker": 0
+  },
+  {
+   "word": "い",
+   "start": 1219.422,
+   "end": 1219.55,
+   "speaker": 2
+  },
+  {
+   "word": "や、",
+   "start": 1219.595,
+   "end": 1219.773,
+   "speaker": 2
+  },
+  {
+   "word": "全",
+   "start": 1219.81,
+   "end": 1219.95,
+   "speaker": 2
+  },
+  {
+   "word": "然",
+   "start": 1220.03,
+   "end": 1220.174,
+   "speaker": 2
+  },
+  {
+   "word": "わ",
+   "start": 1220.478,
+   "end": 1220.604,
+   "speaker": 2
+  },
+  {
+   "word": "か",
+   "start": 1220.666,
+   "end": 1220.844,
+   "speaker": 2
+  },
+  {
+   "word": "ら",
+   "start": 1220.877,
+   "end": 1221.044,
+   "speaker": 2
+  },
+  {
+   "word": "な",
+   "start": 1221.123,
+   "end": 1221.273,
+   "speaker": 2
+  },
+  {
+   "word": "か",
+   "start": 1221.346,
+   "end": 1221.496,
+   "speaker": 2
+  },
+  {
+   "word": "っ",
+   "start": 1221.514,
+   "end": 1221.659,
+   "speaker": 2
+  },
+  {
+   "word": "た",
+   "start": 1221.993,
+   "end": 1222.101,
+   "speaker": 2
+  },
+  {
+   "word": "で",
+   "start": 1222.178,
+   "end": 1222.283,
+   "speaker": 2
+  },
+  {
+   "word": "す。",
+   "start": 1222.325,
+   "end": 1222.504,
+   "speaker": 2
+  },
+  {
+   "word": "い",
+   "start": 1260.19,
+   "end": 1260.319,
+   "speaker": 1
+  },
+  {
+   "word": "や、",
+   "start": 1260.349,
+   "end": 1260.466,
+   "speaker": 1
+  },
+  {
+   "word": "全",
+   "start": 1260.505,
+   "end": 1260.619,
+   "speaker": 1
+  },
+  {
+   "word": "然",
+   "start": 1260.676,
+   "end": 1260.841,
+   "speaker": 1
+  },
+  {
+   "word": "わ",
+   "start": 1260.879,
+   "end": 1261.0,
+   "speaker": 1
+  },
+  {
+   "word": "か",
+   "start": 1261.07,
+   "end": 1261.181,
+   "speaker": 1
+  },
+  {
+   "word": "ら",
+   "start": 1261.195,
+   "end": 1261.353,
+   "speaker": 1
+  },
+  {
+   "word": "な",
+   "start": 1261.86,
+   "end": 1261.972,
+   "speaker": 1
+  },
+  {
+   "word": "か",
+   "start": 1262.051,
+   "end": 1262.186,
+   "speaker": 1
+  },
+  {
+   "word": "っ",
+   "start": 1262.216,
+   "end": 1262.362,
+   "speaker": 1
+  },
+  {
+   "word": "た",
+   "start": 1262.38,
+   "end": 1262.524,
+   "speaker": 1
+  },
+  {
+   "word": "で",
+   "start": 1262.548,
+   "end": 1262.68,
+   "speaker": 1
+  },
+  {
+   "word": "す。",
+   "start": 1262.706,
+   "end": 1262.852,
+   "speaker": 1
+  },
+  {
+   "word": "え",
+   "start": 1263.37,
+   "end": 1263.499,
+   "speaker": 0
+  },
+  {
+   "word": "っ",
+   "start": 1263.701,
+   "end": 1263.842,
+   "speaker": 0
+  },
+  {
+   "word": "と、",
+   "start": 1263.854,
+   "end": 1263.987,
+   "speaker": 0
+  },
+  {
+   "word": "そ",
+   "start": 1264.425,
+   "end": 1264.584,
+   "speaker": 0
+  },
+  {
+   "word": "れ",
+   "start": 1264.609,
+   "end": 1264.751,
+   "speaker": 0
+  },
+  {
+   "word": "は",
+   "start": 1264.779,
+   "end": 1264.895,
+   "speaker": 0
+  },
+  {
+   "word": "ち",
+   "start": 1265.183,
+   "end": 1265.298,
+   "speaker": 0
+  },
+  {
+   "word": "ょ",
+   "start": 1265.675,
+   "end": 1265.819,
+   "speaker": 0
+  },
+  {
+   "word": "っ",
+   "start": 1265.887,
+   "end": 1266.002,
+   "speaker": 0
+  },
+  {
+   "word": "と",
+   "start": 1266.046,
+   "end": 1266.185,
+   "speaker": 0
+  },
+  {
+   "word": "待",
+   "start": 1266.207,
+   "end": 1266.363,
+   "speaker": 0
+  },
+  {
+   "word": "っ",
+   "start": 1266.592,
+   "end": 1266.7,
+   "speaker": 0
+  },
+  {
+   "word": "て",
+   "start": 1266.751,
+   "end": 1266.89,
+   "speaker": 0
+  },
+  {
+   "word": "く",
+   "start": 1266.9,
+   "end": 1267.081,
+   "speaker": 0
+  },
+  {
+   "word": "だ",
+   "start": 1267.087,
+   "end": 1267.255,
+   "speaker": 0
+  },
+  {
+   "word": "さ",
+   "start": 1267.316,
+   "end": 1267.454,
+   "speaker": 0
+  },
+  {
+   "word": "い。",
+   "start": 1267.471,
+   "end": 1267.569,
+   "speaker": 0
+  },
+  {
+   "word": "昨",
+   "start": 1267.871,
+   "end": 1268.045,
+   "speaker": 1
+  },
+  {
+   "word": "日",
+   "start": 1268.056,
+   "end": 1268.208,
+   "speaker": 1
+  },
+  {
+   "word": "の",
+   "start": 1268.254,
+   "end": 1268.358,
+   "speaker": 1
+  },
+  {
+   "word": "配",
+   "start": 1268.395,
+   "end": 1268.532,
+   "speaker": 1
+  },
+  {
+   "word": "信、",
+   "start": 1268.997,
+   "end": 1269.136,
+   "speaker": 1
+  },
+  {
+   "word": "見",
+   "start": 1269.214,
+   "end": 1269.365,
+   "speaker": 1
+  },
+  {
+   "word": "ま",
+   "start": 1269.41,
+   "end": 1269.553,
+   "speaker": 1
+  },
+  {
+   "word": "し",
+   "start": 1270.007,
+   "end": 1270.166,
+   "speaker": 1
+  },
+  {
+   "word": "た",
+   "start": 1270.752,
+   "end": 1270.874,
+   "speaker": 1
+  },
+  {
+   "word": "か？",
+   "start": 1270.913,
+   "end": 1271.018,
+   "speaker": 1
+  },
+  {
+   "word": "そ",
+   "start": 1328.396,
+   "end": 1328.504,
+   "speaker": 1
+  },
+  {
+   "word": "れ",
+   "start": 1328.528,
+   "end": 1328.694,
+   "speaker": 1
+  },
+  {
+   "word": "で、",
+   "start": 1328.71,
+   "end": 1328.848,
+   "speaker": 1
+  },
+  {
+   "word": "最",
+   "start": 1328.897,
+   "end": 1329.034,
+   "speaker": 1
+  },
+  {
+   "word": "後",
+   "start": 1329.31,
+   "end": 1329.413,
+   "speaker": 1
+  },
+  {
+   "word": "ど",
+   "start": 1329.875,
+   "end": 1330.01,
+   "speaker": 1
+  },
+  {
+   "word": "う",
+   "start": 1330.072,
+   "end": 1330.251,
+   "speaker": 1
+  },
+  {
+   "word": "な",
+   "start": 1330.321,
+   "end": 1330.433,
+   "speaker": 1
+  },
+  {
+   "word": "っ",
+   "start": 1330.481,
+   "end": 1330.651,
+   "speaker": 1
+  },
+  {
+   "word": "た",
+   "start": 1330.677,
+   "end": 1330.83,
+   "speaker": 1
+  },
+  {
+   "word": "ん",
+   "start": 1330.834,
+   "end": 1330.953,
+   "speaker": 1
+  },
+  {
+   "word": "で",
+   "start": 1331.026,
+   "end": 1331.178,
+   "speaker": 1
+  },
+  {
+   "word": "す",
+   "start": 1331.252,
+   "end": 1331.352,
+   "speaker": 1
+  },
+  {
+   "word": "か？",
+   "start": 1331.413,
+   "end": 1331.516,
+   "speaker": 1
+  },
+  {
+   "word": "あ",
+   "start": 1331.666,
+   "end": 1331.808,
+   "speaker": 0
+  },
+  {
+   "word": "の、",
+   "start": 1331.835,
+   "end": 1331.944,
+   "speaker": 0
+  },
+  {
+   "word": "ゲ",
+   "start": 1331.999,
+   "end": 1332.172,
+   "speaker": 0
+  },
+  {
+   "word": "ー",
+   "start": 1332.235,
+   "end": 1332.399,
+   "speaker": 0
+  },
+  {
+   "word": "ム",
+   "start": 1332.466,
+   "end": 1332.615,
+   "speaker": 0
+  },
+  {
+   "word": "の",
+   "start": 1332.623,
+   "end": 1332.783,
+   "speaker": 0
+  },
+  {
+   "word": "話",
+   "start": 1333.072,
+   "end": 1333.172,
+   "speaker": 0
+  },
+  {
+   "word": "な",
+   "start": 1333.235,
+   "end": 1333.405,
+   "speaker": 0
+  },
+  {
+   "word": "ん",
+   "start": 1333.451,
+   "end": 1333.575,
+   "speaker": 0
+  },
+  {
+   "word": "で",
+   "start": 1333.596,
+   "end": 1333.731,
+   "speaker": 0
+  },
+  {
+   "word": "す",
+   "start": 1333.76,
+   "end": 1333.882,
+   "speaker": 0
+  },
+  {
+   "word": "け",
+   "start": 1333.934,
+   "end": 1334.101,
+   "speaker": 0
+  },
+  {
+   "word": "ど。",
+   "start": 1334.144,
+   "end": 1334.263,
+   "speaker": 0
+  },
+  {
+   "word": "い",
+   "start": 1335.213,
+   "end": 1335.369,
+   "speaker": 2
+  },
+  {
+   "word": "や、",
+   "start": 1335.425,
+   "end": 1335.536,
+   "speaker": 2
+  },
+  {
+   "word": "全",
+   "start": 1335.601,
+   "end": 1335.776,
+   "speaker": 2
+  },
+  {
+   "word": "然",
+   "start": 1335.815,
+   "end": 1335.916,
+   "speaker": 2
+  },
+  {
+   "word": "わ",
+   "start": 1335.928,
+   "end": 1336.069,
+   "speaker": 2
+  },
+  {
+   "word": "か",
+   "start": 1336.121,
+   "end": 1336.275,
+   "speaker": 2
+  },
+  {
+   "word": "ら",
+   "start": 1336.303,
+   "end": 1336.446,
+   "speaker": 2
+  },
+  {
+   "word": "な",
+   "start": 1336.485,
+   "end": 1336.594,
+   "speaker": 2
+  },
+  {
+   "word": "か",
+   "start": 1336.67,
+   "end": 1336.851,
+   "speaker": 2
+  },
+  {
+   "word": "っ",
+   "start": 1336.885,
+   "end": 1337.04,
+   "speaker": 2
+  },
+  {
+   "word": "た",
+   "start": 1337.407,
+   "end": 1337.588,
+   "speaker": 2
+  },
+  {
+   "word": "で",
+   "start": 1337.656,
+   "end": 1337.807,
+   "speaker": 2
+  },
+  {
+   "word": "す。",
+   "start": 1337.812,
+   "end": 1337.935,
+   "speaker": 2
+  },
+  {
+   "word": "い",
+   "start": 1341.808,
+   "end": 1341.977,
+   "speaker": 0
+  },
+  {
+   "word": "や、",
+   "start": 1342.029,
+   "end": 1342.19,
+   "speaker": 0
+  },
+  {
+   "word": "全",
+   "start": 1342.402,
+   "end": 1342.57,
+   "speaker": 0
+  },
+  {
+   "word": "然",
+   "start": 1342.573,
+   "end": 1342.726,
+   "speaker": 0
+  },
+  {
+   "word": "わ",
+   "start": 1342.779,
+   "end": 1342.959,
+   "speaker": 0
+  },
+  {
+   "word": "か",
+   "start": 1342.996,
+   "end": 1343.158,
+   "speaker": 0
+  },
+  {
+   "word": "ら",
+   "start": 1343.233,
+   "end": 1343.349,
+   "speaker": 0
+  },
+  {
+   "word": "な",
+   "start": 1343.351,
+   "end": 1343.477,
+   "speaker": 0
+  },
+  {
+   "word": "か",
+   "start": 1343.775,
+   "end": 1343.881,
+   "speaker": 0
+  },
+  {
+   "word": "っ",
+   "start": 1343.909,
+   "end": 1344.083,
+   "speaker": 0
+  },
+  {
+   "word": "た",
+   "start": 1344.353,
+   "end": 1344.477,
+   "speaker": 0
+  },
+  {
+   "word": "で",
+   "start": 1344.496,
+   "end": 1344.674,
+   "speaker": 0
+  },
+  {
+   "word": "す。",
+   "start": 1344.747,
+   "end": 1344.872,
+   "speaker": 0
+  },
+  {
+   "word": "今",
+   "start": 1345.342,
+   "end": 1345.517,
+   "speaker": 2
+  },
+  {
+   "word": "日",
+   "start": 1345.577,
+   "end": 1345.696,
+   "speaker": 2
+  },
+  {
+   "word": "は",
+   "start": 1345.762,
+   "end": 1345.943,
+   "speaker": 2
+  },
+  {
+   "word": "い",
+   "start": 1345.987,
+   "end": 1346.114,
+   "speaker": 2
+  },
+  {
+   "word": "い",
+   "start": 1346.164,
+   "end": 1346.299,
+   "speaker": 2
+  },
+  {
+   "word": "天",
+   "start": 1346.375,
+   "end": 1346.538,
+   "speaker": 2
+  },
+  {
+   "word": "気",
+   "start": 1346.58,
+   "end": 1346.703,
+   "speaker": 2
+  },
+  {
+   "word": "で",
+   "start": 1346.722,
+   "end": 1346.842,
+   "speaker": 2
+  },
+  {
+   "word": "す",
+   "start": 1347.059,
+   "end": 1347.237,
+   "speaker": 2
+  },
+  {
+   "word": "ね。",
+   "start": 1347.259,
+   "end": 1347.395,
+   "speaker": 2
+  },
+  {
+   "word": "え",
+   "start": 1369.725,
+   "end": 1369.838,
+   "speaker": 1
+  },
+  {
+   "word": "っ",
+   "start": 1369.91,
+   "end": 1370.069,
+   "speaker": 1
+  },
+  {
+   "word": "と、",
+   "start": 1370.331,
+   "end": 1370.507,
+   "speaker": 1
+  },
+  {
+   "word": "そ",
+   "start": 1370.519,
+   "end": 1370.68,
+   "speaker": 1
+  },
+  {
+   "word": "れ",
+   "start": 1370.752,
+   "end": 1370.857,
+   "speaker": 1
+  },
+  {
+   "word": "は",
+   "start": 1371.363,
+   "end": 1371.466,
+   "speaker": 1
+  },
+  {
+   "word": "ち",
+   "start": 1371.529,
+   "end": 1371.642,
+   "speaker": 1
+  },
+  {
+   "word": "ょ",
+   "start": 1371.713,
+   "end": 1371.875,
+   "speaker": 1
+  },
+  {
+   "word": "っ",
+   "start": 1371.924,
+   "end": 1372.057,
+   "speaker": 1
+  },
+  {
+   "word": "と",
+   "start": 1372.1,
+   "end": 1372.234,
+   "speaker": 1
+  },
+  {
+   "word": "待",
+   "start": 1372.282,
+   "end": 1372.402,
+   "speaker": 1
+  },
+  {
+   "word": "っ",
+   "start": 1372.438,
+   "end": 1372.538,
+   "speaker": 1
+  },
+  {
+   "word": "て",
+   "start": 1373.027,
+   "end": 1373.196,
+   "speaker": 1
+  },
+  {
+   "word": "く",
+   "start": 1373.276,
+   "end": 1373.42,
+   "speaker": 1
+  },
+  {
+   "word": "だ",
+   "start": 1373.894,
+   "end": 1374.018,
+   "speaker": 1
+  },
+  {
+   "word": "さ",
+   "start": 1374.484,
+   "end": 1374.633,
+   "speaker": 1
+  },
+  {
+   "word": "い。",
+   "start": 1374.697,
+   "end": 1374.804,
+   "speaker": 1
+  },
+  {
+   "word": "え",
+   "start": 1375.015,
+   "end": 1375.113,
+   "speaker": 1
+  },
+  {
+   "word": "っ",
+   "start": 1375.168,
+   "end": 1375.293,
+   "speaker": 1
+  },
+  {
+   "word": "と、",
+   "start": 1375.345,
+   "end": 1375.489,
+   "speaker": 1
+  },
+  {
+   "word": "そ",
+   "start": 1375.541,
+   "end": 1375.646,
+   "speaker": 1
+  },
+  {
+   "word": "れ",
+   "start": 1375.692,
+   "end": 1375.834,
+   "speaker": 1
+  },
+  {
+   "word": "は",
+   "start": 1376.413,
+   "end": 1376.524,
+   "speaker": 1
+  },
+  {
+   "word": "ち",
+   "start": 1376.532,
+   "end": 1376.674,
+   "speaker": 1
+  },
+  {
+   "word": "ょ",
+   "start": 1377.201,
+   "end": 1377.357,
+   "speaker": 1
+  },
+  {
+   "word": "っ",
+   "start": 1377.365,
+   "end": 1377.472,
+   "speaker": 1
+  },
+  {
+   "word": "と",
+   "start": 1377.896,
+   "end": 1378.077,
+   "speaker": 1
+  },
+  {
+   "word": "待",
+   "start": 1378.101,
+   "end": 1378.231,
+   "speaker": 1
+  },
+  {
+   "word": "っ",
+   "start": 1378.292,
+   "end": 1378.466,
+   "speaker": 1
+  },
+  {
+   "word": "て",
+   "start": 1378.889,
+   "end": 1379.024,
+   "speaker": 1
+  },
+  {
+   "word": "く",
+   "start": 1379.042,
+   "end": 1379.216,
+   "speaker": 1
+  },
+  {
+   "word": "だ",
+   "start": 1379.289,
+   "end": 1379.428,
+   "speaker": 1
+  },
+  {
+   "word": "さ",
+   "start": 1379.465,
+   "end": 1379.619,
+   "speaker": 1
+  },
+  {
+   "word": "い。",
+   "start": 1380.152,
+   "end": 1380.26,
+   "speaker": 1
+  },
+  {
+   "word": "今",
+   "start": 1400.535,
+   "end": 1400.704,
+   "speaker": 0
+  },
+  {
+   "word": "日",
+   "start": 1400.706,
+   "end": 1400.876,
+   "speaker": 0
+  },
+  {
+   "word": "は",
+   "start": 1400.926,
+   "end": 1401.092,
+   "speaker": 0
+  },
+  {
+   "word": "い",
+   "start": 1401.169,
+   "end": 1401.318,
+   "speaker": 0
+  },
+  {
+   "word": "い",
+   "start": 1401.346,
+   "end": 1401.498,
+   "speaker": 0
+  },
+  {
+   "word": "天",
+   "start": 1401.569,
+   "end": 1401.703,
+   "speaker": 0
+  },
+  {
+   "word": "気",
+   "start": 1401.751,
+   "end": 1401.872,
+   "speaker": 0
+  },
+  {
+   "word": "で",
+   "start": 1401.938,
+   "end": 1402.082,
+   "speaker": 0
+  },
+  {
+   "word": "す",
+   "start": 1402.103,
+   "end": 1402.216,
+   "speaker": 0
+  },
+  {
+   "word": "ね。",
+   "start": 1402.246,
+   "end": 1402.353,
+   "speaker": 0
+  },
+  {
+   "word": "う",
+   "start": 1454.647,
+   "end": 1454.773,
+   "speaker": 0
+  },
+  {
+   "word": "ん、",
+   "start": 1454.802,
+   "end": 1454.973,
+   "speaker": 0
+  },
+  {
+   "word": "う",
+   "start": 1454.993,
+   "end": 1455.143,
+   "speaker": 0
+  },
+  {
+   "word": "ん。",
+   "start": 1455.181,
+   "end": 1455.297,
+   "speaker": 0
+  },
+  {
+   "word": "な",
+   "start": 1504.837,
+   "end": 1504.976,
+   "speaker": 0
+  },
+  {
+   "word": "る",
+   "start": 1504.983,
+   "end": 1505.122,
+   "speaker": 0
+  },
+  {
+   "word": "ほ",
+   "start": 1505.201,
+   "end": 1505.331,
+   "speaker": 0
+  },
+  {
+   "word": "ど、",
+   "start": 1505.339,
+   "end": 1505.491,
+   "speaker": 0
+  },
+  {
+   "word": "そ",
+   "start": 1505.555,
+   "end": 1505.689,
+   "speaker": 0
+  },
+  {
+   "word": "う",
+   "start": 1505.719,
+   "end": 1505.865,
+   "speaker": 0
+  },
+  {
+   "word": "い",
+   "start": 1505.875,
+   "end": 1506.016,
+   "speaker": 0
+  },
+  {
+   "word": "う",
+   "start": 1506.059,
+   "end": 1506.182,
+   "speaker": 0
+  },
+  {
+   "word": "こ",
+   "start": 1506.239,
+   "end": 1506.346,
+   "speaker": 0
+  },
+  {
+   "word": "と",
+   "start": 1506.423,
+   "end": 1506.602,
+   "speaker": 0
+  },
+  {
+   "word": "か。",
+   "start": 1506.604,
+   "end": 1506.727,
+   "speaker": 0
+  },
+  {
+   "word": "そ",
+   "start": 1507.55,
+   "end": 1507.665,
+   "speaker": 2
+  },
+  {
+   "word": "れ",
+   "start": 1508.046,
+   "end": 1508.227,
+   "speaker": 2
+  },
+  {
+   "word": "で、",
+   "start": 1508.608,
+   "end": 1508.778,
+   "speaker": 2
+  },
+  {
+   "word": "最",
+   "start": 1508.813,
+   "end": 1508.937,
+   "speaker": 2
+  },
+  {
+   "word": "後",
+   "start": 1509.014,
+   "end": 1509.137,
+   "speaker": 2
+  },
+  {
+   "word": "ど",
+   "start": 1509.661,
+   "end": 1509.763,
+   "speaker": 2
+  },
+  {
+   "word": "う",
+   "start": 1509.775,
+   "end": 1509.915,
+   "speaker": 2
+  },
+  {
+   "word": "な",
+   "start": 1510.247,
+   "end": 1510.352,
+   "speaker": 2
+  },
+  {
+   "word": "っ",
+   "start": 1510.363,
+   "end": 1510.531,
+   "speaker": 2
+  },
+  {
+   "word": "た",
+   "start": 1510.571,
+   "end": 1510.751,
+   "speaker": 2
+  },
+  {
+   "word": "ん",
+   "start": 1510.761,
+   "end": 1510.926,
+   "speaker": 2
+  },
+  {
+   "word": "で",
+   "start": 1510.958,
+   "end": 1511.11,
+   "speaker": 2
+  },
+  {
+   "word": "す",
+   "start": 1511.176,
+   "end": 1511.312,
+   "speaker": 2
+  },
+  {
+   "word": "か？",
+   "start": 1511.357,
+   "end": 1511.481,
+   "speaker": 2
+  },
+  {
+   "word": "昨",
+   "start": 1516.652,
+   "end": 1516.791,
+   "speaker": 0
+  },
+  {
+   "word": "日",
+   "start": 1516.849,
+   "end": 1516.966,
+   "speaker": 0
+  },
+  {
+   "word": "の",
+   "start": 1517.005,
+   "end": 1517.183,
+   "speaker": 0
+  },
+  {
+   "word": "配",
+   "start": 1517.221,
+   "end": 1517.379,
+   "speaker": 0
+  },
+  {
+   "word": "信、",
+   "start": 1517.414,
+   "end": 1517.548,
+   "speaker": 0
+  },
+  {
+   "word": "見",
+   "start": 1517.57,
+   "end": 1517.721,
+   "speaker": 0
+  },
+  {
+   "word": "ま",
+   "start": 1517.787,
+   "end": 1517.921,
+   "speaker": 0
+  },
+  {
+   "word": "し",
+   "start": 1517.966,
+   "end": 1518.112,
+   "speaker": 0
+  },
+  {
+   "word": "た",
+   "start": 1518.602,
+   "end": 1518.769,
+   "speaker": 0
+  },
+  {
+   "word": "か？",
+   "start": 1518.776,
+   "end": 1518.942,
+   "speaker": 0
+  },
+  {
+   "word": "そ",
+   "start": 1519.719,
+   "end": 1519.838,
+   "speaker": 1
+  },
+  {
+   "word": "う",
+   "start": 1519.904,
+   "end": 1520.079,
+   "speaker": 1
+  },
+  {
+   "word": "で",
+   "start": 1520.423,
+   "end": 1520.577,
+   "speaker": 1
+  },
+  {
+   "word": "す",
+   "start": 1520.599,
+   "end": 1520.776,
+   "speaker": 1
+  },
+  {
+   "word": "ね、",
+   "start": 1520.85,
+   "end": 1521.01,
+   "speaker": 1
+  },
+  {
+   "word": "散",
+   "start": 1521.382,
+   "end": 1521.493,
+   "speaker": 1
+  },
+  {
+   "word": "歩",
+   "start": 1521.544,
+   "end": 1521.655,
+   "speaker": 1
+  },
+  {
+   "word": "に",
+   "start": 1521.676,
+   "end": 1521.847,
+   "speaker": 1
+  },
+  {
+   "word": "行",
+   "start": 1521.854,
+   "end": 1521.967,
+   "speaker": 1
+  },
+  {
+   "word": "き",
+   "start": 1522.005,
+   "end": 1522.174,
+   "speaker": 1
+  },
+  {
+   "word": "ま",
+   "start": 1522.64,
+   "end": 1522.77,
+   "speaker": 1
+  },
+  {
+   "word": "し",
+   "start": 1522.807,
+   "end": 1522.916,
+   "speaker": 1
+  },
+  {
+   "word": "ょ",
+   "start": 1522.95,
+   "end": 1523.061,
+   "speaker": 1
+  },
+  {
+   "word": "う",
+   "start": 1523.081,
+   "end": 1523.214,
+   "speaker": 1
+  },
+  {
+   "word": "か。",
+   "start": 1523.574,
+   "end": 1523.726,
+   "speaker": 1
+  },
+  {
+   "word": "あ",
+   "start": 1524.843,
+   "end": 1524.984,
+   "speaker": 1
+  },
+  {
+   "word": "の、",
+   "start": 1525.059,
+   "end": 1525.172,
+   "speaker": 1
+  },
+  {
+   "word": "ゲ",
+   "start": 1525.226,
+   "end": 1525.329,
+   "speaker": 1
+  },
+  {
+   "word": "ー",
+   "start": 1525.346,
+   "end": 1525.518,
+   "speaker": 1
+  },
+  {
+   "word": "ム",
+   "start": 1525.54,
+   "end": 1525.66,
+   "speaker": 1
+  },
+  {
+   "word": "の",
+   "start": 1525.68,
+   "end": 1525.834,
+   "speaker": 1
+  },
+  {
+   "word": "話",
+   "start": 1525.837,
+   "end": 1525.936,
+   "speaker": 1
+  },
+  {
+   "word": "な",
+   "start": 1526.445,
+   "end": 1526.557,
+   "speaker": 1
+  },
+  {
+   "word": "ん",
+   "start": 1526.637,
+   "end": 1526.787,
+   "speaker": 1
+  },
+  {
+   "word": "で",
+   "start": 1526.828,
+   "end": 1526.955,
+   "speaker": 1
+  },
+  {
+   "word": "す",
+   "start": 1526.979,
+   "end": 1527.091,
+   "speaker": 1
+  },
+  {
+   "word": "け",
+   "start": 1527.092,
+   "end": 1527.194,
+   "speaker": 1
+  },
+  {
+   "word": "ど。",
+   "start": 1527.457,
+   "end": 1527.636,
+   "speaker": 1
+  },
+  {
+   "word": "そ",
+   "start": 1527.895,
+   "end": 1528.048,
+   "speaker": 2
+  },
+  {
+   "word": "う",
+   "start": 1528.119,
+   "end": 1528.269,
+   "speaker": 2
+  },
+  {
+   "word": "で",
+   "start": 1528.342,
+   "end": 1528.5,
+   "speaker": 2
+  },
+  {
+   "word": "す",
+   "start": 1528.565,
+   "end": 1528.673,
+   "speaker": 2
+  },
+  {
+   "word": "ね、",
+   "start": 1528.692,
+   "end": 1528.866,
+   "speaker": 2
+  },
+  {
+   "word": "散",
+   "start": 1528.897,
+   "end": 1529.066,
+   "speaker": 2
+  },
+  {
+   "word": "歩",
+   "start": 1529.084,
+   "end": 1529.191,
+   "speaker": 2
+  },
+  {
+   "word": "に",
+   "start": 1529.521,
+   "end": 1529.641,
+   "speaker": 2
+  },
+  {
+   "word": "行",
+   "start": 1529.704,
+   "end": 1529.845,
+   "speaker": 2
+  },
+  {
+   "word": "き",
+   "start": 1529.873,
+   "end": 1529.977,
+   "speaker": 2
+  },
+  {
+   "word": "ま",
+   "start": 1530.009,
+   "end": 1530.128,
+   "speaker": 2
+  },
+  {
+   "word": "し",
+   "start": 1530.159,
+   "end": 1530.33,
+   "speaker": 2
+  },
+  {
+   "word": "ょ",
+   "start": 1530.408,
+   "end": 1530.573,
+   "speaker": 2
+  },
+  {
+   "word": "う",
+   "start": 1530.604,
+   "end": 1530.719,
+   "speaker": 2
+  },
+  {
+   "word": "か。",
+   "start": 1531.138,
+   "end": 1531.301,
+   "speaker": 2
+  },
+  {
+   "word": "昨",
+   "start": 1533.538,
+   "end": 1533.651,
+   "speaker": 2
+  },
+  {
+   "word": "日",
+   "start": 1533.654,
+   "end": 1533.816,
+   "speaker": 2
+  },
+  {
+   "word": "の",
+   "start": 1533.827,
+   "end": 1533.974,
+   "speaker": 2
+  },
+  {
+   "word": "配",
+   "start": 1534.049,
+   "end": 1534.194,
+   "speaker": 2
+  },
+  {
+   "word": "信、",
+   "start": 1534.224,
+   "end": 1534.4,
+   "speaker": 2
+  },
+  {
+   "word": "見",
+   "start": 1534.414,
+   "end": 1534.549,
+   "speaker": 2
+  },
+  {
+   "word": "ま",
+   "start": 1534.566,
+   "end": 1534.739,
+   "speaker": 2
+  },
+  {
+   "word": "し",
+   "start": 1534.796,
+   "end": 1534.929,
+   "speaker": 2
+  },
+  {
+   "word": "た",
+   "start": 1534.955,
+   "end": 1535.097,
+   "speaker": 2
+  },
+  {
+   "word": "か？",
+   "start": 1535.134,
+   "end": 1535.306,
+   "speaker": 2
+  },
+  {
+   "word": "あ",
+   "start": 1535.931,
+   "end": 1536.066,
+   "speaker": 2
+  },
+  {
+   "word": "り",
+   "start": 1536.109,
+   "end": 1536.258,
+   "speaker": 2
+  },
+  {
+   "word": "が",
+   "start": 1536.3,
+   "end": 1536.408,
+   "speaker": 2
+  },
+  {
+   "word": "と",
+   "start": 1536.459,
+   "end": 1536.607,
+   "speaker": 2
+  },
+  {
+   "word": "う",
+   "start": 1537.151,
+   "end": 1537.256,
+   "speaker": 2
+  },
+  {
+   "word": "ご",
+   "start": 1537.264,
+   "end": 1537.417,
+   "speaker": 2
+  },
+  {
+   "word": "ざ",
+   "start": 1537.445,
+   "end": 1537.619,
+   "speaker": 2
+  },
+  {
+   "word": "い",
+   "start": 1537.686,
+   "end": 1537.831,
+   "speaker": 2
+  },
+  {
+   "word": "ま",
+   "start": 1537.872,
+   "end": 1538.047,
+   "speaker": 2
+  },
+  {
+   "word": "す、",
+   "start": 1538.111,
+   "end": 1538.271,
+   "speaker": 2
+  },
+  {
+   "word": "本",
+   "start": 1538.319,
+   "end": 1538.493,
+   "speaker": 2
+  },
+  {
+   "word": "当",
+   "start": 1538.986,
+   "end": 1539.149,
+   "speaker": 2
+  },
+  {
+   "word": "に",
+   "start": 1539.154,
+   "end": 1539.304,
+   "speaker": 2
+  },
+  {
+   "word": "嬉",
+   "start": 1539.369,
+   "end": 1539.508,
+   "speaker": 2
+  },
+  {
+   "word": "し",
+   "start": 1539.575,
+   "end": 1539.708,
+   "speaker": 2
+  },
+  {
+   "word": "い",
+   "start": 1540.207,
+   "end": 1540.363,
+   "speaker": 2
+  },
+  {
+   "word": "で",
+   "start": 1540.366,
+   "end": 1540.487,
+   "speaker": 2
+  },
+  {
+   "word": "す。",
+   "start": 1540.546,
+   "end": 1540.676,
+   "speaker": 2
+  },
+  {
+   "word": "じ",
+   "start": 1540.969,
+   "end": 1541.079,
+   "speaker": 0
+  },
+  {
+   "word": "ゃ",
+   "start": 1541.112,
+   "end": 1541.228,
+   "speaker": 0
+  },
+  {
+   "word": "あ、",
+   "start": 1541.233,
+   "end": 1541.333,
+   "speaker": 0
+  },
+  {
+   "word": "次",
+   "start": 1541.391,
+   "end": 1541.571,
+   "speaker": 0
+  },
+  {
+   "word": "の",
+   "start": 1541.581,
+   "end": 1541.76,
+   "speaker": 0
+  },
+  {
+   "word": "質",
+   "start": 1542.332,
+   "end": 1542.473,
+   "speaker": 0
+  },
+  {
+   "word": "問",
+   "start": 1542.528,
+   "end": 1542.7,
+   "speaker": 0
+  },
+  {
+   "word": "に",
+   "start": 1542.755,
+   "end": 1542.869,
+   "speaker": 0
+  },
+  {
+   "word": "行",
+   "start": 1542.895,
+   "end": 1543.012,
+   "speaker": 0
+  },
+  {
+   "word": "き",
+   "start": 1543.075,
+   "end": 1543.232,
+   "speaker": 0
+  },
+  {
+   "word": "ま",
+   "start": 1543.81,
+   "end": 1543.944,
+   "speaker": 0
+  },
+  {
+   "word": "す。",
+   "start": 1544.021,
+   "end": 1544.129,
+   "speaker": 0
+  },
+  {
+   "word": "昨",
+   "start": 1544.968,
+   "end": 1545.083,
+   "speaker": 1
+  },
+  {
+   "word": "日",
+   "start": 1545.678,
+   "end": 1545.846,
+   "speaker": 1
+  },
+  {
+   "word": "の",
+   "start": 1545.902,
+   "end": 1546.071,
+   "speaker": 1
+  },
+  {
+   "word": "配",
+   "start": 1546.117,
+   "end": 1546.285,
+   "speaker": 1
+  },
+  {
+   "word": "信、",
+   "start": 1546.838,
+   "end": 1546.987,
+   "speaker": 1
+  },
+  {
+   "word": "見",
+   "start": 1547.046,
+   "end": 1547.19,
+   "speaker": 1
+  },
+  {
+   "word": "ま",
+   "start": 1547.222,
+   "end": 1547.38,
+   "speaker": 1
+  },
+  {
+   "word": "し",
+   "start": 1547.446,
+   "end": 1547.602,
+   "speaker": 1
+  },
+  {
+   "word": "た",
+   "start": 1547.622,
+   "end": 1547.748,
+   "speaker": 1
+  },
+  {
+   "word": "か？",
+   "start": 1547.791,
+   "end": 1547.947,
+   "speaker": 1
+  },
+  {
+   "word": "じ",
+   "start": 1576.924,
+   "end": 1577.03,
+   "speaker": 1
+  },
+  {
+   "word": "ゃ",
+   "start": 1577.505,
+   "end": 1577.646,
+   "speaker": 1
+  },
+  {
+   "word": "あ、",
+   "start": 1578.108,
+   "end": 1578.208,
+   "speaker": 1
+  },
+  {
+   "word": "次",
+   "start": 1578.283,
+   "end": 1578.406,
+   "speaker": 1
+  },
+  {
+   "word": "の",
+   "start": 1578.428,
+   "end": 1578.567,
+   "speaker": 1
+  },
+  {
+   "word": "質",
+   "start": 1578.578,
+   "end": 1578.69,
+   "speaker": 1
+  },
+  {
+   "word": "問",
+   "start": 1578.726,
+   "end": 1578.877,
+   "speaker": 1
+  },
+  {
+   "word": "に",
+   "start": 1578.951,
+   "end": 1579.067,
+   "speaker": 1
+  },
+  {
+   "word": "行",
+   "start": 1579.484,
+   "end": 1579.666,
+   "speaker": 1
+  },
+  {
+   "word": "き",
+   "start": 1579.681,
+   "end": 1579.798,
+   "speaker": 1
+  },
+  {
+   "word": "ま",
+   "start": 1579.857,
+   "end": 1579.971,
+   "speaker": 1
+  },
+  {
+   "word": "す。",
+   "start": 1580.008,
+   "end": 1580.19,
+   "speaker": 1
+  },
+  {
+   "word": "あ",
+   "start": 1581.071,
+   "end": 1581.193,
+   "speaker": 2
+  },
+  {
+   "word": "の、",
+   "start": 1581.252,
+   "end": 1581.393,
+   "speaker": 2
+  },
+  {
+   "word": "ゲ",
+   "start": 1581.441,
+   "end": 1581.546,
+   "speaker": 2
+  },
+  {
+   "word": "ー",
+   "start": 1581.552,
+   "end": 1581.722,
+   "speaker": 2
+  },
+  {
+   "word": "ム",
+   "start": 1581.762,
+   "end": 1581.888,
+   "speaker": 2
+  },
+  {
+   "word": "の",
+   "start": 1581.955,
+   "end": 1582.085,
+   "speaker": 2
+  },
+  {
+   "word": "話",
+   "start": 1582.129,
+   "end": 1582.272,
+   "speaker": 2
+  },
+  {
+   "word": "な",
+   "start": 1582.286,
+   "end": 1582.445,
+   "speaker": 2
+  },
+  {
+   "word": "ん",
+   "start": 1582.467,
+   "end": 1582.602,
+   "speaker": 2
+  },
+  {
+   "word": "で",
+   "start": 1582.666,
+   "end": 1582.792,
+   "speaker": 2
+  },
+  {
+   "word": "す",
+   "start": 1582.853,
+   "end": 1582.993,
+   "speaker": 2
+  },
+  {
+   "word": "け",
+   "start": 1583.067,
+   "end": 1583.229,
+   "speaker": 2
+  },
+  {
+   "word": "ど。",
+   "start": 1583.715,
+   "end": 1583.828,
+   "speaker": 2
+  },
+  {
+   "word": "見",
+   "start": 1599.217,
+   "end": 1599.36,
+   "speaker": 2
+  },
+  {
+   "word": "ま",
+   "start": 1599.664,
+   "end": 1599.785,
+   "speaker": 2
+  },
+  {
+   "word": "し",
+   "start": 1600.001,
+   "end": 1600.124,
+   "speaker": 2
+  },
+  {
+   "word": "た！",
+   "start": 1600.173,
+   "end": 1600.343,
+   "speaker": 2
+  },
+  {
+   "word": "す",
+   "start": 1600.372,
+   "end": 1600.501,
+   "speaker": 2
+  },
+  {
+   "word": "ご",
+   "start": 1600.504,
+   "end": 1600.637,
+   "speaker": 2
+  },
+  {
+   "word": "く",
+   "start": 1600.701,
+   "end": 1600.847,
+   "speaker": 2
+  },
+  {
+   "word": "面",
+   "start": 1600.859,
+   "end": 1601.036,
+   "speaker": 2
+  },
+  {
+   "word": "白",
+   "start": 1601.095,
+   "end": 1601.251,
+   "speaker": 2
+  },
+  {
+   "word": "か",
+   "start": 1601.302,
+   "end": 1601.481,
+   "speaker": 2
+  },
+  {
+   "word": "っ",
+   "start": 1601.527,
+   "end": 1601.667,
+   "speaker": 2
+  },
+  {
+   "word": "た",
+   "start": 1601.746,
+   "end": 1601.879,
+   "speaker": 2
+  },
+  {
+   "word": "で",
+   "start": 1601.955,
+   "end": 1602.062,
+   "speaker": 2
+  },
+  {
+   "word": "す。",
+   "start": 1602.111,
+   "end": 1602.272,
+   "speaker": 2
+  },
+  {
+   "word": "え",
+   "start": 1603.207,
+   "end": 1603.33,
+   "speaker": 2
+  },
+  {
+   "word": "っ",
+   "start": 1603.58,
+   "end": 1603.719,
+   "speaker": 2
+  },
+  {
+   "word": "と、",
+   "start": 1603.75,
+   "end": 1603.916,
+   "speaker": 2
+  },
+  {
+   "word": "そ",
+   "start": 1604.402,
+   "end": 1604.575,
+   "speaker": 2
+  },
+  {
+   "word": "れ",
+   "start": 1604.617,
+   "end": 1604.782,
+   "speaker": 2
+  },
+  {
+   "word": "は",
+   "start": 1604.814,
+   "end": 1604.914,
+   "speaker": 2
+  },
+  {
+   "word": "ち",
+   "start": 1604.968,
+   "end": 1605.121,
+   "speaker": 2
+  },
+  {
+   "word": "ょ",
+   "start": 1605.191,
+   "end": 1605.29,
+   "speaker": 2
+  },
+  {
+   "word": "っ",
+   "start": 1605.34,
+   "end": 1605.443,
+   "speaker": 2
+  },
+  {
+   "word": "と",
+   "start": 1605.479,
+   "end": 1605.589,
+   "speaker": 2
+  },
+  {
+   "word": "待",
+   "start": 1605.653,
+   "end": 1605.818,
+   "speaker": 2
+  },
+  {
+   "word": "っ",
+   "start": 1605.892,
+   "end": 1606.042,
+   "speaker": 2
+  },
+  {
+   "word": "て",
+   "start": 1606.088,
+   "end": 1606.208,
+   "speaker": 2
+  },
+  {
+   "word": "く",
+   "start": 1606.272,
+   "end": 1606.415,
+   "speaker": 2
+  },
+  {
+   "word": "だ",
+   "start": 1606.42,
+   "end": 1606.55,
+   "speaker": 2
+  },
+  {
+   "word": "さ",
+   "start": 1606.559,
+   "end": 1606.688,
+   "speaker": 2
+  },
+  {
+   "word": "い。",
+   "start": 1606.761,
+   "end": 1606.89,
+   "speaker": 2
+  },
+  {
+   "word": "昨",
+   "start": 1607.977,
+   "end": 1608.083,
+   "speaker": 0
+  },
+  {
+   "word": "日",
+   "start": 1608.298,
+   "end": 1608.426,
+   "speaker": 0
+  },
+  {
+   "word": "の",
+   "start": 1608.464,
+   "end": 1608.626,
+   "speaker": 0
+  },
+  {
+   "word": "配",
+   "start": 1608.663,
+   "end": 1608.793,
+   "speaker": 0
+  },
+  {
+   "word": "信、",
+   "start": 1608.866,
+   "end": 1608.981,
+   "speaker": 0
+  },
+  {
+   "word": "見",
+   "start": 1608.998,
+   "end": 1609.126,
+   "speaker": 0
+  },
+  {
+   "word": "ま",
+   "start": 1609.186,
+   "end": 1609.335,
+   "speaker": 0
+  },
+  {
+   "word": "し",
+   "start": 1609.733,
+   "end": 1609.844,
+   "speaker": 0
+  },
+  {
+   "word": "た",
+   "start": 1610.188,
+   "end": 1610.33,
+   "speaker": 0
+  },
+  {
+   "word": "か？",
+   "start": 1610.375,
+   "end": 1610.484,
+   "speaker": 0
+  },
+  {
+   "word": "じ",
+   "start": 1611.208,
+   "end": 1611.363,
+   "speaker": 1
+  },
+  {
+   "word": "ゃ",
+   "start": 1611.431,
+   "end": 1611.568,
+   "speaker": 1
+  },
+  {
+   "word": "あ、",
+   "start": 1611.623,
+   "end": 1611.771,
+   "speaker": 1
+  },
+  {
+   "word": "次",
+   "start": 1611.822,
+   "end": 1611.94,
+   "speaker": 1
+  },
+  {
+   "word": "の",
+   "start": 1611.989,
+   "end": 1612.159,
+   "speaker": 1
+  },
+  {
+   "word": "質",
+   "start": 1612.237,
+   "end": 1612.409,
+   "speaker": 1
+  },
+  {
+   "word": "問",
+   "start": 1612.413,
+   "end": 1612.547,
+   "speaker": 1
+  },
+  {
+   "word": "に",
+   "start": 1612.752,
+   "end": 1612.899,
+   "speaker": 1
+  },
+  {
+   "word": "行",
+   "start": 1612.939,
+   "end": 1613.041,
+   "speaker": 1
+  },
+  {
+   "word": "き",
+   "start": 1613.07,
+   "end": 1613.217,
+   "speaker": 1
+  },
+  {
+   "word": "ま",
+   "start": 1613.261,
+   "end": 1613.441,
+   "speaker": 1
+  },
+  {
+   "word": "す。",
+   "start": 1613.701,
+   "end": 1613.816,
+   "speaker": 1
+  },
+  {
+   "word": "そ",
+   "start": 1619.632,
+   "end": 1619.767,
+   "speaker": 0
+  },
+  {
+   "word": "う",
+   "start": 1619.834,
+   "end": 1620.005,
+   "speaker": 0
+  },
+  {
+   "word": "で",
+   "start": 1620.033,
+   "end": 1620.187,
+   "speaker": 0
+  },
+  {
+   "word": "す",
+   "start": 1620.208,
+   "end": 1620.362,
+   "speaker": 0
+  },
+  {
+   "word": "ね、",
+   "start": 1620.661,
+   "end": 1620.792,
+   "speaker": 0
+  },
+  {
+   "word": "散",
+   "start": 1620.859,
+   "end": 1620.973,
+   "speaker": 0
+  },
+  {
+   "word": "歩",
+   "start": 1620.98,
+   "end": 1621.153,
+   "speaker": 0
+  },
+  {
+   "word": "に",
+   "start": 1621.157,
+   "end": 1621.266,
+   "speaker": 0
+  },
+  {
+   "word": "行",
+   "start": 1621.326,
+   "end": 1621.435,
+   "speaker": 0
+  },
+  {
+   "word": "き",
+   "start": 1621.44,
+   "end": 1621.576,
+   "speaker": 0
+  },
+  {
+   "word": "ま",
+   "start": 1621.609,
+   "end": 1621.786,
+   "speaker": 0
+  },
+  {
+   "word": "し",
+   "start": 1621.847,
+   "end": 1622.023,
+   "speaker": 0
+  },
+  {
+   "word": "ょ",
+   "start": 1622.094,
+   "end": 1622.25,
+   "speaker": 0
+  },
+  {
+   "word": "う",
+   "start": 1622.596,
+   "end": 1622.713,
+   "speaker": 0
+  },
+  {
+   "word": "か。",
+   "start": 1622.748,
+   "end": 1622.918,
+   "speaker": 0
+  },
+  {
+   "word": "な",
+   "start": 1623.466,
+   "end": 1623.629,
+   "speaker": 2
+  },
+  {
+   "word": "る",
+   "start": 1623.657,
+   "end": 1623.759,
+   "speaker": 2
+  },
+  {
+   "word": "ほ",
+   "start": 1623.783,
+   "end": 1623.884,
+   "speaker": 2
+  },
+  {
+   "word": "ど、",
+   "start": 1623.945,
+   "end": 1624.077,
+   "speaker": 2
+  },
+  {
+   "word": "そ",
+   "start": 1624.087,
+   "end": 1624.214,
+   "speaker": 2
+  },
+  {
+   "word": "う",
+   "start": 1624.286,
+   "end": 1624.395,
+   "speaker": 2
+  },
+  {
+   "word": "い",
+   "start": 1624.941,
+   "end": 1625.122,
+   "speaker": 2
+  },
+  {
+   "word": "う",
+   "start": 1625.188,
+   "end": 1625.323,
+   "speaker": 2
+  },
+  {
+   "word": "こ",
+   "start": 1625.327,
+   "end": 1625.436,
+   "speaker": 2
+  },
+  {
+   "word": "と",
+   "start": 1625.514,
+   "end": 1625.673,
+   "speaker": 2
+  },
+  {
+   "word": "か。",
+   "start": 1626.243,
+   "end": 1626.352,
+   "speaker": 2
+  },
+  {
+   "word": "あ",
+   "start": 1627.371,
+   "end": 1627.511,
+   "speaker": 0
+  },
+  {
+   "word": "り",
+   "start": 1627.549,
+   "end": 1627.722,
+   "speaker": 0
+  },
+  {
+   "word": "が",
+   "start": 1627.958,
+   "end": 1628.102,
+   "speaker": 0
+  },
+  {
+   "word": "と",
+   "start": 1628.147,
+   "end": 1628.258,
+   "speaker": 0
+  },
+  {
+   "word": "う",
+   "start": 1628.313,
+   "end": 1628.482,
+   "speaker": 0
+  },
+  {
+   "word": "ご",
+   "start": 1628.534,
+   "end": 1628.697,
+   "speaker": 0
+  },
+  {
+   "word": "ざ",
+   "start": 1628.775,
+   "end": 1628.895,
+   "speaker": 0
+  },
+  {
+   "word": "い",
+   "start": 1628.934,
+   "end": 1629.074,
+   "speaker": 0
+  },
+  {
+   "word": "ま",
+   "start": 1629.078,
+   "end": 1629.236,
+   "speaker": 0
+  },
+  {
+   "word": "す、",
+   "start": 1629.262,
+   "end": 1629.403,
+   "speaker": 0
+  },
+  {
+   "word": "本",
+   "start": 1629.472,
+   "end": 1629.605,
+   "speaker": 0
+  },
+  {
+   "word": "当",
+   "start": 1629.614,
+   "end": 1629.765,
+   "speaker": 0
+  },
+  {
+   "word": "に",
+   "start": 1630.336,
+   "end": 1630.497,
+   "speaker": 0
+  },
+  {
+   "word": "嬉",
+   "start": 1630.533,
+   "end": 1630.659,
+   "speaker": 0
+  },
+  {
+   "word": "し",
+   "start": 1630.663,
+   "end": 1630.825,
+   "speaker": 0
+  },
+  {
+   "word": "い",
+   "start": 1630.85,
+   "end": 1631.031,
+   "speaker": 0
+  },
+  {
+   "word": "で",
+   "start": 1631.069,
+   "end": 1631.197,
+   "speaker": 0
+  },
+  {
+   "word": "す。",
+   "start": 1631.261,
+   "end": 1631.372,
+   "speaker": 0
+  },
+  {
+   "word": "昨",
+   "start": 1631.533,
+   "end": 1631.651,
+   "speaker": 2
+  },
+  {
+   "word": "日",
+   "start": 1632.005,
+   "end": 1632.171,
+   "speaker": 2
+  },
+  {
+   "word": "の",
+   "start": 1632.754,
+   "end": 1632.924,
+   "speaker": 2
+  },
+  {
+   "word": "配",
+   "start": 1632.998,
+   "end": 1633.13,
+   "speaker": 2
+  },
+  {
+   "word": "信、",
+   "start": 1633.701,
+   "end": 1633.843,
+   "speaker": 2
+  },
+  {
+   "word": "見",
+   "start": 1633.906,
+   "end": 1634.077,
+   "speaker": 2
+  },
+  {
+   "word": "ま",
+   "start": 1634.151,
+   "end": 1634.316,
+   "speaker": 2
+  },
+  {
+   "word": "し",
+   "start": 1634.684,
+   "end": 1634.817,
+   "speaker": 2
+  },
+  {
+   "word": "た",
+   "start": 1634.886,
+   "end": 1635.037,
+   "speaker": 2
+  },
+  {
+   "word": "か？",
+   "start": 1635.341,
+   "end": 1635.485,
+   "speaker": 2
+  },
+  {
+   "word": "う",
+   "start": 1636.008,
+   "end": 1636.123,
+   "speaker": 0
+  },
+  {
+   "word": "ん、",
+   "start": 1636.191,
+   "end": 1636.359,
+   "speaker": 0
+  },
+  {
+   "word": "う",
+   "start": 1636.385,
+   "end": 1636.539,
+   "speaker": 0
+  },
+  {
+   "word": "ん。",
+   "start": 1636.564,
+   "end": 1636.703,
+   "speaker": 0
+  },
+  {
+   "word": "そ",
+   "start": 1637.859,
+   "end": 1637.972,
+   "speaker": 2
+  },
+  {
+   "word": "れ",
+   "start": 1637.998,
+   "end": 1638.153,
+   "speaker": 2
+  },
+  {
+   "word": "で、",
+   "start": 1638.195,
+   "end": 1638.36,
+   "speaker": 2
+  },
+  {
+   "word": "最",
+   "start": 1638.377,
+   "end": 1638.552,
+   "speaker": 2
+  },
+  {
+   "word": "後",
+   "start": 1638.561,
+   "end": 1638.685,
+   "speaker": 2
+  },
+  {
+   "word": "ど",
+   "start": 1638.732,
+   "end": 1638.906,
+   "speaker": 2
+  },
+  {
+   "word": "う",
+   "start": 1638.959,
+   "end": 1639.073,
+   "speaker": 2
+  },
+  {
+   "word": "な",
+   "start": 1639.12,
+   "end": 1639.228,
+   "speaker": 2
+  },
+  {
+   "word": "っ",
+   "start": 1639.286,
+   "end": 1639.446,
+   "speaker": 2
+  },
+  {
+   "word": "た",
+   "start": 1639.692,
+   "end": 1639.867,
+   "speaker": 2
+  },
+  {
+   "word": "ん",
+   "start": 1639.872,
+   "end": 1639.996,
+   "speaker": 2
+  },
+  {
+   "word": "で",
+   "start": 1640.072,
+   "end": 1640.215,
+   "speaker": 2
+  },
+  {
+   "word": "す",
+   "start": 1640.287,
+   "end": 1640.463,
+   "speaker": 2
+  },
+  {
+   "word": "か？",
+   "start": 1640.504,
+   "end": 1640.621,
+   "speaker": 2
+  },
+  {
+   "word": "見",
+   "start": 1641.236,
+   "end": 1641.358,
+   "speaker": 0
+  },
+  {
+   "word": "ま",
+   "start": 1641.424,
+   "end": 1641.595,
+   "speaker": 0
+  },
+  {
+   "word": "し",
+   "start": 1641.631,
+   "end": 1641.802,
+   "speaker": 0
+  },
+  {
+   "word": "た！",
+   "start": 1641.824,
+   "end": 1641.978,
+   "speaker": 0
+  },
+  {
+   "word": "す",
+   "start": 1642.04,
+   "end": 1642.141,
+   "speaker": 0
+  },
+  {
+   "word": "ご",
+   "start": 1642.171,
+   "end": 1642.337,
+   "speaker": 0
+  },
+  {
+   "word": "く",
+   "start": 1642.835,
+   "end": 1642.996,
+   "speaker": 0
+  },
+  {
+   "word": "面",
+   "start": 1643.03,
+   "end": 1643.136,
+   "speaker": 0
+  },
+  {
+   "word": "白",
+   "start": 1643.648,
+   "end": 1643.793,
+   "speaker": 0
+  },
+  {
+   "word": "か",
+   "start": 1643.837,
+   "end": 1643.937,
+   "speaker": 0
+  },
+  {
+   "word": "っ",
+   "start": 1643.97,
+   "end": 1644.112,
+   "speaker": 0
+  },
+  {
+   "word": "た",
+   "start": 1644.115,
+   "end": 1644.222,
+   "speaker": 0
+  },
+  {
+   "word": "で",
+   "start": 1644.724,
+   "end": 1644.876,
+   "speaker": 0
+  },
+  {
+   "word": "す。",
+   "start": 1645.25,
+   "end": 1645.39,
+   "speaker": 0
+  },
+  {
+   "word": "う",
+   "start": 1646.543,
+   "end": 1646.66,
+   "speaker": 1
+  },
+  {
+   "word": "ん、",
+   "start": 1646.725,
+   "end": 1646.906,
+   "speaker": 1
+  },
+  {
+   "word": "う",
+   "start": 1646.971,
+   "end": 1647.144,
+   "speaker": 1
+  },
+  {
+   "word": "ん。",
+   "start": 1647.188,
+   "end": 1647.312,
+   "speaker": 1
+  },
+  {
+   "word": "え",
+   "start": 1647.658,
+   "end": 1647.835,
+   "speaker": 0
+  },
+  {
+   "word": "っ",
+   "start": 1647.86,
+   "end": 1648.009,
+   "speaker": 0
+  },
+  {
+   "word": "と、",
+   "start": 1648.335,
+   "end": 1648.493,
+   "speaker": 0
+  },
+  {
+   "word": "そ",
+   "start": 1648.495,
+   "end": 1648.635,
+   "speaker": 0
+  },
+  {
+   "word": "れ",
+   "start": 1648.711,
+   "end": 1648.824,
+   "speaker": 0
+  },
+  {
+   "word": "は",
+   "start": 1648.846,
+   "end": 1648.97,
+   "speaker": 0
+  },
+  {
+   "word": "ち",
+   "start": 1649.018,
+   "end": 1649.169,
+   "speaker": 0
+  },
+  {
+   "word": "ょ",
+   "start": 1649.421,
+   "end": 1649.542,
+   "speaker": 0
+  },
+  {
+   "word": "っ",
+   "start": 1649.598,
+   "end": 1649.754,
+   "speaker": 0
+  },
+  {
+   "word": "と",
+   "start": 1649.832,
+   "end": 1649.964,
+   "speaker": 0
+  },
+  {
+   "word": "待",
+   "start": 1650.042,
+   "end": 1650.204,
+   "speaker": 0
+  },
+  {
+   "word": "っ",
+   "start": 1650.283,
+   "end": 1650.386,
+   "speaker": 0
+  },
+  {
+   "word": "て",
+   "start": 1650.404,
+   "end": 1650.526,
+   "speaker": 0
+  },
+  {
+   "word": "く",
+   "start": 1650.529,
+   "end": 1650.674,
+   "speaker": 0
+  },
+  {
+   "word": "だ",
+   "start": 1650.688,
+   "end": 1650.83,
+   "speaker": 0
+  },
+  {
+   "word": "さ",
+   "start": 1650.896,
+   "end": 1651.027,
+   "speaker": 0
+  },
+  {
+   "word": "い。",
+   "start": 1651.053,
+   "end": 1651.189,
+   "speaker": 0
+  },
+  {
+   "word": "じ",
+   "start": 1693.356,
+   "end": 1693.531,
+   "speaker": 2
+  },
+  {
+   "word": "ゃ",
+   "start": 1693.533,
+   "end": 1693.711,
+   "speaker": 2
+  },
+  {
+   "word": "あ、",
+   "start": 1693.774,
+   "end": 1693.919,
+   "speaker": 2
+  },
+  {
+   "word": "次",
+   "start": 1693.964,
+   "end": 1694.131,
+   "speaker": 2
+  },
+  {
+   "word": "の",
+   "start": 1694.445,
+   "end": 1694.591,
+   "speaker": 2
+  },
+  {
+   "word": "質",
+   "start": 1694.644,
+   "end": 1694.794,
+   "speaker": 2
+  },
+  {
+   "word": "問",
+   "start": 1695.001,
+   "end": 1695.162,
+   "speaker": 2
+  },
+  {
+   "word": "に",
+   "start": 1695.239,
+   "end": 1695.357,
+   "speaker": 2
+  },
+  {
+   "word": "行",
+   "start": 1695.43,
+   "end": 1695.569,
+   "speaker": 2
+  },
+  {
+   "word": "き",
+   "start": 1696.104,
+   "end": 1696.277,
+   "speaker": 2
+  },
+  {
+   "word": "ま",
+   "start": 1696.3,
+   "end": 1696.423,
+   "speaker": 2
+  },
+  {
+   "word": "す。",
+   "start": 1696.425,
+   "end": 1696.582,
+   "speaker": 2
+  },
+  {
+   "word": "な",
+   "start": 1696.968,
+   "end": 1697.143,
+   "speaker": 1
+  },
+  {
+   "word": "る",
+   "start": 1697.179,
+   "end": 1697.289,
+   "speaker": 1
+  },
+  {
+   "word": "ほ",
+   "start": 1697.336,
+   "end": 1697.507,
+   "speaker": 1
+  },
+  {
+   "word": "ど、",
+   "start": 1697.535,
+   "end": 1697.688,
+   "speaker": 1
+  },
+  {
+   "word": "そ",
+   "start": 1697.758,
+   "end": 1697.919,
+   "speaker": 1
+  },
+  {
+   "word": "う",
+   "start": 1698.291,
+   "end": 1698.469,
+   "speaker": 1
+  },
+  {
+   "word": "い",
+   "start": 1698.478,
+   "end": 1698.658,
+   "speaker": 1
+  },
+  {
+   "word": "う",
+   "start": 1698.715,
+   "end": 1698.876,
+   "speaker": 1
+  },
+  {
+   "word": "こ",
+   "start": 1698.883,
+   "end": 1698.991,
+   "speaker": 1
+  },
+  {
+   "word": "と",
+   "start": 1699.049,
+   "end": 1699.188,
+   "speaker": 1
+  },
+  {
+   "word": "か。",
+   "start": 1699.223,
+   "end": 1699.324,
+   "speaker": 1
+  },
+  {
+   "word": "そ",
+   "start": 1750.081,
+   "end": 1750.245,
+   "speaker": 1
+  },
+  {
+   "word": "う",
+   "start": 1750.288,
+   "end": 1750.39,
+   "speaker": 1
+  },
+  {
+   "word": "で",
+   "start": 1750.413,
+   "end": 1750.589,
+   "speaker": 1
+  },
+  {
+   "word": "す",
+   "start": 1750.638,
+   "end": 1750.815,
+   "speaker": 1
+  },
+  {
+   "word": "ね、",
+   "start": 1751.356,
+   "end": 1751.454,
+   "speaker": 1
+  },
+  {
+   "word": "散",
+   "start": 1751.528,
+   "end": 1751.7,
+   "speaker": 1
+  },
+  {
+   "word": "歩",
+   "start": 1751.735,
+   "end": 1751.879,
+   "speaker": 1
+  },
+  {
+   "word": "に",
+   "start": 1752.395,
+   "end": 1752.504,
+   "speaker": 1
+  },
+  {
+   "word": "行",
+   "start": 1752.57,
+   "end": 1752.707,
+   "speaker": 1
+  },
+  {
+   "word": "き",
+   "start": 1752.781,
+   "end": 1752.96,
+   "speaker": 1
+  },
+  {
+   "word": "ま",
+   "start": 1753.007,
+   "end": 1753.137,
+   "speaker": 1
+  },
+  {
+   "word": "し",
+   "start": 1753.196,
+   "end": 1753.353,
+   "speaker": 1
+  },
+  {
+   "word": "ょ",
+   "start": 1753.354,
+   "end": 1753.516,
+   "speaker": 1
+  },
+  {
+   "word": "う",
+   "start": 1753.594,
+   "end": 1753.768,
+   "speaker": 1
+  },
+  {
+   "word": "か。",
+   "start": 1753.82,
+   "end": 1753.956,
+   "speaker": 1
+  },
+  {
+   "word": "そ",
+   "start": 1793.169,
+   "end": 1793.345,
+   "speaker": 0
+  },
+  {
+   "word": "う",
+   "start": 1793.365,
+   "end": 1793.536,
+   "speaker": 0
+  },
+  {
+   "word": "で",
+   "start": 1793.547,
+   "end": 1793.678,
+   "speaker": 0
+  },
+  {
+   "word": "す",
+   "start": 1793.682,
+   "end": 1793.824,
+   "speaker": 0
+  },
+  {
+   "word": "ね、",
+   "start": 1793.841,
+   "end": 1793.955,
+   "speaker": 0
+  },
+  {
+   "word": "散",
+   "start": 1793.96,
+   "end": 1794.095,
+   "speaker": 0
+  },
+  {
+   "word": "歩",
+   "start": 1794.116,
+   "end": 1794.276,
+   "speaker": 0
+  },
+  {
+   "word": "に",
+   "start": 1794.489,
+   "end": 1794.654,
+   "speaker": 0
+  },
+  {
+   "word": "行",
+   "start": 1794.716,
+   "end": 1794.866,
+   "speaker": 0
+  },
+  {
+   "word": "き",
+   "start": 1795.202,
+   "end": 1795.355,
+   "speaker": 0
+  },
+  {
+   "word": "ま",
+   "start": 1795.411,
+   "end": 1795.551,
+   "speaker": 0
+  },
+  {
+   "word": "し",
+   "start": 1795.605,
+   "end": 1795.741,
+   "speaker": 0
+  },
+  {
+   "word": "ょ",
+   "start": 1795.795,
+   "end": 1795.945,
+   "speaker": 0
+  },
+  {
+   "word": "う",
+   "start": 1795.976,
+   "end": 1796.136,
+   "speaker": 0
+  },
+  {
+   "word": "か。",
+   "start": 1796.138,
+   "end": 1796.314,
+   "speaker": 0
+  }
+ ]
+}
