@@ -2,6 +2,7 @@
 
 > 状态：定稿（2026-11-11）。基于 `main@989eef7`、FineSub `v0.7.0@7123055`。
 > 本文是 `docs/transcription-engines-plan.md` 第 6 节 WP-R0 的产出，后面的 R、M、P、H 包照它做。
+> **2026-11-11 标注**：D5、D10、D12、D23 已被计划的「预制环境包 + 进程级沙箱」方案取代，D18、D21 部分取代（用户确认，见 `docs/transcription-engines-plan.md` 附录 A.3）。正文里依赖这几条的段落（1.5 的 venv 就绪判定与搬家、1.11 里转写包用到的名字、1.12 的大文件根树、1.13 里 `python`、`python-builds`、工具各行的搬法、1.15 的 `runtime.manifests` 与 `download` 字段、2.7 第 2 条、3.2 第 2、6、7 条）按计划为准，原文保留作记录。
 > 方法：只读代码和本机旧数据目录（只列目录、读非密钥文件；密钥文件只取变量名，不取值），不改任何代码。
 > 文中 `finesub/…`、`finesub_bootstrap/…` 指 `third_party/finesub/src/` 下的文件；`src/…` 指本仓库。
 
@@ -15,26 +16,26 @@
 | D2 | 1 | 密钥存储方案 | 新文件 `secrets.json`，沿用 FineSub 现行的信封方案（Windows DPAPI 绑账户、macOS 混淆），代码复制过来注明来源 |
 | D3 | 1 | 密钥怎么交给引擎 | 只走进程环境变量，不落盘；只在用户改过 `GEMINI_BASE_URL` 时写一个只含这一项的 `.env`（无密钥） |
 | D4 | 1 | 引擎包的数据目录 | 主数据目录下 `engines\<包 id>\` |
-| D5 | 2 | 大文件根的名字与内部划分 | 根叫 `runtime`（默认 `<主数据目录>\runtime`，搬过的为 `<所选位置>\Nonoka X\runtime`），内部 `python\`、`tools\<工具>\<版本>\`、`models\{huggingface,audio-separator,torch}\`、`cache\` |
+| D5 | 2 | 大文件根的名字与内部划分 | 根叫 `runtime`（默认 `<主数据目录>\runtime`，搬过的为 `<所选位置>\Nonoka X\runtime`），内部 `python\`、`tools\<工具>\<版本>\`、`models\{huggingface,audio-separator,torch}\`、`cache\` **〔2026-11-11 已被取代：大文件根仍叫 `runtime`，内部改为 `layers\<层>\<版本>\` 加 `current.json`（预制环境包），见计划 4.2 第 19 条、附录 A.3〕** |
 | D6 | 2 | 派生配置文件放哪 | `engines\<包>\run\<进程标识>\`，每个进程一份，进程结束删，启动时清残留 |
 | D7 | 2 | 任务目录里私有附件目录的名字 | `tasks\<id>\native\<包 id>\` |
 | D8 | 2 | 引擎在 `%LOCALAPPDATA%\FineSub` 下写的东西 | 原地不动：新版不读不写也不碰，会话台账从零开始 |
 | D9 | 3 | `-I` 启动后孙进程怎么找到包 | 入口设 `sys.path`；`PYTHONPATH`（只含该包、它的兼容包、yt-dlp）和 `PYTHONNOUSERSITE=1` 列为「Nonoka 设定」变量供孙进程用 |
-| D10 | 3 | venv 的基础解释器是系统 Python | 列为密闭边界并登记：运行时记录里写明基础解释器路径和版本，就绪检查核对；迁移不搬它；新装仍允许复用系统 Python |
+| D10 | 3 | venv 的基础解释器是系统 Python | 列为密闭边界并登记：运行时记录里写明基础解释器路径和版本，就绪检查核对；迁移不搬它；新装仍允许复用系统 Python **〔2026-11-11 已被取代：不再用系统 Python，解释器随 Python 环境层下发（PBS 3.12.1），见计划 4.2 第 14 条〕** |
 | D11 | 3 | 旧 `finesub.toml` 里 Nonoka 不认识的键 | 丢弃 |
 | D11c | 4 | 确认 D11 与计划第 18 条冲突 | 确认丢弃，迁移报告列出被丢弃的表与键名；计划第 18 条和 WP-R4、WP-M2 的完成标准改掉（见第 3 节） |
-| D12 | 3 | 运行时组件粒度 | 与清单条目一一对应 |
+| D12 | 3 | 运行时组件粒度 | 与清单条目一一对应 **〔2026-11-11 已被取代：组件改为三层（Python 环境、模型、工具），见计划 4.2 第 14、15 条〕** |
 | D13 | 4 | 旧 `finesub.env` 里 Nonoka 不认识的变量 | 同样丢弃，迁移报告只列变量名不列值，旧文件改名留作备份 |
 | D14 | 4 | `bootstrap\`、`app-resources\` 放哪 | 留在主数据目录，不动 |
 | D15 | 4 | 自定义模型的事实（token 上限等）谁给 | 核心按 `model_specs.py` 算好，放进启动上下文的「LLM 端点列表」 |
 | D16 | 5 | 本地 Agent CLI 的配置与证书变量 | 列入「系统必需」，逐个列名从父进程原样带给纠错包进程（转写包不带） |
 | D17 | 5 | Windows 注册表里的系统代理 | 总是显式写代理变量：用代理就写 `HTTP(S)_PROXY` 与 `NO_PROXY`，不用就写 `NO_PROXY=*` |
-| D18 | 5 | 安装器自己的小状态 | `<主数据目录>\runtime-state\`；`locations.json` 不要了，大文件根只认 `storage.json` |
+| D18 | 5 | 安装器自己的小状态 | `<主数据目录>\runtime-state\`；`locations.json` 不要了，大文件根只认 `storage.json` **〔2026-11-11 部分取代：`runtime-state\` 与不要 `locations.json` 仍有效；不做国内镜像后不再有下载线路状态（`download-routes.json`），见计划 4.4 第 24 条〕** |
 | D19 | 6 | D3 让闸门的环境基线必然不过 | WP-R5 时按新的交付方式重录 `tests/fixtures/quality/environment.json`，单独提交（用户已批准，红线第 7 条） |
 | D20 | 6 | 派生 `finesub.toml` 是否照写 `[nonoka_models]` | 照写，与闸门基线同字节 |
-| D21 | 6 | 兼容包里「托管安装布局」映射到哪 | `data_root`、`user_data`、`agent_capsules` 放 `engines\<包>\` 下；`models` 指 `runtime\models`；`cache` 指 `runtime\cache\<包>\`；都来自启动上下文 |
+| D21 | 6 | 兼容包里「托管安装布局」映射到哪 | `data_root`、`user_data`、`agent_capsules` 放 `engines\<包>\` 下；`models` 指 `runtime\models`；`cache` 指 `runtime\cache\<包>\`；都来自启动上下文 **〔2026-11-11 部分取代：只对纠错包的兼容包有效，`models`、`cache` 两项不再需要；转写包原样带 `finesub_bootstrap`，默认位置由进程级沙箱改向，见计划 4.2 第 16 条、4.5 第 28 条〕** |
 | D22 | 6 | 派生 `.env` 被引擎就地加密改写 | 给引擎设 `FINESUB_ENV_PROTECT=0`，引擎对派生文件只读不写 |
-| D23 | 7 | venv 的基础解释器是旧根里的 `runtime\python-builds\` 时怎么迁 | 搬到 `<新根>\tools\python-builds\`，并把 `pyvenv.cfg` 的 `home` 一行改成新路径（只改路径，不动任何包）；迁移后实测导入 torch 与 `--real` |
+| D23 | 7 | venv 的基础解释器是旧根里的 `runtime\python-builds\` 时怎么迁 | 搬到 `<新根>\tools\python-builds\`，并把 `pyvenv.cfg` 的 `home` 一行改成新路径（只改路径，不动任何包）；迁移后实测导入 torch 与 `--real` **〔2026-11-11 已被取代：没有 venv，迁移时旧 Python 环境清空后重新下载，见计划 4.4 第 25 条〕** |
 
 ## 1. 十五个问题的答案
 
