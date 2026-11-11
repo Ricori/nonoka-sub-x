@@ -1,0 +1,177 @@
+{
+  "calls": [
+    {
+      "CUDA_VISIBLE_DEVICES": null,
+      "arguments": {
+        "overlay": {}
+      },
+      "entry": "model_routes.install_runtime_preferred"
+    },
+    {
+      "CUDA_VISIBLE_DEVICES": null,
+      "arguments": {
+        "batch_size": null,
+        "block_seconds": 600.0,
+        "device": "cpu",
+        "gpu_tier": "cpu",
+        "input_path": {
+          "path": "$ROOT/media/节目.m4a"
+        },
+        "metadata_sink": {},
+        "output_path": {
+          "path": "$ROOT/data/tasks/gate-task/workspace/.节目-vocal.part-$WRITER.ogg"
+        },
+        "pad_seconds": 10.0,
+        "run_metadata_path": {
+          "path": "$ROOT/data/tasks/gate-task/workspace/节目-metadata.json"
+        },
+        "separator_sample_rate": null,
+        "use_amp": true
+      },
+      "entry": "separation.run_vocal_separation"
+    },
+    {
+      "CUDA_VISIBLE_DEVICES": null,
+      "arguments": {
+        "asr_context": "",
+        "asr_decode_batch": null,
+        "device": "cpu",
+        "gap_sec": 0.3,
+        "gpu_tier": "cpu",
+        "input_path": {
+          "path": "$ROOT/data/tasks/gate-task/workspace/节目-vocal.ogg"
+        },
+        "lang_redecode": "auto",
+        "language": "ja",
+        "model_name": "large-v3-turbo",
+        "output_path": {
+          "path": "$ROOT/data/tasks/gate-task/workspace/.节目-aligned.part-$WRITER.json"
+        },
+        "qwen_verify": "auto",
+        "run_metadata_path": {
+          "path": "$ROOT/data/tasks/gate-task/workspace/节目-metadata.json"
+        },
+        "split_length_scale": null,
+        "vad_prefix_path": {
+          "path": "$ROOT/data/tasks/gate-task/workspace/节目-vad.json"
+        },
+        "vad_silero_assist": null
+      },
+      "entry": "vad_asr_stage.run_vad_asr"
+    },
+    {
+      "CUDA_VISIBLE_DEVICES": null,
+      "arguments": {
+        "audio_path": {
+          "path": "$ROOT/data/tasks/gate-task/workspace/节目-vocal.ogg"
+        },
+        "devices": "<callable>",
+        "gap": "auto",
+        "qwen_verify": "auto",
+        "row_fill": "off",
+        "squeeze": "auto",
+        "vad_prefix": {
+          "path": "$ROOT/data/tasks/gate-task/workspace/节目-vad.json"
+        }
+      },
+      "entry": "recall_decode.recall_repair"
+    },
+    {
+      "CUDA_VISIBLE_DEVICES": null,
+      "arguments": {
+        "gpu_allowed": false,
+        "requested_device": "cpu"
+      },
+      "entry": "device.resolve_asr_device"
+    },
+    {
+      "CUDA_VISIBLE_DEVICES": null,
+      "arguments": {
+        "device": "cpu"
+      },
+      "entry": "vad_asr_stage.tail_verify_device"
+    },
+    {
+      "devices": [
+        "cpu",
+        "cpu"
+      ],
+      "entry": "recall_decode.recall_repair.devices()"
+    },
+    {
+      "CUDA_VISIBLE_DEVICES": null,
+      "arguments": {
+        "input_path": {
+          "path": "$ROOT/data/tasks/gate-task/workspace/节目-aligned.json"
+        },
+        "output_path": {
+          "path": "$ROOT/data/tasks/gate-task/workspace/.节目-stable.part-$WRITER.json"
+        },
+        "profile": 0,
+        "repair": "<stub recall_repair hook>",
+        "veto_level_floor": null
+      },
+      "entry": "stabilization.run_asr_stabilize"
+    }
+  ],
+  "exit": 0,
+  "input": {
+    "device": "cpu",
+    "gpu_tier": "cpu",
+    "knowledge": "none",
+    "language": "ja",
+    "provider": "local",
+    "schema": 1,
+    "source": {
+      "kind": "local_file",
+      "path": "$MEDIA",
+      "title": "节目"
+    },
+    "target": "stable"
+  },
+  "manifest": {
+    "artifacts": {
+      "aligned_json": {
+        "file": "$ROOT/data/tasks/gate-task/workspace/节目-aligned.json",
+        "sha256": "b61a84a23fe2d01d1989d0e71c66aaee13c705af9f415b4b058f5e6a643b9ea6"
+      },
+      "metadata_json": {
+        "file": "$ROOT/data/tasks/gate-task/workspace/节目-metadata.json"
+      },
+      "stable_json": {
+        "file": "$ROOT/data/tasks/gate-task/workspace/节目-stable.json",
+        "sha256": "b61a84a23fe2d01d1989d0e71c66aaee13c705af9f415b4b058f5e6a643b9ea6"
+      },
+      "vad_json": {
+        "file": "$ROOT/data/tasks/gate-task/workspace/节目-vad.json",
+        "sha256": "7c0b3c0f755fa26a0d1d9f7551bd39876b016265b9d18ffc7da3da4366fcca73"
+      },
+      "vocal_audio": {
+        "file": "$ROOT/data/tasks/gate-task/workspace/节目-vocal.ogg",
+        "sha256": "032d78d2d34b73fe50502f2bdfa3f15b4e267885545e62bba48368a700212ff5"
+      }
+    },
+    "engine_commit": "7123055da0cd6e037d8e37feb53b82f9e428c5cb"
+  },
+  "request": {
+    "cleanup_intermediate": false,
+    "correction": {},
+    "device": "cpu",
+    "gpu_tier": "cpu",
+    "knowledge": "none",
+    "language": "ja",
+    "projection": "document",
+    "provider": "local",
+    "schema": 1,
+    "separate": true,
+    "source": {
+      "kind": "local_file",
+      "path": "$ROOT/media/节目.m4a",
+      "title": "节目"
+    },
+    "target": "stable",
+    "vocal_profile": "quality"
+  },
+  "scenario": "stable-ja-cpu-tier",
+  "settings": "compat"
+}

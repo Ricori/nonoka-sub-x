@@ -1,0 +1,225 @@
+{
+  "calls": [
+    {
+      "CUDA_VISIBLE_DEVICES": null,
+      "arguments": {
+        "overlay": {}
+      },
+      "entry": "model_routes.install_runtime_preferred"
+    },
+    {
+      "CUDA_VISIBLE_DEVICES": null,
+      "arguments": {
+        "empty_cues": false,
+        "input_path": {
+          "path": "$ROOT/data/tasks/gate-task/workspace/节目-stable.json"
+        },
+        "output_path": {
+          "path": "$ROOT/data/tasks/gate-task/workspace/.节目-raw.part-$WRITER.srt"
+        },
+        "validate": false,
+        "word": false
+      },
+      "entry": "rendering.convert_json_to_srt"
+    },
+    {
+      "CUDA_VISIBLE_DEVICES": null,
+      "arguments": {
+        "audio_end": null,
+        "input_path": {
+          "path": "$ROOT/data/tasks/gate-task/workspace/.节目-raw.part-$WRITER.srt"
+        },
+        "keys": null,
+        "output_path": null,
+        "profile": 4,
+        "timeline": null,
+        "validate": false
+      },
+      "entry": "postprocess.postprocess_srt_file"
+    },
+    {
+      "CUDA_VISIBLE_DEVICES": null,
+      "arguments": {
+        "audio_end": null,
+        "input_path": {
+          "path": "$ROOT/data/tasks/gate-task/workspace/.节目-raw.part-$WRITER.srt"
+        },
+        "keys": null,
+        "output_path": null,
+        "profile": 1,
+        "timeline": null,
+        "validate": false
+      },
+      "entry": "postprocess.postprocess_srt_file"
+    },
+    {
+      "CUDA_VISIBLE_DEVICES": null,
+      "arguments": {
+        "request": {
+          "__type__": "CorrectionRequest",
+          "audio_path": {
+            "path": "$ROOT/media/节目.m4a"
+          },
+          "collect_feedback": null,
+          "context_file": null,
+          "extra_info": "",
+          "extra_style": "",
+          "fast": "auto",
+          "knowledge": "none",
+          "knowledge_root": null,
+          "knowledge_subjects": null,
+          "max_replacements_per_window": 2,
+          "max_retries_per_window": 3,
+          "max_window_subtitle_tokens": null,
+          "mode": "execute",
+          "on_plan": null,
+          "output_path": {
+            "path": "$ROOT/data/tasks/gate-task/workspace/节目.srt"
+          },
+          "parallel_windows": 1,
+          "postprocess_profile": null,
+          "profile": {
+            "__type__": "TranslationProfile",
+            "continuity": "serial",
+            "correct_only": false,
+            "correction_media": "text",
+            "difficulty": "intermediate",
+            "output_coefficient": 4.5,
+            "output_scale": 1.0,
+            "retrieval": "local"
+          },
+          "proofread": "auto",
+          "refined_srt": null,
+          "resume": true,
+          "speaker_judge": "off",
+          "split_length_scale": null,
+          "stable_json": {
+            "path": "$ROOT/data/tasks/gate-task/workspace/节目-stable.json"
+          },
+          "style": null,
+          "style_efficiency_cap": true,
+          "style_mode": null,
+          "switch_sources": {
+            "continuity": "default",
+            "difficulty": "default",
+            "knowledge": "explicit",
+            "media": "explicit",
+            "parallel_windows": "default",
+            "retrieval": "default"
+          },
+          "task_artifact_dir": {
+            "path": "$ROOT/data/tasks/gate-task/workspace/llm-artifacts"
+          },
+          "task_id": "gate-task",
+          "task_summary": "字幕任务：节目",
+          "test_profile": false,
+          "video_path": null,
+          "vocal_audio": {
+            "path": "$ROOT/data/tasks/gate-task/workspace/节目-vocal.ogg"
+          }
+        }
+      },
+      "entry": "correction_translation.run_correction_task"
+    },
+    {
+      "entry": "routing at run_correction_task",
+      "routing": {
+        "active_preset": "default",
+        "bindings": {
+          "correction-mm": [
+            "nonoka-openai-compat-0d34b081ab77"
+          ],
+          "correction-text": [
+            "nonoka-openai-compat-0d34b081ab77"
+          ],
+          "knowledge": [
+            "nonoka-openai-compat-58142a05fea9"
+          ],
+          "research": [
+            "nonoka-openai-compat-4faf62c6d3f4"
+          ]
+        },
+        "difficulty": "intermediate",
+        "runtime_overlay": {}
+      }
+    }
+  ],
+  "exit": 0,
+  "input": {
+    "correction": {
+      "extra_style": "简洁",
+      "media": "text"
+    },
+    "knowledge": "update",
+    "knowledge_subjects": [
+      {
+        "aliases": "Okayu、おかゆ",
+        "description": "Hololive 所属",
+        "kind": "streamer",
+        "subject": "猫又おかゆ"
+      }
+    ],
+    "language": "zh",
+    "provider": "local",
+    "schema": 1,
+    "source": {
+      "kind": "cloud_stable",
+      "path": "$MEDIA",
+      "stable_json": "$CLOUD_STABLE",
+      "title": "节目"
+    },
+    "target": "translated-srt"
+  },
+  "manifest": {
+    "artifacts": {
+      "metadata_json": {
+        "file": "$ROOT/data/tasks/gate-task/workspace/节目-metadata.json"
+      },
+      "raw_srt": {
+        "file": "$ROOT/data/tasks/gate-task/workspace/节目-raw.srt",
+        "sha256": "27b322f32cc19883e16cc50592fe298df5ec761c418b8fa244d4db4716ff29a9"
+      },
+      "stable_json": {
+        "file": "$ROOT/data/tasks/gate-task/workspace/节目-stable.json",
+        "sha256": "ee3526e387010cdd8061c5c81855403d85bedba854cf1cf95e6f07a55946bba0"
+      },
+      "translated_srt": {
+        "file": "$ROOT/data/tasks/gate-task/workspace/节目-translated.srt",
+        "sha256": "936da1f4c5005bf81dc82c4effa07c6902efa8cc87519dc9ca4e73159c7a9a5d"
+      }
+    },
+    "engine_commit": "7123055da0cd6e037d8e37feb53b82f9e428c5cb"
+  },
+  "request": {
+    "cleanup_intermediate": false,
+    "correction": {
+      "extra_style": "简洁",
+      "media": "text"
+    },
+    "device": "cuda",
+    "gpu_tier": "auto",
+    "knowledge": "update",
+    "knowledge_subjects": [
+      {
+        "aliases": "Okayu、おかゆ",
+        "description": "Hololive 所属",
+        "kind": "streamer",
+        "subject": "猫又おかゆ"
+      }
+    ],
+    "language": "zh",
+    "projection": "document",
+    "provider": "local",
+    "schema": 1,
+    "separate": true,
+    "source": {
+      "kind": "cloud_stable",
+      "path": "$ROOT/media/节目.m4a",
+      "stable_json": "$ROOT/cloud/cloud.stable.json",
+      "title": "节目"
+    },
+    "target": "translated-srt"
+  },
+  "scenario": "cloud-translated-srt-zh-update",
+  "settings": "compat"
+}

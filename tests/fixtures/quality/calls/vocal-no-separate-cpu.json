@@ -1,0 +1,73 @@
+{
+  "calls": [
+    {
+      "CUDA_VISIBLE_DEVICES": null,
+      "arguments": {
+        "overlay": {}
+      },
+      "entry": "model_routes.install_runtime_preferred"
+    },
+    {
+      "CUDA_VISIBLE_DEVICES": null,
+      "arguments": {
+        "output_path": {
+          "path": "$ROOT/data/tasks/gate-task/workspace/.节目-vocal.part-$WRITER.ogg"
+        },
+        "run_metadata_path": {
+          "path": "$ROOT/data/tasks/gate-task/workspace/节目-metadata.json"
+        },
+        "source_path": {
+          "path": "$ROOT/media/节目.m4a"
+        }
+      },
+      "entry": "separation.encode_asr_delivery"
+    }
+  ],
+  "exit": 0,
+  "input": {
+    "device": "cpu",
+    "language": "ja",
+    "provider": "local",
+    "schema": 1,
+    "separate": false,
+    "source": {
+      "kind": "local_file",
+      "path": "$MEDIA",
+      "title": "节目"
+    },
+    "target": "vocal"
+  },
+  "manifest": {
+    "artifacts": {
+      "metadata_json": {
+        "file": "$ROOT/data/tasks/gate-task/workspace/节目-metadata.json"
+      },
+      "vocal_audio": {
+        "file": "$ROOT/data/tasks/gate-task/workspace/节目-vocal.ogg",
+        "sha256": "7dd541a8d0d2fb3630951811bf7258f9f7067bf571d4a8b804ea1f83b6eaa004"
+      }
+    },
+    "engine_commit": "7123055da0cd6e037d8e37feb53b82f9e428c5cb"
+  },
+  "request": {
+    "cleanup_intermediate": false,
+    "correction": {},
+    "device": "cpu",
+    "gpu_tier": "auto",
+    "knowledge": "update",
+    "language": "ja",
+    "projection": "document",
+    "provider": "local",
+    "schema": 1,
+    "separate": false,
+    "source": {
+      "kind": "local_file",
+      "path": "$ROOT/media/节目.m4a",
+      "title": "节目"
+    },
+    "target": "vocal",
+    "vocal_profile": "quality"
+  },
+  "scenario": "vocal-no-separate-cpu",
+  "settings": "compat"
+}

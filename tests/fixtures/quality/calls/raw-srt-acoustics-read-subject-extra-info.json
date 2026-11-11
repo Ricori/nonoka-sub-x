@@ -1,0 +1,322 @@
+{
+  "calls": [
+    {
+      "CUDA_VISIBLE_DEVICES": null,
+      "arguments": {
+        "overlay": {}
+      },
+      "entry": "model_routes.install_runtime_preferred"
+    },
+    {
+      "CUDA_VISIBLE_DEVICES": null,
+      "arguments": {
+        "batch_size": null,
+        "block_seconds": 600.0,
+        "device": "cuda",
+        "gpu_tier": "auto",
+        "input_path": {
+          "path": "$ROOT/media/节目.m4a"
+        },
+        "metadata_sink": {},
+        "output_path": {
+          "path": "$ROOT/data/tasks/gate-task/workspace/.节目-vocal.part-$WRITER.ogg"
+        },
+        "pad_seconds": 10.0,
+        "run_metadata_path": {
+          "path": "$ROOT/data/tasks/gate-task/workspace/节目-metadata.json"
+        },
+        "separator_sample_rate": null,
+        "use_amp": true
+      },
+      "entry": "separation.run_vocal_separation"
+    },
+    {
+      "CUDA_VISIBLE_DEVICES": null,
+      "arguments": {
+        "asr_context": "",
+        "asr_decode_batch": null,
+        "device": "cuda",
+        "gap_sec": 0.3,
+        "gpu_tier": "auto",
+        "input_path": {
+          "path": "$ROOT/data/tasks/gate-task/workspace/节目-vocal.ogg"
+        },
+        "lang_redecode": "auto",
+        "language": "ja",
+        "model_name": "large-v3-turbo",
+        "output_path": {
+          "path": "$ROOT/data/tasks/gate-task/workspace/.节目-aligned.part-$WRITER.json"
+        },
+        "qwen_verify": "auto",
+        "run_metadata_path": {
+          "path": "$ROOT/data/tasks/gate-task/workspace/节目-metadata.json"
+        },
+        "split_length_scale": null,
+        "vad_prefix_path": {
+          "path": "$ROOT/data/tasks/gate-task/workspace/节目-vad.json"
+        },
+        "vad_silero_assist": null
+      },
+      "entry": "vad_asr_stage.run_vad_asr"
+    },
+    {
+      "CUDA_VISIBLE_DEVICES": null,
+      "arguments": {
+        "audio_path": {
+          "path": "$ROOT/data/tasks/gate-task/workspace/节目-vocal.ogg"
+        },
+        "devices": "<callable>",
+        "gap": "auto",
+        "qwen_verify": "auto",
+        "row_fill": "off",
+        "squeeze": "auto",
+        "vad_prefix": {
+          "path": "$ROOT/data/tasks/gate-task/workspace/节目-vad.json"
+        }
+      },
+      "entry": "recall_decode.recall_repair"
+    },
+    {
+      "CUDA_VISIBLE_DEVICES": null,
+      "arguments": {},
+      "entry": "device.cuda_device_present"
+    },
+    {
+      "CUDA_VISIBLE_DEVICES": null,
+      "arguments": {},
+      "entry": "device.total_vram_gib"
+    },
+    {
+      "CUDA_VISIBLE_DEVICES": null,
+      "arguments": {
+        "gpu_allowed": true,
+        "requested_device": "cuda"
+      },
+      "entry": "device.resolve_asr_device"
+    },
+    {
+      "CUDA_VISIBLE_DEVICES": null,
+      "arguments": {
+        "device": "cuda"
+      },
+      "entry": "vad_asr_stage.tail_verify_device"
+    },
+    {
+      "devices": [
+        "cuda",
+        "cuda"
+      ],
+      "entry": "recall_decode.recall_repair.devices()"
+    },
+    {
+      "CUDA_VISIBLE_DEVICES": null,
+      "arguments": {
+        "input_path": {
+          "path": "$ROOT/data/tasks/gate-task/workspace/节目-aligned.json"
+        },
+        "output_path": {
+          "path": "$ROOT/data/tasks/gate-task/workspace/.节目-stable.part-$WRITER.json"
+        },
+        "profile": 0,
+        "repair": "<stub recall_repair hook>",
+        "veto_level_floor": null
+      },
+      "entry": "stabilization.run_asr_stabilize"
+    },
+    {
+      "CUDA_VISIBLE_DEVICES": null,
+      "arguments": {},
+      "entry": "device.cuda_device_present"
+    },
+    {
+      "CUDA_VISIBLE_DEVICES": null,
+      "arguments": {},
+      "entry": "device.total_vram_gib"
+    },
+    {
+      "CUDA_VISIBLE_DEVICES": null,
+      "arguments": {
+        "context": "speaker diarization",
+        "requested_device": "cuda"
+      },
+      "entry": "device.resolve_device"
+    },
+    {
+      "CUDA_VISIBLE_DEVICES": null,
+      "arguments": {
+        "artifacts": null,
+        "backend": null,
+        "device": "cuda",
+        "evidence_path": {
+          "path": "$ROOT/data/tasks/gate-task/workspace/节目-diar-evidence.npz"
+        },
+        "max_speakers": null,
+        "smoothing": null,
+        "vocal_path": {
+          "path": "$ROOT/data/tasks/gate-task/workspace/节目-vocal.ogg"
+        }
+      },
+      "entry": "diarization.run_diarization"
+    },
+    {
+      "CUDA_VISIBLE_DEVICES": null,
+      "arguments": {
+        "artifacts_revision": "",
+        "assignment": null,
+        "split_choice": true,
+        "stable_path": {
+          "path": "$ROOT/data/tasks/gate-task/workspace/节目-stable.json"
+        },
+        "timeline_path": {
+          "path": "$ROOT/data/tasks/gate-task/workspace/节目-diar.json"
+        }
+      },
+      "entry": "diarization.write_rows"
+    },
+    {
+      "CUDA_VISIBLE_DEVICES": null,
+      "arguments": {
+        "empty_cues": false,
+        "input_path": {
+          "path": "$ROOT/data/tasks/gate-task/workspace/节目-stable.json"
+        },
+        "output_path": {
+          "path": "$ROOT/data/tasks/gate-task/workspace/.节目-raw.part-$WRITER.srt"
+        },
+        "validate": false,
+        "word": false
+      },
+      "entry": "rendering.convert_json_to_srt"
+    },
+    {
+      "CUDA_VISIBLE_DEVICES": null,
+      "arguments": {
+        "audio_end": null,
+        "input_path": {
+          "path": "$ROOT/data/tasks/gate-task/workspace/.节目-raw.part-$WRITER.srt"
+        },
+        "keys": null,
+        "output_path": null,
+        "profile": 4,
+        "timeline": null,
+        "validate": false
+      },
+      "entry": "postprocess.postprocess_srt_file"
+    },
+    {
+      "CUDA_VISIBLE_DEVICES": null,
+      "arguments": {
+        "audio_end": null,
+        "input_path": {
+          "path": "$ROOT/data/tasks/gate-task/workspace/.节目-raw.part-$WRITER.srt"
+        },
+        "keys": null,
+        "output_path": null,
+        "profile": 1,
+        "timeline": null,
+        "validate": false
+      },
+      "entry": "postprocess.postprocess_srt_file"
+    }
+  ],
+  "exit": 0,
+  "input": {
+    "correction": {
+      "extra_info": "这期是柊優花的游戏直播。"
+    },
+    "diarization": {
+      "level": "acoustics"
+    },
+    "knowledge": "read",
+    "knowledge_subjects": [
+      {
+        "aliases": "",
+        "description": "",
+        "id": "$SUBJECT_ID",
+        "kind": "streamer",
+        "subject": "柊優花"
+      }
+    ],
+    "language": "ja",
+    "provider": "local",
+    "schema": 1,
+    "source": {
+      "kind": "local_file",
+      "path": "$MEDIA",
+      "title": "节目"
+    },
+    "target": "raw-srt"
+  },
+  "manifest": {
+    "artifacts": {
+      "aligned_json": {
+        "file": "$ROOT/data/tasks/gate-task/workspace/节目-aligned.json",
+        "sha256": "b61a84a23fe2d01d1989d0e71c66aaee13c705af9f415b4b058f5e6a643b9ea6"
+      },
+      "diar_json": {
+        "file": "$ROOT/data/tasks/gate-task/workspace/节目-diar.json",
+        "sha256": "3b8da7f18fb154ffd61198b669450e6938cfde7ec660710a1b3568b6775deaa8"
+      },
+      "diar_rows_json": {
+        "file": "$ROOT/data/tasks/gate-task/workspace/节目-diar-rows.json",
+        "sha256": "3fba421229917b172d578d41194663b78322f637d73a66b82e6a32b2e9307a10"
+      },
+      "metadata_json": {
+        "file": "$ROOT/data/tasks/gate-task/workspace/节目-metadata.json"
+      },
+      "raw_srt": {
+        "file": "$ROOT/data/tasks/gate-task/workspace/节目-raw.srt",
+        "sha256": "27b322f32cc19883e16cc50592fe298df5ec761c418b8fa244d4db4716ff29a9"
+      },
+      "stable_json": {
+        "file": "$ROOT/data/tasks/gate-task/workspace/节目-stable.json",
+        "sha256": "b61a84a23fe2d01d1989d0e71c66aaee13c705af9f415b4b058f5e6a643b9ea6"
+      },
+      "vad_json": {
+        "file": "$ROOT/data/tasks/gate-task/workspace/节目-vad.json",
+        "sha256": "7c0b3c0f755fa26a0d1d9f7551bd39876b016265b9d18ffc7da3da4366fcca73"
+      },
+      "vocal_audio": {
+        "file": "$ROOT/data/tasks/gate-task/workspace/节目-vocal.ogg",
+        "sha256": "032d78d2d34b73fe50502f2bdfa3f15b4e267885545e62bba48368a700212ff5"
+      }
+    },
+    "engine_commit": "7123055da0cd6e037d8e37feb53b82f9e428c5cb"
+  },
+  "request": {
+    "cleanup_intermediate": false,
+    "correction": {
+      "extra_info": "这期是柊優花的游戏直播。"
+    },
+    "device": "cuda",
+    "diarization": {
+      "level": "acoustics",
+      "max_speakers": null
+    },
+    "gpu_tier": "auto",
+    "knowledge": "read",
+    "knowledge_subjects": [
+      {
+        "aliases": "",
+        "description": "",
+        "id": "$SUBJECT_ID",
+        "kind": "streamer",
+        "subject": "柊優花"
+      }
+    ],
+    "language": "ja",
+    "projection": "document",
+    "provider": "local",
+    "schema": 1,
+    "separate": true,
+    "source": {
+      "kind": "local_file",
+      "path": "$ROOT/media/节目.m4a",
+      "title": "节目"
+    },
+    "target": "raw-srt",
+    "vocal_profile": "quality"
+  },
+  "scenario": "raw-srt-acoustics-read-subject-extra-info",
+  "settings": "compat"
+}

@@ -1,0 +1,153 @@
+{
+  "calls": [
+    {
+      "CUDA_VISIBLE_DEVICES": null,
+      "arguments": {
+        "overlay": {}
+      },
+      "entry": "model_routes.install_runtime_preferred"
+    },
+    {
+      "CUDA_VISIBLE_DEVICES": null,
+      "arguments": {
+        "split_choice": true,
+        "stable_path": {
+          "path": "$ROOT/data/tasks/gate-task/workspace/节目-stable.json"
+        },
+        "timeline_path": {
+          "path": "$ROOT/data/tasks/gate-task/workspace/节目-diar.json"
+        }
+      },
+      "entry": "diarization.seed_legacy"
+    },
+    {
+      "CUDA_VISIBLE_DEVICES": null,
+      "arguments": {
+        "artifacts_revision": "",
+        "assignment": null,
+        "split_choice": true,
+        "stable_path": {
+          "path": "$ROOT/data/tasks/gate-task/workspace/节目-stable.json"
+        },
+        "timeline_path": {
+          "path": "$ROOT/data/tasks/gate-task/workspace/节目-diar.json"
+        }
+      },
+      "entry": "diarization.write_rows"
+    },
+    {
+      "CUDA_VISIBLE_DEVICES": null,
+      "arguments": {
+        "empty_cues": false,
+        "input_path": {
+          "path": "$ROOT/data/tasks/gate-task/workspace/节目-stable.json"
+        },
+        "output_path": {
+          "path": "$ROOT/data/tasks/gate-task/workspace/.节目-raw.part-$WRITER.srt"
+        },
+        "validate": false,
+        "word": false
+      },
+      "entry": "rendering.convert_json_to_srt"
+    },
+    {
+      "CUDA_VISIBLE_DEVICES": null,
+      "arguments": {
+        "audio_end": null,
+        "input_path": {
+          "path": "$ROOT/data/tasks/gate-task/workspace/.节目-raw.part-$WRITER.srt"
+        },
+        "keys": null,
+        "output_path": null,
+        "profile": 4,
+        "timeline": null,
+        "validate": false
+      },
+      "entry": "postprocess.postprocess_srt_file"
+    },
+    {
+      "CUDA_VISIBLE_DEVICES": null,
+      "arguments": {
+        "audio_end": null,
+        "input_path": {
+          "path": "$ROOT/data/tasks/gate-task/workspace/.节目-raw.part-$WRITER.srt"
+        },
+        "keys": null,
+        "output_path": null,
+        "profile": 1,
+        "timeline": null,
+        "validate": false
+      },
+      "entry": "postprocess.postprocess_srt_file"
+    }
+  ],
+  "exit": 0,
+  "input": {
+    "diarization": {
+      "level": "acoustics",
+      "max_speakers": 4
+    },
+    "knowledge": "none",
+    "language": "ja",
+    "provider": "local",
+    "schema": 1,
+    "source": {
+      "diar_json": "$CLOUD_DIAR",
+      "kind": "cloud_stable",
+      "path": "$MEDIA",
+      "stable_json": "$CLOUD_STABLE",
+      "title": "节目"
+    },
+    "target": "raw-srt"
+  },
+  "manifest": {
+    "artifacts": {
+      "diar_json": {
+        "file": "$ROOT/data/tasks/gate-task/workspace/节目-diar.json",
+        "sha256": "3b8da7f18fb154ffd61198b669450e6938cfde7ec660710a1b3568b6775deaa8"
+      },
+      "diar_rows_json": {
+        "file": "$ROOT/data/tasks/gate-task/workspace/节目-diar-rows.json",
+        "sha256": "3fba421229917b172d578d41194663b78322f637d73a66b82e6a32b2e9307a10"
+      },
+      "metadata_json": {
+        "file": "$ROOT/data/tasks/gate-task/workspace/节目-metadata.json"
+      },
+      "raw_srt": {
+        "file": "$ROOT/data/tasks/gate-task/workspace/节目-raw.srt",
+        "sha256": "27b322f32cc19883e16cc50592fe298df5ec761c418b8fa244d4db4716ff29a9"
+      },
+      "stable_json": {
+        "file": "$ROOT/data/tasks/gate-task/workspace/节目-stable.json",
+        "sha256": "ee3526e387010cdd8061c5c81855403d85bedba854cf1cf95e6f07a55946bba0"
+      }
+    },
+    "engine_commit": "7123055da0cd6e037d8e37feb53b82f9e428c5cb"
+  },
+  "request": {
+    "cleanup_intermediate": false,
+    "correction": {},
+    "device": "cuda",
+    "diarization": {
+      "level": "acoustics",
+      "max_speakers": 4
+    },
+    "gpu_tier": "auto",
+    "knowledge": "none",
+    "language": "ja",
+    "projection": "document",
+    "provider": "local",
+    "schema": 1,
+    "separate": true,
+    "source": {
+      "diar_json": "$ROOT/cloud/cloud.diar.json",
+      "kind": "cloud_stable",
+      "path": "$ROOT/media/节目.m4a",
+      "stable_json": "$ROOT/cloud/cloud.stable.json",
+      "title": "节目"
+    },
+    "target": "raw-srt"
+  },
+  "scenario": "cloud-raw-srt-timeline-acoustics",
+  "settings": "compat"
+}

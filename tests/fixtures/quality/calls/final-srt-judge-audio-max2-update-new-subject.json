@@ -1,0 +1,426 @@
+{
+  "calls": [
+    {
+      "CUDA_VISIBLE_DEVICES": null,
+      "arguments": {
+        "overlay": {}
+      },
+      "entry": "model_routes.install_runtime_preferred"
+    },
+    {
+      "CUDA_VISIBLE_DEVICES": null,
+      "arguments": {
+        "batch_size": null,
+        "block_seconds": 600.0,
+        "device": "cuda",
+        "gpu_tier": "auto",
+        "input_path": {
+          "path": "$ROOT/media/节目.m4a"
+        },
+        "metadata_sink": {},
+        "output_path": {
+          "path": "$ROOT/data/tasks/gate-task/workspace/.节目-vocal.part-$WRITER.ogg"
+        },
+        "pad_seconds": 10.0,
+        "run_metadata_path": {
+          "path": "$ROOT/data/tasks/gate-task/workspace/节目-metadata.json"
+        },
+        "separator_sample_rate": null,
+        "use_amp": true
+      },
+      "entry": "separation.run_vocal_separation"
+    },
+    {
+      "CUDA_VISIBLE_DEVICES": null,
+      "arguments": {
+        "asr_context": "",
+        "asr_decode_batch": null,
+        "device": "cuda",
+        "gap_sec": 0.3,
+        "gpu_tier": "auto",
+        "input_path": {
+          "path": "$ROOT/data/tasks/gate-task/workspace/节目-vocal.ogg"
+        },
+        "lang_redecode": "auto",
+        "language": "ja",
+        "model_name": "large-v3-turbo",
+        "output_path": {
+          "path": "$ROOT/data/tasks/gate-task/workspace/.节目-aligned.part-$WRITER.json"
+        },
+        "qwen_verify": "auto",
+        "run_metadata_path": {
+          "path": "$ROOT/data/tasks/gate-task/workspace/节目-metadata.json"
+        },
+        "split_length_scale": null,
+        "vad_prefix_path": {
+          "path": "$ROOT/data/tasks/gate-task/workspace/节目-vad.json"
+        },
+        "vad_silero_assist": null
+      },
+      "entry": "vad_asr_stage.run_vad_asr"
+    },
+    {
+      "CUDA_VISIBLE_DEVICES": null,
+      "arguments": {
+        "audio_path": {
+          "path": "$ROOT/data/tasks/gate-task/workspace/节目-vocal.ogg"
+        },
+        "devices": "<callable>",
+        "gap": "auto",
+        "qwen_verify": "auto",
+        "row_fill": "off",
+        "squeeze": "auto",
+        "vad_prefix": {
+          "path": "$ROOT/data/tasks/gate-task/workspace/节目-vad.json"
+        }
+      },
+      "entry": "recall_decode.recall_repair"
+    },
+    {
+      "CUDA_VISIBLE_DEVICES": null,
+      "arguments": {},
+      "entry": "device.cuda_device_present"
+    },
+    {
+      "CUDA_VISIBLE_DEVICES": null,
+      "arguments": {},
+      "entry": "device.total_vram_gib"
+    },
+    {
+      "CUDA_VISIBLE_DEVICES": null,
+      "arguments": {
+        "gpu_allowed": true,
+        "requested_device": "cuda"
+      },
+      "entry": "device.resolve_asr_device"
+    },
+    {
+      "CUDA_VISIBLE_DEVICES": null,
+      "arguments": {
+        "device": "cuda"
+      },
+      "entry": "vad_asr_stage.tail_verify_device"
+    },
+    {
+      "devices": [
+        "cuda",
+        "cuda"
+      ],
+      "entry": "recall_decode.recall_repair.devices()"
+    },
+    {
+      "CUDA_VISIBLE_DEVICES": null,
+      "arguments": {
+        "input_path": {
+          "path": "$ROOT/data/tasks/gate-task/workspace/节目-aligned.json"
+        },
+        "output_path": {
+          "path": "$ROOT/data/tasks/gate-task/workspace/.节目-stable.part-$WRITER.json"
+        },
+        "profile": 0,
+        "repair": "<stub recall_repair hook>",
+        "veto_level_floor": null
+      },
+      "entry": "stabilization.run_asr_stabilize"
+    },
+    {
+      "CUDA_VISIBLE_DEVICES": null,
+      "arguments": {},
+      "entry": "device.cuda_device_present"
+    },
+    {
+      "CUDA_VISIBLE_DEVICES": null,
+      "arguments": {},
+      "entry": "device.total_vram_gib"
+    },
+    {
+      "CUDA_VISIBLE_DEVICES": null,
+      "arguments": {
+        "context": "speaker diarization",
+        "requested_device": "cuda"
+      },
+      "entry": "device.resolve_device"
+    },
+    {
+      "CUDA_VISIBLE_DEVICES": null,
+      "arguments": {
+        "artifacts": null,
+        "backend": null,
+        "device": "cuda",
+        "evidence_path": {
+          "path": "$ROOT/data/tasks/gate-task/workspace/节目-diar-evidence.npz"
+        },
+        "max_speakers": 2,
+        "smoothing": null,
+        "vocal_path": {
+          "path": "$ROOT/data/tasks/gate-task/workspace/节目-vocal.ogg"
+        }
+      },
+      "entry": "diarization.run_diarization"
+    },
+    {
+      "CUDA_VISIBLE_DEVICES": null,
+      "arguments": {
+        "artifacts_revision": "",
+        "assignment": null,
+        "split_choice": true,
+        "stable_path": {
+          "path": "$ROOT/data/tasks/gate-task/workspace/节目-stable.json"
+        },
+        "timeline_path": {
+          "path": "$ROOT/data/tasks/gate-task/workspace/节目-diar.json"
+        }
+      },
+      "entry": "diarization.write_rows"
+    },
+    {
+      "CUDA_VISIBLE_DEVICES": null,
+      "arguments": {
+        "empty_cues": false,
+        "input_path": {
+          "path": "$ROOT/data/tasks/gate-task/workspace/节目-stable.json"
+        },
+        "output_path": {
+          "path": "$ROOT/data/tasks/gate-task/workspace/.节目-raw.part-$WRITER.srt"
+        },
+        "validate": false,
+        "word": false
+      },
+      "entry": "rendering.convert_json_to_srt"
+    },
+    {
+      "CUDA_VISIBLE_DEVICES": null,
+      "arguments": {
+        "audio_end": null,
+        "input_path": {
+          "path": "$ROOT/data/tasks/gate-task/workspace/.节目-raw.part-$WRITER.srt"
+        },
+        "keys": null,
+        "output_path": null,
+        "profile": 4,
+        "timeline": null,
+        "validate": false
+      },
+      "entry": "postprocess.postprocess_srt_file"
+    },
+    {
+      "CUDA_VISIBLE_DEVICES": null,
+      "arguments": {
+        "audio_end": null,
+        "input_path": {
+          "path": "$ROOT/data/tasks/gate-task/workspace/.节目-raw.part-$WRITER.srt"
+        },
+        "keys": null,
+        "output_path": null,
+        "profile": 1,
+        "timeline": null,
+        "validate": false
+      },
+      "entry": "postprocess.postprocess_srt_file"
+    },
+    {
+      "CUDA_VISIBLE_DEVICES": null,
+      "arguments": {
+        "request": {
+          "__type__": "CorrectionRequest",
+          "audio_path": {
+            "path": "$ROOT/media/节目.m4a"
+          },
+          "collect_feedback": null,
+          "context_file": null,
+          "extra_info": "【本任务指定的知识主体（用户明确选择）】\n- 主播 / 频道：猫又おかゆ（别名 / 常用译名：Okayu、おかゆ）；Hololive 所属\n请将本次确认的新名称、关系和事实归入上述主体中最贴切的一个；不属于任何一个时再按常规新建条目，不要与同名主体混淆。",
+          "extra_style": "",
+          "fast": "auto",
+          "knowledge": "update",
+          "knowledge_root": null,
+          "knowledge_subjects": [
+            "streamer/猫又おかゆ"
+          ],
+          "max_replacements_per_window": 2,
+          "max_retries_per_window": 3,
+          "max_window_subtitle_tokens": null,
+          "mode": "execute",
+          "on_plan": null,
+          "output_path": {
+            "path": "$ROOT/data/tasks/gate-task/workspace/节目.srt"
+          },
+          "parallel_windows": 1,
+          "postprocess_profile": 0,
+          "profile": {
+            "__type__": "TranslationProfile",
+            "continuity": "serial",
+            "correct_only": false,
+            "correction_media": "audio",
+            "difficulty": "quality",
+            "output_coefficient": 3.5,
+            "output_scale": 1.0,
+            "retrieval": "none"
+          },
+          "proofread": "auto",
+          "refined_srt": null,
+          "resume": true,
+          "speaker_judge": "audio",
+          "split_length_scale": null,
+          "stable_json": {
+            "path": "$ROOT/data/tasks/gate-task/workspace/节目-stable.json"
+          },
+          "style": null,
+          "style_efficiency_cap": true,
+          "style_mode": null,
+          "switch_sources": {
+            "continuity": "default",
+            "difficulty": "explicit",
+            "knowledge": "explicit",
+            "media": "explicit",
+            "parallel_windows": "default",
+            "retrieval": "explicit"
+          },
+          "task_artifact_dir": {
+            "path": "$ROOT/data/tasks/gate-task/workspace/llm-artifacts"
+          },
+          "task_id": "gate-task",
+          "task_summary": "字幕任务：节目\n\n【本任务指定的知识主体（用户明确选择）】\n- 主播 / 频道：猫又おかゆ（别名 / 常用译名：Okayu、おかゆ）；Hololive 所属\n请将本次确认的新名称、关系和事实归入上述主体中最贴切的一个；不属于任何一个时再按常规新建条目，不要与同名主体混淆。",
+          "test_profile": false,
+          "video_path": null,
+          "vocal_audio": {
+            "path": "$ROOT/data/tasks/gate-task/workspace/节目-vocal.ogg"
+          }
+        }
+      },
+      "entry": "correction_translation.run_correction_task"
+    },
+    {
+      "entry": "routing at run_correction_task",
+      "routing": {
+        "active_preset": "default",
+        "bindings": {
+          "correction-mm": [
+            "nonoka-openai-compat-0d34b081ab77"
+          ],
+          "correction-text": [
+            "nonoka-openai-compat-0d34b081ab77"
+          ],
+          "knowledge": [
+            "nonoka-openai-compat-58142a05fea9"
+          ],
+          "research": [
+            "nonoka-openai-compat-4faf62c6d3f4"
+          ]
+        },
+        "difficulty": "quality",
+        "runtime_overlay": {}
+      }
+    }
+  ],
+  "exit": 0,
+  "input": {
+    "correction": {
+      "difficulty": "quality",
+      "media": "audio",
+      "retrieval": "none"
+    },
+    "diarization": {
+      "level": "judge-audio",
+      "max_speakers": 2
+    },
+    "knowledge": "update",
+    "knowledge_subjects": [
+      {
+        "aliases": "Okayu、おかゆ",
+        "description": "Hololive 所属",
+        "kind": "streamer",
+        "subject": "猫又おかゆ"
+      }
+    ],
+    "language": "ja",
+    "provider": "local",
+    "schema": 1,
+    "source": {
+      "kind": "local_file",
+      "path": "$MEDIA",
+      "title": "节目"
+    },
+    "target": "final-srt"
+  },
+  "manifest": {
+    "artifacts": {
+      "aligned_json": {
+        "file": "$ROOT/data/tasks/gate-task/workspace/节目-aligned.json",
+        "sha256": "b61a84a23fe2d01d1989d0e71c66aaee13c705af9f415b4b058f5e6a643b9ea6"
+      },
+      "annotated_csv": {
+        "file": "$ROOT/data/tasks/gate-task/workspace/节目-annotated.csv",
+        "sha256": "b9aca05be815430f67cfe6347047eb438f381e5659724339fae7183d8a86022a"
+      },
+      "diar_json": {
+        "file": "$ROOT/data/tasks/gate-task/workspace/节目-diar.json",
+        "sha256": "3b8da7f18fb154ffd61198b669450e6938cfde7ec660710a1b3568b6775deaa8"
+      },
+      "diar_rows_json": {
+        "file": "$ROOT/data/tasks/gate-task/workspace/节目-diar-rows.json",
+        "sha256": "3fba421229917b172d578d41194663b78322f637d73a66b82e6a32b2e9307a10"
+      },
+      "final_srt": {
+        "file": "$ROOT/data/tasks/gate-task/workspace/节目.srt",
+        "sha256": "936da1f4c5005bf81dc82c4effa07c6902efa8cc87519dc9ca4e73159c7a9a5d"
+      },
+      "metadata_json": {
+        "file": "$ROOT/data/tasks/gate-task/workspace/节目-metadata.json"
+      },
+      "raw_srt": {
+        "file": "$ROOT/data/tasks/gate-task/workspace/节目-raw.srt",
+        "sha256": "27b322f32cc19883e16cc50592fe298df5ec761c418b8fa244d4db4716ff29a9"
+      },
+      "stable_json": {
+        "file": "$ROOT/data/tasks/gate-task/workspace/节目-stable.json",
+        "sha256": "b61a84a23fe2d01d1989d0e71c66aaee13c705af9f415b4b058f5e6a643b9ea6"
+      },
+      "vad_json": {
+        "file": "$ROOT/data/tasks/gate-task/workspace/节目-vad.json",
+        "sha256": "7c0b3c0f755fa26a0d1d9f7551bd39876b016265b9d18ffc7da3da4366fcca73"
+      },
+      "vocal_audio": {
+        "file": "$ROOT/data/tasks/gate-task/workspace/节目-vocal.ogg",
+        "sha256": "032d78d2d34b73fe50502f2bdfa3f15b4e267885545e62bba48368a700212ff5"
+      }
+    },
+    "engine_commit": "7123055da0cd6e037d8e37feb53b82f9e428c5cb"
+  },
+  "request": {
+    "cleanup_intermediate": false,
+    "correction": {
+      "difficulty": "quality",
+      "media": "audio",
+      "retrieval": "none"
+    },
+    "device": "cuda",
+    "diarization": {
+      "level": "judge-audio",
+      "max_speakers": 2
+    },
+    "gpu_tier": "auto",
+    "knowledge": "update",
+    "knowledge_subjects": [
+      {
+        "aliases": "Okayu、おかゆ",
+        "description": "Hololive 所属",
+        "kind": "streamer",
+        "subject": "猫又おかゆ"
+      }
+    ],
+    "language": "ja",
+    "projection": "document",
+    "provider": "local",
+    "schema": 1,
+    "separate": true,
+    "source": {
+      "kind": "local_file",
+      "path": "$ROOT/media/节目.m4a",
+      "title": "节目"
+    },
+    "target": "final-srt",
+    "vocal_profile": "quality"
+  },
+  "scenario": "final-srt-judge-audio-max2-update-new-subject",
+  "settings": "compat"
+}

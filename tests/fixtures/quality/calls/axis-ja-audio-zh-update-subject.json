@@ -1,0 +1,227 @@
+{
+  "calls": [
+    {
+      "CUDA_VISIBLE_DEVICES": null,
+      "arguments": {
+        "overlay": {}
+      },
+      "entry": "model_routes.install_runtime_preferred"
+    },
+    {
+      "CUDA_VISIBLE_DEVICES": null,
+      "arguments": {
+        "request": {
+          "__type__": "CorrectionRequest",
+          "audio_path": {
+            "path": "$ROOT/media/节目.m4a"
+          },
+          "collect_feedback": null,
+          "context_file": null,
+          "extra_info": "【本任务指定的知识主体（用户明确选择）】\n- 主播 / 频道：猫又おかゆ（别名 / 常用译名：Okayu、おかゆ）；Hololive 所属\n请将本次确认的新名称、关系和事实归入上述主体中最贴切的一个；不属于任何一个时再按常规新建条目，不要与同名主体混淆。\n\n【其他背景信息】\n轴的背景",
+          "extra_style": "简洁",
+          "fast": "auto",
+          "knowledge": "update",
+          "knowledge_root": null,
+          "knowledge_subjects": [
+            "streamer/猫又おかゆ"
+          ],
+          "max_replacements_per_window": null,
+          "max_retries_per_window": null,
+          "max_window_subtitle_tokens": null,
+          "mode": "execute",
+          "on_plan": null,
+          "output_path": {
+            "path": "$ROOT/data/tasks/gate-task/workspace/节目.srt"
+          },
+          "parallel_windows": 1,
+          "postprocess_profile": 0,
+          "profile": {
+            "__type__": "TranslationProfile",
+            "continuity": "serial",
+            "correct_only": false,
+            "correction_media": "audio",
+            "difficulty": "quality",
+            "output_coefficient": 4.5,
+            "output_scale": 1.0,
+            "retrieval": "local"
+          },
+          "proofread": "auto",
+          "refined_srt": null,
+          "resume": true,
+          "speaker_judge": "off",
+          "split_length_scale": null,
+          "stable_json": {
+            "path": "$ROOT/data/tasks/gate-task/workspace/节目.stable.json"
+          },
+          "style": null,
+          "style_efficiency_cap": true,
+          "style_mode": null,
+          "switch_sources": null,
+          "task_artifact_dir": {
+            "path": "$ROOT/data/tasks/gate-task/workspace/llm-artifacts"
+          },
+          "task_id": "gate-task",
+          "task_summary": "字幕任务：节目\n\n【本任务指定的知识主体（用户明确选择）】\n- 主播 / 频道：猫又おかゆ（别名 / 常用译名：Okayu、おかゆ）；Hololive 所属\n请将本次确认的新名称、关系和事实归入上述主体中最贴切的一个；不属于任何一个时再按常规新建条目，不要与同名主体混淆。",
+          "test_profile": false,
+          "video_path": null,
+          "vocal_audio": null
+        }
+      },
+      "entry": "correction_translation.run_correction_task"
+    },
+    {
+      "entry": "routing at run_correction_task",
+      "routing": {
+        "active_preset": "default",
+        "bindings": {
+          "correction-mm": [
+            "nonoka-openai-compat-0d34b081ab77"
+          ],
+          "correction-text": [
+            "nonoka-openai-compat-0d34b081ab77"
+          ],
+          "knowledge": [
+            "nonoka-openai-compat-58142a05fea9"
+          ],
+          "research": [
+            "nonoka-openai-compat-4faf62c6d3f4"
+          ]
+        },
+        "difficulty": "quality",
+        "runtime_overlay": {}
+      }
+    }
+  ],
+  "exit": 0,
+  "input": {
+    "axis": {
+      "filename": "轴.ass",
+      "kind": "ja",
+      "rows": [
+        {
+          "ja": "おはよう",
+          "spk": "",
+          "t0": 1.0,
+          "t1": 2.0,
+          "zh": ""
+        },
+        {
+          "ja": "ございます",
+          "spk": "A",
+          "t0": 2.2,
+          "t1": 3.0,
+          "zh": ""
+        },
+        {
+          "ja": "",
+          "spk": "",
+          "t0": 4.0,
+          "t1": 5.0,
+          "zh": ""
+        }
+      ]
+    },
+    "correction": {
+      "extra_info": "轴的背景",
+      "extra_style": "简洁",
+      "media": "audio",
+      "retrieval": "local"
+    },
+    "knowledge": "update",
+    "knowledge_subjects": [
+      {
+        "aliases": "Okayu、おかゆ",
+        "description": "Hololive 所属",
+        "kind": "streamer",
+        "subject": "猫又おかゆ"
+      }
+    ],
+    "language": "zh",
+    "provider": "local",
+    "schema": 1,
+    "source": {
+      "kind": "local_file",
+      "path": "$MEDIA",
+      "title": "节目"
+    },
+    "target": "final-srt"
+  },
+  "manifest": {
+    "artifacts": {
+      "annotated_csv": {
+        "file": "$ROOT/data/tasks/gate-task/workspace/节目-annotated.csv",
+        "sha256": "b9aca05be815430f67cfe6347047eb438f381e5659724339fae7183d8a86022a"
+      },
+      "final_srt": {
+        "file": "$ROOT/data/tasks/gate-task/workspace/节目.srt",
+        "sha256": "936da1f4c5005bf81dc82c4effa07c6902efa8cc87519dc9ca4e73159c7a9a5d"
+      },
+      "stable_json": {
+        "file": "$ROOT/data/tasks/gate-task/workspace/节目.stable.json",
+        "sha256": "fc9d97db829272a8b05dbbb04a7a322cd2f838122fb6c7c45c2fdd9fc6a1e782"
+      }
+    },
+    "engine_commit": "7123055da0cd6e037d8e37feb53b82f9e428c5cb"
+  },
+  "request": {
+    "axis": {
+      "filename": "轴.ass",
+      "kind": "ja",
+      "rows": [
+        {
+          "ja": "おはよう",
+          "spk": "",
+          "t0": 1.0,
+          "t1": 2.0,
+          "zh": ""
+        },
+        {
+          "ja": "ございます",
+          "spk": "A",
+          "t0": 2.2,
+          "t1": 3.0,
+          "zh": ""
+        },
+        {
+          "ja": "",
+          "spk": "",
+          "t0": 4.0,
+          "t1": 5.0,
+          "zh": ""
+        }
+      ]
+    },
+    "cleanup_intermediate": false,
+    "correction": {
+      "extra_info": "轴的背景",
+      "extra_style": "简洁",
+      "media": "audio",
+      "retrieval": "local"
+    },
+    "device": "cuda",
+    "gpu_tier": "auto",
+    "knowledge": "update",
+    "knowledge_subjects": [
+      {
+        "aliases": "Okayu、おかゆ",
+        "description": "Hololive 所属",
+        "kind": "streamer",
+        "subject": "猫又おかゆ"
+      }
+    ],
+    "language": "zh",
+    "projection": "document",
+    "provider": "local",
+    "schema": 1,
+    "separate": true,
+    "source": {
+      "kind": "local_file",
+      "path": "$ROOT/media/节目.m4a",
+      "title": "节目"
+    },
+    "target": "final-srt",
+    "vocal_profile": "quality"
+  },
+  "scenario": "axis-ja-audio-zh-update-subject",
+  "settings": "compat"
+}
