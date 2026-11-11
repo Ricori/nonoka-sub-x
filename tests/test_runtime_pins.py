@@ -18,8 +18,9 @@ sources, and the engine constants. The transcription package keeps reading
 `finesub_bootstrap`'s own copies at run time, so those are held to the same
 record too (what `scripts/quality_gate.py` checks).
 
-Regenerate the record from the manifests with
-`python tests/test_runtime_pins.py --write` -- only for a pin change the owner
+The derivation lives in `tests/quality_harness/pins.py`. Regenerate the record
+with `python -m tests.quality_harness.pins write` (or
+`python tests/test_runtime_pins.py --write`) -- only for a pin change the owner
 approved, committed on its own.
 
 `tests/fixtures/quality/bootstrap-surface.json` lists every `finesub_bootstrap`
@@ -34,7 +35,6 @@ import re
 import sys
 import unittest
 from pathlib import Path
-from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 for entry in (ROOT, ROOT / "src"):
@@ -44,68 +44,18 @@ for entry in (ROOT, ROOT / "src"):
 from nonoka_x.runtime import manifests  # noqa: E402
 from tests.quality_harness import pins  # noqa: E402
 
-#: The sections of RUNTIME_PINS.json that `finesub_bootstrap`'s own files state
-#: as well (the only ones before WP-R1); `interpreter` is Nonoka's alone.
-BOOTSTRAP_SECTIONS = ("python", "tools", "models", "download_sources", "engine_constants")
-SECTIONS = (*BOOTSTRAP_SECTIONS, "interpreter")
-
-
-def _interpreter(manifest: dict[str, Any]) -> dict[str, Any]:
-    spec = manifest["interpreter"]
-    return {
-        "platform": manifest.get("platform"),
-        **{key: spec[key] for key in ("implementation", "version", "build")},
-        "url": spec["asset"]["url"],
-        "size": spec["asset"].get("size"),
-        "sha256": spec["asset"].get("sha256"),
-    }
+BOOTSTRAP_SECTIONS = pins.BOOTSTRAP_SECTIONS
+SECTIONS = pins.SECTIONS
 
 
 def derived_pins() -> dict:
-    """The pins as Nonoka's manifests state them (the shape of `pins.derive`)."""
+    """The pins as Nonoka's manifests state them (`pins.derive`, with the engine constants)."""
 
-    # rule, schema, python.cn and download_sources: still finesub_bootstrap's.
-    bootstrap = pins.derive()
-    tools = manifests.tool_manifest()
-    models = manifests.model_manifest()
-    return pins.with_constants({
-        **bootstrap,
-        "python": {
-            "requires": manifests.runtime_lock().get("requires-python"),
-            "global": pins._lock_packages(manifests.RUNTIME_LOCK),
-            "cn": bootstrap["python"]["cn"],
-        },
-        "interpreter": _interpreter(tools),
-        "tools": {
-            "platform": tools.get("platform"),
-            "resources": [
-                {
-                    "id": item["id"],
-                    "version": item["version"],
-                    "url": item["asset"]["url"],
-                    "size": item["asset"].get("size"),
-                    "sha256": item["asset"].get("sha256"),
-                    "required_files": item.get("required_files", []),
-                }
-                for item in tools["resources"]
-            ],
-        },
-        "models": {
-            model_id: {
-                **{key: spec[key] for key in ("repo", "revision", "listedOnly") if key in spec},
-                "files": [
-                    {key: item[key] for key in ("name", "url", "size", "sha256") if key in item}
-                    for item in spec.get("files", [])
-                ],
-            }
-            for model_id, spec in sorted(models["models"].items())
-        },
-    })
+    return pins.with_constants(pins.derive())
 
 
 def write() -> Path:
-    pins.PINS_FILE.write_bytes(pins.render(derived_pins()))
-    return pins.PINS_FILE
+    return pins.write()
 
 
 class RuntimePinsTests(unittest.TestCase):
@@ -120,9 +70,20 @@ class RuntimePinsTests(unittest.TestCase):
         for section in SECTIONS:
             with self.subTest(section):
                 self.assertEqual(derived[section], self.recorded[section])
+        # Nothing left out and nothing added: the whole document, rule and schema included.
+        self.assertEqual(json.loads(pins.render(derived)), self.recorded)
+        self.assertEqual(pins.problems(self.recorded), [])
+
+    def test_a_section_left_out_or_added_is_reported(self) -> None:
+        without = {key: value for key, value in self.recorded.items() if key != "interpreter"}
+        self.assertIn("RUNTIME_PINS.json section differs from Nonoka's manifests: interpreter",
+                      pins.problems(without))
+        extra = {**self.recorded, "unrecorded": {}}
+        self.assertIn("RUNTIME_PINS.json section differs from Nonoka's manifests: unrecorded",
+                      pins.problems(extra))
 
     def test_finesub_bootstraps_own_files_state_the_same_pins(self) -> None:
-        derived = pins.with_constants(pins.derive())
+        derived = pins.with_constants(pins.derive_bootstrap())
         for section in BOOTSTRAP_SECTIONS:
             with self.subTest(section):
                 self.assertEqual(derived[section], self.recorded[section])

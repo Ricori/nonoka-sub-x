@@ -1,12 +1,21 @@
 """What the runtime is pinned to, and whether an installed runtime matches (plan WP-Q item 5).
 
-`src/nonoka_x/resources/RUNTIME_PINS.json` is the record of the pins as they
-stand before the runtime moves to Nonoka's own manifests (WP-R1): every
-package of both runtime locks with its version and artefact hashes, every tool
-with its version, address and hash, every model with its revision and file
-hashes, and the download sources. `derive()` reads them from the files
-`finesub_bootstrap` ships today; `tests/test_runtime_pins.py` holds the record
-to them, and WP-R1 points the same comparison at Nonoka's copies.
+`src/nonoka_x/resources/RUNTIME_PINS.json` is the record of the pins: every
+package of both runtime locks with its version and artefact hashes, the Python
+interpreter build, every tool with its version, address and hash, every model
+with its revision and file hashes, and the download sources.
+
+Since WP-R1, `derive()` reads them from Nonoka's own manifests
+(`nonoka_x.runtime.manifests`: the runtime lock, the tool manifest with the
+interpreter, the model manifest). Three things are not Nonoka's to restate and
+still come from `finesub_bootstrap`: the China-mirror lock (`python.cn`, not
+copied, plan 4.2 item 13), the download sources, and the engine constants.
+`write()` regenerates the record from `derive()`.
+
+`derive_bootstrap()` reads the same pins (all but the interpreter) from the
+files `finesub_bootstrap` ships. The transcription package keeps reading those
+at run time -- both locks included -- so they are held to the record too
+(`problems()`, `scripts/quality_gate.py`, `tests/test_runtime_pins.py`).
 
 `measure()` looks at an installed runtime on this machine -- the interpreter's
 installed distributions, the model files on disk, the tool directories -- and
@@ -59,47 +68,108 @@ def _lock_packages(path: Path) -> list[dict[str, Any]]:
     return sorted(packages, key=lambda item: (item["name"], item.get("marker", "")))
 
 
-def derive(bootstrap: Path = BOOTSTRAP) -> dict[str, Any]:
-    """The pins, as the bootstrap's own files state them."""
+RULE = (
+    "What the FineSub runtime is pinned to. Changing any pin is a separate engine change the "
+    "owner approves (docs/transcription-engines-plan.md section 0, rules 5 and 7)."
+)
+
+#: The sections `finesub_bootstrap`'s own files state too; `interpreter` is Nonoka's alone.
+BOOTSTRAP_SECTIONS = ("python", "tools", "models", "download_sources", "engine_constants")
+SECTIONS = (*BOOTSTRAP_SECTIONS, "interpreter")
+
+
+def _manifests() -> Any:
+    import sys
+
+    source = str(ROOT / "src")
+    if source not in sys.path:
+        sys.path.insert(0, source)
+    from nonoka_x.runtime import manifests
+
+    return manifests
+
+
+def _tools(runtime: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "platform": runtime.get("platform"),
+        "resources": [
+            {
+                "id": item["id"],
+                "version": item["version"],
+                "url": item["asset"]["url"],
+                "size": item["asset"].get("size"),
+                "sha256": item["asset"].get("sha256"),
+                "required_files": item.get("required_files", []),
+            }
+            for item in runtime["resources"]
+        ],
+    }
+
+
+def _models(models: dict[str, Any]) -> dict[str, Any]:
+    return {
+        model_id: {
+            **{key: spec[key] for key in ("repo", "revision", "listedOnly") if key in spec},
+            "files": [
+                {key: item[key] for key in ("name", "url", "size", "sha256") if key in item}
+                for item in spec.get("files", [])
+            ],
+        }
+        for model_id, spec in sorted(models["models"].items())
+    }
+
+
+def _interpreter(runtime: dict[str, Any]) -> dict[str, Any]:
+    spec = runtime["interpreter"]
+    return {
+        "platform": runtime.get("platform"),
+        **{key: spec[key] for key in ("implementation", "version", "build")},
+        "url": spec["asset"]["url"],
+        "size": spec["asset"].get("size"),
+        "sha256": spec["asset"].get("sha256"),
+    }
+
+
+def _download_sources(bootstrap: Path) -> dict[str, Any]:
+    sources = json.loads((bootstrap / "download-sources.json").read_text(encoding="utf-8"))
+    return {key: value for key, value in sources.items() if not key.startswith("_")}
+
+
+def derive() -> dict[str, Any]:
+    """The pins, as Nonoka's own manifests state them (`python.cn` and the download sources: bootstrap's)."""
+
+    manifests = _manifests()
+    runtime = manifests.tool_manifest()
+    return {
+        "schema": 1,
+        "rule": RULE,
+        "python": {
+            "requires": manifests.runtime_lock().get("requires-python"),
+            "global": _lock_packages(manifests.RUNTIME_LOCK),
+            "cn": _lock_packages(BOOTSTRAP / LOCKS["cn"]),
+        },
+        "interpreter": _interpreter(runtime),
+        "tools": _tools(runtime),
+        "models": _models(manifests.model_manifest()),
+        "download_sources": _download_sources(BOOTSTRAP),
+    }
+
+
+def derive_bootstrap(bootstrap: Path = BOOTSTRAP) -> dict[str, Any]:
+    """The pins, as `finesub_bootstrap`'s own files state them (no interpreter: it pins none)."""
 
     runtime = json.loads((bootstrap / "runtime-manifest.json").read_text(encoding="utf-8"))
     models = json.loads((bootstrap / "model-manifest.json").read_text(encoding="utf-8"))
-    sources = json.loads((bootstrap / "download-sources.json").read_text(encoding="utf-8"))
     return {
         "schema": 1,
-        "rule": (
-            "What the FineSub runtime is pinned to. Changing any pin is a separate engine change the "
-            "owner approves (docs/transcription-engines-plan.md section 0, rules 5 and 7)."
-        ),
+        "rule": RULE,
         "python": {
             "requires": tomllib.loads((bootstrap / LOCKS["global"]).read_text(encoding="utf-8")).get("requires-python"),
             **{lock: _lock_packages(bootstrap / name) for lock, name in LOCKS.items()},
         },
-        "tools": {
-            "platform": runtime.get("platform"),
-            "resources": [
-                {
-                    "id": item["id"],
-                    "version": item["version"],
-                    "url": item["asset"]["url"],
-                    "size": item["asset"].get("size"),
-                    "sha256": item["asset"].get("sha256"),
-                    "required_files": item.get("required_files", []),
-                }
-                for item in runtime["resources"]
-            ],
-        },
-        "models": {
-            model_id: {
-                **{key: spec[key] for key in ("repo", "revision", "listedOnly") if key in spec},
-                "files": [
-                    {key: item[key] for key in ("name", "url", "size", "sha256") if key in item}
-                    for item in spec.get("files", [])
-                ],
-            }
-            for model_id, spec in sorted(models["models"].items())
-        },
-        "download_sources": {key: value for key, value in sources.items() if not key.startswith("_")},
+        "tools": _tools(runtime),
+        "models": _models(models),
+        "download_sources": _download_sources(bootstrap),
     }
 
 
@@ -146,6 +216,25 @@ def render(pins: dict[str, Any]) -> bytes:
 def write(path: Path = PINS_FILE) -> Path:
     path.write_bytes(render(with_constants(derive())))
     return path
+
+
+def problems(recorded: dict[str, Any] | None = None) -> list[str]:
+    """Every way the record departs from Nonoka's manifests or from `finesub_bootstrap`'s files."""
+
+    recorded = recorded if recorded is not None else json.loads(PINS_FILE.read_text(encoding="utf-8"))
+    derived = with_constants(derive())
+    found = [
+        f"RUNTIME_PINS.json section differs from Nonoka's manifests: {section}"
+        for section in sorted(derived.keys() | recorded.keys())
+        if derived.get(section) != recorded.get(section)
+    ]
+    bootstrap = with_constants(derive_bootstrap())
+    found += [
+        f"RUNTIME_PINS.json section differs from finesub_bootstrap's files: {section}"
+        for section in BOOTSTRAP_SECTIONS
+        if bootstrap.get(section) != recorded.get(section)
+    ]
+    return found
 
 
 # --- what the locked engine needs from finesub_bootstrap --------------------------

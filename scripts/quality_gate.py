@@ -102,12 +102,9 @@ def check_pins(args: argparse.Namespace) -> Result:
 
     result = Result("runtime pins and bootstrap surface")
     recorded = json.loads(pins.PINS_FILE.read_text(encoding="utf-8"))
-    derived = pins.with_constants(pins.derive())
-    problems = [
-        f"RUNTIME_PINS.json section differs from finesub_bootstrap's files: {section}"
-        for section in ("python", "tools", "models", "download_sources", "engine_constants")
-        if derived.get(section) != recorded.get(section)
-    ]
+    # Nonoka's manifests (since WP-R1), and finesub_bootstrap's own files the
+    # transcription package still reads at run time.
+    problems = pins.problems(recorded)
     surface = json.loads(pins.SURFACE_FILE.read_text(encoding="utf-8"))
     current = pins.bootstrap_surface()
     problems += [f"engine now uses (not recorded): {entry}" for entry in sorted(set(current) - set(surface))]
