@@ -8,11 +8,12 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from finesub_bootstrap import asset_resolve, http_client
-from finesub_bootstrap.http_client import NetworkRoute
+from finesub_bootstrap import asset_resolve
+from finesub_bootstrap.http_client import NetworkRoute as FineSubRoute
 from finesub_bootstrap.models import ResolvableAsset
 
 from nonoka_x import asset_digest, cloud_route
+from nonoka_x.runtime import fetch
 
 
 URL = "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg.zip"
@@ -40,10 +41,11 @@ def requests(monkeypatch: pytest.MonkeyPatch):
     def create_client(route, *, timeout, headers=None):
         return httpx.Client(transport=httpx.MockTransport(handle), headers=headers, timeout=timeout)
 
-    monkeypatch.setattr(http_client, "create_client", create_client)
+    # The cloud is asked through Nonoka's own client; GitHub, by FineSub's lookup, through FineSub's.
+    monkeypatch.setattr(fetch, "create_client", create_client)
     monkeypatch.setattr(asset_resolve, "create_client", create_client)
-    monkeypatch.setattr(http_client, "network_routes", lambda: [NetworkRoute("直连", None)])
-    monkeypatch.setattr(asset_resolve, "network_routes", lambda: [NetworkRoute("直连", None)])
+    monkeypatch.setattr(fetch, "network_routes", lambda: [fetch.NetworkRoute("直连", None)])
+    monkeypatch.setattr(asset_resolve, "network_routes", lambda: [FineSubRoute("直连", None)])
     monkeypatch.setattr(asset_resolve, "_find_asset", asset_resolve._find_asset)
     monkeypatch.setattr(cloud_route, "STATE", cloud_route.RouteState())
     asset_digest.install_cloud_digest_source()
@@ -113,3 +115,28 @@ def test_installing_twice_wraps_once(requests) -> None:
     wrapped = asset_resolve._find_asset
     asset_digest.install_cloud_digest_source()
     assert asset_resolve._find_asset is wrapped
+
+
+def test_the_cloud_lookup_needs_no_finesub(monkeypatch) -> None:
+    """`cloud_asset` is Nonoka's: it answers through `nonoka_x.runtime.fetch` alone."""
+
+    import sys as _sys
+
+    seen: list[str] = []
+
+    def create_client(route, *, timeout, headers=None):
+        def handle(request: httpx.Request) -> httpx.Response:
+            seen.append(str(request.url))
+            return httpx.Response(200, json={"assets": [{"name": "ffmpeg.zip", "size": 7, "digest": DIGEST}]})
+
+        return httpx.Client(transport=httpx.MockTransport(handle), timeout=timeout)
+
+    monkeypatch.setattr(fetch, "create_client", create_client)
+    monkeypatch.setattr(fetch, "network_routes", lambda: [fetch.NetworkRoute("直连", None)])
+    monkeypatch.setattr(cloud_route, "STATE", cloud_route.RouteState())
+    monkeypatch.setitem(_sys.modules, "finesub_bootstrap.http_client", None)
+
+    entry = asset_digest.cloud_asset("BtbN", "FFmpeg-Builds", "latest", "ffmpeg.zip")
+
+    assert entry == {"name": "ffmpeg.zip", "size": 7, "digest": DIGEST}
+    assert seen == [CLOUD]

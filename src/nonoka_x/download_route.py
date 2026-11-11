@@ -7,19 +7,15 @@ as usual:
 
 1. the official source, through the live proxy if there is one;
 2. the official source, directly;
-3. a mirror, directly: gh-proxy.com for GitHub files, the cn lock's hosts for
-   PyPI and PyTorch wheels, hf-mirror for Hugging Face. A resource with no
-   mirror skips this rung;
-4. for GitHub files, our own copy on R2, directly (`GITHUB_BACKUP`), so that
-   reaching them never depends only on third parties;
-5. an error telling the user to turn a proxy on.
+3. an error telling the user to turn a proxy on.
 
-FineSub on its own picks `cn` or `global` per machine and goes mirror-first on a
-mainland exit. Nothing here asks, and `FINESUB_DOWNLOAD_REGION` is not honoured:
-`resolve_region` always answers `global`, so no engine call site reaches for a
-mirror by itself, and the rungs are added at the points its downloads funnel
-through (`_download_locked`, `_fetch_unverified`, `fetch_with_fallback`;
-`runtime_install` does the same for uv).
+There is no mirror and no route choice by region (plan 4.2 item 18): users
+whose route to the official sources is poor rely on their own local proxy, which
+the settings page names (`nonoka_x.runtime.fetch`, R0 document D17). FineSub on
+its own picks `cn` or `global` per machine and goes mirror-first on a mainland
+exit; the bridge stops that (`nonoka_x.finesub_bridge.install_download_policy`,
+which `install_proxy_route_policy` installs), so no engine call site reaches
+for a mirror by itself.
 
 A rung that works but crawls is abandoned too: under 512 KB/s for a whole window
 (`SpeedWatch`), the download moves on and resumes what it has. The last rung has
@@ -28,17 +24,12 @@ tried again unwatched if every other rung fails outright: slow beats nothing.
 Bytes are counted in flight wherever they can be. uv reports none, so the steps
 it runs are timed with a short sample before they start (`ensure_fast_enough`).
 
-The mirror comes after the official source, so FineSub's per-machine degrade
-rule does not apply to it: giving up on a last resort would leave nothing but
-the error.
-
 Which proxy rung 1 uses follows the desktop's settings page
 (`install_app_proxy_policy`): a custom proxy saved in preferences.json replaces
 the system proxy and the environment outright; without one, the system proxy and
-then the environment, as FineSub already does. The Go half
-(`desktop/internal/netproxy`, `desktop/internal/app/download_route.go`) applies
-the same rule to everything it sends, so every request from the app takes one
-route.
+then the environment. The Go half (`desktop/internal/netproxy`,
+`desktop/internal/app/download_route.go`) applies the same rule to everything it
+sends, so every request from the app takes one route.
 """
 
 from __future__ import annotations
@@ -48,29 +39,25 @@ from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
-import json
 import os
-import sys
 from pathlib import Path
 import time
-from typing import Any, TypeVar
-from urllib.parse import urlparse
+from typing import TypeVar
 
 import httpx
 
-_INSTALLED_ATTRIBUTE = "_nonoka_proxy_route_policy"
-_APP_POLICY_ATTRIBUTE = "_nonoka_app_proxy_policy"
-_LADDER_ATTRIBUTE = "_nonoka_download_ladder"
+from nonoka_x.runtime import fetch
+from nonoka_x.runtime.fetch import (
+    DIRECT_ENVIRONMENT,
+    LOCAL_HOSTS,
+    PREFERENCES_ENVIRONMENT,
+    PROXY_NAMES,
+    custom_proxy,
+    proxy_label,
+)
 
 _T = TypeVar("_T")
 
-#: The GitHub rung. `FINESUB_GITHUB_FILE_PROXY` replaces it; emptied, it removes it.
-GITHUB_MIRROR = "https://gh-proxy.com/"
-#: The last rung for GitHub files: our copies, keyed by host and path, on R2.
-#: `desktop/scripts/publish-github-mirror.mjs` fills it from the manifests. Kept
-#: the same as `bootstrapGitHubBackup` in desktop/internal/app/python_bootstrap.go.
-GITHUB_BACKUP = "https://cloudfile.nonoka.online/github-mirror/"
-_GITHUB_HOSTS = ("https://github.com/", "https://raw.githubusercontent.com/")
 PYTHON_BUILD_RELEASES = "https://github.com/astral-sh/python-build-standalone/releases/download"
 #: Times the route to GitHub before uv fetches an interpreter. An immutable
 #: release from the same repository; which one does not matter, only the route.
@@ -87,14 +74,14 @@ SLOW_WINDOW_SECONDS = 30.0
 #: How long a sample gets to show the floor before uv is started on a rung.
 PROBE_SECONDS = 8.0
 
-#: Set on a child pinned to a direct rung, so the proxy policy it installs for
-#: itself does not put the proxy straight back.
-DIRECT_ENVIRONMENT = "NONOKA_DOWNLOAD_DIRECT"
+#: Hugging Face's own variables (`huggingface_hub`).
+HF_ENDPOINT = "HF_ENDPOINT"
+HF_DISABLE_XET = "HF_HUB_DISABLE_XET"
+HF_DISABLE_IMPLICIT_TOKEN = "HF_HUB_DISABLE_IMPLICIT_TOKEN"
 
-#: What a transport failure looks like once only its text survives. FineSub's
-#: markers are English words, and on a Chinese Windows the OS half of the message
-#: is not, so these key on what every locale keeps: the client's own wording and
-#: the Winsock error numbers.
+#: What a transport failure looks like once only its text survives. The OS half
+#: of the message follows the Windows locale, so these key on what every locale
+#: keeps: the client's own wording and the Winsock error numbers.
 _TRANSPORT_MARKERS = (
     "error sending request",
     "failed to fetch",
@@ -113,40 +100,68 @@ _TRANSPORT_MARKERS = (
     "error 11001",
     "error 11004",
 )
+#: Failures of this machine, not of the route: another rung would fail the same
+#: way. The words are FineSub's (`model_fetch.LOCAL_FAILURE_MARKERS`, v0.7.0).
+LOCAL_FAILURE_MARKERS = ("no space left", "disk full", "permission denied", "access is denied", "out of memory")
 _LOCAL_OS_ERRORS = ("(os error 5)", "(os error 28)", "(os error 112)")
 
-#: preferences.json, set by the sidecar for itself and every child it spawns.
-#: Unset (tests, a hand-run worker) the app policy stays out of the way.
-PREFERENCES_ENVIRONMENT = "NONOKA_PREFERENCES_FILE"
 #: The offline package, set by the desktop for the sidecar and every child.
 OFFLINE_PACK_ENVIRONMENT = "NONOKA_OFFLINE_PACK"
-_PROXY_NAMES = ("HTTPS_PROXY", "HTTP_PROXY", "ALL_PROXY", "https_proxy", "http_proxy", "all_proxy")
-_LOCAL_HOSTS = "localhost,127.0.0.1,::1"
-_custom_cache: tuple[str, int, int, str | None] | None = None
+
+__all__ = [
+    # Re-exported from `nonoka_x.runtime.fetch`, where they now live.
+    "DIRECT_ENVIRONMENT",
+    "LOCAL_HOSTS",
+    "PREFERENCES_ENVIRONMENT",
+    "PROXY_NAMES",
+    "custom_proxy",
+    "proxy_label",
+    # Defined here.
+    "apply_proxy_environment",
+    "live_proxy",
+    "MIN_BYTES_PER_SECOND",
+    "OFFLINE_PACK_ENVIRONMENT",
+    "PROBE_SECONDS",
+    "PYTHON_BUILD_SAMPLE",
+    "SLOW_WINDOW_SECONDS",
+    "UNREACHABLE_MESSAGE",
+    "DownloadStage",
+    "DownloadTooSlow",
+    "DownloadUnreachable",
+    "SpeedWatch",
+    "climb",
+    "climb_huggingface",
+    "current_stage",
+    "download_stages",
+    "ensure_fast_enough",
+    "install_app_proxy_policy",
+    "install_proxy_route_policy",
+    "is_transport_failure",
+    "meter_response",
+    "offline_file",
+    "offline_pack",
+    "offline_python",
+    "offline_snapshot",
+    "pinned_stage",
+    "speed_watched",
+    "stage_environment",
+]
 
 
 @dataclass(frozen=True, slots=True)
 class DownloadStage:
     """One rung of the ladder."""
 
-    kind: str  # "local" | "proxy" | "direct" | "mirror" | "backup"
+    kind: str  # "local" | "proxy" | "direct"
     proxy: str | None = None
-
-    @property
-    def mirror(self) -> bool:
-        """Whether this rung serves copies rather than the official source."""
-
-        return self.kind in {"mirror", "backup"}
 
     @property
     def label(self) -> str:
         if self.kind == "proxy":
             return proxy_label(self.proxy)
-        if self.kind == "backup":
-            return "Nonoka 备用源"
         if self.kind == "local":
             return "本地资源包"
-        return "镜像" if self.mirror else "直连官方源"
+        return "直连官方源"
 
 
 class DownloadUnreachable(RuntimeError):
@@ -190,7 +205,7 @@ class SpeedWatch:
 class _MeteredStream(httpx.SyncByteStream):
     """A response body that answers to a `SpeedWatch`.
 
-    At the raw socket reads, because FineSub's downloader asks for 1 MiB chunks:
+    At the raw socket reads, because the downloaders ask for 1 MiB chunks:
     counted there, a connection crawling at a few KB/s would not be noticed for
     minutes.
     """
@@ -209,7 +224,9 @@ class _MeteredStream(httpx.SyncByteStream):
         self._stream.close()
 
 
-def _meter_response(response: httpx.Response) -> None:
+def meter_response(response: httpx.Response) -> None:
+    """An httpx response hook that puts the body under a fresh `SpeedWatch`."""
+
     response.stream = _MeteredStream(response.stream, SpeedWatch())
 
 
@@ -225,6 +242,12 @@ def speed_watched() -> bool:
     return _watching_speed.get()
 
 
+def current_stage() -> DownloadStage | None:
+    """The rung the downloads in this context are held to, or None."""
+
+    return _pinned_stage.get()
+
+
 @contextmanager
 def pinned_stage(stage: DownloadStage) -> Iterator[None]:
     """Hold the file downloads inside this block to one rung."""
@@ -236,16 +259,31 @@ def pinned_stage(stage: DownloadStage) -> Iterator[None]:
         _pinned_stage.reset(token)
 
 
-def download_stages(*, has_mirror: bool, has_backup: bool = False) -> list[DownloadStage]:
-    """The rungs for one resource, in the order they are tried."""
+def live_proxy() -> str | None:
+    """The proxy downloads would go through right now, or None for direct.
+
+    Inside `pinned_stage`, the pinned rung's: a download already held to one
+    rung reports that rung, as FineSub's patched route lookup does.
+    """
+
+    stage = _pinned_stage.get()
+    return stage.proxy if stage is not None else fetch.live_proxy()
+
+
+def apply_proxy_environment(environment: dict[str, str]) -> None:
+    """Hand the live proxy to a child process through the proxy variables (`fetch.apply_proxy_environment`)."""
+
+    stage = _pinned_stage.get()
+    route = None if stage is None else fetch.NetworkRoute(stage.label, stage.proxy)
+    fetch.apply_proxy_environment(environment, route)
+
+
+def download_stages() -> list[DownloadStage]:
+    """The rungs for one resource, in the order they are tried: the live proxy, then direct."""
 
     proxy = live_proxy()
     stages = [DownloadStage("proxy", proxy)] if proxy else []
     stages.append(DownloadStage("direct"))
-    if has_mirror:
-        stages.append(DownloadStage("mirror"))
-    if has_backup:
-        stages.append(DownloadStage("backup"))
     return stages
 
 
@@ -297,13 +335,11 @@ def ensure_fast_enough(url: str, stage: DownloadStage) -> None:
 
     if not _watching_speed.get():
         return
-    from finesub_bootstrap.http_client import NetworkRoute, create_client
-
     wanted = int(MIN_BYTES_PER_SECOND * PROBE_SECONDS)
     slow = DownloadTooSlow(f"采样低于 {MIN_BYTES_PER_SECOND // 1024} KB/s")
     try:
-        route = NetworkRoute(stage.label, stage.proxy)
-        with create_client(route, timeout=httpx.Timeout(PROBE_SECONDS)) as client:
+        route = fetch.NetworkRoute(stage.label, stage.proxy)
+        with fetch.create_client(route, timeout=httpx.Timeout(PROBE_SECONDS)) as client:
             with client.stream("GET", url, headers={"Range": f"bytes=0-{wanted - 1}"}) as response:
                 response.raise_for_status()
                 started: float | None = None
@@ -331,8 +367,6 @@ def _brief(error: Exception) -> str:
 def is_transport_failure(error: BaseException) -> bool:
     """Whether a failure that only left text behind was the network's doing."""
 
-    from finesub_bootstrap.model_fetch import LOCAL_FAILURE_MARKERS
-
     text = f"{error} {getattr(error, 'output', '') or ''}".lower()
     if any(marker in text for marker in (*LOCAL_FAILURE_MARKERS, *_LOCAL_OS_ERRORS)):
         return False
@@ -347,24 +381,15 @@ def stage_environment(base: Mapping[str, str], stage: DownloadStage) -> dict[str
     """
 
     environment = dict(base)
-    for name in _PROXY_NAMES:
+    for name in PROXY_NAMES:
         environment[name] = stage.proxy or ""
-    no_proxy = _LOCAL_HOSTS if stage.proxy else "*"
+    no_proxy = LOCAL_HOSTS if stage.proxy else "*"
     environment["NO_PROXY"] = environment["no_proxy"] = no_proxy
     if stage.proxy:
         environment.pop(DIRECT_ENVIRONMENT, None)
     else:
         environment[DIRECT_ENVIRONMENT] = "1"
     return environment
-
-
-def github_mirror_url(url: str) -> str | None:
-    """`url` through the GitHub mirror, or None when it has no such rung."""
-
-    if not url.startswith(_GITHUB_HOSTS):
-        return None
-    prefix = os.environ.get("FINESUB_GITHUB_FILE_PROXY", GITHUB_MIRROR).strip()
-    return f"{prefix.rstrip('/')}/{url}" if prefix else None
 
 
 def offline_pack() -> Path | None:
@@ -428,58 +453,26 @@ def _copy_into_place(source: Path, destination: Path, report: Callable[[int], No
         temporary.unlink(missing_ok=True)
 
 
-def _seed_from_offline_pack(asset, destination: Path, progress, should_pause) -> None:
-    """Put `asset` where the downloader looks first, if the package has it.
+def _apply_xet_policy(environment: dict[str, str], *, endpoint: str) -> None:
+    """Turn Xet and the implicit token off whenever the traffic is aimed anywhere but the official host.
 
-    The downloader then hashes it like any finished download and goes no
-    further, so a package holding the wrong bytes cannot get them installed.
+    FineSub's rule (`model_fetch.apply_mirror_policy`, v0.7.0), kept for a
+    user's own `HF_ENDPOINT`: such a host does not proxy Xet, so the first
+    reconstruction request comes back 401, and left to itself the library sends
+    the user's own login to it. A variable the user set explicitly still wins.
     """
 
-    from finesub_bootstrap import downloader
-
-    source = offline_file(asset.sha256)
-    if source is None or (destination.is_file() and downloader._sha256(destination) == asset.sha256):
-        return
-    started = time.monotonic()
-
-    def report(copied: int) -> None:
-        if should_pause is not None and should_pause():
-            raise downloader.DownloadPaused("Download paused")
-        elapsed = max(time.monotonic() - started, 1e-6)
-        progress(downloader.DownloadProgress(downloaded=copied, total=asset.size, bytes_per_second=copied / elapsed))
-
-    _copy_into_place(source, destination, report)
-
-
-def github_backup_url(url: str) -> str | None:
-    """`url` on our own copy, or None when it is not a GitHub file."""
-
-    if not url.startswith(_GITHUB_HOSTS):
-        return None
-    return GITHUB_BACKUP + url.removeprefix("https://")
-
-
-def github_url_on(stage: DownloadStage, url: str) -> str:
-    """Where this rung fetches the GitHub file `url` from."""
-
-    if stage.kind == "mirror":
-        return github_mirror_url(url) or url
-    if stage.kind == "backup":
-        return github_backup_url(url) or url
-    return url
-
-
-def github_stages(url: str) -> list[DownloadStage]:
-    """The rungs for a file that may live on GitHub."""
-
-    return download_stages(
-        has_mirror=github_mirror_url(url) is not None,
-        has_backup=github_backup_url(url) is not None,
-    )
+    for name in (HF_DISABLE_XET, HF_DISABLE_IMPLICIT_TOKEN):
+        if name in os.environ:
+            continue
+        if endpoint:
+            environment[name] = "1"
+        else:
+            environment.pop(name, None)
 
 
 def climb_huggingface(
-    fetch: Callable[[dict[str, str]], None],
+    fetch_model: Callable[[dict[str, str]], None],
     environment: Mapping[str, str],
     *,
     is_retryable: Callable[[BaseException], bool] | None = None,
@@ -487,264 +480,34 @@ def climb_huggingface(
 ) -> None:
     """Fetch a Hugging Face model, one process per rung.
 
-    One process each because `huggingface_hub` reads its endpoint at import. A
-    user's own `HF_ENDPOINT` is left alone and has no mirror rung; it still
-    cannot serve Xet, which `apply_mirror_policy` knows.
+    One process each because `huggingface_hub` reads its route at import. A
+    user's own `HF_ENDPOINT` is left alone; it still cannot serve Xet, which
+    `_apply_xet_policy` knows.
     """
 
-    from finesub_bootstrap import model_fetch
-    from finesub_bootstrap.download_sources import mirror_for
-
-    chosen = os.environ.get(model_fetch.HF_ENDPOINT) or ""
-    mirror = "" if chosen else mirror_for(model_fetch.RESOURCE_CLASS, "cn")
+    chosen = os.environ.get(HF_ENDPOINT) or ""
 
     def attempt(stage: DownloadStage) -> None:
         routed = stage_environment(environment, stage)
-        if stage.mirror:
-            routed[model_fetch.HF_ENDPOINT] = mirror
-        model_fetch.apply_mirror_policy(routed, endpoint=mirror if stage.mirror else chosen)
-        fetch(routed)
+        _apply_xet_policy(routed, endpoint=chosen)
+        fetch_model(routed)
 
     def advances(_stage: DownloadStage, error: Exception) -> bool:
         return is_retryable is None or is_retryable(error) or is_transport_failure(error)
 
-    climb(download_stages(has_mirror=bool(mirror)), attempt, advances=advances, announce=announce)
-
-
-def live_proxy() -> str | None:
-    """The proxy downloads would go through right now, or None for direct."""
-
-    try:
-        from finesub_bootstrap.http_client import network_routes
-
-        return network_routes()[0].proxy
-    except Exception:  # noqa: BLE001 - deciding a route must never stop a download
-        return None
-
-
-def proxy_label(proxy: str | None) -> str:
-    """How the proxy is named to the user: `本地代理 127.0.0.1:7890`."""
-
-    if not proxy:
-        return ""
-    parsed = urlparse(proxy)
-    address = parsed.netloc.rpartition("@")[2] or proxy
-    local = (parsed.hostname or "").lower() in {"127.0.0.1", "localhost", "::1"}
-    return f"{'本地代理' if local else '代理'} {address}"
-
-
-def apply_proxy_environment(environment: dict[str, str]) -> None:
-    """Hand the live proxy to a child process through the proxy variables.
-
-    Python's own HTTP clients find the Windows system proxy in the registry,
-    but much of what children run does not: uv, and Hugging Face's Rust Xet
-    transfer that carries the model weights, only read the environment. So a
-    child that downloads is told explicitly, the same route `network_routes`
-    gives this process.
-    """
-
-    try:
-        from finesub_bootstrap.http_client import apply_network_environment
-
-        apply_network_environment(environment)
-    except Exception:  # noqa: BLE001 - deciding a route must never stop a download
-        return
-    # Resolving the route just brought this process's NO_PROXY up to date
-    # (`install_app_proxy_policy`); a copy taken before that still holds the old one.
-    if os.environ.get(PREFERENCES_ENVIRONMENT, "").strip():
-        for name in ("NO_PROXY", "no_proxy"):
-            if name in os.environ:
-                environment[name] = os.environ[name]
-
-
-def install_proxy_route_policy() -> None:
-    """Put this process's downloads on the ladder.
-
-    Every engine call site imports `resolve_region` from the module at call
-    time, so replacing the module attribute reaches all of them in this
-    process. Each process that downloads installs it for itself; it is
-    idempotent and the ladder is worked out per download, so turning the proxy
-    on or off takes effect at the next one without a restart.
-    """
-
-    install_app_proxy_policy()
-    try:
-        from finesub_bootstrap import download_routes
-    except ImportError:
-        return
-
-    original = download_routes.resolve_region
-    if not getattr(original, _INSTALLED_ATTRIBUTE, False):
-
-        def resolve_region(data_root, *args: Any, **kwargs: Any):
-            return download_routes.RouteDecision(region="global", source="ladder")
-
-        setattr(resolve_region, _INSTALLED_ATTRIBUTE, True)
-        resolve_region.__doc__ = original.__doc__
-        download_routes.resolve_region = resolve_region
-    _install_download_ladder()
-
-
-def _file_advances(stage: DownloadStage, error: Exception) -> bool:
-    """Which failures of a verified file download move to the next rung.
-
-    Wrong bytes are only worth another rung when a mirror served them. From the
-    official source another route would fetch the same wrong file.
-    """
-
-    from finesub_bootstrap.downloader import DownloadError, DownloadPaused
-    from finesub_bootstrap.model_fetch import is_mirror_failure
-
-    if isinstance(error, DownloadPaused):
-        return False
-    if isinstance(error, DownloadError):
-        return stage.mirror
-    return is_mirror_failure(error) or is_transport_failure(error)
-
-
-def _laddered_download(download: Callable[..., _T]) -> Callable[..., _T]:
-    """`_download_locked`, climbing the ladder unless a caller already is."""
-
-    def download_locked(asset, destination, progress, should_pause):
-        _seed_from_offline_pack(asset, destination, progress, should_pause)
-        if _pinned_stage.get() is not None:
-            return download(asset, destination, progress, should_pause)
-
-        def attempt(stage: DownloadStage):
-            target = asset.model_copy(update={"url": github_url_on(stage, asset.url)})
-            with pinned_stage(stage):
-                return download(target, destination, progress, should_pause)
-
-        try:
-            return climb(github_stages(asset.url), attempt, advances=_file_advances)
-        except DownloadUnreachable as error:
-            if offline_pack() is None:
-                raise
-            raise DownloadUnreachable(f"离线资源包里没有 {Path(urlparse(asset.url).path).name}，{error}") from error
-
-    return download_locked
-
-
-def _fingerprint(path: Path) -> tuple[int, int] | None:
-    try:
-        status = path.stat()
-    except OSError:
-        return None
-    return status.st_mtime_ns, status.st_size
-
-
-def _laddered_unverified(fetch: Callable[..., None]) -> Callable[..., None]:
-    """`_fetch_unverified`, which reports nothing: a written file means it worked."""
-
-    def fetch_unverified(url, destination, proxy, *, data_root=None) -> None:
-        root = offline_pack()
-        source = root / "unverified" / Path(urlparse(url).path).name if root is not None else None
-        if source is not None and source.is_file():
-            _copy_into_place(source, destination)
-            return
-        for stage in github_stages(url):
-            before = _fingerprint(destination)
-            with pinned_stage(stage):
-                fetch(github_url_on(stage, url), destination, "", data_root=None)
-            if _fingerprint(destination) != before:
-                return
-
-    return fetch_unverified
-
-
-def _install_download_ladder() -> None:
-    """Route FineSub's file and model downloads through `climb`.
-
-    `_download_locked` rather than `download_asset`, which callers import by
-    name: the wrapper is then the one every caller already reaches.
-    """
-
-    from finesub_bootstrap import downloader, http_client, model_fetch
-
-    if getattr(downloader._download_locked, _LADDER_ATTRIBUTE, False):
-        return
-    routes = http_client.network_routes
-    create_client = downloader.create_client
-
-    def network_routes():
-        stage = _pinned_stage.get()
-        return routes() if stage is None else [http_client.NetworkRoute(stage.label, stage.proxy)]
-
-    def watched_client(route, *, timeout, headers=None):
-        client = create_client(route, timeout=timeout, headers=headers)
-        if _watching_speed.get():
-            client.event_hooks["response"].append(_meter_response)
-        return client
-
-    def fetch_with_fallback(fetch, *, base_environment, data_root, region, is_retryable=None) -> None:
-        climb_huggingface(fetch, base_environment, is_retryable=is_retryable)
-
-    download_locked = _laddered_download(downloader._download_locked)
-    setattr(download_locked, _LADDER_ATTRIBUTE, True)
-    downloader._download_locked = download_locked
-    downloader.network_routes = network_routes
-    downloader.create_client = watched_client
-    http_client.network_routes = network_routes
-    model_fetch._fetch_unverified = _laddered_unverified(model_fetch._fetch_unverified)
-    model_fetch.fetch_with_fallback = fetch_with_fallback
-
-
-def custom_proxy() -> str | None:
-    """The custom proxy saved on the settings page, as a URL, or None.
-
-    Read from preferences.json on every call, behind an mtime check, so a save
-    on the settings page reaches the next download or LLM call of a process that
-    is already running.
-    """
-
-    global _custom_cache
-    path = os.environ.get(PREFERENCES_ENVIRONMENT, "").strip()
-    if not path:
-        return None
-    try:
-        stat = os.stat(path)
-    except OSError:
-        return None
-    cached = _custom_cache
-    if cached is not None and cached[:3] == (path, stat.st_mtime_ns, stat.st_size):
-        return cached[3]
-    value: str | None = None
-    try:
-        entry = json.loads(Path(path).read_text(encoding="utf-8")).get("proxy")
-        value = _custom_proxy_url(entry)
-    except (OSError, ValueError, AttributeError):
-        value = None
-    _custom_cache = (path, stat.st_mtime_ns, stat.st_size, value)
-    return value
-
-
-def _custom_proxy_url(entry: Any) -> str | None:
-    """Validate the `proxy` entry the way the desktop's `netproxy.Custom` does."""
-
-    if not isinstance(entry, dict):
-        return None
-    scheme = str(entry.get("scheme") or "http").strip().lower()
-    host = str(entry.get("host") or "127.0.0.1").strip().strip("[]")
-    port = entry.get("port")
-    if scheme not in {"http", "socks5"} or isinstance(port, bool) or not isinstance(port, int):
-        return None
-    if not 1 <= port <= 65535 or any(character in host for character in "/@?# "):
-        return None
-    if ":" in host:
-        host = f"[{host}]"
-    return f"{scheme}://{host}:{port}"
+    climb(download_stages(), attempt, advances=advances, announce=announce)
 
 
 def install_app_proxy_policy() -> None:
-    """Make FineSub's route discovery, the LLM layer and this process's
-    environment follow the app's proxy setting.
+    """Make this process's route, FineSub's route discovery and its LLM layer
+    follow the app's proxy setting.
 
-    * `finesub_bootstrap.http_client`: a custom proxy is the only candidate;
-      without one, the system proxy and the environment as before. Its liveness
-      probe still skips a local proxy whose client is not running.
-    * `finesub.llm.http`: API calls take the same route instead of httpx's own
-      `trust_env` lookup. An explicit `[api] proxy` in config.toml still wins.
-      A SOCKS route goes direct with a warning: the engine refuses SOCKS.
+    * this process (`nonoka_x.runtime.fetch.install_app_policy`): a custom proxy
+      is the only candidate; without one, the system proxy and the environment.
+      The liveness probe still skips a local proxy whose client is not running.
+    * FineSub's `http_client` and `finesub.api_http` follow the same route
+      (`nonoka_x.finesub_bridge.install_app_proxy_policy`). An explicit
+      `[api] proxy` in config.toml still wins.
     * `os.environ`: kept on that route, so in-process clients that read the
       environment (Hugging Face) and every child spawned from a copy of it
       follow too. Direct is spelled `NO_PROXY=*`, which stops Python and Rust
@@ -753,87 +516,26 @@ def install_app_proxy_policy() -> None:
     Idempotent; a no-op outside the desktop (no preferences file named).
     """
 
-    if not os.environ.get(PREFERENCES_ENVIRONMENT, "").strip():
+    if not fetch.install_app_policy():
         return
-    try:
-        from finesub_bootstrap import http_client
-    except ImportError:
-        return
-    if getattr(http_client._environment_proxies, _APP_POLICY_ATTRIBUTE, False):
-        return
+    from nonoka_x import finesub_bridge
 
-    original_system = http_client._windows_proxy
-    #: The environment as it was before this policy started rewriting it.
-    ambient = [value for value in (os.environ.get(name, "").strip() for name in _PROXY_NAMES) if value]
-    ambient = list(dict.fromkeys(ambient))
-
-    def pinned_direct() -> bool:
-        return bool(os.environ.get(DIRECT_ENVIRONMENT, "").strip())
-
-    def candidates() -> list[str]:
-        if pinned_direct():
-            return []
-        custom = custom_proxy()
-        if custom:
-            return [custom]
-        system = original_system()
-        return ([system] if system else []) + ambient
-
-    def windows_proxy() -> str | None:
-        if pinned_direct():
-            return None
-        custom = custom_proxy()
-        return custom if custom else original_system()
-
-    def environment_proxies() -> list[str]:
-        live = next(
-            (proxy for proxy in map(http_client._normalise_proxy, candidates()) if http_client._local_proxy_is_listening(proxy)),
-            None,
-        )
-        _sync_environment(live)
-        return [] if pinned_direct() or custom_proxy() else list(ambient)
-
-    setattr(environment_proxies, _APP_POLICY_ATTRIBUTE, True)
-    http_client._windows_proxy = windows_proxy
-    http_client._environment_proxies = environment_proxies
-
-    try:
-        from finesub import api_http
-    except Exception:  # noqa: BLE001 - the LLM layer is optional in installer processes
-        api_http = None
-    if api_http is not None:
-        original_configured = api_http.configured_proxy
-        warned_socks = False
-
-        def configured_proxy() -> str | None:
-            nonlocal warned_socks
-            explicit = original_configured()
-            if explicit is not None:
-                return explicit
-            proxy = live_proxy()
-            if proxy and proxy.lower().startswith("socks"):
-                if not warned_socks:
-                    warned_socks = True
-                    print(
-                        "Warning: the transcription engine does not support SOCKS proxies; "
-                        "its API calls go direct. Use the proxy's HTTP port to route them.",
-                        file=sys.stderr,
-                    )
-                return api_http.DIRECT
-            return proxy or api_http.DIRECT
-
-        api_http.configured_proxy = configured_proxy
-
+    finesub_bridge.install_app_proxy_policy()
     # Settle the environment now, before anything reads it.
     live_proxy()
 
 
-def _sync_environment(proxy: str | None) -> None:
-    for name in _PROXY_NAMES:
-        if proxy:
-            os.environ[name] = proxy
-        else:
-            os.environ.pop(name, None)
-    no_proxy = _LOCAL_HOSTS if proxy else "*"
-    os.environ["NO_PROXY"] = no_proxy
-    os.environ["no_proxy"] = no_proxy
+def install_proxy_route_policy() -> None:
+    """Put this process's downloads, FineSub's included, on the ladder.
+
+    The app policy first, then FineSub's half
+    (`nonoka_x.finesub_bridge.install_download_policy`): its region answer is
+    pinned to `global` and its file and model downloads climb `climb`.
+    Idempotent; the ladder is worked out per download, so turning the proxy on
+    or off takes effect at the next one without a restart.
+    """
+
+    install_app_proxy_policy()
+    from nonoka_x import finesub_bridge
+
+    finesub_bridge.install_download_policy()

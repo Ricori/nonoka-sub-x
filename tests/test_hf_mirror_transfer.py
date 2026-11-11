@@ -1,31 +1,21 @@
-"""What a mirrored Hugging Face download has to keep doing.
+"""How the desktop's Hugging Face model install climbs the ladder, now that there is no mirror.
 
-`huggingface_hub` 1.x downloads through Xet by default, and a Hugging Face
-mirror does not mirror Xet: the metadata it serves still names the official
-`cas-server.xethub.hf.co`, whose CAS rejects the token that came with it. The
-metadata request succeeds, so the failure lands at the end of the preparation
-step -- `401 Unauthorized` against a host the mirror never proxied, and no
-model installed at all on a machine routed to `cn`.
+There used to be an hf-mirror rung, and this file guarded what a mirrored
+download needs (Xet off, the CAS 401 blamed on the mirror). Plan 4.2 item 18
+removed the mirror (WP-R2); what is left to keep true:
 
-This used to be the contract for a former Nonoka X patch that disabled Xet
-on mirrors (`0008-hf-mirror-disable-xet`). Upstream 0.5.0 fixed it
-itself (`model_fetch.apply_xet_policy`) and the patch is gone; what remains is
-a regression guard, because the machine that loses this is one Nonoka X routes
-to `cn` and cannot install a single model on.
-
-What has to stay true:
-
-- a mirrored fetch turns Xet off, and an official one does not;
-- a user's own `HF_ENDPOINT` gets the same treatment, since it is a mirror
-  too, while their own `HF_HUB_DISABLE_XET` -- `0` included -- always wins;
-- that 401 counts as a mirror failure, so the next rung of the ladder runs;
-- the desktop's model install takes each rung in its *own process*, because
-  the endpoint is read when `huggingface_hub` is imported.
+- each rung -- the live proxy, then direct -- runs in its *own process*,
+  because `huggingface_hub` reads its route when it is imported;
+- neither rung names an endpoint or turns Xet off: both go to the official host;
+- a user's own `HF_ENDPOINT` is left in place but loses Xet and the implicit
+  token, since such a host does not serve Xet, and their own
+  `HF_HUB_DISABLE_XET` -- `0` included -- always wins;
+- a failure of this machine (a full disk) is not retried on another rung;
+- a crawling rung is abandoned, and the last rung is left to finish.
 """
 
 from __future__ import annotations
 
-import json
 import os
 import subprocess
 import sys
@@ -35,110 +25,74 @@ from types import SimpleNamespace
 
 import pytest
 
-from finesub_bootstrap import http_client, model_fetch
-from finesub_bootstrap.http_client import NetworkRoute
-
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from nonoka_x import download_route  # noqa: E402
 from nonoka_x.download_route import DownloadUnreachable, climb_huggingface  # noqa: E402
 from nonoka_x.provision import RuntimeProvisionError, RuntimeProvisioner  # noqa: E402
+from nonoka_x.runtime import fetch  # noqa: E402
 
 
 VENDOR = ROOT / "third_party" / "finesub"
+PROXY = "http://127.0.0.1:7890"
 
-#: What the desktop reported, trimmed to the line that carries the diagnosis.
-CAS_401 = (
-    "RuntimeError: Task error: File reconstruction error: CAS Client Error: "
-    "Request error: HTTP status client error (401 Unauthorized), domain: "
-    "https://cas-server.xethub.hf.co/v2/reconstructions/"
-    "b5de55e781fd93b7d472c8ca3f7d40d870a3be764f8bb1a9c4a0511c55f9ca5b"
-)
+#: A transport failure as the installer reports it.
+NETWORK_DOWN = "httpx.ConnectError: [WinError 10061] tcp connect error"
 
 
 @pytest.fixture(autouse=True)
 def _neutral_download_environment(monkeypatch: pytest.MonkeyPatch) -> None:
     """Nothing here may depend on the machine running the tests."""
 
-    for name in ("HF_ENDPOINT", "HF_HUB_DISABLE_XET", "FINESUB_HF_ENDPOINT"):
+    for name in ("HF_ENDPOINT", "HF_HUB_DISABLE_XET", "HF_HUB_DISABLE_IMPLICIT_TOKEN"):
         monkeypatch.delenv(name, raising=False)
-    monkeypatch.setattr(http_client, "network_routes", lambda: [NetworkRoute("直连", None)])
+    _routes(monkeypatch, None)
 
 
-def _use_mirror(monkeypatch: pytest.MonkeyPatch, endpoint: str = "https://hf-mirror.com") -> None:
-    monkeypatch.setenv("FINESUB_HF_ENDPOINT", endpoint)
+def _routes(monkeypatch: pytest.MonkeyPatch, proxy: str | None) -> None:
+    routes = ([fetch.NetworkRoute("代理", proxy)] if proxy else []) + [fetch.NetworkRoute("直连", None)]
+    monkeypatch.setattr(fetch, "network_routes", lambda: routes)
 
 
-def test_a_mirrored_endpoint_comes_with_xet_turned_off(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    _use_mirror(monkeypatch)
-    environment: dict[str, str] = {}
-
-    model_fetch.apply_hf_endpoint(environment, data_root=tmp_path, region="cn")
-
-    assert environment["HF_ENDPOINT"] == "https://hf-mirror.com"
-    assert environment["HF_HUB_DISABLE_XET"] == "1"
-
-
-def test_the_official_endpoint_keeps_xet(tmp_path: Path) -> None:
-    environment: dict[str, str] = {}
-
-    model_fetch.apply_hf_endpoint(environment, data_root=tmp_path, region="global")
-
-    assert environment == {}
-
-
-def test_a_user_endpoint_is_left_in_place_but_still_loses_xet(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setenv("HF_ENDPOINT", "https://mirror.example")
-    _use_mirror(monkeypatch)
-    environment: dict[str, str] = {}
-
-    model_fetch.apply_hf_endpoint(environment, data_root=tmp_path, region="cn")
-
-    assert "HF_ENDPOINT" not in environment
-    assert environment["HF_HUB_DISABLE_XET"] == "1"
-
-
-def test_an_explicit_xet_setting_wins(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Including the `0` that asks for Xet back."""
-
-    monkeypatch.setenv("HF_HUB_DISABLE_XET", "0")
-    _use_mirror(monkeypatch)
-    environment: dict[str, str] = {}
-
-    model_fetch.apply_hf_endpoint(environment, data_root=tmp_path, region="cn")
-
-    assert environment["HF_ENDPOINT"] == "https://hf-mirror.com"
-    assert "HF_HUB_DISABLE_XET" not in environment
-
-
-def test_the_cas_401_is_blamed_on_the_mirror() -> None:
-    assert model_fetch.is_mirror_failure(RuntimeError(CAS_401)) is True
-
-
-def test_a_full_disk_is_still_not_the_mirrors_fault() -> None:
-    assert model_fetch.is_mirror_failure(RuntimeError("OSError: no space left on device")) is False
-
-
-def test_only_the_mirror_attempt_loses_the_endpoint_and_xet(monkeypatch: pytest.MonkeyPatch) -> None:
-    _use_mirror(monkeypatch)
+def test_both_rungs_go_to_the_official_host_with_xet(monkeypatch: pytest.MonkeyPatch) -> None:
+    _routes(monkeypatch, PROXY)
     attempts: list[dict[str, str]] = []
 
-    def fetch(environment) -> None:
+    def fetch_model(environment) -> None:
         attempts.append(dict(environment))
         if len(attempts) == 1:
-            raise RuntimeError(CAS_401)
+            raise RuntimeError(NETWORK_DOWN)
 
-    climb_huggingface(fetch, {}, is_retryable=model_fetch.is_mirror_failure)
+    climb_huggingface(fetch_model, {}, is_retryable=lambda error: False)
 
-    assert "HF_ENDPOINT" not in attempts[0]
+    assert [attempt["HTTPS_PROXY"] for attempt in attempts] == [PROXY, ""]
+    for attempt in attempts:
+        assert "HF_ENDPOINT" not in attempt
+        assert "HF_HUB_DISABLE_XET" not in attempt
+
+
+def test_a_user_endpoint_is_left_in_place_but_loses_xet(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("HF_ENDPOINT", "https://mirror.example")
+    attempts: list[dict[str, str]] = []
+
+    climb_huggingface(attempts.append, {})
+
+    assert "HF_ENDPOINT" not in attempts[0]  # Inherited from the process, not rewritten.
+    assert attempts[0]["HF_HUB_DISABLE_XET"] == "1"
+    assert attempts[0]["HF_HUB_DISABLE_IMPLICIT_TOKEN"] == "1"
+
+
+def test_an_explicit_xet_setting_wins(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Including the `0` that asks for Xet back."""
+
+    monkeypatch.setenv("HF_ENDPOINT", "https://mirror.example")
+    monkeypatch.setenv("HF_HUB_DISABLE_XET", "0")
+    attempts: list[dict[str, str]] = []
+
+    climb_huggingface(attempts.append, {})
+
     assert "HF_HUB_DISABLE_XET" not in attempts[0]
-    assert attempts[1]["HF_ENDPOINT"] == "https://hf-mirror.com"
-    assert attempts[1]["HF_HUB_DISABLE_XET"] == "1"
 
 
 def _provisioner(tmp_path: Path) -> RuntimeProvisioner:
@@ -154,47 +108,22 @@ def _provisioner(tmp_path: Path) -> RuntimeProvisioner:
 def test_model_install_takes_each_rung_in_its_own_process(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    _use_mirror(monkeypatch)
+    _routes(monkeypatch, PROXY)
     provisioner = _provisioner(tmp_path)
     attempts: list[dict[str, str]] = []
 
     def run(model_id: str, environment: dict[str, str]) -> None:
         attempts.append(environment)
         if len(attempts) == 1:
-            raise RuntimeProvisionError(CAS_401)
+            raise RuntimeProvisionError(NETWORK_DOWN)
 
     monkeypatch.setattr(provisioner, "_run_model_installer", run)
     provisioner._install_model("whisper")
 
     assert len(attempts) == 2
-    assert "HF_ENDPOINT" not in attempts[0]
-    assert "HF_HUB_DISABLE_XET" not in attempts[0]
-    assert attempts[1]["HF_ENDPOINT"] == "https://hf-mirror.com"
-    assert attempts[1]["HF_HUB_DISABLE_XET"] == "1"
-
-
-def test_a_mirror_never_turns_itself_off_as_the_last_rung(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """A degrade counter from the mirror-first days must not remove the rung."""
-
-    _use_mirror(monkeypatch)
-    provisioner = _provisioner(tmp_path)
-    provisioner.paths.data_root.mkdir(parents=True, exist_ok=True)
-    (provisioner.paths.data_root / "download-routes.json").write_text(
-        json.dumps({"failures": {model_fetch.RESOURCE_CLASS: 99}}), encoding="utf-8"
-    )
-    attempts: list[dict[str, str]] = []
-
-    def run(model_id: str, environment: dict[str, str]) -> None:
-        attempts.append(environment)
-        if len(attempts) == 1:
-            raise RuntimeProvisionError(CAS_401)
-
-    monkeypatch.setattr(provisioner, "_run_model_installer", run)
-    provisioner._install_model("whisper")
-
-    assert attempts[1]["HF_ENDPOINT"] == "https://hf-mirror.com"
+    assert attempts[0] is not attempts[1]
+    assert [attempt["HTTPS_PROXY"] for attempt in attempts] == [PROXY, ""]
+    assert all("HF_ENDPOINT" not in attempt for attempt in attempts)
 
 
 def test_the_separator_is_left_to_its_own_file_ladder(
@@ -205,7 +134,7 @@ def test_the_separator_is_left_to_its_own_file_ladder(
 
     def run(model_id: str, environment: dict[str, str]) -> None:
         attempts.append(environment)
-        raise RuntimeProvisionError(CAS_401)
+        raise RuntimeProvisionError(NETWORK_DOWN)
 
     monkeypatch.setattr(provisioner, "_run_model_installer", run)
     with pytest.raises(RuntimeProvisionError):
@@ -217,7 +146,7 @@ def test_the_separator_is_left_to_its_own_file_ladder(
 def test_a_local_failure_is_reported_rather_than_retried_elsewhere(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    _use_mirror(monkeypatch)
+    _routes(monkeypatch, PROXY)
     provisioner = _provisioner(tmp_path)
     attempts: list[dict[str, str]] = []
 
@@ -292,16 +221,15 @@ def test_the_last_rung_is_left_to_finish_however_slowly(tmp_path: Path, monkeypa
     provisioner._run_model_installer("whisper", dict(os.environ))
 
 
-def test_without_a_mirror_the_ladder_ends_at_the_official_source(
+def test_the_ladder_ends_at_the_official_source(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    _use_mirror(monkeypatch, "")
     provisioner = _provisioner(tmp_path)
     attempts: list[dict[str, str]] = []
 
     def run(model_id: str, environment: dict[str, str]) -> None:
         attempts.append(environment)
-        raise RuntimeProvisionError(CAS_401)
+        raise RuntimeProvisionError(NETWORK_DOWN)
 
     monkeypatch.setattr(provisioner, "_run_model_installer", run)
     with pytest.raises(DownloadUnreachable, match="请开启代理"):

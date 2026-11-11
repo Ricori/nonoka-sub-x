@@ -35,11 +35,6 @@ ALLOWED = frozenset({
 
 #: (file, kind) -> the work package that removes the crossing.
 TRANSITIONAL: dict[tuple[str, str], str] = {
-    ("asset_digest.py", "import:finesub_bootstrap"): "WP-R2",
-    ("config_file.py", "import:finesub_bootstrap"): "WP-R2",
-    ("download_route.py", "import:finesub"): "WP-R2",
-    ("download_route.py", "import:finesub_bootstrap"): "WP-R2",
-    ("download_route.py", "env:FINESUB_"): "WP-R2",
     ("model_install.py", "import:finesub_bootstrap"): "WP-R3",
     ("runtime_install.py", "import:finesub_bootstrap"): "WP-R3",
     ("provision.py", "import:finesub_bootstrap"): "WP-R3",
