@@ -21,3 +21,4 @@ desktop/internal/app/bundled/nonoka_x/*
 .claude/*
 upstream-prs
 test_data/*
+*.egg-info/
