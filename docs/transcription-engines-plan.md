@@ -1,6 +1,6 @@
 # 转写引擎重构计划
 
-> 状态（2026-11-11）：WP-Q、WP-A、WP0、WP-R0 已完成并合进 main；WP-C 的 harness 已合进 main，云端基线还没录成（见 WP-C）；编译加速已在 `85ae2b9` 关闭；WP-R2 已完成并合进 main（范围按附录 B 第 24、25 问调整）；WP-B、WP-R1 与 WP-C 的剩余部分已派给各自的会话；其余未开工。本文档是交给子代理执行的工作说明，每个工作包可以单独领走。
+> 状态（2026-11-11）：WP-Q、WP-A、WP0、WP-R0 已完成并合进 main；WP-C 的 harness 已合进 main，云端基线还没录成（见 WP-C）；编译加速已在 `85ae2b9` 关闭；WP-R2、WP-B 已完成并合进 main（WP-R2 的范围按附录 B 第 24、25 问调整）；WP-R1 已评审，按附录 B 第 26–29 问补完后合并；WP-C 的剩余部分在进行；其余未开工。本文档是交给子代理执行的工作说明，每个工作包可以单独领走。
 > 写于 2026-11-10，基于 `main@1f14db3`、FineSub `v0.7.0@7123055`。
 > **2026-11-11 整理成干净版本**（用户决定，附录 B 第 1 问）：现行决定直接写在正文里，不再有「以后者为准」的追加条款。每个决定的来历、被推翻的旧说法，以及旧条款编号到新编号的对照，见附录 A；向用户问过的问题和答复见附录 B；还没定的事见附录 C。整理前的版本在 git 历史里（`main` 上的 `docs/transcription-engines-plan.md`）。
 > 相关文档：`docs/runtime-and-config.md`（WP-R0 的调查与设计答复 D1–D23，下称「R0 文档」；其中被本计划取代的答复已在那边标注，对照见附录 A.3）；`docs/engine-sandbox-experiment.md`（预制环境包与进程级沙箱两个前提的实验报告，下称「实验报告」）。本文档与 R0 文档冲突时以本文档为准。
@@ -486,7 +486,7 @@ FineSub 转写引擎也要写 `transcript.json`（从它的 stable 投影出来�
 ## 6. 工作包
 
 ```text
-已完成：WP-Q、WP-A、WP0、WP-R0、WP-R2；WP-C 的 harness（基线未录成）
+已完成：WP-Q、WP-A、WP0、WP-R0、WP-R2、WP-B；WP-C 的 harness（基线未录成）
 
 引擎线：
 WP-B ──┬─► WP1 ──► WP3a / WP3b / WP3c ───────────────┐
@@ -575,7 +575,9 @@ harness 已在 main（`tests/quality_harness/cloud.py`、`quality_gate.py --clou
 
 同步脚本、补丁栈、`FILES.json`、相关测试、CI 快照校验已删；`UPSTREAM.json` 精简；`scripts/finesub_align.py`、`LOCAL_CHANGES.md` 已建；`llm/` 顶层与 `llm/knowledge/` 的归属已列。vendor 里其余非核心文件留给 WP-R7。
 
-### WP-B 拆分 `run_pipeline`
+### WP-B 拆分 `run_pipeline`（已完成 2026-11-11）
+
+> 交付：`run_transcription`、`run_post_stable(speaker_source=acoustic|line-labels, judge_audio=vocal|source)`、`run_pipeline`（固定 `acoustic` + `vocal`）；联合 ASR 的参数、分支和命令行选项已删，两个文件都不再 import `speech.joint`（目录留给 WP1）；`logs.prune`、`open_log` 复制进 `pipeline.py`；记在 `LOCAL_CHANGES.md` 第 0009 节。`--real` 通过。交回 WP-P1：`pipeline.py` 仍 import `finesub_bootstrap.locks` 的 `holding_lock`、`LockUnavailable`（批处理的跨进程锁），由纠错兼容包补上。删联合 ASR 的后果：旧的联合 ASR 任务续跑时按本地识别处理；带 `asr` 等键的旧批处理清单续跑时报 unknown manifest keys；上锁的 `settings.py` 里 `[asr] backend`、`[asr] aligner` 已没有读取方（Nonoka 从不传 `asr`，不受影响）。另：云端测试的 `conftest.py` 找本仓库读的是 `NONOKA_X_CHECKOUT`。下面是原始说明。
 
 本计划里唯一改 FineSub 编排的包，单独一个子代理做，做完单独评审。
 
@@ -1114,6 +1116,10 @@ R0 文档里这几条已按此加了标注（只加标注，不删原文）。
 | 23 | cn 锁不复制进 Nonoka 的清单（原附录 C 第 5 项，WP-R1 开工前问） | 确认不复制；Nonoka 的清单只留标准锁，`finesub_bootstrap` 自带的 cn 锁照旧，WP-R1 只删其中的 `onnx`（推荐项） |
 | 24 | WP-R2：`download_route.py`、`asset_digest.py` 运行时给 `finesub_bootstrap` 和 `finesub.api_http` 打的补丁（代理线路策略、应用代理策略、云端摘要源），不 import FineSub 就留不住，怎么办 | 补丁代码原样搬进新建的 `src/nonoka_x/finesub_bridge.py`（WP-R5 的文件，提前建），旧函数名保留并委托过去，调用方不改，行为不变（推荐项） |
 | 25 | WP-R2：`runtime_install.py`、`provision.py` 还在用镜像/备用源阶梯，删镜像时调用方怎么办 | **连调用方一起删**，`tests/test_runtime_install.py` 里断言镜像的测试按新行为改；这三个文件加进 WP-R2 的清单，只删镜像那一块（推荐的是随 WP-E3 删） |
+| 26 | WP-R1：锁变了以后本机已装的运行时被当成过期，还合不合并 | 合并（推荐项）。WP-E1 出层之前，`--real` 用按新锁装的 PBS 环境 |
+| 27 | 那个 PBS 环境放哪 | 搬到主检出的 `.tmp\pbs-3.12.1`（git 忽略），各会话跑 `--real` 时设 `NONOKA_QUALITY_PYTHON` 指向它（推荐项） |
+| 28 | 闸门的钉住检查和 `pins.py write` 还从 `finesub_bootstrap` 推导，`write` 会漏掉 `interpreter` | 改读 Nonoka 的清单并带上 `interpreter`，`finesub_bootstrap` 的两份锁仍在钉住范围内（推荐项） |
+| 29 | `pyproject.toml` 只打包 `resources/*.json`，新锁进不了 wheel | 加上 `resources/*.toml`，并确认桌面暂存也带上它（推荐项） |
 
 更早的问答：WP-R0 的 D1–D23 见 R0 文档第 0 节；WP0 的细节见附录 A.1；沙箱实验中的决定见实验报告。
 
