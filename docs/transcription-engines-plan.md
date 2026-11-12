@@ -1,6 +1,6 @@
 # 转写引擎重构计划
 
-> 状态（2026-11-11）：WP-Q、WP-A、WP0、WP-R0 已完成并合进 main；WP-C 的 harness 已合进 main，云端基线还没录成（见 WP-C）；编译加速已在 `85ae2b9` 关闭；WP-R2、WP-B、WP-R1、WP1、WP4a、WP4b、WP4c、WP3a/b/c、WP-C、WP-P0、WP-M1（最后一条完成标准除外）已完成并合进 main（各包按附录 B 的答复调整）；WP-E1、WP-K、WP-R4、WP-CL0 在进行；2026-11-12 用户决定知识库独立成第三个包、全部经协议访问（第 0.1 节第 5 条、4.6 第 35a 条、WP-K）；其余未开工。本文档是交给子代理执行的工作说明，每个工作包可以单独领走。
+> 状态（2026-11-11）：WP-Q、WP-A、WP0、WP-R0 已完成并合进 main；WP-C 的 harness 已合进 main，云端基线还没录成（见 WP-C）；编译加速已在 `85ae2b9` 关闭；WP-R2、WP-B、WP-R1、WP1、WP4a、WP4b、WP4c、WP3a/b/c、WP-C、WP-P0、WP-M1（最后一条完成标准除外）、WP-R4 已完成并合进 main（各包按附录 B 的答复调整）；WP-E1、WP-K、WP-CL0 在进行；2026-11-12 用户决定知识库独立成第三个包、全部经协议访问（第 0.1 节第 5 条、4.6 第 35a 条、WP-K）；其余未开工。本文档是交给子代理执行的工作说明，每个工作包可以单独领走。
 > 写于 2026-11-10，基于 `main@1f14db3`、FineSub `v0.7.0@7123055`。
 > **2026-11-11 整理成干净版本**（用户决定，附录 B 第 1 问）：现行决定直接写在正文里，不再有「以后者为准」的追加条款。每个决定的来历、被推翻的旧说法，以及旧条款编号到新编号的对照，见附录 A；向用户问过的问题和答复见附录 B；还没定的事见附录 C。整理前的版本在 git 历史里（`main` 上的 `docs/transcription-engines-plan.md`）。
 > 相关文档：`docs/runtime-and-config.md`（WP-R0 的调查与设计答复 D1–D23，下称「R0 文档」；其中被本计划取代的答复已在那边标注，对照见附录 A.3）；`docs/engine-sandbox-experiment.md`（预制环境包与进程级沙箱两个前提的实验报告，下称「实验报告」）。本文档与 R0 文档冲突时以本文档为准。
@@ -492,7 +492,7 @@ FineSub 转写引擎也要写 `transcript.json`（从它的 stable 投影出来�
 ## 6. 工作包
 
 ```text
-已完成：WP-Q、WP-A、WP0、WP-R0、WP-R2、WP-B、WP-R1、WP1、WP4a、WP4b、WP4c、WP3a/b/c、WP-C、WP-P0、WP-M1（最后一条完成标准等 WP-E1、WP-E3）
+已完成：WP-Q、WP-A、WP0、WP-R0、WP-R2、WP-B、WP-R1、WP1、WP4a、WP4b、WP4c、WP3a/b/c、WP-C、WP-P0、WP-M1（最后一条完成标准等 WP-E1、WP-E3）、WP-R4
 
 引擎线：
 WP-B ──┬─► WP1 ──► WP3a / WP3b / WP3c ───────────────┐
@@ -764,7 +764,9 @@ harness 已在 main（`tests/quality_harness/cloud.py`、`quality_gate.py --clou
   - 装好的层上 `quality_gate.py --layers`（完整检查）通过，`quality_gate.py --real` 通过（harness 定位到层里的解释器和模型）。
   - 整个大文件根搬到别的盘、别的路径（带空格）后，不做任何修补，就绪检查通过、`--real` 通过。
 
-### WP-R4 配置与密钥存储
+### WP-R4 配置与密钥存储（已完成 2026-11-13）
+
+> 交付：`config/store.py`（`settings.json`，稀疏，只存设过的路由、`baseUrls`、`cloud.llmBaseUrl`，原子写加 `.lock`）、`config/secrets.py`（`secrets.json` = `{schema, keyring, values}`；信封方案从 FineSub v0.7.0 `finesub_bootstrap/secrets.py` 复制，加解密函数与原版逐个相同，双向互通有测试；多 key 池的写法保留、只封装密钥部分）、`config/migrate.py`（接进迁移命令的 settings 一步）。迁移：认识的设置与密钥搬过来，`[nonoka_models]` 先经 `migrate_model_config`；三个旧密钥名改新名（新旧都在时新名为准）；不认识的键与变量丢弃，报告 `runtime-state\settings-migration.json` 只列名字；本机解不开的值不搬、留在备份；旧文件改名 `.pre-migration`；可续跑；遇到不是本迁移写出的新存储就停。按附录 B 第 47 问的过渡做法：FineSub 要读的 `finesub.env`、`finesub.toml`、`model_catalog.toml` 由新存储整体派生到 `engines\finesub-shared\`（与旧写入器对新文件的输出同字节），sidecar 启动时对还没迁移的数据目录自动迁移设置与密钥。按第 48、49 问调整了两处细则。闸门含 `--real` 通过，没有重录任何基线。交回：WP-R5 删掉 `engines\finesub-shared\` 与过渡期派生代码（`config_file.py` 已无调用方，一并处理）；WP5 经 `ConfigStore.update` / `key_pool` 存取新密钥（`*_ENDPOINT` 读出来是整条地址）；WP-M2 把迁移接进启动后去掉 `bind_environment` 里的自动迁移。下面是原始说明。
 
 - 文件：`config/__init__.py`（把门面换成真实现）、`config/store.py`、`config/secrets.py`、`config/migrate.py`、`settings.py` 及测试。
 - 内容：`settings.json`、`secrets.json`（R0 文档 2.1、2.2，D1、D2）；密钥沿用 FineSub 现行的信封方案（Windows DPAPI 绑账户），代码复制过来注明来源；读旧的 `finesub.env`、`finesub.toml` 的迁移逻辑放在 `config/migrate.py`，由本包接进 WP-M1 的迁移命令，迁移规则按 R0 文档 2.7 第 3 条；存储放在主数据目录里；`settings.py` 的快照接口对界面保持兼容，底下改读新存储。本包**不**负责生成 FineSub 的文件，那是 WP-R5。
@@ -1178,6 +1180,9 @@ R0 文档里这几条已按此加了标注（只加标注，不删原文）。
 | 44 | WP-C 计划外加的：`--record cloud` 重录时固定 run-1 为 AOTI、run-2 为 eager | 保留（推荐项） |
 | 45 | WP-P0 的 9 个待定点 | 全部推荐项：纠错包带知识库代码的原样副本（只用模块级 import 的纯函数与常量），测试证明它不碰数据；命令行与死代码不进任何包；知识更新的 LLM 调用留在纠错进程，只有存储读写走协议；包进程之间由核心分配端点、直连；每个转写或纠错进程配一个知识库进程；默认路径的 `raw.srt` 仍由纠错包写，核心渲染只在换引擎或纠错包不在时用；知识库包有自己的兼容包（14 个名字）；WP-K 的判据是不 open 知识库下的文件、不 `sqlite3.connect`，路径解析不算；GPU 档位写成转写包 `PACKAGE.json` 的静态声明 |
 | 46 | WP-P0 交回的 3 项（批准范围的边上） | 都确认：`knowledge/update.py`、`entries.py` 的存储调用算纠错那半的访问点，在第 0.1 节第 5 条范围内；MCP 子进程用端点文件找知识库服务，不改 `client.py`、`agent_session_host.py`；每进程一个知识库进程，`base.py` 的写锁与快照不改 |
+| 47 | WP-R4：WP-R5 之前 FineSub 侧怎么过渡 | 全部推荐项：新存储是唯一真实来源，每次保存设置、云端登录与启动时整体派生 FineSub 的三个文件；派生到 `engines\finesub-shared\`；sidecar 启动时只对还没迁移的数据目录自动迁移设置与密钥；细则 1–9 按推荐 |
+| 48 | WP-R4 偏离细则第 7 条：旧变量名（keyring 行与三个旧密钥名）放进 `migration/legacy.py`，不放 `config/migrate.py`（WP0 的测试要求 `config/` 里不出现 FineSub 的名字） | 批准（2026-11-13）；边界测试只许 `migration/legacy.py` 这一个文件、旧文件名与 `FINESUB_*` 两类越界 |
+| 49 | WP-R4 偏离 WP0 的测试：登记过的新密钥名可以经 `ConfigStore.update` 写进 `secrets.json`（细则第 8 条） | 批准（2026-11-13）；这类密钥不进设置页的密钥列表、不派生给 FineSub |
 
 更早的问答：WP-R0 的 D1–D23 见 R0 文档第 0 节；WP0 的细节见附录 A.1；沙箱实验中的决定见实验报告。
 
