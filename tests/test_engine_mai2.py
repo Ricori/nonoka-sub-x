@@ -352,13 +352,13 @@ def test_the_retry_after_a_busy_gateway(monkeypatch, tmp_path: Path) -> None:
 # --- the launcher's environment -----------------------------------------------------------------------------
 
 
-def test_the_engine_runs_where_only_the_launcher_is_installed(tmp_path: Path) -> None:
-    """In a fresh interpreter that cannot import FineSub, numpy, torch or onnx, the engine imports and runs a
-    whole transcription (from the cached answers), and never loads `enhance/`."""
-    name = "mai2-openrouter-windows"
-    case, _ = load(name)
+def run_in_launcher(tmp_path: Path, *, module: str, engine: str, case: str, pools: dict[str, str]) -> None:
+    """In a fresh interpreter that cannot import FineSub, numpy, torch or onnx, `engines.<module>.<engine>`
+    imports and runs a whole transcription of `case` (from its cached answers), and never loads `enhance/`.
+    Shared by the three cloud engines' tests."""
+    data, _ = load(case)
     task = tmp_path / "task"
-    shutil.copytree(FIXTURES / "cases" / name / "cache", task / "cache")
+    shutil.copytree(FIXTURES / "cases" / case / "cache", task / "cache")
     script = f"""
 import builtins, sys
 sys.path.insert(0, {str(ROOT / 'src')!r})
@@ -370,21 +370,22 @@ def guard(name, *a, **k):
 builtins.__import__ = guard
 from pathlib import Path
 from nonoka_x import config
-from nonoka_x.transcription import TranscriptionJob, EventReporter, audio, read_transcript
-from nonoka_x.transcription.engines import mai2
+from nonoka_x.transcription import ReadinessContext, TranscriptionJob, EventReporter, audio, read_transcript
+from nonoka_x.transcription.engines import {module}
+POOLS = {pools!r}
 class Store:
     root = Path({str(tmp_path)!r})
     def key_pool(self, name):
-        return (config.KeyEntry('', 'or-key'),) if name == 'OPENROUTER_STT_KEY' else ()
+        return (config.KeyEntry('', POOLS[name]),) if name in POOLS else ()
     def state_file(self, name):
         return self.root / 'state' / (name + '.json')
 class Runtime:
     def component_ready(self, c): return c == 'media'
     def tool_path(self, n): return None
-audio.probe_media_duration = lambda path, **k: {case['duration']!r}
-engine = mai2.Mai2Engine(Store(), Runtime())
-assert engine.readiness(__import__('nonoka_x.transcription', fromlist=['x']).ReadinessContext()).ready
-job = TranscriptionJob(source=Path({str(SOURCE)!r}), language='ja', task_dir=Path({str(task)!r}),
+audio.probe_media_duration = lambda path, **k: {data['duration']!r}
+engine = {module}.{engine}(Store(), Runtime())
+assert engine.readiness(ReadinessContext()).ready
+job = TranscriptionJob(source=Path({str(SOURCE)!r}), language={data['language']!r}, task_dir=Path({str(task)!r}),
                        cache_dir=Path({str(task / 'cache')!r}), target='final-srt')
 result = engine.transcribe(job, EventReporter(lambda kind, payload: None))
 assert read_transcript(result.transcript_json).lines
@@ -396,3 +397,8 @@ print('ok')
     done = subprocess.run([sys.executable, "-I", "-c", script], cwd=ROOT, capture_output=True, text=True,
                           encoding="utf-8")
     assert done.returncode == 0 and done.stdout.strip() == "ok", done.stdout + done.stderr
+
+
+def test_the_engine_runs_where_only_the_launcher_is_installed(tmp_path: Path) -> None:
+    run_in_launcher(tmp_path, module="mai2", engine="Mai2Engine", case="mai2-openrouter-windows",
+                    pools={"OPENROUTER_STT_KEY": "or-key"})

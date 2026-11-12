@@ -14,6 +14,10 @@ backchannel comes after A's sentence although it is earlier) and repaired:
    does continues from CONTINUE_BACK s before that word (at least MIN_ADVANCE
    past the window start); the last window continues once.
 
+The engine (`GeminiEngine`, WP3b) runs with `--asr-repair off`: 1-3 above, the key switching below. The repairs
+after the stitch (Live, Silero, voiceprints, the forced aligner, the sentence-boundary model; `repaired`) need the
+Python environment layer, which the first version does not wire (plan 4.1 item 6); they are kept, unreached.
+
 Keys: the `GEMINI_FREE` pool, one key until Gemini answers that its requests
 per day are spent, then the next (owner: never the paid pool automatically).
 Rules of the API: `docs/gemini35-transcribe.md`.
@@ -28,14 +32,12 @@ import statistics
 import tempfile
 import time
 from pathlib import Path
-from typing import Any, Callable
+from typing import TYPE_CHECKING, Any, Callable
 
 from .. import keys
 from .. import repair as R
 from ..audio import extract_upload_mp3, probe_media_duration
 from ..cache import CacheMiss, CallCache, audio_fingerprint
-from ..enhance import live as live_client
-from ..enhance.relink import VOICEPRINTS, Voiceprints, Voices
 from ..http import (
     CONNECT_TIMEOUT_SECONDS,
     RETRYABLE_TRANSPORT,
@@ -50,6 +52,13 @@ from ..stitch import stitch
 from ..units import Transcript, Unit, turns_from_units
 from . import GEMINI_35T
 from .moss_pro import SpeechSpans
+
+from .. import DIARIZATION_LEVELS, EngineEnvironment, EngineFeatures, EngineSpec, Issue, Reporter, TranscriptionJob
+from .. import lines as L
+from .cloud import MEDIA, CloudEngine, CloudEngineError, guarded, has_key
+
+if TYPE_CHECKING:
+    from ..enhance.relink import Voiceprints, Voices
 
 MODEL = "gemini-3.5-transcribe"
 UPLOAD = "https://generativelanguage.googleapis.com/upload/v1beta/files"
@@ -451,6 +460,7 @@ def _timed(text: str, a: float, b: float, speaker, heard: list[tuple[float, floa
 
 
 def _voiced_spans(pcm, a: float, b: float) -> list[tuple[float, float]]:
+    from ..enhance import live as live_client
     from ..enhance import moss_timing
 
     lo, hi = int(a * live_client.SR), int(b * live_client.SR)
@@ -546,6 +556,9 @@ def repaired(units: list[dict], *, total: float, language: str | None, live_cach
     """The stitched units (output order) with what Live and local rules repair (`--asr-repair on`), and one log
     entry per spot; with `reask` (`quota`), 35t's own re-asks first (`reasked`). Words of a speakerless window
     carry `nospk`."""
+    from ..enhance import live as live_client
+    from ..enhance.relink import Voices
+
     units = [dict(u) for u in units]
     log: list[dict] = []
     voices = Voices(speech.pcm, voiceprints, R.blocks([u for u in units if not u.get("nospk")]))
@@ -786,6 +799,11 @@ def transcribe(
         log.append({"no_speaker_windows": sum(p["no_speaker"] for p in parts)})
     mode = R.mode(repair)
     if mode != "off":
+        # Live, Silero and voiceprints (`enhance/`): never reached from the engine, which runs without the Python
+        # environment layer (plan 4.1 item 6); kept for a later phase.
+        from ..enhance import live as live_client
+        from ..enhance.relink import VOICEPRINTS
+
         asked = {"model": live_client.MODEL, "fed": "mix", "language": language, "audio": audio_fingerprint(src)}
         live_cache = CallCache(cache_root, LIVE_CACHE, offline=offline,
                                identity={"provider": LIVE_CACHE, "pad": LIVE_PAD, **asked})
@@ -811,3 +829,54 @@ def transcribe(
                                 speakerless=[(p["start"], p["end"]) for p in parts if p["no_speaker"]])
         log.extend(fixes)
     return Transcript(GEMINI_35T, MODEL, total, "word", turns_from_units(Unit.from_dict(u) for u in units), log)
+
+
+# --- the engine -------------------------------------------------------------------------------------------
+
+ENGINE_ID = "gemini-transcribe"
+LABEL = "Gemini 3.5 Transcribe"
+
+SPEC = EngineSpec(
+    id=ENGINE_ID,
+    label=LABEL,
+    kind="cloud-api",
+    features=EngineFeatures(speakers=True, word_timestamps=True, separate=False,
+                            diarization_levels=DIARIZATION_LEVELS),
+    keys=(keys.GEMINI_FREE,),
+    environment=EngineEnvironment(components=(MEDIA,)),
+    billing="只用 GEMINI_FREE 池的免费额度：每个 key 每天的请求数有限，用完换下一个；不会自动动用付费池",
+)
+
+
+class GeminiEngine(CloudEngine):
+    """Gemini 3.5 Transcribe as a `TranscriptionEngine` (WP3b): free keys only, repair off (module docstring)."""
+
+    spec = SPEC
+    label = LABEL
+
+    def key_issues(self, store: Any) -> list[Issue]:
+        if has_key(store, keys.GEMINI_FREE):
+            return []
+        return [Issue("missing_key", f"Gemini 3.5 Transcribe 需要 {keys.GEMINI_FREE} 池里至少一个免费 key"
+                                     "（不会动用付费池）")]
+
+    def caller(self) -> Caller:
+        """The free pool's keys and the ledger beside the store, read once per run."""
+        return Caller(entries=keys.pool(keys.GEMINI_FREE, store=self._store),
+                      ledger=KeyLedger(GEMINI_35T, MODEL, PACIFIC, state_path=keys.ledger_path(self._store)))
+
+    def run(self, job: TranscriptionJob, report: Reporter, *, duration: float,
+            language: str | None) -> tuple[Transcript, dict[str, Any]]:
+        if not has_key(self._store, keys.GEMINI_FREE):
+            raise CloudEngineError(self.key_issues(self._store)[0].message)
+        transcript = transcribe(job.source, cache_root=job.cache_dir, language=language, repair="off",
+                                caller=guarded(self.caller(), label=LABEL, report=report), duration=duration)
+        return transcript, {"repair": "off", "sentence_boundary_model": False}
+
+    def build_lines(self, transcript: Transcript, *, duration: float, params, language: str | None) -> list[dict]:
+        """FineSub's joint stage for 35t (arm G1s, without the sentence-boundary model): a DP per speaker run in
+        output order, abutting words pulled apart."""
+        units = [u.as_dict() for u in transcript.units()]
+        segments, _ = L.word_lines(units, duration=duration, params=params, language=language, per_turn=True,
+                                   grid=True, sentence_ends=None)
+        return segments
