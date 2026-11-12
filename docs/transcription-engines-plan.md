@@ -1,6 +1,6 @@
 # 转写引擎重构计划
 
-> 状态（2026-11-11）：WP-Q、WP-A、WP0、WP-R0 已完成并合进 main；WP-C 的 harness 已合进 main，云端基线还没录成（见 WP-C）；编译加速已在 `85ae2b9` 关闭；WP-R2、WP-B、WP-R1、WP1、WP4a、WP4b、WP4c、WP3a/b/c、WP-C、WP-P0、WP-M1（最后一条完成标准除外）、WP-R4、WP-K、WP-E1 已完成并合进 main（各包按附录 B 的答复调整）；WP-CL0 在进行；2026-11-12 用户决定知识库独立成第三个包、全部经协议访问（第 0.1 节第 5 条、4.6 第 35a 条、WP-K）；其余未开工。本文档是交给子代理执行的工作说明，每个工作包可以单独领走。
+> 状态（2026-11-11）：WP-Q、WP-A、WP0、WP-R0 已完成并合进 main；WP-C 的 harness 已合进 main，云端基线还没录成（见 WP-C）；编译加速已在 `85ae2b9` 关闭；WP-R2、WP-B、WP-R1、WP1、WP4a、WP4b、WP4c、WP3a/b/c、WP-C、WP-P0、WP-M1（最后一条完成标准除外）、WP-R4、WP-K、WP-E1、WP-CL0 已完成并合进 main（WP-CL0 的预热脚本合进云端仓库的 main；各包按附录 B 的答复调整）；2026-11-12 用户决定知识库独立成第三个包、全部经协议访问（第 0.1 节第 5 条、4.6 第 35a 条、WP-K）；其余未开工。本文档是交给子代理执行的工作说明，每个工作包可以单独领走。
 > 写于 2026-11-10，基于 `main@1f14db3`、FineSub `v0.7.0@7123055`。
 > **2026-11-11 整理成干净版本**（用户决定，附录 B 第 1 问）：现行决定直接写在正文里，不再有「以后者为准」的追加条款。每个决定的来历、被推翻的旧说法，以及旧条款编号到新编号的对照，见附录 A；向用户问过的问题和答复见附录 B；还没定的事见附录 C。整理前的版本在 git 历史里（`main` 上的 `docs/transcription-engines-plan.md`）。
 > 相关文档：`docs/runtime-and-config.md`（WP-R0 的调查与设计答复 D1–D23，下称「R0 文档」；其中被本计划取代的答复已在那边标注，对照见附录 A.3）；`docs/engine-sandbox-experiment.md`（预制环境包与进程级沙箱两个前提的实验报告，下称「实验报告」）。本文档与 R0 文档冲突时以本文档为准。
@@ -492,7 +492,7 @@ FineSub 转写引擎也要写 `transcript.json`（从它的 stable 投影出来�
 ## 6. 工作包
 
 ```text
-已完成：WP-Q、WP-A、WP0、WP-R0、WP-R2、WP-B、WP-R1、WP1、WP4a、WP4b、WP4c、WP3a/b/c、WP-C、WP-P0、WP-M1（最后一条完成标准等 WP-E3）、WP-R4、WP-K、WP-E1
+已完成：WP-Q、WP-A、WP0、WP-R0、WP-R2、WP-B、WP-R1、WP1、WP4a、WP4b、WP4c、WP3a/b/c、WP-C、WP-P0、WP-M1（最后一条完成标准等 WP-E3）、WP-R4、WP-K、WP-E1、WP-CL0
 
 引擎线：
 WP-B ──┬─► WP1 ──► WP3a / WP3b / WP3c ───────────────┐
@@ -919,7 +919,9 @@ harness 已在 main（`tests/quality_harness/cloud.py`、`quality_gate.py --clou
   - 密钥读取、模型加载、ffmpeg 调用、本地 Agent CLI 路由（如果本机装了）各验证一次；没条件验证的如实标记。
   - 报告里列出最终的分类表，以及 4.5 第 31 条那些边界各自的现状。
 
-### WP-CL0 云端模型预热脚本（新，WP-R7 之前做）
+### WP-CL0 云端模型预热脚本（已完成 2026-11-13）
+
+> 交付：云端仓库 `modal_compute/nonoka_x_compute/operations/model_prime.py`（只读 Nonoka 的模型清单，不 import finesub、finesub_bootstrap；缓存布局与 `.finesub-verified.json` 标记的格式和引擎相同，测试把两边对上）与 `prime.py` 的 `check_models`（Volume 只读挂载，只检查）、`prime_models`（补齐缺的）、`prime_diarization_models`（改为只补说话人分离的两个）；`NONOKA_X_PRIME_VOLUME` 把它们指向另一个已存在的 Volume；`modal_compute/docs/compute.md` 更新。按附录 B 第 56 问：只放云端实际加载的 4 个（whisper、qwen-referee、nemotron3、speaker-embedding，分离器烤在 Vocal 镜像里）；和引擎用同一个库、同样的参数下载，脚本自己逐文件校验；已在但校验不过就报错、不动文件；没有哈希的小文件只看在不在；只有钉住的快照整个不在时才下载，下载后校验不过照引擎的规矩写失败标记。本仓库 `tests/quality_harness/cloud.py` 加测量用变量 `NONOKA_QUALITY_CLOUD_MODELS_VOLUME`（不设时行为不变，第 57 问）。实测：生产 Volume 只读检查 4 个全部在、校验通过，没有改动；空的临时 Volume 预热约 1 分钟放齐，之后 `--cloud` 通过、各项统计为 0，前后 Volume 上 149 项完全相同，日志里没有下载；云端测试 156 个通过。花费：已出账约 $0.28，第二次闸门那一小时未出账，估计合计 $0.33–0.43（用户批过中途重跑）。临时 Volume `nonoka-x-models-wpcl0-tmp` 经用户同意已删。交回：生产 Volume 上还有 6 个没人读的旧分离器文件，没动，清不清理由用户定。下面是原始说明。
 
 - 文件：云端仓库 `modal_compute/nonoka_x_compute/operations/prime.py`（或新文件）及其测试。
 - 内容：按 4.7 第 37 条写一个不经引擎的预热脚本：读本仓库的模型清单（钉住的 revision 与文件哈希），把云端要的模型放进 `/models` Volume 并逐文件校验；已经在的、校验通过的跳过。`prime_diarization_models` 改用它。不改云端的调度、镜像的其余部分和加速选择。
@@ -1193,6 +1195,8 @@ R0 文档里这几条已按此加了标注（只加标注，不删原文）。
 | 53 | WP-E1 的构建细则：模型层放哪些模型、工具层布局、两次构建怎么做到相同、层清单放哪、修改时间、wheel 哈希怎么记、版本号长短 | 模型层只放默认路径 5 个；工具层平铺；同一位置清空后重建；清单在包内也在包旁；修改时间固定、清单不记；先自己下载校验 wheel、再让 uv 装本地文件；版本号截成前 16 位（2026-11-12） |
 | 54 | 分离器的 `download_checks.json`（上游移动分支上的索引）在模型层里怎么来；闸门要求两份模型清单一致而 vendor 的不能改 | 钉到上游 `8a65b784`；只改 Nonoka 的清单与 `RUNTIME_PINS.json`，闸门放过 vendor 那份没钉的这一项（2026-11-12） |
 | 55 | `real.py` 先清 `NONOKA_QUALITY_*` 再定位，`--real` 用不上层里的模型和工具 | 改：清环境前先定位（推荐项，2026-11-12） |
+| 56 | WP-CL0：云端预热放哪些模型；缺的怎么放进 Volume；已有的校验不过怎么办；没有哈希的小文件怎么校验 | 只放云端实际加载的 4 个；同库同参数下载、脚本自己校验；报错、不动文件；只看在不在（2026-11-12） |
+| 57 | WP-CL0：`--cloud` 要从临时 Volume 读模型，得改本仓库的 harness；要不要顺手更新 `compute.md`；Modal 上的花费 | 在本仓库开分支改 harness；更新 `compute.md`；Modal 上的全部运行（约 $0.55）同意，中途被打断后同意重跑；用完后删掉临时 Volume（2026-11-12） |
 
 更早的问答：WP-R0 的 D1–D23 见 R0 文档第 0 节；WP0 的细节见附录 A.1；沙箱实验中的决定见实验报告。
 
