@@ -199,6 +199,20 @@ def interpolated(segment: dict) -> list[dict]:
     return out
 
 
+def interpolated_timed(segments: Sequence[dict], *, duration: float) -> list[dict]:
+    """MOSS Pro's segments (by start, then end) with their `units` interpolated (`interpolated`): the input
+    `segment_lines` takes, without Silero. It is what `enhance.moss_timing.timed` gives when Silero hears no
+    speech in any segment -- every segment falls back to `interpolated` -- with the same filter and order."""
+    segs = [s for s in sorted(segments, key=lambda s: (s["start"], s["end"]))
+            if s["text"].strip() and s["start"] < duration]
+    out = []
+    for s in segs:
+        units = interpolated(s)
+        if units:
+            out.append(dict(s, units=units))
+    return out
+
+
 def merge_short(segments: Sequence[dict], *, params: seg.SplitParams, duration: float,
                 gap: float = MERGE_GAP) -> list[dict]:
     """MOSS Pro segments as lines: one under the splitter's ideal lower bound joins the same speaker's
