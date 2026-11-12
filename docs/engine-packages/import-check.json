@@ -1,0 +1,60 @@
+{
+ "schema": 1,
+ "python": "pbs-3.12.1 -I -B",
+ "results": {
+  "correct": {
+   "modules": 193,
+   "distributions": [
+    "annotated-types",
+    "anyio",
+    "certifi",
+    "h11",
+    "httpcore",
+    "httpx",
+    "idna",
+    "opencc-python-reimplemented",
+    "pydantic",
+    "pydantic_core",
+    "typing-inspection",
+    "typing_extensions",
+    "tzdata"
+   ],
+   "failures": {},
+   "blocked_attempts": [
+    "brotli",
+    "brotlicffi",
+    "click",
+    "zstandard"
+   ],
+   "heavy_imported": [],
+   "imported": 193
+  },
+  "knowledge": {
+   "modules": 66,
+   "distributions": [
+    "annotated-types",
+    "anyio",
+    "certifi",
+    "h11",
+    "httpcore",
+    "httpx",
+    "idna",
+    "opencc-python-reimplemented",
+    "pydantic",
+    "pydantic_core",
+    "typing-inspection",
+    "typing_extensions",
+    "tzdata"
+   ],
+   "failures": {},
+   "blocked_attempts": [
+    "brotli",
+    "brotlicffi",
+    "click",
+    "zstandard"
+   ],
+   "heavy_imported": [],
+   "imported": 66
+  }
+ }
+}

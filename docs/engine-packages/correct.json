@@ -1,0 +1,6332 @@
+{
+ "schema": 1,
+ "package": "correct",
+ "target": "engines/finesub-correct",
+ "source_root": "third_party/finesub/src",
+ "generated_by": "scripts/engine_packages.py",
+ "entries": [
+  {
+   "symbol": "finesub.stages:run_post_stable",
+   "used_at": "src/nonoka_x/correction/finesub.py:265"
+  },
+  {
+   "symbol": "finesub.stages:default_pipeline_paths",
+   "used_at": "src/nonoka_x/correction/finesub.py:106"
+  },
+  {
+   "symbol": "finesub.stages:_run_diarization_stage",
+   "used_at": "src/nonoka_x/correction/finesub.py:336"
+  },
+  {
+   "symbol": "finesub.stages:resolve_llm_media_for_source",
+   "used_at": "src/nonoka_x/correction/finesub.py:450"
+  },
+  {
+   "symbol": "finesub.speech.diarization.evidence:evidence_path",
+   "used_at": "src/nonoka_x/correction/finesub.py:113"
+  },
+  {
+   "symbol": "finesub.subtitles.line_groups:in_order",
+   "used_at": "src/nonoka_x/correction/finesub.py:159"
+  },
+  {
+   "symbol": "finesub.reporting:current_reporter",
+   "used_at": "src/nonoka_x/correction/finesub.py:258"
+  },
+  {
+   "symbol": "finesub.reporting:reporter_delivers",
+   "used_at": "src/nonoka_x/correction/finesub.py:258"
+  },
+  {
+   "symbol": "finesub.reporting:reporting_to",
+   "used_at": "src/nonoka_x/correction/finesub.py:258"
+  },
+  {
+   "symbol": "finesub.reporting:quieted_libraries",
+   "used_at": "src/nonoka_x/worker.py:585"
+  },
+  {
+   "symbol": "finesub.llm.correction_request:CorrectionRequest",
+   "used_at": "src/nonoka_x/correction/finesub.py:436"
+  },
+  {
+   "symbol": "finesub.llm.correction_translation:run_correction_task",
+   "used_at": "src/nonoka_x/correction/finesub.py:437"
+  },
+  {
+   "symbol": "finesub.llm.routing.profiles:resolve_profile",
+   "used_at": "src/nonoka_x/correction/finesub.py:438"
+  },
+  {
+   "symbol": "finesub.llm.correction_mode:recorded_choice",
+   "used_at": "src/nonoka_x/worker.py:407"
+  },
+  {
+   "symbol": "finesub.llm.correction_mode:started",
+   "used_at": "src/nonoka_x/worker.py:407"
+  },
+  {
+   "symbol": "finesub.llm.routing.model_routes:<module>",
+   "used_at": "src/nonoka_x/worker.py:491"
+  },
+  {
+   "symbol": "finesub.llm.routing.model_routes:default_model_routes",
+   "used_at": "src/nonoka_x/settings.py:365"
+  },
+  {
+   "symbol": "finesub.llm.routing.model_routes:load_model_routes",
+   "used_at": "src/nonoka_x/settings.py:384"
+  },
+  {
+   "symbol": "finesub.llm.routing.model_catalog:default_model_catalog",
+   "used_at": "src/nonoka_x/settings.py:476"
+  },
+  {
+   "symbol": "finesub.config:clear_config_cache",
+   "used_at": "src/nonoka_x/settings.py:1071"
+  },
+  {
+   "symbol": "finesub.llm.agent.agent_paths:vendor_error_text",
+   "used_at": "src/nonoka_x/worker.py:531"
+  },
+  {
+   "symbol": "finesub.llm.client:RoleClient",
+   "used_at": "src/nonoka_x/llm_worker.py:48"
+  },
+  {
+   "symbol": "finesub.llm.client:is_quota_or_rate_limit_error",
+   "used_at": "src/nonoka_x/llm_worker.py:115"
+  },
+  {
+   "symbol": "finesub.llm.rate_limit:ModelRateLimiter",
+   "used_at": "src/nonoka_x/llm_worker.py:63"
+  },
+  {
+   "symbol": "finesub.llm.routing.config:LLMRole",
+   "used_at": "src/nonoka_x/llm_worker.py:79"
+  },
+  {
+   "symbol": "finesub.api_http:<module>",
+   "used_at": "src/nonoka_x/finesub_bridge.py:87"
+  },
+  {
+   "symbol": "finesub.speech.diarization.product:read_product",
+   "used_at": "src/nonoka_x/projector.py:224"
+  },
+  {
+   "symbol": "finesub.llm.agent.agent_mcp_server:<main>",
+   "used_at": "third_party/finesub/src/finesub/llm/client.py:2504 (MCP child)"
+  }
+ ],
+ "counts": {
+  "files": 466,
+  "py": 182,
+  "data": 284,
+  "locked": 465
+ },
+ "files": [
+  {
+   "path": "finesub/__init__.py",
+   "module": "finesub",
+   "why": [
+    "static",
+    "runtime"
+   ],
+   "sha256": "38f20acdfce0c7008f8773bd8ec10bbb1de34a082d83f8c8cffa91401c872126",
+   "locked": true
+  },
+  {
+   "path": "finesub/api_http.py",
+   "module": "finesub.api_http",
+   "why": [
+    "static",
+    "runtime"
+   ],
+   "sha256": "279a3ce87c5c748bae9ce397c6d32d90f18ee9c37de09563be87af534f53e56c",
+   "locked": true
+  },
+  {
+   "path": "finesub/api_keys.py",
+   "module": "finesub.api_keys",
+   "why": [
+    "static",
+    "runtime"
+   ],
+   "sha256": "67b3536df5378ab0fc53bee50c4c7f1f97a1d77e70d89af84228e00ca1e1511e",
+   "locked": true
+  },
+  {
+   "path": "finesub/config.py",
+   "module": "finesub.config",
+   "why": [
+    "static",
+    "runtime"
+   ],
+   "sha256": "80ec90a8d417eaecde90a782e8d2a4001121c72576772c3900e48737b1ff0496",
+   "locked": true
+  },
+  {
+   "path": "finesub/jsonl.py",
+   "module": "finesub.jsonl",
+   "why": [
+    "static",
+    "runtime"
+   ],
+   "sha256": "ae369f0d91627aa623673794ab11675addd6aa4f4a879e492dbfdeb20c768f39",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/__init__.py",
+   "module": "finesub.llm",
+   "why": [
+    "static",
+    "runtime"
+   ],
+   "sha256": "f6f3fc40b50975dabb5fadc466bf1d0a543bdb296ee4291bd4f498ddb66df149",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/agent/__init__.py",
+   "module": "finesub.llm.agent",
+   "why": [
+    "static",
+    "runtime"
+   ],
+   "sha256": "34b1ab0db1608fad8ebb7b711f13082aa469596a76917b97ae453c999c12f223",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/agent/agent_mcp_server.py",
+   "module": "finesub.llm.agent.agent_mcp_server",
+   "why": [
+    "static",
+    "runtime"
+   ],
+   "sha256": "441f590f808ea2a2fcf0fea77f6c1dc7b59da2c0c090716372d0865683650b78",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/agent/agent_paths.py",
+   "module": "finesub.llm.agent.agent_paths",
+   "why": [
+    "static",
+    "runtime"
+   ],
+   "sha256": "5b034d303ca9df8d067bd67a02f59e2e9cbda6c3822d40e2198be63bde573e73",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/agent/agent_quota.py",
+   "module": "finesub.llm.agent.agent_quota",
+   "why": [
+    "static",
+    "runtime"
+   ],
+   "sha256": "77aa89c70a1e0da078e375f31c84695b8a381a0cac167eeac7355c31bb0f11ef",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/agent/agent_retrieval.py",
+   "module": "finesub.llm.agent.agent_retrieval",
+   "why": [
+    "static"
+   ],
+   "sha256": "5e208dc35857de1c744de002ae617881e260171e7c4ae466a387e3975ff7d1c3",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/agent/agent_session_host.py",
+   "module": "finesub.llm.agent.agent_session_host",
+   "why": [
+    "static",
+    "runtime"
+   ],
+   "sha256": "35796ed36074985af29da52de452890b27d3e277a5c313cef4a6683878d46a1b",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/agent/agent_task_runtime.py",
+   "module": "finesub.llm.agent.agent_task_runtime",
+   "why": [
+    "static",
+    "runtime"
+   ],
+   "sha256": "eff8fbfeb50ccce8906d654de1c0f9e4a1b08757896bca6c102dbc37fab11629",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/agent/agent_transports.py",
+   "module": "finesub.llm.agent.agent_transports",
+   "why": [
+    "static",
+    "runtime"
+   ],
+   "sha256": "410b694a399ca758a881d9cbe30425d7f9ddffabfe80756135ecaaf7d8ce95aa",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/agent/agent_validators.py",
+   "module": "finesub.llm.agent.agent_validators",
+   "why": [
+    "static",
+    "runtime"
+   ],
+   "sha256": "9a7fec3347c18e4856dc32c0d8866bf174d2338aeee5d8818486b78f276d9f7d",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/agent/agy_transcript.py",
+   "module": "finesub.llm.agent.agy_transcript",
+   "why": [
+    "static"
+   ],
+   "sha256": "ab8737b981d16ae4e8a8e71c2d04a0cf65649741dfaded78012397ab6dcbdc6d",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/agent/channels.py",
+   "module": "finesub.llm.agent.channels",
+   "why": [
+    "static",
+    "runtime"
+   ],
+   "sha256": "70d452bd673d974119814e00e6674e7d6ba2a0888a45313af81dcaf336664270",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/agent/codex_connection.py",
+   "module": "finesub.llm.agent.codex_connection",
+   "why": [
+    "static",
+    "runtime"
+   ],
+   "sha256": "d4e1898e9d736ceb0c174ebac7572d63f5498f2cbc3c93d49c55ad93a9ce81b9",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/agent/delivery.py",
+   "module": "finesub.llm.agent.delivery",
+   "why": [
+    "static",
+    "runtime"
+   ],
+   "sha256": "1c8160afa1912aa4f67123616534f7df2264a25428fa5ce8f7c5e24f2b44667f",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/agent/local_agent.py",
+   "module": "finesub.llm.agent.local_agent",
+   "why": [
+    "static",
+    "runtime"
+   ],
+   "sha256": "0f452817b73e4a3176e527daf6c5e06b66c566d2bbab5197fc24d2b89b8fc554",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/chunking.py",
+   "module": "finesub.llm.chunking",
+   "why": [
+    "static",
+    "runtime"
+   ],
+   "sha256": "8ba1cc32ed695eb6bee6ba989c83cf8f59ba7ee139223906275a2ae1c429c8f9",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/client.py",
+   "module": "finesub.llm.client",
+   "why": [
+    "static",
+    "runtime"
+   ],
+   "sha256": "b1a7684a7d70076f712461346209ec7936af8858028de9edeab5003514be034c",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/clip_prefetch.py",
+   "module": "finesub.llm.clip_prefetch",
+   "why": [
+    "static",
+    "runtime"
+   ],
+   "sha256": "9f58f386d16dc98960e2e9c4dde5cc722f15c8696e360daf03f28bcf3291dea9",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/content_filter.py",
+   "module": "finesub.llm.content_filter",
+   "why": [
+    "static",
+    "runtime"
+   ],
+   "sha256": "9000a1d5b10fb44f0083d8ff7f571781911bd56fbe47d200259a9c287b23317b",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/correction_mode.py",
+   "module": "finesub.llm.correction_mode",
+   "why": [
+    "static",
+    "runtime"
+   ],
+   "sha256": "c7b26d8f71f364976aa02e8716c02ebe1644599b6a88eb383f2e59523de8d36c",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/correction_patch.py",
+   "module": "finesub.llm.correction_patch",
+   "why": [
+    "static",
+    "runtime"
+   ],
+   "sha256": "85e00f2429263b6a8060f267e3e9b0c8ff4e2a5770722d2bcbc499252dff49ff",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/correction_request.py",
+   "module": "finesub.llm.correction_request",
+   "why": [
+    "static",
+    "runtime"
+   ],
+   "sha256": "6e2b418cc352c641cf1b3f3934448d60b2328c677031a0f49cb07d0e1b803862",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/correction_translation.py",
+   "module": "finesub.llm.correction_translation",
+   "why": [
+    "static"
+   ],
+   "sha256": "34a84795f38c7a95b472992c5444cc5815b8100fb7eed5a51ab675f2777949ac",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/degeneration.py",
+   "module": "finesub.llm.degeneration",
+   "why": [
+    "static",
+    "runtime"
+   ],
+   "sha256": "03bbe933f6d21caa33c15cc33b9da7c7773a65bb8863db7e35c1f3b0572bcae6",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/example_builder.py",
+   "module": "finesub.llm.example_builder",
+   "why": [
+    "static",
+    "runtime"
+   ],
+   "sha256": "2bdbb5f0b2fb121341da8f033dccdb1e02373be180e390e4911c1a5f071db317",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/exchange_log.py",
+   "module": "finesub.llm.exchange_log",
+   "why": [
+    "static",
+    "runtime"
+   ],
+   "sha256": "914767c7983e20fb321718a1bbe7f461f41e993ce75c13532481660eb2105f3f",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/exchange_metadata.py",
+   "module": "finesub.llm.exchange_metadata",
+   "why": [
+    "static",
+    "runtime"
+   ],
+   "sha256": "cbb432ad756a3c15a9cb52e9faa1081b7184720fcc1d56375590bbb484927389",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/general_context.py",
+   "module": "finesub.llm.general_context",
+   "why": [
+    "static",
+    "runtime"
+   ],
+   "sha256": "43d51ed747bf86627eae29b09b63a1821485491b6f58a52820aab6cd0dbf1362",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/grouping.py",
+   "module": "finesub.llm.grouping",
+   "why": [
+    "static",
+    "runtime"
+   ],
+   "sha256": "9768be872ccd8c2a2e5f6d7f31521f46ee155a3357c2d23c33ffdedb8c4da2f9",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/http.py",
+   "module": "finesub.llm.http",
+   "why": [
+    "static",
+    "runtime"
+   ],
+   "sha256": "796ef9626e72e8084d408ebc949d1e80a83ef28e3a5725d57f5ca7232b9849c4",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/injection_budget.py",
+   "module": "finesub.llm.injection_budget",
+   "why": [
+    "static",
+    "runtime"
+   ],
+   "sha256": "d9f1d5d84eb75230f5aafd6322bfed1c95a6e1f405f68aa11c3a47af2f32c182",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/kb_phonetic_hints.py",
+   "module": "finesub.llm.kb_phonetic_hints",
+   "why": [
+    "static",
+    "runtime"
+   ],
+   "sha256": "8a79d94760383a9c8bd86ee505a10ffeda5fe93bfbfa68fb643111e29e94e004",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/knowledge/__init__.py",
+   "module": "finesub.llm.knowledge",
+   "why": [
+    "static",
+    "runtime"
+   ],
+   "sha256": "d0cb45a8037ca39775a169176f114bf75faf55729bc4812822c504166f5fa3b3",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/knowledge/base.py",
+   "module": "finesub.llm.knowledge.base",
+   "why": [
+    "static",
+    "runtime"
+   ],
+   "sha256": "294db66f64bbb583e6c15237375da59ec8ac4d80fb0ef5b0418b38d6b48c5bf6",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/knowledge/entries.py",
+   "module": "finesub.llm.knowledge.entries",
+   "why": [
+    "static"
+   ],
+   "sha256": "70ccdd8ec84d6dc8f040666d20b0e5ca3e8c7cac8ab4d706528788a597cd52e1",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/knowledge/entry_size.py",
+   "module": "finesub.llm.knowledge.entry_size",
+   "why": [
+    "static"
+   ],
+   "sha256": "d39b2861cf5e28481d9de7b00da1d00d74fd5ac5aa99cf21595da8780a23614e",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/knowledge/feedback.py",
+   "module": "finesub.llm.knowledge.feedback",
+   "why": [
+    "static",
+    "runtime"
+   ],
+   "sha256": "44d070e8e6bd288d74dfe83260f20a09baa5a5ef83133d5e9ae49f0c4b3a413b",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/knowledge/materials.py",
+   "module": "finesub.llm.knowledge.materials",
+   "why": [
+    "static"
+   ],
+   "sha256": "67577bb31050909f8b7bd702cdf6733f2fe5ee61522941356a0ad3f9eb4918ff",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/knowledge/node/__init__.py",
+   "module": "finesub.llm.knowledge.node",
+   "why": [
+    "static",
+    "runtime"
+   ],
+   "sha256": "20fa228f4fdc8fae0284f2d619f0cfa5c5021c7f0e6e60db8c7487f259050e65",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/knowledge/node/apply.py",
+   "module": "finesub.llm.knowledge.node.apply",
+   "why": [
+    "static",
+    "runtime"
+   ],
+   "sha256": "0107550f97bd2ea7422889d28376333af951e98110255192101bcb494a10092e",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/knowledge/node/base_style.py",
+   "module": "finesub.llm.knowledge.node.base_style",
+   "why": [
+    "static",
+    "runtime"
+   ],
+   "sha256": "e30e63c85c5c03ef7aac8c2266dabbd83f094ccd85f02842dcce8985929f63e1",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/knowledge/node/edit.py",
+   "module": "finesub.llm.knowledge.node.edit",
+   "why": [
+    "static"
+   ],
+   "sha256": "67af1cff56f9cfe4accc379cf88d0eac07fd5d1e6def6549a1647feef32d4769",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/knowledge/node/envelope.py",
+   "module": "finesub.llm.knowledge.node.envelope",
+   "why": [
+    "static",
+    "runtime"
+   ],
+   "sha256": "72b4c8d2e623ce07e4b125817330ccf36e61e1ed1b6cd6242e79b3acdd98f69c",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/knowledge/node/human_marks.py",
+   "module": "finesub.llm.knowledge.node.human_marks",
+   "why": [
+    "static",
+    "runtime"
+   ],
+   "sha256": "f0687995ae4aa71450103146f49079ae0895d14082ba8e01a8b6599bececcee8",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/knowledge/node/importer.py",
+   "module": "finesub.llm.knowledge.node.importer",
+   "why": [
+    "static",
+    "runtime"
+   ],
+   "sha256": "70d9b364c89d3908002949be85e9a79bba4655c28978385a70ddba93e18ba460",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/knowledge/node/matching.py",
+   "module": "finesub.llm.knowledge.node.matching",
+   "why": [
+    "static"
+   ],
+   "sha256": "632445a2853af4df380fd4e7aae8163a5660c5a57383974f072fd411c1df419a",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/knowledge/node/model.py",
+   "module": "finesub.llm.knowledge.node.model",
+   "why": [
+    "static",
+    "runtime"
+   ],
+   "sha256": "1a92ebda4d86660134effce1a40d31a652286e5254a1a28e8ab6320295edb997",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/knowledge/node/parity.py",
+   "module": "finesub.llm.knowledge.node.parity",
+   "why": [
+    "static"
+   ],
+   "sha256": "9f1557b3986fd4426e8a907329fa0b784d52e5b5d542951d630e8d022767c7b7",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/knowledge/node/presets.py",
+   "module": "finesub.llm.knowledge.node.presets",
+   "why": [
+    "static",
+    "runtime"
+   ],
+   "sha256": "f2bf217e99a1263781214755138c3f6ba2666b52ba714622336ec93582d27444",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/knowledge/node/presets/common.toml",
+   "read_by": [
+    "finesub/llm/knowledge/node/presets.py:549"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "bc79450f85e3d45b938e8419a3a1bb579f1fa061a62c5ae65b7f890e1693e0c9",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/knowledge/node/presets/legacy/common.toml",
+   "read_by": [
+    "finesub/llm/knowledge/node/presets.py:549"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "12aac4a449e88e194a8e3fde508d04e7e097d35987b4fe03af9a389818374525",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/knowledge/node/presets/legacy/streamer.toml",
+   "read_by": [
+    "finesub/llm/knowledge/node/presets.py:549"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "47496807f7c7d79bc489c551fcbce83059d320e8e821c6301bafdb96f10fb111",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/knowledge/node/presets/streamer.toml",
+   "read_by": [
+    "finesub/llm/knowledge/node/presets.py:549"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "8727f86ec1a3575dd4535a5176a5380ef8e7b14a463414582c243c3f6b774e3b",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/knowledge/node/presets/style.toml",
+   "read_by": [
+    "finesub/llm/knowledge/node/presets.py:549"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "20bdeb24f7674c0fe5a57a30715cb469c269bf57af2e6bc3ff35cf3d64bce861",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/knowledge/node/proposals.py",
+   "module": "finesub.llm.knowledge.node.proposals",
+   "why": [
+    "static",
+    "runtime"
+   ],
+   "sha256": "0b1d27bd158c1f56ed5c9fb061757b200643475c911c8c8ad8ae7abc071c7ce9",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/knowledge/node/render.py",
+   "module": "finesub.llm.knowledge.node.render",
+   "why": [
+    "static",
+    "runtime"
+   ],
+   "sha256": "b42c52822d846353342db7625fe851a3525a723299f2cf005097f783d7c2c7d3",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/knowledge/node/repo.py",
+   "module": "finesub.llm.knowledge.node.repo",
+   "why": [
+    "static",
+    "runtime"
+   ],
+   "sha256": "b8f2527efa7d385dfa60802110c479baa13cab17344d317c65515798cf3d46f4",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/knowledge/node/schema.py",
+   "module": "finesub.llm.knowledge.node.schema",
+   "why": [
+    "static",
+    "runtime"
+   ],
+   "sha256": "cc0c54172d4c659611d611b78f0af4d9f700ec113f95bce098f3e7f5ba02f7fb",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/knowledge/node/signals.py",
+   "module": "finesub.llm.knowledge.node.signals",
+   "why": [
+    "static"
+   ],
+   "sha256": "047547a8edb31b8ce6d5b55601d5dc5370bde2cfe0883afa63ab6450f3d92298",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/knowledge/node/store.py",
+   "module": "finesub.llm.knowledge.node.store",
+   "why": [
+    "static",
+    "runtime"
+   ],
+   "sha256": "a0677e7200498820b8cef343a2b1b82166798417e72fdc5b7c3a3de93f4e73de",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/knowledge/node/subentries.py",
+   "module": "finesub.llm.knowledge.node.subentries",
+   "why": [
+    "static"
+   ],
+   "sha256": "d9f74df6fb6dc5b110e2946e743bfabc6dcf1e56654f772de0a02111e18e1bb9",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/knowledge/style.py",
+   "module": "finesub.llm.knowledge.style",
+   "why": [
+    "static",
+    "runtime"
+   ],
+   "sha256": "6ed4520e108e452817fef7f4243d1807d70b98ab7252f116ac3bdd8727f059a9",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/knowledge/style_marks.py",
+   "module": "finesub.llm.knowledge.style_marks",
+   "why": [
+    "static"
+   ],
+   "sha256": "94192cde3f08c520e321ce5e3801970ee6032e226a029d53b49a689eb426847e",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/knowledge/subjects.py",
+   "module": "finesub.llm.knowledge.subjects",
+   "why": [
+    "static"
+   ],
+   "sha256": "08c773d5952cb535b75d2e443f927343305545fd0bbb354a235e7f41b454ed3e",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/knowledge/update.py",
+   "module": "finesub.llm.knowledge.update",
+   "why": [
+    "static"
+   ],
+   "sha256": "7597c54457fbcfe0945e5a477bf6aa44617f5694811817ac2509fe7d5fa91b63",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/length_tier.py",
+   "module": "finesub.llm.length_tier",
+   "why": [
+    "static",
+    "runtime"
+   ],
+   "sha256": "fdf52e9ec5eacab85e967740ad3d3727bc4e088fccac9ed41a6585e397a083f3",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/llm_runtime.py",
+   "module": "finesub.llm.llm_runtime",
+   "why": [
+    "static"
+   ],
+   "sha256": "c976222717bc7a04912e5a1b118b26acdcc9be1ecba76feb5f3f4666c37e09db",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/media_upload.py",
+   "module": "finesub.llm.media_upload",
+   "why": [
+    "static",
+    "runtime"
+   ],
+   "sha256": "3a892f6ab45acf62d47f4ca41218ab5caca79048e863c684a59260c2c1690809",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/output_protocol.py",
+   "module": "finesub.llm.output_protocol",
+   "why": [
+    "static",
+    "runtime"
+   ],
+   "sha256": "4bb2eb54038adbf5fd1489036592a0edacca1f59aa92cb03c49090608bcd9e25",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/output_tags.py",
+   "module": "finesub.llm.output_tags",
+   "why": [
+    "static",
+    "runtime"
+   ],
+   "sha256": "a4089def0a6da13b283ecf6af5f8373baab8a9648bad936f9a869aa14a135524",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/overlap_candidates.py",
+   "module": "finesub.llm.overlap_candidates",
+   "why": [
+    "static"
+   ],
+   "sha256": "c235e24794176892ba4b69d8a799a081d65f30a4765b3b0f9b8bc3c54c2dca9e",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prepare_prompts.py",
+   "module": "finesub.llm.prepare_prompts",
+   "why": [
+    "static",
+    "runtime"
+   ],
+   "sha256": "b8829584414bb2d96bc980b46abf52bcac769fccd21fd52ce450f745efea34de",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_artifacts.py",
+   "module": "finesub.llm.prompt_artifacts",
+   "why": [
+    "static"
+   ],
+   "sha256": "4aaeeae72e28f8d1e8dff24c0c5a51650bdb573f1c9cc2e24ab5cc489fdf59cc",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_cache.py",
+   "module": "finesub.llm.prompt_cache",
+   "why": [
+    "static"
+   ],
+   "sha256": "832ad4a06136f9f4f7f97611ef5c36d89fe5169a0297ad9c70922503906c95a4",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_compose.py",
+   "module": "finesub.llm.prompt_compose",
+   "why": [
+    "static",
+    "runtime"
+   ],
+   "sha256": "43f7d564872d9580dec81ded01339f741cbe9c7009c3964271b89e477799cc6c",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_constants.py",
+   "module": "finesub.llm.prompt_constants",
+   "why": [
+    "static",
+    "runtime"
+   ],
+   "sha256": "3d29d8d0105d7717441478efdcfb6990eb578ab11e81c2e81ca4386377832982",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_tables.py",
+   "module": "finesub.llm.prompt_tables",
+   "why": [
+    "static",
+    "runtime"
+   ],
+   "sha256": "9d13e39785f29e8135ce3f188ff335cfffae686d2684e6eed88b983ecc92db4d",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/LICENSE.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "bd3603e0a0cb13920e56b2310f3b6e7b4da54412120897448aca670d313d2549",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/agent_continuation_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "0f8606ab4c8ac78553fb050be339cec1092cabd49560d0a95877256fd8f704b9",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/agent_protocol_earlier_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "765ca5d023843bdb26289fa750424e89e4604e862baa8cd33d048f33fb9c8e10",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/agent_tool_worker_opening_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "986e368d94db0ac3d135db8c3cd7aae6ab76dc478b294ccc7048f7beaf17942e",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/agent_tool_worker_session_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "7b0725958ce7f5310d349a46540febbea305a7841fe778324b9b9505ddcfd707",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/agent_tool_worker_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "a7748e2b49ac447f4f597895f124da517f16e5073a0d834a4af0a2dad27aece8",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/agent_worker_bootstrap_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "539aa4e7ccfb4d913fd23450385fe4717409e0edacdd162025cb863947c391e0",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/agy_audio_pieces_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "cdc49641e665197f0fc1001936be9be8d0f8053115adf4bfd0e3f7ddcbaa83dc",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/agy_first_step_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "b53892d81f460dd28239f6f922f15bcbac6eb00e72e4176a2ddc1670304c0614",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/agy_repair_errors_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "3ee731fba9eea3cecfceda236c8cf274b8cb29df1d901b0c7b9a06d2a8b77cea",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/agy_repair_instruction_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "9d1ce8eb0bb2f550f7ce76f549054c99842a80cb44a7a493101614904709d239",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/agy_tool_agent_protocol_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "0ff88c47d699474c8bea4cd04fa4ec7e12919470e7485c17750b2113d38e1b44",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/agy_video_pieces_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "04494ec2eeb38c3d60d62c70cf7164d999a632c62bffd1a5dddf8cfb04fd1366",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/claude_system_protocol_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "c418c994e2122a8ced11507b6ad9b03d4fe8a213b60f5929580954d0003ac05c",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/codex_fork_parent_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "a4fe420185e96dfcb5c6365b3eff57d440e8037e1b489bd24b9a0919477d294d",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/correction_fill_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "0b35f1e9d802bb2a55304f66dd012fcb0c0ee94eeef239a70ff5d252cfbc93e8",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/correction_main_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "075da26acdf2c8c8a7eedbc216614e8ef87f0889e286f0b437c37cdb3f5ccce4",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/correction_task_update_feedback_v2.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "fc84b56b70ac871d317578243cd66b47132ddbf8cf1d4bacf164dd715bef848b",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/correction_user_grouped_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "dc151eb64d2ca36055c7fc24cdd7ad9c4010e08202eb0d70e1ca5515a16dd1b2",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/correction_user_nosingles_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "0e5c7d8ce681c22dc1308638e5b0a32daa451c5f72605fbc5facc3ca3f8d7801",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/examples/00-main-oneshot.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "7abf42574ea2686657ea9789dafec65fb15bc8a526e6eb30030e31ad5746659b",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/examples/10-narrow-merge-void.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "a3b3d17950d433151e1b822632ceb3672d5b230372950058058aea82f5b1f942",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/examples/30-filler-sandwich-boundary.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "6ba9580a99993ba069ecb25cee520e8875e29491e82c0e0517bbc4652c116c23",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/examples/40-speaker-turn.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "8dbe1333bcd066c4a79a127efbb07db43fc5dccf75cd8a07bd795fbb26efa4eb",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/examples/50-no-japanese-particles.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "ef90596ab4c9bd3d89db82514d0ab714d7faa456461467e3717ae091f1f76083",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/examples/60-noise-burst-bad-output.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "696e36745709ab61c56e728fc8f9f1d0b0b3965791acb27cefdcc83013170660",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/examples_zh/00-main-oneshot.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "78f6a6f14f036313b203485c2fb6fe546f82e34206dd902e4557515eb2e74edb",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/examples_zh/10-narrow-merge-void.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "34a03d63d49cfdb1046942e598d5a046b12df42e6d5f322e96c81826fb5acaa2",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/examples_zh/30-filler-sandwich-boundary.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "c94a6013fd4d24e4ed3571654c824e93bd7cfd24eb5113883adcc149e901f608",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/examples_zh/40-speaker-turn.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "4e7b1ad8870fa90fb7e45655059e53fbf216ee163fa08dab46c7bd1110a5a71a",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/examples_zh/60-noise-burst-bad-output.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "696e36745709ab61c56e728fc8f9f1d0b0b3965791acb27cefdcc83013170660",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_advice_input_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "2c6f962d0be4e5f15a641b40eab0f6e2b539369ab93973ac999a35a45ed0c7ba",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_advice_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "1dd3705727305570e1bc5fb2c4c1bf753321120051928763e83812804a82961d",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_agent_tool_patch_repair_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "4afe977a9bb8ee4526c94807b63790e6b5293944218a60452bd1e5ae0c7181d2",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_agent_tool_retrieval_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "ecbea4b29c0db30c29f2ba9a82f380e5559a9a3def41816f5edf923eee1be8d5",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_agent_user_rules_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "8c2e701b8b643b06bdcd9bba6925a0b7382d09bc716d87e45c1f92affe512db6",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_alignment_grouped_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "3c557f870ac5078b89d2adc0d753c232027addecee03fba31683e59290d2a070",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_alignment_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "a11c3e4146768090dd028bb1262810cd953b383569804a2481ac1f5431047633",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_background_conflict_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "c1a22c3a311121df6b0c01e3d9c14ff95005a228c5c6e24f052f9e39072ede0b",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_background_knowledge_convention_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "31091a75cb96f7f62f3142ea77a3b8b59f27e1aebdc7a7150b1fa9f8e7833be4",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_conversational_correction_effort_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "b4c611a8a2cc9ca5267a78bdb426885a316619fb77c1b130a4b7a95bf420a855",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_corr_role_audio_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "2e6068f5a144b38f222a9b0660038161d6cac7330a9571be51cae6a5f4dae9a0",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_corr_role_text_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "a112f19e695ee0ca7007a0e0b2989e07172ae932099964e11f805ca132481aad",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_corr_role_video_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "c803315ab666a9781e62bedfb97819344190d9301aa435a3f4efb5ff97d2fd73",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_csv_input_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "63fc8431cad41d16e52a242c1f964d6bbf08485dbc3eefee41c6a6cf3a7162d7",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_effort_deep_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "1dc6baf64f269219854433ffa96a3787924e95d3e39e6c8cd82d0e9fe3c9d930",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_effort_low_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "773cf7bfd1e018b3316d59683b44e577baaf5f41f4072ffd9944711451b4d9a0",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_entry_details_input_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "83833f29405aaad6528e153b7b71d56ea9b9eae24b4f3de2da05884ae66375f8",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_entry_details_label_agentic_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "2a46981b045c5c6d7c4c4c1551fa3f448cb18f3776aa96d429798a4d9f1e38f7",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_entry_details_label_fill_slimmed_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "f37cd9a72d567757bca813b9dd2027909b37e0481ac377c1620db289f0fecd94",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_entry_details_label_fill_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "8b9b0cfb0dae26a69616d8350067c8895b9cddcd687da2e19f30f5ec8593f7fc",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_entry_details_label_slimmed_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "582abadc5343c3b06740cb39efc06b53da7239f21d24e94b98a8fa98a340444f",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_entry_details_label_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "4781a8bfaf795e5adc4a7884b070e1452122366e66d186737e662d3cbbc1153e",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_entry_details_request_whole_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "7b940d786eb851f2074703bfc3c353dee3ea65ab5d9a2eddacffc5f0445c8c59",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_entry_size_notice_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "8ee8962ed17430324a7675867ff5e805fc1b22ce365461f59f06021587c10522",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_entry_size_over_cap_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "9fb5321503a495b4c1c07e4e3d4f20074ee8cad6f4087f6917be09de837a02b4",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_entry_size_split_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "f55affb1616398fef18c462903b0ecee3e37064d694a7a002283d63ef9cd98a0",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_extra_style_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "03bd696bd082981ad0325db38b5f56eff9327c5ec93e1856670ca5b3e47ef866",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_fill_materials_note_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "08b3b54e6d6da4ccc1871ddf773562ffa35606133c4585d934d26f9a5f1f7e15",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_fill_search_result_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "08ea4c00f30de9ced3eabaf2a833e29a51a7e78a9973854c4e27823803220291",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_goals_correction_audio_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "b01649841f45826e73614cc1190be1c913a69b123cf7d3e69fcb5cb0da4fb758",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_goals_correction_text_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "65e9a7903f79b30eb8906b0726302fe3c3190942c14691b98547a68ccd6d1a42",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_goals_translation_grouped_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "c1bb3e46726f7e5778c07093bec9f7dd396d7d870792c04f9908a9268552c7b4",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_goals_translation_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "9201d4d86e08e4f7ebc1e15bb512bc28e95a2cf08a28ebf11fa8d8ea0b9ab89e",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_hallucination_grouped_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "75b57a637f94222f1d15e0564bb9fbe0759567cea2615db99f4bb2b4f98f38c6",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_hallucination_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "fcad729de422a1bb478ca45b8bb63712a48a0338a4c0880ee07deca1e2cfdbce",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_kb_candidate_hints_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "3a00f6b1f0e3fbff78faee25300b587eab458fda017ea1ff5d0d0dacc2cb1811",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_kb_judgment_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "403cc2cd3f8e926d4f335ec0d9fe9cea149b9dc5611bafc17a2332a622a1d800",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_kb_phonetic_hints_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "28a8e2a84e2da0d7b68db56a59d3af7c199cad737d702e625eef9f99731cb2b2",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_kb_repair_conflict_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "2672a008922d3044c53ac798cdb4ce5f646ffdb01fb472314b195aa8b0118edd",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_kb_repair_rejected_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "14f16b247581ee9f2b0dc85457be75e26253782ef9e2b296be3c96fd077d53d7",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_kb_task_candidates_lead_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "45adbc6e379cb6883e32b4f70bdbeadea43d6232c51f2eabd1a869eeafca9e02",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_kb_task_candidates_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "61ad422816aec49ab803aee060f3a63bc737b2ef76a3bcf2a9392551b62dc681",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_kb_task_material_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "a5566b2e6a7fb9113044644f7d969070b0ab3f73fc075723a3c4b06eb283a829",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_kb_writing_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "4498d16be05692815803bd804835ba037ac7855f4faf362e04d8d5371abd52b9",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_keep_entries_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "0e328bc72efa0b06df5b40de6664bfe1da8c9fdc5b2580968fb11a885abbdd12",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_keep_source_agentic_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "f4ebf4f75774a0d91fd32fa5f96d7164ef58a32b8e6d0f54a3d6d7482d071562",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_keep_source_injected_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "3c050ac6e7eb4c4e7a9e6801d591228f7dfd236767e6e71fc91c71dde0d184bc",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_knowledge_create_index_check_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "3c9b52e4b2e432eadf1f373812d46cbf5738320f8cc1bd8c83a88784d596f515",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_knowledge_inputs_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "d8cef57db99b69a214613620622cc6389c213dea2a244a79b19796dfd4e7746c",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_knowledge_output_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "a9a76e7b84cf37fb15912fd15161948cc2da70eb3e74ae894cf08a82b7096710",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_knowledge_size_rule_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "2701bd7ca6450bf6f442a613fe1e05ff1d53c5e1ae0375377761834ff9b8dcc0",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_knowledge_split_clause_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "becdd334c02d4acecc983d78f916d3896aa34915939b9266adeff4f2ac850d43",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_knowledge_split_op_note_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "2f4346a83821f366e34b58ada2c3e8db602b45ae9730735445373532736abf06",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_knowledge_split_op_row_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "d7e144b1f86479e1da9aaab2f5de51642d9483b04fa6225d04c5b607fa8ef9b3",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_knowledge_structure_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "aebf56bb6424b0a34b25fc99ce07fb6c5fbca651c9ed5c4718b53c5939083715",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_knowledge_style_marks_reminder_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "a87a031f0305355fafc5b3953f9360770c88c416b348a99678687f37ba74e33c",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_knowledge_style_marks_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "7b0ca324631246e2898af4ecfeffcc6e2cc4a7d93cccdbfd29f5ae2efe11779e",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_knowledge_term_lines_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "a3db0b55432aee8f3338e99ce39619d4738389dbbf7a46a8d40dbcdeafef7b15",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_knowledge_update_chunk_notice_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "97d184617be87734dedb249eee9cc4d1e8da4a1aadc8e215d4acacc182860425",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_knowledge_update_heard_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "2416efb987ace8f4f56ff2383498764b1ecb7658908c02e5c78a2fd52cd792ea",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_knowledge_update_inputs_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "ec4fd641ca447433d7e2f97e3774e06a0b7be6215c1a007e688ff37e23e2225d",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_knowledge_update_refined_csv_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "cf5d795ddc85b3cc19961ac57c3563af98a7db9b5ff57e88ffa37044ee839cb7",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_merge_check_seams_grouped_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "6dc87f07f3a56674a67c74db525b4d197ad7c5ea4af6305616051be2f5e672c1",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_merge_check_seams_single_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "d0ee17f199d438a50c9f53b4e708d925622aa0d19b1d818bffa96ed0fd61b647",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_merge_intro_grouped_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "015e69f398dba67af8398aa6a9b9fbf4382f9a7d278a330d2d59b598b4c886e7",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_merge_intro_single_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "4f4af5342663feadc85832ecf204ef415cb253eec70c5d197346a820411c67db",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_merge_rules_basic_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "e74a53e4eb2f3aa3e1a5baf70594aebaa2e6e7483c311cd7ca89065e8eaa2931",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_merge_rules_grouped_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "39dea9fafe1d167526459fc38e5dc0701c1e8510e379001bee6b19d7bddee57f",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_merge_scope_grouped_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "e82c34fedb147e84f4778b14b2e74bb09230f7e3719b6190f5b6a50b2434e1ad",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_merge_scope_single_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "82928d583f7e1acd0cafd8799d897cc5c8cfff01ffacdcc14257b06042297639",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_merge_seams_grouped_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "bc843e0b5d0216579be4d006a906b292aee3e44077617a915911979a49bae9a8",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_merge_seams_single_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "f10848a75aa6331be3e843d96d067e7c6a8984d2f1c7d9c4b1797c1543982602",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_native_search_research_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "278e9677b613c0f0a98a364cab3d3f1b8570c99cc828884a4e949bb5bd95b7dc",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_native_search_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "0642b4204e0161a3a626615259e7094076f9c428792d32863d7e2d74cc1df4c6",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_next_advice_reminder_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "7fb27c90575752278fbecae024b59b3b6b3ced6b843fea5f58d9e5193e025176",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_next_task_already_sent_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "eeaaf06ac972b642dda2f29818af7e5f8f423d06e3b3e84531d14ba59c0136c3",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_opening_block_files_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "49055bbb525e319e8714793ee07300b2777a0ebe942648d729071ca6fef95bf7",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_output_contract_grouped_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "8b07cc1606366b7634a1627374f6530e32352cca6eb3fbb83ced005c286d8429",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_output_contract_nosingles_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "95c1283aef240d6409c112cd25f3531e8f3c7bae9cb120cfbfd76585eb8991e2",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_output_dropped_columns_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "fd8026273ebb05e81683e2a9f14e618ce53b1d80daf29339083916c9f3eb3606",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_output_start_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "381ce87304ba6659db6a6dc05cb18b86e2bd5705edf121afd6c3bbb8eab53cb8",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_overlap_candidates_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "06ebdb722cb4a7c8da668dd8f98734d19199990adbef219f037d79511979c754",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_placeholder_rows_error_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "a969cd0bcb01b77548e5efa48416a2854e3a4eabaf7f6f250f5736a069d64689",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_pre_round_notes_input_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "e84e3f48186ae13d763cacce946ae0dc541a645a055f9c874d9b23b688a680b9",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_prepare_agentic_acquire_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "6251a6f3961d82da181ea1f1c0734bf39e82c178880f84afa3d5e409543a61ae",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_prepare_earlier_chunks_duty_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "a7798618ccfdbe09560fcf518a8cb3f003c810b56d8d6a0b39b050e96ad30af4",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_prepare_earlier_chunks_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "a3daba30d4c3be5f2459354889c2bbe08de3bab7fdc76b02084dcb4ea563119d",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_prepare_entries_result_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "7cc9e94c159ef0817b31c2674640a89426a7031784b2ce799c0b1b61bfe44eb0",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_prepare_name_conflict_no_kb_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "60e752bd885da34b1c97440adbc853cb4b45a29618b8fbf93bb15b8606f61616",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_prepare_name_conflict_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "036b90883ba0380ef240234b5b32040759feceee1de0e61b89bfa14d8d86e5c4",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_prepare_name_disputes_field_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "b4460afaee0d17a959445a73d5ae65f288b4e3fa35896a151037ad6ae1ccc15e",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_prepare_no_evidence_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "9ff883887e2acf77fededfc536969c97a4ec7c0b56fdb1f078767d7388666556",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_prepare_request_channel_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "3d0a46121ea8f269e4d97a6e873390e0bb036e1a7e822b6c61eeac5f0d6d5fef",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_prepare_search_result_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "27c7419b18600d31510bb59033ae807ebf82712fed507c8636422efca53e1a0f",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_prepare_speakers_duty_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "d7f0e020823eba98de5efc1f15ccb2ff513cf8198f88f71bfea1d022369abaff",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_prepare_speakers_field_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "ee1361241a7099d4fec09dff83e235d561b3987f9591a6bb8d767eb783c59f17",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_prepare_speakers_no_search_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "c57663345321fca8c1cc43170c5994e9725d6e528e2c59abf147751cae5a1cd6",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_prepare_style_selection_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "2269ddefb00c1a8f910d114d7082acd25e02944d624445332f3abe88820c8628",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_prepare_url_extracts_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "9055c2c408a5f75669ed3693dddda29487511cb6ed96f1fcd767b3f3cb68481d",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_query_style_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "e3e745679a01fb39fac1ebdc1993a8d56f49d3230f026e7b32f761fb4a801eab",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_repair_patch_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "1f4f4ad3528900b4bd0fbadba06ebfa1885d09216385b81c7a55d3876f3ee385",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_repair_round_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "5b47c01fb2d61695037c5afaa39706ddb86627f8f6ee9b79b4713de70d6e2457",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_reply_spill_files_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "0a8c02aebf0de0ebca4577e657c225acba2fc921d422a6a08e07514d212c2b0e",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_reply_spill_tool_serial_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "06b50023f4569727d447b34389cf0596598c48148106df1538dde24b830a859b",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_reply_spill_tool_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "b74082a06c093da1eb48d35c9c5afb62bdd1deff51afe954b93cd986c7173edc",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_research_entry_blocks_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "8c45663fb47b9c4856646d6c92c31ba854f85740f33932a691626b5fa6307917",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_research_keep_entries_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "25c3721c5f23bb837ca4a675049818f0421ec99d880c6f9069fdb2411a526b56",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_retrieval_injected_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "ff651450e5229a6d5fc80053e7cc440e3553f700f6343fa5c913ce396c228574",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_retrieval_self_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "ee687e5cba956b92b61884d2d916c58a25512a0c3b9d87260b19bafb8946026b",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_search_queries_kb_note_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "1fc636111c724348987627af0b26cc732d345794ded8562de1b77be3bb655620",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_search_queries_output_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "c12e226473d6fd884a6eece6868059d42f901d42644c1edb279c81bc553be22a",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_search_results_input_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "54251af7aa8a683df6e01cdd612cca788cffdd24f6d940818b70cfa98666d737",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_search_results_usage_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "a17c69bfe820735fa446dd3d5e2e57c59621ee0c4a44f0f5b00049667ec1fc36",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_search_rule_kb_conflict_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "712d609dd2d82b210b25f9c443de88d32ec038275d38b600555558ddff9cfbb8",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_search_rules_shared_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "2acba030f4f3da9682ae3437936821b0917ac2963a1a9efeb1ea9e82b0e98393",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_self_search_usage_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "2b5c63461a2e0b3e6cb859ed37752471b44c069090f98529c67adffab46e5b5a",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_serial_shift_error_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "7ab645bcf9b08d32f62f0954613fdd9249fed206b1aed277ccb2ee6abf3013e8",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_shape_same_person_single_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "d8f7eee027388caa55e73863e41a2de2579d2f7877f8ded532755810a87620d9",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_shape_single_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "32ce336d54d949333f93a2ed8cdfffa01f1bfd7a4a2457f7018aed4fe9cedc1c",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_share_conflict_intro_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "d17cadbb5b404fcfea4f66780188cec22d6ddc239d3fdba2278c642461a9293a",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_share_conflict_ops_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "3b5c91b8aa04e75bfea549fefffd169ab0f03617afe229e92d31bd58ba986c3e",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_share_conflict_surface_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "c47b18a0ec00335c9e9a54d67f2786cc43b3a2ddc5cdc5f13da04147a70ed746",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_style_after_pick_injected_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "4ea4a4ca5968d4cadec1bfc30b5ec98943495f643994d794df90a46f89e37787",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_style_after_pick_read_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "db6666dc62fcead576dd7e10dfb3874023052279b73132ef173b704f58695245",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_style_conflict_factory_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "ddeb3d633b228ace743f967b733d2e29b756a6c8920e90738fd20404683c23d9",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_style_conflict_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "3678377972f9348e8f5635725387537a2266f869f4befd79813f3496c9dfb1b5",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_style_examples_pairing_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "7aa16d755a89434970ba3e934af3886b812fffeb01c665c9f5350f5cc31945a9",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_style_no_match_default_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "34ed83dd61f688b3a16c64554c44573a8e98b89f08985f63dceb75e3522049bc",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_style_no_match_factory_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "a74a3c7ce268d60190e4c7651b6b3d5545dcbcccc7c02e0845f4a389efacfaec",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_style_no_match_none_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "efedc5c1606e8d31608961a56432719da402c11f5ccf99b9b80db0ba61233cf8",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_style_output_agentic_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "2bf85209a9fa7f9e17d9418bde6958285160d8b63e34ffb426a10b2a2e6d953c",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_style_output_prepare_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "128927626f4c7ec8c55b556e498763d1d4a35cb0698ef49c1ea92ff2273a81f1",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_style_output_request_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "a18f598e785120d5fa8c3d5f558c5d6e420f38b8316b37f7df304f22fd5378bb",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_style_output_style_only_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "20ff3c779cae022f2db9017efd6084525447cd3b48ab790cd7f6d9f85714d5b2",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_style_pick_reminder_agentic_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "762f0a801b4b93f398752f42aa19e9d80384c53a20dad684c551e10847d3f61b",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_style_pick_reminder_request_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "c29fd07ab16ad0d3cb35d05f8e11e1589dba9b5b299125aa6db5a788197cac6f",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_style_pick_reminder_style_only_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "43d676f87842b009a2a31246a3beccc320adbbdfce685ee4722843dcd5ae068d",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_style_read_optional_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "2fadbdadc5955663610b4d85ab2414a2890f9d951bdc1d7b577a1f2099ad9595",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_style_read_required_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "14308c7f83d7d3519c3af2d4062243cb22a4e73434d02343c1518223286fd1db",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_task_feedback_reminder_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "c8622a815f31c5a4b7bccae4a56d28586766ee4521752da0ed3410ae868451f3",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_task_feedback_schema_v3.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "9d7f398d490494277f5893d9ab0f00f3cf42a20e5ddd61cb57e6f2997f6ab736",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_task_feedback_source_ids_local_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "b81f2c76d91ef158e39e5c6261890242d7e1f93a633053443e2c66add3e5f30a",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_task_feedback_source_ids_stable_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "f2ae8c4118b7bd2aab785c44d434527b5c6bfe59243eec250271be28d6648d6f",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_trailing_blocks_parallel_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "3f6848c1fffd512a9be373a21bd60fc58d9c76ddc21dfc4e58d31c7faf17d66e",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_trailing_blocks_serial_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "d593d9d3f48bfb305e43475be769cb27abd03084c9e2c2535b1e96ecd6a85d70",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_translated_common_noaux_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "728b6e614d62004de69e5fd69e35140f458f4216d1041f5ac7707dd489249e79",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_turn_back_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "37430a07dd76692b2afd3e52ade411aece00a9ea38d47b17927625c92da23c15",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_turn_cell_grouped_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "ee8772e2a3d4481541f425386f6a157072607bb137cfdece1ff0c5957c56b1c4",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_turn_cell_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "f885461475c37830e72a0e5e9290789aca66758d8cea7f961beb8f291c98f4ea",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_turn_check_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "983dfba0b3557e614d8b831eb4732c9af5c21057b0ccaa83266c829d5126d2b7",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_turn_clue_single_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "bad370f97056b45ed99937dfd2f302fa1de5bb502fa90488584a79513ce02c21",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_turn_column_grouped_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "7c92eef5bad84545a7a39132b6e395e1cdb7a7aec58e8b61dc0aa1e026a30487",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_turn_column_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "10e46c0ee79891d7c1a5d47f8f18c8de69e86a437796a02f031c3f40cbee39b8",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_turn_merge_note_grouped_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "23dbbc980aaea8e935244a94193b080bf161e67914b630891a822d179af11840",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_turn_merge_note_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "62cf776a24f104fbdd7e6af5a01e634a088da41d02fdfc2d06d61e59c97a4e88",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_turn_reminder_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "01779f4e5ee6c54c2449867155c12c41be9a0b21e25e8a7246dd4d6780db8615",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_turn_rule_single_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "889265902271b7f5fa551bf628b1490eef6fce9b2ad24f4c10025158053818db",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_turn_rule_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "5082f8d3a46100ed56f077985dd61e58302ba1034acf752e6fa92a4cdbdacbea",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_turn_together_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "594c6bcb348500559128df79b7504883787c4538fc196766e2f5fb7b481e046e",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_uniform_rows_error_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "12226c74f573daba7f726cf7a2c4eedaf8e33191badee99b81e39ccd3a7d8e85",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_user_reminders_audio_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "59cecb300415108f04f311ba458ef4fc2bce10f13600846d3bbc45ad4140cbb3",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_user_reminders_text_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "4cdcbbe9613abdf16e74fef02409657153e08ab14629ccd2569d51dfde87af2b",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_user_requests_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "e53985ef229cacfbdaa8ccf867d9ce9a78100babf5d1acca54d1321a515b983c",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_weighted_char_count_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "d4ca79c2a8b844c16e139837d59a263524ded31a711f311858c7b3ea7a4d005c",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_window_acquire_knowledge_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "353826a7d46ac11d9c745d9707df33a9d595d12f803c610267663a5fb9be42f4",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_window_acquire_search_knowledge_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "255a39bae8ad4dbd3ab9b64403bbfcf2452911e2260e98e53360905c10aaa9ff",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_window_acquire_search_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "01515300e43d63a2694f506072939077dfcbd76e67b09ba1c600735c235ca68d",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_window_agentic_acquire_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "5a636bd451a3f24d84a28a54713b3b095855d717812f6a39a19d5ce58b11a0e8",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_window_knowledge_index_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "d2c4e9f91c71a91a825456605e25ee6d2c82ab28315496b43b522635ee25c7ab",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_window_native_search_note_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "707e08116fedaf24017c42cd3b188f90c2cf420d3a617da855f9327ed8b1027c",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_window_no_request_deliver_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "9704fc67af324f9708dbcd2cec1433dc2d6830f9adfce1c5fde08d8be296cd91",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_window_no_request_style_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "ea1f713efcaa474d8846eccf239afc26d94ca51b09a95b0641c4ab0220b1999a",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_window_overlap_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "6c7973fec1649dc2fc7f98217c0c59627b850aa7e7586d7518e7c25ea6d88441",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_window_request_channel_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "6c5c8e93ba4ae1020236e594c86c578e88e2e4f7d46fd35b956e5ba181c849ba",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_window_request_style_block_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "0aa89d1cb17ff33c54cb10c1a05c333a6c76a807383e5cf015f4fdbebf10158c",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_window_style_channel_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "7523d7bfea09292011440a95faab8196040f7bed0ba001a9cdc7c0b5b7cd4c9e",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/kb_base_style_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "e1d3dee3422631698da1c0692233430fb92d457e5246dda3d5d294c897f8cecc",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/kb_repair_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "02058e90aca4d17bed85b00b8c67cee3f20d3bd258cfaa8453c4bb988bc949d2",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/kb_verify_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "60137aa93b1c08b8460ed3d7cbbc51257bd6623c0c238a36ea87fc7c2b932051",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/knowledge_proposal_repair_system_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "c98ff9b2edd4ae0e02f52b08c2dde5fb84c5125d959005dfb7db11b937c1924a",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/knowledge_proposal_repair_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "e5e972276ae3ba8abfb581271035d7290b7b2e725e3a0b9d1d5d3af74f61c746",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/knowledge_update_artifacts_only_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "3073406c46346576e264c15f1036c47955b699f00e59266341a464b2a55d1d9a",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/knowledge_update_refined_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "2caefeda9d10acfe7719ad014291510c43d9c97a70c02e7bacadaee0ebb516f1",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/knowledge_update_retry_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "8288d12996cd43da78a26e7c10cd7ef9cbd91bd379fb3606fb4af8869e4a9b67",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/knowledge_update_user_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "013b6674d568d241059cbca244a2d5f5272316279af3330a93e7b76729b1910f",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/mode_texts_v1.toml",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "e96e94947a9c1b20e795fc172178bb2661285de76c7e29e8f4ce5bf3528a107d",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/phrases_v1.toml",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "117e07f460241d3a3c97c23b2462eebca706dedf9f6613c257a058549405432a",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/prepare_task_results_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "501b520814f1d98e2e183db5025d2787a905d6732b28cbb167308e2c10f9e037",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/prepare_task_user_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "d56d0fb80612ef14ce896b155fc1b1ce37f5ee89f0abc585733c252efd1f85e4",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/prepare_task_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "74778590b03654815989a913030feea63985b7e8d4d2e9594ddf5c2d81770c83",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/proofread_after_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "c7314883d89e9ca7fedc03cf43e41c62d596cfad052af6151f5b822f4365cf89",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/proofread_before_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "4462c3f80508590a110e5a3dd9f777bc43ef8a893f8c196b9887d4f648cf28c1",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/proofread_kb_terms_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "95322afa576cbce2fb7220411cf42a87f10654815b82efd803ba068f3e739ca6",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/proofread_retry_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "5855fc01fe007d1b83ef069ab1677905e2d3ca7c9be33cc348263df453eb1b28",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/proofread_system_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "441a967b5c60e3a5b84609674b44f826728555161cd4c893576ec8a4651d2c27",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/proofread_user_requests_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "fab6334663f90a08ef1cce887dd5376f02ee9625bfac29f867e75c2699157954",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/proofread_user_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "181e6222c71e1476d30946c8029bc492d6859bafddab9d374ec509acce6e0042",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/proofread_window_context_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "c39bf4a972bc443a5b211252aeb4aea3c2fd8647b9145644c61b3c0eafd03a84",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/research_task_feedback_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "02f8725bcc6cfe9c5941c6ccd44115cc31da0ba7dabb6e15a1da1cb5766e7785",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/shape_criteria_across_drop_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "3d1cc353b74458405a207cbd3763a81eeae993ccedce7fea497347966bff3850",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/shape_criteria_auto_guard_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "98d387debab21163fc8bb047fb110589375f1dd800c4c37e439b78e544627722",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/shape_criteria_drop_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "18bca86b129c203f84bf3bad7d068ae72a94974625de4170d8c900b085ea437a",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/shape_criteria_fix_later_single_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "d8d2f6e496845af0a3951604e8647d2e45ce4dd14eeb1424ba365ceaec423406",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/shape_criteria_fix_later_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "c51177e5cee994ce11b1690c1ce6294be280bb1879bec27dcffd053bf26f2b11",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/shape_criteria_join_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "0616e55ea80f0cebe3f8f8071a4a97c49bdc319d56ffcb55612186e4b01562df",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/shape_criteria_keep_lead_single_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "866023a4f66138584e66da284b5ae3317be6703ff73827a1c36a057dc47988e1",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/shape_criteria_keep_lead_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "ac2d90f04c109405d9173c56bef941a851307992ddee342e058e61f48e55e5dc",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/shape_criteria_may_join_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "1a201b9520c213f632c7d7a1291261642f5469391571c2a8813549096925038d",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/shape_criteria_promo_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "9c2033d3096a21c834214e9173df117e74c6115079e4eb4e447ad0bcbf5ac68c",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/shape_criteria_strict_reason_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "b195adb28ab479ec93060d63baa80067ee537e06e19b8a0b5703f9ba2cc7545b",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/shape_criteria_who_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "d04348175fd9bd328c4bcfbcc4a1c4628dc69d7792270f0638fde8d81ca2da08",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/share_conflict_repair_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "100db184f4241fc2230c75afe67f2eb8bc67d1cc5c084ac5c0e89a22e3d35532",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/share_review_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "9cc7a940b45cff6dff76a84b42c5d62d21aa64154c69210871cb833efe4e6a18",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/speaker_judge_audio_layout_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "a4add9ab75890b331bcfbd7b21c460797d7a2f953302369d8dce744cd701a14a",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/speaker_judge_audio_note_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "5a2484bf069c88c243b7bf6dd8af2c9c590a9b662044d0c3289ad3054d812bc9",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/speaker_judge_audio_silent_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "8cf05ca867d95b6af350351efccebedfd1f6edf1a072013a778fb98e91bb3b5c",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/speaker_judge_conflict_shaped_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "98e46e6581cacceb9a8fad73e13a02ad680742b9bf4e29eba2a393414e3c02e7",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/speaker_judge_conflict_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "2c72c8def4c8b02358be684f46b07d7b9144436b124018058cc1b959a37b4455",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/speaker_judge_fields_shaped_audio_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "6d48c903053ef81833f5173b7576f2d0e436f565af43eb6600d96662435e2808",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/speaker_judge_fields_shaped_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "fe17b5fe7966b0ed98edde465421c36008e3a2e9d35952199e956017b746c3a1",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/speaker_judge_fields_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "021fe2bb38410f960a668ce6ac9c9d77c290fcb8b910c02a2d8aef8fbd2676c3",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/speaker_judge_insert_hint_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "24c04eb5943cf668b9f46f1aaa042e2be7133c464ff70e49cb3a7bafae4eb88b",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/speaker_judge_marks_note_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "fecfa434ff1f05a9ca9499a99f4fa611a1c4434425f2be4d792dd50e11fbe873",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/speaker_judge_repair_patch_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "a1bcd35defc47edc57c34721855c508e5a6ae3a67c75cce71d306c6d014272be",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/speaker_judge_repair_whole_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "fae24e2c1fd11aa9219488d8fb05778a20fcbe5f3ec5b0ef07776eb3ef259521",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/speaker_judge_shape_audio_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "1ccf8ec2eb746450f4c6866f0f716f5e322900bb2482af0415eb3924905dab57",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/speaker_judge_shape_same_person_cloud_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "115b44dcf06bcaa496202758fcc93782cbf34f7b211e22dbea794dc70fbca623",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/speaker_judge_shape_same_person_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "06c6f08dda7d9b9f8494a9831e5fddeb49964c9a4661584d95dc1fef748166be",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/speaker_judge_shape_task_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "e7719ea5d8d25a8c98d445ef64f4f8ee4d57486e68867c2451d2564692d9b54c",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/speaker_judge_shape_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "a87dd971766f32bd05bfef0c5cae5ffc73bf020a554bc24ffdb49f8c11b5835c",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/speaker_judge_source_acoustic_cells_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "a4043b616130d1173c380bf47223a5ee12f2cea967afb8cfb92b3b1c457e1eae",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/speaker_judge_source_acoustic_errors_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "3bd4b6e0c8825f83bf330d2f6f800e1835b0c15225d721f6f183ff13454c8c0b",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/speaker_judge_source_acoustic_intro_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "01a0a7677eac7560321433c61d1968c28ae6cc3a936ec663100912e9e766c0ff",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/speaker_judge_source_acoustic_keep_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "74d665e78fdec126b97e4b1825ae054009ebbde149c0efb7e3fe21e3233db54e",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/speaker_judge_source_acoustic_mix_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "6f3c7dbdbb8f25d052716040c98f4e183f1ea549ddc4e2692160357bd3322e56",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/speaker_judge_source_acoustic_profile_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "30a87515d5352e3a1a9c23f3e29e3258e45be5ca73418fba3000a95fdec9ff8a",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/speaker_judge_source_acoustic_trust_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "d11b07a1dd66bfb7a2d40da5b2a809ef4a5eda70c728573490e17a9d662afe9b",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/speaker_judge_source_cloud_errors_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "4fefcff00d4ed68950492decbfb0fff0c5e156e3e7a72bde5528c161ed7d87fd",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/speaker_judge_source_cloud_intro_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "d7ead991668d6232d901da10714f1959ed21e905139b6e503ed928384e3cda29",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/speaker_judge_source_cloud_profile_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "84c921fd37abd566d6f6bbfe6bf97c275c429f77849aec7ca5759bac94e830e7",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/speaker_judge_source_cloud_trust_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "0fb69ba811a8551684052f91fd03cb04b5d5ef04fc9a77740119bc3090432eb5",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/speaker_judge_split_hint_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "5a852eae27e3797efcc63fc909903e942d12d8be82a08c44b6bc183c887697f9",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/speaker_judge_summary_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "042eebd25e76ea2a3be7f43f66b41838a70dcf2f01ab06135c85317bd1c6fff2",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/speaker_judge_system_v3.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "120c59845dab63876fdc0598a00f815d7f434ab9ee05dd44ecd20b0e5ede7d1c",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/speaker_judge_user_v3.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "da0d55c31cd77ed59024b8af172840fbe89fd0f5046d4f88577d94557afd5057",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/style_factory_default_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "33b8ec2d863a4b11b778d7f8444248157ecb9843612c861751199b1a490d892c",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_variants.py",
+   "module": "finesub.llm.prompt_variants",
+   "why": [
+    "static",
+    "runtime"
+   ],
+   "sha256": "7e8d57258bd8ac30fb5854bdadaf0a2f264bc3b3b86ca09e32130d30e8ae9c13",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompts.py",
+   "module": "finesub.llm.prompts",
+   "why": [
+    "static",
+    "runtime"
+   ],
+   "sha256": "58cd144ddbb072c20ee4b16d58c28150eac484544801186f55e02a32b78fc226",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/provider_transports.py",
+   "module": "finesub.llm.provider_transports",
+   "why": [
+    "static"
+   ],
+   "sha256": "20edbd221bb7deb253736f32d7f427b8e3c031e99486a65f3d2e8f261cd5ff67",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/rate_limit.py",
+   "module": "finesub.llm.rate_limit",
+   "why": [
+    "static",
+    "runtime"
+   ],
+   "sha256": "d857eda3563df92e08c14d94b4c3a3679541c5096a2d57484051012c1723f225",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/request_prompts.py",
+   "module": "finesub.llm.request_prompts",
+   "why": [
+    "static",
+    "runtime"
+   ],
+   "sha256": "1c02d6ed432a9150cc9b4ae5bcce29b2091b936ba14de455da8257c8be85a3ed",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/research.py",
+   "module": "finesub.llm.research",
+   "why": [
+    "static",
+    "runtime"
+   ],
+   "sha256": "85a70105a694be9fc741174f9c1c7f3db836863b484f93cac8206bc251062de4",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/routing/__init__.py",
+   "module": "finesub.llm.routing",
+   "why": [
+    "static",
+    "runtime"
+   ],
+   "sha256": "25b66bc8d2b2fbe5809398c4397bb5e001f6265ee88ebdeeec5e48e6228a1c12",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/routing/capabilities.py",
+   "module": "finesub.llm.routing.capabilities",
+   "why": [
+    "static",
+    "runtime"
+   ],
+   "sha256": "aabed6c009e7c676d54c2411ebf9193acadb1cdfaddcfc15381a9d4c3daa6d48",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/routing/config.py",
+   "module": "finesub.llm.routing.config",
+   "why": [
+    "static",
+    "runtime"
+   ],
+   "sha256": "5a00a0d520a50d0a3d8ae28321abe2628d0cd13fa2b8698d1ce4d131c954d412",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/routing/execution_policy.py",
+   "module": "finesub.llm.routing.execution_policy",
+   "why": [
+    "static",
+    "runtime"
+   ],
+   "sha256": "df3d8a4ee9b6d5c986d7095173193c80c149f28610d57f69ff5f60d41c93a914",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/routing/migrate_catalog.py",
+   "module": "finesub.llm.routing.migrate_catalog",
+   "why": [
+    "static"
+   ],
+   "sha256": "d2fbb28333863d550b762d2d4f04c3aa9e06c5305f538b4d80c0b5d0d905868b",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/routing/model_catalog.py",
+   "module": "finesub.llm.routing.model_catalog",
+   "why": [
+    "static",
+    "runtime"
+   ],
+   "sha256": "352df82da0c31811242be8da97bbdc32f2493976c24a5e0735c3d90d3cc918ef",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/routing/model_catalog.toml",
+   "read_by": [
+    "finesub/llm/routing/model_catalog.py:514"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "d6b4835122f31cf356dc2916357cf2342942623ed83e74c216dd2a1a50197480",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/routing/model_router.py",
+   "module": "finesub.llm.routing.model_router",
+   "why": [
+    "static",
+    "runtime"
+   ],
+   "sha256": "aba5f0ed10c56be60e917cd2d83369eac3612d901dd34662140f0a188f54a986",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/routing/model_routes.py",
+   "module": "finesub.llm.routing.model_routes",
+   "why": [
+    "static",
+    "runtime"
+   ],
+   "sha256": "5e4467368715b174db934f57c4b291c7d2430d62adb19fe980361c3432102448",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/routing/model_routes.toml",
+   "read_by": [
+    "finesub/llm/routing/model_routes.py:948"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "4fa7a86062d9fbd21fde3b25b989d5829993cc7d33b66c143363b77e52d336dd",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/routing/profiles.py",
+   "module": "finesub.llm.routing.profiles",
+   "why": [
+    "static",
+    "runtime"
+   ],
+   "sha256": "7f47d23b7ffc721994a32c3e7607d3208720d9ad1d6ddb53c34d3f9442f237c3",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/run_context.py",
+   "module": "finesub.llm.run_context",
+   "why": [
+    "static",
+    "runtime"
+   ],
+   "sha256": "d4880e87b989a656c113ce0b5ec8e682b027a74dd0e39c1a44fb7a59e98e2824",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/serial_shift.py",
+   "module": "finesub.llm.serial_shift",
+   "why": [
+    "static",
+    "runtime"
+   ],
+   "sha256": "cb6474cba650a4fed1903ef145d1d34d15a979c66abb75279c29f8933bd2995f",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/session_checkpoint.py",
+   "module": "finesub.llm.session_checkpoint",
+   "why": [
+    "static",
+    "runtime"
+   ],
+   "sha256": "3c8430e23371ee146ad0f4c505fc443bd3a40c671f86746e10937958e718f6c1",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/shape_criteria.py",
+   "module": "finesub.llm.shape_criteria",
+   "why": [
+    "static"
+   ],
+   "sha256": "980e94aa802f3ccee5aba17d73e69d92ab918ebbfda2038646993604677cfe66",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/stages/__init__.py",
+   "module": "finesub.llm.stages",
+   "why": [
+    "static",
+    "runtime"
+   ],
+   "sha256": "6fbc329a5a59c01edbc48351459af54576bd693cb51105e79f0110313149f84d",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/stages/correction/__init__.py",
+   "module": "finesub.llm.stages.correction",
+   "why": [
+    "static",
+    "runtime"
+   ],
+   "sha256": "e3e4cce875bd922440aaa88beecb7d92732be070f974062ff37dda688a36c315",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/stages/correction/attempts.py",
+   "module": "finesub.llm.stages.correction.attempts",
+   "why": [
+    "static",
+    "runtime"
+   ],
+   "sha256": "157f8c1393b159742000de152a91aa905619d433b4eaa22024e4265f8ffc28fb",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/stages/correction/commit.py",
+   "module": "finesub.llm.stages.correction.commit",
+   "why": [
+    "static",
+    "runtime"
+   ],
+   "sha256": "f9325b866be60a9ade5a39ddc2d4209ff6443c8c4bca1c6071e87d5095a2947a",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/stages/correction/context.py",
+   "module": "finesub.llm.stages.correction.context",
+   "why": [
+    "static",
+    "runtime"
+   ],
+   "sha256": "bffd17015cbe837a8fdc57311efa1fb721ffd3a96099a349e58a8aa9700e65cc",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/stages/correction/metadata.py",
+   "module": "finesub.llm.stages.correction.metadata",
+   "why": [
+    "static",
+    "runtime"
+   ],
+   "sha256": "8c87ce10f1ddee823536b47acd49f2623d3cc9e0c7ae978c39ca1134e080d109",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/stages/correction/parallel.py",
+   "module": "finesub.llm.stages.correction.parallel",
+   "why": [
+    "static",
+    "runtime"
+   ],
+   "sha256": "a87814c21bdc3a1f108091292360d4cd832ec8e141ae5d2a4e5fcc0e64666829",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/stages/correction/progress.py",
+   "module": "finesub.llm.stages.correction.progress",
+   "why": [
+    "static",
+    "runtime"
+   ],
+   "sha256": "72869a990a270bb08e252c4d5dfba8300b674c6adfde219792fcceae08b6921e",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/stages/correction/request_turn.py",
+   "module": "finesub.llm.stages.correction.request_turn",
+   "why": [
+    "static",
+    "runtime"
+   ],
+   "sha256": "1b55aee398a0e8741d102488d7ede513be26853dd469faca4fa94477851661d9",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/stages/correction/run.py",
+   "module": "finesub.llm.stages.correction.run",
+   "why": [
+    "static",
+    "runtime"
+   ],
+   "sha256": "55cf042e2e70865639551a7ff67e97ce126df33e8d1ee800535b9c604f2041df",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/stages/correction/serial.py",
+   "module": "finesub.llm.stages.correction.serial",
+   "why": [
+    "static",
+    "runtime"
+   ],
+   "sha256": "473ce499701b07e8e6fd8056ac7845519f2df7dac1014201d911f366e0c71a57",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/stages/plan.py",
+   "module": "finesub.llm.stages.plan",
+   "why": [
+    "static",
+    "runtime"
+   ],
+   "sha256": "fb7b054562f4555640f9ecffcb7f1657807acc754e1b74b41bb1b01103df01e2",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/stages/prepare_task.py",
+   "module": "finesub.llm.stages.prepare_task",
+   "why": [
+    "static"
+   ],
+   "sha256": "171c99a42b895a75db42c2c548d62a91bf13b2dee59a006148c389d1cf97d6d8",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/stages/proofread/__init__.py",
+   "module": "finesub.llm.stages.proofread",
+   "why": [
+    "static"
+   ],
+   "sha256": "eaf2d53a8a963bf78277dfe1386d3581f0e059599cdf6a97f9bf99feea8f23d8",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/stages/proofread/answers.py",
+   "module": "finesub.llm.stages.proofread.answers",
+   "why": [
+    "static"
+   ],
+   "sha256": "3c148714dcf0aa36caeb088e6b52e39d198978d9c7229dc880a81dcbf80f7b2c",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/stages/proofread/prompt.py",
+   "module": "finesub.llm.stages.proofread.prompt",
+   "why": [
+    "static"
+   ],
+   "sha256": "78c30d3f6a14eb44856fc726c9754c16e2ee03aba464151eed91962bf79e2f6c",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/stages/proofread/run.py",
+   "module": "finesub.llm.stages.proofread.run",
+   "why": [
+    "static"
+   ],
+   "sha256": "e506d9964274a6a72bdf94575b87ba03588e6103b1029e225dd9fb5bb0c9007e",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/stages/speaker_judge/__init__.py",
+   "module": "finesub.llm.stages.speaker_judge",
+   "why": [
+    "static"
+   ],
+   "sha256": "8ed05a21537ff69adddbcd3a5c194049d2fea5c7e4ed9ed1ddc510b647fabd53",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/stages/speaker_judge/answers.py",
+   "module": "finesub.llm.stages.speaker_judge.answers",
+   "why": [
+    "static"
+   ],
+   "sha256": "3630b8a8d05227eae5894b9b703f32236603992498063dad50ae5149146980e6",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/stages/speaker_judge/patch.py",
+   "module": "finesub.llm.stages.speaker_judge.patch",
+   "why": [
+    "static"
+   ],
+   "sha256": "36b8d5739143ada4def2d6834fe77d89df86dac0e16c7f67392c9866d2a627a2",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/stages/speaker_judge/prompt.py",
+   "module": "finesub.llm.stages.speaker_judge.prompt",
+   "why": [
+    "static"
+   ],
+   "sha256": "943f941ff164110d42b56d39cfac7b0c9152ff7b055c883f8869e63736cab1b3",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/stages/speaker_judge/roster.py",
+   "module": "finesub.llm.stages.speaker_judge.roster",
+   "why": [
+    "static"
+   ],
+   "sha256": "c162506d24f154063f1632e980f1779db0c40092709c413b7d42a303e8aed632",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/stages/speaker_judge/run.py",
+   "module": "finesub.llm.stages.speaker_judge.run",
+   "why": [
+    "static"
+   ],
+   "sha256": "193c2acd1cd55b5e5b5558557a8759f1d5229c11ba172db43b49e0157709e687",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/stages/speaker_judge/task.py",
+   "module": "finesub.llm.stages.speaker_judge.task",
+   "why": [
+    "static"
+   ],
+   "sha256": "df056fda6afd90b8a045dff828f577354ef16d5fd3e5616fa41fd30a2d805d0f",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/stages/speaker_judge/windows.py",
+   "module": "finesub.llm.stages.speaker_judge.windows",
+   "why": [
+    "static"
+   ],
+   "sha256": "e859ff8e048cb1370dff140a99641c7460877ac96e3936965281ca298b40a4ac",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/stages/task_graph.py",
+   "module": "finesub.llm.stages.task_graph",
+   "why": [
+    "static",
+    "runtime"
+   ],
+   "sha256": "c7148ec2e146aaa7f9e15153144d7e13fbda7558fbd5d2fa6de71b2a097458e6",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/stages/three_pass.py",
+   "module": "finesub.llm.stages.three_pass",
+   "why": [
+    "static",
+    "runtime"
+   ],
+   "sha256": "63c713698e3a008654ccb8a716d6e27eb1158401965bdf60b1eb06d3d627ffee",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/streaming.py",
+   "module": "finesub.llm.streaming",
+   "why": [
+    "static",
+    "runtime"
+   ],
+   "sha256": "5d3610d3d5c7837d9c0e54e197b5ab502995b1a74364a02b5336bdf4273fc257",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/task_report.py",
+   "module": "finesub.llm.task_report",
+   "why": [
+    "static",
+    "runtime"
+   ],
+   "sha256": "466445c1c4aab6b5d3a0e85732476fc4971e0c5bfbdbb54014ad512c84d7d92b",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/text_cells.py",
+   "module": "finesub.llm.text_cells",
+   "why": [
+    "static",
+    "runtime"
+   ],
+   "sha256": "5030410afe068be872aa72229e485a53d4cfe7d180a5147c91313bc12c67925f",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/token_books.py",
+   "module": "finesub.llm.token_books",
+   "why": [
+    "static",
+    "runtime"
+   ],
+   "sha256": "86fec303be446da0414d3d3469ed1abc0490a0878898c872325224b67baa2581",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/token_budget.py",
+   "module": "finesub.llm.token_budget",
+   "why": [
+    "static",
+    "runtime"
+   ],
+   "sha256": "08b61274efab53c822c3043c206afd11c98643f5161ff49e197cbacb51b8b28e",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/token_truncate.py",
+   "module": "finesub.llm.token_truncate",
+   "why": [
+    "static",
+    "runtime"
+   ],
+   "sha256": "7a67ce3ce3d92b899090e6640900556a4ba239aedd789d2079e95256e7da7e76",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/web_search.py",
+   "module": "finesub.llm.web_search",
+   "why": [
+    "static",
+    "runtime"
+   ],
+   "sha256": "6514b90ba9bd93b783f5e3917e3f3262a21b987fd0d18f729ad582711cd323c0",
+   "locked": true
+  },
+  {
+   "path": "finesub/media/__init__.py",
+   "module": "finesub.media",
+   "why": [
+    "static",
+    "runtime"
+   ],
+   "sha256": "14a6bb6aeb9db3f076cd688b1dff5c4bcff5ff3190f3a08f3ae359bf6a11baa2",
+   "locked": true
+  },
+  {
+   "path": "finesub/media/clips.py",
+   "module": "finesub.media.clips",
+   "why": [
+    "static",
+    "runtime"
+   ],
+   "sha256": "e6d3a9f8bbb931614fd0574daabddce9286e92d3abff46d79ad8d10051307161",
+   "locked": true
+  },
+  {
+   "path": "finesub/media/ffmpeg.py",
+   "module": "finesub.media.ffmpeg",
+   "why": [
+    "static",
+    "runtime"
+   ],
+   "sha256": "66edaae69c9be359677de9f24e033db0d59902ced3106a0cc429a6f7ccf5f2b4",
+   "locked": true
+  },
+  {
+   "path": "finesub/media/source.py",
+   "module": "finesub.media.source",
+   "why": [
+    "static"
+   ],
+   "sha256": "f4e76e050b36ba7b7f93e7e9dcb706c2c3b0f0cccdef08caaf47ad7faea62daa",
+   "locked": true
+  },
+  {
+   "path": "finesub/paths.py",
+   "module": "finesub.paths",
+   "why": [
+    "static",
+    "runtime"
+   ],
+   "sha256": "a0769a39c1eac20ae65427971bcf4351e299ba9f8ad1538d35c23ee14c58305c",
+   "locked": true
+  },
+  {
+   "path": "finesub/reporting.py",
+   "module": "finesub.reporting",
+   "why": [
+    "static",
+    "runtime"
+   ],
+   "sha256": "7b754127c23b7f8f98297feeed5aa1fe8e4cf2280fecf50844d455eaf7ca6862",
+   "locked": true
+  },
+  {
+   "path": "finesub/run_metadata.py",
+   "module": "finesub.run_metadata",
+   "why": [
+    "static",
+    "runtime"
+   ],
+   "sha256": "e5b3f669e8949a379be128d3f4e136ac97e6e7cfcb1914750231e26ab8ee94f1",
+   "locked": true
+  },
+  {
+   "path": "finesub/settings.py",
+   "module": "finesub.settings",
+   "why": [
+    "static",
+    "runtime"
+   ],
+   "sha256": "6de92ec76a081749af0309f4c1e5f802e166441b14a06dc2d3cd24a29bd75256",
+   "locked": true
+  },
+  {
+   "path": "finesub/speech/__init__.py",
+   "module": "finesub.speech",
+   "why": [
+    "static",
+    "runtime"
+   ],
+   "sha256": "1bbd73bc78b0bc0e5cf6401e8a28b93866291d4209d7315debfb30ed9cdf32c8",
+   "locked": true
+  },
+  {
+   "path": "finesub/speech/diarization/__init__.py",
+   "module": "finesub.speech.diarization",
+   "why": [
+    "static",
+    "runtime"
+   ],
+   "sha256": "15442d27243ad33bc1316cd5325ef9ee827b2852c82c40b367bee26d3be8655c",
+   "locked": true
+  },
+  {
+   "path": "finesub/speech/diarization/annotate.py",
+   "module": "finesub.speech.diarization.annotate",
+   "why": [
+    "static"
+   ],
+   "sha256": "1702734bb308c82917516957bb21a49880a51bb8e7d35f475d20ab5486a82683",
+   "locked": true
+  },
+  {
+   "path": "finesub/speech/diarization/assign.py",
+   "module": "finesub.speech.diarization.assign",
+   "why": [
+    "static"
+   ],
+   "sha256": "353a465e63f01c58da06b5d4a359c3bab65df0f9d4d26627519eb39bf77a4a50",
+   "locked": true
+  },
+  {
+   "path": "finesub/speech/diarization/backend.py",
+   "module": "finesub.speech.diarization.backend",
+   "why": [
+    "static"
+   ],
+   "sha256": "e259a86ed082bc92e3291bbcf903bc08832b8626353b92d5eba3c7760938f176",
+   "locked": true
+  },
+  {
+   "path": "finesub/speech/diarization/diarizen_assemble.py",
+   "module": "finesub.speech.diarization.diarizen_assemble",
+   "why": [
+    "static"
+   ],
+   "sha256": "b0c8e928b9eae3805f3093c95897af2b330f5e9341e044586cd69beaeafa5718",
+   "locked": true
+  },
+  {
+   "path": "finesub/speech/diarization/diarizen_backend.py",
+   "module": "finesub.speech.diarization.diarizen_backend",
+   "why": [
+    "static"
+   ],
+   "sha256": "72fceeb31aad02d58a30de816f0e4e4a4b74782136244fc0003276a1d45ad6c2",
+   "locked": true
+  },
+  {
+   "path": "finesub/speech/diarization/diarizen_runner.py",
+   "module": "finesub.speech.diarization.diarizen_runner",
+   "why": [
+    "static"
+   ],
+   "sha256": "0c019410c0915f80389e585f86c703bdf6870d597f1672d0623a697420aa30a5",
+   "locked": true
+  },
+  {
+   "path": "finesub/speech/diarization/diarizen_runtime.py",
+   "module": "finesub.speech.diarization.diarizen_runtime",
+   "why": [
+    "static"
+   ],
+   "sha256": "0f8fc496d3a4e09b1fa5ca4c45a3218bbe767957906ed954682fc2a9b26b28be",
+   "locked": true
+  },
+  {
+   "path": "finesub/speech/diarization/evidence.py",
+   "module": "finesub.speech.diarization.evidence",
+   "why": [
+    "static",
+    "runtime"
+   ],
+   "sha256": "73bb5c52bb322827f838bf914e117868e0b275c58dd3c47e42c1f603eff01481",
+   "locked": true
+  },
+  {
+   "path": "finesub/speech/diarization/export.py",
+   "module": "finesub.speech.diarization.export",
+   "why": [
+    "static"
+   ],
+   "sha256": "090a898bde597826acd365d1bd64ccdcc663b73d6d49dd060195e61131d221e2",
+   "locked": true
+  },
+  {
+   "path": "finesub/speech/diarization/judgments.py",
+   "module": "finesub.speech.diarization.judgments",
+   "why": [
+    "static",
+    "runtime"
+   ],
+   "sha256": "496f82988a6382744ed2ccc51c8dbb74f72db2bfcc7fe8da298e93337bb88047",
+   "locked": true
+  },
+  {
+   "path": "finesub/speech/diarization/labels.py",
+   "module": "finesub.speech.diarization.labels",
+   "why": [
+    "static",
+    "runtime"
+   ],
+   "sha256": "b5905579843688b1ac519aaa57e55f4b3da672116cc70a7d87f1a7d053431021",
+   "locked": true
+  },
+  {
+   "path": "finesub/speech/diarization/marks.py",
+   "module": "finesub.speech.diarization.marks",
+   "why": [
+    "static"
+   ],
+   "sha256": "0893939b80dc401f9cd9cecf755e14b0e44bde8eabdd2b6a33d4d05ef16643c8",
+   "locked": true
+  },
+  {
+   "path": "finesub/speech/diarization/nemotron3_backend.py",
+   "module": "finesub.speech.diarization.nemotron3_backend",
+   "why": [
+    "static"
+   ],
+   "sha256": "747e48d2fba87e29f4617b190fe083884a4a0812c64afbaa61eeb8760c46b4a4",
+   "locked": true
+  },
+  {
+   "path": "finesub/speech/diarization/product.py",
+   "module": "finesub.speech.diarization.product",
+   "why": [
+    "static",
+    "runtime"
+   ],
+   "sha256": "604cc501e480ec31915472d673d614c4c17394cbc75983c74f66541da5161fd8",
+   "locked": true
+  },
+  {
+   "path": "finesub/speech/diarization/row_split.py",
+   "module": "finesub.speech.diarization.row_split",
+   "why": [
+    "static"
+   ],
+   "sha256": "297de0820eccdec96c388ea7ed2e19f5e2715419d430d34a96f6cc853b132570",
+   "locked": true
+  },
+  {
+   "path": "finesub/speech/diarization/segments.py",
+   "module": "finesub.speech.diarization.segments",
+   "why": [
+    "static"
+   ],
+   "sha256": "4dd61d2f5993205ac6d2cde257b5908a2821cac0a2b2ee57cfc30f9a44ec9ea4",
+   "locked": true
+  },
+  {
+   "path": "finesub/speech/diarization/sortformer_backend.py",
+   "module": "finesub.speech.diarization.sortformer_backend",
+   "why": [
+    "static"
+   ],
+   "sha256": "c0eb3197d344169a17a1d94d8c6cc57fe47d811c587b55fd9b21f124ff4c3c56",
+   "locked": true
+  },
+  {
+   "path": "finesub/speech/diarization/stage.py",
+   "module": "finesub.speech.diarization.stage",
+   "why": [
+    "static"
+   ],
+   "sha256": "a1b0026cbdf64d3c49d0857f3f75b0c69f39865850458099701a6748c2f33254",
+   "locked": true
+  },
+  {
+   "path": "finesub/speech/languages.py",
+   "module": "finesub.speech.languages",
+   "why": [
+    "static",
+    "runtime"
+   ],
+   "sha256": "1bdae70d8a7e5a9f21fb36f5dcd918437003bae72070a59cb956602a78ed6f12",
+   "locked": true
+  },
+  {
+   "path": "finesub/speech/postprocessing/__init__.py",
+   "module": "finesub.speech.postprocessing",
+   "why": [
+    "static",
+    "runtime"
+   ],
+   "sha256": "53bb40ff8d58ecf7d04ea54dbaa5ecd1658bba706830f50f349156d01060ed03",
+   "locked": true
+  },
+  {
+   "path": "finesub/speech/postprocessing/recall_repair.py",
+   "module": "finesub.speech.postprocessing.recall_repair",
+   "why": [
+    "static",
+    "runtime"
+   ],
+   "sha256": "c730e95478e2dbad773287933d19ea68795aa3e384a349d5756d641208fcc83f",
+   "locked": true
+  },
+  {
+   "path": "finesub/speech/postprocessing/recall_sounds.py",
+   "module": "finesub.speech.postprocessing.recall_sounds",
+   "why": [
+    "static",
+    "runtime"
+   ],
+   "sha256": "bbadea6a1f8b0af1a43e8414af66efad466572c2eed77d5743ec4f14e519c6dd",
+   "locked": true
+  },
+  {
+   "path": "finesub/speech/postprocessing/segmentation.py",
+   "module": "finesub.speech.postprocessing.segmentation",
+   "why": [
+    "static",
+    "runtime"
+   ],
+   "sha256": "b363dbbd99c6e974825f87c7ea715aa22f7216403f86812fba15d1bbe51e1ed4",
+   "locked": true
+  },
+  {
+   "path": "finesub/speech/postprocessing/squeeze_repair.py",
+   "module": "finesub.speech.postprocessing.squeeze_repair",
+   "why": [
+    "static",
+    "runtime"
+   ],
+   "sha256": "acea3b3276645211c65637664152d14b68a4da8f5a0d3a2f7148cb23eeda4d23",
+   "locked": true
+  },
+  {
+   "path": "finesub/speech/postprocessing/stabilization.py",
+   "module": "finesub.speech.postprocessing.stabilization",
+   "why": [
+    "static",
+    "runtime"
+   ],
+   "sha256": "2298e67d4191096a04bd82415f9409d09d91a1abf624d2bfb64dff60b32b4b0f",
+   "locked": true
+  },
+  {
+   "path": "finesub/speech/recognition/__init__.py",
+   "module": "finesub.speech.recognition",
+   "why": [
+    "static",
+    "runtime"
+   ],
+   "sha256": "ed022057965fbcd702dbdb7dd3becb84cb6c825536b808f8bdca43fc8cfe75fe",
+   "locked": true
+  },
+  {
+   "path": "finesub/speech/recognition/asr_backend.py",
+   "module": "finesub.speech.recognition.asr_backend",
+   "why": [
+    "static",
+    "runtime"
+   ],
+   "sha256": "9d282dc7ebf704d2ce90377380d8d1d950cbd77b1d3f731757c94a846750b57a",
+   "locked": true
+  },
+  {
+   "path": "finesub/speech/recognition/segments.py",
+   "module": "finesub.speech.recognition.segments",
+   "why": [
+    "static",
+    "runtime"
+   ],
+   "sha256": "57cbae3cace69871826f2f63e9751cbc7f2c46a8546fcedc3b260775bfa23802",
+   "locked": true
+  },
+  {
+   "path": "finesub/speech/runtime/__init__.py",
+   "module": "finesub.speech.runtime",
+   "why": [
+    "static",
+    "runtime"
+   ],
+   "sha256": "c967487723650914383d1e30270095336c0f52be7215666edf48f8a27f8cb4b1",
+   "locked": true
+  },
+  {
+   "path": "finesub/speech/runtime/native_paths.py",
+   "module": "finesub.speech.runtime.native_paths",
+   "why": [
+    "static"
+   ],
+   "sha256": "f49856062f04b59b18d06f3c41d3a9aa42746c9ade798807a5848b8ce6273272",
+   "locked": true
+  },
+  {
+   "path": "finesub/speech/runtime/resources.py",
+   "module": "finesub.speech.runtime.resources",
+   "why": [
+    "static",
+    "runtime"
+   ],
+   "sha256": "0a29cb5d63eaa5592fe1528b008377a01790559cd25697b72b8a3247a30373b3",
+   "locked": true
+  },
+  {
+   "path": "finesub/stages.py",
+   "module": "finesub.stages",
+   "why": [
+    "static",
+    "runtime"
+   ],
+   "sha256": "594133fe267b310a7f56addaa59f2f770d2d8866e18b05049023bab5ca207154",
+   "locked": false
+  },
+  {
+   "path": "finesub/state.py",
+   "module": "finesub.state",
+   "why": [
+    "static",
+    "runtime"
+   ],
+   "sha256": "24fabee86790b53fe0437117ad68e11c192f2a4d7b27295ae66c8461eadf75c4",
+   "locked": true
+  },
+  {
+   "path": "finesub/subtitles/__init__.py",
+   "module": "finesub.subtitles",
+   "why": [
+    "static",
+    "runtime"
+   ],
+   "sha256": "a3d6e7b2dc0e9ea13347535efb8eeafaef37826cff512bf9d7dcc6bca6c83455",
+   "locked": true
+  },
+  {
+   "path": "finesub/subtitles/line_groups.py",
+   "module": "finesub.subtitles.line_groups",
+   "why": [
+    "static",
+    "runtime"
+   ],
+   "sha256": "cbbb9446df8fd51a5d755f768c7aa2788a54d0b0dce1bbae67cf1ace3d0e2cbb",
+   "locked": true
+  },
+  {
+   "path": "finesub/subtitles/metrics.py",
+   "module": "finesub.subtitles.metrics",
+   "why": [
+    "static",
+    "runtime"
+   ],
+   "sha256": "be99c850217ce7ff949cdfc9a27b4bf863138cc15cf489241ad1c8914252855b",
+   "locked": true
+  },
+  {
+   "path": "finesub/subtitles/model.py",
+   "module": "finesub.subtitles.model",
+   "why": [
+    "static",
+    "runtime"
+   ],
+   "sha256": "11c9357399276c5ce2f6e971ba84a35278f66548f0853a422a89c84750b84fdd",
+   "locked": true
+  },
+  {
+   "path": "finesub/subtitles/postprocess.py",
+   "module": "finesub.subtitles.postprocess",
+   "why": [
+    "static",
+    "runtime"
+   ],
+   "sha256": "44008b576d903154e97c8ec02c762448610ea38e9e137cc4019be7b0c1f07809",
+   "locked": true
+  },
+  {
+   "path": "finesub/subtitles/rendering.py",
+   "module": "finesub.subtitles.rendering",
+   "why": [
+    "static",
+    "runtime"
+   ],
+   "sha256": "c38f8ba03e6c7e16ee8815846292734b8e746243c9a7c2035de6f79ae84581ac",
+   "locked": true
+  },
+  {
+   "path": "finesub/subtitles/stable_rows.py",
+   "module": "finesub.subtitles.stable_rows",
+   "why": [
+    "static",
+    "runtime"
+   ],
+   "sha256": "160d4db760a976c42f875e803d84e7a7cefca2e44c9d0f04caaf14b2704f1f81",
+   "locked": true
+  },
+  {
+   "path": "finesub/subtitles/time_order.py",
+   "module": "finesub.subtitles.time_order",
+   "why": [
+    "static",
+    "runtime"
+   ],
+   "sha256": "5f0b00aef3970e64171f3498774efc77703b2c28686f02a543c5f8033bf66a4a",
+   "locked": true
+  },
+  {
+   "path": "finesub/text.py",
+   "module": "finesub.text",
+   "why": [
+    "static",
+    "runtime"
+   ],
+   "sha256": "f28179c0e426cff87ecb11b39050be1fa576ac5bb07593c29e044bad8e71e5e8",
+   "locked": true
+  }
+ ],
+ "missed_by_static": [],
+ "not_taken": [
+  {
+   "from": "finesub.stages:<module>",
+   "to": "finesub.stages:run_pipeline",
+   "why": "stages.py:1155-1159: `_PIPELINE_DEFAULTS` reads `inspect.signature(run_pipeline)`, it does not call it"
+  },
+  {
+   "from": "finesub.stages:_run_diarization_stage",
+   "to": "finesub.speech.diarization.stage:run_diarization",
+   "why": "stages.py:862: only when `-diar.json` is missing; the correction adapter enters it only when it is on disk (src/nonoka_x/correction/finesub.py:274)"
+  },
+  {
+   "from": "finesub.stages:_run_diarization_stage",
+   "to": "finesub.stages:_diarization_device",
+   "why": "stages.py:868: an argument of the same `run_diarization` call"
+  },
+  {
+   "from": "finesub.speech.recognition.asr_backend:<module>",
+   "to": "finesub.speech.recognition.fw_refine_backend",
+   "why": "speech/recognition/asr_backend.py:89-92: `BACKENDS` names the backend as a string, \"imported by the contract test only\"; nothing in the pipeline resolves it"
+  },
+  {
+   "from": "finesub.speech.diarization.diarizen_backend:<module>",
+   "to": "finesub.speech.diarization.diarizen_backend:ensure",
+   "why": "speech/diarization/diarizen_backend.py `BACKEND = Backend(ensure=..., activity=...)`: the two callables are called only in `stage.run_diarization` (stage.py:259, :276), which correction never enters"
+  },
+  {
+   "from": "finesub.speech.diarization.diarizen_backend:<module>",
+   "to": "finesub.speech.diarization.diarizen_backend:activity",
+   "why": "speech/diarization/diarizen_backend.py `BACKEND = Backend(ensure=..., activity=...)`: the two callables are called only in `stage.run_diarization` (stage.py:259, :276), which correction never enters"
+  },
+  {
+   "from": "finesub.speech.diarization.nemotron3_backend:<module>",
+   "to": "finesub.speech.diarization.nemotron3_backend:ensure",
+   "why": "speech/diarization/nemotron3_backend.py `BACKEND = Backend(ensure=..., activity=...)`: the two callables are called only in `stage.run_diarization` (stage.py:259, :276), which correction never enters"
+  },
+  {
+   "from": "finesub.speech.diarization.nemotron3_backend:<module>",
+   "to": "finesub.speech.diarization.nemotron3_backend:activity",
+   "why": "speech/diarization/nemotron3_backend.py `BACKEND = Backend(ensure=..., activity=...)`: the two callables are called only in `stage.run_diarization` (stage.py:259, :276), which correction never enters"
+  },
+  {
+   "from": "finesub.speech.diarization.sortformer_backend:<module>",
+   "to": "finesub.speech.diarization.sortformer_backend:ensure",
+   "why": "speech/diarization/sortformer_backend.py `BACKEND = Backend(ensure=..., activity=...)`: the two callables are called only in `stage.run_diarization` (stage.py:259, :276), which correction never enters"
+  },
+  {
+   "from": "finesub.speech.diarization.sortformer_backend:<module>",
+   "to": "finesub.speech.diarization.sortformer_backend:activity",
+   "why": "speech/diarization/sortformer_backend.py `BACKEND = Backend(ensure=..., activity=...)`: the two callables are called only in `stage.run_diarization` (stage.py:259, :276), which correction never enters"
+  }
+ ],
+ "compat_modules": [
+  "finesub_bootstrap",
+  "finesub_bootstrap.agy_records",
+  "finesub_bootstrap.artifacts",
+  "finesub_bootstrap.fsops",
+  "finesub_bootstrap.http_client",
+  "finesub_bootstrap.locks",
+  "finesub_bootstrap.logs",
+  "finesub_bootstrap.paths",
+  "finesub_bootstrap.processes",
+  "finesub_bootstrap.secrets",
+  "finesub_bootstrap.token_counter"
+ ],
+ "bootstrap_imports": {
+  "finesub_bootstrap.agy_records:agy_project_records_dir": [
+   "finesub/llm/agent/local_agent.py:7496"
+  ],
+  "finesub_bootstrap.artifacts:ARTIFACT_DIR_SUFFIX": [
+   "finesub/llm/correction_translation.py:32",
+   "finesub/llm/stages/correction/run.py:36"
+  ],
+  "finesub_bootstrap.artifacts:RESOLVED_SWITCHES_FILENAME": [
+   "finesub/llm/correction_translation.py:32"
+  ],
+  "finesub_bootstrap.fsops:RECORD_REPLACE": [
+   "finesub/media/source.py:10",
+   "finesub/state.py:21"
+  ],
+  "finesub_bootstrap.fsops:is_directory_link": [
+   "finesub/llm/agent/agent_task_runtime.py:25",
+   "finesub/llm/agent/local_agent.py:33"
+  ],
+  "finesub_bootstrap.fsops:remove_tree": [
+   "finesub/llm/agent/agent_session_host.py:392",
+   "finesub/llm/agent/local_agent.py:33",
+   "finesub/llm/client.py:2110"
+  ],
+  "finesub_bootstrap.fsops:replace_path": [
+   "finesub/media/source.py:10",
+   "finesub/state.py:21"
+  ],
+  "finesub_bootstrap.fsops:write_atomic": [
+   "finesub/llm/agent/agent_task_runtime.py:25",
+   "finesub/llm/agent/local_agent.py:33",
+   "finesub/llm/correction_mode.py:16",
+   "finesub/llm/research.py:53",
+   "finesub/llm/task_report.py:11",
+   "finesub/media/source.py:10"
+  ],
+  "finesub_bootstrap.http_client:in_tunnel_setup": [
+   "finesub/api_http.py:34"
+  ],
+  "finesub_bootstrap.http_client:watch_tunnel": [
+   "finesub/api_http.py:34"
+  ],
+  "finesub_bootstrap.locks:AGENT_ACTIVITY_ROOT_VARIABLE": [
+   "finesub/llm/agent/agent_paths.py:22"
+  ],
+  "finesub_bootstrap.locks:AGENT_CAPSULE_ROOT_VARIABLE": [
+   "finesub/llm/agent/agent_paths.py:22"
+  ],
+  "finesub_bootstrap.locks:AGENT_IDENTITY_ANCHOR_VARIABLE": [
+   "finesub/llm/agent/agent_paths.py:22"
+  ],
+  "finesub_bootstrap.locks:AGENT_LOCATOR_KIND_MANAGED": [
+   "finesub/llm/agent/agent_paths.py:22"
+  ],
+  "finesub_bootstrap.locks:AGENT_LOCATOR_KIND_VARIABLE": [
+   "finesub/llm/agent/agent_paths.py:22"
+  ],
+  "finesub_bootstrap.locks:LockUnavailable": [
+   "finesub/llm/agent/local_agent.py:34",
+   "finesub/llm/knowledge/base.py:840"
+  ],
+  "finesub_bootstrap.locks:holding_activity": [
+   "finesub/llm/agent/agent_session_host.py:59",
+   "finesub/llm/agent/local_agent.py:34"
+  ],
+  "finesub_bootstrap.locks:holding_lock": [
+   "finesub/llm/agent/agent_task_runtime.py:26",
+   "finesub/llm/agent/local_agent.py:34",
+   "finesub/llm/knowledge/base.py:840",
+   "finesub/state.py:22"
+  ],
+  "finesub_bootstrap.logs:log_directory": [
+   "finesub/paths.py:242"
+  ],
+  "finesub_bootstrap.logs:prune": [
+   "finesub/llm/http.py:33"
+  ],
+  "finesub_bootstrap.paths:default_data_root": [
+   "finesub/paths.py:54"
+  ],
+  "finesub_bootstrap.paths:load_app_paths": [
+   "finesub/paths.py:54"
+  ],
+  "finesub_bootstrap.paths:packaged_app_paths": [
+   "finesub/paths.py:72"
+  ],
+  "finesub_bootstrap.paths:packaged_app_root": [
+   "finesub/paths.py:35"
+  ],
+  "finesub_bootstrap.processes:no_window": [
+   "finesub/llm/agent/local_agent.py:35",
+   "finesub/llm/knowledge/node/importer.py:20",
+   "finesub/llm/token_budget.py:33",
+   "finesub/media/ffmpeg.py:10"
+  ],
+  "finesub_bootstrap.secrets": [
+   "finesub/api_keys.py:17"
+  ],
+  "finesub_bootstrap.token_counter": [
+   "finesub/llm/token_budget.py:32",
+   "finesub/paths.py:9"
+  ]
+ },
+ "bootstrap_surface_used": [
+  "finesub_bootstrap.agy_records:agy_project_records_dir",
+  "finesub_bootstrap.artifacts:ARTIFACT_DIR_SUFFIX",
+  "finesub_bootstrap.artifacts:RESOLVED_SWITCHES_FILENAME",
+  "finesub_bootstrap.fsops:RECORD_REPLACE",
+  "finesub_bootstrap.fsops:is_directory_link",
+  "finesub_bootstrap.fsops:remove_tree",
+  "finesub_bootstrap.fsops:replace_path",
+  "finesub_bootstrap.fsops:write_atomic",
+  "finesub_bootstrap.http_client:in_tunnel_setup",
+  "finesub_bootstrap.http_client:watch_tunnel",
+  "finesub_bootstrap.locks:AGENT_ACTIVITY_ROOT_VARIABLE",
+  "finesub_bootstrap.locks:AGENT_CAPSULE_ROOT_VARIABLE",
+  "finesub_bootstrap.locks:AGENT_IDENTITY_ANCHOR_VARIABLE",
+  "finesub_bootstrap.locks:AGENT_LOCATOR_KIND_MANAGED",
+  "finesub_bootstrap.locks:AGENT_LOCATOR_KIND_VARIABLE",
+  "finesub_bootstrap.locks:LockUnavailable",
+  "finesub_bootstrap.locks:holding_activity",
+  "finesub_bootstrap.locks:holding_lock",
+  "finesub_bootstrap.logs:log_directory",
+  "finesub_bootstrap.logs:prune",
+  "finesub_bootstrap.paths:default_data_root",
+  "finesub_bootstrap.paths:load_app_paths",
+  "finesub_bootstrap.paths:packaged_app_paths",
+  "finesub_bootstrap.paths:packaged_app_root",
+  "finesub_bootstrap.processes:no_window",
+  "finesub_bootstrap.secrets:ensure_protected",
+  "finesub_bootstrap.secrets:read_env_file",
+  "finesub_bootstrap.token_counter:CHECKOUT_RELATIVE_PATH",
+  "finesub_bootstrap.token_counter:configured_path",
+  "finesub_bootstrap.token_counter:find_on_path"
+ ]
+}
