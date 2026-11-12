@@ -203,16 +203,17 @@ def test_a_handed_back_result_missing_fails(tmp_path: Path) -> None:
 # --- thresholds --------------------------------------------------------------------
 
 
-def test_the_shipped_thresholds_are_not_approved_yet() -> None:
-    # Plan section 0.1 rule 3 / appendix C item 3: no value goes in before the owner approves it.
-    assert cloud.THRESHOLDS == cloud.Thresholds()
-    assert all(value is None for value in vars(cloud.THRESHOLDS).values())
+def test_the_shipped_thresholds_are_the_approved_ones() -> None:
+    # Plan section 0.1 rule 3 / appendix C item 3: owner-approved on 2026-11-12 (WP-C option A).
+    # Changing one is the owner's decision, never a way to let a run through.
+    assert cloud.THRESHOLDS == cloud.Thresholds(segment_count_ratio=0.02, text_distance_ratio=0.005,
+                                                speaker_count_delta=0, coverage_delta=0.002)
 
 
 def test_unapproved_thresholds_leave_every_statistic_undecided(tmp_path: Path) -> None:
     segments = _lines("あいうえお")
     verdict = cloud.judge(_compare(_write(tmp_path / "a", segments, speakers=[1, 2]),
-                                   _write(tmp_path / "b", segments, speakers=[1, 2])))
+                                   _write(tmp_path / "b", segments, speakers=[1, 2])), cloud.Thresholds())
     assert verdict["failures"] == []
     assert verdict["undecided"] == ["segment_count_ratio", "text_distance_ratio", "speaker_count_delta",
                                     "coverage_delta"]
@@ -246,7 +247,8 @@ def _gate_against(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, run_segments:
         result = {}
         for name in cloud.SAMPLES:
             _write(scratch / name, run_segments)
-            result[name] = {"run": {"ok": True, "separations": [{"accel": "eager"}]},
+            result[name] = {"run": {"ok": True, "separations": [{"accel": "aoti"}]},
+                            "baseline": "run-1", "baseline_why": "run-1 (aoti)",
                             "statistics": cloud._statistics_between(root / name / "run-1", scratch / name)}
         return result
 
@@ -272,6 +274,58 @@ def test_the_gate_passes_within_and_fails_over_approved_thresholds(tmp_path: Pat
     assert failed.status == "FAIL", (failed.summary, failed.details)
 
 
+# --- which baseline run --------------------------------------------------------------
+
+
+def test_the_accelerator_comes_from_the_separations_then_the_vocal_leg() -> None:
+    assert cloud.run_accel({"separations": [{"accel": "eager"}, {"accel": "eager"}]}) == "eager"
+    assert cloud.run_accel({"separations": [{"accel": "eager"}, {"accel": "aoti"}]}) is None
+    assert cloud.run_accel({"separations": [], "legs": {"vocal": {"accel": {"backend": "aoti"}}}}) == "aoti"
+    assert cloud.run_accel({}) is None
+
+
+def _baseline_with(root: Path, name: str) -> None:
+    for run, accel in cloud.BASELINE_RUNS.items():
+        _write(root / name / run, _lines("あいうえお"))
+        (root / name / run / "summary.json").write_text(
+            json.dumps({"ok": True, "handed_back": ["stable_json"], "separations": [{"accel": accel}]}),
+            encoding="utf-8")
+
+
+def test_each_run_is_compared_with_the_baseline_run_of_its_accelerator(tmp_path: Path,
+                                                                      monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(cloud, "BASELINE_ROOT", tmp_path)
+    _baseline_with(tmp_path, "sample")
+    assert cloud.baseline_for("sample", {"separations": [{"accel": "aoti"}]}) == (
+        tmp_path / "sample" / "run-1", "run-1 (aoti)")
+    assert cloud.baseline_for("sample", {"separations": [{"accel": "eager"}]}) == (
+        tmp_path / "sample" / "run-2", "run-2 (eager)")
+    assert cloud.baseline_for("sample", {"separations": [{"accel": "cudagraph"}]})[0] is None
+    assert cloud.baseline_for("sample", {})[0] is None
+
+
+def test_a_good_run_with_no_baseline_of_its_accelerator_is_an_error(tmp_path: Path,
+                                                                    monkeypatch: pytest.MonkeyPatch) -> None:
+    root = tmp_path / "baseline"
+    for name in cloud.SAMPLES:
+        _baseline_with(root, name)
+    monkeypatch.setattr(cloud, "BASELINE_ROOT", root)
+    monkeypatch.setattr(cloud, "issues", lambda: [])
+
+    def fake_run_samples(out: Path, names: list[str]) -> dict:
+        for name in names:
+            _write(out / name, _lines("あいうえお"))
+        return {name: {"ok": True, "separations": [{"accel": "aoti" if index else "unknown"}]}
+                for index, name in enumerate(names)}
+
+    monkeypatch.setattr(cloud, "run_samples", fake_run_samples)
+    first, second = list(cloud.SAMPLES)
+    result = cloud.check(tmp_path / "scratch")
+    assert result[first] == {"run": {"ok": True, "separations": [{"accel": "unknown"}]},
+                             "error": f"no baseline run of {first} was made with the unknown separator"}
+    assert (result[second]["baseline"], result[second]["baseline_why"]) == ("run-1", "run-1 (aoti)")
+
+
 # --- the recorded runs (this machine only) -----------------------------------------
 
 
@@ -280,8 +334,11 @@ def test_the_recorded_aoti_and_eager_runs_are_structurally_the_same(sample: str)
     first, second = RECORDED / sample / "run-1", RECORDED / sample / "run-2"
     if not (first / "artifacts").is_dir() or not (second / "artifacts").is_dir():
         pytest.skip(f"no recorded cloud runs at {RECORDED / sample}")
+    assert cloud.baseline_for(sample, json.loads((first / "summary.json").read_text(encoding="utf-8")))[0] == first
+    assert cloud.baseline_for(sample, json.loads((second / "summary.json").read_text(encoding="utf-8")))[0] == second
     comparison = _compare(first, second)
-    verdict = cloud.judge(comparison)
+    # Structure only: the thresholds hold within one accelerator, and these are AOTI and eager.
+    verdict = cloud.judge(comparison, cloud.Thresholds())
     # Same artifacts, every one readable the way the desktop reads it.
     assert verdict["failures"] == [], verdict["lines"]
     assert comparison["baseline_problems"] == []
@@ -292,5 +349,6 @@ def test_the_recorded_aoti_and_eager_runs_are_structurally_the_same(sample: str)
     assert set(statistics) == expected
     # The two runs differ (plan 2.10), but not wholesale.
     assert 0 < statistics["text_distance_ratio"]["value"] < 0.5
-    # A run against itself measures zero.
+    # A run against itself measures zero and passes the approved thresholds.
     assert all(entry["value"] == 0 for entry in _compare(first, first)["statistics"].values())
+    assert cloud.judge(_compare(first, first))["failures"] == []

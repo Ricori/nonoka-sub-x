@@ -368,7 +368,7 @@ def check_real(args: argparse.Namespace) -> Result:
 
 
 def check_cloud(args: argparse.Namespace) -> Result:
-    """Structure and statistics against the baseline's `run-1` (plan section 0.1, rule 3).
+    """Structure and statistics against the baseline run of the same accelerator (plan section 0.1, rule 3).
 
     Not bytes: the cloud does not reproduce itself (plan 2.10). A structural
     problem fails; a statistic fails over its threshold and is undecided while
@@ -416,10 +416,13 @@ def check_cloud(args: argparse.Namespace) -> Result:
                 continue
             # Reported, not judged: a different card or a rebuilt accelerator
             # explains a difference, it does not excuse one.
-            for note in cloud.environment_changes(recorded["samples"][name]["runs"][0], sample["run"]):
+            index = list(cloud.BASELINE_RUNS).index(sample["baseline"])
+            runs = recorded["samples"][name]["runs"]
+            for note in cloud.environment_changes(runs[index] if index < len(runs) else {}, sample["run"]):
                 lines.append(f"  note      {name}: {note}")
             separations = sample["run"].get("separations") or []
-            lines.append(f"  note      {name}: separator accelerator {[entry.get('accel') for entry in separations]}")
+            lines.append(f"  note      {name}: separator accelerator {[entry.get('accel') for entry in separations]}, "
+                         f"compared with {sample['baseline_why']}")
             verdict = cloud.judge(sample["statistics"]["comparison"])
             failures += [f"{name}: {failure}" for failure in verdict["failures"]]
             undecided += [f"{name}: {statistic}" for statistic in verdict["undecided"]]

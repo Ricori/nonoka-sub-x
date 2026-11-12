@@ -50,12 +50,18 @@ readable the way the desktop reads it, and the segment count, the text, the
 speaker count and the covered time within `THRESHOLDS` of the baseline.
 `compare_runs` (bytes) is still written into the report, as information.
 
+Each run is compared with the baseline run made with the same separator
+accelerator (owner 2026-11-12, WP-C option A): WP-C measured runs of one
+accelerator as identical or nearly so, and all of the spread as AOTI against
+eager, so the thresholds are tight and only hold within one accelerator.
+
 Layout under `test_data/quality-baseline/cloud/` (never committed):
 
     <sample>/run-1/      request.json, run.json (images, card, accelerator,
-                         events), artifacts/ (the captured working tree)
-    <sample>/run-2/      the repeat, made with `record`
-    report.json          which artifacts the repeat reproduced
+                         events), artifacts/ (the captured working tree);
+                         the AOTI run
+    <sample>/run-2/      the eager run, made with `record` like run-1
+    report.json          which artifacts the eager run reproduced
 """
 
 from __future__ import annotations
@@ -570,8 +576,8 @@ def run_samples(out: Path, names: list[str] | None = None, *, measure: dict[str,
     """One cloud run of each sample into `out/<sample>/`, all samples side by side.
 
     `measure` sets the measurement switches (`VOCAL_ACCEL_ENV`,
-    `ACCEL_VOLUME_ENV`); without it they are removed, so the gate and `record`
-    always run production's own choice whatever this shell has set.
+    `ACCEL_VOLUME_ENV`); without it they are removed, so the gate always runs
+    production's own choice whatever this shell has set (`record` pins the accelerator).
     """
 
     names = names or list(SAMPLES)
@@ -716,6 +722,8 @@ class Thresholds:
     are the owner's to approve after WP-C has measured the natural spread on
     unchanged code (plan section 0.1 rule 3, appendix B questions 5 and 11),
     and are never widened to let a run through (section 0, rule 6).
+
+    They hold between runs of one separator accelerator (`baseline_for`).
     """
 
     #: |lines - baseline lines| / baseline lines, in `-stable.json`.
@@ -730,8 +738,16 @@ class Thresholds:
     coverage_delta: float | None = None
 
 
-#: Not approved yet: every statistic is reported, none is judged.
-THRESHOLDS = Thresholds()
+#: Approved by the owner on 2026-11-12 (WP-C option A). Measured on L4, vocal
+#: and aligned on cpu_tag 9c8ea9902a27, four runs per sample (two AOTI with the
+#: package reused, two eager): within one accelerator every statistic was 0
+#: except coverage, at most 0.000017 (sample_ja, eager). The margins: one
+#: segment on sample_multi_person (54 lines), about 11 characters of 2285 on
+#: sample_ja, no speaker change, and about 100 times the coverage seen (about
+#: 0.6 s of 302 s). For scale, AOTI against eager measured up to 0.13, 0.051,
+#: 0 and 0.0084.
+THRESHOLDS = Thresholds(segment_count_ratio=0.02, text_distance_ratio=0.005, speaker_count_delta=0,
+                        coverage_delta=0.002)
 
 
 def edit_distance(a: str, b: str) -> int:
@@ -1065,14 +1081,55 @@ def public_statistics(stats: dict[str, Any]) -> dict[str, Any]:
     return {key: value for key, value in stats.items() if not key.startswith("_")}
 
 
+#: The baseline's runs and the separator accelerator `record` makes each with.
+BASELINE_RUNS = {"run-1": "aoti", "run-2": "eager"}
+_PIN = {"aoti": "on", "eager": "off"}
+
+
+def run_accel(summary: dict[str, Any]) -> str | None:
+    """The separator accelerator that produced a run (`aoti`, `eager`), or None.
+
+    The runner log's `separator timing` lines are the record of what actually
+    separated; without one, the vocal leg's own facts. None when a restarted
+    call separated with both accelerators, or nothing says.
+    """
+
+    found = {entry.get("accel") for entry in summary.get("separations") or []} - {None}
+    if len(found) == 1:
+        return found.pop()
+    if found:
+        return None
+    return ((((summary.get("legs") or {}).get("vocal") or {}).get("accel")) or {}).get("backend")
+
+
+def baseline_for(name: str, summary: dict[str, Any]) -> tuple[Path | None, str]:
+    """The baseline run of `name` made with the same accelerator as `summary`, and why."""
+
+    accel = run_accel(summary)
+    if accel is None:
+        return None, "the run's separator accelerator cannot be told (see separations)"
+    for run in BASELINE_RUNS:
+        recorded = BASELINE_ROOT / name / run / "summary.json"
+        if recorded.is_file() and run_accel(json.loads(recorded.read_text(encoding="utf-8"))) == accel:
+            return recorded.parent, f"{run} ({accel})"
+    return None, f"no baseline run of {name} was made with the {accel} separator"
+
+
 def record() -> dict[str, Any]:
-    """Run every sample twice into the baseline directory and write the report."""
+    """Run every sample twice into the baseline directory and write the report.
+
+    run-1 pins the separator to AOTI and run-2 to eager, so the gate has a
+    baseline for either one; WP-C found a pinned run identical to one the
+    automatic choice made the same way.
+    """
 
     found = issues()
     if found:
         raise SystemExit("cannot run the cloud samples:\n  " + "\n  ".join(found))
     report: dict[str, Any] = {"target": TARGET, "gpu": GPU, "samples": {}}
-    runs = {index: run_samples(BASELINE_ROOT / f"run-{index}") for index in (1, 2)}
+    runs = {index: run_samples(BASELINE_ROOT / f"run-{index}",
+                               measure={VOCAL_ACCEL_ENV: _PIN[BASELINE_RUNS[f"run-{index}"]]})
+            for index in (1, 2)}
     for name in SAMPLES:
         for index in (1, 2):
             # <sample>/run-N, the layout `real` keeps.
@@ -1105,10 +1162,11 @@ def _statistics_between(baseline: Path, run: Path) -> dict[str, Any]:
 
 
 def check(scratch: Path) -> dict[str, Any]:
-    """Run every sample once into `scratch` and compare with the recorded `run-1`.
+    """Run every sample once into `scratch` and compare with the baseline run of its accelerator.
 
-    `comparison` is the byte comparison (information); `statistics` is what
-    the gate judges (`judge`).
+    `baseline` names that run (`baseline_for`); a successful run with none to
+    compare with is an `error`. `comparison` is the byte comparison
+    (information); `statistics` is what the gate judges (`judge`).
     """
 
     found = issues()
@@ -1122,14 +1180,21 @@ def check(scratch: Path) -> dict[str, Any]:
     if names:
         summaries = run_samples(scratch, names)
         for name in names:
-            result[name] = {"run": summaries[name],
-                            "comparison": compare_runs(BASELINE_ROOT / name / "run-1", scratch / name),
-                            "statistics": _statistics_between(BASELINE_ROOT / name / "run-1", scratch / name)}
+            baseline, why = baseline_for(name, summaries[name])
+            if baseline is None:
+                if summaries[name].get("ok"):
+                    result[name] = {"run": summaries[name], "error": why}
+                    continue
+                # The run failed anyway; run-1 only fills the report.
+                baseline = BASELINE_ROOT / name / "run-1"
+            result[name] = {"run": summaries[name], "baseline": baseline.name, "baseline_why": why,
+                            "comparison": compare_runs(baseline, scratch / name),
+                            "statistics": _statistics_between(baseline, scratch / name)}
     return result
 
 
 def environment_changes(recorded: dict[str, Any], current: dict[str, Any]) -> list[str]:
-    """Card, image or accelerator facts that differ from the baseline's run-1 (reported, not judged)."""
+    """Card, image or accelerator facts that differ from a baseline run (reported, not judged)."""
 
     notes = []
     if recorded.get("images") != current.get("images"):
