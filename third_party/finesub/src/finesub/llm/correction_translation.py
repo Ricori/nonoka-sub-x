@@ -50,21 +50,24 @@ from .knowledge.style import (
     CORRECT_ONLY_TASK,
     StyleSelectionError,
     for_correct_only,
+    parse_style_names,
+    resolve_style_selection,
+)
+from finesub_knowledge.client import (
     load_style_catalog,
     load_style_entries,
-    parse_style_names,
     record_style_injected,
     resolve_style_keys,
     render_style_block,
-    resolve_style_selection,
 )
-from .knowledge.subjects import parse_subject_names, render_subject_block
+from .knowledge.subjects import parse_subject_names
+from finesub_knowledge.client import render_subject_block
 from .knowledge.base import (
     DEFAULT_KNOWLEDGE_ROOT,
     TASK_ARTIFACT_FILENAME,
     append_task_artifact,
-    pinned_generation_rev,
 )
+from finesub_knowledge.client import pinned_generation_rev
 from .knowledge.update import (
     ensure_research_context_path,
     run_knowledge_update,
@@ -1574,7 +1577,7 @@ def _generation_pin(knowledge: str, knowledge_root: str | Path | None) -> Contex
     # the run then reads the freshly harvested revision. Guarded (worktree
     # gate + write lock) and per-file isolated inside; never blocks the run.
     try:
-        from .knowledge.node.edit import harvest_rendered_edits_at_run_start
+        from finesub_knowledge.client import harvest_rendered_edits_at_run_start
 
         harvest_rendered_edits_at_run_start(root)
     except Exception as exc:

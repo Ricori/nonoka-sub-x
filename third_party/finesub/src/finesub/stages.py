@@ -444,7 +444,8 @@ def _validate_llm_configuration(
     """
 
     from finesub.llm.knowledge.base import DEFAULT_KNOWLEDGE_ROOT
-    from finesub.llm.knowledge.style import resolve_style_keys, resolve_style_selection
+    from finesub.llm.knowledge.style import resolve_style_selection
+    from finesub_knowledge.client import resolve_style_keys
     from finesub.llm.routing.capabilities import check_model_group_windows
 
     # Read again where they are used; checked here only for the early failure.
@@ -458,7 +459,7 @@ def _validate_llm_configuration(
     if names:
         resolve_style_keys(root, names)
     if knowledge != "none" and knowledge_subjects:
-        from finesub.llm.knowledge.subjects import resolve_subject_keys
+        from finesub_knowledge.client import resolve_subject_keys
 
         resolve_subject_keys(root, knowledge_subjects)
 
@@ -1735,11 +1736,10 @@ def build_asr_context(
 
     from .llm.knowledge.base import (
         DEFAULT_KNOWLEDGE_ROOT,
-        load_preinjected_entries,
-        match_terms,
         render_term_matches,
         term_lines_only,
     )
+    from finesub_knowledge.client import load_preinjected_entries, match_terms
 
     root = knowledge_root or DEFAULT_KNOWLEDGE_ROOT
     try:

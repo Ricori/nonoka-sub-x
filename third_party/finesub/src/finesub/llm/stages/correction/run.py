@@ -75,12 +75,14 @@ from ...routing.config import (
 from ...content_filter import load_content_filter_blacklist
 from ...exchange_log import ExchangeLogger
 from ...grouping import Grouping
-from ...knowledge.style import render_style_block
+from finesub_knowledge.client import render_style_block
 from ...knowledge.base import (
     DEFAULT_KNOWLEDGE_ROOT,
     append_task_artifact,
-    knowledge_version as current_knowledge_version,
     index_texts_present,
+)
+from finesub_knowledge.client import (
+    knowledge_version as current_knowledge_version,
     load_entry_texts,
     load_index_texts,
 )
@@ -132,9 +134,10 @@ def _shadow_scan_windows(
     """
 
     try:
-        from ...knowledge.base import knowledge_root_path, knowledge_signals_enabled, version_rev
+        from ...knowledge.base import version_rev
+        from finesub_knowledge.client import knowledge_root_path, knowledge_signals_enabled
         from ...knowledge.node.matching import shadow_scan
-        from ...knowledge.node.repo import KnowledgeRepo
+        from finesub_knowledge.client import KnowledgeRepo
 
         if not knowledge_signals_enabled(knowledge_root):
             return
@@ -171,8 +174,9 @@ def _log_landed_windows(
     scan; reruns deduplicate on the event key."""
 
     try:
-        from ...knowledge.base import knowledge_root_path, knowledge_signals_enabled, version_rev
-        from ...knowledge.node.repo import KnowledgeRepo
+        from ...knowledge.base import version_rev
+        from finesub_knowledge.client import knowledge_root_path, knowledge_signals_enabled
+        from finesub_knowledge.client import KnowledgeRepo
         from ...knowledge.node.signals import log_landed_windows
 
         if not knowledge_signals_enabled(knowledge_root):

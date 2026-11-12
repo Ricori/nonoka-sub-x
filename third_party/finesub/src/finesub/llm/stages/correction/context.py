@@ -29,7 +29,7 @@ from ...routing.config import (
 )
 from ...exchange_log import ExchangeLogger
 from ...grouping import Grouping, expand_sources
-from ...knowledge.base import load_entry_texts
+from finesub_knowledge.client import load_entry_texts
 from ...output_protocol import (
     CsvValidationResult,
     TranslatedCsvSegment,

@@ -64,13 +64,15 @@ from .injection_budget import render_knowledge_entries_block
 from .knowledge.base import (
     DEFAULT_KNOWLEDGE_ROOT,
     append_task_artifact,
+    index_texts_present,
+    render_term_matches,
+)
+from finesub_knowledge.client import (
     load_entry_texts,
     load_index_entries,
-    index_texts_present,
     load_index_texts,
     load_preinjected_entries,
     match_terms,
-    render_term_matches,
 )
 from .knowledge.node.presets import MATCHABLE_CATEGORIES
 from .output_tags import (
@@ -1423,7 +1425,8 @@ def _run_chunked_research(
     keep_cap = _windows_keep_cap(profile, knowledge_root, knowledge_enabled=knowledge_enabled)
     style_choice = None
     if auto_style:
-        from .knowledge.style import StyleChoice, style_vote_facts, tally_style_votes
+        from .knowledge.style import StyleChoice, tally_style_votes
+        from finesub_knowledge.client import style_vote_facts
 
         # Each chunk's pick already passed that chunk's own delivery check
         # (the forced-pick contract), so there is no invalid name to handle.

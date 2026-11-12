@@ -1246,7 +1246,7 @@ class HarnessToolServer:
             )
         rev = int(identity.split(":")[1])
         from ..knowledge.node.render import HandleMap
-        from ..knowledge.node.repo import KnowledgeRepo
+        from finesub_knowledge.client import KnowledgeRepo
 
         task_id = str(_task.get("task_id") or "")
         if self._kb_handles is None or self._kb_task_id != task_id:
@@ -1283,7 +1283,7 @@ class HarnessToolServer:
 
     def _kb_index(self, _arguments: Mapping[str, Any], *, request_id: str) -> dict[str, Any]:
         repo, rev = self._kb_context("kb_index")
-        from ..knowledge.base import kb_index_block_text
+        from finesub_knowledge.client import kb_index_block_text
 
         text = kb_index_block_text(self._kb_root, rev)
         # Not capped (the index is a required block); the digest is taken

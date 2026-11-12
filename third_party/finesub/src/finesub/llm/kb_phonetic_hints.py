@@ -191,7 +191,7 @@ def library_terms(root: str, rev: int) -> Mapping[str, tuple[Term, ...]]:
 
     from .knowledge.node.matching import ExactIndex
     from .knowledge.node.render import format_line, node_aliases
-    from .knowledge.node.repo import KnowledgeRepo
+    from finesub_knowledge.client import KnowledgeRepo
 
     store = KnowledgeRepo.open(Path(root)).store
     index = ExactIndex.build(store, rev, include_tentative=False)
@@ -235,7 +235,7 @@ def library_terms(root: str, rev: int) -> Mapping[str, tuple[Term, ...]]:
 def window_terms(root: str, rev: int, entry_keys) -> dict[str, tuple[Term, ...]]:
     """The terms of each of ``entry_keys`` that resolves to an entry, keyed like ``entry_keys``."""
 
-    from .knowledge.node.repo import KnowledgeRepo
+    from finesub_knowledge.client import KnowledgeRepo
 
     repo = KnowledgeRepo.open(Path(root))
     table = library_terms(root, rev)

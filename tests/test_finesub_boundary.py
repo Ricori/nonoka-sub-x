@@ -49,7 +49,6 @@ TRANSITIONAL: dict[tuple[str, str], str] = {
     ("projector.py", "import:finesub"): "WP-P1",
     ("gpu_tier.py", "import:finesub"): "WP-P1",
     ("llm_worker.py", "import:finesub"): "WP-P1",
-    ("knowledge_worker.py", "import:finesub"): "WP-P1",
 }
 
 #: Crossings that are not transitional: the migration tool has to recognise

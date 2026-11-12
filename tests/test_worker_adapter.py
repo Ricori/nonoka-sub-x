@@ -346,6 +346,11 @@ class WorkerAdapterTests(unittest.TestCase):
                     )
             finally:
                 KnowledgeRepo.forget(root)
+                # The preparation ran in this process's knowledge process
+                # (WP-K): close its store too, or the directory stays in use.
+                from finesub_knowledge.client import KnowledgeRepo as KnowledgePackageRepo
+
+                KnowledgePackageRepo.forget(root)
 
     def test_knowledge_task_summary_reaches_the_update_with_subject_identity(self) -> None:
         summary = worker.knowledge_task_summary(

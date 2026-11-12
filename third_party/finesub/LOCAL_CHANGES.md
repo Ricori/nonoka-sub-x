@@ -160,3 +160,42 @@
 
 **文件**：
 - `src/finesub/speech/joint/`（已删除，迁到 `src/nonoka_x/transcription/`）
+
+## 0011 知识库访问点改走知识库包的协议
+
+工作包：WP-K（`docs/transcription-engines-plan.md` 第 6 节，第 0.1 节第 5 条，4.6 第 35a 条），2026-11-12；用户 2026-11-12 批准改上锁文件里的知识库访问点（附录 B 第 37–40、45、46 问）。不是原补丁栈里的补丁
+
+**改了什么、为什么**：只有知识库包碰知识库数据。转写和纠错两半里打开知识库存储的调用（WP-P0 列出的 76 个访问点，`docs/engine-packages.md` 第 11 节），改成从 `finesub_knowledge.client` 取同名同签名的函数。客户端在配对的知识库进程（`finesub_knowledge.server`，每个客户端进程一个）里用 FineSub 原来的知识库代码执行原函数，交回原函数的返回值；返回的仓库、存储、写锁等对象以句柄留在知识库进程里，调用方对它们的后续使用也在那边执行。选哪些条目、怎么匹配、怎么渲染、提示词、知识更新写出的内容一律不变，改的只是这些名字从哪里来。
+
+19 个文件只改了 import 行，共 65 个名字，调用表达式、参数、`try/except` 一行没动：
+
+- `stages.py`（解锁但冻结）：`resolve_style_keys`、`resolve_subject_keys`、`load_preinjected_entries`、`match_terms`；`DEFAULT_KNOWLEDGE_ROOT`、`render_term_matches`、`term_lines_only`（路径与纯函数）仍从 `base` 取。
+- `llm/correction_translation.py`、`llm/research.py`、`llm/prompt_artifacts.py`、`llm/length_tier.py`、`llm/client.py`、`llm/kb_phonetic_hints.py`、`llm/agent/agent_mcp_server.py`、`llm/stages/{plan,prepare_task}.py`、`llm/stages/speaker_judge/roster.py`、`llm/stages/correction/{run,attempts,request_turn,parallel,serial,context}.py`：读条目、索引、预注入、术语匹配、风格块、主体块、风格与信号的闸、`KnowledgeRepo`、开跑收编、生成 pin。
+- `llm/knowledge/update.py`、`llm/knowledge/entries.py`（知识更新的编排留在纠错进程，附录 B 第 46 问）：`KnowledgeRepo`、`knowledge_write_lock`、`load_index_texts`、`worktree_blocks_knowledge_write`、`resolve_style_keys`、`resolve_subject_keys`。`update.py:680` 那条原始 SQL 经存储句柄在知识库进程执行，那一行没改。
+
+纯函数、常量和类（`CATEGORY_SEPARATOR`、`StyleCatalog`、`LineGate`、`version_rev`、`append_task_artifact` 等）照旧从原模块 import；`llm/knowledge/` 其余模块原样作代码副本（附录 B 第 45 问第 1 项）。生成 pin 的 ContextVar 仍是客户端进程里 `base.py` 的那个，`pinned_generation_rev`、`repin_generation_rev` 在客户端设它，只经协议读当前 rev。知识库进程里报出的 reporter 事件随响应带回，在客户端再报一次。
+
+**测试**：改之前在未改动的代码上补录了知识库基线 K1–K8（`tests/fixtures/quality/knowledge/cases/`，闸门的 `knowledge` 一项），改后与其余各项一起逐字节一致。`tests/test_knowledge_protocol.py` 用审计钩子证明两半的进程不打开知识库下的任何文件、不 `sqlite3.connect`，并覆盖知识库包不在时的就绪检查与协议本身。
+
+**何时可以去掉**：不会还原；WP-P1 把 `finesub_knowledge` 分进三个包后，这里的 import 来源随包走
+
+**文件**：
+- `src/finesub/stages.py`
+- `src/finesub/llm/agent/agent_mcp_server.py`
+- `src/finesub/llm/client.py`
+- `src/finesub/llm/correction_translation.py`
+- `src/finesub/llm/kb_phonetic_hints.py`
+- `src/finesub/llm/knowledge/entries.py`
+- `src/finesub/llm/knowledge/update.py`
+- `src/finesub/llm/length_tier.py`
+- `src/finesub/llm/prompt_artifacts.py`
+- `src/finesub/llm/research.py`
+- `src/finesub/llm/stages/correction/attempts.py`
+- `src/finesub/llm/stages/correction/context.py`
+- `src/finesub/llm/stages/correction/parallel.py`
+- `src/finesub/llm/stages/correction/request_turn.py`
+- `src/finesub/llm/stages/correction/run.py`
+- `src/finesub/llm/stages/correction/serial.py`
+- `src/finesub/llm/stages/plan.py`
+- `src/finesub/llm/stages/prepare_task.py`
+- `src/finesub/llm/stages/speaker_judge/roster.py`

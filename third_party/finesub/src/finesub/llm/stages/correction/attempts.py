@@ -38,9 +38,10 @@ from ...exchange_metadata import (
     llm_exchange_metadata,
     result_uses_high_resolution_video,
 )
-from ...knowledge.base import append_task_artifact, load_entry_texts
+from ...knowledge.base import append_task_artifact
+from finesub_knowledge.client import load_entry_texts
 from ...knowledge.feedback import remap_feedback_source_ids
-from ...knowledge.style import record_style_injected, render_style_block
+from finesub_knowledge.client import record_style_injected, render_style_block
 from ...length_tier import warn_window_pick
 from ...correction_patch import PATCH_TAG, PatchMerge, RepairBase, apply_patch, patch_instruction, repair_base
 from ...output_protocol import (
@@ -266,8 +267,9 @@ def _log_window_exposures(
     if not (run.knowledge_enabled and injected_keys):
         return
     try:
-        from ...knowledge.base import knowledge_root_path, knowledge_signals_enabled, version_rev
-        from ...knowledge.node.repo import KnowledgeRepo
+        from ...knowledge.base import version_rev
+        from finesub_knowledge.client import knowledge_root_path, knowledge_signals_enabled
+        from finesub_knowledge.client import KnowledgeRepo
         from ...knowledge.node.signals import log_exposed_entries
 
         if not knowledge_signals_enabled(run.knowledge_root):
