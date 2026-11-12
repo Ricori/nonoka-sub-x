@@ -12,7 +12,7 @@ downloads -- "delete first, download after", plan appendix B question 2):
 |---|---|---|
 | `runtime-root` | WP-M1 | rename the old big-file root to its sibling `runtime`; rewrite `storage.json` when it records the root |
 | `models` | WP-M1 | rename `models\\` to `layers\\models\\migrated\\`; delete `accel\\`, `xet\\`, `.locks\\` and `*.lock` inside |
-| `settings` | WP-R4 | deferred |
+| `settings` | WP-R4 | read the old settings and keys into `settings.json` / `secrets.json`, back the old files up (`config.migrate`) |
 | `knowledge` | WP-M2 | deferred |
 | `limit-state` | WP-M2 | deferred |
 | `task-products` | WP-M2 | deferred |
@@ -427,6 +427,11 @@ def _main_entries(
 
 
 def _settings(context: MigrationContext, blockers: list[str]) -> list[Action]:
+    from nonoka_x.config.migrate import blocker
+
+    reason = blocker(context.layout.data)
+    if reason is not None:
+        blockers.append(reason)
     return _main_entries(
         context,
         legacy.SETTINGS_FILES,

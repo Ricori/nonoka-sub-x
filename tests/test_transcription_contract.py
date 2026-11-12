@@ -543,7 +543,7 @@ def test_config_reads_key_pools(config_store: ConfigStore) -> None:
         config_store.key_pool("NO_SUCH_KEY")
 
 
-def test_registered_key_specs_live_in_memory_only(config_store: ConfigStore) -> None:
+def test_registered_key_specs_live_in_memory_and_their_keys_in_secrets_json(config_store: ConfigStore) -> None:
     spec = KeySpec("WP0_TEST_STT_KEYS", "测试 STT", "只在内存里")
     try:
         assert register_key_spec(spec) is spec
@@ -554,13 +554,17 @@ def test_registered_key_specs_live_in_memory_only(config_store: ConfigStore) -> 
             register_key_spec(KeySpec("WP0_TEST_STT_KEYS", "另一个"))
         with pytest.raises(ValueError, match="already a settings key"):
             register_key_spec(KeySpec("GEMINI_FREE", "Gemini"))
-        # Readable as an empty pool; nothing is written and the settings do not learn the name.
+        # An empty pool until saved; saved through the facade it lives in secrets.json (WP-R4,
+        # owner 2026-11-12), while the settings page's key list and FineSub's key file never learn the name.
         assert config_store.key_pool("WP0_TEST_STT_KEYS") == ()
-        assert not (config_store.root / "finesub.env").exists() or "WP0_TEST" not in (
-            config_store.root / "finesub.env"
-        ).read_text(encoding="utf-8")
+        snapshot = config_store.update({"WP0_TEST_STT_KEYS": "label:fake-registered-key"})
+        assert config_store.key_pool("WP0_TEST_STT_KEYS") == (KeyEntry("label", "fake-registered-key"),)
+        assert "WP0_TEST" not in repr(snapshot)
+        derived = config_store.root / "engines" / "finesub-shared" / ("finesub" + ".env")
+        assert not derived.exists() or "WP0_TEST" not in derived.read_text(encoding="utf-8")
+        assert "fake-registered-key" not in (config_store.root / "secrets.json").read_text(encoding="utf-8")
         with pytest.raises(ValueError):
-            config_store.update({"WP0_TEST_STT_KEYS": "x"})
+            config_store.update({"WP0_NOT_REGISTERED": "x"})
         from nonoka_x.settings import KEY_NAMES
 
         assert "WP0_TEST_STT_KEYS" not in KEY_NAMES

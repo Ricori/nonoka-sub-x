@@ -16,6 +16,12 @@ sys.path.insert(0, str(ROOT / "third_party/finesub/src"))
 from nonoka_x.settings import FineSubSettings, LOCAL_AGENT_PROVIDERS, correction_proofread
 
 
+def _derived(data_dir: str | Path, name: str) -> Path:
+    """Where `FineSubSettings` derives the file FineSub reads (until WP-R5): `engines/finesub-shared/`."""
+
+    return Path(data_dir) / "engines" / "finesub-shared" / name
+
+
 def _only_row(catalog: str) -> dict:
     """The single table of a generated `model_catalog.toml`."""
 
@@ -75,7 +81,7 @@ class FineSubSettingsTests(unittest.TestCase):
                 self.assertEqual(gemini_base_url["value"], "https://gemini.example.test/v1beta")
                 self.assertTrue(gemini_base_url["customized"])
                 if os.name != "nt":
-                    self.assertEqual((Path(temporary) / "finesub.env").stat().st_mode & 0o077, 0)
+                    self.assertEqual(_derived(temporary, "finesub.env").stat().st_mode & 0o077, 0)
         finally:
             if previous is None:
                 os.environ.pop("FINESUB_ENV_PROTECT", None)
@@ -115,13 +121,13 @@ class FineSubSettingsTests(unittest.TestCase):
                 snapshot["modelRouting"]["defaultRoute"],
                 {"provider": "openai", "model": "gpt-custom"},
             )
-            catalog = (Path(temporary) / "model_catalog.toml").read_text(encoding="utf-8")
+            catalog = _derived(temporary, "model_catalog.toml").read_text(encoding="utf-8")
             row = _only_row(catalog)
             self.assertEqual(row["provider_kind"], "openai_compat")
             self.assertEqual(row["base_url"], "https://proxy.example/v1")
             self.assertEqual(row["key_env"], "OPENAI_API_KEY")
             self.assertEqual((row["display_name"], row["api_model_id"]), ("gpt-custom", "gpt-custom"))
-            config = (Path(temporary) / "finesub.toml").read_text(encoding="utf-8")
+            config = _derived(temporary, "finesub.toml").read_text(encoding="utf-8")
             self.assertIn("[llm.preferred_targets]", config)
             self.assertIn('default = "nonoka-openai-', config)
             self.assertIn('research = "gemini-free-3_6-flash"', config)
@@ -283,7 +289,7 @@ class FineSubSettingsTests(unittest.TestCase):
             snapshot = settings.snapshot()
             self.assertFalse(snapshot["llmReady"])
             self.assertEqual(snapshot["modelRouting"]["defaultRoute"], {"provider": "nonoka-cloud", "model": "gpt-6.1-terra"})
-            self.assertNotIn(target_id, (Path(temporary) / "model_catalog.toml").read_text(encoding="utf-8"))
+            self.assertNotIn(target_id, _derived(temporary, "model_catalog.toml").read_text(encoding="utf-8"))
 
     def test_withdrawn_nonoka_cloud_model_moves_to_the_cloud_default(self) -> None:
         """GPT-6 Luna left the relay's allow list on 2026-11-08.
@@ -314,7 +320,7 @@ class FineSubSettingsTests(unittest.TestCase):
             self.assertEqual(routes["correction"], {"provider": "nonoka-cloud", "model": "gpt-6.1-terra"})
             # An unrelated save goes through instead of tripping on the old name.
             settings.update_keys({"LLM_DEFAULT_PROVIDER": "nonoka-cloud", "LLM_DEFAULT_MODEL": "gpt-6.1-terra"})
-            self.assertNotIn("gpt-6-luna", config_path.read_text(encoding="utf-8"))
+            self.assertNotIn("gpt-6-luna", _derived(temporary, "finesub.toml").read_text(encoding="utf-8"))
 
     def test_nonoka_cloud_account_is_validated(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -459,7 +465,7 @@ class FineSubSettingsTests(unittest.TestCase):
                 snapshot["modelRouting"]["defaultRoute"],
                 {"provider": "local-codex", "model": "gpt-6-luna"},
             )
-            config = (Path(temporary) / "finesub.toml").read_text(encoding="utf-8")
+            config = _derived(temporary, "finesub.toml").read_text(encoding="utf-8")
             self.assertIn('default = "local-codex-gpt-6-luna"', config)
 
             from finesub.config import clear_config_cache
@@ -597,7 +603,7 @@ class FineSubSettingsTests(unittest.TestCase):
             # to carry that through to the picker.
             self.assertTrue(agy["models"][0]["supportsAudio"])
             self.assertTrue(agy["models"][0]["supportsVideo"])
-            config = (Path(temporary) / "finesub.toml").read_text(encoding="utf-8")
+            config = _derived(temporary, "finesub.toml").read_text(encoding="utf-8")
             # The media target, not the search-entitled twin: a pinned target
             # is prepended to the bound group, so `retrieval=native` has to
             # stay free to fall through.
@@ -630,7 +636,7 @@ class FineSubSettingsTests(unittest.TestCase):
                     "LLM_ROUTE_CORRECTION_MODEL": "claude-opus-5-5",
                 }
             )
-            config = (Path(temporary) / "finesub.toml").read_text(encoding="utf-8")
+            config = _derived(temporary, "finesub.toml").read_text(encoding="utf-8")
             self.assertIn('correction-mm = "local-agy-opus-5_5"', config)
             self.assertIn('correction-text = "local-agy-opus-5_5"', config)
 
@@ -662,7 +668,7 @@ class FineSubSettingsTests(unittest.TestCase):
             # has to stay disabled on this provider rather than fail mid-run.
             self.assertFalse(any(model["supportsAudio"] for model in codebuddy["models"]))
             self.assertFalse(any(model["supportsVideo"] for model in codebuddy["models"]))
-            config = (Path(temporary) / "finesub.toml").read_text(encoding="utf-8")
+            config = _derived(temporary, "finesub.toml").read_text(encoding="utf-8")
             # The plain target, not the search-entitled twin: a pinned target is
             # prepended to the bound group, so `retrieval=native` has to stay
             # free to fall through to one that declares a search tool.
@@ -760,7 +766,7 @@ class FineSubSettingsTests(unittest.TestCase):
             self.assertEqual(routes["research"], {"provider": "local-agy", "model": "claude-sonnet-5-5"})
 
             settings.refresh_model_catalog()
-            config = config_path.read_text(encoding="utf-8")
+            config = _derived(temporary, "finesub.toml").read_text(encoding="utf-8")
             for stale in ("planning", "search_judge", "workbuddy", "hy4", "gpt-5", "opus-4"):
                 self.assertNotIn(stale, config)
             self.assertIn('default = "local-codebuddy-hy3"', config)
@@ -899,7 +905,7 @@ class FineSubSettingsTests(unittest.TestCase):
             self.assertTrue(provider["customEndpoint"])
             self.assertTrue(provider["keyConfigured"])
             self.assertEqual(provider["keyName"], "OPENAI_COMPAT_API_KEY")
-            catalog = (Path(temporary) / "model_catalog.toml").read_text(encoding="utf-8")
+            catalog = _derived(temporary, "model_catalog.toml").read_text(encoding="utf-8")
             row = _only_row(catalog)
             self.assertEqual(
                 (row["provider_kind"], row["base_url"], row["key_env"]),
@@ -954,7 +960,7 @@ class FineSubSettingsTests(unittest.TestCase):
                     "LLM_DEFAULT_MODEL": "deepseek-v4-flash",
                 }
             )
-            catalog = (Path(temporary) / "model_catalog.toml").read_text(encoding="utf-8")
+            catalog = _derived(temporary, "model_catalog.toml").read_text(encoding="utf-8")
             self.assertEqual(
                 _spec_fields(_only_row(catalog)),
                 ("DeepSeek-V4-Flash", "deepseek-v4-flash", 1000000, 384000,
@@ -1005,7 +1011,7 @@ class FineSubSettingsTests(unittest.TestCase):
                     "LLM_DEFAULT_MODEL": "claude-sonnet-5",
                 }
             )
-            catalog = (Path(temporary) / "model_catalog.toml").read_text(encoding="utf-8")
+            catalog = _derived(temporary, "model_catalog.toml").read_text(encoding="utf-8")
             row = _only_row(catalog)
             self.assertEqual((row["provider_kind"], row["base_url"]), ("anthropic", "https://relay.example"))
             self.assertEqual(
@@ -1043,7 +1049,7 @@ class FineSubSettingsTests(unittest.TestCase):
                     "LLM_DEFAULT_MODEL": "deepseek-v4-pro",
                 }
             )
-            catalog = Path(temporary) / "model_catalog.toml"
+            catalog = _derived(temporary, "model_catalog.toml")
             catalog.write_text(
                 catalog.read_text(encoding="utf-8").replace("max_output_tokens = 384000", "max_output_tokens = 16384"),
                 encoding="utf-8",
@@ -1060,7 +1066,7 @@ class FineSubSettingsTests(unittest.TestCase):
             legacy.write_text("fact_id|provider_tier\n", encoding="utf-8")
             with patch.dict(os.environ, {}, clear=False):
                 FineSubSettings(temporary).bind_environment()
-                self.assertEqual(os.environ["FINESUB_MODEL_CATALOG"], str(Path(temporary).resolve() / "model_catalog.toml"))
+                self.assertEqual(os.environ["FINESUB_MODEL_CATALOG"], str(_derived(temporary, "model_catalog.toml").resolve()))
             self.assertFalse(legacy.exists())
 
     def test_a_correction_on_nonoka_cloud_is_not_proofread(self) -> None:
@@ -1091,7 +1097,7 @@ class FineSubSettingsTests(unittest.TestCase):
                     "LLM_DEFAULT_MODEL": "vendor-large",
                 }
             )
-            catalog = (Path(temporary) / "model_catalog.toml").read_text(encoding="utf-8")
+            catalog = _derived(temporary, "model_catalog.toml").read_text(encoding="utf-8")
             # No display name to borrow, and no reasoning parameter: an endpoint
             # nobody has declared may 400 on a field it does not know. The two
             # window figures sit at FineSub 0.5.0's warning line rather than

@@ -13,9 +13,9 @@ appendix A.3: D5, D10, D18, D21 and D23 are superseded):
   held `runtime\\` (the venv, the interpreter builds, the tools), `models\\`,
   `cache\\`, the store marker and the registration script.
 
-This is the one module of `nonoka_x` that names FineSub's old files
-(`tests/test_finesub_boundary.py` allows it exactly that): migration has to
-recognise the layout it replaces. Nothing here reads a key or a setting --
+This is the one module of `nonoka_x` that names FineSub's old files and the
+old key file's variable names (`tests/test_finesub_boundary.py` allows it
+exactly that): migration has to recognise the layout it replaces. Nothing here reads a key or a setting --
 files are only found, measured and, later, moved or deleted.
 """
 
@@ -62,6 +62,14 @@ MODEL_LOCK_SUFFIX = ".lock"
 #: Settings and keys: read into `settings.json` / `secrets.json` by WP-R4's
 #: `config/migrate.py`, then renamed as a backup.
 SETTINGS_FILES = ("finesub.env", "finesub.toml")
+#: The old key file's protector line (`finesub_bootstrap/secrets.py:58`): read, never carried.
+KEYRING_NAME = "FINESUB_KEYRING"
+#: FineSub's names for the cloud ASR engines' keys -> Nonoka's (WP1; plan appendix B question 36).
+LEGACY_KEY_RENAMES = {
+    "FINESUB_KEY_OPENROUTER_STT": "OPENROUTER_STT_KEY",
+    "FINESUB_KEY_AZURE_SPEECH": "AZURE_SPEECH_KEY",
+    "FINESUB_AZURE_SPEECH_ENDPOINT": "AZURE_SPEECH_ENDPOINT",
+}
 #: Derived per process from now on, so deleted (R0 2.7 item 5).
 REBUILDABLE_FILES = ("model_catalog.toml", "model_catalog.psv")
 FINESUB_DATA_DIRECTORY = "finesub-data"
