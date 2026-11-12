@@ -178,8 +178,11 @@ def _worker_launch(run_dir: Path) -> tuple[list[str], dict[str, str], Path, list
 
     from .hygiene import scrubbed_environment
 
-    # Read before the scrub, which removes NONOKA_QUALITY_* along with the rest.
+    # Read before the scrub, which removes NONOKA_QUALITY_* along with the rest: the
+    # interpreter and the runtime location (`NONOKA_QUALITY_DATA_DIR`/`_INSTALL_DIR`,
+    # e.g. the WP-E1 layers staged as an install root) both have to survive it.
     override = python_override()
+    data_dir, install_dir = locate_runtime()
     saved = dict(os.environ)
     clean, removed = scrubbed_environment()
     os.environ.clear()
@@ -187,7 +190,6 @@ def _worker_launch(run_dir: Path) -> tuple[list[str], dict[str, str], Path, list
     try:
         settings = FineSubSettings(run_dir / "config")
         settings.bind_environment()
-        data_dir, install_dir = locate_runtime()
         provisioner = RuntimeProvisioner(data_dir, VENDOR, install_dir)
         provider = local_provider.LocalProvider(
             run_dir / "tasks", VENDOR, settings=settings, provisioner=provisioner, issues=[]
