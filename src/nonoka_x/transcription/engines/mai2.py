@@ -17,6 +17,9 @@ documents under 120 min and under 300 MB a file, and a 100-min window of the
 upload MP3 (16 kHz mono 64 kbps) is about 48 MB. So a window is never halved: a
 504 is a busy gateway, retried like any 5xx, and a 413 is an error.
 
+The engine (`Mai2Engine`, WP3a) runs without repair: re-asking needs Silero and voiceprints (`enhance/`), which
+the first version does not wire (plan 4.1 item 6). The repair below is kept, unreached, for a later phase.
+
 Repair (`--asr-repair on`, `docs/joint-asr.md`「退化的修补」): MAI2 bills by audio time, so a gap Silero hears
 speech in is asked of MAI2 again (`reask`): gaps closer than `repair.MERGE_WITHIN` as one span, REASK_PAD s of
 audio either side. Only the words inside a gap are taken, less an edge that repeats the neighbours. The answer
@@ -32,12 +35,13 @@ import tempfile
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable
+from typing import TYPE_CHECKING, Any, Callable
 
+from .. import keys
+from .. import lines as L
 from .. import repair as R
 from ..audio import extract_upload_mp3, probe_media_duration
 from ..cache import CacheMiss, CallCache, audio_fingerprint
-from ..enhance.relink import VOICEPRINTS, Voiceprints, Voices
 from ..http import CONNECT_TIMEOUT_SECONDS, RETRYABLE_TRANSPORT, api_http_client, retryable_status
 from ..keys import OPENROUTER_STT_KEY
 from ..reporting import current_reporter
@@ -45,6 +49,12 @@ from ..stitch import stitch, windows
 from ..units import Transcript, Unit, turns_from_units
 from . import MAI2
 from .moss_pro import SpeechSpans
+
+from .. import DIARIZATION_LEVELS, EngineEnvironment, EngineFeatures, EngineSpec, Issue, Reporter, TranscriptionJob
+from .cloud import MEDIA, CloudEngine, CloudEngineError, guarded
+
+if TYPE_CHECKING:
+    from ..enhance.relink import Voiceprints
 
 MODEL = "mai-transcribe-2"
 OPENROUTER_API = "https://openrouter.ai/api/v1/audio/transcriptions"
@@ -180,6 +190,17 @@ def identity(source: Path, via: str, language: str | None) -> dict:
             "language": language, "audio": audio_fingerprint(source)}
 
 
+def window_cache(source: Path, cache_root: str | Path, via: str, language: str | None, *,
+                 offline: bool = False) -> CallCache:
+    """The cache of the windows' answers (`cache_root/mai2/`); `language` is the task's, as `transcribe` takes it."""
+    locale = LOCALES.get((language or "").lower())
+    return CallCache(cache_root, MAI2, identity=identity(source, via, locale), offline=offline)
+
+
+def window_name(start: float, end: float) -> str:
+    return f"w-{start:.1f}-{end:.1f}"
+
+
 def transcribe(
     source: str | Path,
     *,
@@ -198,7 +219,7 @@ def transcribe(
 
     src = Path(source)
     locale = LOCALES.get((language or "").lower())
-    cache = CallCache(cache_root, MAI2, identity=identity(src, via, locale), offline=offline)
+    cache = window_cache(src, cache_root, via, language, offline=offline)
     total = duration if duration is not None else probe_media_duration(src)
 
     def window(start: float, end: float) -> tuple[float, float, list[dict]]:
@@ -212,13 +233,17 @@ def transcribe(
                 clip = extract_upload_mp3(src, start, end, Path(tmp) / "window.mp3")
                 return caller(clip, locale=locale)
 
-        return start, end, answer_words(cache.fetch(f"w-{start:.1f}-{end:.1f}", ask), start)
+        return start, end, answer_words(cache.fetch(window_name(start, end), ask), start)
 
     pieces = [window(lo, hi) for lo, hi in windows(0.0, total, WINDOW[via], OVERLAP)]
     units = stitch(pieces, segments=False)
     units.sort(key=lambda u: u["start"])  # words do not overlap; output order is time order
     log = [{"windows": [[round(lo, 1), round(hi, 1)] for lo, hi, _ in pieces]}] if len(pieces) > 1 else []
     if R.mode(repair) != "off":
+        # The repair hears gaps through Silero and names voices (`enhance/`): never reached from the engine,
+        # which runs without the Python environment layer (plan 4.1 item 6); kept for a later phase.
+        from ..enhance.relink import VOICEPRINTS
+
         repair_cache = CallCache(cache_root, REPAIR_CACHE, offline=offline,
                                  identity=dict(identity(src, via, locale), provider=REPAIR_CACHE, pad=REASK_PAD))
 
@@ -245,6 +270,8 @@ def reask(units: list[dict], *, total: float, ask: Callable[[float, float], list
           voiceprints: Voiceprints) -> tuple[list[dict], list[dict]]:
     """The units (by start) with what re-asking each span of gaps recovered, and one log entry per span (module
     docstring). `ask(lo, hi)` is MAI2's words for [lo, hi], absolute times."""
+    from ..enhance.relink import Voices
+
     voices = Voices(speech.pcm, voiceprints, R.blocks(units))
     log, new_units, failed = [], [], []
     # one window of the shorter route at most: a re-ask is not split like the first pass's windows
@@ -277,3 +304,82 @@ def reask(units: list[dict], *, total: float, ask: Callable[[float, float], list
         current_reporter().warning("cloud-repair-failed", f"MAI2 重问 {len(failed)} 处失败（{failed[0]['failed']}）",
                                    impact="这几处的空档照原样留着；metadata 里记了是哪几处")
     return sorted([*units, *new_units], key=lambda u: u["start"]), log
+
+
+# --- the engine -------------------------------------------------------------------------------------------
+
+ENGINE_ID = "mai2"
+LABEL = "MAI-Transcribe-2"
+#: MAI2's price per audio hour on both routes (OpenRouter and Azure, 2026-10), for the estimate before a run.
+USD_PER_HOUR = 0.10
+
+SPEC = EngineSpec(
+    id=ENGINE_ID,
+    label=LABEL,
+    kind="cloud-api",
+    features=EngineFeatures(speakers=True, word_timestamps=True, separate=False,
+                            diarization_levels=DIARIZATION_LEVELS),
+    # Either route: OpenRouter's key, or the user's Azure Speech resource (key and endpoint).
+    keys=(keys.OPENROUTER_STT_KEY, keys.AZURE_SPEECH_KEY, keys.AZURE_SPEECH_ENDPOINT),
+    environment=EngineEnvironment(components=(MEDIA,)),
+    billing=f"按音频时长计费，约 ${USD_PER_HOUR:.2f}/小时（OpenRouter 或自己的 Azure Speech，2026-10 价格）",
+)
+
+
+def route(store: Any) -> Caller | None:
+    """The route Nonoka's keys open (FineSub's joint stage chose the same way): OpenRouter when its key is saved,
+    else the user's Azure Speech resource when both its key and endpoint are; None when neither."""
+    key = keys.single(OPENROUTER_KEY_ENV, store=store)
+    if key:
+        return Caller("openrouter", key)
+    endpoint = keys.single(keys.AZURE_SPEECH_ENDPOINT, store=store)
+    key = keys.single(keys.AZURE_SPEECH_KEY, store=store)
+    if endpoint and key:
+        return Caller("azure", key, endpoint)
+    return None
+
+
+def billable_seconds(source: Path, *, cache_root: str | Path, via: str, language: str | None,
+                     duration: float) -> float:
+    """The audio a run will upload (owner 2026-11-12, WP3 question 4): every window not cached yet, at its full
+    length -- the OVERLAP seconds two windows share are billed twice."""
+    cache = window_cache(source, cache_root, via, language)
+    return sum(hi - lo for lo, hi in windows(0.0, duration, WINDOW[via], OVERLAP)
+               if cache.load(window_name(lo, hi)) is None)
+
+
+def estimate_notice(seconds: float, *, via: str) -> str:
+    hours = seconds / 3600
+    return (f"MAI-Transcribe-2（{via}）按音频时长计费：这次要上传 {hours:.2f} 小时音频（窗口重叠部分计两次，"
+            f"已缓存的窗口不计），按 ${USD_PER_HOUR:.2f}/小时（2026-10 价格）约 ${hours * USD_PER_HOUR:.2f}")
+
+
+class Mai2Engine(CloudEngine):
+    """MAI-Transcribe-2 as a `TranscriptionEngine` (WP3a). No gap re-asks: they need Silero (plan 4.1 item 6)."""
+
+    spec = SPEC
+    label = LABEL
+
+    def key_issues(self, store: Any) -> list[Issue]:
+        if route(store) is not None:
+            return []
+        return [Issue("missing_key", f"MAI-Transcribe-2 需要 {keys.OPENROUTER_STT_KEY}（OpenRouter），或 "
+                                     f"{keys.AZURE_SPEECH_KEY} 加 {keys.AZURE_SPEECH_ENDPOINT}（自己的 Azure Speech 资源）")]
+
+    def run(self, job: TranscriptionJob, report: Reporter, *, duration: float,
+            language: str | None) -> tuple[Transcript, dict[str, Any]]:
+        caller = route(self._store)
+        if caller is None:
+            raise CloudEngineError(self.key_issues(self._store)[0].message)
+        seconds = billable_seconds(job.source, cache_root=job.cache_dir, via=caller.via, language=language,
+                                   duration=duration)
+        current_reporter().warning("cloud-asr-cost", estimate_notice(seconds, via=caller.via))
+        transcript = transcribe(job.source, cache_root=job.cache_dir, language=language, via=caller.via,
+                                repair="off", caller=guarded(caller, label=LABEL, report=report), duration=duration)
+        return transcript, {"via": caller.via, "repair": "off", "edge_pad": L.MAI2_EDGE_PAD}
+
+    def build_lines(self, transcript: Transcript, *, duration: float, params, language: str | None) -> list[dict]:
+        """FineSub's joint stage for MAI2 (arm M1): one DP over the words by start, then the edges widened."""
+        units = [u.as_dict() for u in transcript.units()]
+        segments, _ = L.word_lines(units, duration=duration, params=params, language=language)
+        return L.widened(segments, pad=L.MAI2_EDGE_PAD, duration=duration)

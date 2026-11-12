@@ -33,18 +33,20 @@ import tempfile
 import time
 import unicodedata
 from pathlib import Path
-from typing import Callable
+from typing import TYPE_CHECKING, Callable
 
 from .. import keys
 from ..audio import extract_upload_mp3, probe_media_duration
 from ..cache import CallCache, audio_fingerprint
-from ..enhance.relink import VOICEPRINTS, Relinker, Voiceprints
 from ..http import CONNECT_TIMEOUT_SECONDS, api_http_client
 from ..keys import BEIJING, KeyLedger, QuotaExhausted
 from ..reporting import current_reporter
 from ..stitch import stitch, windows
 from ..units import Transcript, Unit, segment_turns
 from . import MOSS_PRO
+
+if TYPE_CHECKING:
+    from ..enhance.relink import Voiceprints
 
 MODEL = "moss-transcribe-diarize-pro"
 API = "https://api.mosi.cn/v1/audio/transcriptions"
@@ -313,6 +315,8 @@ def transcribe(
     call = caller or Caller()
     total = duration if duration is not None else probe_media_duration(src)
     gate = speech or SpeechSpans(src)
+    from ..enhance.relink import VOICEPRINTS, Relinker
+
     relink = Relinker(gate.pcm, voiceprints or VOICEPRINTS)
     log: list[dict] = []
 
