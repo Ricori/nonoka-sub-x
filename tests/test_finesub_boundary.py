@@ -43,7 +43,6 @@ TRANSITIONAL: dict[tuple[str, str], str] = {
     ("worker.py", "import:finesub"): "WP-P1",  # WP4c removes finesub.stages first
     ("worker.py", "env:FINESUB_"): "WP-P1",
     ("settings.py", "import:finesub"): "WP-P1",
-    ("settings.py", "import:finesub_bootstrap"): "WP-R4",
     ("settings.py", "env:FINESUB_"): "WP-R5",
     ("settings.py", "file:finesub"): "WP-R5",
     ("projector.py", "import:finesub"): "WP-P1",
@@ -54,9 +53,11 @@ TRANSITIONAL: dict[tuple[str, str], str] = {
 
 #: Crossings that are not transitional: the migration tool has to recognise
 #: the old layout it replaces, so its one inventory module may name FineSub's
-#: old files (user 2026-11-12, WP-M1). Only that kind, only that file.
+#: old files (user 2026-11-12, WP-M1) and the old key file's variable names
+#: (its keyring line, three old key names; WP-R4). Only those kinds, only that file.
 LEGACY_LAYOUT: dict[tuple[str, str], str] = {
     ("migration/legacy.py", "file:finesub"): "WP-M1",
+    ("migration/legacy.py", "env:FINESUB_"): "WP-R4",
 }
 
 WORK_PACKAGES = frozenset({"WP-R2", "WP-R3", "WP-R4", "WP-R5", "WP4b", "WP4c", "WP-P1"})
@@ -165,7 +166,8 @@ def test_the_legacy_layout_exemption_is_used_and_narrow() -> None:
     found = scan()
     for (file, kind) in LEGACY_LAYOUT:
         assert (file, kind) in found, f"{file}: {kind} no longer crosses; delete it from LEGACY_LAYOUT"
-        assert kind == "file:finesub", (file, kind)
+        assert kind in {"file:finesub", "env:FINESUB_"}, (file, kind)
+        assert file == "migration/legacy.py", (file, kind)
         assert file not in ALLOWED, file
 
 

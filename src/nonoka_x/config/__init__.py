@@ -5,15 +5,17 @@ through here, never through `nonoka_x.settings` directly, so the runtime line
 can replace what is underneath (WP-R4) without touching the engine line
 (`docs/transcription-engines-plan.md`, section 6).
 
-For now this is a thin layer over `settings.FineSubSettings`:
+Underneath is Nonoka's own storage (WP-R4): `<data dir>/settings.json`
+(`config.store`) and `<data dir>/secrets.json` (`config.secrets`, FineSub's
+envelope); `config.migrate` reads an old install's files into them.
+`settings.FineSubSettings` is the settings page's model on top of the two.
 
-- `key_pool(name)` reads a key pool from the protected key file;
+- `key_pool(name)` reads a key pool from `secrets.json`;
 - `snapshot()` / `update(...)` are the settings snapshot and update the
-  desktop already uses;
-- `register_key_spec(...)` only records a new key's spec in memory. It does
-  not add to the settings' key list and writes nothing: new keys go straight
-  into Nonoka's own secret store once WP-R4 has built it, and until then a
-  registered name reads as an empty pool;
+  desktop already uses; `update` also takes the registered names;
+- `register_key_spec(...)` records a key the settings page does not list (the
+  cloud ASR engines' keys, WP1/WP3). It is kept in memory only and does not add
+  to the page's key list; its value lives in `secrets.json` like any other key;
 - `ConfigStore.state_file(name)` is where Nonoka's own small state files live
   (`<data dir>/state/<name>.json`, WP1).
 """
@@ -27,6 +29,8 @@ import threading
 from typing import Any, Mapping
 
 _KEY_NAME = re.compile(r"^[A-Z][A-Z0-9_]{0,63}$")
+#: Names whose value is one address, not a pool: never split on `:` or `,`.
+_SCALAR_SUFFIXES = ("_ENDPOINT",)
 _STATE_NAME = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}$")
 
 
@@ -127,20 +131,20 @@ class ConfigStore:
     def key_pool(self, name: str) -> tuple[KeyEntry, ...]:
         """The keys saved under `name`, in the order they were entered.
 
-        Unknown names raise; a registered name that has no storage yet (see
-        the module docstring) and a known name with nothing saved are both
-        an empty pool.
+        Unknown names raise; a known or registered name with nothing saved is
+        an empty pool. An endpoint (a name ending in `_ENDPOINT`) is one
+        unlabelled entry holding the whole address.
         """
 
-        known = {spec.name for spec in _existing_specs()}
+        known = {spec.name for spec in key_specs()}
         if name not in known:
-            if name in {spec.name for spec in registered_key_specs()}:
-                return ()
             raise KeyError(f"unknown key {name!r}")
         from nonoka_x import settings as settings_module
 
-        values = settings_module._secrets_module().read_env_file(self._settings.env_file)
-        raw = values.get(name, "")
+        raw = self._settings.secret_values().get(name, "")
+        if name.endswith(_SCALAR_SUFFIXES):
+            value = raw.strip()
+            return (KeyEntry("", value),) if value else ()
         return tuple(KeyEntry(label, value) for label, value in settings_module._entries(raw))
 
     def has_key(self, name: str) -> bool:
@@ -166,7 +170,8 @@ class ConfigStore:
     def update(self, updates: Mapping[str, Any]) -> dict[str, Any]:
         """Save settings and keys (`None` clears one); returns the new snapshot."""
 
-        return self._settings.update_keys(updates)
+        registered = frozenset(spec.name for spec in registered_key_specs())
+        return self._settings.update_keys(updates, extra_key_names=registered)
 
 
 __all__ = [

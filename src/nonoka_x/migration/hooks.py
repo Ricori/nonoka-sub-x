@@ -14,6 +14,8 @@ that does not exist yet (`docs/transcription-engines-plan.md` WP-M1, WP-M2):
 
 Each is a `StepHook`. Until its owner provides one, the step stays in the
 plan, says what it will touch and who implements it, and is skipped.
+`available_hooks()` is what the owners provide so far; the command line passes
+it, library callers pass their own (or none).
 """
 
 from __future__ import annotations
@@ -83,6 +85,14 @@ class StepHook(Protocol):
 
 Hooks = Mapping[str, StepHook]
 
+
+def available_hooks() -> dict[str, StepHook]:
+    """The deferred steps whose owners have implemented them: `settings` (WP-R4, `config.migrate`)."""
+
+    from nonoka_x.config.migrate import SettingsHook
+
+    return {SETTINGS: SettingsHook()}
+
 __all__ = [
     "DEFERRED_OWNERS",
     "KNOWLEDGE",
@@ -96,4 +106,5 @@ __all__ = [
     "Hooks",
     "MigrationContext",
     "StepHook",
+    "available_hooks",
 ]

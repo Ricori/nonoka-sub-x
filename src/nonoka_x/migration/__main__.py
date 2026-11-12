@@ -22,6 +22,7 @@ from pathlib import Path
 import sys
 
 from nonoka_x.migration import legacy
+from nonoka_x.migration.hooks import available_hooks
 from nonoka_x.migration import plan as planning
 from nonoka_x.migration.runner import MigrationError, execute, prepare
 
@@ -71,7 +72,8 @@ def main(argv: list[str] | None = None) -> int:
         _print(json.dumps(plan.to_dict(), ensure_ascii=False, indent=2) if args.json else planning.render(plan))
 
     try:
-        plan = prepare(data_dir, checkout=args.checkout)
+        hooks = available_hooks()
+        plan = prepare(data_dir, checkout=args.checkout, hooks=hooks)
     except MigrationError as error:
         _print(f"Cannot plan the migration: {error}")
         return EXIT_FAILED
@@ -93,7 +95,7 @@ def main(argv: list[str] | None = None) -> int:
             return EXIT_NOT_CONFIRMED
     log = (lambda message: None) if args.json else _print
     try:
-        plan = execute(plan, log=log)
+        plan = execute(plan, hooks=hooks, log=log)
     except MigrationError as error:
         _print(f"Migration stopped: {error}\nRun the same command again to continue from where it stopped.")
         return EXIT_FAILED
