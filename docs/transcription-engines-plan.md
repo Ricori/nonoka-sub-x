@@ -1,6 +1,6 @@
 # 转写引擎重构计划
 
-> 状态（2026-11-11）：WP-Q、WP-A、WP0、WP-R0 已完成并合进 main；WP-C 的 harness 已合进 main，云端基线还没录成（见 WP-C）；编译加速已在 `85ae2b9` 关闭；WP-R2、WP-B、WP-R1、WP1、WP4a、WP4b、WP4c、WP3a/b/c、WP-C、WP-P0、WP-M1（最后一条完成标准除外）、WP-R4、WP-K、WP-E1、WP-CL0 已完成并合进 main（WP-CL0 的预热脚本合进云端仓库的 main；各包按附录 B 的答复调整）；2026-11-12 用户决定知识库独立成第三个包、全部经协议访问（第 0.1 节第 5 条、4.6 第 35a 条、WP-K）；其余未开工。本文档是交给子代理执行的工作说明，每个工作包可以单独领走。
+> 状态（2026-11-11）：WP-Q、WP-A、WP0、WP-R0 已完成并合进 main；WP-C 的 harness 已合进 main，云端基线还没录成（见 WP-C）；编译加速已在 `85ae2b9` 关闭；WP-R2、WP-B、WP-R1、WP1、WP4a、WP4b、WP4c、WP3a/b/c、WP-C、WP-P0、WP-M1（最后一条完成标准除外）、WP-R4、WP-K、WP-E1、WP-CL0 已完成并合进 main（WP-CL0 的预热脚本合进云端仓库的 main；各包按附录 B 的答复调整）；2026-11-12 用户决定知识库独立成第三个包、全部经协议访问（第 0.1 节第 5 条、4.6 第 35a 条、WP-K）；WP5、WP-E2、WP-E3 已派给各自的会话（第五批，2026-11-13）；其余未开工。本文档是交给子代理执行的工作说明，每个工作包可以单独领走。
 > 写于 2026-11-10，基于 `main@1f14db3`、FineSub `v0.7.0@7123055`。
 > **2026-11-11 整理成干净版本**（用户决定，附录 B 第 1 问）：现行决定直接写在正文里，不再有「以后者为准」的追加条款。每个决定的来历、被推翻的旧说法，以及旧条款编号到新编号的对照，见附录 A；向用户问过的问题和答复见附录 B；还没定的事见附录 C。整理前的版本在 git 历史里（`main` 上的 `docs/transcription-engines-plan.md`）。
 > 相关文档：`docs/runtime-and-config.md`（WP-R0 的调查与设计答复 D1–D23，下称「R0 文档」；其中被本计划取代的答复已在那边标注，对照见附录 A.3）；`docs/engine-sandbox-experiment.md`（预制环境包与进程级沙箱两个前提的实验报告，下称「实验报告」）。本文档与 R0 文档冲突时以本文档为准。
@@ -742,6 +742,35 @@ harness 已在 main（`tests/quality_harness/cloud.py`、`quality_gate.py --clou
 
 ### WP-E2 R2 托管与发布（新）
 
+> 用户 2026-11-13（附录 B 第 59–61 问）：桶 `nonoka-x-layers`（新建、公开读，不复用云端任务用的私有桶 `nonoka-x-cloud`），自定义域名 `layers.nonoka.online`；桶、域名、速率限制规则由用户在 Cloudflare 上建，会话先写好脚本和手册里的建桶步骤，桶建好后用用户本机的凭据上传（传之前列出对象与大小），之后做外网下载校验；没被任何已发布版本引用的旧版本不自动删，脚本只列出来，删除由用户确认。
+
+> **`layers.json` 的格式**（2026-11-13 定，WP-E2 写、WP-E3 读；要改先经主会话问用户）：
+>
+> ```json
+> {
+>   "schema": 1,
+>   "platform": "windows-x64",
+>   "baseUrl": "https://layers.nonoka.online/",
+>   "layers": {
+>     "python": {
+>       "version": "8cc0ee612a5db785",
+>       "manifest": {"path": "v1/python/<清单 sha256>.json", "size": 0, "sha256": "<清单 sha256>"},
+>       "archive":  {"path": "v1/python/<压缩包 sha256>.tar.zst", "size": 0, "sha256": "<压缩包 sha256>"}
+>     },
+>     "models": {"...": "同上"},
+>     "tools":  {"...": "同上"}
+>   },
+>   "files": {"layers": ["models"], "path": "v1/files/{sha256}"}
+> }
+> ```
+>
+> - `path` 都相对 `baseUrl`；对象按内容哈希命名，上传后不再改（第 18 条）。
+> - `version` 必须等于清单 sha256 的前 16 位（`layer_manifest.version_of`），读的一方要核对；清单的字节与压缩包里的 `.nonoka-layer.json` 相同。
+> - `files`：列出的层（只有模型层）里每个文件另按它的 sha256 存一份单文件，地址把 `{sha256}` 换成文件的 sha256，迁移时按文件补齐用（4.4 第 25 条）。
+> - 离线包里用同样的相对路径存这些对象，层管理器先找离线包、再联网。
+> - 测试里 `baseUrl` 可以换成本地 HTTP 服务。
+
+
 - 文件：`scripts/publish_layers.py`、`src/nonoka_x/resources/layers.json`（这个版本要的各层：版本、压缩包地址、大小、sha256、清单地址；模型层的单文件地址规则）、`docs/runtime-layers.md`（发布部分）、`tests/test_publish_layers.py`。
 - 内容：按 4.2 第 18 条。
   - R2 桶、自定义域名、速率限制规则由用户在 Cloudflare 上建（账号与凭据只在用户本机，不进仓库、不进日志）；本包写清楚要建什么，脚本只用本机的凭据。
@@ -751,6 +780,9 @@ harness 已在 main（`tests/quality_harness/cloud.py`、`quality_gate.py --clou
 - 完成标准：脚本把 WP-E1 的产出传上去；从外网（经代理和不经代理各一次）按 `layers.json` 下载、按清单校验通过；对同一对象重复上传不产生变化；速率限制规则生效（手册里有验证步骤）。
 
 ### WP-E3 层管理器（新，取代原 WP-R3）
+
+> `layers.json` 的格式见 WP-E2 一节（两包按同一份格式并行）。WP-E1 交来的：解压必须保留文件的修改时间（否则分离器的 `.verified` 戳记失效、引擎往模型层写新戳）；Python 层最长相对路径 138 字符；numba 会往 Python 层写缓存（`NUMBA_CACHE_DIR` 归 WP-R5 / WP-H，本包的只读核对要能指出是哪些文件）。
+
 
 - 文件：`runtime/__init__.py`（把门面换成真实现）、`runtime/layers.py`、`provision.py`、`runtime_install.py`、`model_install.py`、`model_specs.py`、`msvc_runtime.py` 及对应测试（`tests/test_provision.py`、`test_runtime_install.py`、`test_model_install.py`、`test_offline_model_install.py` 按新行为重写）；`tests/quality_harness/real.py`、`pins.py`（只改定位）。
 - 内容：按 4.2 第 19 条。
@@ -1197,6 +1229,10 @@ R0 文档里这几条已按此加了标注（只加标注，不删原文）。
 | 55 | `real.py` 先清 `NONOKA_QUALITY_*` 再定位，`--real` 用不上层里的模型和工具 | 改：清环境前先定位（推荐项，2026-11-12） |
 | 56 | WP-CL0：云端预热放哪些模型；缺的怎么放进 Volume；已有的校验不过怎么办；没有哈希的小文件怎么校验 | 只放云端实际加载的 4 个；同库同参数下载、脚本自己校验；报错、不动文件；只看在不在（2026-11-12） |
 | 57 | WP-CL0：`--cloud` 要从临时 Volume 读模型，得改本仓库的 harness；要不要顺手更新 `compute.md`；Modal 上的花费 | 在本仓库开分支改 harness；更新 `compute.md`；Modal 上的全部运行（约 $0.55）同意，中途被打断后同意重跑；用完后删掉临时 Volume（2026-11-12） |
+| 58 | 第五批开哪几个包 | WP5、WP-E2、WP-E3 三个并行（推荐项）；`layers.json` 的格式由主会话先定、写进计划（WP-E2 一节） |
+| 59 | WP-E2 的 R2 桶与域名（原附录 C 第 8 项） | 新建公开读桶 `nonoka-x-layers`，自定义域名 `layers.nonoka.online`（推荐项） |
+| 60 | R2 上没被任何已发布版本引用的旧版本保留多久（原附录 C 第 8 项） | 不自动删；脚本列出没被引用的版本和各自大小，删除由用户确认（推荐项） |
+| 61 | WP-E2 往 R2 上传约 10 GiB 公开内容并做外网下载校验 | 批准：桶建好后由会话用用户本机的凭据上传，传之前列出对象与大小（推荐项） |
 
 更早的问答：WP-R0 的 D1–D23 见 R0 文档第 0 节；WP0 的细节见附录 A.1；沙箱实验中的决定见实验报告。
 
@@ -1211,7 +1247,7 @@ R0 文档里这几条已按此加了标注（只加标注，不删原文）。
 | 3 | 云端统计标准的具体阈值 | WP-C 实测后 | 附录 B 第 11 问 |
 | 4 | ~~VC++ 运行库~~ | 已答复 | 见附录 B 第 30 问 |
 | 5 | ~~cn 锁不复制进 Nonoka 的清单~~ | 已答复 | 见附录 B 第 23 问 |
-| 6 | ~~模型层包含哪些模型~~ | 已答复 | 见附录 B 第 53 问：只放默认路径的 5 个 | 模型清单有 11 条；实验的模型层 4.0 GiB 是本机已装的那些 |
+| 6 | ~~模型层包含哪些模型~~ | 已答复 | 见附录 B 第 53 问：只放默认路径的 5 个 |
 | 7 | ~~macOS 的工具层在哪里构建~~ | 已答复 | 见附录 B 第 31 问；macOS 工具层另定 |
-| 8 | R2 上旧层版本的保留期限，以及桶名、域名 | WP-E2 开工前 | 被已发布桌面版本引用的层不删 |
+| 8 | ~~R2 上旧层版本的保留期限，以及桶名、域名~~ | 已答复 | 见附录 B 第 59、60 问 |
 | 9 | 迁移「先删后下」期间，界面要不要提示改用云端 FineSub 或云 API 引擎 | WP-M2 开工前 | 工具层装好后云 API 引擎即可用 |
