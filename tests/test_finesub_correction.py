@@ -22,7 +22,6 @@ import json
 import os
 import subprocess
 import sys
-import tempfile
 import textwrap
 from pathlib import Path
 from types import SimpleNamespace
@@ -487,24 +486,3 @@ def test_the_model_is_sent_the_baselines_requests() -> None:
     if missing:
         pytest.skip(f"compared {len(cases)} replay cases; not on this machine: {', '.join(missing)}")
 
-
-def test_the_continuation_seed_is_the_engines_placement() -> None:
-    """The worker's cloud seed and the engine put the files in the same place."""
-
-    from nonoka_x import worker
-
-    with tempfile.TemporaryDirectory() as temp:
-        root = Path(temp)
-        cloud = root / "cloud.stable.json"
-        cloud.write_text('{"segments": []}', encoding="utf-8")
-        timeline = root / "cloud.diar.json"
-        timeline.write_text("{}", encoding="utf-8")
-        media = root / "media.m4a"
-        output = engine.output_path(root / "task", "节目")
-        output.parent.mkdir(parents=True)
-        request = {"source": {"kind": "cloud_stable", "path": str(media), "stable_json": str(cloud),
-                              "diar_json": str(timeline)}}
-        seeded = worker.seed_cloud_stable(request, output)
-        paths = engine.place_native(media, output, {engine.NATIVE_STABLE: cloud, engine.NATIVE_DIAR: timeline})
-        assert seeded == Path(paths.stable_json)
-        assert Path(paths.diar_json).read_text(encoding="utf-8") == "{}"

@@ -21,8 +21,220 @@ sys.path.insert(0, str(ROOT / "src"))
 from nonoka_x import worker
 
 
+from nonoka_x import correction as correction_layer  # noqa: E402
+from nonoka_x import transcription as transcription_layer  # noqa: E402
+from nonoka_x.correction import CorrectionResult, CorrectionSpec  # noqa: E402
+from nonoka_x.transcription import (  # noqa: E402
+    EngineSpec,
+    Readiness,
+    TranscriptDocument,
+    TranscriptLine,
+    TranscriptionResult,
+    write_transcript,
+)
+
+
 def file_of(uri: str) -> Path:
     return Path(url2pathname(urlparse(uri).path))
+
+
+# --- stand-in engines ------------------------------------------------------------
+
+
+class RecordingEngine:
+    """A transcription engine that hands every job to `transcribe`."""
+
+    def __init__(self, engine_id: str, transcribe) -> None:  # noqa: ANN001
+        self.spec = EngineSpec(id=engine_id, label=engine_id, kind="cloud-api")
+        self._transcribe = transcribe
+
+    def readiness(self, context) -> Readiness:  # noqa: ANN001
+        return Readiness()
+
+    def transcribe(self, job, report):  # noqa: ANN001, ANN201
+        return self._transcribe(job, report)
+
+
+class RecordingCorrection:
+    """A correction engine that hands every job to `run`."""
+
+    spec = CorrectionSpec(id="finesub", label="recording correction")
+
+    def __init__(self, run) -> None:  # noqa: ANN001
+        self._run = run
+
+    def readiness(self, context, request) -> Readiness:  # noqa: ANN001
+        return Readiness()
+
+    def run(self, job, report):  # noqa: ANN001, ANN201
+        return self._run(job, report)
+
+
+class TranscriptOnlyEngine:
+    """An engine that hands over `transcript.json` and nothing else: no native attachment at all.
+
+    Imported by the worker from `worker.TRANSCRIPTION_ENGINES` in the children
+    below, in place of FineSub. Each call leaves `transcribed.txt` behind, so a
+    test can tell whether it ran.
+    """
+
+    spec = EngineSpec(id="transcript-only", label="Transcript only", kind="cloud-api")
+
+    def readiness(self, context) -> Readiness:  # noqa: ANN001
+        return Readiness()
+
+    def transcribe(self, job, report):  # noqa: ANN001, ANN201
+        report.stage("stable", "正在处理")
+        with (Path(job.task_dir) / "transcribed.txt").open("a", encoding="utf-8") as marker:
+            marker.write(f"{job.target}\n")
+        document = TranscriptDocument(
+            engine=self.spec.id,
+            model="stand-in",
+            language=job.language,
+            duration=6.0,
+            lines=(
+                TranscriptLine(id="1", start=0.5, end=2.0, text="おはようございます", speaker="S1"),
+                TranscriptLine(id="2", start=2.4, end=5.5, text="今日は雨ですね", speaker="S2"),
+            ),
+        )
+        target = Path(job.task_dir) / "transcript.json"
+        write_transcript(document, target)
+        return TranscriptionResult(transcript_json=target)
+
+
+@contextlib.contextmanager
+def registered(*engines):  # noqa: ANN001, ANN201
+    """Only these engines in the two registries, and none of the built-in ones."""
+
+    saved = {
+        registry: list(registry)
+        for registry in (transcription_layer.registry, correction_layer.registry)
+    }
+    for registry in saved:
+        registry.clear()
+    for engine in engines:
+        layer = correction_layer.registry if isinstance(engine.spec, CorrectionSpec) else transcription_layer.registry
+        layer.register(engine)
+    try:
+        with mock.patch.object(worker, "TRANSCRIPTION_ENGINES", ()), \
+                mock.patch.object(worker, "CORRECTION_ENGINES", ()):
+            yield
+    finally:
+        for registry, previous in saved.items():
+            registry.clear()
+            for engine in previous:
+                registry.register(engine)
+
+
+def run_worker(request: dict, task_dir: Path) -> tuple[int, list[dict]]:
+    """`worker.main` in this process on `request`; its exit code and events."""
+
+    output = io.StringIO()
+    old_stdin = sys.stdin
+    try:
+        sys.stdin = io.StringIO(json.dumps(request, ensure_ascii=False) + "\n")
+        with contextlib.redirect_stdout(output):
+            result = worker.main([
+                "--task-id", "abc123", "--task-dir", str(task_dir),
+                "--vendor", str(ROOT / "third_party/finesub"),
+            ])
+    finally:
+        sys.stdin = old_stdin
+    return result, [json.loads(line) for line in output.getvalue().splitlines() if line.startswith("{")]
+
+
+#: One child of the call-equivalence harness, with its recording stand-ins at
+#: FineSub's algorithm entry points, that runs `worker.main` on the request as
+#: often as asked and keeps every event: `tests.quality_harness.calls`'s child,
+#: plus the events, plus a choice of built-in transcription engines.
+_ORCHESTRATION_CHILD = r"""
+import contextlib, io, json, sys
+from pathlib import Path
+
+spec = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+root = Path(spec["root"])
+from tests.quality_harness import calls, stubs
+
+sys.meta_path.insert(0, stubs.RefuseHeavyImports())
+settings = calls.bind_settings(root / "data", "compat")
+calls.adopt_worker_environment(root / "data", settings)
+from nonoka_x.local_provider import validate_request
+
+request = validate_request(spec["request"])
+request.update(spec.get("after_validation") or {})
+stubs.install(calls.STABLE_FIXTURE)
+from nonoka_x import worker
+
+if "transcription_engines" in spec:
+    worker.TRANSCRIPTION_ENGINES = tuple(spec["transcription_engines"])
+runs = []
+for _ in range(spec.get("runs", 1)):
+    stdout = io.StringIO()
+    sys.stdin = io.StringIO(json.dumps(request, ensure_ascii=False) + "\n")
+    with contextlib.redirect_stdout(stdout):
+        code = worker.main(["--task-id", "orchestration", "--task-dir", str(root / "data" / "tasks" / "orchestration"),
+                            "--vendor", str(calls.VENDOR)])
+    events = [json.loads(line) for line in stdout.getvalue().splitlines() if line.startswith("{")]
+    runs.append({"exit": code, "events": events})
+Path(spec["out"]).write_text(
+    json.dumps({"runs": runs, "calls": [call["entry"] for call in stubs.RECORD]}, ensure_ascii=False),
+    encoding="utf-8",
+)
+"""
+
+
+def run_orchestration_child(root: Path, request: dict, **spec) -> dict:  # noqa: ANN003
+    """`_ORCHESTRATION_CHILD` on `request` under `root` (the media and cloud files made here)."""
+
+    from tests.quality_harness import calls
+
+    for directory in ("media", "cloud", "data", "tmp"):
+        (root / directory).mkdir(parents=True, exist_ok=True)
+    media = root / "media" / "节目.m4a"
+    media.write_bytes(b"orchestration audio placeholder")
+    (root / "cloud" / "cloud.stable.json").write_bytes(calls.STABLE_FIXTURE.read_bytes())
+    request = json.loads(json.dumps(request).replace("$MEDIA", media.as_posix()).replace(
+        "$CLOUD_STABLE", (root / "cloud" / "cloud.stable.json").as_posix()))
+    spec_path = root / "spec.json"
+    out = root / "record.json"
+    spec_path.write_text(
+        json.dumps({**spec, "request": request, "root": str(root), "out": str(out)}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    completed = subprocess.run(
+        [sys.executable, "-c", _ORCHESTRATION_CHILD, str(spec_path)],
+        cwd=ROOT, env=calls.hermetic_environment(root),
+        capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=300,
+    )
+    if completed.returncode != 0 or not out.is_file():
+        raise AssertionError(f"orchestration child failed ({completed.returncode}):\n{completed.stderr[-4000:]}")
+    return json.loads(out.read_text(encoding="utf-8"))
+
+
+def reused_stages(events: list[dict]) -> list[str]:
+    return [
+        event["payload"]["stage"] for event in events
+        if event["type"] == "stage" and event["payload"].get("message") == "已有结果，跳过"
+    ]
+
+
+def stage_names(events: list[dict]) -> list[str]:
+    return [event["payload"]["stage"] for event in events if event["type"] == "stage"]
+
+
+#: FineSub's recognition entry points (`tests.quality_harness.stubs`).
+RECOGNITION_ENTRIES = frozenset({
+    "separation.run_vocal_separation", "separation.encode_asr_delivery", "vad_asr_stage.run_vad_asr",
+    "stabilization.run_asr_stabilize", "diarization.run_diarization",
+})
+
+BASE = {
+    "schema": 1,
+    "provider": "local",
+    "source": {"kind": "local_file", "path": "$MEDIA", "title": "节目"},
+    "language": "ja",
+    "knowledge": "none",
+}
 
 
 class WorkerAdapterTests(unittest.TestCase):
@@ -205,187 +417,136 @@ class WorkerAdapterTests(unittest.TestCase):
             ):
                 self.assertEqual(worker.for_task_mode(request, directory), request)
 
-    def test_task_request_maps_to_pipeline_and_returns_hashed_manifest(self) -> None:
+    def test_task_request_maps_to_the_engine_jobs_and_returns_hashed_manifest(self) -> None:
+        """The request reaches each half as its job, and the manifest lists what they left.
+
+        Recording stand-ins in both registries: the worker builds the jobs and
+        never looks inside them, so the fields are the whole contract here.
+        """
+
         with tempfile.TemporaryDirectory() as temp:
             task_dir = Path(temp) / "task"
             source = Path(temp) / "video.mp4"
             source.write_bytes(b"media")
             captured: dict = {}
 
-            def run_pipeline(input_path, **kwargs):
-                captured["input"] = input_path
-                captured.update(kwargs)
-                output = Path(kwargs["output_path"])
-                output.parent.mkdir(parents=True, exist_ok=True)
-                # A raw-srt run: recognition landed, the LLM stages did not.
-                # The fake stands in for `PipelinePaths`, so it names every
-                # artifact the real one does -- the worker reports the ones
-                # that exist, and absence is what a skipped stage looks like.
-                stable = output.with_name(f"{output.stem}-stable.json")
-                raw = output.with_name(f"{output.stem}-raw.srt")
-                vocal = output.with_name(f"{output.stem}-vocal.ogg")
+            def transcribe(job, report):
+                captured["transcription"] = job
+                transcript = task_dir / "transcript.json"
+                transcript.write_text("{}", encoding="utf-8")
+                stable = task_dir / "workspace" / "video-stable.json"
+                stable.parent.mkdir(parents=True, exist_ok=True)
                 stable.write_text('{"segments": []}\n', encoding="utf-8")
-                raw.write_text("1\n00:00:00,000 --> 00:00:01,000\nx\n", encoding="utf-8")
+                vocal = stable.with_name("video-vocal.ogg")
                 vocal.write_bytes(b"OggS")
-                return SimpleNamespace(
-                    vocal_audio=vocal,
-                    resolve_vocal_audio=lambda: vocal,
-                    vad_json=output.with_name(f"{output.stem}-vad.json"),
-                    vad_energy_npz=output.with_name(f"{output.stem}-vad-energy.npz"),
-                    aligned_json=output.with_name(f"{output.stem}-aligned.json"),
-                    stable_json=stable,
-                    diar_json=output.with_name(f"{output.stem}-diar.json"),
-                    diar_rows_json=output.with_name(f"{output.stem}-diar-rows.json"),
-                    speaker_judge_json=output.with_name(f"{output.stem}-speaker-judge.json"),
-                    raw_srt=raw,
-                    translated_srt=output.with_name(f"{output.stem}-translated.srt"),
-                    final_srt=output,
-                    metadata_json=output.with_name(f"{output.stem}.run.json"),
+                return TranscriptionResult(
+                    transcript_json=transcript,
+                    native={"recorder.stable_json": stable, "recorder.vocal_audio": vocal,
+                            "recorder.vad_json": stable.with_name("video-vad.json")},
                 )
 
-            @contextlib.contextmanager
-            def passthrough(_value):
-                yield
+            def correct(job, report):
+                captured["correction"] = job
+                raw = task_dir / "workspace" / "video-raw.srt"
+                raw.write_text("1\n00:00:00,000 --> 00:00:01,000\nx\n", encoding="utf-8")
+                return CorrectionResult(artifacts={"raw_srt": raw, "final_srt": task_dir / "workspace" / "video.srt"})
 
-            finesub = types.ModuleType("finesub")
-            finesub.__path__ = []
-            stages = types.ModuleType("finesub.stages")
-            stages.run_pipeline = run_pipeline
-            reporting = types.ModuleType("finesub.reporting")
-            reporting.reporting_to = passthrough
-            reporting.quieted_libraries = passthrough
-            previous = {name: sys.modules.get(name) for name in ("finesub", "finesub.stages", "finesub.reporting")}
-            sys.modules.update({"finesub": finesub, "finesub.stages": stages, "finesub.reporting": reporting})
             request = {
                 "schema": 1,
                 "provider": "local",
                 "source": {"kind": "local_file", "path": str(source), "title": "video"},
+                "transcription": {"engine": "recorder"},
                 "target": "raw-srt",
                 "language": "ja",
                 "device": "cuda:0",
                 "gpu_budget_gb": 8,
-                "correction": {"media": "audio", "retrieval": "local", "difficulty": "quality"},
+                "diarization": {"level": "acoustics", "max_speakers": 3},
+                "correction": {"media": "audio", "retrieval": "local", "difficulty": "quality",
+                               "extra_info": "背景"},
                 "knowledge": "none",
             }
-            output = io.StringIO()
-            old_stdin = sys.stdin
-            old_cuda_visible = os.environ.get("CUDA_VISIBLE_DEVICES")
-            try:
-                sys.stdin = io.StringIO(json.dumps(request) + "\n")
-                with contextlib.redirect_stdout(output), mock.patch(
-                    "nonoka_x.settings.correction_proofread", return_value="auto"
-                ):
-                    result = worker.main(
-                        [
-                            "--task-id",
-                            "abc123",
-                            "--task-dir",
-                            str(task_dir),
-                            "--vendor",
-                            str(ROOT / "third_party/finesub"),
-                        ]
-                    )
-            finally:
-                sys.stdin = old_stdin
-                if old_cuda_visible is not None:
-                    os.environ["CUDA_VISIBLE_DEVICES"] = old_cuda_visible
-                else:
-                    os.environ.pop("CUDA_VISIBLE_DEVICES", None)
-                for name, value in previous.items():
-                    if value is None:
-                        sys.modules.pop(name, None)
-                    else:
-                        sys.modules[name] = value
-            self.assertEqual(result, 0)
-            self.assertEqual(captured["input"], str(source))
-            self.assertEqual(captured["stage"], "raw-srt")
-            self.assertEqual(captured["device"], "cuda")
-            self.assertEqual(captured["llm_proofread"], "auto")
-            self.assertEqual(captured["task_summary"], "字幕任务：video")
-            # Upstream 0.5.0 retired `--gpu-budget-gb` for `--gpu-tier`, and a
-            # request queued before the upgrade still carries the number.
-            self.assertEqual(captured["gpu_tier"], "standard")
-            self.assertNotIn("gpu_budget_gb", captured)
-            # No profile switch and no separator profile: the local worker
-            # calls `run_pipeline` with upstream's own arguments, which is what
-            # makes "local is unpatched upstream" checkable rather than a claim.
-            self.assertNotIn("execution_profile", captured)
-            self.assertNotIn("vocal_profile", captured)
-            self.assertTrue(captured["resume"])
-            events = [json.loads(line) for line in output.getvalue().splitlines()]
+            with registered(RecordingEngine("recorder", transcribe), RecordingCorrection(correct)), \
+                    mock.patch("nonoka_x.settings.correction_proofread", return_value="auto"):
+                result, events = run_worker(request, task_dir)
+
+            self.assertEqual(result, 0, events)
+            job = captured["transcription"]
+            self.assertEqual(job.source, source)
+            self.assertEqual(job.task_dir, task_dir)
+            # One cache per task, inside the task's own directory: the cloud
+            # engines key their answers by the audio and clear the directory
+            # for another one, so two tasks must never share it (WP3).
+            self.assertEqual(job.cache_dir, task_dir / "cache")
+            self.assertEqual((job.target, job.language), ("raw-srt", "ja"))
+            # In TaskRequest terms, resolved: the device as requested, the
+            # legacy budget migrated to a tier (upstream 0.5.0 retired
+            # `--gpu-budget-gb`), the speaker block as the provider gave it.
+            self.assertEqual(job.options["device"], "cuda:0")
+            self.assertEqual(job.options["gpu_tier"], "standard")
+            self.assertNotIn("gpu_budget_gb", job.options)
+            self.assertEqual(dict(job.options["diarization"]), {"level": "acoustics", "max_speakers": 3})
+            self.assertEqual((job.options["title"], job.options["task_id"]), ("video", "abc123"))
+            self.assertEqual((job.options["extra_info"], job.options["knowledge"]), ("背景", "none"))
+            self.assertTrue(job.options["separate"])
+
+            correction = captured["correction"]
+            self.assertEqual(correction.transcription.transcript_json, task_dir / "transcript.json")
+            self.assertEqual((correction.target, correction.title, correction.task_id), ("raw-srt", "video", "abc123"))
+            self.assertEqual(correction.options["proofread"], "auto")
+            self.assertEqual(correction.options["media"], "audio")
+            self.assertEqual(correction.task_summary, "字幕任务：video")
+            self.assertEqual(correction.diarization_level, "acoustics")
+            self.assertEqual(dict(correction.knowledge), {"knowledge": "none", "knowledge_subjects": []})
+
             completed = next(event for event in events if event["type"] == "completed")
             manifest = completed["payload"]["artifacts"]
             self.assertEqual(
                 manifest["engine_commit"],
-                json.loads(
-                    (ROOT / "third_party/finesub/UPSTREAM.json").read_text(encoding="utf-8")
-                )["commit"],
+                json.loads((ROOT / "third_party/finesub/UPSTREAM.json").read_text(encoding="utf-8"))["commit"],
             )
-            self.assertEqual(
-                set(manifest["artifacts"]), {"vocal_audio", "stable_json", "raw_srt"}
-            )
+            # An attachment `<engine>.<name>` is listed as `<name>`; only files that exist.
+            self.assertEqual(set(manifest["artifacts"]), {"vocal_audio", "stable_json", "raw_srt"})
             self.assertEqual(len(manifest["artifacts"]["stable_json"]["sha256"]), 64)
+            self.assertEqual(events[-2]["payload"].get("message"), "字幕已完成")
 
-    def test_a_cloud_stable_is_seeded_under_the_engine_name_only_once(self) -> None:
-        """The continuation is a file in the right place, and nothing else.
+    def test_a_cloud_stable_is_handed_to_the_correction_as_it_is(self) -> None:
+        """A continuation is a transcription in hand: the cloud's files as attachments, no engine run.
 
-        `run_pipeline` resumes from whatever stable.json sits under its own
-        name, so the seed has to land exactly there -- and a retry must find
-        the copy its first attempt rendered from, not a fresh one.
+        Where they go and that a retry keeps the first copy is the
+        correction's business (`place_native`, tests/test_finesub_correction.py).
         """
 
-        sys.path.insert(0, str(ROOT / "third_party/finesub/src"))
-        from finesub.stages import default_pipeline_paths
-
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            cloud = root / "cloud.stable.json"
-            cloud.write_text('{"segments": [{"text": "first"}]}', encoding="utf-8")
-            media = root / "media.m4a"
-            output = root / "task" / "workspace" / "片子.srt"
-            output.parent.mkdir(parents=True)
-            request = {"source": {"kind": "cloud_stable", "path": str(media), "stable_json": str(cloud)}}
-
-            seeded = worker.seed_cloud_stable(request, output)
-            self.assertEqual(seeded, Path(default_pipeline_paths(media, output).stable_json))
-            self.assertEqual(seeded.read_text(encoding="utf-8"), cloud.read_text(encoding="utf-8"))
-            self.assertEqual(sorted(path.name for path in output.parent.iterdir()), [seeded.name])
-
-            cloud.write_text('{"segments": [{"text": "second"}]}', encoding="utf-8")
-            worker.seed_cloud_stable(request, output)
-            self.assertIn("first", seeded.read_text(encoding="utf-8"))
-
-            local = {"source": {"kind": "local_file", "path": str(media)}}
-            self.assertIsNone(worker.seed_cloud_stable(local, root / "other" / "x.srt"))
-
-    def test_a_cloud_speaker_timeline_is_seeded_beside_the_stable(self) -> None:
-        """The diarize stage reuses a timeline under the engine's own name."""
-
-        sys.path.insert(0, str(ROOT / "third_party/finesub/src"))
-        from finesub.stages import default_pipeline_paths
-
-        with tempfile.TemporaryDirectory() as temp:
-            root = Path(temp)
+            task_dir = root / "task"
             cloud = root / "cloud.stable.json"
             cloud.write_text('{"segments": []}', encoding="utf-8")
             timeline = root / "cloud.diar.json"
-            timeline.write_text('{"backend": "first"}', encoding="utf-8")
+            timeline.write_text("{}", encoding="utf-8")
             media = root / "media.m4a"
-            output = root / "task" / "workspace" / "subtitle.srt"
-            output.parent.mkdir(parents=True)
-            request = {"source": {
-                "kind": "cloud_stable", "path": str(media),
-                "stable_json": str(cloud), "diar_json": str(timeline),
-            }}
+            captured: dict = {}
 
-            worker.seed_cloud_stable(request, output)
-            seeded = Path(default_pipeline_paths(media, output).diar_json)
-            self.assertEqual(seeded.name, "subtitle-diar.json")
-            self.assertEqual(seeded.read_text(encoding="utf-8"), timeline.read_text(encoding="utf-8"))
+            def correct(job, report):  # noqa: ANN001, ANN202
+                captured["job"] = job
+                return CorrectionResult()
 
-            timeline.write_text('{"backend": "second"}', encoding="utf-8")
-            worker.seed_cloud_stable(request, output)
-            self.assertIn("first", seeded.read_text(encoding="utf-8"))
+            for source, native in (
+                ({"stable_json": str(cloud)}, {"finesub.stable_json": cloud}),
+                ({"stable_json": str(cloud), "diar_json": str(timeline)},
+                 {"finesub.stable_json": cloud, "finesub.diar_json": timeline}),
+            ):
+                request = {**BASE, "target": "raw-srt",
+                           "source": {"kind": "cloud_stable", "path": str(media), "title": "片子", **source}}
+                with registered(RecordingCorrection(correct)):
+                    code, events = run_worker(request, task_dir)
+                self.assertEqual(code, 0, events)
+                transcription = captured["job"].transcription
+                self.assertEqual(dict(transcription.native), native)
+                self.assertEqual(transcription.transcript_json, task_dir / "transcript.json")
+                self.assertFalse(transcription.transcript_json.exists())
+                self.assertIn("从云端识别结果续跑：跳过人声分离与识别",
+                              [event["payload"].get("message") for event in events if event["type"] == "log"])
+                self.assertEqual(reused_stages(events), ["vocal", "aligned", "stable"])
 
     def test_a_continuation_runs_without_any_module_of_the_asr_stack(self) -> None:
         """The reason the launcher can continue a cloud task at all.
@@ -608,19 +769,6 @@ raise SystemExit(worker.main(sys.argv[1:]))
             {"diarize": "judge-text", "diarize_max_speakers": 3},
         )
 
-    def test_diarization_evidence_path_matches_the_engine(self) -> None:
-        from finesub.speech.diarization.evidence import evidence_path
-
-        timeline = Path("/runs/节目-diar.json")
-        self.assertEqual(worker.diarization_evidence_path(timeline), evidence_path(timeline))
-
-    def test_normalize_engine_device(self) -> None:
-        self.assertEqual(worker._normalize_engine_device("cuda:0"), ("cuda", "0"))
-        self.assertEqual(worker._normalize_engine_device("cuda:1"), ("cuda", "1"))
-        self.assertEqual(worker._normalize_engine_device("cuda"), ("cuda", None))
-        self.assertEqual(worker._normalize_engine_device("cpu"), ("cpu", None))
-        self.assertEqual(worker._normalize_engine_device(None), ("cuda", None))
-
     def test_llm_model_desktop_route_expands_to_upstream_task_groups(self) -> None:
         from finesub.llm.routing.model_routes import (
             default_model_routes,
@@ -675,6 +823,161 @@ raise SystemExit(worker.main(sys.argv[1:]))
         )
         self.assertFalse(logger.filter(record_warning))
         self.assertTrue(logger.filter(record_normal))
+
+
+class OrchestrationTests(unittest.TestCase):
+    """The worker as WP4c leaves it: engines by id, nothing FineSub-shaped in between.
+
+    The children run `worker.main` behind the call-equivalence harness's
+    recording stand-ins (no torch, no model, no LLM), so FineSub's real
+    orchestration and finesub correction run end to end.
+    """
+
+    maxDiff = None
+    TRANSCRIPT_ONLY = "tests.test_worker_adapter:TranscriptOnlyEngine"
+
+    def test_a_transcript_only_engine_replaces_finesub_up_to_final_srt(self) -> None:
+        """Replaceability: another engine, FineSub's transcription not registered, finesub correction after it."""
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            record = run_orchestration_child(
+                root,
+                {**BASE, "target": "final-srt", "correction": {"media": "text", "retrieval": "none"}},
+                after_validation={"transcription": {"engine": "transcript-only"}},
+                transcription_engines=[self.TRANSCRIPT_ONLY],
+            )
+            (run,) = record["runs"]
+            self.assertEqual(run["exit"], 0, run["events"])
+            task_dir = root / "data" / "tasks" / "orchestration"
+            self.assertEqual((task_dir / "transcribed.txt").read_text(encoding="utf-8"), "final-srt\n")
+            # Nothing of FineSub's recognition ran; its correction did.
+            self.assertFalse(RECOGNITION_ENTRIES & set(record["calls"]), record["calls"])
+            self.assertIn("correction_translation.run_correction_task", record["calls"])
+            messages = [event["payload"].get("message") for event in run["events"] if event["type"] == "log"]
+            self.assertIn("纠错输入：由 transcript.json 转成的 stable，说话人来自各行标签", messages)
+            artifacts = next(e for e in run["events"] if e["type"] == "completed")["payload"]["artifacts"]["artifacts"]
+            self.assertTrue({"stable_json", "diar_rows_json", "raw_srt", "final_srt", "annotated_csv"}
+                            <= set(artifacts), sorted(artifacts))
+            rows = json.loads(file_of(artifacts["diar_rows_json"]["uri"]).read_text(encoding="utf-8"))["rows"]
+            self.assertEqual([row["speaker"]["joint_speaker"] for row in rows][:2], ["S1", "S2"])
+            self.assertEqual(len(stage_names(run["events"])), len(set(stage_names(run["events"]))))
+
+    def test_the_engine_stops_at_its_own_target(self) -> None:
+        """A target up to `stable` runs the transcription only; no correction engine is asked for."""
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            task_dir = root / "task"
+
+            def transcribe(job, report):  # noqa: ANN001, ANN202
+                return TranscriptOnlyEngine().transcribe(job, report)
+
+            with registered(RecordingEngine("transcript-only", transcribe)):
+                media = root / "a.m4a"
+                media.write_bytes(b"x")
+                request = {**BASE, "source": {"kind": "local_file", "path": str(media), "title": "a"},
+                           "transcription": {"engine": "transcript-only"}, "target": "stable"}
+                code, events = run_worker(request, task_dir)
+            self.assertEqual(code, 0, events)
+            self.assertEqual((task_dir / "transcribed.txt").read_text(encoding="utf-8"), "stable\n")
+            self.assertEqual(events[-1]["type"], "completed")
+            self.assertEqual(events[-2]["payload"].get("message"), "字幕已完成")
+
+    def test_an_engine_that_is_not_registered_fails_the_task_before_anything_runs(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            record = run_orchestration_child(
+                root, {**BASE, "target": "raw-srt"}, transcription_engines=[self.TRANSCRIPT_ONLY],
+            )
+            (run,) = record["runs"]
+            self.assertEqual(run["exit"], 1)
+            failed = [event["payload"]["message"] for event in run["events"] if event["type"] == "failed"]
+            self.assertEqual(failed, [
+                "UnknownEngine: no transcription engine 'finesub' is registered (registered: transcript-only)"
+            ])
+            self.assertFalse(RECOGNITION_ENTRIES & set(record["calls"]))
+
+    def test_a_cloud_continuation_needs_no_transcription_engine(self) -> None:
+        """The cloud's recognition is a transcription in hand: with no transcription engine at all it continues."""
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            record = run_orchestration_child(
+                root,
+                {**BASE, "target": "raw-srt", "source": {"kind": "cloud_stable", "path": "$MEDIA",
+                                                         "title": "节目", "stable_json": "$CLOUD_STABLE"}},
+                transcription_engines=[],
+            )
+            (run,) = record["runs"]
+            self.assertEqual(run["exit"], 0, run["events"])
+            self.assertFalse(RECOGNITION_ENTRIES & set(record["calls"]))
+            self.assertEqual(reused_stages(run["events"])[:3], ["vocal", "aligned", "stable"])
+            artifacts = next(e for e in run["events"] if e["type"] == "completed")["payload"]["artifacts"]["artifacts"]
+            self.assertEqual(file_of(artifacts["stable_json"]["uri"]).name, "节目-stable.json")
+            self.assertIn("raw_srt", artifacts)
+
+    def test_the_default_engine_announces_each_stage_once(self) -> None:
+        """No「已有结果，跳过」twice in one task log: on the first run, and on a retry where everything is reused."""
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            record = run_orchestration_child(
+                root,
+                {**BASE, "target": "final-srt", "diarization": {"level": "acoustics"},
+                 "correction": {"media": "text", "retrieval": "none"}},
+                runs=2,
+            )
+            first, retry = record["runs"]
+            for run in (first, retry):
+                self.assertEqual(run["exit"], 0, run["events"])
+                stages = stage_names(run["events"])
+                self.assertEqual(len(stages), len(set(stages)), stages)
+                done = [e for e in run["events"] if e["type"] == "progress" and e["payload"].get("message") == "字幕已完成"]
+                self.assertEqual(len(done), 1)
+            self.assertEqual(reused_stages(first["events"]), [])
+            self.assertEqual(
+                reused_stages(retry["events"]),
+                ["vocal", "aligned", "stable", "diarize", "raw-srt", "translated-srt", "final-srt"],
+            )
+
+    def test_a_request_the_correction_refuses_fails_before_the_transcription(self) -> None:
+        """What `run_pipeline` refused before separation is still refused before the transcription runs.
+
+        A speaker judge at the `efficiency` difficulty, which the correction
+        cannot split for -- the provider would not let it through, so it is
+        put in after validation.
+        """
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            record = run_orchestration_child(
+                root,
+                {**BASE, "target": "final-srt", "correction": {"media": "text", "difficulty": "efficiency"}},
+                after_validation={"transcription": {"engine": "transcript-only"},
+                                  "diarization": {"level": "judge-text", "max_speakers": None}},
+                transcription_engines=[self.TRANSCRIPT_ONLY],
+            )
+            (run,) = record["runs"]
+            self.assertEqual(run["exit"], 1, run["events"])
+            self.assertTrue([e for e in run["events"] if e["type"] == "failed"])
+            self.assertFalse((root / "data" / "tasks" / "orchestration" / "transcribed.txt").exists())
+            self.assertNotIn("correction_translation.run_correction_task", record["calls"])
+
+    def test_the_worker_names_no_engine(self) -> None:
+        """No branch on an engine's id, and FineSub's stages reached only through the engines."""
+
+        import ast
+
+        tree = ast.parse((ROOT / "src/nonoka_x/worker.py").read_text(encoding="utf-8"))
+        imported = {
+            node.module for node in ast.walk(tree) if isinstance(node, ast.ImportFrom) and node.module
+        } | {alias.name for node in ast.walk(tree) if isinstance(node, ast.Import) for alias in node.names}
+        self.assertNotIn("finesub.stages", imported)
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Compare):
+                literals = [n.value for n in ast.walk(node) if isinstance(n, ast.Constant)]
+                self.assertFalse({"finesub", "finesub-cloud"} & set(literals), ast.unparse(node))
 
 
 if __name__ == "__main__":

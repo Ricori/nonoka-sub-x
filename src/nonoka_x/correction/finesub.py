@@ -248,6 +248,40 @@ class FineSubCorrection:
             return Readiness((Issue("engine_missing", "FineSub 纠错引擎不可用"),))
         return Readiness()
 
+    def check(self, job: CorrectionJob, report: Reporter) -> None:
+        """Fail now on what this job would fail on only once the transcription is done.
+
+        `run_pipeline` checks the whole request before separation -- the LLM
+        configuration, the style and knowledge subjects it names, a video
+        switch with no video, a speaker judge the correction would refuse --
+        because finding it after ASR is finding it at the most expensive
+        moment. Run in two halves, those checks would come with
+        `run_post_stable`, after the transcription. This makes them up front:
+        FineSub's own preparation of the run (`_prepare_run`, as
+        `run_pipeline` calls it: acoustic speakers, the judge on the vocal
+        track), which resolves and checks everything and runs no stage. Its
+        notices (an audio-only source asked for video) are reported here, as
+        they were before separation; reported again by the run itself, they
+        are the same notice. Only an LLM target has anything to check.
+
+        `job.transcription` is not read: nothing has been transcribed yet.
+        """
+
+        if job.target == "raw-srt":
+            return
+        from finesub.stages import _pipeline_options, _prepare_run
+
+        with self._reporting(report):
+            output = output_path(job.task_dir, job.title or job.source.stem)
+            output.parent.mkdir(parents=True, exist_ok=True)
+            _prepare_run(
+                str(job.source),
+                _pipeline_options(stage=job.target, **_post_stable_keywords(job, output)),
+                scope="pipeline",
+                speaker_source="acoustic",
+                judge_audio="vocal",
+            )
+
     def run(self, job: CorrectionJob, report: Reporter) -> CorrectionResult:
         """`run_post_stable` for this job, under whatever reporter the caller bound.
 
@@ -255,11 +289,15 @@ class FineSubCorrection:
         FineSub's reports go to `report`.
         """
 
+        with self._reporting(report):
+            return self._run(job, report)
+
+    @staticmethod
+    def _reporting(report: Reporter) -> Any:
         from finesub.reporting import current_reporter, reporter_delivers, reporting_to
 
         bound = current_reporter()
-        with reporting_to(bound if reporter_delivers(bound) else _ReporterAdapter(report)):
-            return self._run(job, report)
+        return reporting_to(bound if reporter_delivers(bound) else _ReporterAdapter(report))
 
     def _run(self, job: CorrectionJob, report: Reporter) -> CorrectionResult:
         from finesub.stages import default_pipeline_paths, run_post_stable
@@ -272,42 +310,23 @@ class FineSubCorrection:
         if speaker_source == "acoustic":
             paths = place_native(job.source, output, native)
             report.log("纠错输入：FineSub 转写的原生 stable，原样使用")
-            if job.diarization_level != "off" and Path(paths.diar_json).exists():
+            # A transcription that labelled the lines itself (FineSub's, here)
+            # did this already in this run; asking again would only announce
+            # the stage a second time as reused.
+            if (job.diarization_level != "off" and Path(paths.diar_json).exists()
+                    and not native.get(NATIVE_DIAR_ROWS)):
                 _label_rows_from_timeline(paths, job.diarization_level)
         else:
             paths = default_pipeline_paths(job.source, output)
             write_stable(stable_from_transcript(job.transcription.read_transcript()), Path(paths.stable_json))
             report.log("纠错输入：由 transcript.json 转成的 stable，说话人来自各行标签")
 
-        options = job.options
-        subjects = list(job.knowledge.get("knowledge_subjects") or ())
         paths = run_post_stable(
             str(job.source),
             speaker_source=speaker_source,
             judge_audio=judge_audio,
             stage=job.target,
-            output_path=output,
-            # Unset switches stay None: the engine resolves them through the
-            # active preset's defaults, then its own.
-            llm_media=options.get("media"),
-            llm_retrieval=options.get("retrieval"),
-            llm_difficulty=options.get("difficulty"),
-            llm_proofread=str(options.get("proofread") or "auto"),
-            llm_fast=str(options.get("fast") or "auto"),
-            extra_info=options.get("extra_info", ""),
-            extra_style=options.get("extra_style", ""),
-            knowledge=job.knowledge.get("knowledge", "update"),
-            task_summary=job.task_summary,
-            task_id=job.task_id,
-            task_artifact_dir=artifact_dir(job.task_dir),
-            resume=True,
-            # The editor builds its own speaker tracks from the speaker labels,
-            # so the engine's per-speaker exports stay off.
-            speaker_tracks="off",
-            diarize=job.diarization_level,
-            # Passed only when there is something to pin, so a run without
-            # subjects calls the engine with exactly upstream's arguments.
-            **({"knowledge_subjects": subjects} if subjects else {}),
+            **_post_stable_keywords(job, output),
         )
         return CorrectionResult(
             artifacts={name: path for name, path in _artifacts(paths, job.task_dir).items() if path.is_file()},
@@ -317,6 +336,37 @@ class FineSubCorrection:
                 "judge_audio": judge_audio,
             },
         )
+
+
+def _post_stable_keywords(job: CorrectionJob, output: Path) -> dict[str, Any]:
+    """The keywords this job gives FineSub's stages after the stable (besides the speakers and the stage)."""
+
+    options = job.options
+    subjects = list(job.knowledge.get("knowledge_subjects") or ())
+    return {
+        "output_path": output,
+        # Unset switches stay None: the engine resolves them through the
+        # active preset's defaults, then its own.
+        "llm_media": options.get("media"),
+        "llm_retrieval": options.get("retrieval"),
+        "llm_difficulty": options.get("difficulty"),
+        "llm_proofread": str(options.get("proofread") or "auto"),
+        "llm_fast": str(options.get("fast") or "auto"),
+        "extra_info": options.get("extra_info", ""),
+        "extra_style": options.get("extra_style", ""),
+        "knowledge": job.knowledge.get("knowledge", "update"),
+        "task_summary": job.task_summary,
+        "task_id": job.task_id,
+        "task_artifact_dir": artifact_dir(job.task_dir),
+        "resume": True,
+        # The editor builds its own speaker tracks from the speaker labels,
+        # so the engine's per-speaker exports stay off.
+        "speaker_tracks": "off",
+        "diarize": job.diarization_level,
+        # Passed only when there is something to pin, so a run without
+        # subjects calls the engine with exactly upstream's arguments.
+        **({"knowledge_subjects": subjects} if subjects else {}),
+    }
 
 
 def _label_rows_from_timeline(paths: Any, diarize: str) -> None:

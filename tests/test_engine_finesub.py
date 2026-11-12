@@ -22,9 +22,7 @@ from __future__ import annotations
 
 import argparse
 import ast
-import contextlib
 import hashlib
-import io
 import json
 import os
 import shutil
@@ -145,16 +143,6 @@ class RecordingReporter:
 # --- the child -------------------------------------------------------------------------------
 
 
-class _Captured(Exception):
-    """Raised by the stand-in `run_pipeline` once it has what the worker passed."""
-
-
-def _plain(value: Any) -> Any:
-    from tests.quality_harness import stubs
-
-    return stubs.encode(value)
-
-
 def child_main(spec_path: Path) -> int:
     from tests.quality_harness import calls, stubs
 
@@ -178,16 +166,13 @@ def child_main(spec_path: Path) -> int:
     request = validate_request(calls._substitute(spec["request"], replacements))
     stubs.install(calls.STABLE_FIXTURE)
     task_dir = root / "data" / "tasks" / TASK_ID
-    environment = dict(os.environ)
 
-    # 1. The engine, on a task directory as fresh as the baseline's.
+    # The engine, on a task directory as fresh as the baseline's.
     stubs.RECORD.clear()
     job = job_for(request, task_dir)
-    plan = run_plan(job)
     reporter = RecordingReporter()
     transcription = FineSubEngine().transcribe(job, reporter)
     result["engine_calls"] = list(stubs.RECORD)
-    result["plan"] = {"input": plan.input_path, "keywords": _plain(dict(plan.keywords))}
     result["result"] = transcription.to_dict()
     result["events"] = reporter.events
     if transcription.metadata.get("transcript"):
@@ -196,29 +181,6 @@ def child_main(spec_path: Path) -> int:
         except TranscriptError as error:
             result["transcript_error"] = str(error)
 
-    # 2. The worker, stopped where it calls `run_pipeline`, for the keywords it passes.
-    os.environ.clear()
-    os.environ.update(environment)
-    import finesub.stages
-
-    captured: dict[str, Any] = {}
-
-    def run_pipeline(input_path: Any, **keywords: Any) -> Any:
-        captured["input"] = str(input_path)
-        captured["keywords"] = _plain(keywords)
-        raise _Captured
-
-    from nonoka_x import worker
-
-    previous_stdin = sys.stdin
-    sys.stdin = io.StringIO(json.dumps(request, ensure_ascii=False) + "\n")
-    try:
-        with mock.patch.object(finesub.stages, "run_pipeline", run_pipeline), \
-                contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
-            worker.main(["--task-id", TASK_ID, "--task-dir", str(task_dir), "--vendor", str(calls.VENDOR)])
-    finally:
-        sys.stdin = previous_stdin
-    result["worker"] = captured
     Path(spec["out"]).write_text(json.dumps(result, ensure_ascii=False), encoding="utf-8")
     return 0
 
@@ -313,17 +275,6 @@ class CallEquivalenceThroughTheEngineTests(unittest.TestCase):
                           if call["entry"].split(".", 1)[0] in TRANSCRIPTION_ENTRY_MODULES]
                 self.assertEqual(leaked, [], "transcription calls after the post-stable stages began")
                 self.assertEqual(self.records[name]["engine_calls"], expected)
-
-    def test_run_transcription_gets_the_worker_keywords_of_the_transcription_half(self) -> None:
-        for name in self.names:
-            with self.subTest(name):
-                record = self.records[name]
-                worker, plan = record["worker"], record["plan"]
-                self.assertEqual(Path(plan["input"]), Path(worker["input"]))
-                expected = {key: value for key, value in worker["keywords"].items() if key not in CORRECTION_ONLY}
-                self.assertEqual(engine_stage(expected.pop("stage")), plan["keywords"]["stage"])
-                actual = {key: value for key, value in plan["keywords"].items() if key != "stage"}
-                self.assertEqual(actual, expected)
 
     def test_each_run_hands_back_its_products_and_a_valid_transcript(self) -> None:
         for name in self.names:
@@ -477,12 +428,6 @@ class RunPlanTests(unittest.TestCase):
         self.assertEqual(engine_device("cuda"), ("cuda", None))
         self.assertEqual(engine_device("CPU"), ("cpu", None))
         self.assertEqual(engine_device(None), ("cuda", None))
-
-    def test_devices_match_the_worker(self) -> None:
-        from nonoka_x import worker
-
-        for value in ("cuda:0", "cuda:1", "cuda:x", "cuda", "cpu", None, "mps"):
-            self.assertEqual(engine_device(value), worker._normalize_engine_device(value), value)
 
     def test_diarization_matches_the_worker(self) -> None:
         from nonoka_x import worker

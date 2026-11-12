@@ -443,10 +443,16 @@ class FineSubEngine:
         Path(plan.keywords["output_path"]).parent.mkdir(parents=True, exist_ok=True)
         _mute_separator_onnx_warning()
 
-        from finesub.reporting import quieted_libraries, reporting_to
+        from finesub.reporting import current_reporter, quieted_libraries, reporter_delivers, reporting_to
         from finesub.stages import run_transcription
 
-        with reporting_to(FineSubReporter(report)), quieted_libraries("normal"):
+        # A caller that bound a FineSub reporter of its own keeps it -- the
+        # worker does, so that one reporter hears both halves of a task and
+        # says each warning once -- as finesub correction does; otherwise
+        # FineSub's reports go to `report`.
+        bound = current_reporter()
+        reporter = bound if reporter_delivers(bound) else FineSubReporter(report)
+        with reporting_to(reporter), quieted_libraries("normal"):
             paths = run_transcription(plan.input_path, **plan.keywords)
 
         native = native_products(paths)

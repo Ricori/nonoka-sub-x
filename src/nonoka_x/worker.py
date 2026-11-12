@@ -1,9 +1,23 @@
-"""Isolated FineSub worker. Stdin is one TaskRequest; stdout is NDJSON events."""
+"""The task worker. Stdin is one TaskRequest; stdout is NDJSON events.
+
+Only orchestration (`docs/transcription-engines-plan.md`, WP4c): the request's
+transcription engine (`transcription.engine`, `finesub` when absent) turns the
+source into a `TranscriptionResult`, and, for a target past `stable`, the
+request's correction engine (`correction.engine`) takes it from there. Both
+are looked up by id in their registries; nothing here knows which engine it
+is talking to. A result already in hand -- the cloud's recognition, which a
+`cloud_stable` source continues from -- takes the transcription's place.
+A source-text axis (`axis.kind == "ja"`) needs no transcription at all and
+goes straight to the shared axis run (`nonoka_x.axis`).
+"""
 
 from __future__ import annotations
 
 import argparse
+import contextlib
+import dataclasses
 import hashlib
+import importlib
 import json
 import logging
 import os
@@ -11,30 +25,12 @@ import re
 import sys
 import traceback
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Iterator, Mapping
 
 from .axis import AxisTranslation, translate_axis as translate_rows
 from .download_route import install_proxy_route_policy
 from .fast_mode import resolve_request_fast
 from .gpu_tier import resolve_request_gpu_tier
-
-
-def _normalize_engine_device(device_value: Any) -> tuple[str, str | None]:
-    """Map TaskRequest device into (finesub_device, cuda_visible_devices).
-
-    FineSub's CLI and runtime contract accepts only 'cuda' or 'cpu'. Specific
-    GPU indexing is controlled by the CUDA_VISIBLE_DEVICES environment variable.
-    """
-    raw = str(device_value or "cuda").strip()
-    lowered = raw.lower()
-    if lowered.startswith("cuda:"):
-        gpu_index = lowered.split(":", 1)[1].strip()
-        if gpu_index.isdigit():
-            return "cuda", gpu_index
-        return "cuda", None
-    if lowered == "cpu":
-        return "cpu", None
-    return ("cuda" if lowered.startswith("cuda") else raw), None
 
 
 def emit(event_type: str, payload: Mapping[str, Any] | None = None) -> None:
@@ -83,9 +79,20 @@ def _is_slow_call(fields: Mapping[str, Any]) -> bool:
 
 
 class NonokaXReporter:
-    def __init__(self) -> None:
+    """FineSub's reporter protocol (`finesub.reporting.Reporter`) as worker events.
+
+    One instance hears every half of a task -- the worker binds it around the
+    transcription and the correction alike, and both FineSub adapters keep a
+    reporter their caller bound -- so a warning either half raises is said
+    once. `announce_completion=False` leaves the final progress line to the
+    caller: a run in two halves completes twice, and only the task's own end
+    is "字幕已完成".
+    """
+
+    def __init__(self, *, announce_completion: bool = True) -> None:
         self._seen_warnings: set[tuple[str, str]] = set()
         self._seen_preset_cores: set[str] = set()
+        self._announce_completion = announce_completion
 
     def planned(self, stages) -> None:
         return
@@ -128,10 +135,15 @@ class NonokaXReporter:
         emit("log", {"message": message, "fields": values})
 
     def completed(self, output, elapsed_sec: float) -> None:
-        emit("progress", {"completed": 100, "total": 100, "unit": "%", "message": "字幕已完成"})
+        if self._announce_completion:
+            emit_completion()
 
     def failed(self, stage: str, message: str) -> None:
         emit("failed", {"stage": stage, "message": message})
+
+
+def emit_completion() -> None:
+    emit("progress", {"completed": 100, "total": 100, "unit": "%", "message": "字幕已完成"})
 
 
 def artifact(path: Path) -> dict[str, Any]:
@@ -341,32 +353,6 @@ def translate_axis(
     )
 
 
-def seed_cloud_stable(request: Mapping[str, Any], output: Path) -> Path | None:
-    """Put the cloud's recognition where the engine looks for its own.
-
-    `run_pipeline` skips every stage whose artifact is on disk, and skips
-    separation and recognition altogether once stable.json is there -- so a
-    copy under the engine's own name is the whole continuation, with no second
-    entry point to keep in step with the first. Only ever copied when absent:
-    a retry resumes on the bytes its first attempt rendered from.
-
-    The cloud's speaker timeline, when it ran diarization, goes under the
-    engine's `-diar.json` name the same way: the diarize stage then reuses it
-    instead of recomputing, and the judge levels run from it as they do after
-    a local recognition.
-    """
-
-    source = request["source"]
-    if source.get("kind") != "cloud_stable":
-        return None
-    from .correction.finesub import NATIVE_DIAR, NATIVE_STABLE, place_native
-
-    native = {NATIVE_STABLE: source["stable_json"]}
-    if source.get("diar_json"):
-        native[NATIVE_DIAR] = source["diar_json"]
-    return Path(place_native(source["path"], output, native).stable_json)
-
-
 def diarization_kwargs(request: Mapping[str, Any]) -> dict[str, Any]:
     """`run_pipeline`'s speaker keys for this request.
 
@@ -459,17 +445,6 @@ def diarization_models_missing() -> bool:
         return False
 
 
-def diarization_evidence_path(diar_json: Path) -> Path:
-    """The acoustic evidence written beside the speaker timeline.
-
-    FineSub's `speech.diarization.evidence.evidence_path`, restated so the
-    manifest can be built without importing the diarization package (checked
-    against it in tests/test_worker_adapter.py).
-    """
-
-    return diar_json.with_name(diar_json.name.removesuffix("-diar.json") + "-diar-evidence.npz")
-
-
 def install_llm_model_override(request: Mapping[str, Any]) -> None:
     """Apply this run's `llm_model` pin, or clear whatever a previous one left.
 
@@ -557,6 +532,225 @@ def format_worker_exception(exc: BaseException) -> str:
     return f"{exc_type}: {exc_msg}"
 
 
+# --- orchestration -----------------------------------------------------------
+
+#: The built-in implementations, as `module:factory`, registered by
+#: `register_engines` (owner 2026-11-12). A stand-in for the engine host until
+#: the engine packages are discovered from `engines/` (WP-P1): an id that is
+#: not in its registry is simply not available, the way a removed package
+#: will be. Tests replace these to run with other engines, or without one.
+TRANSCRIPTION_ENGINES: tuple[str, ...] = ("nonoka_x.transcription.engines.finesub:FineSubEngine",)
+CORRECTION_ENGINES: tuple[str, ...] = ("nonoka_x.correction.finesub:FineSubCorrection",)
+
+#: Every TaskRequest target, in order; the transcription's reach ends at `stable`.
+TARGETS = ("vocal", "aligned", "stable", "raw-srt", "translated-srt", "final-srt")
+TRANSCRIPTION_TARGETS = TARGETS[: TARGETS.index("stable") + 1]
+
+#: What a `cloud_stable` source carries, as the `native` attachments of the
+#: transcription the cloud's FineSub made (plan 5.1): its stable and, when it
+#: diarized, its speaker timeline.
+CLOUD_NATIVE = (("stable_json", "finesub.stable_json"), ("diar_json", "finesub.diar_json"))
+
+
+def register_engines() -> None:
+    """Register every built-in implementation whose id is not registered yet."""
+
+    from . import correction, transcription
+
+    for registry, entries in (
+        (transcription.registry, TRANSCRIPTION_ENGINES),
+        (correction.registry, CORRECTION_ENGINES),
+    ):
+        for entry in entries:
+            module_name, _, factory = entry.partition(":")
+            engine = getattr(importlib.import_module(module_name), factory)()
+            if engine.spec.id not in registry:
+                registry.register(engine)
+
+
+def transcription_in_hand(request: Mapping[str, Any], task_dir: Path) -> Any | None:
+    """The transcription a continuation already has, or None when it is still to be made.
+
+    A `cloud_stable` source is the cloud's recognition of this media. Its
+    files are attachments the core does not parse; the correction decides
+    what to do with them. There is no `transcript.json` for it yet (the cloud
+    delivers one after WP-CL), so the result names the path one would have.
+    """
+
+    from .transcription import TRANSCRIPT_FILENAME, TranscriptionResult
+
+    source = request["source"]
+    if source.get("kind") != "cloud_stable":
+        return None
+    return TranscriptionResult(
+        transcript_json=task_dir / TRANSCRIPT_FILENAME,
+        native={key: Path(source[field]) for field, key in CLOUD_NATIVE if source.get(field)},
+        metadata={"source": "cloud_stable"},
+    )
+
+
+def transcription_job(
+    request: Mapping[str, Any], task_dir: Path, task_id: str, *, title: str, gpu_tier: str
+) -> Any:
+    """The transcription engine's job: the request's fields for that half, resolved.
+
+    `options` carry them in TaskRequest terms (WP4a, owner 2026-11-11): the
+    device as requested, the GPU tier resolved, the speaker block as the
+    provider normalized it, the extra-info with the picked knowledge subjects
+    written in, the effective knowledge switch. `transcription.options` (none
+    yet: WP5) lies underneath, so a resolved field always wins.
+    """
+
+    from .transcription import TranscriptionJob, requested_options
+
+    source = request["source"]
+    return TranscriptionJob(
+        source=Path(source["path"]),
+        language=request.get("language", "ja"),
+        task_dir=task_dir,
+        cache_dir=task_dir / "cache",
+        target=request["target"],
+        options={
+            **requested_options(request),
+            "title": title,
+            "device": request.get("device"),
+            "gpu_tier": gpu_tier,
+            "separate": bool(request.get("separate", True)),
+            "diarization": request.get("diarization"),
+            "extra_info": str((request.get("correction") or {}).get("extra_info") or ""),
+            "knowledge": request.get("knowledge", "update"),
+            "task_id": task_id,
+        },
+    )
+
+
+def correction_job(
+    request: Mapping[str, Any],
+    task_dir: Path,
+    task_id: str,
+    transcription: Any,
+    *,
+    title: str,
+    fast: str,
+    proofread: str,
+    subject_names: list[str],
+) -> Any:
+    """The correction engine's job (WP4b): the correction block with `fast` and `proofread` resolved."""
+
+    from .correction import CorrectionJob
+
+    return CorrectionJob(
+        transcription=transcription,
+        source=Path(request["source"]["path"]),
+        target=request["target"],
+        task_dir=task_dir,
+        options={**(request.get("correction") or {}), "fast": fast, "proofread": proofread},
+        knowledge={"knowledge": request.get("knowledge", "update"), "knowledge_subjects": list(subject_names)},
+        diarization_level=diarization_kwargs(request)["diarize"],
+        title=title,
+        task_id=task_id,
+        task_summary=knowledge_task_summary(request, title),
+    )
+
+
+@contextlib.contextmanager
+def engine_reporting(reporter: NonokaXReporter) -> Iterator[None]:
+    """Bind `reporter` as FineSub's reporter for the engines run inside, when FineSub is there to hear it.
+
+    The FineSub adapters keep a reporter their caller bound; any other engine
+    reports through the `Reporter` it is handed.
+    """
+
+    try:
+        from finesub.reporting import quieted_libraries, reporting_to
+    except ImportError:
+        yield
+        return
+    with reporting_to(reporter), quieted_libraries("normal"):
+        yield
+
+
+def manifest_candidates(transcription: Any, correction: Any | None) -> dict[str, Path]:
+    """The task's artifacts by manifest name: the transcription's attachments, then the correction's.
+
+    An attachment `<engine>.<name>` is listed as `<name>`; where the
+    correction names the same artifact, its file is the one the task's
+    subtitles were made from (a continuation's copy of the cloud stable).
+    """
+
+    candidates = {key.split(".", 1)[1]: Path(path) for key, path in transcription.native.items()}
+    if correction is not None:
+        candidates.update(correction.artifacts)
+    return candidates
+
+
+def run_engines(
+    request: Mapping[str, Any],
+    task_dir: Path,
+    task_id: str,
+    *,
+    title: str,
+    subject_names: list[str],
+) -> dict[str, Path]:
+    """Transcribe (or take the transcription in hand), then correct up to the target."""
+
+    from . import correction as corrections
+    from . import transcription as transcriptions
+    from .settings import correction_proofread
+
+    register_engines()
+    target = request["target"]
+    if target not in TARGETS:
+        raise ValueError(f"unknown target {target!r}; known: {', '.join(TARGETS)}")
+    in_hand = transcription_in_hand(request, task_dir)
+    if in_hand is not None:
+        emit("log", {"message": "从云端识别结果续跑：跳过人声分离与识别"})
+    reporter = NonokaXReporter(announce_completion=False)
+    report = transcriptions.EventReporter(emit)
+    gpu_tier = resolve_request_gpu_tier(request, warn=lambda message: reporter.warning("gpu-tier", message))
+    correction_block = request.get("correction") or {}
+    fast = resolve_request_fast(correction_block, warn=lambda message: reporter.warning("fast-mode", message))
+    proofread = correction_proofread(correction_block)
+
+    # Both looked up before anything runs: an engine that is not there fails
+    # the task now, not after the other half has run.
+    engine = None if in_hand is not None else transcriptions.registry.get(transcriptions.requested_engine(request))
+    corrector = None
+    if target in corrections.CORRECTION_TARGETS:
+        corrector = corrections.registry.get(corrections.requested_engine(request))
+
+    with engine_reporting(reporter):
+        pending = None
+        if corrector is not None:
+            placeholder = transcriptions.TranscriptionResult(
+                transcript_json=task_dir / transcriptions.TRANSCRIPT_FILENAME
+            )
+            pending = correction_job(
+                request, task_dir, task_id, placeholder,
+                title=title, fast=fast, proofread=proofread, subject_names=subject_names,
+            )
+            # What the correction can refuse is refused before the
+            # transcription spends anything (an engine without the hook has
+            # nothing to refuse early).
+            check = getattr(corrector, "check", None)
+            if callable(check):
+                check(pending, report)
+        if in_hand is None:
+            job = transcription_job(request, task_dir, task_id, title=title, gpu_tier=gpu_tier)
+            result = engine.transcribe(job, report)
+        else:
+            # The stages up to the result in hand are done, and said to be,
+            # as a run resuming from them says it.
+            for stage in TRANSCRIPTION_TARGETS:
+                reporter.stage_started(stage, reused=True)
+            result = in_hand
+        corrected = None
+        if corrector is not None:
+            corrected = corrector.run(dataclasses.replace(pending, transcription=result), report)
+    emit_completion()
+    return manifest_candidates(result, corrected)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--task-id", required=True)
@@ -579,23 +773,18 @@ def main(argv: list[str] | None = None) -> int:
         title = str(source.get("title") or Path(source["path"]).stem)
         output = args.task_dir / "workspace" / f"{title}.srt"
         output.parent.mkdir(parents=True, exist_ok=True)
-        engine_device, visible_devices = _normalize_engine_device(request.get("device"))
-        if visible_devices is not None and "CUDA_VISIBLE_DEVICES" not in os.environ:
-            os.environ["CUDA_VISIBLE_DEVICES"] = visible_devices
-        from finesub.reporting import quieted_libraries, reporting_to
 
         axis = request.get("axis") if isinstance(request.get("axis"), dict) else None
+        # Before the transcription: the ASR context may pick the entries of a
+        # subject created here.
         subjects = prepare_knowledge_subjects(request, args.task_id)
         for entry in subjects["created"]:
             emit("log", {
                 "message": "knowledge subject initialized",
                 "fields": {"entry": entry, "rev": subjects["rev"]},
             })
-        # Passed only when there is something to pin, so a run without
-        # subjects calls the engine with exactly upstream's arguments.
-        subject_kwargs = {"knowledge_subjects": subjects["names"]} if subjects["names"] else {}
         if axis is not None and axis.get("kind") == "ja":
-            with reporting_to(NonokaXReporter()), quieted_libraries("normal"):
+            with engine_reporting(NonokaXReporter()):
                 translated = translate_axis(
                     request, axis, output, args.task_id, artifact_dir, subjects["names"]
                 )
@@ -605,73 +794,9 @@ def main(argv: list[str] | None = None) -> int:
                 "final_srt": translated.final_srt,
             }
         else:
-            from finesub.stages import run_pipeline
-
-            from .settings import correction_proofread
-
-            if seed_cloud_stable(request, output) is not None:
-                emit("log", {"message": "从云端识别结果续跑：跳过人声分离与识别"})
-            reporter = NonokaXReporter()
-            gpu_tier = resolve_request_gpu_tier(
-                request,
-                warn=lambda message: reporter.warning("gpu-tier", message),
+            candidates = run_engines(
+                request, args.task_dir, args.task_id, title=title, subject_names=subjects["names"]
             )
-            with reporting_to(reporter), quieted_libraries("normal"):
-                paths = run_pipeline(
-                    source["path"],
-                    output_path=output,
-                    stage=request["target"],
-                    language=request.get("language", "ja"),
-                    device=engine_device,
-                    gpu_tier=gpu_tier,
-                    separate=bool(request.get("separate", True)),
-                    # Unset switches stay None: the engine resolves them
-                    # through the active preset's defaults, then its own.
-                    llm_media=correction.get("media"),
-                    llm_retrieval=correction.get("retrieval"),
-                    llm_difficulty=correction.get("difficulty"),
-                    llm_proofread=correction_proofread(correction),
-                    llm_fast=resolve_request_fast(
-                        correction, warn=lambda message: reporter.warning("fast-mode", message)
-                    ),
-                    extra_info=correction.get("extra_info", ""),
-                    extra_style=correction.get("extra_style", ""),
-                    knowledge=request.get("knowledge", "update"),
-                    task_summary=knowledge_task_summary(request, title),
-                    task_id=args.task_id,
-                    task_artifact_dir=artifact_dir,
-                    resume=True,
-                    # The editor builds its own speaker tracks from the speaker
-                    # labels, so the engine's per-speaker exports stay off.
-                    speaker_tracks="off",
-                    **diarization_kwargs(request),
-                    **subject_kwargs,
-                )
-            # Every artifact the pipeline names, not only the four the editor
-            # projects from: a caller that asked for one stage wants that
-            # stage's output, and a stage that did not run simply leaves its
-            # file absent -- the manifest below records what exists.
-            candidates = {
-                "vocal_audio": paths.resolve_vocal_audio(),
-                "vad_json": Path(paths.vad_json),
-                "vad_energy_npz": Path(paths.vad_energy_npz),
-                "aligned_json": Path(paths.aligned_json),
-                "stable_json": Path(paths.stable_json),
-                # Kept, never regenerated on their own: a rerun may label the
-                # speakers differently, so these are the record of this run's.
-                "diar_json": Path(paths.diar_json),
-                "diar_rows_json": Path(paths.diar_rows_json),
-                "diar_evidence_npz": diarization_evidence_path(Path(paths.diar_json)),
-                "speaker_judge_json": Path(paths.speaker_judge_json),
-                "raw_srt": Path(paths.raw_srt),
-                "translated_srt": Path(paths.translated_srt),
-                "annotated_csv": Path(paths.final_srt).with_name(f"{Path(paths.final_srt).stem}-annotated.csv"),
-                "final_srt": Path(paths.final_srt),
-                "metadata_json": Path(paths.metadata_json),
-                # The record of which way the task ran: the projection reads
-                # whether its two text columns are translation or polish.
-                "correction_mode_json": artifact_dir / "correction-mode.json",
-            }
         upstream = json.loads((args.vendor / "UPSTREAM.json").read_text(encoding="utf-8"))
         manifest = {
             "schema": 1,
