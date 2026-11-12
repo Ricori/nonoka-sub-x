@@ -13,9 +13,12 @@
     "files a mirror serves alongside them are taken on trust: why, and when",
     "that changes, in docs/download-routes.md, Hugging Face models.",
     "",
-    "download_checks.json deliberately carries no digest: it is an upstream",
-    "index on a moving branch, so pinning it would fail every machine the day",
-    "upstream edits it. It is fetched once and not verified.",
+    "download_checks.json is pinned to the upstream commit that last changed it",
+    "(8a65b784, 2025-01-13; owner-approved 2026-11-12, WP-E1): the model layer",
+    "is built from this manifest alone, so its copy has to be a fixed one. The",
+    "bytes are the ones every install fetched from the moving branch since then.",
+    "finesub_bootstrap's own manifest keeps the unpinned branch address; the",
+    "engine leaves a present copy alone either way.",
     "",
     "whisper-ja was added on 2026-09-02 from the same Hub file-metadata API,",
     "and is the one entry that has NOT been through a release drill: no",
@@ -53,7 +56,9 @@
         },
         {
           "name": "download_checks.json",
-          "url": "https://raw.githubusercontent.com/TRvlvr/application_data/main/filelists/download_checks.json"
+          "url": "https://raw.githubusercontent.com/TRvlvr/application_data/8a65b784b5f075e46c43537cb0f3de3a802d00a9/filelists/download_checks.json",
+          "size": 28267,
+          "sha256": "d3622e1fa19c161d3cf704927711b453d593a3f1eb0f2e0838c3136907935151"
         }
       ]
     },

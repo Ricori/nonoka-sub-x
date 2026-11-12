@@ -30,6 +30,9 @@ Checks (docs/transcription-engines-plan.md, section 0 and WP-Q):
                     Modal compute legs (nonoka-sub-cloud/modal_compute, one L4
                     per GPU leg), against test_data/quality-baseline/cloud/ by
                     structure and statistics, not bytes (plan section 0.1, rule 3)
+7. prebuilt layers  (--layers PATH...) each layer's file manifest against
+                    RUNTIME_PINS.json, and every file of it (an archive is
+                    unpacked first) against the manifest (tests/quality_harness/layers.py)
 
 Exit status: 0 every check passed; 1 a check failed; 2 nothing failed, but
 something was left undecided -- a replay case whose inputs are missing here,
@@ -474,6 +477,30 @@ def check_cloud(args: argparse.Namespace) -> Result:
     return result
 
 
+# --- 7. prebuilt layers (WP-E1) ----------------------------------------------------
+
+
+def check_layers(args: argparse.Namespace) -> Result:
+    result = Result("prebuilt layers")
+    if not args.layers:
+        result.status, result.summary = SKIP, "not requested (pass --layers <build output, layer dir or manifest>)"
+        return result
+    from tests.quality_harness import layers
+
+    problems: list[str] = []
+    seen = []
+    for checked in layers.check([Path(path) for path in args.layers]):
+        scope = "every file" if checked["checked_files"] else "manifest only, files not checked"
+        seen.append(f"{checked['layer']} {checked['version']} ({checked['files']} files, {scope})")
+        problems += [f"{checked['layer']} {checked['version']}: {line}" for line in checked["problems"]]
+        if not checked["checked_files"]:
+            result.status = UNDECIDED
+    if problems:
+        return result.fail(f"{len(problems)} problem(s)", _excerpt("\n".join(problems), 0 if args.full else 60))
+    result.summary = "; ".join(seen) + " match RUNTIME_PINS.json"
+    return result
+
+
 CHECKS: dict[str, Callable[[argparse.Namespace], Result]] = {
     "lock": check_lock,
     "pins": check_pins,
@@ -483,6 +510,7 @@ CHECKS: dict[str, Callable[[argparse.Namespace], Result]] = {
     "knowledge": check_knowledge,
     "real": check_real,
     "cloud": check_cloud,
+    "layers": check_layers,
 }
 
 
@@ -494,6 +522,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--cloud", action="store_true",
                         help="also rerun the samples on Modal with the unchanged compute legs (rents GPUs, costs money)")
     parser.add_argument("--keep", action="store_true", help="keep the --real / --cloud runs' directories")
+    parser.add_argument("--layers", nargs="+", metavar="PATH",
+                        help="also check prebuilt layers: a build output directory, a layer directory or a manifest")
     parser.add_argument("--record", choices=("calls", "environment", "replay", "knowledge", "real", "cloud"),
                         help="rewrite that baseline from the current code (owner approval only)")
     args = parser.parse_args(argv)

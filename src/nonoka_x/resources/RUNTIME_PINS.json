@@ -359,7 +359,9 @@
         },
         {
           "name": "download_checks.json",
-          "url": "https://raw.githubusercontent.com/TRvlvr/application_data/main/filelists/download_checks.json"
+          "sha256": "d3622e1fa19c161d3cf704927711b453d593a3f1eb0f2e0838c3136907935151",
+          "size": 28267,
+          "url": "https://raw.githubusercontent.com/TRvlvr/application_data/8a65b784b5f075e46c43537cb0f3de3a802d00a9/filelists/download_checks.json"
         }
       ]
     },
