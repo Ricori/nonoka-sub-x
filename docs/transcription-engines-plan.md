@@ -1,6 +1,6 @@
 # 转写引擎重构计划
 
-> 状态（2026-11-11）：WP-Q、WP-A、WP0、WP-R0 已完成并合进 main；WP-C 的 harness 已合进 main，云端基线还没录成（见 WP-C）；编译加速已在 `85ae2b9` 关闭；WP-R2、WP-B、WP-R1、WP1、WP4a、WP4b、WP4c、WP3a/b/c、WP-C、WP-P0、WP-M1（最后一条完成标准除外）、WP-R4 已完成并合进 main（各包按附录 B 的答复调整）；WP-E1、WP-K、WP-CL0 在进行；2026-11-12 用户决定知识库独立成第三个包、全部经协议访问（第 0.1 节第 5 条、4.6 第 35a 条、WP-K）；其余未开工。本文档是交给子代理执行的工作说明，每个工作包可以单独领走。
+> 状态（2026-11-11）：WP-Q、WP-A、WP0、WP-R0 已完成并合进 main；WP-C 的 harness 已合进 main，云端基线还没录成（见 WP-C）；编译加速已在 `85ae2b9` 关闭；WP-R2、WP-B、WP-R1、WP1、WP4a、WP4b、WP4c、WP3a/b/c、WP-C、WP-P0、WP-M1（最后一条完成标准除外）、WP-R4、WP-K 已完成并合进 main（各包按附录 B 的答复调整）；WP-E1、WP-CL0 在进行；2026-11-12 用户决定知识库独立成第三个包、全部经协议访问（第 0.1 节第 5 条、4.6 第 35a 条、WP-K）；其余未开工。本文档是交给子代理执行的工作说明，每个工作包可以单独领走。
 > 写于 2026-11-10，基于 `main@1f14db3`、FineSub `v0.7.0@7123055`。
 > **2026-11-11 整理成干净版本**（用户决定，附录 B 第 1 问）：现行决定直接写在正文里，不再有「以后者为准」的追加条款。每个决定的来历、被推翻的旧说法，以及旧条款编号到新编号的对照，见附录 A；向用户问过的问题和答复见附录 B；还没定的事见附录 C。整理前的版本在 git 历史里（`main` 上的 `docs/transcription-engines-plan.md`）。
 > 相关文档：`docs/runtime-and-config.md`（WP-R0 的调查与设计答复 D1–D23，下称「R0 文档」；其中被本计划取代的答复已在那边标注，对照见附录 A.3）；`docs/engine-sandbox-experiment.md`（预制环境包与进程级沙箱两个前提的实验报告，下称「实验报告」）。本文档与 R0 文档冲突时以本文档为准。
@@ -492,7 +492,7 @@ FineSub 转写引擎也要写 `transcript.json`（从它的 stable 投影出来�
 ## 6. 工作包
 
 ```text
-已完成：WP-Q、WP-A、WP0、WP-R0、WP-R2、WP-B、WP-R1、WP1、WP4a、WP4b、WP4c、WP3a/b/c、WP-C、WP-P0、WP-M1（最后一条完成标准等 WP-E1、WP-E3）、WP-R4
+已完成：WP-Q、WP-A、WP0、WP-R0、WP-R2、WP-B、WP-R1、WP1、WP4a、WP4b、WP4c、WP3a/b/c、WP-C、WP-P0、WP-M1（最后一条完成标准等 WP-E1、WP-E3）、WP-R4、WP-K
 
 引擎线：
 WP-B ──┬─► WP1 ──► WP3a / WP3b / WP3c ───────────────┐
@@ -861,7 +861,9 @@ harness 已在 main（`tests/quality_harness/cloud.py`、`quality_gate.py --clou
   10. **知识库的访问点**（第 0.1 节第 5 条）：转写和纠错两半每一处直接读写知识库的调用点（文件、函数、读还是写、要不要写锁）；知识库包的协议设计（查询与写入的种类、包进程之间怎么连、沙箱里的转写进程怎么连、调用开销）；每个要改的上锁文件怎么改（只换访问方式）；闸门现有基线覆盖没覆盖这些路径，没覆盖的列出要补录的用例（在未改动的代码上录，录之前经用户批准）。
 - 完成标准：十个问题各有带文件位置的答案；三份文件清单（转写包、纠错包、知识库包）可以被脚本直接读；任何一条意味着必须改冻结文件的，单独标出并交回。
 
-### WP-K 知识库访问点改走协议（新，2026-11-12）
+### WP-K 知识库访问点改走协议（已完成 2026-11-13）
+
+> 交付：协议代码在顶层包 `src/finesub_knowledge/`（`protocol.py`、`client.py`、`server.py`、`manage.py`，不 import `nonoka_x`），WP-P1 时 client 与 protocol 复制进转写包、纠错包，server、manage、protocol 进知识库包。19 个冻结文件只改 import 行（65 个名字改从 `finesub_knowledge.client` 取，调用一行没动）；`QUALITY_LOCK.json` 在单独提交里只更新 18 个上锁文件的哈希（`stages.py` 本就不上锁），记在 `LOCAL_CHANGES.md` 第 0011 节。被调函数在配对的知识库进程里用原代码执行（每个客户端进程一个，第一次访问时由客户端拉起，`knowledge: none` 零开销）；仓库、存储、写锁以句柄留在知识库进程，回调与可变参数留在客户端；连接用 `multiprocessing.connection`（Windows 命名管道），一次性 authkey，报文 JSON；MCP 子进程经知识库目录旁的 `<目录名>.run\<pid>.json` 找服务（文件里有一次性 authkey，进程被强杀时会留下）。审计钩子测试证明转写和纠错两半的进程不打开知识库下的文件、不 `sqlite3.connect`；`knowledge` 不是 `none` 而知识库包不在时开跑前拦下。闸门新增 `knowledge` 一项与 `--record knowledge`，K1–K8 共 7 个用例（K3、K6 并进 K1、K2，另加 K1b），在未改动的代码上录；为固定知识库日期重录过一次（附录 B 第 51 问）。76 个访问点里闸门跑到 49 个，没跑到的（本地 Agent 路由、读音提示、知识更新的修复轮与风格标记、联网研究、并行窗口的 repin 与重试）只靠原函数原样远程执行与静态测试保证。打包：桌面暂存工具与 `pyproject.toml` 收进 `src/finesub_knowledge`（附录 B 第 52 问）。交回 WP-P1：`scripts/engine_packages.py` 要改成从 `finesub_knowledge.server.ALLOWED` 找知识库包的入口（现在算出的知识库包只有 55 个文件，不对）；知识库进程改由核心分配端点（客户端已认 `FINESUB_KNOWLEDGE_ENDPOINT`）。下面是原始说明。
 
 等 WP-P0 做完再开工，排在 WP-P1 之前。按第 0.1 节第 5 条、4.6 第 35a 条。
 
@@ -1183,6 +1185,9 @@ R0 文档里这几条已按此加了标注（只加标注，不删原文）。
 | 47 | WP-R4：WP-R5 之前 FineSub 侧怎么过渡 | 全部推荐项：新存储是唯一真实来源，每次保存设置、云端登录与启动时整体派生 FineSub 的三个文件；派生到 `engines\finesub-shared\`；sidecar 启动时只对还没迁移的数据目录自动迁移设置与密钥；细则 1–9 按推荐 |
 | 48 | WP-R4 偏离细则第 7 条：旧变量名（keyring 行与三个旧密钥名）放进 `migration/legacy.py`，不放 `config/migrate.py`（WP0 的测试要求 `config/` 里不出现 FineSub 的名字） | 批准（2026-11-13）；边界测试只许 `migration/legacy.py` 这一个文件、旧文件名与 `FINESUB_*` 两类越界 |
 | 49 | WP-R4 偏离 WP0 的测试：登记过的新密钥名可以经 `ConfigStore.update` 写进 `secrets.json`（细则第 8 条） | 批准（2026-11-13）；这类密钥不进设置页的密钥列表、不派生给 FineSub |
+| 50 | WP-K 的 K1–K8 用例与 8 个实施问题（K1 只用仓库内合成样本；闸门加 `knowledge` 检查；代码放 `src/finesub_knowledge/`；WP-P1 之前由 worker 进程配对拉起知识库进程，允许改 `worker.py` 三处；`multiprocessing.connection` + JSON；`build_asr_context` 只换碰数据的两个名字；只把被调函数与 `KnowledgeRepo` 换成协议、句柄后续使用也经协议；回放 harness 的拒网如需改只放行这一种连接） | 全部推荐项（2026-11-12） |
+| 51 | WP-K 为固定知识库日期，在未改动的代码上重录 K 基线一次（只差日期与由它算出的哈希，LLM 请求不变） | 接受（2026-11-13） |
+| 52 | WP-K：桌面打包与 wheel 收进 `src/finesub_knowledge` | 加进打包（2026-11-13） |
 
 更早的问答：WP-R0 的 D1–D23 见 R0 文档第 0 节；WP0 的细节见附录 A.1；沙箱实验中的决定见实验报告。
 
