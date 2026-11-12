@@ -252,7 +252,7 @@ def _agent_task_inputs(
         metadata["kb_tools"] = knowledge_binding["entitlement"]
         # The MCP server books `exposed` from its own process; the gate is
         # decided here, where the knowledge root was chosen.
-        from .knowledge.base import knowledge_signals_enabled
+        from finesub_knowledge.client import knowledge_signals_enabled
 
         if not knowledge_signals_enabled(knowledge_binding["root"]):
             metadata["kb_signals"] = "off"
@@ -316,9 +316,8 @@ def _agent_knowledge_binding(call_kwargs: Mapping[str, Any]) -> Dict[str, Any] |
 
     from .knowledge.base import (
         active_generation_pins,
-        kb_index_block_text,
-        knowledge_root_path,
     )
+    from finesub_knowledge.client import kb_index_block_text, knowledge_root_path
 
     from .agent.agent_mcp_server import KB_ENTITLEMENT_TOOLS
 
@@ -622,7 +621,7 @@ def _claim_for_opening(
             identity = str(metadata.get("knowledge_identity") or "")
             root = str(metadata.get("kb_root") or "")
             if root and identity.startswith("rev:"):
-                from .knowledge.base import kb_index_block_text
+                from finesub_knowledge.client import kb_index_block_text
 
                 text = kb_index_block_text(root, int(identity.split(":")[1]))
                 # The gate's own condition: what is carried is exactly what

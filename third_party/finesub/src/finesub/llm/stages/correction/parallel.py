@@ -22,7 +22,8 @@ from ...routing.config import (
 )
 from ...exchange_log import ExchangeBlock
 from ...injection_budget import render_knowledge_entries_block
-from ...knowledge.base import append_task_artifact, load_entry_texts
+from ...knowledge.base import append_task_artifact
+from finesub_knowledge.client import load_entry_texts
 from ...output_protocol import CsvValidationResult
 from .attempts import run_window_attempts
 from .commit import WindowEntries, _load_parallel_entry_set
@@ -282,7 +283,7 @@ def run_parallel_windows(run: CorrectionRun, windows: List[SubtitleWindow]) -> N
     # bodies render at the fresh rev (the A.5 (5) exemption already excludes
     # bodies from resume identity, so no cache is invalidated).
     if run.knowledge_enabled:
-        from ...knowledge.base import repin_generation_rev
+        from finesub_knowledge.client import repin_generation_rev
 
         repinned = repin_generation_rev(run.knowledge_root)
         if repinned is not None:

@@ -21,7 +21,8 @@ from ...routing.config import (
 )
 from ... import kb_phonetic_hints
 from ...injection_budget import render_knowledge_entries_block
-from ...knowledge.base import append_task_artifact, knowledge_root_path, load_entry_texts, version_rev
+from ...knowledge.base import append_task_artifact, version_rev
+from finesub_knowledge.client import knowledge_root_path, load_entry_texts
 from ...output_protocol import CsvValidationResult
 from ...token_truncate import truncate_text_only
 from .attempts import _extract_next_advice, run_window_attempts

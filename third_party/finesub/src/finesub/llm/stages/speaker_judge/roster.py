@@ -21,7 +21,7 @@ def roster_entries(knowledge_root: Any, text: str) -> list[tuple[str, tuple[str,
     if knowledge_root is None or not (text or "").strip():
         return []
     try:
-        from ...knowledge.base import load_index_entries, match_index_keywords
+        from finesub_knowledge.client import load_index_entries, match_index_keywords
 
         matches = [match for match in match_index_keywords(knowledge_root, text, max_entries=ROSTER_MAX_ENTRIES)
                    if match.category == "streamer"]

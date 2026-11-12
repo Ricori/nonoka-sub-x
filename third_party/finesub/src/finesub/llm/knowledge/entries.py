@@ -24,7 +24,7 @@ from ..injection_budget import (
 )
 from .feedback import KnowledgeHint, RESEARCH_HINT_WEIGHT
 from .node.render import HandleMap
-from .node.repo import KnowledgeRepo
+from finesub_knowledge.client import KnowledgeRepo
 
 # Per docs/knowledge.md: at most 20 prefetched entries per chunk, each capped
 # at its category's `max_entry_tokens`, the whole block ≤60k tokens (owner

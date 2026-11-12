@@ -21,7 +21,6 @@ import importlib
 import json
 import logging
 import os
-import re
 import sys
 import traceback
 from pathlib import Path
@@ -222,61 +221,6 @@ def knowledge_task_summary(request: Mapping[str, Any], title: str) -> str:
     return f"字幕任务：{title}" + (f"\n\n{identity}" if identity else "")
 
 
-def _split_aliases(value: Any, subject: str) -> list[str]:
-    aliases: list[str] = []
-    for alias in re.split(r"[、,，;；\n]+", str(value or "")):
-        alias = alias.strip()
-        if alias and alias != subject and alias not in aliases:
-            aliases.append(alias)
-    return aliases
-
-
-def _create_knowledge_subject(repo: Any, item: Mapping[str, Any], task_id: str) -> Any:
-    """Create one user-described subject; returns its resolved entry.
-
-    The subject fields are explicit user input, not a guess extracted from a
-    transcript. Persisting that small scaffold makes an empty repository
-    usable immediately; the model-owned update still decides which video
-    facts are reliable enough to append.
-    """
-
-    from finesub.llm.knowledge.node.proposals import apply_model_proposals
-
-    subject = str(item.get("subject") or "").strip()
-    kind = str(item.get("kind") or "streamer")
-    category = "streamer" if kind == "streamer" else "common"
-    kind_label = _KIND_LABELS.get(kind, _KIND_LABELS["topic"])
-    description = " ".join(str(item.get("description") or "").split())
-    intro = (description or f"用户在字幕任务中指定的{kind_label}知识主体。")[:240]
-    proposal = {
-        "op": "create_entry",
-        "category": category,
-        "entry": subject,
-        "intro": intro,
-        "entry_type": "其他" if category == "common" else "",
-        "aliases": _split_aliases(item.get("aliases"), subject),
-        "reason": "用户在任务设置中明确指定此主体；初始化词条以承接本次及后续任务知识。",
-    }
-    proposal_text = (
-        "<knowledge_proposals>\n"
-        + json.dumps(proposal, ensure_ascii=False, separators=(",", ":"))
-        + "\n</knowledge_proposals>"
-    )
-    report = apply_model_proposals(
-        proposal_text,
-        repo=repo,
-        task_id=f"{task_id}:subject-bootstrap",
-        knowledge_read_rev=repo.rev,
-    )
-    # A concurrent task may have created it after our first resolve; either
-    # way the entry must exist now.
-    resolved = repo.resolve(subject)
-    if resolved is None:
-        reasons = "; ".join(record.reason for record in report.skipped) or "unknown reason"
-        raise RuntimeError(f"知识主体「{subject}」初始化失败：{reasons}")
-    return resolved
-
-
 def prepare_knowledge_subjects(
     request: Mapping[str, Any], task_id: str, *, knowledge_root: str | Path | None = None
 ) -> dict[str, Any]:
@@ -284,41 +228,44 @@ def prepare_knowledge_subjects(
 
     Existing subjects travel by store id, which survives a rename; the engine
     is handed `category/key`, the qualified form its human lookup accepts
-    without ambiguity. A subject without an id is created here -- the provider
+    without ambiguity. A subject without an id is created -- the provider
     only lets that through under `update` -- unless an entry of that name
     already exists, which is then reused rather than duplicated.
+
+    The store is the knowledge package's (plan 4.6 item 35a): the lookup and
+    the creation run there (`finesub_knowledge.manage.prepare_subjects`).
     """
 
     subjects = knowledge_subjects(request)
     if not subjects:
         return {"names": [], "created": []}
 
-    from finesub.llm.knowledge.base import knowledge_root_path
-    from finesub.llm.knowledge.node.repo import KnowledgeRepo
+    from finesub_knowledge.client import prepare_subjects
 
-    repo = KnowledgeRepo.open(knowledge_root_path(knowledge_root))
-    names: list[str] = []
-    created: list[str] = []
-    for item in subjects:
-        subject = str(item.get("subject") or "").strip()
-        ident = str(item.get("id") or "").strip()
-        if ident:
-            node = next((s for s in repo.subjects() if s.local_id == ident), None)
-            if node is None:
-                raise RuntimeError(f"知识主体「{subject}」已不在知识库中，请重新选择")
-            category, key = str(node.payload["category"]), str(node.payload["surface"])
-        else:
-            resolved = repo.resolve(subject)
-            if resolved is None:
-                if request.get("knowledge") != "update":
-                    raise RuntimeError(f"知识库里没有「{subject}」，只有自动更新模式可以新建主体")
-                resolved = _create_knowledge_subject(repo, item, task_id)
-                created.append(resolved.key)
-            category, key = resolved.category, resolved.key
-        name = f"{category}/{key}"
-        if name not in names:
-            names.append(name)
-    return {"names": names, "created": created, "rev": repo.rev}
+    return prepare_subjects(
+        [dict(item) for item in subjects], knowledge=request.get("knowledge"), task_id=task_id,
+        knowledge_root=knowledge_root,
+    )
+
+
+def knowledge_package_problem(request: Mapping[str, Any]) -> str | None:
+    """Why this request cannot run without the knowledge package, or None.
+
+    A request that reads or writes the base needs it, and so does its ASR
+    context, which picks its names from the base (`stages.resolve_asr_context`
+    turns it on whenever `knowledge` is not `none`). Refused before anything
+    runs, not left to fail later or to run silently without the base (plan
+    4.6 item 35a, appendix B question 39).
+    """
+
+    if request.get("knowledge", "update") == "none":
+        return None
+    from finesub_knowledge.client import package_problem
+
+    problem = package_problem()
+    if problem is None:
+        return None
+    return f"{problem}：这个任务用到知识库（knowledge={request.get('knowledge', 'update')}），请安装知识库包或关闭知识库后重试"
 
 
 def translate_axis(
@@ -775,6 +722,9 @@ def main(argv: list[str] | None = None) -> int:
         output.parent.mkdir(parents=True, exist_ok=True)
 
         axis = request.get("axis") if isinstance(request.get("axis"), dict) else None
+        problem = knowledge_package_problem(request)
+        if problem:
+            raise RuntimeError(problem)
         # Before the transcription: the ASR context may pick the entries of a
         # subject created here.
         subjects = prepare_knowledge_subjects(request, args.task_id)

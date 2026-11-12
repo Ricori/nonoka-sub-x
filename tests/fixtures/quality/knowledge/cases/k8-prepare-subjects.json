@@ -1,0 +1,2329 @@
+{
+  "case": "k8-prepare-subjects",
+  "empty": {
+    "base": {
+      "rendered": {
+        ".manifest.json": "{\n \"store_rev\": 3,\n \"files\": {\n  \"streamer/猫又おかゆ.md\": {\n   \"sha256\": \"0e215f0bbd5f0c0f94d12e5569e4536ed8a7f18069098fc3881fea9df80e5107\",\n   \"subject\": \"$UUID1\",\n   \"rev\": 3\n  },\n  \"common/月影オンライン.md\": {\n   \"sha256\": \"bcfeef285bdaa55157e2e75348f3ce9099f516a60bdbaa5d677555848c91099f\",\n   \"subject\": \"$UUID2\",\n   \"rev\": 3\n  },\n  \"common/门禁话题.md\": {\n   \"sha256\": \"5293f11eabb4e5452b00363588b130c12efd5a3c535d696145c56d0320e890bb\",\n   \"subject\": \"$UUID3\",\n   \"rev\": 3\n  }\n }\n}",
+        "common/index.md": "# Common 索引\n\n格式：`- key [类型] | 其他语言本名 | 别名 | 一句简介`（key = 源语言本名；类型如 [游戏]、[动画]、[社区]、[其他]）\n- 月影オンライン [其他] |  | 月影 | 用户在字幕任务中指定的作品 / 节目知识主体。\n- 门禁话题 [其他] |  |  | 测试用话题\n",
+        "common/月影オンライン.md": "# 月影オンライン\n用户在字幕任务中指定的作品 / 节目知识主体。\n\n## 档案\n\n<!-- 用途：作品身份与本条目的收录边界。\n     不收：剧情梗概与攻略。\n     行式：可选 [标记] + 一句话内容。标记不是必须的，无标记行同样合法。\n     标记（缺了完整预览会留一个空槽）：\n       [本名] 源语言全名 / 中文定名 / 英文定名（源语言定名已是英文则留空），斜杠分隔；条目的 index 行由它派生\n       [别名] 顿号分隔：昵称、简称、全称、俗称，以及源语言的特殊读音。覆盖社区常用写法（崩坏星穹铁道 → 崩铁、星铁），至少 2 字符；误听变体不算别名。行体留空即清空\n       [收录范围] 这个条目只收哪一部分——写清楚，它是 agent 的收录纪律；本地口径，不随条目外发\n     登记的其他标记（可用，不提醒）：\n       [当前版本] 易腐信息；只在「收录范围」需要它界定时才写 -->\n- [本名] 月影オンライン\n- [别名] 月影\n- [收录范围]\n\n## 待归类\n\n<!-- 用途：暂存区：确实会影响译文、但不属于本条目任何一节的内容。写清楚它影响什么。\n     不收：不是垃圾场——不满足其他节收录标准的内容不会因为放进这里就变得该收。也不是碎片词条的替代出口：属于别的词条的内容直接写到那个词条去。\n     行式：可选 [标记] + 自由句，或术语行 源语言|中文定名|别名|一句话描述——别名在第三列，无则留空；描述在最后，可含竖线。标记不是必须的，无标记行同样合法。 -->\n\n## 元数据\n\n最近更新日期: 2026-01-02\n",
+        "common/门禁话题.md": "# 门禁话题\n测试用话题\n\n## 档案\n\n<!-- 用途：作品身份与本条目的收录边界。\n     不收：剧情梗概与攻略。\n     行式：可选 [标记] + 一句话内容。标记不是必须的，无标记行同样合法。\n     标记（缺了完整预览会留一个空槽）：\n       [本名] 源语言全名 / 中文定名 / 英文定名（源语言定名已是英文则留空），斜杠分隔；条目的 index 行由它派生\n       [别名] 顿号分隔：昵称、简称、全称、俗称，以及源语言的特殊读音。覆盖社区常用写法（崩坏星穹铁道 → 崩铁、星铁），至少 2 字符；误听变体不算别名。行体留空即清空\n       [收录范围] 这个条目只收哪一部分——写清楚，它是 agent 的收录纪律；本地口径，不随条目外发\n     登记的其他标记（可用，不提醒）：\n       [当前版本] 易腐信息；只在「收录范围」需要它界定时才写 -->\n- [本名] 门禁话题\n- [别名]\n- [收录范围]\n\n## 待归类\n\n<!-- 用途：暂存区：确实会影响译文、但不属于本条目任何一节的内容。写清楚它影响什么。\n     不收：不是垃圾场——不满足其他节收录标准的内容不会因为放进这里就变得该收。也不是碎片词条的替代出口：属于别的词条的内容直接写到那个词条去。\n     行式：可选 [标记] + 自由句，或术语行 源语言|中文定名|别名|一句话描述——别名在第三列，无则留空；描述在最后，可含竖线。标记不是必须的，无标记行同样合法。 -->\n\n## 元数据\n\n最近更新日期: 2026-01-02\n",
+        "streamer/index.md": "# 主播索引\n\n格式：`- key | 其他语言本名 | 别名 | 一句简介`（key = 源语言本名）\n- 猫又おかゆ |  | Okayu、おかゆ | Hololive 所属\n",
+        "streamer/猫又おかゆ.md": "# 猫又おかゆ\nHololive 所属\n\n## 档案\n\n<!-- 用途：条目身份：这条目是谁、归属何处。\n     不收：近况、版本性叙事、单场直播的轶事；称呼类信息去「频道用语」。\n     行式：可选 [标记] + 一句话内容。标记不是必须的，无标记行同样合法。\n     标记（缺了完整预览会留一个空槽）：\n       [本名] 源语言全名 / 中文定名 / 英文定名（源语言定名已是英文则留空），斜杠分隔；条目的 index 行由它派生\n       [别名] 顿号分隔：昵称、简称、全称、俗称及源语言的特殊读音（假名写法）。收社区常用写法（至少 2 字符），不列罕见写法。误听变体不算别名（会污染匹配）。行体留空即清空\n       [人设] 外貌之外的人物设定：性格、身份、定位——影响译文口吻\n       [外观] 外貌特征：发色瞳色、标志性配饰与服装——多模态任务据此辨认 -->\n- [本名] 猫又おかゆ\n- [别名] Okayu、おかゆ\n- [人设]\n- [外观]\n\n## 直播内容\n\n<!-- 用途：常态直播内容的类别，用来判断语境（常玩的游戏、常做的企划）。\n     不收：单场节目的经过与感想。\n     行式：可选 [标记] + 一句话内容。标记不是必须的，无标记行同样合法。 -->\n\n## 频道用语\n\n<!-- 用途：频道自造词、固定称呼与固定台词——ASR 易错且有固定译法的表层：自称、他称、粉丝名、吉祥物、固定环节名，以及问候/结束的定式。\n     不收：通用游戏名词（那属于 common 条目）；不收只出现过一次的临时梗。定式只收每场都说的那句，不收偶尔说的。\n     行式：可选 [标记] + 术语行 源语言|中文定名|别名|一句话描述——别名在第三列，无则留空；描述在最后，可含竖线。标记不是必须的，无标记行同样合法。\n     标记（缺了完整预览会留一个空槽）：\n       [自称] 中文列填「可确定为自称时的译法」，描述里写第三方提及时的译法\n     登记的其他标记（可用，不提醒）：\n       [问候语] 每场开头都说的那句定式（打招呼、自报家门），连读法一起收；译文要固定，同一条目每次都译成同一句\n       [结束语] 每场收尾都说的那句定式（道别、下次预告）；同上，译法固定 -->\n- [自称]\n\n## 特点\n\n<!-- 用途：会改变译文选择的稳定特征：说话方式、声音、以及影响译名与称呼判断的喜好倾向。\n     不收：剧情感想、追番轶事、与字幕判断无关的趣闻——现库这一节大半属此类。新增前先问「它会改变某一句译文吗」。称呼去「频道用语」。\n     行式：可选 [标记] + 一句话内容。标记不是必须的，无标记行同样合法。\n     标记（缺了完整预览会留一个空槽）：\n       [语体] **文字线索**：敬体/常体、方言与语种、是否代读无配音台词——决定译文语气与用词\n       [音色] **声音线索**：声线与发音特征。额外用途：多模态模型据此区分说话人 -->\n- [语体]\n- [音色]\n\n## 人际关系\n\n<!-- 用途：会被念出来的真实关系人名字（人/组织）及其译名——它们和术语一样会被 ASR 听错。\n     不收：关系的具体故事，一句话说清是谁即可；本人法定姓名类信息属于「档案」的 [本名]。\n     行式：可选 [标记] + 术语行 源语言|中文定名|别名|一句话描述——别名在第三列，无则留空；描述在最后，可含竖线。标记不是必须的，无标记行同样合法。 -->\n\n## 待归类\n\n<!-- 用途：暂存区：确实会影响译文、但不属于本条目任何一节的内容。写清楚它影响什么。\n     不收：不是垃圾场——不满足其他节收录标准的内容不会因为放进这里就变得该收。也不是碎片词条的替代出口：属于别的词条的内容直接写到那个词条去。\n     行式：可选 [标记] + 自由句，或术语行 源语言|中文定名|别名|一句话描述——别名在第三列，无则留空；描述在最后，可含竖线。标记不是必须的，无标记行同样合法。 -->\n\n## 元数据\n\n最近更新日期: 2026-01-02\n"
+      },
+      "tables": {
+        "candidate_decisions": [],
+        "events": [],
+        "evidence": [
+          {
+            "algo_version": "revision-provenance-1",
+            "evidence_kind": "transcript",
+            "field_path": "items/$UUID4",
+            "node_id": "$UUID1",
+            "source_ref": null,
+            "span": null,
+            "task_id": "gate-update-new:subject-bootstrap",
+            "value_hash": "2f41a7119970c3446ca52ab47f8369ffb8e50e7eb2da06ddd32c034f1efa22c8",
+            "verdict": "confirmed"
+          },
+          {
+            "algo_version": "revision-provenance-1",
+            "evidence_kind": "transcript",
+            "field_path": "items/$UUID5",
+            "node_id": "$UUID1",
+            "source_ref": null,
+            "span": null,
+            "task_id": "gate-update-new:subject-bootstrap",
+            "value_hash": "68951f185e8d197c8d99a6e9fc8be508c3640424cd6a1ece337836957b5c5061",
+            "verdict": "confirmed"
+          },
+          {
+            "algo_version": "revision-provenance-1",
+            "evidence_kind": "transcript",
+            "field_path": "items/$UUID6",
+            "node_id": "$UUID2",
+            "source_ref": null,
+            "span": null,
+            "task_id": "gate-update-work-and-topic:subject-bootstrap",
+            "value_hash": "2ef22567356a3183c27afa93d801dbb5ae20be3efd7cf0030de074f8a5f59705",
+            "verdict": "confirmed"
+          },
+          {
+            "algo_version": "revision-provenance-1",
+            "evidence_kind": "transcript",
+            "field_path": "payload.category",
+            "node_id": "$UUID1",
+            "source_ref": null,
+            "span": null,
+            "task_id": "gate-update-new:subject-bootstrap",
+            "value_hash": "4e95c2c914439b915253dc6c883c4eb6b745279869a7696f6d50cab1ef2384f6",
+            "verdict": "confirmed"
+          },
+          {
+            "algo_version": "revision-provenance-1",
+            "evidence_kind": "transcript",
+            "field_path": "payload.category",
+            "node_id": "$UUID2",
+            "source_ref": null,
+            "span": null,
+            "task_id": "gate-update-work-and-topic:subject-bootstrap",
+            "value_hash": "eea96276bad0ea13c250c9f7ab7a1d9f8acdc1f2ad51e611df81b8dd41743fcf",
+            "verdict": "confirmed"
+          },
+          {
+            "algo_version": "revision-provenance-1",
+            "evidence_kind": "transcript",
+            "field_path": "payload.category",
+            "node_id": "$UUID3",
+            "source_ref": null,
+            "span": null,
+            "task_id": "gate-update-work-and-topic:subject-bootstrap",
+            "value_hash": "eea96276bad0ea13c250c9f7ab7a1d9f8acdc1f2ad51e611df81b8dd41743fcf",
+            "verdict": "confirmed"
+          },
+          {
+            "algo_version": "revision-provenance-1",
+            "evidence_kind": "transcript",
+            "field_path": "payload.entry_type",
+            "node_id": "$UUID2",
+            "source_ref": null,
+            "span": null,
+            "task_id": "gate-update-work-and-topic:subject-bootstrap",
+            "value_hash": "9364210ea42b82ff8ca40e75ea230d087c94a35d1564a422c2a1955603d2f857",
+            "verdict": "confirmed"
+          },
+          {
+            "algo_version": "revision-provenance-1",
+            "evidence_kind": "transcript",
+            "field_path": "payload.entry_type",
+            "node_id": "$UUID3",
+            "source_ref": null,
+            "span": null,
+            "task_id": "gate-update-work-and-topic:subject-bootstrap",
+            "value_hash": "9364210ea42b82ff8ca40e75ea230d087c94a35d1564a422c2a1955603d2f857",
+            "verdict": "confirmed"
+          },
+          {
+            "algo_version": "revision-provenance-1",
+            "evidence_kind": "transcript",
+            "field_path": "payload.intro",
+            "node_id": "$UUID1",
+            "source_ref": null,
+            "span": null,
+            "task_id": "gate-update-new:subject-bootstrap",
+            "value_hash": "e90857236c1c49d70a239390789b8bd4c59c3ec2f8e613aca8c605c071caab39",
+            "verdict": "confirmed"
+          },
+          {
+            "algo_version": "revision-provenance-1",
+            "evidence_kind": "transcript",
+            "field_path": "payload.intro",
+            "node_id": "$UUID3",
+            "source_ref": null,
+            "span": null,
+            "task_id": "gate-update-work-and-topic:subject-bootstrap",
+            "value_hash": "9659c508c0ad9774aa1ed05fd12164beafcf2a462e7261f00b5baacfaf21a869",
+            "verdict": "confirmed"
+          },
+          {
+            "algo_version": "revision-provenance-1",
+            "evidence_kind": "transcript",
+            "field_path": "payload.intro",
+            "node_id": "$UUID2",
+            "source_ref": null,
+            "span": null,
+            "task_id": "gate-update-work-and-topic:subject-bootstrap",
+            "value_hash": "a6ff015b9ae248ddfb3ffc3ecc7333ca6b12a1d4a306debefcc9b15fb9336072",
+            "verdict": "confirmed"
+          },
+          {
+            "algo_version": "revision-provenance-1",
+            "evidence_kind": "transcript",
+            "field_path": "payload.label",
+            "node_id": "$UUID7",
+            "source_ref": null,
+            "span": null,
+            "task_id": "gate-update-new:subject-bootstrap",
+            "value_hash": "00283b7f7583d4c60262bb294fef3f2e68aab0620ca6d0ddcc3bba6ae1dda993",
+            "verdict": "confirmed"
+          },
+          {
+            "algo_version": "revision-provenance-1",
+            "evidence_kind": "transcript",
+            "field_path": "payload.label",
+            "node_id": "$UUID8",
+            "source_ref": null,
+            "span": null,
+            "task_id": "gate-update-work-and-topic:subject-bootstrap",
+            "value_hash": "00283b7f7583d4c60262bb294fef3f2e68aab0620ca6d0ddcc3bba6ae1dda993",
+            "verdict": "confirmed"
+          },
+          {
+            "algo_version": "revision-provenance-1",
+            "evidence_kind": "transcript",
+            "field_path": "payload.label",
+            "node_id": "$UUID9",
+            "source_ref": null,
+            "span": null,
+            "task_id": "gate-update-work-and-topic:subject-bootstrap",
+            "value_hash": "00283b7f7583d4c60262bb294fef3f2e68aab0620ca6d0ddcc3bba6ae1dda993",
+            "verdict": "confirmed"
+          },
+          {
+            "algo_version": "revision-provenance-1",
+            "evidence_kind": "transcript",
+            "field_path": "payload.surface",
+            "node_id": "$UUID1",
+            "source_ref": null,
+            "span": null,
+            "task_id": "gate-update-new:subject-bootstrap",
+            "value_hash": "22fb05b497b6a78431dcf3ce5b32f5d77ba228ae9688e7de4612e4bdf87e5505",
+            "verdict": "confirmed"
+          },
+          {
+            "algo_version": "revision-provenance-1",
+            "evidence_kind": "transcript",
+            "field_path": "payload.surface",
+            "node_id": "$UUID2",
+            "source_ref": null,
+            "span": null,
+            "task_id": "gate-update-work-and-topic:subject-bootstrap",
+            "value_hash": "2d3b6d2d8202911ffe474309945f93b1eb1006ab0fde29a66dc04c201633ee36",
+            "verdict": "confirmed"
+          },
+          {
+            "algo_version": "revision-provenance-1",
+            "evidence_kind": "transcript",
+            "field_path": "payload.surface",
+            "node_id": "$UUID3",
+            "source_ref": null,
+            "span": null,
+            "task_id": "gate-update-work-and-topic:subject-bootstrap",
+            "value_hash": "adebaa7029f06df62ad9aeb463cfa3fce6ba2035e52195483314ded965765d29",
+            "verdict": "confirmed"
+          },
+          {
+            "algo_version": "revision-provenance-1",
+            "evidence_kind": "transcript",
+            "field_path": "payload.text",
+            "node_id": "$UUID7",
+            "source_ref": null,
+            "span": null,
+            "task_id": "gate-update-new:subject-bootstrap",
+            "value_hash": "22fb05b497b6a78431dcf3ce5b32f5d77ba228ae9688e7de4612e4bdf87e5505",
+            "verdict": "confirmed"
+          },
+          {
+            "algo_version": "revision-provenance-1",
+            "evidence_kind": "transcript",
+            "field_path": "payload.text",
+            "node_id": "$UUID8",
+            "source_ref": null,
+            "span": null,
+            "task_id": "gate-update-work-and-topic:subject-bootstrap",
+            "value_hash": "2d3b6d2d8202911ffe474309945f93b1eb1006ab0fde29a66dc04c201633ee36",
+            "verdict": "confirmed"
+          },
+          {
+            "algo_version": "revision-provenance-1",
+            "evidence_kind": "transcript",
+            "field_path": "payload.text",
+            "node_id": "$UUID9",
+            "source_ref": null,
+            "span": null,
+            "task_id": "gate-update-work-and-topic:subject-bootstrap",
+            "value_hash": "adebaa7029f06df62ad9aeb463cfa3fce6ba2035e52195483314ded965765d29",
+            "verdict": "confirmed"
+          }
+        ],
+        "item_versions": [
+          {
+            "accepted_rev": null,
+            "canonical_item_id": null,
+            "exact_enabled": 1,
+            "fuzzy_enabled": 0,
+            "item_id": "$UUID4",
+            "maturity": "normal",
+            "min_mora": 3,
+            "requires_subject_context": 0,
+            "valid_from_rev": 1,
+            "valid_to_rev": null,
+            "value": "Okayu"
+          },
+          {
+            "accepted_rev": null,
+            "canonical_item_id": null,
+            "exact_enabled": 1,
+            "fuzzy_enabled": 0,
+            "item_id": "$UUID5",
+            "maturity": "normal",
+            "min_mora": 3,
+            "requires_subject_context": 0,
+            "valid_from_rev": 1,
+            "valid_to_rev": null,
+            "value": "おかゆ"
+          },
+          {
+            "accepted_rev": null,
+            "canonical_item_id": null,
+            "exact_enabled": 1,
+            "fuzzy_enabled": 0,
+            "item_id": "$UUID6",
+            "maturity": "normal",
+            "min_mora": 3,
+            "requires_subject_context": 0,
+            "valid_from_rev": 2,
+            "valid_to_rev": null,
+            "value": "月影"
+          }
+        ],
+        "items": [
+          {
+            "created_rev": 1,
+            "field": "aliases",
+            "item_id": "$UUID4",
+            "local_id": "$UUID1"
+          },
+          {
+            "created_rev": 1,
+            "field": "aliases",
+            "item_id": "$UUID5",
+            "local_id": "$UUID1"
+          },
+          {
+            "created_rev": 2,
+            "field": "aliases",
+            "item_id": "$UUID6",
+            "local_id": "$UUID2"
+          }
+        ],
+        "line_acks": [],
+        "link_versions": [],
+        "links": [],
+        "membership_versions": [
+          {
+            "accepted_rev": null,
+            "canonical_membership_id": null,
+            "child_id": "$UUID7",
+            "membership_id": "$UUID10",
+            "order_key": 0,
+            "parent_id": "$UUID1",
+            "section": "档案",
+            "valid_from_rev": 1,
+            "valid_to_rev": null
+          },
+          {
+            "accepted_rev": null,
+            "canonical_membership_id": null,
+            "child_id": "$UUID8",
+            "membership_id": "$UUID11",
+            "order_key": 0,
+            "parent_id": "$UUID2",
+            "section": "档案",
+            "valid_from_rev": 2,
+            "valid_to_rev": null
+          },
+          {
+            "accepted_rev": null,
+            "canonical_membership_id": null,
+            "child_id": "$UUID9",
+            "membership_id": "$UUID12",
+            "order_key": 0,
+            "parent_id": "$UUID3",
+            "section": "档案",
+            "valid_from_rev": 3,
+            "valid_to_rev": null
+          }
+        ],
+        "memberships": [
+          {
+            "created_rev": 1,
+            "membership_id": "$UUID10"
+          },
+          {
+            "created_rev": 2,
+            "membership_id": "$UUID11"
+          },
+          {
+            "created_rev": 3,
+            "membership_id": "$UUID12"
+          }
+        ],
+        "meta": [
+          {
+            "key": "factory_style_pending",
+            "value": "[]"
+          },
+          {
+            "key": "schema_version",
+            "value": "6"
+          }
+        ],
+        "migration_aux": [],
+        "node_versions": [
+          {
+            "accepted_rev": null,
+            "canonical_id": null,
+            "local_id": "$UUID8",
+            "maturity": "normal",
+            "payload": "{\"label\": \"本名\", \"text\": \"月影オンライン\"}",
+            "valid_from_rev": 2,
+            "valid_to_rev": null,
+            "visibility": "local"
+          },
+          {
+            "accepted_rev": null,
+            "canonical_id": null,
+            "local_id": "$UUID7",
+            "maturity": "normal",
+            "payload": "{\"label\": \"本名\", \"text\": \"猫又おかゆ\"}",
+            "valid_from_rev": 1,
+            "valid_to_rev": null,
+            "visibility": "local"
+          },
+          {
+            "accepted_rev": null,
+            "canonical_id": null,
+            "local_id": "$UUID9",
+            "maturity": "normal",
+            "payload": "{\"label\": \"本名\", \"text\": \"门禁话题\"}",
+            "valid_from_rev": 3,
+            "valid_to_rev": null,
+            "visibility": "local"
+          },
+          {
+            "accepted_rev": null,
+            "canonical_id": null,
+            "local_id": "$UUID2",
+            "maturity": "normal",
+            "payload": "{\"surface\": \"月影オンライン\", \"intro\": \"用户在字幕任务中指定的作品 / 节目知识主体。\", \"category\": \"common\", \"entry_type\": \"其他\", \"updated_date\": \"2026-01-02\", \"section_order\": [\"档案\", \"待归类\"], \"native_names\": [], \"reading\": \"\"}",
+            "valid_from_rev": 2,
+            "valid_to_rev": null,
+            "visibility": "local"
+          },
+          {
+            "accepted_rev": null,
+            "canonical_id": null,
+            "local_id": "$UUID1",
+            "maturity": "normal",
+            "payload": "{\"surface\": \"猫又おかゆ\", \"intro\": \"Hololive 所属\", \"category\": \"streamer\", \"entry_type\": \"\", \"updated_date\": \"2026-01-02\", \"section_order\": [\"档案\", \"直播内容\", \"频道用语\", \"特点\", \"人际关系\", \"待归类\"], \"native_names\": [], \"reading\": \"\"}",
+            "valid_from_rev": 1,
+            "valid_to_rev": null,
+            "visibility": "local"
+          },
+          {
+            "accepted_rev": null,
+            "canonical_id": null,
+            "local_id": "$UUID3",
+            "maturity": "normal",
+            "payload": "{\"surface\": \"门禁话题\", \"intro\": \"测试用话题\", \"category\": \"common\", \"entry_type\": \"其他\", \"updated_date\": \"2026-01-02\", \"section_order\": [\"档案\", \"待归类\"], \"native_names\": [], \"reading\": \"\"}",
+            "valid_from_rev": 3,
+            "valid_to_rev": null,
+            "visibility": "local"
+          }
+        ],
+        "nodes": [
+          {
+            "created_rev": 1,
+            "kind": "note",
+            "local_id": "$UUID7"
+          },
+          {
+            "created_rev": 1,
+            "kind": "subject",
+            "local_id": "$UUID1"
+          },
+          {
+            "created_rev": 2,
+            "kind": "note",
+            "local_id": "$UUID8"
+          },
+          {
+            "created_rev": 2,
+            "kind": "subject",
+            "local_id": "$UUID2"
+          },
+          {
+            "created_rev": 3,
+            "kind": "note",
+            "local_id": "$UUID9"
+          },
+          {
+            "created_rev": 3,
+            "kind": "subject",
+            "local_id": "$UUID3"
+          }
+        ],
+        "redirects": [],
+        "revisions": [
+          {
+            "base_rev": 0,
+            "kind": "harness",
+            "note": "",
+            "rev": 1,
+            "task_id": "gate-update-new:subject-bootstrap"
+          },
+          {
+            "base_rev": 1,
+            "kind": "harness",
+            "note": "",
+            "rev": 2,
+            "task_id": "gate-update-work-and-topic:subject-bootstrap"
+          },
+          {
+            "base_rev": 2,
+            "kind": "harness",
+            "note": "",
+            "rev": 3,
+            "task_id": "gate-update-work-and-topic:subject-bootstrap"
+          }
+        ],
+        "sync_state": []
+      }
+    },
+    "steps": [
+      {
+        "request": {
+          "knowledge": "update",
+          "knowledge_subjects": [
+            {
+              "aliases": "Okayu、おかゆ",
+              "description": "Hololive 所属",
+              "kind": "streamer",
+              "subject": "猫又おかゆ"
+            }
+          ]
+        },
+        "result": {
+          "created": [
+            "猫又おかゆ"
+          ],
+          "names": [
+            "streamer/猫又おかゆ"
+          ],
+          "rev": 1
+        },
+        "step": "update-new"
+      },
+      {
+        "request": {
+          "knowledge": "update",
+          "knowledge_subjects": [
+            {
+              "aliases": "",
+              "description": "",
+              "kind": "streamer",
+              "subject": "猫又おかゆ"
+            }
+          ]
+        },
+        "result": {
+          "created": [],
+          "names": [
+            "streamer/猫又おかゆ"
+          ],
+          "rev": 1
+        },
+        "step": "update-again-reuses"
+      },
+      {
+        "request": {
+          "knowledge": "read",
+          "knowledge_subjects": [
+            {
+              "aliases": "",
+              "description": "",
+              "kind": "streamer",
+              "subject": "おかゆ"
+            }
+          ]
+        },
+        "result": {
+          "created": [],
+          "names": [
+            "streamer/猫又おかゆ"
+          ],
+          "rev": 1
+        },
+        "step": "read-by-alias"
+      },
+      {
+        "error": {
+          "message": "知识库里没有「没有的作品」，只有自动更新模式可以新建主体",
+          "type": "RuntimeError"
+        },
+        "request": {
+          "knowledge": "read",
+          "knowledge_subjects": [
+            {
+              "aliases": "",
+              "description": "",
+              "kind": "work",
+              "subject": "没有的作品"
+            }
+          ]
+        },
+        "step": "read-unknown"
+      },
+      {
+        "request": {
+          "knowledge": "update",
+          "knowledge_subjects": [
+            {
+              "aliases": "月影",
+              "description": "",
+              "kind": "work",
+              "subject": "月影オンライン"
+            },
+            {
+              "aliases": "",
+              "description": "测试用话题",
+              "kind": "topic",
+              "subject": "门禁话题"
+            }
+          ]
+        },
+        "result": {
+          "created": [
+            "月影オンライン",
+            "门禁话题"
+          ],
+          "names": [
+            "common/月影オンライン",
+            "common/门禁话题"
+          ],
+          "rev": 3
+        },
+        "step": "update-work-and-topic"
+      },
+      {
+        "error": {
+          "message": "知识主体「不在了」已不在知识库中，请重新选择",
+          "type": "RuntimeError"
+        },
+        "request": {
+          "knowledge": "read",
+          "knowledge_subjects": [
+            {
+              "aliases": "",
+              "description": "",
+              "id": "no-such-id",
+              "kind": "streamer",
+              "subject": "不在了"
+            }
+          ]
+        },
+        "step": "by-id-gone"
+      },
+      {
+        "request": {
+          "knowledge": "none"
+        },
+        "result": {
+          "created": [],
+          "names": []
+        },
+        "step": "none"
+      }
+    ]
+  },
+  "fixture": {
+    "base": {
+      "rendered": {
+        ".manifest.json": "{\n \"store_rev\": 4,\n \"files\": {\n  \"streamer/柊優花.md\": {\n   \"sha256\": \"139ff0e06477a664dfa80ced3f15ae20d96f6b059ae75bbf1ce8e850fa1251f4\",\n   \"subject\": \"fixture-streamer\",\n   \"rev\": 4\n  },\n  \"common/星屑クエスト.md\": {\n   \"sha256\": \"6adbfd7eae32328318c52169ff9b08c025a4276880afa977172232c701dc62a1\",\n   \"subject\": \"fixture-game\",\n   \"rev\": 4\n  },\n  \"style/门禁字幕组.md\": {\n   \"sha256\": \"55f6608485f535219eabf68743dfa9452e12be64914c995962ba55c0aec48a79\",\n   \"subject\": \"fixture-style\",\n   \"rev\": 4\n  }\n }\n}",
+        "common/index.md": "# Common 索引\n\n格式：`- key [类型] | 其他语言本名 | 别名 | 一句简介`（key = 源语言本名；类型如 [游戏]、[动画]、[社区]、[其他]）\n- 星屑クエスト [游戏] | 星屑任务、Stardust Quest | ほしクエ、星屑 | 2025 年发售的 RPG 游戏。\n",
+        "common/星屑クエスト.md": "# 星屑クエスト\n2025 年发售的 RPG 游戏。\n\n<!-- 以下自由节（节名自取）统一按这条规则收录——每节不再重复：\n     用途：作品内的固定名词（术语行：ASR 易错、且有官方或约定中文定名的表层），以及帮助理解与翻译、但不值得独立成词的简短事实（自由句）。节名自取（如「角色」「地区」「组织」）。\n     不收：基础战斗名词与常驻通用词；剧情流水账、攻略与无关百科；译文风格指令（那归 style 条目，别写成全库唯一答案）；不收版本性叙事（写进描述会很快过期，应改写成不随版本变化的一句话身份）。\n     行式：可选 [标记] + 自由句，或术语行 源语言|中文定名|别名|一句话描述——别名在第三列，无则留空；描述在最后，可含竖线。标记不是必须的，无标记行同样合法。 -->\n\n## 档案\n\n<!-- 用途：作品身份与本条目的收录边界。\n     不收：剧情梗概与攻略。\n     行式：可选 [标记] + 一句话内容。标记不是必须的，无标记行同样合法。\n     标记（缺了完整预览会留一个空槽）：\n       [本名] 源语言全名 / 中文定名 / 英文定名（源语言定名已是英文则留空），斜杠分隔；条目的 index 行由它派生\n       [别名] 顿号分隔：昵称、简称、全称、俗称，以及源语言的特殊读音。覆盖社区常用写法（崩坏星穹铁道 → 崩铁、星铁），至少 2 字符；误听变体不算别名。行体留空即清空\n       [收录范围] 这个条目只收哪一部分——写清楚，它是 agent 的收录纪律；本地口径，不随条目外发\n     登记的其他标记（可用，不提醒）：\n       [当前版本] 易腐信息；只在「收录范围」需要它界定时才写 -->\n- [本名] 星屑クエスト / 星屑任务 / Stardust Quest\n- [收录范围] 只收角色与地名\n- [别名] ほしクエ、星屑\n\n## 角色\n\n- ミラ|米拉|Mira|主角的搭档。\n- ゴザイマス|五斋玛斯||反派首领\n\n## 地名\n\n- マタネ村|回见村||初始村庄\n- ホシノ城|星之城||魔王的城堡\n\n## 待归类\n\n<!-- 用途：暂存区：确实会影响译文、但不属于本条目任何一节的内容。写清楚它影响什么。\n     不收：不是垃圾场——不满足其他节收录标准的内容不会因为放进这里就变得该收。也不是碎片词条的替代出口：属于别的词条的内容直接写到那个词条去。\n     行式：可选 [标记] + 自由句，或术语行 源语言|中文定名|别名|一句话描述——别名在第三列，无则留空；描述在最后，可含竖线。标记不是必须的，无标记行同样合法。 -->\n\n## 元数据\n\n最近更新日期: 2026-01-02\n",
+        "streamer/index.md": "# 主播索引\n\n格式：`- key | 其他语言本名 | 别名 | 一句简介`（key = 源语言本名）\n- 柊優花 | 柊优花 | ゆうか、ゆうかちゃん | 游戏主播，常玩 RPG。\n",
+        "streamer/柊優花.md": "# 柊優花\n游戏主播，常玩 RPG。\n\n## 档案\n\n<!-- 用途：条目身份：这条目是谁、归属何处。\n     不收：近况、版本性叙事、单场直播的轶事；称呼类信息去「频道用语」。\n     行式：可选 [标记] + 一句话内容。标记不是必须的，无标记行同样合法。\n     标记（缺了完整预览会留一个空槽）：\n       [本名] 源语言全名 / 中文定名 / 英文定名（源语言定名已是英文则留空），斜杠分隔；条目的 index 行由它派生\n       [别名] 顿号分隔：昵称、简称、全称、俗称及源语言的特殊读音（假名写法）。收社区常用写法（至少 2 字符），不列罕见写法。误听变体不算别名（会污染匹配）。行体留空即清空\n       [人设] 外貌之外的人物设定：性格、身份、定位——影响译文口吻\n       [外观] 外貌特征：发色瞳色、标志性配饰与服装——多模态任务据此辨认 -->\n- [本名] 柊優花（ひいらぎ ゆうか）/ 柊优花\n- [人设] 元气系的游戏主播\n- [外观] 银发、红瞳\n- [别名] ゆうか、ゆうかちゃん\n\n## 直播内容\n\n<!-- 用途：常态直播内容的类别，用来判断语境（常玩的游戏、常做的企划）。\n     不收：单场节目的经过与感想。\n     行式：可选 [标记] + 一句话内容。标记不是必须的，无标记行同样合法。 -->\n- 主要玩《星屑クエスト》\n\n## 频道用语\n\n<!-- 用途：频道自造词、固定称呼与固定台词——ASR 易错且有固定译法的表层：自称、他称、粉丝名、吉祥物、固定环节名，以及问候/结束的定式。\n     不收：通用游戏名词（那属于 common 条目）；不收只出现过一次的临时梗。定式只收每场都说的那句，不收偶尔说的。\n     行式：可选 [标记] + 术语行 源语言|中文定名|别名|一句话描述——别名在第三列，无则留空；描述在最后，可含竖线。标记不是必须的，无标记行同样合法。\n     标记（缺了完整预览会留一个空槽）：\n       [自称] 中文列填「可确定为自称时的译法」，描述里写第三方提及时的译法\n     登记的其他标记（可用，不提醒）：\n       [问候语] 每场开头都说的那句定式（打招呼、自报家门），连读法一起收；译文要固定，同一条目每次都译成同一句\n       [结束语] 每场收尾都说的那句定式（道别、下次预告）；同上，译法固定 -->\n- [自称] ゆうか|优花|ユウカ|读评论时译作「柊優花」\n- [问候语] おはよう|早上好||每场开头的问候\n- ほしくず|小星屑||粉丝名\n\n## 特点\n\n<!-- 用途：会改变译文选择的稳定特征：说话方式、声音、以及影响译名与称呼判断的喜好倾向。\n     不收：剧情感想、追番轶事、与字幕判断无关的趣闻——现库这一节大半属此类。新增前先问「它会改变某一句译文吗」。称呼去「频道用语」。\n     行式：可选 [标记] + 一句话内容。标记不是必须的，无标记行同样合法。\n     标记（缺了完整预览会留一个空槽）：\n       [语体] **文字线索**：敬体/常体、方言与语种、是否代读无配音台词——决定译文语气与用词\n       [音色] **声音线索**：声线与发音特征。额外用途：多模态模型据此区分说话人 -->\n- [口癖] 「またね」收尾\n- [语体]\n- [音色]\n\n## 人际关系\n\n<!-- 用途：会被念出来的真实关系人名字（人/组织）及其译名——它们和术语一样会被 ASR 听错。\n     不收：关系的具体故事，一句话说清是谁即可；本人法定姓名类信息属于「档案」的 [本名]。\n     行式：可选 [标记] + 术语行 源语言|中文定名|别名|一句话描述——别名在第三列，无则留空；描述在最后，可含竖线。标记不是必须的，无标记行同样合法。 -->\n- ミラ|米拉||同期主播\n\n## 待归类\n\n<!-- 用途：暂存区：确实会影响译文、但不属于本条目任何一节的内容。写清楚它影响什么。\n     不收：不是垃圾场——不满足其他节收录标准的内容不会因为放进这里就变得该收。也不是碎片词条的替代出口：属于别的词条的内容直接写到那个词条去。\n     行式：可选 [标记] + 自由句，或术语行 源语言|中文定名|别名|一句话描述——别名在第三列，无则留空；描述在最后，可含竖线。标记不是必须的，无标记行同样合法。 -->\n\n## 元数据\n\n最近更新日期: 2026-01-02\n",
+        "style/门禁字幕组.md": "# 门禁字幕组\n门禁用的风格\n\n## 档案\n\n<!-- 用途：这套风格是谁的、对什么素材成立。\n     不收：具体怎么做——那是「约定」。\n     行式：可选 [标记] + 一句话内容。标记不是必须的，无标记行同样合法。\n     标记（缺了完整预览会留一个空槽）：\n       [本名] 这套风格的名字，也就是点名选取时写的那个串；通常是字幕组名或译者名\n       [作者] 这套风格是谁的口味；自由文本，只给人看，不需要可验证\n       [适用范围] 对谁成立（该组全部投稿 / 某主播 / 某题材）。自动选择风格时按它和简介挑，要写具体；点名选取时它不参与判断\n     登记的其他标记（可用，不提醒）：\n       [字幕长度] 这套风格要的字幕长短，合并行的长度上限按它定。用户要字幕偏长（少拆）或偏短时写这一行，不写成约定（句子本身写长写短归约定）；没提过长短就不写（只能写 偏短 / 标准 / 偏长 之一）\n       [任务] 这套风格写给哪种任务。写了「中文纠错」，中文素材只纠错、不翻译的任务也整份用它（可以和别的并写，如「翻译、中文纠错」）；没写的只用于翻译 -->\n- [本名] 门禁字幕组\n- [作者] 质量闸门\n- [适用范围] 柊優花的游戏直播\n\n## 约定\n\n<!-- 用途：一句祈使式的做法，一行一条——**唯一会被当作规则读的一节**。每条带一个 `[标记]` 作短名，正例/反例用同一个标记指回来。条数与单条长度都有上限，满了要加新的就得退掉旧的或把两条并成一条。\n     不收：理由与解释（一行写不下，说明这条该拆成两条）；某个专名怎么译（那是对应词条的术语行，不是风格）；「翻译要准确」这类对谁都成立、不带这套口味的话。\n     行式：可选 [标记] + 一句话内容。标记不是必须的，无标记行同样合法。\n     上限：最多 20 行、每行 ≤ 200 字（含 [标记]）。满了还要加，就得先退掉一条、或把两条并成一条——写入时会校验，超了整批拒绝。 -->\n- [语气词] 保留句尾语气词\n\n## 正例\n\n<!-- 用途：照着约定做出来的译文，`[标记] 原文 → 译文` 一行一例，标记就是它演示的那条约定。箭头两边只应差在这条约定上：顺手带进来的无关改动（专名定名、别的约定）先改掉，否则这一例同时演示了两件事。举例是为了让约定不被误读，不是为了穷举——一条约定至多一个正例（标记在节内唯一）。\n     不收：带标记却在「约定」里找不到那条规则的孤例——它证明不了任何东西，只会占注入面（无标记的一般性例子不算孤例）。\n     行式：可选 [标记] + 一句话内容。标记不是必须的，无标记行同样合法。\n     上限：最多 20 行、每行 ≤ 200 字（含 [标记]）。满了还要加，就得先退掉一条、或把两条并成一条——写入时会校验，超了整批拒绝。 -->\n- [语气词] またね → 回见啦\n\n## 反例\n\n<!-- 用途：违反约定的译法，同样 `[标记] 原文 → 译文`。⚠ 箭头右边必须是**那个不该出现的译文本身**，不是「为什么不行」的说明——两边都是译文，这一节才和正例可比；理由要写就补在行尾括号里。一条约定至多一个反例。\n     不收：与风格无关的错译（歪曲原意、丢信息）——那是纠错的事；精修与机器译文的差异本身也不等于错。\n     行式：可选 [标记] + 一句话内容。标记不是必须的，无标记行同样合法。\n     上限：最多 20 行、每行 ≤ 200 字（含 [标记]）。满了还要加，就得先退掉一条、或把两条并成一条——写入时会校验，超了整批拒绝。 -->\n- [语气词] またね → 再见。\n\n## 待归类\n\n<!-- 用途：暂存区：确实是这套口味的一部分、但还没想清楚算哪一节的内容。\n     不收：不是垃圾场——不满足其他节收录标准的内容不会因为放进这里就变得该收。\n     行式：可选 [标记] + 一句话内容。标记不是必须的，无标记行同样合法。 -->\n\n## 元数据\n\n最近更新日期: 2026-01-02\n"
+      },
+      "tables": {
+        "candidate_decisions": [],
+        "events": [],
+        "evidence": [
+          {
+            "algo_version": "revision-provenance-1",
+            "evidence_kind": "user",
+            "field_path": "items/00000000-0000-0000-0000-000000000001",
+            "node_id": "fixture-streamer",
+            "source_ref": null,
+            "span": null,
+            "task_id": "knowledge-edit",
+            "value_hash": "40ed483451e4cc286fbe2596bc2cf391272aa16925a170b7d5633306b3af9c7e",
+            "verdict": "confirmed"
+          },
+          {
+            "algo_version": "revision-provenance-1",
+            "evidence_kind": "user",
+            "field_path": "items/00000000-0000-0000-0000-000000000002",
+            "node_id": "fixture-streamer",
+            "source_ref": null,
+            "span": null,
+            "task_id": "knowledge-edit",
+            "value_hash": "a097c7882bbd2cc3c723e1fee9c356bd80eaaadce287cdd304fd2096b9d67b97",
+            "verdict": "confirmed"
+          },
+          {
+            "algo_version": "revision-provenance-1",
+            "evidence_kind": "user",
+            "field_path": "items/00000000-0000-0000-0000-00000000000d",
+            "node_id": "00000000-0000-0000-0000-00000000000b",
+            "source_ref": null,
+            "span": null,
+            "task_id": "knowledge-edit",
+            "value_hash": "36df5b1a2f76d9afa8077d50882016b5875421a652d4fc1a0196bea5a8609785",
+            "verdict": "confirmed"
+          },
+          {
+            "algo_version": "revision-provenance-1",
+            "evidence_kind": "user",
+            "field_path": "items/00000000-0000-0000-0000-000000000012",
+            "node_id": "00000000-0000-0000-0000-000000000010",
+            "source_ref": null,
+            "span": null,
+            "task_id": "knowledge-edit",
+            "value_hash": "c5b9ee5f9402458d2e2ca5ddb9393063a59212536be6a1c682f61ee08cd165bc",
+            "verdict": "confirmed"
+          },
+          {
+            "algo_version": "revision-provenance-1",
+            "evidence_kind": "user",
+            "field_path": "items/00000000-0000-0000-0000-000000000017",
+            "node_id": "fixture-game",
+            "source_ref": null,
+            "span": null,
+            "task_id": "knowledge-edit",
+            "value_hash": "2336a1a130371581e383f7b0d93f86f89a15f048de861107eed9b65451a929bc",
+            "verdict": "confirmed"
+          },
+          {
+            "algo_version": "revision-provenance-1",
+            "evidence_kind": "user",
+            "field_path": "items/00000000-0000-0000-0000-000000000018",
+            "node_id": "fixture-game",
+            "source_ref": null,
+            "span": null,
+            "task_id": "knowledge-edit",
+            "value_hash": "10f5e948acff548111496fd2352baeaf8a77b72ac0e834882d734ad03623e7ec",
+            "verdict": "confirmed"
+          },
+          {
+            "algo_version": "revision-provenance-1",
+            "evidence_kind": "user",
+            "field_path": "items/00000000-0000-0000-0000-00000000001f",
+            "node_id": "00000000-0000-0000-0000-00000000001d",
+            "source_ref": null,
+            "span": null,
+            "task_id": "knowledge-edit",
+            "value_hash": "f8721db5146f7515033e0d4d41c705b68e10d6d0e41145fcb5e78f9cfe386da1",
+            "verdict": "confirmed"
+          },
+          {
+            "algo_version": "revision-provenance-1",
+            "evidence_kind": "user",
+            "field_path": "items/00000000-0000-0000-0000-000000000022",
+            "node_id": "00000000-0000-0000-0000-000000000020",
+            "source_ref": null,
+            "span": null,
+            "task_id": "knowledge-edit",
+            "value_hash": "5f839827057d645b03a42e062c7448eb8719e6fdaf91600b6eabe19640486370",
+            "verdict": "confirmed"
+          },
+          {
+            "algo_version": "revision-provenance-1",
+            "evidence_kind": "user",
+            "field_path": "payload.category",
+            "node_id": "fixture-game",
+            "source_ref": null,
+            "span": null,
+            "task_id": "knowledge-edit",
+            "value_hash": "eea96276bad0ea13c250c9f7ab7a1d9f8acdc1f2ad51e611df81b8dd41743fcf",
+            "verdict": "confirmed"
+          },
+          {
+            "algo_version": "revision-provenance-1",
+            "evidence_kind": "user",
+            "field_path": "payload.category",
+            "node_id": "fixture-streamer",
+            "source_ref": null,
+            "span": null,
+            "task_id": "knowledge-edit",
+            "value_hash": "4e95c2c914439b915253dc6c883c4eb6b745279869a7696f6d50cab1ef2384f6",
+            "verdict": "confirmed"
+          },
+          {
+            "algo_version": "revision-provenance-1",
+            "evidence_kind": "user",
+            "field_path": "payload.category",
+            "node_id": "fixture-style",
+            "source_ref": null,
+            "span": null,
+            "task_id": "knowledge-edit",
+            "value_hash": "bb07eabb467871a93eff821cf131ca796c612b3429884bac96209d7d83da9b17",
+            "verdict": "confirmed"
+          },
+          {
+            "algo_version": "revision-provenance-1",
+            "evidence_kind": "user",
+            "field_path": "payload.desc",
+            "node_id": "00000000-0000-0000-0000-00000000000b",
+            "source_ref": null,
+            "span": null,
+            "task_id": "knowledge-edit",
+            "value_hash": "c3f4d948bd21e79ee988afe871600e23539e8e8633f030fcfbfb4743ee59318c",
+            "verdict": "confirmed"
+          },
+          {
+            "algo_version": "revision-provenance-1",
+            "evidence_kind": "user",
+            "field_path": "payload.desc",
+            "node_id": "00000000-0000-0000-0000-00000000000e",
+            "source_ref": null,
+            "span": null,
+            "task_id": "knowledge-edit",
+            "value_hash": "48dea15347374926453361d91a44e08ed286d6fadae2c3364ba7ccb1aa4bdcda",
+            "verdict": "confirmed"
+          },
+          {
+            "algo_version": "revision-provenance-1",
+            "evidence_kind": "user",
+            "field_path": "payload.desc",
+            "node_id": "00000000-0000-0000-0000-000000000010",
+            "source_ref": null,
+            "span": null,
+            "task_id": "knowledge-edit",
+            "value_hash": "8954d464f714872a8c0a696803850eaf4905769d9a19bf4c9b0096187eb03a74",
+            "verdict": "confirmed"
+          },
+          {
+            "algo_version": "revision-provenance-1",
+            "evidence_kind": "user",
+            "field_path": "payload.desc",
+            "node_id": "00000000-0000-0000-0000-000000000015",
+            "source_ref": null,
+            "span": null,
+            "task_id": "knowledge-edit",
+            "value_hash": "8068ad8bd02d56390ec5d25b8aed5af9030152717c48e7b92c42b171628f02c3",
+            "verdict": "confirmed"
+          },
+          {
+            "algo_version": "revision-provenance-1",
+            "evidence_kind": "user",
+            "field_path": "payload.desc",
+            "node_id": "00000000-0000-0000-0000-00000000001d",
+            "source_ref": null,
+            "span": null,
+            "task_id": "knowledge-edit",
+            "value_hash": "cd205de660a424cdf1eeaa1b6dd2f1c9a39e26d6dd35a98e183d5adc4298804a",
+            "verdict": "confirmed"
+          },
+          {
+            "algo_version": "revision-provenance-1",
+            "evidence_kind": "user",
+            "field_path": "payload.desc",
+            "node_id": "00000000-0000-0000-0000-000000000020",
+            "source_ref": null,
+            "span": null,
+            "task_id": "knowledge-edit",
+            "value_hash": "d3e794a25f719376bd4811420f0cb3e348322a21585e9c737b34b4ddcc9b170c",
+            "verdict": "confirmed"
+          },
+          {
+            "algo_version": "revision-provenance-1",
+            "evidence_kind": "user",
+            "field_path": "payload.desc",
+            "node_id": "00000000-0000-0000-0000-000000000023",
+            "source_ref": null,
+            "span": null,
+            "task_id": "knowledge-edit",
+            "value_hash": "8a9edf94adf31cfd7e841be22eb25d96c62bff0ec1d45913835ed449556447f7",
+            "verdict": "confirmed"
+          },
+          {
+            "algo_version": "revision-provenance-1",
+            "evidence_kind": "user",
+            "field_path": "payload.entry_type",
+            "node_id": "fixture-game",
+            "source_ref": null,
+            "span": null,
+            "task_id": "knowledge-edit",
+            "value_hash": "3456c16e5af96a3f1094afab0d5d3c88b4587973a19e2b0d5f16ce335af1fb99",
+            "verdict": "confirmed"
+          },
+          {
+            "algo_version": "revision-provenance-1",
+            "evidence_kind": "user",
+            "field_path": "payload.intro",
+            "node_id": "fixture-game",
+            "source_ref": null,
+            "span": null,
+            "task_id": "knowledge-edit",
+            "value_hash": "2c55b24f895f9cc3a4497ad73d920034921050f3a51d9d751d1a5bf66c7bfdd3",
+            "verdict": "confirmed"
+          },
+          {
+            "algo_version": "revision-provenance-1",
+            "evidence_kind": "user",
+            "field_path": "payload.intro",
+            "node_id": "fixture-streamer",
+            "source_ref": null,
+            "span": null,
+            "task_id": "knowledge-edit",
+            "value_hash": "4e3107702a1d181194e40bb41ddc11c99a679b41313d7af47b096065615e7ec9",
+            "verdict": "confirmed"
+          },
+          {
+            "algo_version": "revision-provenance-1",
+            "evidence_kind": "user",
+            "field_path": "payload.intro",
+            "node_id": "fixture-style",
+            "source_ref": null,
+            "span": null,
+            "task_id": "knowledge-edit",
+            "value_hash": "8b5b32c7a7fdc7390afe394f3fdc6de0c7411248467803474970574c1e5cfd67",
+            "verdict": "confirmed"
+          },
+          {
+            "algo_version": "revision-provenance-1",
+            "evidence_kind": "user",
+            "field_path": "payload.label",
+            "node_id": "00000000-0000-0000-0000-000000000003",
+            "source_ref": null,
+            "span": null,
+            "task_id": "knowledge-edit",
+            "value_hash": "00283b7f7583d4c60262bb294fef3f2e68aab0620ca6d0ddcc3bba6ae1dda993",
+            "verdict": "confirmed"
+          },
+          {
+            "algo_version": "revision-provenance-1",
+            "evidence_kind": "user",
+            "field_path": "payload.label",
+            "node_id": "00000000-0000-0000-0000-000000000005",
+            "source_ref": null,
+            "span": null,
+            "task_id": "knowledge-edit",
+            "value_hash": "245c52351c333780d9be82b8c55b7d836db7177a95ae7f2e75cccb32b2dc1759",
+            "verdict": "confirmed"
+          },
+          {
+            "algo_version": "revision-provenance-1",
+            "evidence_kind": "user",
+            "field_path": "payload.label",
+            "node_id": "00000000-0000-0000-0000-000000000007",
+            "source_ref": null,
+            "span": null,
+            "task_id": "knowledge-edit",
+            "value_hash": "c08f8117dd2de1b8a361213a27e6db4a3634fac97edbadd3517963525846f4e4",
+            "verdict": "confirmed"
+          },
+          {
+            "algo_version": "revision-provenance-1",
+            "evidence_kind": "user",
+            "field_path": "payload.label",
+            "node_id": "00000000-0000-0000-0000-00000000000b",
+            "source_ref": null,
+            "span": null,
+            "task_id": "knowledge-edit",
+            "value_hash": "ddcd18845adf8d1b7654648f571b9e23f93cc55cb9cf24ddb5ab848dbf6afb9b",
+            "verdict": "confirmed"
+          },
+          {
+            "algo_version": "revision-provenance-1",
+            "evidence_kind": "user",
+            "field_path": "payload.label",
+            "node_id": "00000000-0000-0000-0000-00000000000e",
+            "source_ref": null,
+            "span": null,
+            "task_id": "knowledge-edit",
+            "value_hash": "84ee37c5e96244d65824705328482554319393f18bc9c5054b56bb94a42370ad",
+            "verdict": "confirmed"
+          },
+          {
+            "algo_version": "revision-provenance-1",
+            "evidence_kind": "user",
+            "field_path": "payload.label",
+            "node_id": "00000000-0000-0000-0000-000000000013",
+            "source_ref": null,
+            "span": null,
+            "task_id": "knowledge-edit",
+            "value_hash": "1afcfac298ba462d14aa4de1be480613562e255c072b63de6243ae1605379280",
+            "verdict": "confirmed"
+          },
+          {
+            "algo_version": "revision-provenance-1",
+            "evidence_kind": "user",
+            "field_path": "payload.label",
+            "node_id": "00000000-0000-0000-0000-000000000019",
+            "source_ref": null,
+            "span": null,
+            "task_id": "knowledge-edit",
+            "value_hash": "00283b7f7583d4c60262bb294fef3f2e68aab0620ca6d0ddcc3bba6ae1dda993",
+            "verdict": "confirmed"
+          },
+          {
+            "algo_version": "revision-provenance-1",
+            "evidence_kind": "user",
+            "field_path": "payload.label",
+            "node_id": "00000000-0000-0000-0000-00000000001b",
+            "source_ref": null,
+            "span": null,
+            "task_id": "knowledge-edit",
+            "value_hash": "2d60672f4c511d1fdf842ab264587f397051490a0f2a26a02e51bd7cc507e7ad",
+            "verdict": "confirmed"
+          },
+          {
+            "algo_version": "revision-provenance-1",
+            "evidence_kind": "user",
+            "field_path": "payload.label",
+            "node_id": "00000000-0000-0000-0000-000000000025",
+            "source_ref": null,
+            "span": null,
+            "task_id": "knowledge-edit",
+            "value_hash": "00283b7f7583d4c60262bb294fef3f2e68aab0620ca6d0ddcc3bba6ae1dda993",
+            "verdict": "confirmed"
+          },
+          {
+            "algo_version": "revision-provenance-1",
+            "evidence_kind": "user",
+            "field_path": "payload.label",
+            "node_id": "00000000-0000-0000-0000-000000000027",
+            "source_ref": null,
+            "span": null,
+            "task_id": "knowledge-edit",
+            "value_hash": "f9eb26280843b6b25c3ea9be5ce8bf49522b145993b5269616f64fc0121e7547",
+            "verdict": "confirmed"
+          },
+          {
+            "algo_version": "revision-provenance-1",
+            "evidence_kind": "user",
+            "field_path": "payload.label",
+            "node_id": "00000000-0000-0000-0000-000000000029",
+            "source_ref": null,
+            "span": null,
+            "task_id": "knowledge-edit",
+            "value_hash": "bf33d639238c98222b5afbc4f18d091fa53c12c93673a828bb263db432276aee",
+            "verdict": "confirmed"
+          },
+          {
+            "algo_version": "revision-provenance-1",
+            "evidence_kind": "user",
+            "field_path": "payload.label",
+            "node_id": "00000000-0000-0000-0000-00000000002b",
+            "source_ref": null,
+            "span": null,
+            "task_id": "knowledge-edit",
+            "value_hash": "f881975c5047a9cf38cef7bb245e95ca704be01c441a38bc9ab84fdb066d1e31",
+            "verdict": "confirmed"
+          },
+          {
+            "algo_version": "revision-provenance-1",
+            "evidence_kind": "user",
+            "field_path": "payload.label",
+            "node_id": "00000000-0000-0000-0000-00000000002d",
+            "source_ref": null,
+            "span": null,
+            "task_id": "knowledge-edit",
+            "value_hash": "f881975c5047a9cf38cef7bb245e95ca704be01c441a38bc9ab84fdb066d1e31",
+            "verdict": "confirmed"
+          },
+          {
+            "algo_version": "revision-provenance-1",
+            "evidence_kind": "user",
+            "field_path": "payload.label",
+            "node_id": "00000000-0000-0000-0000-00000000002f",
+            "source_ref": null,
+            "span": null,
+            "task_id": "knowledge-edit",
+            "value_hash": "f881975c5047a9cf38cef7bb245e95ca704be01c441a38bc9ab84fdb066d1e31",
+            "verdict": "confirmed"
+          },
+          {
+            "algo_version": "revision-provenance-1",
+            "evidence_kind": "user",
+            "field_path": "payload.reading",
+            "node_id": "fixture-streamer",
+            "source_ref": null,
+            "span": null,
+            "task_id": "knowledge-edit",
+            "value_hash": "c4091af303411ff5382da5278d676de3c9afd23fa26c815acb64bad1c21e6c89",
+            "verdict": "confirmed"
+          },
+          {
+            "algo_version": "revision-provenance-1",
+            "evidence_kind": "user",
+            "field_path": "payload.surface",
+            "node_id": "00000000-0000-0000-0000-00000000000b",
+            "source_ref": null,
+            "span": null,
+            "task_id": "knowledge-edit",
+            "value_hash": "40ed483451e4cc286fbe2596bc2cf391272aa16925a170b7d5633306b3af9c7e",
+            "verdict": "confirmed"
+          },
+          {
+            "algo_version": "revision-provenance-1",
+            "evidence_kind": "user",
+            "field_path": "payload.surface",
+            "node_id": "00000000-0000-0000-0000-00000000000e",
+            "source_ref": null,
+            "span": null,
+            "task_id": "knowledge-edit",
+            "value_hash": "defb1b76f7771ed4ae06bf8b136a68ac9b568a401f2b2d8883ccdb0341c93087",
+            "verdict": "confirmed"
+          },
+          {
+            "algo_version": "revision-provenance-1",
+            "evidence_kind": "user",
+            "field_path": "payload.surface",
+            "node_id": "00000000-0000-0000-0000-000000000010",
+            "source_ref": null,
+            "span": null,
+            "task_id": "knowledge-edit",
+            "value_hash": "262639565aade2af71b1bb281fbb38469f8af188e8404f5bae132f1111da64ff",
+            "verdict": "confirmed"
+          },
+          {
+            "algo_version": "revision-provenance-1",
+            "evidence_kind": "user",
+            "field_path": "payload.surface",
+            "node_id": "00000000-0000-0000-0000-000000000015",
+            "source_ref": null,
+            "span": null,
+            "task_id": "knowledge-edit",
+            "value_hash": "b666480caf2c32f1c7143f1d1280ea5cf7aef81dc8794c8ebdf684efdfdffca6",
+            "verdict": "confirmed"
+          },
+          {
+            "algo_version": "revision-provenance-1",
+            "evidence_kind": "user",
+            "field_path": "payload.surface",
+            "node_id": "00000000-0000-0000-0000-00000000001d",
+            "source_ref": null,
+            "span": null,
+            "task_id": "knowledge-edit",
+            "value_hash": "b666480caf2c32f1c7143f1d1280ea5cf7aef81dc8794c8ebdf684efdfdffca6",
+            "verdict": "confirmed"
+          },
+          {
+            "algo_version": "revision-provenance-1",
+            "evidence_kind": "user",
+            "field_path": "payload.surface",
+            "node_id": "00000000-0000-0000-0000-000000000020",
+            "source_ref": null,
+            "span": null,
+            "task_id": "knowledge-edit",
+            "value_hash": "02fe767ae93878ace0a2763cb1e11fcdcf769b78869adaa520bc4e3343b6b33c",
+            "verdict": "confirmed"
+          },
+          {
+            "algo_version": "revision-provenance-1",
+            "evidence_kind": "user",
+            "field_path": "payload.surface",
+            "node_id": "00000000-0000-0000-0000-000000000023",
+            "source_ref": null,
+            "span": null,
+            "task_id": "knowledge-edit",
+            "value_hash": "3a59c227c280303a6b83eb52c0a5a28740fcb7897c16dfff681f60f13366a855",
+            "verdict": "confirmed"
+          },
+          {
+            "algo_version": "revision-provenance-1",
+            "evidence_kind": "user",
+            "field_path": "payload.surface",
+            "node_id": "fixture-game",
+            "source_ref": null,
+            "span": null,
+            "task_id": "knowledge-edit",
+            "value_hash": "7037dd94b348d6448af34452ec1a3e14882f8b578d04c099d6fef0ceaa18a91c",
+            "verdict": "confirmed"
+          },
+          {
+            "algo_version": "revision-provenance-1",
+            "evidence_kind": "user",
+            "field_path": "payload.surface",
+            "node_id": "fixture-streamer",
+            "source_ref": null,
+            "span": null,
+            "task_id": "knowledge-edit",
+            "value_hash": "41cb4176b99134b7a9b02e3328244cadace737f6217a6f270ee62a39be92a2af",
+            "verdict": "confirmed"
+          },
+          {
+            "algo_version": "revision-provenance-1",
+            "evidence_kind": "user",
+            "field_path": "payload.surface",
+            "node_id": "fixture-style",
+            "source_ref": null,
+            "span": null,
+            "task_id": "knowledge-edit",
+            "value_hash": "719b1c404c2eb4c084282cbe5a3c767d7dd55b76d559e5836b4f4d16dc78f202",
+            "verdict": "confirmed"
+          },
+          {
+            "algo_version": "revision-provenance-1",
+            "evidence_kind": "user",
+            "field_path": "payload.text",
+            "node_id": "00000000-0000-0000-0000-000000000003",
+            "source_ref": null,
+            "span": null,
+            "task_id": "knowledge-edit",
+            "value_hash": "79cce8057d6430ababf66db538a2d3ab178f66f8839d1b413ad84d84fb415679",
+            "verdict": "confirmed"
+          },
+          {
+            "algo_version": "revision-provenance-1",
+            "evidence_kind": "user",
+            "field_path": "payload.text",
+            "node_id": "00000000-0000-0000-0000-000000000005",
+            "source_ref": null,
+            "span": null,
+            "task_id": "knowledge-edit",
+            "value_hash": "bc1e1d8bb94e810a8be72c12a953597b99f52e32d387b46acc458b954d4bfa20",
+            "verdict": "confirmed"
+          },
+          {
+            "algo_version": "revision-provenance-1",
+            "evidence_kind": "user",
+            "field_path": "payload.text",
+            "node_id": "00000000-0000-0000-0000-000000000007",
+            "source_ref": null,
+            "span": null,
+            "task_id": "knowledge-edit",
+            "value_hash": "b8b54d46aaf357cc64ff7c8fa23dc78f6b08815d999a5111872642acd66bf121",
+            "verdict": "confirmed"
+          },
+          {
+            "algo_version": "revision-provenance-1",
+            "evidence_kind": "user",
+            "field_path": "payload.text",
+            "node_id": "00000000-0000-0000-0000-000000000009",
+            "source_ref": null,
+            "span": null,
+            "task_id": "knowledge-edit",
+            "value_hash": "67cb6d9625e793a07ccc81c13636dda76739aede179d61699585ce1dbf198fa4",
+            "verdict": "confirmed"
+          },
+          {
+            "algo_version": "revision-provenance-1",
+            "evidence_kind": "user",
+            "field_path": "payload.text",
+            "node_id": "00000000-0000-0000-0000-000000000013",
+            "source_ref": null,
+            "span": null,
+            "task_id": "knowledge-edit",
+            "value_hash": "f7c53bf4d2d6156a68ee94170c4ee21e37874ad446d63fd1d2aa38305361070e",
+            "verdict": "confirmed"
+          },
+          {
+            "algo_version": "revision-provenance-1",
+            "evidence_kind": "user",
+            "field_path": "payload.text",
+            "node_id": "00000000-0000-0000-0000-000000000019",
+            "source_ref": null,
+            "span": null,
+            "task_id": "knowledge-edit",
+            "value_hash": "48327e60304d399c9c4974125f79047a98a8b3c17dc0aaa2b11c5b5c5d496ca3",
+            "verdict": "confirmed"
+          },
+          {
+            "algo_version": "revision-provenance-1",
+            "evidence_kind": "user",
+            "field_path": "payload.text",
+            "node_id": "00000000-0000-0000-0000-00000000001b",
+            "source_ref": null,
+            "span": null,
+            "task_id": "knowledge-edit",
+            "value_hash": "337bf3a1a9bfa0090a24db3af8ec09fc8403d43b8c6b38f3392bf7f4d9a0eb5d",
+            "verdict": "confirmed"
+          },
+          {
+            "algo_version": "revision-provenance-1",
+            "evidence_kind": "user",
+            "field_path": "payload.text",
+            "node_id": "00000000-0000-0000-0000-000000000025",
+            "source_ref": null,
+            "span": null,
+            "task_id": "knowledge-edit",
+            "value_hash": "719b1c404c2eb4c084282cbe5a3c767d7dd55b76d559e5836b4f4d16dc78f202",
+            "verdict": "confirmed"
+          },
+          {
+            "algo_version": "revision-provenance-1",
+            "evidence_kind": "user",
+            "field_path": "payload.text",
+            "node_id": "00000000-0000-0000-0000-000000000027",
+            "source_ref": null,
+            "span": null,
+            "task_id": "knowledge-edit",
+            "value_hash": "b808e64d4f5da3de57cefd0ac0dd1e9dba654a0e371f226f16151da0e2781707",
+            "verdict": "confirmed"
+          },
+          {
+            "algo_version": "revision-provenance-1",
+            "evidence_kind": "user",
+            "field_path": "payload.text",
+            "node_id": "00000000-0000-0000-0000-000000000029",
+            "source_ref": null,
+            "span": null,
+            "task_id": "knowledge-edit",
+            "value_hash": "cf51aba759e03cdb9fe691584cd601f3acfaf29f4af8de932188c93f27cfba4e",
+            "verdict": "confirmed"
+          },
+          {
+            "algo_version": "revision-provenance-1",
+            "evidence_kind": "user",
+            "field_path": "payload.text",
+            "node_id": "00000000-0000-0000-0000-00000000002b",
+            "source_ref": null,
+            "span": null,
+            "task_id": "knowledge-edit",
+            "value_hash": "6dd75cf8c785a34e89937289ca41202115f10d4195176d63417473c0232a6a6d",
+            "verdict": "confirmed"
+          },
+          {
+            "algo_version": "revision-provenance-1",
+            "evidence_kind": "user",
+            "field_path": "payload.text",
+            "node_id": "00000000-0000-0000-0000-00000000002d",
+            "source_ref": null,
+            "span": null,
+            "task_id": "knowledge-edit",
+            "value_hash": "7f4c4c2450d018a3fbad42f4cc836fda69097ae46102ed3b7f860b16c86de428",
+            "verdict": "confirmed"
+          },
+          {
+            "algo_version": "revision-provenance-1",
+            "evidence_kind": "user",
+            "field_path": "payload.text",
+            "node_id": "00000000-0000-0000-0000-00000000002f",
+            "source_ref": null,
+            "span": null,
+            "task_id": "knowledge-edit",
+            "value_hash": "53ebc94fed1f32749e2808812d2c72c37f9cbd8cad1653dee1b5a7477328bd87",
+            "verdict": "confirmed"
+          },
+          {
+            "algo_version": "revision-provenance-1",
+            "evidence_kind": "user",
+            "field_path": "payload.zh",
+            "node_id": "00000000-0000-0000-0000-00000000000b",
+            "source_ref": null,
+            "span": null,
+            "task_id": "knowledge-edit",
+            "value_hash": "36c1725b0c935137273ccee990675c1cc36f4fe0c4ce1e1cef12559dbff4c50c",
+            "verdict": "confirmed"
+          },
+          {
+            "algo_version": "revision-provenance-1",
+            "evidence_kind": "user",
+            "field_path": "payload.zh",
+            "node_id": "00000000-0000-0000-0000-00000000000e",
+            "source_ref": null,
+            "span": null,
+            "task_id": "knowledge-edit",
+            "value_hash": "b9b2967015ca987190313f2a1ec9a45b8295e1c7b073cb78ec2974e1c20891a0",
+            "verdict": "confirmed"
+          },
+          {
+            "algo_version": "revision-provenance-1",
+            "evidence_kind": "user",
+            "field_path": "payload.zh",
+            "node_id": "00000000-0000-0000-0000-000000000010",
+            "source_ref": null,
+            "span": null,
+            "task_id": "knowledge-edit",
+            "value_hash": "f67e2662b5ee0ff3465276f9b28511f521429c8cf0c24581b153eb83a1b68431",
+            "verdict": "confirmed"
+          },
+          {
+            "algo_version": "revision-provenance-1",
+            "evidence_kind": "user",
+            "field_path": "payload.zh",
+            "node_id": "00000000-0000-0000-0000-000000000015",
+            "source_ref": null,
+            "span": null,
+            "task_id": "knowledge-edit",
+            "value_hash": "ef9a60cb869975c99fd3cbee6fca8fc1aeb9d98e33c9bd6a330a05da3e64c3e5",
+            "verdict": "confirmed"
+          },
+          {
+            "algo_version": "revision-provenance-1",
+            "evidence_kind": "user",
+            "field_path": "payload.zh",
+            "node_id": "00000000-0000-0000-0000-00000000001d",
+            "source_ref": null,
+            "span": null,
+            "task_id": "knowledge-edit",
+            "value_hash": "ef9a60cb869975c99fd3cbee6fca8fc1aeb9d98e33c9bd6a330a05da3e64c3e5",
+            "verdict": "confirmed"
+          },
+          {
+            "algo_version": "revision-provenance-1",
+            "evidence_kind": "user",
+            "field_path": "payload.zh",
+            "node_id": "00000000-0000-0000-0000-000000000020",
+            "source_ref": null,
+            "span": null,
+            "task_id": "knowledge-edit",
+            "value_hash": "69d2b24b4383dda9ffa23ce7a25bc1c71388f51ea9dadbd3b1fd4dc1c4732a26",
+            "verdict": "confirmed"
+          },
+          {
+            "algo_version": "revision-provenance-1",
+            "evidence_kind": "user",
+            "field_path": "payload.zh",
+            "node_id": "00000000-0000-0000-0000-000000000023",
+            "source_ref": null,
+            "span": null,
+            "task_id": "knowledge-edit",
+            "value_hash": "2078a67175dc48e2acc2abf80498600c780969ce3c69a1341563f04c5113dea4",
+            "verdict": "confirmed"
+          }
+        ],
+        "item_versions": [
+          {
+            "accepted_rev": null,
+            "canonical_item_id": null,
+            "exact_enabled": 1,
+            "fuzzy_enabled": 0,
+            "item_id": "00000000-0000-0000-0000-000000000001",
+            "maturity": "normal",
+            "min_mora": 3,
+            "requires_subject_context": 0,
+            "valid_from_rev": 2,
+            "valid_to_rev": null,
+            "value": "ゆうか"
+          },
+          {
+            "accepted_rev": null,
+            "canonical_item_id": null,
+            "exact_enabled": 1,
+            "fuzzy_enabled": 0,
+            "item_id": "00000000-0000-0000-0000-000000000002",
+            "maturity": "normal",
+            "min_mora": 3,
+            "requires_subject_context": 0,
+            "valid_from_rev": 2,
+            "valid_to_rev": null,
+            "value": "ゆうかちゃん"
+          },
+          {
+            "accepted_rev": null,
+            "canonical_item_id": null,
+            "exact_enabled": 1,
+            "fuzzy_enabled": 0,
+            "item_id": "00000000-0000-0000-0000-00000000000d",
+            "maturity": "normal",
+            "min_mora": 3,
+            "requires_subject_context": 0,
+            "valid_from_rev": 2,
+            "valid_to_rev": null,
+            "value": "ユウカ"
+          },
+          {
+            "accepted_rev": null,
+            "canonical_item_id": null,
+            "exact_enabled": 1,
+            "fuzzy_enabled": 0,
+            "item_id": "00000000-0000-0000-0000-000000000017",
+            "maturity": "normal",
+            "min_mora": 3,
+            "requires_subject_context": 0,
+            "valid_from_rev": 3,
+            "valid_to_rev": null,
+            "value": "ほしクエ"
+          },
+          {
+            "accepted_rev": null,
+            "canonical_item_id": null,
+            "exact_enabled": 1,
+            "fuzzy_enabled": 0,
+            "item_id": "00000000-0000-0000-0000-000000000018",
+            "maturity": "normal",
+            "min_mora": 3,
+            "requires_subject_context": 0,
+            "valid_from_rev": 3,
+            "valid_to_rev": null,
+            "value": "星屑"
+          },
+          {
+            "accepted_rev": null,
+            "canonical_item_id": null,
+            "exact_enabled": 1,
+            "fuzzy_enabled": 0,
+            "item_id": "00000000-0000-0000-0000-00000000001f",
+            "maturity": "normal",
+            "min_mora": 3,
+            "requires_subject_context": 0,
+            "valid_from_rev": 3,
+            "valid_to_rev": null,
+            "value": "Mira"
+          },
+          {
+            "accepted_rev": null,
+            "canonical_item_id": null,
+            "exact_enabled": 1,
+            "fuzzy_enabled": 1,
+            "item_id": "00000000-0000-0000-0000-000000000012",
+            "maturity": "normal",
+            "min_mora": 3,
+            "requires_subject_context": 0,
+            "valid_from_rev": 2,
+            "valid_to_rev": null,
+            "value": "ほしくぞ）"
+          },
+          {
+            "accepted_rev": null,
+            "canonical_item_id": null,
+            "exact_enabled": 1,
+            "fuzzy_enabled": 1,
+            "item_id": "00000000-0000-0000-0000-000000000022",
+            "maturity": "normal",
+            "min_mora": 3,
+            "requires_subject_context": 0,
+            "valid_from_rev": 3,
+            "valid_to_rev": null,
+            "value": "ございます）"
+          }
+        ],
+        "items": [
+          {
+            "created_rev": 2,
+            "field": "aliases",
+            "item_id": "00000000-0000-0000-0000-000000000001",
+            "local_id": "fixture-streamer"
+          },
+          {
+            "created_rev": 2,
+            "field": "aliases",
+            "item_id": "00000000-0000-0000-0000-000000000002",
+            "local_id": "fixture-streamer"
+          },
+          {
+            "created_rev": 2,
+            "field": "aliases",
+            "item_id": "00000000-0000-0000-0000-00000000000d",
+            "local_id": "00000000-0000-0000-0000-00000000000b"
+          },
+          {
+            "created_rev": 2,
+            "field": "misheard",
+            "item_id": "00000000-0000-0000-0000-000000000012",
+            "local_id": "00000000-0000-0000-0000-000000000010"
+          },
+          {
+            "created_rev": 3,
+            "field": "aliases",
+            "item_id": "00000000-0000-0000-0000-000000000017",
+            "local_id": "fixture-game"
+          },
+          {
+            "created_rev": 3,
+            "field": "aliases",
+            "item_id": "00000000-0000-0000-0000-000000000018",
+            "local_id": "fixture-game"
+          },
+          {
+            "created_rev": 3,
+            "field": "aliases",
+            "item_id": "00000000-0000-0000-0000-00000000001f",
+            "local_id": "00000000-0000-0000-0000-00000000001d"
+          },
+          {
+            "created_rev": 3,
+            "field": "misheard",
+            "item_id": "00000000-0000-0000-0000-000000000022",
+            "local_id": "00000000-0000-0000-0000-000000000020"
+          }
+        ],
+        "line_acks": [],
+        "link_versions": [],
+        "links": [],
+        "membership_versions": [
+          {
+            "accepted_rev": null,
+            "canonical_membership_id": null,
+            "child_id": "00000000-0000-0000-0000-000000000003",
+            "membership_id": "00000000-0000-0000-0000-000000000004",
+            "order_key": 0,
+            "parent_id": "fixture-streamer",
+            "section": "档案",
+            "valid_from_rev": 2,
+            "valid_to_rev": null
+          },
+          {
+            "accepted_rev": null,
+            "canonical_membership_id": null,
+            "child_id": "00000000-0000-0000-0000-000000000005",
+            "membership_id": "00000000-0000-0000-0000-000000000006",
+            "order_key": 1,
+            "parent_id": "fixture-streamer",
+            "section": "档案",
+            "valid_from_rev": 2,
+            "valid_to_rev": null
+          },
+          {
+            "accepted_rev": null,
+            "canonical_membership_id": null,
+            "child_id": "00000000-0000-0000-0000-000000000007",
+            "membership_id": "00000000-0000-0000-0000-000000000008",
+            "order_key": 2,
+            "parent_id": "fixture-streamer",
+            "section": "档案",
+            "valid_from_rev": 2,
+            "valid_to_rev": null
+          },
+          {
+            "accepted_rev": null,
+            "canonical_membership_id": null,
+            "child_id": "00000000-0000-0000-0000-000000000009",
+            "membership_id": "00000000-0000-0000-0000-00000000000a",
+            "order_key": 0,
+            "parent_id": "fixture-streamer",
+            "section": "直播内容",
+            "valid_from_rev": 2,
+            "valid_to_rev": null
+          },
+          {
+            "accepted_rev": null,
+            "canonical_membership_id": null,
+            "child_id": "00000000-0000-0000-0000-00000000000b",
+            "membership_id": "00000000-0000-0000-0000-00000000000c",
+            "order_key": 0,
+            "parent_id": "fixture-streamer",
+            "section": "频道用语",
+            "valid_from_rev": 2,
+            "valid_to_rev": null
+          },
+          {
+            "accepted_rev": null,
+            "canonical_membership_id": null,
+            "child_id": "00000000-0000-0000-0000-00000000000e",
+            "membership_id": "00000000-0000-0000-0000-00000000000f",
+            "order_key": 1,
+            "parent_id": "fixture-streamer",
+            "section": "频道用语",
+            "valid_from_rev": 2,
+            "valid_to_rev": null
+          },
+          {
+            "accepted_rev": null,
+            "canonical_membership_id": null,
+            "child_id": "00000000-0000-0000-0000-000000000010",
+            "membership_id": "00000000-0000-0000-0000-000000000011",
+            "order_key": 2,
+            "parent_id": "fixture-streamer",
+            "section": "频道用语",
+            "valid_from_rev": 2,
+            "valid_to_rev": null
+          },
+          {
+            "accepted_rev": null,
+            "canonical_membership_id": null,
+            "child_id": "00000000-0000-0000-0000-000000000013",
+            "membership_id": "00000000-0000-0000-0000-000000000014",
+            "order_key": 0,
+            "parent_id": "fixture-streamer",
+            "section": "特点",
+            "valid_from_rev": 2,
+            "valid_to_rev": null
+          },
+          {
+            "accepted_rev": null,
+            "canonical_membership_id": null,
+            "child_id": "00000000-0000-0000-0000-000000000015",
+            "membership_id": "00000000-0000-0000-0000-000000000016",
+            "order_key": 0,
+            "parent_id": "fixture-streamer",
+            "section": "人际关系",
+            "valid_from_rev": 2,
+            "valid_to_rev": null
+          },
+          {
+            "accepted_rev": null,
+            "canonical_membership_id": null,
+            "child_id": "00000000-0000-0000-0000-000000000019",
+            "membership_id": "00000000-0000-0000-0000-00000000001a",
+            "order_key": 0,
+            "parent_id": "fixture-game",
+            "section": "档案",
+            "valid_from_rev": 3,
+            "valid_to_rev": null
+          },
+          {
+            "accepted_rev": null,
+            "canonical_membership_id": null,
+            "child_id": "00000000-0000-0000-0000-00000000001b",
+            "membership_id": "00000000-0000-0000-0000-00000000001c",
+            "order_key": 1,
+            "parent_id": "fixture-game",
+            "section": "档案",
+            "valid_from_rev": 3,
+            "valid_to_rev": null
+          },
+          {
+            "accepted_rev": null,
+            "canonical_membership_id": null,
+            "child_id": "00000000-0000-0000-0000-00000000001d",
+            "membership_id": "00000000-0000-0000-0000-00000000001e",
+            "order_key": 0,
+            "parent_id": "fixture-game",
+            "section": "角色",
+            "valid_from_rev": 3,
+            "valid_to_rev": null
+          },
+          {
+            "accepted_rev": null,
+            "canonical_membership_id": null,
+            "child_id": "00000000-0000-0000-0000-000000000020",
+            "membership_id": "00000000-0000-0000-0000-000000000021",
+            "order_key": 1,
+            "parent_id": "fixture-game",
+            "section": "角色",
+            "valid_from_rev": 3,
+            "valid_to_rev": null
+          },
+          {
+            "accepted_rev": null,
+            "canonical_membership_id": null,
+            "child_id": "00000000-0000-0000-0000-000000000023",
+            "membership_id": "00000000-0000-0000-0000-000000000024",
+            "order_key": 0,
+            "parent_id": "fixture-game",
+            "section": "地名",
+            "valid_from_rev": 3,
+            "valid_to_rev": null
+          },
+          {
+            "accepted_rev": null,
+            "canonical_membership_id": null,
+            "child_id": "00000000-0000-0000-0000-000000000025",
+            "membership_id": "00000000-0000-0000-0000-000000000026",
+            "order_key": 0,
+            "parent_id": "fixture-style",
+            "section": "档案",
+            "valid_from_rev": 4,
+            "valid_to_rev": null
+          },
+          {
+            "accepted_rev": null,
+            "canonical_membership_id": null,
+            "child_id": "00000000-0000-0000-0000-000000000027",
+            "membership_id": "00000000-0000-0000-0000-000000000028",
+            "order_key": 1,
+            "parent_id": "fixture-style",
+            "section": "档案",
+            "valid_from_rev": 4,
+            "valid_to_rev": null
+          },
+          {
+            "accepted_rev": null,
+            "canonical_membership_id": null,
+            "child_id": "00000000-0000-0000-0000-000000000029",
+            "membership_id": "00000000-0000-0000-0000-00000000002a",
+            "order_key": 2,
+            "parent_id": "fixture-style",
+            "section": "档案",
+            "valid_from_rev": 4,
+            "valid_to_rev": null
+          },
+          {
+            "accepted_rev": null,
+            "canonical_membership_id": null,
+            "child_id": "00000000-0000-0000-0000-00000000002b",
+            "membership_id": "00000000-0000-0000-0000-00000000002c",
+            "order_key": 0,
+            "parent_id": "fixture-style",
+            "section": "约定",
+            "valid_from_rev": 4,
+            "valid_to_rev": null
+          },
+          {
+            "accepted_rev": null,
+            "canonical_membership_id": null,
+            "child_id": "00000000-0000-0000-0000-00000000002d",
+            "membership_id": "00000000-0000-0000-0000-00000000002e",
+            "order_key": 0,
+            "parent_id": "fixture-style",
+            "section": "正例",
+            "valid_from_rev": 4,
+            "valid_to_rev": null
+          },
+          {
+            "accepted_rev": null,
+            "canonical_membership_id": null,
+            "child_id": "00000000-0000-0000-0000-00000000002f",
+            "membership_id": "00000000-0000-0000-0000-000000000030",
+            "order_key": 0,
+            "parent_id": "fixture-style",
+            "section": "反例",
+            "valid_from_rev": 4,
+            "valid_to_rev": null
+          }
+        ],
+        "memberships": [
+          {
+            "created_rev": 2,
+            "membership_id": "00000000-0000-0000-0000-000000000004"
+          },
+          {
+            "created_rev": 2,
+            "membership_id": "00000000-0000-0000-0000-000000000006"
+          },
+          {
+            "created_rev": 2,
+            "membership_id": "00000000-0000-0000-0000-000000000008"
+          },
+          {
+            "created_rev": 2,
+            "membership_id": "00000000-0000-0000-0000-00000000000a"
+          },
+          {
+            "created_rev": 2,
+            "membership_id": "00000000-0000-0000-0000-00000000000c"
+          },
+          {
+            "created_rev": 2,
+            "membership_id": "00000000-0000-0000-0000-00000000000f"
+          },
+          {
+            "created_rev": 2,
+            "membership_id": "00000000-0000-0000-0000-000000000011"
+          },
+          {
+            "created_rev": 2,
+            "membership_id": "00000000-0000-0000-0000-000000000014"
+          },
+          {
+            "created_rev": 2,
+            "membership_id": "00000000-0000-0000-0000-000000000016"
+          },
+          {
+            "created_rev": 3,
+            "membership_id": "00000000-0000-0000-0000-00000000001a"
+          },
+          {
+            "created_rev": 3,
+            "membership_id": "00000000-0000-0000-0000-00000000001c"
+          },
+          {
+            "created_rev": 3,
+            "membership_id": "00000000-0000-0000-0000-00000000001e"
+          },
+          {
+            "created_rev": 3,
+            "membership_id": "00000000-0000-0000-0000-000000000021"
+          },
+          {
+            "created_rev": 3,
+            "membership_id": "00000000-0000-0000-0000-000000000024"
+          },
+          {
+            "created_rev": 4,
+            "membership_id": "00000000-0000-0000-0000-000000000026"
+          },
+          {
+            "created_rev": 4,
+            "membership_id": "00000000-0000-0000-0000-000000000028"
+          },
+          {
+            "created_rev": 4,
+            "membership_id": "00000000-0000-0000-0000-00000000002a"
+          },
+          {
+            "created_rev": 4,
+            "membership_id": "00000000-0000-0000-0000-00000000002c"
+          },
+          {
+            "created_rev": 4,
+            "membership_id": "00000000-0000-0000-0000-00000000002e"
+          },
+          {
+            "created_rev": 4,
+            "membership_id": "00000000-0000-0000-0000-000000000030"
+          }
+        ],
+        "meta": [
+          {
+            "key": "factory_style_pending",
+            "value": "[]"
+          },
+          {
+            "key": "schema_version",
+            "value": "6"
+          }
+        ],
+        "migration_aux": [],
+        "node_versions": [
+          {
+            "accepted_rev": null,
+            "canonical_id": null,
+            "local_id": "00000000-0000-0000-0000-000000000003",
+            "maturity": "normal",
+            "payload": "{\"text\": \"柊優花（ひいらぎ ゆうか）/ 柊优花\", \"label\": \"本名\"}",
+            "valid_from_rev": 2,
+            "valid_to_rev": null,
+            "visibility": "local"
+          },
+          {
+            "accepted_rev": null,
+            "canonical_id": null,
+            "local_id": "00000000-0000-0000-0000-000000000005",
+            "maturity": "normal",
+            "payload": "{\"text\": \"元气系的游戏主播\", \"label\": \"人设\"}",
+            "valid_from_rev": 2,
+            "valid_to_rev": null,
+            "visibility": "local"
+          },
+          {
+            "accepted_rev": null,
+            "canonical_id": null,
+            "local_id": "00000000-0000-0000-0000-000000000007",
+            "maturity": "normal",
+            "payload": "{\"text\": \"银发、红瞳\", \"label\": \"外观\"}",
+            "valid_from_rev": 2,
+            "valid_to_rev": null,
+            "visibility": "local"
+          },
+          {
+            "accepted_rev": null,
+            "canonical_id": null,
+            "local_id": "00000000-0000-0000-0000-000000000009",
+            "maturity": "normal",
+            "payload": "{\"text\": \"主要玩《星屑クエスト》\"}",
+            "valid_from_rev": 2,
+            "valid_to_rev": null,
+            "visibility": "local"
+          },
+          {
+            "accepted_rev": null,
+            "canonical_id": null,
+            "local_id": "00000000-0000-0000-0000-00000000000b",
+            "maturity": "normal",
+            "payload": "{\"surface\": \"ゆうか\", \"zh\": \"优花\", \"desc\": \"读评论时译作「柊優花」\", \"label\": \"自称\"}",
+            "valid_from_rev": 2,
+            "valid_to_rev": null,
+            "visibility": "local"
+          },
+          {
+            "accepted_rev": null,
+            "canonical_id": null,
+            "local_id": "00000000-0000-0000-0000-00000000000e",
+            "maturity": "normal",
+            "payload": "{\"surface\": \"おはよう\", \"zh\": \"早上好\", \"desc\": \"每场开头的问候\", \"label\": \"问候语\"}",
+            "valid_from_rev": 2,
+            "valid_to_rev": null,
+            "visibility": "local"
+          },
+          {
+            "accepted_rev": null,
+            "canonical_id": null,
+            "local_id": "00000000-0000-0000-0000-000000000010",
+            "maturity": "normal",
+            "payload": "{\"surface\": \"ほしくず\", \"zh\": \"小星屑\", \"desc\": \"粉丝名\"}",
+            "valid_from_rev": 2,
+            "valid_to_rev": null,
+            "visibility": "local"
+          },
+          {
+            "accepted_rev": null,
+            "canonical_id": null,
+            "local_id": "00000000-0000-0000-0000-000000000013",
+            "maturity": "normal",
+            "payload": "{\"text\": \"「またね」收尾\", \"label\": \"口癖\"}",
+            "valid_from_rev": 2,
+            "valid_to_rev": null,
+            "visibility": "local"
+          },
+          {
+            "accepted_rev": null,
+            "canonical_id": null,
+            "local_id": "00000000-0000-0000-0000-000000000015",
+            "maturity": "normal",
+            "payload": "{\"surface\": \"ミラ\", \"zh\": \"米拉\", \"desc\": \"同期主播\"}",
+            "valid_from_rev": 2,
+            "valid_to_rev": null,
+            "visibility": "local"
+          },
+          {
+            "accepted_rev": null,
+            "canonical_id": null,
+            "local_id": "00000000-0000-0000-0000-000000000019",
+            "maturity": "normal",
+            "payload": "{\"text\": \"星屑クエスト / 星屑任务 / Stardust Quest\", \"label\": \"本名\"}",
+            "valid_from_rev": 3,
+            "valid_to_rev": null,
+            "visibility": "local"
+          },
+          {
+            "accepted_rev": null,
+            "canonical_id": null,
+            "local_id": "00000000-0000-0000-0000-00000000001b",
+            "maturity": "normal",
+            "payload": "{\"text\": \"只收角色与地名\", \"label\": \"收录范围\"}",
+            "valid_from_rev": 3,
+            "valid_to_rev": null,
+            "visibility": "local"
+          },
+          {
+            "accepted_rev": null,
+            "canonical_id": null,
+            "local_id": "00000000-0000-0000-0000-00000000001d",
+            "maturity": "normal",
+            "payload": "{\"surface\": \"ミラ\", \"zh\": \"米拉\", \"desc\": \"主角的搭档。\"}",
+            "valid_from_rev": 3,
+            "valid_to_rev": null,
+            "visibility": "local"
+          },
+          {
+            "accepted_rev": null,
+            "canonical_id": null,
+            "local_id": "00000000-0000-0000-0000-000000000020",
+            "maturity": "normal",
+            "payload": "{\"surface\": \"ゴザイマス\", \"zh\": \"五斋玛斯\", \"desc\": \"反派首领\"}",
+            "valid_from_rev": 3,
+            "valid_to_rev": null,
+            "visibility": "local"
+          },
+          {
+            "accepted_rev": null,
+            "canonical_id": null,
+            "local_id": "00000000-0000-0000-0000-000000000023",
+            "maturity": "normal",
+            "payload": "{\"surface\": \"マタネ村\", \"zh\": \"回见村\", \"desc\": \"初始村庄\"}",
+            "valid_from_rev": 3,
+            "valid_to_rev": null,
+            "visibility": "local"
+          },
+          {
+            "accepted_rev": null,
+            "canonical_id": null,
+            "local_id": "00000000-0000-0000-0000-000000000025",
+            "maturity": "normal",
+            "payload": "{\"text\": \"门禁字幕组\", \"label\": \"本名\"}",
+            "valid_from_rev": 4,
+            "valid_to_rev": null,
+            "visibility": "local"
+          },
+          {
+            "accepted_rev": null,
+            "canonical_id": null,
+            "local_id": "00000000-0000-0000-0000-000000000027",
+            "maturity": "normal",
+            "payload": "{\"text\": \"质量闸门\", \"label\": \"作者\"}",
+            "valid_from_rev": 4,
+            "valid_to_rev": null,
+            "visibility": "local"
+          },
+          {
+            "accepted_rev": null,
+            "canonical_id": null,
+            "local_id": "00000000-0000-0000-0000-000000000029",
+            "maturity": "normal",
+            "payload": "{\"text\": \"柊優花的游戏直播\", \"label\": \"适用范围\"}",
+            "valid_from_rev": 4,
+            "valid_to_rev": null,
+            "visibility": "local"
+          },
+          {
+            "accepted_rev": null,
+            "canonical_id": null,
+            "local_id": "00000000-0000-0000-0000-00000000002b",
+            "maturity": "normal",
+            "payload": "{\"text\": \"保留句尾语气词\", \"label\": \"语气词\"}",
+            "valid_from_rev": 4,
+            "valid_to_rev": null,
+            "visibility": "local"
+          },
+          {
+            "accepted_rev": null,
+            "canonical_id": null,
+            "local_id": "00000000-0000-0000-0000-00000000002d",
+            "maturity": "normal",
+            "payload": "{\"text\": \"またね → 回见啦\", \"label\": \"语气词\"}",
+            "valid_from_rev": 4,
+            "valid_to_rev": null,
+            "visibility": "local"
+          },
+          {
+            "accepted_rev": null,
+            "canonical_id": null,
+            "local_id": "00000000-0000-0000-0000-00000000002f",
+            "maturity": "normal",
+            "payload": "{\"text\": \"またね → 再见。\", \"label\": \"语气词\"}",
+            "valid_from_rev": 4,
+            "valid_to_rev": null,
+            "visibility": "local"
+          },
+          {
+            "accepted_rev": null,
+            "canonical_id": null,
+            "local_id": "fixture-game",
+            "maturity": "normal",
+            "payload": "{\"surface\": \"星屑クエスト\", \"intro\": \"2025 年发售的 RPG 游戏。\", \"category\": \"common\", \"entry_type\": \"游戏\", \"section_order\": [\"档案\", \"角色\", \"地名\", \"待归类\"], \"native_names\": [\"星屑任务\", \"Stardust Quest\"], \"updated_date\": \"2026-01-02\"}",
+            "valid_from_rev": 3,
+            "valid_to_rev": null,
+            "visibility": "local"
+          },
+          {
+            "accepted_rev": null,
+            "canonical_id": null,
+            "local_id": "fixture-game",
+            "maturity": "normal",
+            "payload": "{\"surface\": \"星屑クエスト\", \"intro\": \"2025 年发售的 RPG 游戏。\", \"category\": \"common\", \"entry_type\": \"游戏\"}",
+            "valid_from_rev": 1,
+            "valid_to_rev": 3,
+            "visibility": "local"
+          },
+          {
+            "accepted_rev": null,
+            "canonical_id": null,
+            "local_id": "fixture-streamer",
+            "maturity": "normal",
+            "payload": "{\"surface\": \"柊優花\", \"intro\": \"游戏主播，常玩 RPG。\", \"category\": \"streamer\", \"section_order\": [\"档案\", \"直播内容\", \"频道用语\", \"特点\", \"人际关系\", \"待归类\"], \"native_names\": [\"柊优花\"], \"reading\": \"ひいらぎ ゆうか\", \"updated_date\": \"2026-01-02\"}",
+            "valid_from_rev": 2,
+            "valid_to_rev": null,
+            "visibility": "local"
+          },
+          {
+            "accepted_rev": null,
+            "canonical_id": null,
+            "local_id": "fixture-streamer",
+            "maturity": "normal",
+            "payload": "{\"surface\": \"柊優花\", \"intro\": \"游戏主播，常玩 RPG。\", \"category\": \"streamer\"}",
+            "valid_from_rev": 1,
+            "valid_to_rev": 2,
+            "visibility": "local"
+          },
+          {
+            "accepted_rev": null,
+            "canonical_id": null,
+            "local_id": "fixture-style",
+            "maturity": "normal",
+            "payload": "{\"surface\": \"门禁字幕组\", \"intro\": \"门禁用的风格\", \"category\": \"style\", \"section_order\": [\"档案\", \"约定\", \"正例\", \"反例\", \"待归类\"], \"updated_date\": \"2026-01-02\"}",
+            "valid_from_rev": 4,
+            "valid_to_rev": null,
+            "visibility": "local"
+          },
+          {
+            "accepted_rev": null,
+            "canonical_id": null,
+            "local_id": "fixture-style",
+            "maturity": "normal",
+            "payload": "{\"surface\": \"门禁字幕组\", \"intro\": \"门禁用的风格\", \"category\": \"style\"}",
+            "valid_from_rev": 1,
+            "valid_to_rev": 4,
+            "visibility": "local"
+          }
+        ],
+        "nodes": [
+          {
+            "created_rev": 1,
+            "kind": "subject",
+            "local_id": "fixture-game"
+          },
+          {
+            "created_rev": 1,
+            "kind": "subject",
+            "local_id": "fixture-streamer"
+          },
+          {
+            "created_rev": 1,
+            "kind": "subject",
+            "local_id": "fixture-style"
+          },
+          {
+            "created_rev": 2,
+            "kind": "note",
+            "local_id": "00000000-0000-0000-0000-000000000003"
+          },
+          {
+            "created_rev": 2,
+            "kind": "note",
+            "local_id": "00000000-0000-0000-0000-000000000005"
+          },
+          {
+            "created_rev": 2,
+            "kind": "note",
+            "local_id": "00000000-0000-0000-0000-000000000007"
+          },
+          {
+            "created_rev": 2,
+            "kind": "note",
+            "local_id": "00000000-0000-0000-0000-000000000009"
+          },
+          {
+            "created_rev": 2,
+            "kind": "note",
+            "local_id": "00000000-0000-0000-0000-000000000013"
+          },
+          {
+            "created_rev": 2,
+            "kind": "term",
+            "local_id": "00000000-0000-0000-0000-00000000000b"
+          },
+          {
+            "created_rev": 2,
+            "kind": "term",
+            "local_id": "00000000-0000-0000-0000-00000000000e"
+          },
+          {
+            "created_rev": 2,
+            "kind": "term",
+            "local_id": "00000000-0000-0000-0000-000000000010"
+          },
+          {
+            "created_rev": 2,
+            "kind": "term",
+            "local_id": "00000000-0000-0000-0000-000000000015"
+          },
+          {
+            "created_rev": 3,
+            "kind": "note",
+            "local_id": "00000000-0000-0000-0000-000000000019"
+          },
+          {
+            "created_rev": 3,
+            "kind": "note",
+            "local_id": "00000000-0000-0000-0000-00000000001b"
+          },
+          {
+            "created_rev": 3,
+            "kind": "term",
+            "local_id": "00000000-0000-0000-0000-00000000001d"
+          },
+          {
+            "created_rev": 3,
+            "kind": "term",
+            "local_id": "00000000-0000-0000-0000-000000000020"
+          },
+          {
+            "created_rev": 3,
+            "kind": "term",
+            "local_id": "00000000-0000-0000-0000-000000000023"
+          },
+          {
+            "created_rev": 4,
+            "kind": "note",
+            "local_id": "00000000-0000-0000-0000-000000000025"
+          },
+          {
+            "created_rev": 4,
+            "kind": "note",
+            "local_id": "00000000-0000-0000-0000-000000000027"
+          },
+          {
+            "created_rev": 4,
+            "kind": "note",
+            "local_id": "00000000-0000-0000-0000-000000000029"
+          },
+          {
+            "created_rev": 4,
+            "kind": "note",
+            "local_id": "00000000-0000-0000-0000-00000000002b"
+          },
+          {
+            "created_rev": 4,
+            "kind": "note",
+            "local_id": "00000000-0000-0000-0000-00000000002d"
+          },
+          {
+            "created_rev": 4,
+            "kind": "note",
+            "local_id": "00000000-0000-0000-0000-00000000002f"
+          }
+        ],
+        "redirects": [],
+        "revisions": [
+          {
+            "base_rev": 1,
+            "kind": "user",
+            "note": "quality-gate fixture",
+            "rev": 2,
+            "task_id": "knowledge-edit"
+          },
+          {
+            "base_rev": 2,
+            "kind": "user",
+            "note": "quality-gate fixture",
+            "rev": 3,
+            "task_id": "knowledge-edit"
+          },
+          {
+            "base_rev": 3,
+            "kind": "user",
+            "note": "quality-gate fixture",
+            "rev": 4,
+            "task_id": "knowledge-edit"
+          },
+          {
+            "base_rev": null,
+            "kind": "user",
+            "note": "quality-gate fixture",
+            "rev": 1,
+            "task_id": ""
+          }
+        ],
+        "sync_state": []
+      }
+    },
+    "steps": [
+      {
+        "request": {
+          "knowledge": "read",
+          "knowledge_subjects": [
+            {
+              "aliases": "",
+              "description": "",
+              "id": "fixture-streamer",
+              "kind": "streamer",
+              "subject": "柊優花"
+            },
+            {
+              "aliases": "",
+              "description": "",
+              "id": "fixture-game",
+              "kind": "work",
+              "subject": "星屑クエスト"
+            }
+          ]
+        },
+        "result": {
+          "created": [],
+          "names": [
+            "streamer/柊優花",
+            "common/星屑クエスト"
+          ],
+          "rev": 4
+        },
+        "step": "fixture-by-id"
+      },
+      {
+        "request": {
+          "knowledge": "update",
+          "knowledge_subjects": [
+            {
+              "aliases": "",
+              "description": "",
+              "kind": "streamer",
+              "subject": "ゆうかちゃん"
+            },
+            {
+              "aliases": "",
+              "description": "",
+              "kind": "work",
+              "subject": "星屑クエスト"
+            }
+          ]
+        },
+        "result": {
+          "created": [],
+          "names": [
+            "streamer/柊優花",
+            "common/星屑クエスト"
+          ],
+          "rev": 4
+        },
+        "step": "fixture-update-existing-name"
+      }
+    ]
+  }
+}

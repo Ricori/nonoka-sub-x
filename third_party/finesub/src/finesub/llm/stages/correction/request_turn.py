@@ -39,13 +39,13 @@ from ...exchange_metadata import (
     llm_exchange_metadata,
     result_uses_high_resolution_video,
 )
-from ...knowledge.base import append_task_artifact, load_entry_texts
+from ...knowledge.base import append_task_artifact
+from finesub_knowledge.client import load_entry_texts
 from ...knowledge.style import (
     StyleChoice,
     StyleContractError,
-    record_style_injected,
-    render_style_block,
 )
+from finesub_knowledge.client import record_style_injected, render_style_block
 from ...length_tier import warn_window_pick
 from ...prepare_prompts import STYLE_SELECTION_TAG
 from ...output_tags import (

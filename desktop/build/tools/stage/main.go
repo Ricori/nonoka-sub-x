@@ -35,6 +35,9 @@ func main() {
 		"bootstrap-requirements.py312.txt",
 		"scripts/run_local_sidecar.py",
 		"src/nonoka_x",
+		// The knowledge package's protocol (WP-K): the engine files import its
+		// client, and the knowledge process runs its server.
+		"src/finesub_knowledge",
 		"third_party/finesub/src",
 		"third_party/finesub/LICENSE",
 		"third_party/finesub/LICENSES.json",

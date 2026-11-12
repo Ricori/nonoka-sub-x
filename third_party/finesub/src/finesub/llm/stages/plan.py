@@ -45,7 +45,8 @@ from ..routing.config import (
     ModelLimits,
     effective_window_subtitle_cap,
 )
-from ..knowledge.base import DEFAULT_KNOWLEDGE_ROOT, index_texts_present, load_index_texts
+from ..knowledge.base import DEFAULT_KNOWLEDGE_ROOT, index_texts_present
+from finesub_knowledge.client import load_index_texts
 from .task_graph import window_requests
 from ..routing.profiles import (
     DEFAULT_PROFILE,

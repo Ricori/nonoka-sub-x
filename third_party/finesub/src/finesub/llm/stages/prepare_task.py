@@ -36,9 +36,8 @@ from ..knowledge.base import (
     DEFAULT_KNOWLEDGE_ROOT,
     append_task_artifact,
     index_texts_present,
-    load_entry_texts,
-    load_index_texts,
 )
+from finesub_knowledge.client import load_entry_texts, load_index_texts
 from ..output_tags import (
     extract_single_tag_block,
     find_top_level_tag_blocks,

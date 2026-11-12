@@ -47,10 +47,8 @@ from ..exchange_metadata import llm_exchange_metadata
 from .base import (
     DEFAULT_KNOWLEDGE_ROOT,
     append_task_artifact,
-    knowledge_write_lock,
-    load_index_texts,
-    worktree_blocks_knowledge_write,
 )
+from finesub_knowledge.client import knowledge_write_lock, load_index_texts, worktree_blocks_knowledge_write
 from .entries import (
     EntrySelection,
     pin_style_entries,
@@ -58,8 +56,8 @@ from .entries import (
     render_kb_entry_excerpt,
     select_kb_entries,
 )
-from .style import resolve_style_keys
-from .subjects import resolve_subject_keys
+from finesub_knowledge.client import resolve_style_keys
+from finesub_knowledge.client import resolve_subject_keys
 from .node.proposals import (
     CAS_DROPPED_REASON,
     HIDDEN_LABEL_HELD,
@@ -69,7 +67,7 @@ from .node.proposals import (
     has_proposals_block,
     parse_model_proposals,
 )
-from .node.repo import KnowledgeRepo
+from finesub_knowledge.client import KnowledgeRepo
 from .materials import (
     KnowledgeChunk,
     KnowledgeMaterials,

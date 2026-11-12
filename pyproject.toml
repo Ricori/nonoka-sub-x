@@ -27,7 +27,7 @@ package-dir = {"" = "src"}
 
 [tool.setuptools.packages.find]
 where = ["src"]
-include = ["nonoka_x*"]
+include = ["nonoka_x*", "finesub_knowledge*"]
 
 [tool.setuptools.package-data]
 nonoka_x = ["resources/*.json", "resources/*.toml"]

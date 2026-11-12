@@ -20,6 +20,10 @@ Checks (docs/transcription-engines-plan.md, section 0 and WP-Q):
                     the final.srt / annotated.csv fixed answers render to,
                     against tests/fixtures/quality/replay/ (and, for the cases
                     built on the real sample, test_data/quality-baseline/replay/)
+4b. knowledge base  the K1-K8 cases on a base with content (WP-K): requests,
+                    ASR context, the knowledge page, the MCP kb tools, subject
+                    preparation, and the base each leaves behind, against
+                    tests/fixtures/quality/knowledge/cases/
 5. real samples     (--real) the samples rerun to raw-srt on this machine's
                     managed runtime, against test_data/quality-baseline/real/
 6. cloud samples    (--cloud) the samples rerun to stable by the unchanged
@@ -260,6 +264,33 @@ def check_replay(args: argparse.Namespace) -> Result:
     return result.fail(f"{len(set(found) | set(broken))} of {len(records)} cases differ{note}", details)
 
 
+# --- 4b. knowledge base -----------------------------------------------------------
+
+
+def check_knowledge(args: argparse.Namespace) -> Result:
+    from tests.quality_harness import knowledge
+
+    result = Result("knowledge base")
+    records = knowledge.run_all()
+    if args.record == "knowledge":
+        knowledge.write_baselines(records)
+        result.summary = f"RECORDED {len(records)} knowledge-case baselines"
+        return result
+    found = knowledge.differences(records)
+    broken = [name for name, record in records.items() if record.get("exit") not in (None, 0)]
+    if not found and not broken:
+        result.summary = f"{len(records)} cases (K1-K8) match tests/fixtures/quality/knowledge/cases/"
+        return result
+    details = []
+    for name in sorted(set(found) | set(broken)):
+        details.append(f"{name}  [{knowledge.baseline_path(name).relative_to(ROOT).as_posix()}]")
+        if name in broken:
+            details.append(f"    run failed: {records[name].get('failed')}")
+        if name in found:
+            details += ["    " + line for line in _excerpt(found[name], 0 if args.full else 40)]
+    return result.fail(f"{len(set(found) | set(broken))} of {len(records)} knowledge cases differ", details)
+
+
 # --- 5. real samples -----------------------------------------------------------------
 
 
@@ -449,6 +480,7 @@ CHECKS: dict[str, Callable[[argparse.Namespace], Result]] = {
     "calls": check_calls,
     "environment": check_environment,
     "replay": check_replay,
+    "knowledge": check_knowledge,
     "real": check_real,
     "cloud": check_cloud,
 }
@@ -462,7 +494,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--cloud", action="store_true",
                         help="also rerun the samples on Modal with the unchanged compute legs (rents GPUs, costs money)")
     parser.add_argument("--keep", action="store_true", help="keep the --real / --cloud runs' directories")
-    parser.add_argument("--record", choices=("calls", "environment", "replay", "real", "cloud"),
+    parser.add_argument("--record", choices=("calls", "environment", "replay", "knowledge", "real", "cloud"),
                         help="rewrite that baseline from the current code (owner approval only)")
     args = parser.parse_args(argv)
     if args.record == "real":

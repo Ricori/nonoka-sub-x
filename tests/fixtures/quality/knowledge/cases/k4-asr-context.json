@@ -1,0 +1,61 @@
+{
+  "asr_context": [
+    {
+      "asr_context": "# 星屑クエスト\n## 角色\nミラ|米拉|Mira\nゴザイマス|五斋玛斯|\n## 地名\nマタネ村|回见村|\n- [柊優花 / 频道用语] ほしくず|小星屑|\n- [柊優花 / 人际关系] ミラ|米拉|",
+      "entry": "vad_asr_stage.run_vad_asr"
+    }
+  ],
+  "case": "k4-asr-context",
+  "exit": 0,
+  "failed": null,
+  "manifest": {
+    "artifacts": {
+      "aligned_json": {
+        "file": "$ROOT/data/tasks/gate-task/workspace/节目-aligned.json",
+        "sha256": "b61a84a23fe2d01d1989d0e71c66aaee13c705af9f415b4b058f5e6a643b9ea6"
+      },
+      "metadata_json": {
+        "file": "$ROOT/data/tasks/gate-task/workspace/节目-metadata.json"
+      },
+      "raw_srt": {
+        "file": "$ROOT/data/tasks/gate-task/workspace/节目-raw.srt",
+        "sha256": "27b322f32cc19883e16cc50592fe298df5ec761c418b8fa244d4db4716ff29a9"
+      },
+      "stable_json": {
+        "file": "$ROOT/data/tasks/gate-task/workspace/节目-stable.json",
+        "sha256": "b61a84a23fe2d01d1989d0e71c66aaee13c705af9f415b4b058f5e6a643b9ea6"
+      },
+      "vad_json": {
+        "file": "$ROOT/data/tasks/gate-task/workspace/节目-vad.json",
+        "sha256": "7c0b3c0f755fa26a0d1d9f7551bd39876b016265b9d18ffc7da3da4366fcca73"
+      },
+      "vocal_audio": {
+        "file": "$ROOT/data/tasks/gate-task/workspace/节目-vocal.ogg",
+        "sha256": "032d78d2d34b73fe50502f2bdfa3f15b4e267885545e62bba48368a700212ff5"
+      }
+    },
+    "engine_commit": "7123055da0cd6e037d8e37feb53b82f9e428c5cb"
+  },
+  "metadata_asr_context": {
+    "entries": [
+      "星屑クエスト"
+    ],
+    "level": "terms",
+    "terms": [
+      {
+        "hits": 1,
+        "line": "ほしくず|小星屑||粉丝名",
+        "section": "频道用语",
+        "subject": "柊優花",
+        "via": []
+      },
+      {
+        "hits": 1,
+        "line": "ミラ|米拉||同期主播",
+        "section": "人际关系",
+        "subject": "柊優花",
+        "via": []
+      }
+    ]
+  }
+}

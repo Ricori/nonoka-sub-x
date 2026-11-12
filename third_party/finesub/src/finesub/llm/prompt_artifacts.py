@@ -18,7 +18,7 @@ from .chunking import (
     load_segments_from_stable_json,
     plan_correction_windows,
 )
-from .knowledge.style import render_style_block
+from finesub_knowledge.client import render_style_block
 from .routing.config import (
     DEFAULT_LIMITS,
     WINDOW_PLANNING_CONTEXT_RESERVE_TOKENS,
@@ -28,8 +28,8 @@ from .routing.config import (
 from .knowledge.base import (
     DEFAULT_KNOWLEDGE_ROOT,
     index_texts_present,
-    load_index_texts,
 )
+from finesub_knowledge.client import load_index_texts
 from .length_tier import TaskLengthScale
 from .prompt_variants import correct_only_name, resolve_variant
 from .routing.profiles import DEFAULT_PROFILE, TranslationProfile

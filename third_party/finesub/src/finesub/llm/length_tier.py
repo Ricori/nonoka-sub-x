@@ -30,7 +30,8 @@ from finesub.reporting import current_reporter
 
 from .knowledge.base import _match_normalize
 from .knowledge.node.proposals import LineChange, LineGate
-from .knowledge.style import STYLE_CATEGORY, load_style_entries, profile_fields
+from .knowledge.style import STYLE_CATEGORY, profile_fields
+from finesub_knowledge.client import load_style_entries
 
 #: The three tiers and their ratios (owner 2026-11-04); the names are the style preset's `[字幕长度]` values,
 #: which the proposal check holds a written tier to (a test pins the two the same).
