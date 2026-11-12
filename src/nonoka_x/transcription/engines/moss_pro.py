@@ -18,6 +18,12 @@ stitched by text (`stitch.stitch(segments=True)`). Within a part:
 A continuation or a gap re-request numbers its speakers anew; `relink` maps
 them onto the people already heard by voice (owner 2026-10-30; `docs/joint-asr.md`).
 
+The engine (`MossProEngine`, WP3c) runs without the Python environment layer (plan 4.1 item 6, owner
+2026-11-12): no Silero, so no gap re-requests (2 above; `gaps=False`); no voiceprints, so a continuation's
+speakers are new people (`NewSpeakers`) -- across parts they are still linked by the seconds both parts hear
+them talk (`stitch.link`); unit times inside a segment interpolated by weighted character count
+(`lines.interpolated_timed`). The Silero gate and the voice relink are kept, unreached, for a later phase.
+
 Keys: the `MOSS_PRO` pool. Each key has 1.25 h a day from Beijing midnight
 (refreshed only once the owner logs in to the console); the local account stops
 at DAILY_HOURS and counts the way the console does (SERVER_RATIO). With
@@ -33,18 +39,24 @@ import tempfile
 import time
 import unicodedata
 from pathlib import Path
-from typing import Callable
+from typing import TYPE_CHECKING, Callable
 
 from .. import keys
 from ..audio import extract_upload_mp3, probe_media_duration
 from ..cache import CallCache, audio_fingerprint
-from ..enhance.relink import VOICEPRINTS, Relinker, Voiceprints
 from ..http import CONNECT_TIMEOUT_SECONDS, api_http_client
 from ..keys import BEIJING, KeyLedger, QuotaExhausted
 from ..reporting import current_reporter
 from ..stitch import stitch, windows
 from ..units import Transcript, Unit, segment_turns
 from . import MOSS_PRO
+
+from .. import DIARIZATION_LEVELS, EngineEnvironment, EngineFeatures, EngineSpec, Issue, Reporter, TranscriptionJob
+from .. import lines as L
+from .cloud import MEDIA, CloudEngine, CloudEngineError, guarded, has_key
+
+if TYPE_CHECKING:
+    from ..enhance.relink import Voiceprints
 
 MODEL = "moss-transcribe-diarize-pro"
 API = "https://api.mosi.cn/v1/audio/transcriptions"
@@ -186,7 +198,7 @@ class Caller:
                         f"moss-pro (MOSS_PRO): key {entry.label}, the paid last key of the pool, was refused (HTTP 402): "
                         "its balance is empty or today's free hours have not refreshed; log in to the MOSI console "
                         "(that refreshes the day), top up if the balance is 0, and rerun "
-                        f"(or set [asr] moss_pro_paid = false to stop at the free hours){earlier}"
+                        f"(or turn the engine's `paid` option off to stop at the free hours){earlier}"
                     )
                 self.refused.append(entry.label)
                 self.ledger.refund(entry, seconds, day=day, exhausted=True)
@@ -286,6 +298,32 @@ def _gaps(segs: list[dict], lo: float, hi: float) -> list[tuple[float, float]]:
     return out
 
 
+# --- speakers without voiceprints ------------------------------------------------------------------------
+
+
+class NewSpeakers:
+    """A continuation's speakers as new people, `c<k>:<label>` for the k-th re-request: what the voice relink
+    (`enhance.relink.Relinker`) gives when it has no model, without loading anything. Said once per transcript
+    (owner 2026-11-12, WP3 question 3)."""
+
+    def __init__(self) -> None:
+        self.calls = 0
+        self._warned = False
+
+    def __call__(self, segs: list[dict], extra: list[dict]) -> dict[str, str]:
+        self.calls += 1
+        labels = sorted({s["speaker"] for s in extra if s["speaker"] is not None})
+        mapping = {lab: f"c{self.calls}:{lab}" for lab in labels}
+        if labels and not self._warned:
+            self._warned = True
+            current_reporter().warning(
+                "moss-relink", "第一版不接声纹重连：MOSS Pro 续调回来的说话人记为新说话人",
+                impact="同一个人可能被记成两个说话人")
+        for s in extra:
+            s["speaker"] = mapping.get(s["speaker"], s["speaker"])
+        return mapping
+
+
 # --- one source -------------------------------------------------------------------------------------------
 
 
@@ -304,16 +342,23 @@ def transcribe(
     duration: float | None = None,
     speech: SpeechSpans | None = None,
     voiceprints: Voiceprints | None = None,
+    gaps: bool = True,
+    relink: Callable[[list[dict], list[dict]], dict[str, str]] | None = None,
 ) -> Transcript:
     """The source's MOSS Pro transcript (one turn per segment, by start); every call cached under
-    `cache_root/moss-pro/`."""
+    `cache_root/moss-pro/`. `gaps=False` re-requests no gap (no Silero gate); `relink(segs, extra)` relabels a
+    continuation's or a gap's segments in place and returns the map (default: by voice, `enhance.relink`)."""
 
     src = Path(source)
     cache = CallCache(cache_root, MOSS_PRO, identity=identity(src, language), offline=offline)
     call = caller or Caller()
     total = duration if duration is not None else probe_media_duration(src)
-    gate = speech or SpeechSpans(src)
-    relink = Relinker(gate.pcm, voiceprints or VOICEPRINTS)
+    gate = (speech or SpeechSpans(src)) if gaps else None
+    if relink is None:
+        # By voice (`enhance/`); the engine passes `NewSpeakers` instead (module docstring).
+        from ..enhance.relink import VOICEPRINTS, Relinker
+
+        relink = Relinker((gate or speech or SpeechSpans(src)).pcm, voiceprints or VOICEPRINTS)
     log: list[dict] = []
 
     asked: set[str] = set()
@@ -343,7 +388,7 @@ def transcribe(
             if wrong_script(segs, language):
                 raise MossProError(
                     f"MOSS Pro answered {start:.0f}-{end:.0f} s twice in a script that is not {language}'s "
-                    "(it has transcribed English as a Japanese translation before); use another --asr backend")
+                    "(it has transcribed English as a Japanese translation before); use another transcription engine")
         return body, segs
 
     def part(lo: float, hi: float) -> list[dict]:
@@ -364,7 +409,7 @@ def transcribe(
             log.append({"continue": [round(a, 1), round(hi, 1)], "recovered": len(got),
                         "tokens": completion_tokens(span_body), "speakers": relink(segs, extra)})
             segs = segs + extra
-        for a, b in _gaps(segs, lo, hi):
+        for a, b in _gaps(segs, lo, hi) if gate is not None else ():
             voiced = gate.voiced(a, b)
             if voiced < GATE_VOICED:
                 log.append({"gap": [round(a, 1), round(b, 1)], "voiced": round(voiced, 1), "skipped": True})
@@ -382,3 +427,69 @@ def transcribe(
     if len(parts) > 1:
         log.append({"parts": [[round(lo, 1), round(hi, 1)] for lo, hi in spans]})
     return Transcript(MOSS_PRO, MODEL, total, "segment", segment_turns([Unit.from_dict(s) for s in segs]), log)
+
+
+# --- the engine -------------------------------------------------------------------------------------------
+
+ENGINE_ID = "moss-pro"
+LABEL = "MOSS Pro"
+#: `job.options` key: whether the pool's last key goes on past its free hours, billed (default `PAID_DEFAULT`).
+OPTION_PAID = "paid"
+
+SPEC = EngineSpec(
+    id=ENGINE_ID,
+    label=LABEL,
+    kind="cloud-api",
+    # Segment times only: the words inside a segment are interpolated, not timed by the provider.
+    features=EngineFeatures(speakers=True, word_timestamps=False, separate=False,
+                            diarization_levels=DIARIZATION_LEVELS),
+    keys=(keys.MOSS_PRO,),
+    environment=EngineEnvironment(components=(MEDIA,)),
+    billing=(f"MOSS_PRO 池前 {keys.POOL_LIMITS[keys.MOSS_PRO]} 个 key，每个每天约 {DAILY_HOURS} 小时免费额度"
+             "（北京时间零点刷新）；默认池里最后一个 key 用完免费额度后按预付余额计费（选项 paid 可关）"),
+)
+
+
+def paid_option(options) -> bool:
+    value = options.get(OPTION_PAID)
+    if value is None:
+        return PAID_DEFAULT
+    if not isinstance(value, bool):
+        raise CloudEngineError(f"moss-pro option {OPTION_PAID!r} must be true or false (got {value!r})")
+    return value
+
+
+class MossProEngine(CloudEngine):
+    """MOSS Pro as a `TranscriptionEngine` (WP3c): parts stitched by segment, output-cap continuations, the
+    wrong-script retry, the key pool's daily account; no gap re-requests, no voice relink (module docstring)."""
+
+    spec = SPEC
+    label = LABEL
+
+    def key_issues(self, store) -> list[Issue]:
+        if has_key(store, keys.MOSS_PRO):
+            return []
+        return [Issue("missing_key", f"MOSS Pro 需要 {keys.MOSS_PRO} 池里至少一个 key")]
+
+    def caller(self, *, paid: bool) -> Caller:
+        """The pool's keys and the ledger beside the store, read once per run."""
+        return Caller(entries=keys.pool(keys.MOSS_PRO, store=self._store), paid=paid,
+                      ledger=KeyLedger(MOSS_PRO, MODEL, BEIJING, state_path=keys.ledger_path(self._store)))
+
+    def run(self, job: TranscriptionJob, report: Reporter, *, duration: float, language: str | None):
+        paid = paid_option(job.options)
+        if not has_key(self._store, keys.MOSS_PRO):
+            raise CloudEngineError(self.key_issues(self._store)[0].message)
+        report.log("第一版不接 Silero：MOSS Pro 的空档不补问，段内时间按字数插值")
+        transcript = transcribe(job.source, cache_root=job.cache_dir, language=language, duration=duration,
+                                caller=guarded(self.caller(paid=paid), label=LABEL, report=report),
+                                gaps=False, relink=NewSpeakers())
+        return transcript, {"timing": "interpolated", "gap_reasks": False, "paid": paid}
+
+    def build_lines(self, transcript: Transcript, *, duration: float, params, language: str | None) -> list[dict]:
+        """FineSub's joint stage for MOSS Pro, with the units interpolated instead of timed by Silero (S5b):
+        short segments merged on MOSS Pro's own edges, each merged line a DP of its own."""
+        units = [u.as_dict() for u in transcript.units()]
+        segments, _ = L.segment_lines(L.interpolated_timed(units, duration=duration), duration=duration,
+                                      params=params, language=language)
+        return segments
