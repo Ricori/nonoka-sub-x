@@ -33,8 +33,10 @@ every file under `rendered/`. Left out: wall-clock columns (`created_at`,
 revision's `proposal_hash` (they follow from insertion order or from the ids
 below). Node ids a run creates are
 random (`uuid4`); they are numbered by first appearance, after the rows are
-ordered without them. The fixture's own ids are fixed. Today's date (an entry's
-最近更新日期) is written `$TODAY`.
+ordered without them. The fixture's own ids are fixed. The knowledge base's
+"today" (an entry's 最近更新日期) is `GATE_TODAY` in every process of a case
+(`knowledge_today/sitecustomize.py`), so the rendered files and their hashes do
+not depend on the day of the run.
 
 Run as `python -m tests.quality_harness.knowledge --<role> <spec>` for the
 child processes; everything else is the parent side.
@@ -43,7 +45,6 @@ child processes; everything else is the parent side.
 from __future__ import annotations
 
 import argparse
-import datetime
 import json
 import os
 import re
@@ -57,7 +58,8 @@ from pathlib import Path
 from typing import Any, Callable, Mapping
 
 from . import FIXTURES, ROOT
-from .calls import Normalizer, hermetic_environment, manifest_record, render
+from .calls import Normalizer, manifest_record, render
+from .calls import hermetic_environment as _calls_environment
 from .replay import GateResponder
 
 FIXTURE_DIR = FIXTURES / "knowledge"
@@ -90,6 +92,20 @@ DROPPED_COLUMNS = frozenset({
 })
 _UUID4 = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}")
 _TIMESTAMP = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:[+-]\d{2}:\d{2}|Z)?")
+
+
+#: The knowledge base's "today" in every K case (`knowledge_today/sitecustomize.py`).
+GATE_TODAY = "2026-01-02"
+TODAY_HOOK = Path(__file__).resolve().parent / "knowledge_today"
+
+
+def hermetic_environment(root: Path) -> dict[str, str]:
+    """`calls.hermetic_environment`, with the knowledge base's date fixed for the run."""
+
+    environment = _calls_environment(root)
+    environment["PYTHONPATH"] = os.pathsep.join([str(TODAY_HOOK), environment["PYTHONPATH"]])
+    environment["NONOKA_QUALITY_KNOWLEDGE_TODAY"] = GATE_TODAY
+    return environment
 
 
 # --- the fixture base (child) ----------------------------------------------------
@@ -197,7 +213,7 @@ def export_base(knowledge_root: Path) -> dict[str, Any] | None:
 
 
 def normalized(record: Any, roots: Mapping[str, Path]) -> Any:
-    """Roots to placeholders, then run-created ids numbered, timestamps and today's date named."""
+    """Roots to placeholders, then run-created ids numbered and timestamps named."""
 
     text = json.dumps(Normalizer(roots).value(record), ensure_ascii=False, sort_keys=True)
     numbers: dict[str, str] = {}
@@ -207,7 +223,6 @@ def normalized(record: Any, roots: Mapping[str, Path]) -> Any:
 
     text = _UUID4.sub(number, text)
     text = _TIMESTAMP.sub("$TIME", text)
-    text = text.replace(datetime.date.today().isoformat(), "$TODAY")
     return json.loads(text)
 
 
