@@ -1,6 +1,6 @@
 # 转写引擎重构计划
 
-> 状态（2026-11-11）：WP-Q、WP-A、WP0、WP-R0 已完成并合进 main；WP-C 的 harness 已合进 main，云端基线还没录成（见 WP-C）；编译加速已在 `85ae2b9` 关闭；WP-R2、WP-B、WP-R1、WP1、WP4a、WP4b 已完成并合进 main（WP-R2 的范围按附录 B 第 24、25 问调整，WP-R1 按第 26–29 问补完，WP1 按第 33–36 问）；WP-C 的剩余部分在进行；2026-11-12 用户决定知识库独立成第三个包、全部经协议访问（第 0.1 节第 5 条、4.6 第 35a 条、WP-K）；WP4c、WP3（a/b/c 一个会话依次做）、WP-P0、WP-E1、WP-M1 已派给各自的会话；其余未开工。本文档是交给子代理执行的工作说明，每个工作包可以单独领走。
+> 状态（2026-11-11）：WP-Q、WP-A、WP0、WP-R0 已完成并合进 main；WP-C 的 harness 已合进 main，云端基线还没录成（见 WP-C）；编译加速已在 `85ae2b9` 关闭；WP-R2、WP-B、WP-R1、WP1、WP4a、WP4b、WP4c、WP3a/b/c、WP-C、WP-P0、WP-M1（最后一条完成标准除外）已完成并合进 main（各包按附录 B 的答复调整）；WP-E1 在进行；2026-11-12 用户决定知识库独立成第三个包、全部经协议访问（第 0.1 节第 5 条、4.6 第 35a 条、WP-K）；其余未开工。本文档是交给子代理执行的工作说明，每个工作包可以单独领走。
 > 写于 2026-11-10，基于 `main@1f14db3`、FineSub `v0.7.0@7123055`。
 > **2026-11-11 整理成干净版本**（用户决定，附录 B 第 1 问）：现行决定直接写在正文里，不再有「以后者为准」的追加条款。每个决定的来历、被推翻的旧说法，以及旧条款编号到新编号的对照，见附录 A；向用户问过的问题和答复见附录 B；还没定的事见附录 C。整理前的版本在 git 历史里（`main` 上的 `docs/transcription-engines-plan.md`）。
 > 相关文档：`docs/runtime-and-config.md`（WP-R0 的调查与设计答复 D1–D23，下称「R0 文档」；其中被本计划取代的答复已在那边标注，对照见附录 A.3）；`docs/engine-sandbox-experiment.md`（预制环境包与进程级沙箱两个前提的实验报告，下称「实验报告」）。本文档与 R0 文档冲突时以本文档为准。
@@ -492,7 +492,7 @@ FineSub 转写引擎也要写 `transcript.json`（从它的 stable 投影出来�
 ## 6. 工作包
 
 ```text
-已完成：WP-Q、WP-A、WP0、WP-R0、WP-R2、WP-B、WP-R1、WP1、WP4a、WP4b；WP-C 的 harness（基线未录成）
+已完成：WP-Q、WP-A、WP0、WP-R0、WP-R2、WP-B、WP-R1、WP1、WP4a、WP4b、WP4c、WP3a/b/c、WP-C、WP-P0、WP-M1（最后一条完成标准等 WP-E1、WP-E3）
 
 引擎线：
 WP-B ──┬─► WP1 ──► WP3a / WP3b / WP3c ───────────────┐
@@ -567,7 +567,9 @@ D:\Envir\Python312\python scripts/quality_gate.py --cloud  # 云端（WP-C；基
 - **回放基线是在没有 `tokcount`、没有 `opencc` 的系统 Python 下录的**，而用户实际运行时两者都有。用户 2026-11-11 决定保持现状，不补录。所以「`tokcount` 有没有被找到」「`opencc` 有没有生效」闸门看不见，由 WP-H 和 WP8 专门确认。
 - `--real` 对已装运行时的实测偏松（包只比版本）；WP-E1 的「预制层」一项补上了逐文件的比对。
 
-### WP-C 云端基线（进行中）
+### WP-C 云端基线（已完成 2026-11-12）
+
+> 交付：`--cloud` 只比结构与统计，每次运行与**同一种加速**的基线比（run-1 AOTI、run-2 eager）。用户批准的阈值：段数比例 0.02、文字距离比例 0.005、说话人数差 0、覆盖差 0.002。实测：同加速 6 次运行各项为 0（覆盖最多 0.000017）；AOTI 对 eager，`sample_ja` 段数比例 0.0093、文字距离 0.0109，`sample_multi_person` 0.130 与 0.0506。未改动的代码上 `--cloud` 连跑两次都通过（一次 eager、一次 AOTI），全部花费约 $1.26，全程 L4。`--record cloud` 重录时固定 run-1 为 AOTI、run-2 为 eager（附录 B 第 44 问）。没测到的：L4 换到新 cpu_tag 强制重编 AOTI 包时结果是否变，遇到会以闸门失败的形式暴露。下面是原始说明。
 
 harness 已在 main（`tests/quality_harness/cloud.py`、`quality_gate.py --cloud`、`--record cloud`）：临时 Modal 应用，与生产相同的镜像，GPU 固定 L4，未改动的调度入口。录出来的基线不能用（2.10）。
 
@@ -622,6 +624,8 @@ harness 已在 main（`tests/quality_harness/cloud.py`、`quality_gate.py --clou
   - 三个云后端的文件先原样搬到 `engines/` 下，能 import 即可，改造留给 WP3。本地 MOSS 搬到 `engines/moss_local/`，不注册。
 - 完成标准：`third_party/finesub/src/finesub/speech/joint/` 不存在；搬迁前录的行为基线全部一致；拼窗、缓存命中与失配、配额换 key、断行各有不联网的单元测试；在只装了启动器依赖的环境里 `import nonoka_x.transcription.lines` 成功；闸门通过。
 
+> **WP3a/b/c 已完成（2026-11-12）**：`Mai2Engine`、`GeminiEngine`、`MossProEngine` 与共用的 `engines/cloud.py`，只要工具层，不 import `enhance/`、torch、numpy、finesub；`joint_stage.py` 已删（`JointAsrError` 挪进 `engines/__init__.py`）。按附录 B 第 43 问：WP1 的基线不改，引擎层期望由基线推导；MAI2 开跑前发 `cloud-asr-cost` 费用预估告警；MOSS Pro 不补问空档、续调说话人记为新人并发 `moss-relink` 告警；`transcript.json` 的 speaker 沿用 `line_speaker`。交回 WP5：MAI2 的三个密钥是二选一的两条路；新密钥名要 WP-R4 的存储才有值；三个引擎要加进 worker 的注册表。真实调用留给 WP8。
+
 > **WP3a/b/c 的安排**（用户 2026-11-12，附录 B 第 41、42 问）：三个引擎由一个会话按 3a → 3b → 3c 依次做，每个引擎单独提交，最后拆掉 `engines/joint_stage.py`。第一版不接增强（4.1 第 6 条），下面各包里「接到 `enhance/`」「有无 Python 环境层两种情况都有测试」改为：引擎不 import `enhance/`，只测启动器环境下的行为；增强相关的测试留给后续阶段。
 
 ### WP3a MAI-Transcribe-2
@@ -661,7 +665,9 @@ harness 已在 main（`tests/quality_harness/cloud.py`、`quality_gate.py --clou
   - 一份只有 `lines` 的 `transcript.json` 经它跑到 `raw-srt`，全程不 import torch 和 numpy，并写出带说话人的 `-diar-rows.json`。
   - 不 import `nonoka_x.transcription.engines`；日文轴路径的现有测试全过。
 
-### WP4c worker 编排
+### WP4c worker 编排（已完成 2026-11-12）
+
+> 交付：worker 按 `transcription.engine`（缺省 `finesub`）与 `correction.engine` 从注册表取实现；注册用 `worker.py` 里的一张内置表（模块路径 + 工厂），WP-P1 由 `engine_host` 取代——**WP3 的三个云引擎还没加进这张表，由 WP5 加**。目标超过 `stable` 时先调纠错层的 `check()`（借 FineSub 的 `_prepare_run`，不跑阶段），保住「矛盾请求在分离前报错」；一个 `NonokaXReporter` 绑住两段，事件与现在相同；云端续跑直接构造 `TranscriptionResult`；`cache_dir` 是 `<task_dir>/cache`，每任务一份。可替换性有测试（假引擎、不注册 FineSub 也能跑到 `final-srt`）。`--real` 通过。留给后续：`CLOUD_NATIVE` 写死的两个云端键名（WP-CL）；worker 里 `for_task_mode`、`install_llm_model_override`、`prepare_knowledge_subjects` 等 FineSub 纠错准备代码（WP-K / WP-P1）。下面是原始说明。
 
 - 文件：`worker.py`、`tests/test_worker_adapter.py`。
 - 内容：按 `transcription.engine` 取引擎，转写，再按 `correction.engine` 交给纠错层。目标阶段不超过 `stable` 时只跑引擎。云端续跑成为「转写结果已在手」的一种输入：直接构造 `TranscriptionResult`，`native` 里放下载到的 stable。worker 里不再直接 import `finesub.stages`。
@@ -799,7 +805,9 @@ harness 已在 main（`tests/quality_harness/cloud.py`、`quality_gate.py --clou
   - 删一个模型目录后跑引擎：报明确的错误，没有任何网络请求（测试里打桩网络，断言零请求）。
   - `tests/test_runtime_pins.py` 通过；`quality_gate.py --real` 通过；`quality_gate.py --cloud` 通过（云端镜像复制的就是这份 vendor，靠 WP-CL0 的预热）。
 
-### WP-M1 迁移核心（重写）
+### WP-M1 迁移核心（重写；除最后一条完成标准外已完成 2026-11-12）
+
+> 交付：`python -m nonoka_x.migration [--dry-run] [--json] [--yes] [--data-dir] [--checkout]`；旧根在同一父目录下改名为 `runtime`，永不跨盘复制；新根已存在、有未结束的任务、记录的旧根不存在、旧根或模型目录里有目录链接时阻断。11 步（设置、知识库、限流状态、任务产物、模型补齐、下载新层留接口跳过），每步写进 `runtime-state\migration.json`，每个操作点被杀后都能续上。边界测试加了 `LEGACY_LAYOUT` 放行，只许 `migration/legacy.py` 写出旧文件名。本机 `--dry-run`：旧根 10.21 GiB，搬 4.00 GiB 模型，删 6.22 GiB（`accel\` 只有 5.94 MiB）。交回 WP-M2：桌面未完成的存储搬家只在目标旁留 `.nonoka-partial`，Python 侧查不到；日志里已跳过的步骤怎么补跑。最后一条完成标准（真把开发机搬过去）等 WP-E1、WP-E3。下面是原始说明。
 
 等 WP-R2（`runtime/paths.py`）做完就开工。
 
@@ -832,7 +840,9 @@ harness 已在 main（`tests/quality_harness/cloud.py`、`quality_gate.py --clou
   - 迁移在每一步被杀掉后都能续上，设置与数据那几步能回滚，各有测试。
   - 迁移后主数据目录里除 `engines\` 外没有 FineSub 相关的文件。
 
-### WP-P0 分包清单
+### WP-P0 分包清单（已完成 2026-11-12）
+
+> 交付：`docs/engine-packages.md` 与 `docs/engine-packages/` 下三份清单（`scripts/engine_packages.py` 可重跑）。转写包 171 个文件、纠错包 466 个（加 11 个模块的兼容包）、知识库包 340 个（加 8 个模块的兼容包，14 个名字）；FineSub 命令行与死代码（40 个上锁文件加 `pipeline.py`）不进任何包。知识库访问点 76 个，分布在 19 个冻结文件里；现有闸门基本没覆盖有内容的知识库，列了 8 个要补录的用例（K1–K8）。用户的决定见附录 B 第 45、46 问。WP-K 改完访问点后重跑脚本得到 WP-P1 的最终清单。下面是原始说明。
 
 等 WP-B、WP1 做完再开工（冻结点）。只读调查，不改代码，结论写进 `docs/engine-packages.md`。
 
@@ -1165,6 +1175,9 @@ R0 文档里这几条已按此加了标注（只加标注，不删原文）。
 | 41 | WP3a/b/c 共用 `joint_stage.py`、`repair.py`、`lines.py`、`enhance/`，怎么安排 | 一个会话按 3a → 3b → 3c 依次做，每个引擎单独提交，最后拆掉 `joint_stage.py`（推荐项） |
 | 42 | 云引擎的可选增强（要 torch）跑在哪（原附录 C 第 1 项） | **第一版不做增强**：云引擎只用启动器环境，增强代码留着不接，后续阶段再定（推荐的是单独的增强进程、进沙箱） |
 | 43 | WP3 开工前的 8 问（行为基线、MOSS 空档补问、续调说话人提示、MAI2 费用预估、回答缓存位置、共用代码文件、Gemini repair、`transcript.json` 的 speaker） | 全部推荐项：WP1 的回放与断行基线不改，引擎层期望按「基线减去重问/补问插入的单元」推导；MOSS Pro 不补问空档；续调说话人记为新人时发一次 `moss-relink` 告警；MAI2 费用按实际上传的窗口总时长（含重叠、扣已缓存）× $0.10/小时，开跑前作为告警发；原始回答缓存放 `TranscriptionJob.cache_dir`，由 worker 保证每任务一份；共用代码放新建的 `engines/cloud.py`；Gemini repair 固定 off；speaker 用原 `line_speaker` 标签、没有的写 `unknown`。MOSS Pro 的 `paid` 默认 true（免费额度用完会扣预付余额，用户已知） |
+| 44 | WP-C 计划外加的：`--record cloud` 重录时固定 run-1 为 AOTI、run-2 为 eager | 保留（推荐项） |
+| 45 | WP-P0 的 9 个待定点 | 全部推荐项：纠错包带知识库代码的原样副本（只用模块级 import 的纯函数与常量），测试证明它不碰数据；命令行与死代码不进任何包；知识更新的 LLM 调用留在纠错进程，只有存储读写走协议；包进程之间由核心分配端点、直连；每个转写或纠错进程配一个知识库进程；默认路径的 `raw.srt` 仍由纠错包写，核心渲染只在换引擎或纠错包不在时用；知识库包有自己的兼容包（14 个名字）；WP-K 的判据是不 open 知识库下的文件、不 `sqlite3.connect`，路径解析不算；GPU 档位写成转写包 `PACKAGE.json` 的静态声明 |
+| 46 | WP-P0 交回的 3 项（批准范围的边上） | 都确认：`knowledge/update.py`、`entries.py` 的存储调用算纠错那半的访问点，在第 0.1 节第 5 条范围内；MCP 子进程用端点文件找知识库服务，不改 `client.py`、`agent_session_host.py`；每进程一个知识库进程，`base.py` 的写锁与快照不改 |
 
 更早的问答：WP-R0 的 D1–D23 见 R0 文档第 0 节；WP0 的细节见附录 A.1；沙箱实验中的决定见实验报告。
 
