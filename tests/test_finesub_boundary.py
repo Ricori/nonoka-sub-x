@@ -52,6 +52,13 @@ TRANSITIONAL: dict[tuple[str, str], str] = {
     ("knowledge_worker.py", "import:finesub"): "WP-P1",
 }
 
+#: Crossings that are not transitional: the migration tool has to recognise
+#: the old layout it replaces, so its one inventory module may name FineSub's
+#: old files (user 2026-11-12, WP-M1). Only that kind, only that file.
+LEGACY_LAYOUT: dict[tuple[str, str], str] = {
+    ("migration/legacy.py", "file:finesub"): "WP-M1",
+}
+
 WORK_PACKAGES = frozenset({"WP-R2", "WP-R3", "WP-R4", "WP-R5", "WP4b", "WP4c", "WP-P1"})
 KINDS = frozenset({"import:finesub", "import:finesub_bootstrap", "env:FINESUB_", "file:finesub"})
 _FILE_NAMES = ("finesub.toml", "finesub.env", "model_catalog.toml")
@@ -136,7 +143,7 @@ def test_no_new_crossings() -> None:
     unexpected = sorted(
         f"{file}: {kind}"
         for file, kind in scan()
-        if file not in ALLOWED and (file, kind) not in TRANSITIONAL
+        if file not in ALLOWED and (file, kind) not in TRANSITIONAL and (file, kind) not in LEGACY_LAYOUT
     )
     assert not unexpected, (
         "FineSub crosses its boundary outside the allowed files "
@@ -152,6 +159,14 @@ def test_transitional_list_only_shrinks() -> None:
         "these crossings are gone; delete them from TRANSITIONAL so they cannot come back:\n  "
         + "\n  ".join(stale)
     )
+
+
+def test_the_legacy_layout_exemption_is_used_and_narrow() -> None:
+    found = scan()
+    for (file, kind) in LEGACY_LAYOUT:
+        assert (file, kind) in found, f"{file}: {kind} no longer crosses; delete it from LEGACY_LAYOUT"
+        assert kind == "file:finesub", (file, kind)
+        assert file not in ALLOWED, file
 
 
 def test_transitional_entries_are_well_formed() -> None:
