@@ -1,6 +1,6 @@
 # 转写引擎重构计划
 
-> 状态（2026-11-11）：WP-Q、WP-A、WP0、WP-R0 已完成并合进 main；WP-C 的 harness 已合进 main，云端基线还没录成（见 WP-C）；编译加速已在 `85ae2b9` 关闭；WP-R2、WP-B、WP-R1、WP1、WP4a、WP4b、WP4c、WP3a/b/c、WP-C、WP-P0、WP-M1（最后一条完成标准除外）、WP-R4、WP-K 已完成并合进 main（各包按附录 B 的答复调整）；WP-E1、WP-CL0 在进行；2026-11-12 用户决定知识库独立成第三个包、全部经协议访问（第 0.1 节第 5 条、4.6 第 35a 条、WP-K）；其余未开工。本文档是交给子代理执行的工作说明，每个工作包可以单独领走。
+> 状态（2026-11-11）：WP-Q、WP-A、WP0、WP-R0 已完成并合进 main；WP-C 的 harness 已合进 main，云端基线还没录成（见 WP-C）；编译加速已在 `85ae2b9` 关闭；WP-R2、WP-B、WP-R1、WP1、WP4a、WP4b、WP4c、WP3a/b/c、WP-C、WP-P0、WP-M1（最后一条完成标准除外）、WP-R4、WP-K、WP-E1 已完成并合进 main（各包按附录 B 的答复调整）；WP-CL0 在进行；2026-11-12 用户决定知识库独立成第三个包、全部经协议访问（第 0.1 节第 5 条、4.6 第 35a 条、WP-K）；其余未开工。本文档是交给子代理执行的工作说明，每个工作包可以单独领走。
 > 写于 2026-11-10，基于 `main@1f14db3`、FineSub `v0.7.0@7123055`。
 > **2026-11-11 整理成干净版本**（用户决定，附录 B 第 1 问）：现行决定直接写在正文里，不再有「以后者为准」的追加条款。每个决定的来历、被推翻的旧说法，以及旧条款编号到新编号的对照，见附录 A；向用户问过的问题和答复见附录 B；还没定的事见附录 C。整理前的版本在 git 历史里（`main` 上的 `docs/transcription-engines-plan.md`）。
 > 相关文档：`docs/runtime-and-config.md`（WP-R0 的调查与设计答复 D1–D23，下称「R0 文档」；其中被本计划取代的答复已在那边标注，对照见附录 A.3）；`docs/engine-sandbox-experiment.md`（预制环境包与进程级沙箱两个前提的实验报告，下称「实验报告」）。本文档与 R0 文档冲突时以本文档为准。
@@ -492,7 +492,7 @@ FineSub 转写引擎也要写 `transcript.json`（从它的 stable 投影出来�
 ## 6. 工作包
 
 ```text
-已完成：WP-Q、WP-A、WP0、WP-R0、WP-R2、WP-B、WP-R1、WP1、WP4a、WP4b、WP4c、WP3a/b/c、WP-C、WP-P0、WP-M1（最后一条完成标准等 WP-E1、WP-E3）、WP-R4、WP-K
+已完成：WP-Q、WP-A、WP0、WP-R0、WP-R2、WP-B、WP-R1、WP1、WP4a、WP4b、WP4c、WP3a/b/c、WP-C、WP-P0、WP-M1（最后一条完成标准等 WP-E3）、WP-R4、WP-K、WP-E1
 
 引擎线：
 WP-B ──┬─► WP1 ──► WP3a / WP3b / WP3c ───────────────┐
@@ -517,7 +517,7 @@ WP4c、WP5、WP-R7 ────────────────────�
 
 云端：WP-C（结构与统计，阈值经批准）──► WP-CL0（预热脚本）──► WP-R7；WP-R7、WP-CL、WP8 各跑一次 --cloud
 收尾：WP-UI（等 WP-P1、WP-L、WP-H、WP6、WP-E3）──► WP8
-交叉：WP-M1 的最后一条完成标准要等 WP-E1、WP-E3；WP-E3 的真实下载测试要等 WP-E2；WP-M2 等 WP-E3、WP-R4、WP-R5、WP-R7、WP-P1、WP-L。
+交叉：WP-M1 的最后一条完成标准要等 WP-E3（WP-E1 已完成）；WP-E3 的真实下载测试要等 WP-E2；WP-M2 等 WP-E3、WP-R4、WP-R5、WP-R7、WP-P1、WP-L。
 ```
 
 **发版约束**：一次性发布（用户 2026-11-11，附录 B 第 14 问）。改变磁盘布局或运行环境的工作包（WP-E3、WP-R4、WP-R5、WP-R7、WP-P1、WP-H）、WP-M1、WP-M2 和引擎线进同一个版本；不能发一个「布局已改、迁移工具还没有」的版本。另加一条：**发版前，这个版本要的每一层都已上传 R2，并从外网（经代理和不经代理各一次）下载、校验通过**，否则不发。
@@ -721,7 +721,9 @@ harness 已在 main（`tests/quality_harness/cloud.py`、`quality_gate.py --clou
 - 内容：原子写、文件锁、目录链接判断、进程树终止、断点下载与大小/sha256 校验、代理（按 Nonoka 的代理设置，D17）、目录布局（4.4 第 24 条，含 `runtime\layers\`）。以 `finesub_bootstrap` 的 `fsops`、`locks`、`processes`、`downloader`、`http_client`、`paths` 为起点复制过来，注明来源。**不做国内镜像和线路选择**（4.2 第 18 条）：`download_route.py` 的镜像与线路逻辑删掉，只留直连加代理；`download_route.py:366` 不再读 `FINESUB_GITHUB_FILE_PROXY`。
 - 完成标准：这三个已有文件不再 import `finesub_bootstrap`；`tests/test_download_route.py`、`tests/test_asset_digest.py` 按新行为更新后全过，`tests/test_hf_mirror_transfer.py` 随镜像一起删掉或改写（交付说明里写明）；断点续传、摘要不符、经代理下载各有测试。
 
-### WP-E1 预制包构建流水线（新）
+### WP-E1 预制包构建流水线（已完成 2026-11-13）
+
+> 交付：`scripts/build_layers.py`（`build`、`compare`、`stage`）、`src/nonoka_x/runtime/layer_manifest.py`（构建、闸门、WP-E3 层管理器共用的清单格式）、闸门 `--layers`（`tests/quality_harness/layers.py`）、`tests/test_layer_build.py`、`docs/runtime-layers.md`（构建部分）。只做 Windows（附录 B 第 31 问）。按附录 B 第 53 问：模型层只放默认路径会加载的 5 个（separator、whisper、qwen-referee、nemotron3、speaker-embedding），实文件加引擎要的 `.finesub-verified.json` 与 `.verified` 戳记；工具层平铺 `<工具目录>\<压缩包原样内容>`、不含 uv；wheel 先自己下载校验、再让 uv 从本地文件装；清单既在压缩包根目录（`.nonoka-layer.json`）也在压缩包旁；所有文件修改时间固定为 2026-01-01 UTC、清单不记；版本号取清单 sha256 前 16 位。分离器的 `download_checks.json` 在 Nonoka 清单里钉到上游 `8a65b784`（vendor 那份不动，闸门只放过这一处，附录 B 第 54 问）。`tests/quality_harness/real.py` 改成清环境变量前先定位安装目录（第 55 问）。实测：python `8cc0ee612a5db785`（5.30 GiB，压缩 2.50 GiB）、models `f2a2b753498be37c`（3.99 / 2.97 GiB）、tools `b2e46916329ea7c4`（0.68 / 0.24 GiB），从零完整构建约 33.5 分钟；同一位置两次干净构建清单与压缩包都相同；`--layers` 通过（每个文件都比）；解压到带空格的路径后 import 与 CUDA 正常；用层里的解释器、模型、工具跑 `--real` 通过。产出在 `dist\layers\`（WP-E2 发布用），构建缓存 `.tmp\layer-build\` 约 13 GB 可删。交回：**numba 运行时会往 Python 层里写缓存**（跑 `--real` 后多 46 个 `.nbi`/`.nbc`），要在转写进程环境里设 `NUMBA_CACHE_DIR`（WP-R5 / WP-H）；WP-E3 解压时必须保留修改时间（否则分离器戳记失效、引擎往模型层写新戳），Python 层最长相对路径 138 字符，用户机器上的目录名要留意总长度。下面是原始说明。
 
 - 文件：`scripts/build_layers.py`、`src/nonoka_x/runtime/layer_manifest.py`、`scripts/quality_gate.py` 与 `tests/quality_harness/`（加「预制层」检查，`--layers`）、`tests/test_layer_build.py`、`docs/runtime-layers.md`（构建与发布手册，本包写构建部分）。
 - 内容：按 4.2 第 14、17 条构建三层。
@@ -1188,6 +1190,9 @@ R0 文档里这几条已按此加了标注（只加标注，不删原文）。
 | 50 | WP-K 的 K1–K8 用例与 8 个实施问题（K1 只用仓库内合成样本；闸门加 `knowledge` 检查；代码放 `src/finesub_knowledge/`；WP-P1 之前由 worker 进程配对拉起知识库进程，允许改 `worker.py` 三处；`multiprocessing.connection` + JSON；`build_asr_context` 只换碰数据的两个名字；只把被调函数与 `KnowledgeRepo` 换成协议、句柄后续使用也经协议；回放 harness 的拒网如需改只放行这一种连接） | 全部推荐项（2026-11-12） |
 | 51 | WP-K 为固定知识库日期，在未改动的代码上重录 K 基线一次（只差日期与由它算出的哈希，LLM 请求不变） | 接受（2026-11-13） |
 | 52 | WP-K：桌面打包与 wheel 收进 `src/finesub_knowledge` | 加进打包（2026-11-13） |
+| 53 | WP-E1 的构建细则：模型层放哪些模型、工具层布局、两次构建怎么做到相同、层清单放哪、修改时间、wheel 哈希怎么记、版本号长短 | 模型层只放默认路径 5 个；工具层平铺；同一位置清空后重建；清单在包内也在包旁；修改时间固定、清单不记；先自己下载校验 wheel、再让 uv 装本地文件；版本号截成前 16 位（2026-11-12） |
+| 54 | 分离器的 `download_checks.json`（上游移动分支上的索引）在模型层里怎么来；闸门要求两份模型清单一致而 vendor 的不能改 | 钉到上游 `8a65b784`；只改 Nonoka 的清单与 `RUNTIME_PINS.json`，闸门放过 vendor 那份没钉的这一项（2026-11-12） |
+| 55 | `real.py` 先清 `NONOKA_QUALITY_*` 再定位，`--real` 用不上层里的模型和工具 | 改：清环境前先定位（推荐项，2026-11-12） |
 
 更早的问答：WP-R0 的 D1–D23 见 R0 文档第 0 节；WP0 的细节见附录 A.1；沙箱实验中的决定见实验报告。
 
@@ -1202,7 +1207,7 @@ R0 文档里这几条已按此加了标注（只加标注，不删原文）。
 | 3 | 云端统计标准的具体阈值 | WP-C 实测后 | 附录 B 第 11 问 |
 | 4 | ~~VC++ 运行库~~ | 已答复 | 见附录 B 第 30 问 |
 | 5 | ~~cn 锁不复制进 Nonoka 的清单~~ | 已答复 | 见附录 B 第 23 问 |
-| 6 | 模型层包含哪些模型：全部清单条目（含没在管线里用到的 MOSS-Transcribe 等），还是只放 FineSub 管线用到的；云 API 引擎可选增强要的模型（断句模型等）在不在里面 | WP-E1 查清后（附录 B 第 32 问） | 模型清单有 11 条；实验的模型层 4.0 GiB 是本机已装的那些 |
+| 6 | ~~模型层包含哪些模型~~ | 已答复 | 见附录 B 第 53 问：只放默认路径的 5 个 | 模型清单有 11 条；实验的模型层 4.0 GiB 是本机已装的那些 |
 | 7 | ~~macOS 的工具层在哪里构建~~ | 已答复 | 见附录 B 第 31 问；macOS 工具层另定 |
 | 8 | R2 上旧层版本的保留期限，以及桶名、域名 | WP-E2 开工前 | 被已发布桌面版本引用的层不删 |
 | 9 | 迁移「先删后下」期间，界面要不要提示改用云端 FineSub 或云 API 引擎 | WP-M2 开工前 | 工具层装好后云 API 引擎即可用 |
