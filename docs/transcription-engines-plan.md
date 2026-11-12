@@ -1164,6 +1164,7 @@ R0 文档里这几条已按此加了标注（只加标注，不删原文）。
 | 40 | 知识库数据放哪 | `engines\finesub-knowledge\`，迁移时搬过去（推荐项） |
 | 41 | WP3a/b/c 共用 `joint_stage.py`、`repair.py`、`lines.py`、`enhance/`，怎么安排 | 一个会话按 3a → 3b → 3c 依次做，每个引擎单独提交，最后拆掉 `joint_stage.py`（推荐项） |
 | 42 | 云引擎的可选增强（要 torch）跑在哪（原附录 C 第 1 项） | **第一版不做增强**：云引擎只用启动器环境，增强代码留着不接，后续阶段再定（推荐的是单独的增强进程、进沙箱） |
+| 43 | WP3 开工前的 8 问（行为基线、MOSS 空档补问、续调说话人提示、MAI2 费用预估、回答缓存位置、共用代码文件、Gemini repair、`transcript.json` 的 speaker） | 全部推荐项：WP1 的回放与断行基线不改，引擎层期望按「基线减去重问/补问插入的单元」推导；MOSS Pro 不补问空档；续调说话人记为新人时发一次 `moss-relink` 告警；MAI2 费用按实际上传的窗口总时长（含重叠、扣已缓存）× $0.10/小时，开跑前作为告警发；原始回答缓存放 `TranscriptionJob.cache_dir`，由 worker 保证每任务一份；共用代码放新建的 `engines/cloud.py`；Gemini repair 固定 off；speaker 用原 `line_speaker` 标签、没有的写 `unknown`。MOSS Pro 的 `paid` 默认 true（免费额度用完会扣预付余额，用户已知） |
 
 更早的问答：WP-R0 的 D1–D23 见 R0 文档第 0 节；WP0 的细节见附录 A.1；沙箱实验中的决定见实验报告。
 
