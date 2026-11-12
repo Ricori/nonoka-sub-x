@@ -9,6 +9,13 @@ places are not compared at all, so `speech/joint/` moving out, or
 `finesub_bootstrap/` pins (runtime locks, tool and model manifests, the model
 constants) is guarded by content in `tests/test_runtime_pins.py`.
 
+The one approved change to locked files since the lock was made: WP-K moved
+the knowledge access points of 18 locked files onto the knowledge package's
+protocol (plan section 0.1 rule 5, owner 2026-11-12; `LOCAL_CHANGES.md` 0011),
+and the lock was updated for exactly those files in its own commit.
+`tests/test_knowledge_protocol.py` checks what changed in them (the import
+source of the store functions, nothing else).
+
 Deliberately self-contained: it re-implements the walk and the hash instead of
 importing `tests.quality_harness.lock`, so a change to the writer cannot quietly
 change what the check accepts.
