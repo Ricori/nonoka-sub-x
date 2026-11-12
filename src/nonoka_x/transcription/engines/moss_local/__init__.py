@@ -38,7 +38,7 @@ def transcribe(source: Path, *, language: str | None, duration: float, gpu_tier:
     from ...enhance import model_dir
     from ...enhance.device import moss_local_unusable_reason
     from ...enhance.resources import get_resource_profile
-    from ..joint_stage import JointAsrError
+    from .. import JointAsrError
     from . import decoder as D
 
     reason = moss_local_unusable_reason(gpu_tier, device)

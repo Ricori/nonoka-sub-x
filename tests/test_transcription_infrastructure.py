@@ -19,7 +19,7 @@ sys.path.insert(0, str(ROOT / "src"))
 from nonoka_x import config  # noqa: E402
 from nonoka_x.runtime import RuntimeManager, UnknownComponent, manifests  # noqa: E402
 from nonoka_x.transcription import audio, cache, enhance, http, keys, reporting, stitch  # noqa: E402
-from nonoka_x.transcription.engines import gemini, joint_stage  # noqa: E402
+from nonoka_x.transcription.engines import JointAsrError, gemini, mai2  # noqa: E402
 
 
 class Recorder:
@@ -246,15 +246,27 @@ def test_gemini_switches_key_when_one_reports_its_day_spent(store, monkeypatch) 
     assert ledger.usage(pool[0])["exhausted"] and ledger.usage(pool[1])["calls"] == 1
 
 
-def test_the_stage_picks_mai2s_route_from_nonokas_keys(store) -> None:
-    via, caller = joint_stage._mai2_caller()
-    assert (via, caller.key) == ("openrouter", "or-key")
+def test_the_engine_picks_mai2s_route_from_nonokas_keys(store) -> None:
+    """Was FineSub's joint stage's choice (`stage._mai2_caller`); the MAI2 engine chooses the same way (WP3a)."""
+    caller = mai2.route(store)
+    assert (caller.via, caller.key) == ("openrouter", "or-key")
     store.pools = {keys.AZURE_SPEECH_KEY: [("", "az")], keys.AZURE_SPEECH_ENDPOINT: [("", "https://r.test")]}
-    via, caller = joint_stage._mai2_caller()
-    assert (via, caller.key, caller.endpoint) == ("azure", "az", "https://r.test")
+    caller = mai2.route(store)
+    assert (caller.via, caller.key, caller.endpoint) == ("azure", "az", "https://r.test")
     store.pools = {}
-    with pytest.raises(joint_stage.JointAsrError, match="OPENROUTER_STT_KEY"):
-        joint_stage._mai2_caller()
+    assert mai2.route(store) is None
+    (issue,) = mai2.Mai2Engine(store, None).key_issues(store)
+    assert issue.code == "missing_key" and "OPENROUTER_STT_KEY" in issue.message
+
+
+def test_local_moss_reports_through_the_engines_error() -> None:
+    """`moss_local` raises `engines.JointAsrError`, which lived in the joint stage before WP3 removed it."""
+    import inspect
+
+    from nonoka_x.transcription.engines import moss_local
+
+    assert issubclass(JointAsrError, RuntimeError)
+    assert "from .. import JointAsrError" in inspect.getsource(moss_local.transcribe)
 
 
 # --- the HTTP route -----------------------------------------------------------------------------------------
