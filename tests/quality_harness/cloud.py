@@ -116,6 +116,13 @@ VOCAL_ACCEL_ENV = "NONOKA_QUALITY_CLOUD_VOCAL_ACCEL"
 #: in place of the production models Volume, so AOTI builds from nothing and
 #: publishes nowhere that production reads. Created if missing.
 ACCEL_VOLUME_ENV = "NONOKA_QUALITY_CLOUD_ACCEL_VOLUME"
+#: WP-CL0 only: a Volume name mounted at `/models` on the aligned and
+#: scheduler legs in place of the production models Volume, to prove that a
+#: Volume filled by the engine-free primer (`operations.prime::prime_models`)
+#: leaves the engine nothing to download. It changes where the weights are
+#: read from, not which weights, so unlike the switches above the gate itself
+#: honours it (`check`). The Volume must exist; it is never created here.
+MODELS_VOLUME_ENV = "NONOKA_QUALITY_CLOUD_MODELS_VOLUME"
 #: The engine's own artifact names, by suffix, as `real.COMPARED_SUFFIXES` has
 #: them, minus `-raw.srt`: the cloud stops at `stable`.
 COMPARED_SUFFIXES = (
@@ -178,7 +185,7 @@ if _modal_side():
         except Exception as error:  # noqa: BLE001 - a fact we could not read is recorded as such
             facts["torch_error"] = f"{type(error).__name__}: {error}"
         # Measurement switches, when set (`VOCAL_ACCEL_ENV`, `ACCEL_VOLUME_ENV`).
-        for name in ("NONOKA_VOCAL_ACCEL", ACCEL_VOLUME_ENV):
+        for name in ("NONOKA_VOCAL_ACCEL", ACCEL_VOLUME_ENV, MODELS_VOLUME_ENV):
             if os.environ.get(name):
                 facts[name] = os.environ[name]
         try:
@@ -297,6 +304,18 @@ if _modal_side():
         _measure_env["NONOKA_VOCAL_ACCEL"] = _measure_env[VOCAL_ACCEL_ENV]
     _accel_volume = (modal.Volume.from_name(_measure_env[ACCEL_VOLUME_ENV], create_if_missing=True)
                      if ACCEL_VOLUME_ENV in _measure_env else _resources.models_volume)
+    _models_env = {MODELS_VOLUME_ENV: os.environ[MODELS_VOLUME_ENV]} if os.environ.get(MODELS_VOLUME_ENV) else {}
+    _models_volume = (modal.Volume.from_name(_models_env[MODELS_VOLUME_ENV])
+                      if _models_env else _resources.models_volume)
+    _models_secrets = [modal.Secret.from_dict(_models_env)] if _models_env else []
+
+    def _point_phases_at_models_volume() -> None:
+        """The legs reload the models Volume by its module name; point that at the one mounted here."""
+
+        if os.environ.get(MODELS_VOLUME_ENV):
+            from nonoka_x_compute import phases
+
+            phases.models_volume = modal.Volume.from_name(os.environ[MODELS_VOLUME_ENV])
 
     @app.cls(
         image=_vocal_image,
@@ -346,14 +365,15 @@ if _modal_side():
         memory=3072,
         scaledown_window=2,
         timeout=60 * 60,
-        volumes={"/data": _resources.scratch_volume, "/models": _resources.models_volume},
-        secrets=[_resources.huggingface_secret],
+        volumes={"/data": _resources.scratch_volume, "/models": _models_volume},
+        secrets=[_resources.huggingface_secret, *_models_secrets],
     )
     def quality_aligned(owner_id: str, job_id: str, request: dict, run_id: str) -> dict:
         """`run_aligned_stage`'s body: the unchanged `gpu` phase."""
 
         from nonoka_x_compute.phases import run_pipeline_phase
 
+        _point_phases_at_models_volume()
         started = time.time()
         with _StandInWorker(job_id, request) as worker:
             run_pipeline_phase(owner_id, job_id, request, run_id, phase="gpu")
@@ -386,8 +406,8 @@ if _modal_side():
         memory=3584,
         scaledown_window=20,
         timeout=RUN_TIMEOUT_SEC,
-        volumes={"/data": _resources.scratch_volume, "/models": _resources.models_volume},
-        secrets=[_resources.huggingface_secret],
+        volumes={"/data": _resources.scratch_volume, "/models": _models_volume},
+        secrets=[_resources.huggingface_secret, *_models_secrets],
     )
     def quality_orchestrate(job_id: str, request: dict, source: bytes, attempt_id: str) -> dict:
         """`orchestrate_task`'s body, `scheduler._orchestrate`, unchanged.
@@ -402,6 +422,7 @@ if _modal_side():
 
         from nonoka_x_compute import scheduler
 
+        _point_phases_at_models_volume()
         work = _resources.task_dir(job_id)
         scratch = _resources.scratch_volume
         scratch.reload()
@@ -508,7 +529,8 @@ def _write_run(out: Path, name: str, request: dict, result: dict, images: dict[s
                 "cpu_tag": leg["facts"].get("cpu_tag"),
                 "cpu_model": leg["facts"].get("cpu_model"),
                 "image_id": leg["facts"].get("MODAL_IMAGE_ID"),
-                **{key: leg["facts"][key] for key in ("NONOKA_VOCAL_ACCEL", ACCEL_VOLUME_ENV) if key in leg["facts"]},
+                **{key: leg["facts"][key] for key in ("NONOKA_VOCAL_ACCEL", ACCEL_VOLUME_ENV, MODELS_VOLUME_ENV)
+                   if key in leg["facts"]},
                 **({"accel": leg["accel"]} if "accel" in leg else {}),
                 **({"reused_delivery": leg["reused_delivery"]} if "reused_delivery" in leg else {}),
             }
@@ -585,7 +607,7 @@ def run_samples(out: Path, names: list[str] | None = None, *, measure: dict[str,
     out = out.resolve()
     out.mkdir(parents=True, exist_ok=True)
     environment = dict(os.environ)
-    for name in (VOCAL_ACCEL_ENV, ACCEL_VOLUME_ENV):
+    for name in (VOCAL_ACCEL_ENV, ACCEL_VOLUME_ENV, MODELS_VOLUME_ENV):
         environment.pop(name, None)
     environment.update(measure or {})
     environment[RUNNER_FLAG] = "1"
@@ -1178,7 +1200,12 @@ def check(scratch: Path) -> dict[str, Any]:
         result[name] = {"error": f"no baseline at {BASELINE_ROOT / name / 'run-1'}"}
     names = [name for name in SAMPLES if name not in missing]
     if names:
-        summaries = run_samples(scratch, names)
+        # The one switch the gate honours (`MODELS_VOLUME_ENV`); it is what
+        # this shell set, passed on explicitly like every measurement switch.
+        if os.environ.get(MODELS_VOLUME_ENV):
+            summaries = run_samples(scratch, names, measure={MODELS_VOLUME_ENV: os.environ[MODELS_VOLUME_ENV]})
+        else:
+            summaries = run_samples(scratch, names)
         for name in names:
             baseline, why = baseline_for(name, summaries[name])
             if baseline is None:
