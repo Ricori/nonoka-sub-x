@@ -84,9 +84,22 @@ class RuntimePinsTests(unittest.TestCase):
 
     def test_finesub_bootstraps_own_files_state_the_same_pins(self) -> None:
         derived = pins.with_constants(pins.derive_bootstrap())
+        # Save the one address Nonoka pins and finesub_bootstrap leaves moving (`pins.BOOTSTRAP_MOVING`).
+        expected = pins.bootstrap_view(self.recorded)
         for section in BOOTSTRAP_SECTIONS:
             with self.subTest(section):
-                self.assertEqual(derived[section], self.recorded[section])
+                self.assertEqual(derived[section], expected[section])
+
+    def test_only_the_separator_index_is_left_moving_in_finesub_bootstrap(self) -> None:
+        self.assertEqual(set(pins.BOOTSTRAP_MOVING), {("separator", "download_checks.json")})
+        derived = pins.with_constants(pins.derive_bootstrap())
+        entry = next(item for item in derived["models"]["separator"]["files"]
+                     if item["name"] == "download_checks.json")
+        self.assertEqual(entry, {"name": "download_checks.json",
+                                 "url": pins.BOOTSTRAP_MOVING[("separator", "download_checks.json")]})
+        pinned = next(item for item in self.recorded["models"]["separator"]["files"]
+                      if item["name"] == "download_checks.json")
+        self.assertEqual((pinned["size"], pinned["sha256"][:8]), (28267, "d3622e1f"))
 
     def test_the_interpreter_is_the_pinned_standalone_build(self) -> None:
         interpreter = self.recorded["interpreter"]
@@ -131,9 +144,9 @@ class RuntimePinsTests(unittest.TestCase):
                 self.assertTrue(model["files"])
                 if "repo" in model:
                     self.assertRegex(model["revision"], r"^[0-9a-f]{40}$")
-                # A moving upstream index is fetched unverified on purpose (model-manifest `_note`).
+                # Every file is pinned, the separator's upstream index included (model-manifest `_note`).
                 unpinned = [item["name"] for item in model["files"] if not item.get("sha256")]
-                self.assertTrue(set(unpinned) <= {"download_checks.json"}, unpinned)
+                self.assertEqual(unpinned, [])
 
     def test_the_model_constants_name_the_pinned_models(self) -> None:
         constants = self.recorded["engine_constants"]["finesub_bootstrap.model_caches"]

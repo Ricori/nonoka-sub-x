@@ -218,6 +218,28 @@ def write(path: Path = PINS_FILE) -> Path:
     return path
 
 
+#: Model files Nonoka's manifest pins while `finesub_bootstrap`'s own manifest keeps them on a moving
+#: address, with that address. Only the separator's upstream index (owner-approved 2026-11-12, WP-E1):
+#: the model layer is built from Nonoka's manifest alone and needs a fixed copy; the engine reads its own
+#: manifest, which is not Nonoka's to edit (plan 4.2 item 16), and leaves a present copy alone.
+BOOTSTRAP_MOVING = {
+    ("separator", "download_checks.json"):
+        "https://raw.githubusercontent.com/TRvlvr/application_data/main/filelists/download_checks.json",
+}
+
+
+def bootstrap_view(record: dict[str, Any]) -> dict[str, Any]:
+    """The record as `finesub_bootstrap`'s files must state it: `BOOTSTRAP_MOVING` back on its moving address."""
+
+    models = json.loads(json.dumps(record.get("models")))
+    for (model_id, name), url in BOOTSTRAP_MOVING.items():
+        files = (models or {}).get(model_id, {}).get("files", [])
+        for index, item in enumerate(files):
+            if item.get("name") == name:
+                files[index] = {"name": name, "url": url}
+    return {**record, "models": models}
+
+
 def problems(recorded: dict[str, Any] | None = None) -> list[str]:
     """Every way the record departs from Nonoka's manifests or from `finesub_bootstrap`'s files."""
 
@@ -229,10 +251,11 @@ def problems(recorded: dict[str, Any] | None = None) -> list[str]:
         if derived.get(section) != recorded.get(section)
     ]
     bootstrap = with_constants(derive_bootstrap())
+    expected = bootstrap_view(recorded)
     found += [
         f"RUNTIME_PINS.json section differs from finesub_bootstrap's files: {section}"
         for section in BOOTSTRAP_SECTIONS
-        if bootstrap.get(section) != recorded.get(section)
+        if bootstrap.get(section) != expected.get(section)
     ]
     return found
 
