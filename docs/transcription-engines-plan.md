@@ -1,6 +1,6 @@
 # 转写引擎重构计划
 
-> 状态（2026-11-11）：WP-Q、WP-A、WP0、WP-R0 已完成并合进 main；WP-C 的 harness 已合进 main，云端基线还没录成（见 WP-C）；编译加速已在 `85ae2b9` 关闭；WP-R2、WP-B、WP-R1、WP1、WP4a、WP4b 已完成并合进 main（WP-R2 的范围按附录 B 第 24、25 问调整，WP-R1 按第 26–29 问补完，WP1 按第 33–36 问）；WP-C 的剩余部分在进行；2026-11-12 用户决定知识库独立成第三个包、全部经协议访问（第 0.1 节第 5 条、4.6 第 35a 条、WP-K）；其余未开工。本文档是交给子代理执行的工作说明，每个工作包可以单独领走。
+> 状态（2026-11-11）：WP-Q、WP-A、WP0、WP-R0 已完成并合进 main；WP-C 的 harness 已合进 main，云端基线还没录成（见 WP-C）；编译加速已在 `85ae2b9` 关闭；WP-R2、WP-B、WP-R1、WP1、WP4a、WP4b 已完成并合进 main（WP-R2 的范围按附录 B 第 24、25 问调整，WP-R1 按第 26–29 问补完，WP1 按第 33–36 问）；WP-C 的剩余部分在进行；2026-11-12 用户决定知识库独立成第三个包、全部经协议访问（第 0.1 节第 5 条、4.6 第 35a 条、WP-K）；WP4c、WP3（a/b/c 一个会话依次做）、WP-P0、WP-E1、WP-M1 已派给各自的会话；其余未开工。本文档是交给子代理执行的工作说明，每个工作包可以单独领走。
 > 写于 2026-11-10，基于 `main@1f14db3`、FineSub `v0.7.0@7123055`。
 > **2026-11-11 整理成干净版本**（用户决定，附录 B 第 1 问）：现行决定直接写在正文里，不再有「以后者为准」的追加条款。每个决定的来历、被推翻的旧说法，以及旧条款编号到新编号的对照，见附录 A；向用户问过的问题和答复见附录 B；还没定的事见附录 C。整理前的版本在 git 历史里（`main` 上的 `docs/transcription-engines-plan.md`）。
 > 相关文档：`docs/runtime-and-config.md`（WP-R0 的调查与设计答复 D1–D23，下称「R0 文档」；其中被本计划取代的答复已在那边标注，对照见附录 A.3）；`docs/engine-sandbox-experiment.md`（预制环境包与进程级沙箱两个前提的实验报告，下称「实验报告」）。本文档与 R0 文档冲突时以本文档为准。
@@ -218,7 +218,7 @@
 3. **`speech/joint/` 整个迁出 FineSub**，用 `git mv` 搬进 `nonoka_x/transcription/` 再改造。`stages.py` 和 `pipeline.py` 里的 `asr` 选项与联合 ASR 分支一并删掉，FineSub 从此只有它自己的识别链路。
 4. **云 API 引擎在启动器环境里就能跑**，只要 httpx 和 ffmpeg（工具层）。没有 N 卡、没下 Python 环境层的用户也能转写加翻译。
 5. **断行沿用迁过来的 `lines.py`，句子 DP 复制一份成 Nonoka 自己的代码。** WP1 把 `speech/postprocessing/segmentation.py` 和它用到的纯 Python 部分（`recognition.segments` 的常量、`subtitles.metrics`、`text` 里的几个函数、相关配置默认值）复制到 `nonoka_x/transcription/segmentation/`，注明来源，之后由 Nonoka 维护。FineSub 里的原件不动。复制件与原件在同一批输入上输出相同，由测试证明（原件还在时录成基线）。云 API 引擎从此不 import `finesub` 的任何东西。
-6. ⚠ **需要 Python 环境层的修补作为可选增强保留**（2.2 第三类里除本地 MOSS 外的那些）：Python 环境层和所需模型装了就启用，没装就跳过并在任务日志里说明。没装时 MOSS Pro 的段内时间按字数插值。增强跑在哪个解释器、进不进沙箱，由 WP3a 开工时向用户确认（附录 C）。
+6. **第一版不接需要 Python 环境层的增强**（用户 2026-11-12，附录 B 第 42 问；原附录 C 第 1 项）：云 API 引擎只在启动器环境里跑。迁过来的增强代码（`transcription/enhance/`：空档重问用的 Silero、声纹重连、断句、强制对齐、Gemini Live 修补、MOSS 的 Silero 段内定时）原样留着、不接进引擎，后续阶段再定跑在哪、进不进沙箱。所以 MOSS Pro 的段内时间按字数插值，说话人只靠重叠时间跨窗对齐，MAI2 不做空档重问。
 7. ⚠ **转写引擎的密钥由用户自带**，存进 Nonoka 的 `secrets.json`（4.3 第 21 条）。经 Nonoka Cloud 代理并扣额度留到后续阶段。
 8. ⚠ **MOSS 指 MOSS Pro 云 API。** 本地 MOSS 的代码随 `speech/joint/` 一起迁出，但第一版不注册成引擎、不进界面，后续阶段再接。
 9. **两层之间的中间格式是 Nonoka 自己的 `transcript.json`**（5.2）。转成 FineSub 的 stable JSON 是 finesub correction 内部的事。
@@ -621,6 +621,8 @@ harness 已在 main（`tests/quality_harness/cloud.py`、`quality_gate.py --clou
   - `enhance/` 里的模块全部惰性 import，并提供「Python 环境层是否可用」的统一判断。`sbd.py` import 的 `onnx` 在 WP-R1 之后由 `onnx-weekly` 提供（2.9）：如果 WP1 在 WP-R1 之后做，`sbd` 的行为基线要在去掉 `onnx` 的环境里也通过。
   - 三个云后端的文件先原样搬到 `engines/` 下，能 import 即可，改造留给 WP3。本地 MOSS 搬到 `engines/moss_local/`，不注册。
 - 完成标准：`third_party/finesub/src/finesub/speech/joint/` 不存在；搬迁前录的行为基线全部一致；拼窗、缓存命中与失配、配额换 key、断行各有不联网的单元测试；在只装了启动器依赖的环境里 `import nonoka_x.transcription.lines` 成功；闸门通过。
+
+> **WP3a/b/c 的安排**（用户 2026-11-12，附录 B 第 41、42 问）：三个引擎由一个会话按 3a → 3b → 3c 依次做，每个引擎单独提交，最后拆掉 `engines/joint_stage.py`。第一版不接增强（4.1 第 6 条），下面各包里「接到 `enhance/`」「有无 Python 环境层两种情况都有测试」改为：引擎不 import `enhance/`，只测启动器环境下的行为；增强相关的测试留给后续阶段。
 
 ### WP3a MAI-Transcribe-2
 
@@ -1160,6 +1162,8 @@ R0 文档里这几条已按此加了标注（只加标注，不删原文）。
 | 38 | 这等于按第 0 节第 7 条改上锁文件，怎么推进 | **现在就批准这类改动**：知识库访问点都可以改，由 WP-K 实施，闸门证明结果逐字节不变（推荐的是 WP-P0 先列清单、按清单批准） |
 | 39 | 知识库包不在时，开了知识库或 ASR 上下文的任务怎么办 | 就绪检查拦下，不静默关闭（推荐项） |
 | 40 | 知识库数据放哪 | `engines\finesub-knowledge\`，迁移时搬过去（推荐项） |
+| 41 | WP3a/b/c 共用 `joint_stage.py`、`repair.py`、`lines.py`、`enhance/`，怎么安排 | 一个会话按 3a → 3b → 3c 依次做，每个引擎单独提交，最后拆掉 `joint_stage.py`（推荐项） |
+| 42 | 云引擎的可选增强（要 torch）跑在哪（原附录 C 第 1 项） | **第一版不做增强**：云引擎只用启动器环境，增强代码留着不接，后续阶段再定（推荐的是单独的增强进程、进沙箱） |
 
 更早的问答：WP-R0 的 D1–D23 见 R0 文档第 0 节；WP0 的细节见附录 A.1；沙箱实验中的决定见实验报告。
 
@@ -1169,7 +1173,7 @@ R0 文档里这几条已按此加了标注（只加标注，不删原文）。
 
 | # | 事项 | 什么时候问 | 现有线索 |
 |---|---|---|---|
-| 1 | 云 API 引擎的可选增强（空档重问、声纹、断句、对齐）要 torch，跑在哪个解释器、进不进沙箱：单独起一个 Python 环境层的进程，还是另想办法 | WP3a 开工前 | 现在的设计是「装了就启用」；启动器环境里没有 torch |
+| 1 | ~~云 API 引擎的可选增强跑在哪~~ | 已答复 | 见附录 B 第 42 问：第一版不做增强，后续阶段再定 |
 | 2 | 转写进程的 `HOMEDRIVE`、`HOMEPATH` 是否一并改向 | WP-H 实测后 | 实验报告 1.6：没观察到需要，但没单独验证 |
 | 3 | 云端统计标准的具体阈值 | WP-C 实测后 | 附录 B 第 11 问 |
 | 4 | ~~VC++ 运行库~~ | 已答复 | 见附录 B 第 30 问 |
