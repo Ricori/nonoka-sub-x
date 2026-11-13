@@ -509,65 +509,6 @@ def test_real_download_leaves_a_crawling_proxy_for_direct(monkeypatch, tmp_path)
     assert result.read_bytes() == payload
 
 
-@pytest.fixture
-def watched():
-    token = download_route._watching_speed.set(True)
-    yield
-    download_route._watching_speed.reset(token)
-
-
-def test_the_probe_notices_a_crawl(monkeypatch, watched):
-    class Handler(_QuietHandler):
-        def do_GET(self) -> None:
-            _drip(self)
-
-    server, base = _local_server(Handler)
-    monkeypatch.setattr(download_route, "PROBE_SECONDS", 0.2)
-    try:
-        with pytest.raises(DownloadTooSlow):
-            download_route.ensure_fast_enough(f"{base}/sample", DownloadStage("direct"))
-    finally:
-        server.shutdown()
-        server.server_close()
-
-
-def test_the_probe_passes_a_fast_route(monkeypatch, watched):
-    body = b"x" * (2 * 1024 * 1024)
-
-    class Handler(_QuietHandler):
-        def do_GET(self) -> None:
-            try:
-                _serve(self, body)
-            except OSError:
-                pass
-
-    server, base = _local_server(Handler)
-    monkeypatch.setattr(download_route, "PROBE_SECONDS", 1.0)
-    try:
-        download_route.ensure_fast_enough(f"{base}/sample", DownloadStage("direct"))
-    finally:
-        server.shutdown()
-        server.server_close()
-
-
-def test_the_probe_does_not_blame_a_rung_for_an_http_error(watched):
-    class Handler(_QuietHandler):
-        def do_GET(self) -> None:
-            self.send_error(403)
-
-    server, base = _local_server(Handler)
-    try:
-        download_route.ensure_fast_enough(f"{base}/sample", DownloadStage("direct"))
-    finally:
-        server.shutdown()
-        server.server_close()
-
-
-def test_the_probe_is_skipped_on_an_unwatched_rung():
-    # Port 9 is never listened on here; touching the network would raise or time out.
-    download_route.ensure_fast_enough("http://127.0.0.1:9/sample", DownloadStage("direct"))
-
-
 # --- children and Hugging Face ----------------------------------------------------------------------------------
 
 

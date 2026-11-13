@@ -1,9 +1,10 @@
 """One ladder for every download the environment makes.
 
-Every resource -- the managed tools, the runtime's wheels and interpreter, the
-models -- tries the same rungs in the same order. An offline package beside the
-application comes before all of them (`offline_pack`); whatever it lacks climbs
-as usual:
+Every download the engine side still makes tries the same rungs in the same
+order. (The prebuilt layers go through `nonoka_x.runtime.layers`, which reads
+the offline package itself and downloads with `nonoka_x.runtime.fetch`.) An
+offline package beside the application comes before all of them
+(`offline_pack`); whatever it lacks climbs as usual:
 
 1. the official source, through the live proxy if there is one;
 2. the official source, directly;
@@ -21,8 +22,7 @@ A rung that works but crawls is abandoned too: under 512 KB/s for a whole window
 (`SpeedWatch`), the download moves on and resumes what it has. The last rung has
 nowhere to move to, so it is left to finish, and a rung abandoned for speed is
 tried again unwatched if every other rung fails outright: slow beats nothing.
-Bytes are counted in flight wherever they can be. uv reports none, so the steps
-it runs are timed with a short sample before they start (`ensure_fast_enough`).
+Bytes are counted in flight (`meter_response`).
 
 Which proxy rung 1 uses follows the desktop's settings page
 (`install_app_proxy_policy`): a custom proxy saved in preferences.json replaces
@@ -57,13 +57,6 @@ from nonoka_x.runtime.fetch import (
 )
 
 _T = TypeVar("_T")
-
-PYTHON_BUILD_RELEASES = "https://github.com/astral-sh/python-build-standalone/releases/download"
-#: Times the route to GitHub before uv fetches an interpreter. An immutable
-#: release from the same repository; which one does not matter, only the route.
-PYTHON_BUILD_SAMPLE = (
-    f"{PYTHON_BUILD_RELEASES}/20250317/cpython-3.12.9%2B20250317-x86_64-pc-windows-msvc-install_only_stripped.tar.gz"
-)
 
 UNREACHABLE_MESSAGE = "连不上下载源，请开启代理后重试"
 
@@ -122,7 +115,6 @@ __all__ = [
     "MIN_BYTES_PER_SECOND",
     "OFFLINE_PACK_ENVIRONMENT",
     "PROBE_SECONDS",
-    "PYTHON_BUILD_SAMPLE",
     "SLOW_WINDOW_SECONDS",
     "UNREACHABLE_MESSAGE",
     "DownloadStage",
@@ -133,15 +125,12 @@ __all__ = [
     "climb_huggingface",
     "current_stage",
     "download_stages",
-    "ensure_fast_enough",
     "install_app_proxy_policy",
     "install_proxy_route_policy",
     "is_transport_failure",
     "meter_response",
     "offline_file",
     "offline_pack",
-    "offline_python",
-    "offline_snapshot",
     "pinned_stage",
     "speed_watched",
     "stage_environment",
@@ -324,40 +313,6 @@ def climb(
     raise DownloadUnreachable(f"{UNREACHABLE_MESSAGE}（{detail}）")
 
 
-def ensure_fast_enough(url: str, stage: DownloadStage) -> None:
-    """Sample a rung before starting a step that cannot report its own speed.
-
-    uv prints no byte counts and goes quiet between phases, so nothing about a
-    running uv tells a crawl from unpacking. Only a measured crawl or a timeout
-    counts against the rung: any other failure says nothing about its speed, and
-    the step itself will report it.
-    """
-
-    if not _watching_speed.get():
-        return
-    wanted = int(MIN_BYTES_PER_SECOND * PROBE_SECONDS)
-    slow = DownloadTooSlow(f"采样低于 {MIN_BYTES_PER_SECOND // 1024} KB/s")
-    try:
-        route = fetch.NetworkRoute(stage.label, stage.proxy)
-        with fetch.create_client(route, timeout=httpx.Timeout(PROBE_SECONDS)) as client:
-            with client.stream("GET", url, headers={"Range": f"bytes=0-{wanted - 1}"}) as response:
-                response.raise_for_status()
-                started: float | None = None
-                received = 0
-                for chunk in response.iter_raw():
-                    now = time.monotonic()
-                    started = now if started is None else started
-                    received += len(chunk)
-                    if received >= wanted:
-                        return
-                    if now - started >= PROBE_SECONDS:
-                        raise slow
-    except httpx.TimeoutException as error:
-        raise slow from error
-    except httpx.HTTPError:
-        return
-
-
 def _brief(error: Exception) -> str:
     """The end of what failed: a subprocess's last words, not its exit status."""
 
@@ -395,9 +350,10 @@ def stage_environment(base: Mapping[str, str], stage: DownloadStage) -> dict[str
 def offline_pack() -> Path | None:
     """The offline package this application came with, or None.
 
-    Its files are found by what they are, not by which release they belong to:
-    `files/<sha256>/`, `huggingface/<repo>/<revision>/`. A package is therefore
-    never out of date as a whole, and new files can simply be merged into it.
+    Its files are found by what they are, not by which release they belong to
+    (`desktop/scripts/build-offline-package.mjs`): the layers under their R2 paths,
+    and `files/<sha256>/` for single files. A package is therefore never out of
+    date as a whole, and new files can simply be merged into it.
     """
 
     value = os.environ.get(OFFLINE_PACK_ENVIRONMENT, "").strip()
@@ -417,23 +373,6 @@ def offline_file(sha256: str) -> Path | None:
         return next((entry for entry in (root / "files" / sha256.lower()).iterdir() if entry.is_file()), None)
     except OSError:
         return None
-
-
-def offline_python() -> Path | None:
-    """The offline package's interpreter directory, laid out as uv's mirror."""
-
-    root = offline_pack()
-    return root / "python" if root is not None and (root / "python").is_dir() else None
-
-
-def offline_snapshot(repository: str, revision: str) -> Path | None:
-    """A Hugging Face snapshot in the offline package, or None."""
-
-    root = offline_pack()
-    if root is None:
-        return None
-    snapshot = root / "huggingface" / f"models--{repository.replace('/', '--')}" / revision
-    return snapshot if snapshot.is_dir() else None
 
 
 def _copy_into_place(source: Path, destination: Path, report: Callable[[int], None] = lambda _copied: None) -> None:
