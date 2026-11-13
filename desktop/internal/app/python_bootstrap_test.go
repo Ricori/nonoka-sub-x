@@ -104,8 +104,8 @@ func TestBootstrapUVAssetsCoverEverySupportedPlatform(t *testing.T) {
 	}
 }
 
-func TestBootstrapUVPinMatchesFineSubManifest(t *testing.T) {
-	manifestPath := filepath.Join("..", "..", "..", "third_party", "finesub", "src", "finesub_bootstrap", "runtime-manifest.json")
+func TestBootstrapUVPinMatchesNonokaToolManifest(t *testing.T) {
+	manifestPath := filepath.Join("..", "..", "..", "src", "nonoka_x", "resources", "runtime-manifest.windows-x64.json")
 	contents, err := os.ReadFile(manifestPath)
 	if err != nil {
 		t.Fatal(err)
@@ -127,12 +127,12 @@ func TestBootstrapUVPinMatchesFineSubManifest(t *testing.T) {
 	for _, resource := range manifest.Resources {
 		if resource.ID == "uv" {
 			if resource.Asset.URL != windows.URL() || resource.Asset.Size != windows.Size || resource.Asset.SHA256 != windows.SHA256 {
-				t.Fatalf("bootstrap uv pin drifted from FineSub manifest: %#v", resource.Asset)
+				t.Fatalf("bootstrap uv pin drifted from the tool manifest: %#v", resource.Asset)
 			}
 			return
 		}
 	}
-	t.Fatal("FineSub runtime manifest has no uv resource")
+	t.Fatal("the tool manifest has no uv resource")
 }
 
 // The macOS uv download is a tarball whose executable sits one directory deep,
@@ -207,28 +207,17 @@ func TestExtractNamedTarGzFileReportsAMissingMember(t *testing.T) {
 	}
 }
 
-func TestGitHubDownloadSourcesFollowTheLadder(t *testing.T) {
-	t.Setenv("NONOKA_GITHUB_PROXY", "")
-	t.Setenv("FINESUB_GITHUB_FILE_PROXY", "")
+func TestDownloadSourcesKeepTheOfficialURLOnEveryRung(t *testing.T) {
 	raw := "https://github.com/example/repo/releases/download/v1.0/file.zip"
 	proxy := "http://127.0.0.1:7890"
 
-	sources := gitHubDownloadSources(raw, []bootstrapAttempt{{Proxy: proxy}, {}, {Mirror: true}, {Backup: true}})
+	sources := downloadSources(raw, []bootstrapAttempt{{Proxy: proxy}, {}})
 	want := []bootstrapSource{
 		{bootstrapAttempt: bootstrapAttempt{Proxy: proxy}, URL: raw},
 		{URL: raw},
-		{bootstrapAttempt: bootstrapAttempt{Mirror: true}, URL: "https://gh-proxy.com/" + raw},
-		{bootstrapAttempt: bootstrapAttempt{Backup: true}, URL: "https://cloudfile.nonoka.online/github-mirror/github.com/example/repo/releases/download/v1.0/file.zip"},
 	}
 	if !slices.Equal(sources, want) {
 		t.Fatalf("sources = %#v", sources)
-	}
-
-	// A proxy the user names takes the mirror's place on the ladder.
-	t.Setenv("NONOKA_GITHUB_PROXY", "https://custom-proxy.example.com")
-	custom := gitHubDownloadSources(raw, []bootstrapAttempt{{}, {Mirror: true}})
-	if custom[0].URL != raw || custom[1].URL != "https://custom-proxy.example.com/"+raw {
-		t.Fatalf("custom proxy not in the mirror rung: %#v", custom)
 	}
 }
 

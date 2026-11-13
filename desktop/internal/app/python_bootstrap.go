@@ -12,7 +12,6 @@ import (
 	"io"
 	"log"
 	"net/http"
-	"net/url"
 	"os"
 	"os/exec"
 	"path"
@@ -31,11 +30,6 @@ const (
 	bootstrapPythonVersion = "3.12"
 	bootstrapUVVersion     = "0.11.32"
 	bootstrapUVRelease     = "https://github.com/astral-sh/uv/releases/download/" + bootstrapUVVersion + "/"
-	bootstrapPyPIIndex     = "https://pypi.tuna.tsinghua.edu.cn/simple"
-	bootstrapGitHubMirror  = "https://gh-proxy.com/"
-	// bootstrapGitHubBackup holds our copies of GitHub files, keyed by host and
-	// path. Kept the same as GITHUB_BACKUP in nonoka_x.download_route.
-	bootstrapGitHubBackup  = "https://cloudfile.nonoka.online/github-mirror/"
 	bootstrapPythonRelease = "https://github.com/astral-sh/python-build-standalone/releases/download"
 	// bootstrapSpeedSample times the route to GitHub before uv fetches an
 	// interpreter. An immutable release from the same repository.
@@ -61,7 +55,8 @@ func (a bootstrapUVAsset) URL() string { return bootstrapUVRelease + a.Name }
 // bootstrapUVAssets is also the list of platforms the managed launcher supports:
 // a GOOS/GOARCH pair with no uv build here has no way to install one, which is
 // exactly what the unsupported state reports. Windows x64 pins the same asset
-// FineSub's own runtime manifest does -- a test holds the two together.
+// Nonoka's tool manifest does (src/nonoka_x/resources) -- a test holds the two
+// together.
 var bootstrapUVAssets = map[string]bootstrapUVAsset{
 	"windows/amd64": {
 		Name:   "uv-x86_64-pc-windows-msvc.zip",
@@ -87,42 +82,20 @@ func bootstrapUVAssetForHost() (bootstrapUVAsset, bool) {
 	return asset, ok
 }
 
-// gitHubMirrorPrefix is what the mirror rung puts in front of a GitHub URL. Only
-// one mirror on purpose: a dead one is not a free extra attempt, it is one
-// download timeout the user waits through before finding out.
-func gitHubMirrorPrefix() string {
-	for _, name := range []string{"NONOKA_GITHUB_PROXY", "FINESUB_GITHUB_FILE_PROXY"} {
-		if custom := strings.TrimSpace(os.Getenv(name)); custom != "" {
-			return strings.TrimRight(custom, "/") + "/"
-		}
-	}
-	return bootstrapGitHubMirror
-}
-
 // bootstrapSource is one place to fetch a file from and the route to take there.
 type bootstrapSource struct {
 	bootstrapAttempt
 	URL string
 }
 
-// gitHubDownloadSources lays a GitHub file out along the ladder.
-func gitHubDownloadSources(rawURL string, attempts []bootstrapAttempt) []bootstrapSource {
+// downloadSources lays a file out along the ladder: the same official URL on
+// every rung, each through its own route.
+func downloadSources(rawURL string, attempts []bootstrapAttempt) []bootstrapSource {
 	sources := make([]bootstrapSource, 0, len(attempts))
 	for _, attempt := range attempts {
-		sources = append(sources, bootstrapSource{bootstrapAttempt: attempt, URL: attempt.gitHubURL(rawURL)})
+		sources = append(sources, bootstrapSource{bootstrapAttempt: attempt, URL: rawURL})
 	}
 	return sources
-}
-
-// gitHubURL is where this rung fetches a GitHub file from.
-func (a bootstrapAttempt) gitHubURL(rawURL string) string {
-	switch {
-	case a.Backup:
-		return bootstrapGitHubBackup + strings.TrimPrefix(rawURL, "https://")
-	case a.Mirror:
-		return gitHubMirrorPrefix() + rawURL
-	}
-	return rawURL
 }
 
 type bootstrapProgress struct {
@@ -346,7 +319,7 @@ func (b *PythonBootstrap) installPython() error {
 	attempts := resolveBootstrapAttempts()
 	uvArchive := filepath.Join(downloads, bootstrapUVVersion+"-"+b.uv.Name)
 	if seedFromOfflinePack(b.uv.SHA256, uvArchive); !fileMatches(uvArchive, b.uv.Size, b.uv.SHA256) {
-		sources := gitHubDownloadSources(b.uv.URL(), attempts)
+		sources := downloadSources(b.uv.URL(), attempts)
 		if err := b.downloadWithFallback(sources, uvArchive, b.uv.Size, b.uv.SHA256); err != nil {
 			return err
 		}
@@ -372,23 +345,16 @@ func (b *PythonBootstrap) installPython() error {
 		"UV_NO_PROGRESS=1",
 	)
 
-	pythonAttempts := attempts
-	if os.Getenv("UV_PYTHON_INSTALL_MIRROR") != "" {
-		pythonAttempts = withoutMirror(attempts)
-	}
 	offlinePython := offlineSubdirectory("python")
-	pythonAttempts = offlineRung(pythonAttempts, offlinePython)
+	pythonAttempts := offlineRung(attempts, offlinePython)
 	installed := climbBootstrap(pythonAttempts, "安装 Python 失败", b.announcer("installing_python", "正在下载并安装 Python "+bootstrapPythonVersion), func(attempt bootstrapAttempt, watched bool) ([]byte, error) {
-		if watched && !attempt.Local && bootstrapRouteTooSlow(attempt.gitHubURL(bootstrapSpeedSample), attempt) {
+		if watched && !attempt.Local && bootstrapRouteTooSlow(bootstrapSpeedSample, attempt) {
 			return nil, errBootstrapTooSlow
 		}
 		_ = os.RemoveAll(staging)
 		step := slices.Concat(environment, attempt.environment())
-		switch {
-		case attempt.Local:
+		if attempt.Local {
 			step = append(step, "UV_PYTHON_INSTALL_MIRROR="+fileURI(offlinePython))
-		case attempt.Mirror || attempt.Backup:
-			step = append(step, "UV_PYTHON_INSTALL_MIRROR="+attempt.gitHubURL(bootstrapPythonRelease))
 		}
 		return runBootstrapCommand(uv, step, "venv", staging, "--python", bootstrapPythonVersion, "--managed-python", "--no-project")
 	})
@@ -414,19 +380,13 @@ func (b *PythonBootstrap) installPython() error {
 // installLauncherRequirements installs the hash-pinned launcher requirements
 // into python, one rung of the ladder at a time.
 func installLauncherRequirements(uv string, environment []string, attempts []bootstrapAttempt, announce func(bootstrapAttempt, bool), python, requirements string) error {
-	if os.Getenv("UV_DEFAULT_INDEX") != "" || os.Getenv("UV_INDEX_URL") != "" || os.Getenv("PIP_INDEX_URL") != "" {
-		attempts = withoutMirror(attempts)
-	}
 	offlineWheels := offlineSubdirectory("launcher")
-	attempts = offlineRung(withoutBackup(attempts), offlineWheels)
+	attempts = offlineRung(attempts, offlineWheels)
 	return climbBootstrap(attempts, "安装 Python 基础依赖失败", announce, func(attempt bootstrapAttempt, _ bool) ([]byte, error) {
 		step := slices.Concat(environment, attempt.environment())
 		arguments := []string{"pip", "install", "--python", python, "--require-hashes", "-r", requirements}
-		switch {
-		case attempt.Local:
+		if attempt.Local {
 			arguments = append(arguments, "--no-index", "--find-links", offlineWheels)
-		case attempt.Mirror:
-			step = append(step, "UV_DEFAULT_INDEX="+bootstrapPyPIIndex)
 		}
 		return runBootstrapCommand(uv, step, arguments...)
 	})
@@ -499,12 +459,6 @@ func (b *PythonBootstrap) downloadWithFallback(sources []bootstrapSource, destin
 	for index := 0; index < len(rungs); index++ {
 		source := rungs[index].item
 		sourceLabel := "官方源"
-		if source.URL != official {
-			sourceLabel = "加速镜像"
-			if parsed, err := url.Parse(source.URL); err == nil && parsed.Host != "" {
-				sourceLabel = parsed.Host
-			}
-		}
 		if source.Proxy != "" {
 			sourceLabel += "（通过" + proxyLabel(source.Proxy) + "）"
 		}
@@ -536,11 +490,9 @@ func (b *PythonBootstrap) downloadWithFallback(sources []bootstrapSource, destin
 	return fmt.Errorf("%s。\n"+
 		"也可以手动下载该文件并放入指定目录后重试：\n"+
 		"• 官方下载链接：%s\n"+
-		"• 镜像加速链接：%s\n"+
-		"• Nonoka 备用链接：%s\n"+
 		"• 目标放置路径：%s\n"+
 		"• 详细错误日志：%s",
-		bootstrapUnreachableMessage, official, gitHubMirrorPrefix()+official, bootstrapAttempt{Backup: true}.gitHubURL(official), destination, strings.Join(failures, "；"))
+		bootstrapUnreachableMessage, official, destination, strings.Join(failures, "；"))
 }
 
 func (b *PythonBootstrap) downloadSingle(source bootstrapSource, destination string, size int64, digest, message string, watched bool) error {

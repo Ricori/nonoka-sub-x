@@ -12,40 +12,32 @@ import (
 
 const testProxy = "http://127.0.0.1:7890"
 
-func TestLadderClimbsProxyThenDirectThenMirror(t *testing.T) {
-	want := []bootstrapAttempt{{Proxy: testProxy}, {}, {Mirror: true}, {Backup: true}}
+func TestLadderClimbsProxyThenDirect(t *testing.T) {
+	want := []bootstrapAttempt{{Proxy: testProxy}, {}}
 	if got := bootstrapAttempts(testProxy); !slices.Equal(got, want) {
 		t.Fatalf("with a proxy: %#v", got)
 	}
-	want = []bootstrapAttempt{{}, {Mirror: true}, {Backup: true}}
+	want = []bootstrapAttempt{{}}
 	if got := bootstrapAttempts(""); !slices.Equal(got, want) {
 		t.Fatalf("without a proxy: %#v", got)
 	}
 }
 
-func TestOnlyGitHubStepsKeepTheBackupRung(t *testing.T) {
-	attempts := bootstrapAttempts(testProxy)
-	if got := withoutBackup(attempts); !slices.Equal(got, []bootstrapAttempt{{Proxy: testProxy}, {}, {Mirror: true}}) {
-		t.Fatalf("withoutBackup = %#v", got)
-	}
-	if got := withoutMirror(attempts); !slices.Equal(got, []bootstrapAttempt{{Proxy: testProxy}, {}}) {
-		t.Fatalf("a mirror the user chose should drop both copy rungs: %#v", got)
-	}
-}
-
-func TestLadderIgnoresTheRegionVariable(t *testing.T) {
+func TestLadderHasNoMirrorWhateverTheRegion(t *testing.T) {
 	t.Setenv("FINESUB_DOWNLOAD_REGION", "cn")
-	want := []bootstrapAttempt{{}, {Mirror: true}, {Backup: true}}
+	t.Setenv("NONOKA_GITHUB_PROXY", "https://custom-proxy.example.com")
+	t.Setenv("FINESUB_GITHUB_FILE_PROXY", "https://custom-proxy.example.com")
+	want := []bootstrapAttempt{{}}
 	if got := bootstrapAttempts(""); !slices.Equal(got, want) {
-		t.Fatalf("the ladder should not depend on the region variable: %#v", got)
+		t.Fatalf("the ladder should be direct only: %#v", got)
 	}
 }
 
 func TestClimbStopsAtTheFirstRungThatWorks(t *testing.T) {
 	var tried []bootstrapAttempt
-	err := climbBootstrap([]bootstrapAttempt{{Proxy: testProxy}, {}, {Mirror: true}}, "failed", nil, func(attempt bootstrapAttempt, _ bool) ([]byte, error) {
+	err := climbBootstrap([]bootstrapAttempt{{Local: true}, {Proxy: testProxy}, {}}, "failed", nil, func(attempt bootstrapAttempt, _ bool) ([]byte, error) {
 		tried = append(tried, attempt)
-		if !attempt.Mirror && attempt.Proxy == "" {
+		if attempt.Proxy != "" {
 			return nil, nil
 		}
 		return []byte("error sending request"), errors.New("exit status 1")
@@ -56,7 +48,7 @@ func TestClimbStopsAtTheFirstRungThatWorks(t *testing.T) {
 }
 
 func TestClimbAsksForAProxyOnceEveryRungFails(t *testing.T) {
-	err := climbBootstrap([]bootstrapAttempt{{}, {Mirror: true}}, "failed", nil, func(bootstrapAttempt, bool) ([]byte, error) {
+	err := climbBootstrap([]bootstrapAttempt{{Proxy: testProxy}, {}}, "failed", nil, func(bootstrapAttempt, bool) ([]byte, error) {
 		return []byte("tcp connect error"), errors.New("exit status 1")
 	})
 	if err == nil || !strings.Contains(err.Error(), bootstrapUnreachableMessage) {
@@ -66,7 +58,7 @@ func TestClimbAsksForAProxyOnceEveryRungFails(t *testing.T) {
 
 func TestClimbDoesNotBlameTheNetworkForALocalFailure(t *testing.T) {
 	calls := 0
-	err := climbBootstrap([]bootstrapAttempt{{}, {Mirror: true}}, "failed", nil, func(bootstrapAttempt, bool) ([]byte, error) {
+	err := climbBootstrap([]bootstrapAttempt{{Proxy: testProxy}, {}}, "failed", nil, func(bootstrapAttempt, bool) ([]byte, error) {
 		calls++
 		return []byte("磁盘空间不足。 (os error 112)"), errors.New("exit status 1")
 	})
@@ -80,7 +72,7 @@ func TestClimbDoesNotBlameTheNetworkForALocalFailure(t *testing.T) {
 
 func TestClimbWatchesEveryRungButTheLast(t *testing.T) {
 	var watched []bool
-	_ = climbBootstrap([]bootstrapAttempt{{Proxy: testProxy}, {}, {Mirror: true}}, "failed", nil, func(_ bootstrapAttempt, isWatched bool) ([]byte, error) {
+	_ = climbBootstrap([]bootstrapAttempt{{Local: true}, {Proxy: testProxy}, {}}, "failed", nil, func(_ bootstrapAttempt, isWatched bool) ([]byte, error) {
 		watched = append(watched, isWatched)
 		return nil, errors.New("exit status 1")
 	})
@@ -92,13 +84,13 @@ func TestClimbWatchesEveryRungButTheLast(t *testing.T) {
 func TestClimbFallsBackToASlowRungOnlyWhenTheRestFail(t *testing.T) {
 	var tried []bootstrapAttempt
 	var watched []bool
-	err := climbBootstrap([]bootstrapAttempt{{}, {Mirror: true}}, "failed", nil, func(attempt bootstrapAttempt, isWatched bool) ([]byte, error) {
+	err := climbBootstrap([]bootstrapAttempt{{Proxy: testProxy}, {}}, "failed", nil, func(attempt bootstrapAttempt, isWatched bool) ([]byte, error) {
 		tried = append(tried, attempt)
 		watched = append(watched, isWatched)
 		if isWatched {
 			return nil, errBootstrapTooSlow
 		}
-		if attempt.Mirror {
+		if attempt.Proxy == "" {
 			return []byte("tcp connect error"), errors.New("exit status 1")
 		}
 		return nil, nil
@@ -106,7 +98,7 @@ func TestClimbFallsBackToASlowRungOnlyWhenTheRestFail(t *testing.T) {
 	if err != nil {
 		t.Fatalf("the slow rung should have been used: %v", err)
 	}
-	if !slices.Equal(tried, []bootstrapAttempt{{}, {Mirror: true}, {}}) || !slices.Equal(watched, []bool{true, false, false}) {
+	if !slices.Equal(tried, []bootstrapAttempt{{Proxy: testProxy}, {}, {Proxy: testProxy}}) || !slices.Equal(watched, []bool{true, false, false}) {
 		t.Fatalf("tried=%#v watched=%v", tried, watched)
 	}
 }
