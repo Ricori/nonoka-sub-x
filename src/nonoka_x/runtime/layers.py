@@ -291,6 +291,47 @@ class Inspection:
         return sorted(set(self.missing) | set(self.resized) | set(self.changed) | set(self.links))
 
 
+_REPARSE_POINT = 0x400
+
+
+def _scan(root: Path) -> tuple[dict[str, int], list[str], list[str]]:
+    """Every regular file (manifest path -> size), empty directory and link under `root`, links not followed.
+
+    `layer_manifest.walk` in one pass: the sizes and the reparse-point flag come from the directory
+    entries themselves (on Windows `scandir` carries them), so a 45 000-file layer costs no `stat` per
+    file. The manifest at the root is not a file of the layer.
+    """
+
+    files: dict[str, int] = {}
+    empty: list[str] = []
+    links: list[str] = []
+    pending: list[tuple[str, str]] = [(str(root), "")]
+    while pending:
+        directory, prefix = pending.pop()
+        with os.scandir(directory) as entries:
+            children = list(entries)
+        if not children and prefix:
+            empty.append(prefix.rstrip("/"))
+        for entry in children:
+            name = prefix + entry.name
+            try:
+                info = entry.stat(follow_symlinks=False)
+            except OSError:
+                links.append(name)
+                continue
+            if entry.is_symlink() or getattr(info, "st_file_attributes", 0) & _REPARSE_POINT:
+                links.append(name)
+            elif entry.is_dir(follow_symlinks=False):
+                pending.append((entry.path, name + "/"))
+            elif entry.is_file(follow_symlinks=False):
+                if not prefix and entry.name == lm.MANIFEST_NAME:
+                    continue
+                files[name] = info.st_size
+            else:
+                links.append(name)
+    return files, sorted(empty), sorted(links)
+
+
 def inspect(manifest: lm.LayerManifest, root: Path, *, full: bool, report: Callable[[int], None] | None = None) -> Inspection:
     """`layer_manifest.compare`, but sorted into kinds so extra files can be told from broken ones.
 
@@ -299,28 +340,25 @@ def inspect(manifest: lm.LayerManifest, root: Path, *, full: bool, report: Calla
 
     root = Path(root)
     found = Inspection()
-    files, empty, links = lm.walk(root)
-    found.links = [lm.relative(root, path) for path in links]
+    present, empty, links = _scan(root)
+    found.links = links
     expected = manifest.by_path()
-    present = {lm.relative(root, path): path for path in files}
     found.missing = sorted(expected.keys() - present.keys() - set(found.links))
     found.extra = sorted(present.keys() - expected.keys())
     covered = 0
-    for name in sorted(expected.keys() & present.keys()):
-        item, path = expected[name], present[name]
-        try:
-            size = path.stat().st_size
-        except OSError:
-            found.missing.append(name)
-            continue
-        if size != item.size:
+    for count, name in enumerate(sorted(expected.keys() & present.keys()), 1):
+        item = expected[name]
+        if present[name] != item.size:
             found.resized.append(name)
-        elif full and lm.sha256_file(path) != item.sha256:
+        elif full and lm.sha256_file(root / name) != item.sha256:
             found.changed.append(name)
         covered += item.size
-        if report is not None:
+        # Every file while hashing; every 500 on the quick check, which takes well under a second.
+        if report is not None and (full or count % 500 == 0):
             report(covered)
-    empty_now = {lm.relative(root, path) for path in empty}
+    if report is not None:
+        report(covered)
+    empty_now = set(empty)
     found.extra_dirs = sorted(empty_now - set(manifest.empty_dirs))
     found.missing_dirs = sorted(path for path in set(manifest.empty_dirs) - empty_now if not (root / path).is_dir())
     found.missing.sort()

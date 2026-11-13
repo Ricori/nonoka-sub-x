@@ -528,3 +528,34 @@ def test_model_completion_can_run_again_after_an_interruption(tmp_path, built, o
     again = layers.complete_models(moved)  # the directory is already the layer version
     assert again.kept == 0 and again.fetched == ()
     assert layers.state("models").ready
+
+
+def test_a_link_inside_a_layer_makes_it_damaged_and_is_not_followed(tmp_path, built, origin):
+    import _winapi
+
+    layers = manager(tmp_path, built, origin)
+    root = layers.install("tools").path
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "secret.txt").write_bytes(b"not ours")
+    _winapi.CreateJunction(str(outside), str(root / "junction"))
+    try:
+        state = layers.state("tools", fresh=True)
+        assert state.state == "damaged" and state.problems == ("link (layers hold only regular files): junction",)
+        assert not any("secret" in item for item in state.extra)
+    finally:
+        os.rmdir(root / "junction")  # removes the junction only
+    assert (outside / "secret.txt").is_file()
+
+
+def test_the_single_pass_scan_agrees_with_the_manifest_compare(tmp_path, built, origin):
+    layers = manager(tmp_path, built, origin)
+    root = layers.install("python").path
+    (root / "python.exe").write_bytes(b"MZ")
+    (root / "extra.txt").write_bytes(b"x")
+    (root / "Lib" / "empty").mkdir()
+    manifest = built["python"].manifest
+
+    found = L.inspect(manifest, root, full=True).problems
+    expected = [line.split(" (")[0] for line in lm.compare(manifest, root, full=True)]  # compare adds sizes
+    assert sorted(found) == sorted(expected) and len(found) == 3

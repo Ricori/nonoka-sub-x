@@ -128,6 +128,23 @@ def locate_runtime() -> tuple[Path, Path | None]:
     return appdata, install
 
 
+def layers_index() -> Path | None:
+    """The `layers.json` `NONOKA_QUALITY_LAYERS_INDEX` names, or None for the one this build ships.
+
+    For a root installed from another index than `resources/layers.json` (before WP-E2 publishes it,
+    or a test origin).
+    """
+
+    named = os.environ.get("NONOKA_QUALITY_LAYERS_INDEX")
+    return Path(named) if named else None
+
+
+def provisioner_for(data_dir: Path, install_dir: Path | None, index: Path | None = None):
+    from nonoka_x.provision import RuntimeProvisioner
+
+    return RuntimeProvisioner(data_dir, VENDOR, install_dir, index_path=index if index is not None else layers_index())
+
+
 def python_override() -> Path | None:
     """The interpreter `NONOKA_QUALITY_PYTHON` names, or None for the managed runtime's."""
 
@@ -140,10 +157,9 @@ def runtime_issues() -> list[str]:
 
     sys.path[:0] = [str(ROOT / "src"), str(VENDOR_SOURCE)]
     from nonoka_x.model_install import INSTALLABLE_MODEL_IDS, missing_managed_models
-    from nonoka_x.provision import RuntimeProvisioner
 
     data_dir, install_dir = locate_runtime()
-    provisioner = RuntimeProvisioner(data_dir, VENDOR, install_dir)
+    provisioner = provisioner_for(data_dir, install_dir)
     issues = []
     if provisioner._bootstrap_error:
         issues.append(f"bootstrap: {provisioner._bootstrap_error}")
@@ -176,7 +192,6 @@ def _worker_launch(run_dir: Path) -> tuple[list[str], dict[str, str], Path, list
 
     sys.path[:0] = [str(ROOT / "src"), str(VENDOR_SOURCE)]
     from nonoka_x import local_provider
-    from nonoka_x.provision import RuntimeProvisioner
     from nonoka_x.settings import FineSubSettings
 
     from .hygiene import scrubbed_environment
@@ -186,6 +201,7 @@ def _worker_launch(run_dir: Path) -> tuple[list[str], dict[str, str], Path, list
     # e.g. the WP-E1 layers staged as an install root) both have to survive it.
     override = python_override()
     data_dir, install_dir = locate_runtime()
+    index = layers_index()
     saved = dict(os.environ)
     clean, removed = scrubbed_environment()
     os.environ.clear()
@@ -193,7 +209,7 @@ def _worker_launch(run_dir: Path) -> tuple[list[str], dict[str, str], Path, list
     try:
         settings = FineSubSettings(run_dir / "config")
         settings.bind_environment()
-        provisioner = RuntimeProvisioner(data_dir, VENDOR, install_dir)
+        provisioner = provisioner_for(data_dir, install_dir, index)
         provider = local_provider.LocalProvider(
             run_dir / "tasks", VENDOR, settings=settings, provisioner=provisioner, issues=[]
         )

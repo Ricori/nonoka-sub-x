@@ -457,15 +457,13 @@ def measure_installed() -> dict[str, Any]:
     (`real.python_override`); models and tools are always the located runtime's.
     """
 
-    from .real import locate_runtime, python_override
+    from .real import locate_runtime, provisioner_for, python_override
 
     import sys
 
     sys.path[:0] = [str(ROOT / "src"), str(VENDOR_SOURCE)]
-    from nonoka_x.provision import RuntimeProvisioner
-
     data_dir, install_dir = locate_runtime()
-    provisioner = RuntimeProvisioner(data_dir, ROOT / "third_party" / "finesub", install_dir)
+    provisioner = provisioner_for(data_dir, install_dir)
     python = python_override() or provisioner.worker_python()
     if python is None:
         return {"skipped": f"no ready managed runtime under {provisioner.install_root}"}
