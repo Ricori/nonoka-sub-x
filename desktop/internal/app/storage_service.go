@@ -29,19 +29,22 @@ const measurementTTL = 30 * time.Second
 // leaves two unusable copies.
 const spaceMargin = 1.05
 
-// estimatedRuntimeBytes is what a finished local runtime occupies, measured on
-// a complete Windows install: ~5.8 GB of Python runtime, ~3.7 GB of models and
-// ~5.2 GB of download cache, rounded up.
+// estimatedRuntimeBytes is the most the big-file root holds while the three
+// prebuilt layers install (docs/runtime-layers.md 1.8): 5.30 GiB of Python
+// layer, 3.99 GiB of models and 0.68 GiB of tools once unpacked, plus the model
+// layer's 2.97 GiB archive, which sits beside its unpacked copy until the
+// layer is switched in -- about 13 GiB, rounded up. Each archive is deleted
+// once its layer is in place.
 //
-// It is the installed footprint rather than the download size on purpose: the
+// It is the peak footprint rather than the download size on purpose: the
 // question it answers is "will this drive hold it", asked before the download
 // starts, which is the only moment choosing a drive is free.
-const estimatedRuntimeBytes = 16 << 30
+const estimatedRuntimeBytes = 14 << 30
 
 // emptyInstallThreshold separates "nothing is installed yet" from "an install
-// exists". A fresh install root is not literally empty — FineSub drops a store
-// marker and a helper script into it — but it is orders of magnitude below
-// anything that has downloaded a runtime or a model.
+// exists". A fresh big-file root is not always literally empty -- the layer
+// manager leaves lock files and version pointers in it -- but it is orders of
+// magnitude below anything that has downloaded a layer.
 const emptyInstallThreshold = 64 << 20
 
 // Location describes one relocatable directory for the settings page.
@@ -122,8 +125,8 @@ type measurement struct {
 
 // StorageService moves Nonoka X's two large directories to another drive.
 //
-// The move is the easy half; the hard half is that the FineSub install root is
-// in use by a running sidecar whose Python interpreter lives inside it. So a
+// The move is the easy half; the hard half is that the big-file root is in use
+// by a running sidecar: its workers run the Python layer inside it. So a
 // runtime relocation stops the sidecar, moves, records, and starts it again
 // against a freshly resolved configuration — the same sequence the managed
 // Python installer already uses to swap interpreters.

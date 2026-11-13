@@ -52,10 +52,11 @@ type Config struct {
 // nonoka_x.sidecar. All paths are resolved before the child starts so a later
 // working-directory change cannot redirect its data or engine.
 //
-// installDir is the FineSub install root. It is passed separately from dataDir
-// because it is the one that holds gigabytes — the runtime, the models and the
-// download caches — and the settings page can move it to another drive while
-// the small state files stay put.
+// installDir is the big-file root `runtime` (storage.RuntimeDirectory), which
+// the sidecar's layer manager installs the prebuilt layers into. It is passed
+// separately from dataDir because it is the one that holds gigabytes -- the
+// Python, model and tool layers and the download cache -- and the settings page
+// can move it to another drive while the small state files stay put.
 func PythonConfig(python, script, dataDir, vendorDir, installDir string) (Config, error) {
 	if strings.TrimSpace(python) == "" {
 		return Config{}, errors.New("python executable is required")
@@ -83,7 +84,7 @@ func PythonConfig(python, script, dataDir, vendorDir, installDir string) (Config
 	if strings.TrimSpace(installDir) != "" {
 		resolvedInstall, installErr := filepath.Abs(installDir)
 		if installErr != nil {
-			return Config{}, fmt.Errorf("resolve FineSub install directory: %w", installErr)
+			return Config{}, fmt.Errorf("resolve the big-file root (--install-dir): %w", installErr)
 		}
 		arguments = append(arguments, "--install-dir", resolvedInstall)
 	}

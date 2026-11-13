@@ -1,6 +1,7 @@
 // Package storage records where Nonoka X keeps the two directories that grow
-// large enough to fill a system drive: the FineSub install root (the Python
-// runtime, the models and the download caches) and the managed video cache.
+// large enough to fill a system drive: the big-file root `runtime` (the prebuilt
+// Python, model and tool layers and the download cache) and the managed video
+// cache.
 //
 // Everything else Nonoka X writes — the library index, preferences, documents,
 // task history — is small and stays in the application data directory, which
@@ -27,11 +28,11 @@ const (
 
 const (
 	fileName    = "storage.json"
-	runtimeName = "finesub"
+	runtimeName = "runtime"
 	videoName   = "videos"
 	// containerName is the folder a relocation creates inside the directory the
 	// user picked. Picking a drive root is the common case, and scattering
-	// "finesub" and "videos" over E:\ is not what anyone means by it.
+	// "runtime" and "videos" over E:\ is not what anyone means by it.
 	containerName = "Nonoka X"
 )
 
@@ -119,8 +120,10 @@ func resolve(dataDirectory, target string, locations Locations) string {
 	return Default(dataDirectory, target)
 }
 
-// RuntimeDirectory is the FineSub install root: runtime/, models/, cache/ and
-// agent-capsules/ all sit inside it, which is why it moves as one directory.
+// RuntimeDirectory is the big-file root: layers\<layer>\<version>\ with each
+// layer's current.json, and cache\downloads\. It moves as one directory, and
+// nothing in it records an absolute path, so a move needs no repair afterwards
+// (plan 4.2 item 17).
 func RuntimeDirectory(dataDirectory string) string {
 	return Directory(dataDirectory, RuntimeTarget)
 }

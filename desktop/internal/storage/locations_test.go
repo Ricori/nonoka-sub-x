@@ -9,7 +9,7 @@ import (
 
 func TestDirectoryFallsBackToTheDataDirectory(t *testing.T) {
 	data := t.TempDir()
-	if got, want := Directory(data, RuntimeTarget), filepath.Join(data, "finesub"); got != want {
+	if got, want := Directory(data, RuntimeTarget), filepath.Join(data, "runtime"); got != want {
 		t.Fatalf("runtime directory = %q, want %q", got, want)
 	}
 	if got, want := Directory(data, VideoTarget), filepath.Join(data, "videos"); got != want {
@@ -19,7 +19,7 @@ func TestDirectoryFallsBackToTheDataDirectory(t *testing.T) {
 
 func TestSetRecordsAndRestoresLocations(t *testing.T) {
 	data := t.TempDir()
-	elsewhere := filepath.Join(t.TempDir(), "Nonoka X", "finesub")
+	elsewhere := filepath.Join(t.TempDir(), "Nonoka X", "runtime")
 	if _, err := Set(data, RuntimeTarget, elsewhere); err != nil {
 		t.Fatalf("set runtime location: %v", err)
 	}
@@ -33,7 +33,7 @@ func TestSetRecordsAndRestoresLocations(t *testing.T) {
 	if _, err := Set(data, RuntimeTarget, ""); err != nil {
 		t.Fatalf("reset runtime location: %v", err)
 	}
-	if got, want := RuntimeDirectory(data), filepath.Join(data, "finesub"); got != want {
+	if got, want := RuntimeDirectory(data), filepath.Join(data, "runtime"); got != want {
 		t.Fatalf("runtime directory after reset = %q, want %q", got, want)
 	}
 }
@@ -64,7 +64,7 @@ func TestLoadIgnoresUnusableRecords(t *testing.T) {
 	if err := os.WriteFile(record, []byte("not json"), 0o600); err != nil {
 		t.Fatalf("write record: %v", err)
 	}
-	if got, want := RuntimeDirectory(data), filepath.Join(data, "finesub"); got != want {
+	if got, want := RuntimeDirectory(data), filepath.Join(data, "runtime"); got != want {
 		t.Fatalf("runtime directory = %q, want the default %q", got, want)
 	}
 }
@@ -75,7 +75,7 @@ func TestDestinationForAddsOneContainer(t *testing.T) {
 	if err != nil {
 		t.Fatalf("destination: %v", err)
 	}
-	if want := filepath.Join(root, "Nonoka X", "finesub"); destination != want {
+	if want := filepath.Join(root, "Nonoka X", "runtime"); destination != want {
 		t.Fatalf("destination = %q, want %q", destination, want)
 	}
 	// Picking the container a previous move made must not nest another one.
@@ -104,7 +104,7 @@ func TestValidateDestinationRejectsUnusableTargets(t *testing.T) {
 			t.Fatalf("%s was accepted as a destination", name)
 		}
 	}
-	fresh := filepath.Join(t.TempDir(), "Nonoka X", "finesub")
+	fresh := filepath.Join(t.TempDir(), "Nonoka X", "runtime")
 	if err := ValidateDestination(data, RuntimeTarget, fresh); err != nil {
 		t.Fatalf("fresh destination rejected: %v", err)
 	}
@@ -136,7 +136,7 @@ func TestValidateDestinationAcceptsItsOwnPartialCopy(t *testing.T) {
 	if err := os.MkdirAll(source, 0o755); err != nil {
 		t.Fatalf("create source: %v", err)
 	}
-	destination := filepath.Join(t.TempDir(), "Nonoka X", "finesub")
+	destination := filepath.Join(t.TempDir(), "Nonoka X", "runtime")
 	if err := os.MkdirAll(destination, 0o755); err != nil {
 		t.Fatalf("create destination: %v", err)
 	}

@@ -16,16 +16,14 @@ func TestFindManagedUsesActiveVerifiedResource(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		filename += ".exe"
 	}
-	resource := filepath.Join(root, "finesub", "runtime", name)
-	active := filepath.Join(resource, "9.0.1")
+	// The Windows FFmpeg archive keeps both tools a few directories down, in
+	// the ffmpeg tool's directory.
+	active := filepath.Join(writeToolLayer(t, root, "b2e46916329ea7c4"), "ffmpeg", "ffmpeg-n9.0.2-win64-gpl-9.0", "bin")
 	if err := os.MkdirAll(active, 0o700); err != nil {
 		t.Fatal(err)
 	}
 	executable := filepath.Join(active, filename)
 	if err := os.WriteFile(executable, []byte("fixture"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(resource, "current.json"), []byte(`{"current":"9.0.1"}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if got := findManaged(root, name); got != executable {
@@ -35,11 +33,14 @@ func TestFindManagedUsesActiveVerifiedResource(t *testing.T) {
 
 func TestFindManagedRejectsUnsafeVersionPointer(t *testing.T) {
 	root := t.TempDir()
-	resource := filepath.Join(root, "finesub", "runtime", "ffmpeg")
-	if err := os.MkdirAll(resource, 0o700); err != nil {
+	layer := filepath.Join(root, "runtime", "layers", "tools")
+	if err := os.MkdirAll(filepath.Join(root, "runtime", "escape", "ffmpeg"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(resource, "current.json"), []byte(`{"current":"../escape"}`), 0o600); err != nil {
+	if err := os.MkdirAll(layer, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(layer, "current.json"), []byte(`{"layer":"tools","schema":1,"version":"../../escape"}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if got := findManaged(root, "ffmpeg"); got != "" {
@@ -48,16 +49,46 @@ func TestFindManagedRejectsUnsafeVersionPointer(t *testing.T) {
 }
 
 // The version is arbitrary: nothing parses it, it only has to be a safe
-// directory name. It deliberately does not track any real yt-dlp release.
-const fixtureVersion = "1.2.3"
+// directory name. It deliberately does not track any real tool layer.
+const fixtureVersion = "0123456789abcdef"
 
-// writeYTDLPWheel lays out the wheel exactly as the provisioner does: an
-// unpacked package directory plus the version pointer beside it. It returns the
+// writeToolLayer lays out an installed tool layer the way the layer manager
+// leaves it -- `runtime\layers\tools\<version>\` with current.json beside it
+// -- and returns the version directory.
+func writeToolLayer(t *testing.T, root, version string) string {
+	t.Helper()
+	layer := filepath.Join(root, "runtime", "layers", "tools")
+	directory := filepath.Join(layer, version)
+	if err := os.MkdirAll(directory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	pointer := `{"layer":"tools","schema":1,"version":"` + version + `"}`
+	if err := os.WriteFile(filepath.Join(layer, "current.json"), []byte(pointer), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return directory
+}
+
+func TestFindManagedNeedsTheLayerPointer(t *testing.T) {
+	root := t.TempDir()
+	directory := filepath.Join(root, "runtime", "layers", "tools", fixtureVersion, "tokcount")
+	if err := os.MkdirAll(directory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(directory, "tokcount.exe"), []byte("fixture"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if got := findManaged(root, "tokcount"); got != "" {
+		t.Fatalf("a layer without current.json resolved to %q", got)
+	}
+}
+
+// writeYTDLPWheel lays out the wheel exactly as the tool layer has it: the
+// unpacked package under the layer's yt-dlp directory. It returns the
 // directory PYTHONPATH has to name for "import yt_dlp" to resolve.
 func writeYTDLPWheel(t *testing.T, root, version string) string {
 	t.Helper()
-	resource := filepath.Join(root, "finesub", "runtime", "yt-dlp")
-	packageRoot := filepath.Join(resource, version)
+	packageRoot := filepath.Join(writeToolLayer(t, root, version), "yt-dlp")
 	// __init__.py is the file the runtime manifest marks as required; __main__.py
 	// is what -m runs. A real wheel carries both.
 	for _, name := range []string{"__init__.py", "__main__.py"} {
@@ -68,10 +99,6 @@ func writeYTDLPWheel(t *testing.T, root, version string) string {
 		if err := os.WriteFile(module, []byte("# fixture"), 0o600); err != nil {
 			t.Fatal(err)
 		}
-	}
-	pointer := filepath.Join(resource, "current.json")
-	if err := os.WriteFile(pointer, []byte(`{"current":"`+version+`"}`), 0o600); err != nil {
-		t.Fatal(err)
 	}
 	return packageRoot
 }
