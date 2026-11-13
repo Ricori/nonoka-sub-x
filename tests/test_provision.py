@@ -1,412 +1,332 @@
+"""The runtime page's provisioner over the prebuilt layers (`nonoka_x.provision`, WP-E3).
+
+Fake layers (`tests/layer_fakes.py`) served by a local origin; `layers.json` written next to them and
+handed to the provisioner, as WP-E2 will ship it in `resources/`.
+"""
+
 from __future__ import annotations
 
 import json
 import os
-import stat
-import sys
 from pathlib import Path
+import sys
+import time
 
 import pytest
 
-from nonoka_x.provision import CANCELLED_MESSAGE, DONE_MESSAGES, OPTIONAL_TOOLS, REMOVABLE_TOOL_GROUPS, REQUIRED_TOOLS, TOOL_GROUPS, RuntimeProvisionError, RuntimeProvisioner, parse_model_install_event
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "src"))
+
+from nonoka_x import provision  # noqa: E402
+from nonoka_x import runtime_install  # noqa: E402
+from nonoka_x.provision import RuntimeProvisionError, RuntimeProvisioner  # noqa: E402
+from nonoka_x.runtime import layer_manifest as lm  # noqa: E402
+from nonoka_x.runtime.fetch import NetworkRoute  # noqa: E402
+
+from tests import layer_fakes as fakes  # noqa: E402
+
+VENDOR = ROOT / "third_party" / "finesub"
+WINDOWS = pytest.mark.skipif(os.name != "nt", reason="layers are Windows-only")
 
 
-VENDOR = Path(__file__).resolve().parents[1] / "third_party" / "finesub"
+@pytest.fixture(scope="module")
+def built(tmp_path_factory):
+    work = tmp_path_factory.mktemp("built")
+    return {layer: fakes.build_layer(work, layer) for layer in lm.LAYERS}
 
 
-def test_runtime_provision_status_uses_finesub_manifests(tmp_path: Path) -> None:
-    provisioner = RuntimeProvisioner(tmp_path, VENDOR)
-    status = provisioner.status()
-    assert status["schema"] == 1
-    assert status["root"].startswith(str(tmp_path))
-    resource_ids = {item["id"] for item in status["resources"]}
-    assert "ffmpeg" in resource_ids
-    if sys.platform == "darwin":
-        assert status["media_supported"] is True
-        assert "ffprobe" in resource_ids
-    else:
-        assert "uv" in resource_ids
-    assert {item["id"] for item in status["models"]} == {"separator", "whisper", "qwen-referee"}
+@pytest.fixture
+def origin(tmp_path_factory, built):
+    server = fakes.Origin(fakes.publish(built, tmp_path_factory.mktemp("origin")))
+    yield server
+    server.close()
 
 
-def test_runtime_is_not_reported_under_the_uv_resource_id(tmp_path: Path) -> None:
-    status = RuntimeProvisioner(tmp_path, VENDOR).status()
-    assert status["runtime"]["id"] == "python"
-    assert status["runtime"]["id"] not in {item["id"] for item in status["resources"]}
+@pytest.fixture
+def index(tmp_path, built, origin) -> Path:
+    path = tmp_path / "layers.json"
+    path.write_bytes(fakes.index_bytes(built, origin.base))
+    return path
 
 
-def test_runtime_provision_status_reports_bootstrap_failure(tmp_path: Path) -> None:
-    """A broken bootstrap disables every install control in the desktop shell,
-    so the payload has to carry the reason rather than only a tile tooltip."""
-    provisioner = RuntimeProvisioner(tmp_path, VENDOR)
-    assert provisioner.status()["bootstrap_error"] == ""
-    provisioner._bootstrap_error = "RuntimeError: manifest missing"
-    status = provisioner.status()
-    assert status["supported"] is False
-    assert status["bootstrap_error"] == "RuntimeError: manifest missing"
-    assert "manifest missing" in status["runtime"]["detail"]
+def provisioner(tmp_path: Path, index: Path, *, data: str = "data 数据", install: Path | None = None,
+                **options) -> RuntimeProvisioner:
+    layer_options = {"routes": lambda: [NetworkRoute("直连", None)], "offline": lambda: None,
+                     "in_use": lambda: False, **options}
+    return RuntimeProvisioner(tmp_path / data, VENDOR, install, index_path=index, layer_options=layer_options)
 
 
-def test_runtime_provisioner_defaults_the_install_root_under_the_data_dir(tmp_path: Path) -> None:
-    provisioner = RuntimeProvisioner(tmp_path, VENDOR)
-    assert provisioner.install_root == (tmp_path / "finesub").resolve()
+def wait(provisioner: RuntimeProvisioner, seconds: float = 60) -> dict:
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline:
+        job = provisioner.status()["job"]
+        if job["state"] != "running":
+            return job
+        time.sleep(0.05)
+    raise AssertionError("the install job did not finish")
 
 
-def test_runtime_provisioner_accepts_a_relocated_install_root(tmp_path: Path) -> None:
-    """The desktop shell moves the multi-gigabyte install root off the system
-    drive; settings and the knowledge base stay beside the data directory."""
-    data = tmp_path / "data"
-    install = tmp_path / "elsewhere" / "Nonoka X" / "finesub"
-    provisioner = RuntimeProvisioner(data, VENDOR, install)
-    assert provisioner.install_root == install.resolve()
-    assert provisioner.status()["root"] == str(install.resolve())
-    assert provisioner.paths is not None
-    assert provisioner.paths.models == install.resolve() / "models"
-    assert provisioner.paths.data_root == (data / "finesub-data").resolve()
+# --- status --------------------------------------------------------------------------------------------------
 
 
-def test_remove_managed_tree_clears_read_only_files(tmp_path: Path) -> None:
-    """uv and pip leave read-only files behind; Windows refuses to unlink them."""
-    from nonoka_x.provision import _remove_managed_tree
+@WINDOWS
+def test_status_keeps_the_runtime_page_shape_before_anything_is_installed(tmp_path, index):
+    status = provisioner(tmp_path, index).status()
 
-    target = tmp_path / "runtime"
-    (target / "nested").mkdir(parents=True)
-    locked = target / "nested" / "python.exe"
-    locked.write_bytes(b"binary")
-    locked.chmod(stat.S_IREAD)
-    _remove_managed_tree(target)
-    assert not target.exists()
-
-
-def test_remove_all_reports_failures_instead_of_raising_oserror(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """A partial removal has to reach the desktop shell as a stated reason, and
-    leave the job in a state the panel can render after it re-reads status."""
-    provisioner = RuntimeProvisioner(tmp_path, VENDOR)
-
-    def refuse(target: Path) -> None:
-        raise PermissionError(13, "被占用", str(target))
-
-    monkeypatch.setattr("nonoka_x.provision._remove_managed_tree", refuse)
-    with pytest.raises(RuntimeProvisionError, match="未能完全删除"):
-        provisioner.remove_all()
-    job = provisioner.status()["job"]
-    assert job["state"] == "failed"
-    assert job["error"]["code"] == "remove_failed"
-    assert "未能完全删除" in job["message"]
+    assert {"schema", "platform", "supported", "runtime_supported", "media_supported", "media_ready",
+            "bootstrap_error", "root", "runtime", "resources", "models", "optional_models", "job"} <= set(status)
+    assert status["supported"] and status["bootstrap_error"] == "" and not status["media_ready"]
+    assert status["runtime"]["id"] == "python" and status["runtime"]["state"] == "missing"
+    assert "下载约" in status["runtime"]["detail"]
+    ids = [item["id"] for item in status["resources"]]
+    assert "uv" not in ids and {"ffmpeg", "tokcount", "yt-dlp", "aria2c", "node", "pot-provider"} <= set(ids)
+    assert [item["id"] for item in status["models"]] == list(provision.PIPELINE_MODELS)
+    assert [item["id"] for item in status["optional_models"]] == list(provision.OPTIONAL_MODELS)
+    assert {item["id"] for item in status["layers"]} == set(lm.LAYERS)
+    assert status["job"]["state"] == "idle"
 
 
-def test_remove_tool_group_preserves_other_managed_assets(tmp_path: Path) -> None:
-    provisioner = RuntimeProvisioner(tmp_path, VENDOR)
-    assert provisioner.resources is not None
+@WINDOWS
+def test_without_layers_json_the_page_says_why_and_nothing_installs(tmp_path):
+    broken = RuntimeProvisioner(tmp_path / "data", VENDOR, index_path=tmp_path / "absent.json")
+    status = broken.status()
 
-    video_roots = []
-    for resource_id in TOOL_GROUPS["video-tools"]:
-        if resource_id not in provisioner.resources.resources:
-            continue
-        root = provisioner.resources.install_path(resource_id).parent
-        root.mkdir(parents=True, exist_ok=True)
-        (root / "fixture").write_text("video", encoding="utf-8")
-        video_roots.append(root)
-
-    preserved = provisioner.resources.install_path("tokcount").parent
-    preserved.mkdir(parents=True, exist_ok=True)
-    (preserved / "fixture").write_text("optional", encoding="utf-8")
-
-    status = provisioner.remove_tool_group("video-tools")
-    assert video_roots and all(not root.exists() for root in video_roots)
-    assert preserved.is_dir()
-    assert status["job"]["target"] == "remove-video-tools"
-    assert "其他运行时与模型保持不变" in status["job"]["message"]
+    assert not status["supported"] and "layers" in status["bootstrap_error"].lower()
+    assert status["runtime"]["state"] == "missing" and status["resources"] == []
+    with pytest.raises(RuntimeProvisionError, match="运行环境层不可用"):
+        broken.start("all")
+    assert broken.worker_python() is None and broken.tool_path("ffmpeg") is None
 
 
-def test_remove_tool_group_rejects_required_assets(tmp_path: Path) -> None:
-    provisioner = RuntimeProvisioner(tmp_path, VENDOR)
-    with pytest.raises(RuntimeProvisionError, match="仅支持卸载"):
-        provisioner.remove_tool_group("runtime")
+def test_the_big_file_root_defaults_under_the_data_dir_and_follows_install_dir(tmp_path, index):
+    default = provisioner(tmp_path, index)
+    assert default.install_root == (tmp_path / "data 数据" / "runtime").resolve()
+    moved = provisioner(tmp_path, index, install=tmp_path / "D 盘" / "Nonoka X" / "runtime")
+    assert moved.install_root == (tmp_path / "D 盘" / "Nonoka X" / "runtime").resolve()
+    assert moved.paths.layers == moved.install_root / "layers"
 
 
-@pytest.mark.skipif(sys.platform == "win32", reason="non-Windows platform gate")
-def test_runtime_install_refuses_unsupported_platform(tmp_path: Path) -> None:
-    provisioner = RuntimeProvisioner(tmp_path, VENDOR)
-    assert provisioner.status()["supported"] is False
-    with pytest.raises(RuntimeProvisionError, match="Windows x64"):
-        provisioner.start("all")
+def test_an_unsupported_platform_installs_nothing(tmp_path, index, monkeypatch):
+    monkeypatch.setattr(sys, "platform", "linux")
+    other = provisioner(tmp_path, index)
+
+    assert not other.status()["runtime_supported"]
+    with pytest.raises(RuntimeProvisionError, match="Windows x64 only"):
+        other.start("runtime")
+    with pytest.raises(RuntimeProvisionError, match="FFmpeg is unavailable"):
+        other.start("media")
 
 
-@pytest.mark.skipif(sys.platform != "darwin", reason="macOS managed media resources")
-def test_macos_manifests_pin_both_media_tools() -> None:
-    resource_root = Path(__file__).resolve().parents[1] / "src" / "nonoka_x" / "resources"
-    for architecture in ("arm64", "amd64"):
-        manifest = json.loads(
-            (resource_root / f"runtime-manifest.macos-{architecture}.json").read_text(encoding="utf-8")
-        )
-        resources = {item["id"]: item for item in manifest["resources"]}
-        assert set(resources) == {"ffmpeg", "ffprobe"}
-        for item in resources.values():
-            assert item["asset"]["size"] > 0
-            assert len(item["asset"]["sha256"]) == 64
+# --- install jobs --------------------------------------------------------------------------------------------
 
 
-@pytest.mark.skipif(sys.platform != "darwin", reason="macOS managed media resources")
-def test_macos_managed_tools_are_added_to_worker_path(tmp_path: Path) -> None:
-    provisioner = RuntimeProvisioner(tmp_path, VENDOR)
-    assert provisioner.resources is not None
-    for name in ("ffmpeg", "ffprobe"):
-        destination = provisioner.resources.install_path(name) / name
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        destination.write_bytes(b"fixture")
-        destination.chmod(0o755)
-        (destination.parent.parent / "current.json").write_text('{"current":"9.0.1"}', encoding="utf-8")
-        assert provisioner.tool_path(name) == destination
-    path_entries = provisioner.worker_environment()["PATH"].split(os.pathsep)
-    assert str(provisioner.tool_path("ffmpeg").parent) in path_entries
-    assert str(provisioner.tool_path("ffprobe").parent) in path_entries
+@WINDOWS
+def test_all_installs_the_three_layers_and_workers_find_them(tmp_path, index, built, monkeypatch):
+    monkeypatch.setattr(runtime_install, "msvc_runtime_problem", lambda **_: None)
+    page = provisioner(tmp_path, index)
+
+    page.start("all")
+    job = wait(page)
+
+    assert job["state"] == "completed" and job["message"] == provision.DONE_MESSAGES["all"]
+    status = page.status()
+    assert status["runtime"]["state"] == "ready" and status["media_ready"]
+    assert all(item["state"] == "ready" for item in status["resources"] + status["models"] + status["optional_models"])
+    models = page.paths.layer_version("models", built["models"].version)
+    assert page.worker_python() == page.paths.layer_version("python", built["python"].version) / "python.exe"
+    environment = page.worker_environment()
+    assert environment["FINESUB_MODEL_DIR"] == str(models)
+    assert environment["HF_HOME"] == str(models / "huggingface")
+    assert environment["TORCH_HOME"] == str(models / "torch")
+    assert "UV_CACHE_DIR" not in environment or environment["UV_CACHE_DIR"] == os.environ.get("UV_CACHE_DIR")
+    tools = page.paths.layer_version("tools", built["tools"].version)
+    assert environment["PATH"].split(os.pathsep)[:2] == [str(tools / "ffmpeg" / "ffmpeg-n9" / "bin"),
+                                                         str(tools / "tokcount")]
+    assert environment["PYTHONPATH"].split(os.pathsep)[0] == str(tools / "yt-dlp")
 
 
-@pytest.mark.skipif(sys.platform != "win32", reason="Windows FFmpeg resource")
-def test_ffmpeg_is_pinned_and_a_copy_from_before_the_pin_keeps_serving(tmp_path: Path) -> None:
-    provisioner = RuntimeProvisioner(tmp_path, VENDOR)
-    assert provisioner.resources is not None
-    asset = provisioner.resources.resources["ffmpeg"].asset
-    assert asset.size > 0 and len(asset.sha256) == 64
+@WINDOWS
+def test_media_installs_the_tool_layer_alone(tmp_path, index, origin):
+    page = provisioner(tmp_path, index)
+    page.start("media")
 
-    root = provisioner.resources.install_path("ffmpeg").parent
-    tools = root / "n9.0-latest" / "ffmpeg-n9.0-latest-win64-gpl-9.0" / "bin"
-    tools.mkdir(parents=True)
-    for name in ("ffmpeg", "ffprobe"):
-        (tools / f"{name}.exe").write_bytes(b"fixture")
-    (root / "current.json").write_text('{"current":"n9.0-latest"}', encoding="utf-8")
-
-    assert provisioner.tool_path("ffmpeg") == tools / "ffmpeg.exe"
-    assert provisioner.tool_path("ffprobe") == tools / "ffprobe.exe"
-    status = provisioner.status()
-    assert status["media_ready"] is True
-    row = next(item for item in status["resources"] if item["id"] == "ffmpeg")
-    assert (row["state"], row["installed_version"]) == ("outdated", "n9.0-latest")
+    assert wait(page)["state"] == "completed"
+    status = page.status()
+    assert status["media_ready"] and status["runtime"]["state"] == "missing"
+    assert {path for path, _ in origin.archive_requests()} == {"/" + item for item in [
+        json.loads(index.read_text())["layers"]["tools"]["archive"]["path"]]}
 
 
-def test_runtime_progress_can_aggregate_multiple_resource_downloads(tmp_path: Path) -> None:
-    provisioner = RuntimeProvisioner(tmp_path, VENDOR)
+@WINDOWS
+def test_an_unusable_vc_runtime_stops_the_python_layer_before_downloading(tmp_path, index, origin, monkeypatch):
+    monkeypatch.setattr(runtime_install, "msvc_runtime_problem", lambda **_: "缺少 VC++ 运行库")
+    page = provisioner(tmp_path, index)
 
-    class Progress:
-        total = 40
-        downloaded = 15
-        bytes_per_second = 1024.0
+    page.start("runtime")
+    job = wait(page)
 
-    provisioner._progress(Progress(), completed_before=40, total_override=100)
-    progress = provisioner.status()["job"]["progress"]
-    assert progress == {
-        "completed": 55,
-        "total": 100,
-        "unit": "bytes",
-        "bytes_per_second": 1024.0,
-    }
+    assert job["state"] == "failed" and "缺少 VC++ 运行库" in job["message"]
+    assert origin.archive_requests() == []
+    # The tools alone do not need it.
+    page.start("media")
+    assert wait(page)["state"] == "completed"
 
 
-def test_cancel_requires_a_running_job(tmp_path: Path) -> None:
-    provisioner = RuntimeProvisioner(tmp_path, VENDOR)
+@WINDOWS
+def test_a_root_too_deep_fails_the_job_with_its_own_code(tmp_path, index, origin):
+    deep = tmp_path / ("d" * 120) / ("e" * 70)
+    page = provisioner(tmp_path, index, install=deep)
+
+    page.start("runtime")
+    job = wait(page)
+
+    assert job["state"] == "failed" and job["error"]["code"] == "install_path_too_deep"
+    assert "安装位置太深" in job["message"] and origin.archive_requests() == []
+
+
+@WINDOWS
+def test_progress_is_reported_in_bytes_per_layer(tmp_path, index, monkeypatch):
+    page = provisioner(tmp_path, index)
+    seen: list[dict] = []
+    original = page._layer_progress
+
+    def record(value):
+        original(value)
+        seen.append(dict(page._job))
+
+    monkeypatch.setattr(page, "_layer_progress", record)
+    page.start("media")
+    wait(page)
+
+    assert {item["stage"] for item in seen} >= {"manifest", "downloading", "unpacking", "checking"}
+    assert all(item["resource"] == "tools" for item in seen)
+    assert all(item["progress"] is None or item["progress"]["unit"] == "bytes" for item in seen)
+
+
+def test_cancel_requires_a_running_job(tmp_path, index):
     with pytest.raises(RuntimeProvisionError, match="没有正在进行"):
-        provisioner.cancel()
+        provisioner(tmp_path, index).cancel()
 
 
-def test_cancelled_job_stops_before_downloading_and_is_not_a_failure(tmp_path: Path) -> None:
-    provisioner = RuntimeProvisioner(tmp_path, VENDOR)
-    provisioner._job.update(state="running", target="all", stage="preparing")
-    provisioner.cancel()
-    assert provisioner.status()["job"]["message"].startswith("正在取消")
+@WINDOWS
+def test_a_cancelled_job_is_not_a_failure(tmp_path, index):
+    page = provisioner(tmp_path, index)
+    page._cancel.set()
+    page._job["state"] = "running"
+    page._run("media")
 
-    provisioner._run("all")
-    job = provisioner.status()["job"]
-    assert job["state"] == "cancelled"
-    assert job["message"] == CANCELLED_MESSAGE
-    assert job["error"] is None
+    job = page.status()["job"]
+    assert job["state"] == "cancelled" and job["message"] == provision.CANCELLED_MESSAGE and job["error"] is None
 
 
-def test_completion_copy_tells_runtime_only_apart_from_full_prepare() -> None:
-    assert DONE_MESSAGES["runtime"] != DONE_MESSAGES["all"]
-    assert "模型仍需单独下载" in DONE_MESSAGES["runtime"]
+def test_every_target_names_its_layers_and_its_words():
+    assert set(runtime_install.TARGET_LAYERS) == provision.TARGETS
+    assert set(provision.START_MESSAGES) == set(provision.DONE_MESSAGES) == provision.TARGETS
+    assert runtime_install.layers_for("runtime") == ("tools", "python")
+    assert runtime_install.ordered(["models", "python", "tools"]) == ("tools", "python", "models")
+    assert "模型仍需单独下载" in provision.DONE_MESSAGES["runtime"]
 
 
-def test_model_installer_events_are_validated_before_updating_ui() -> None:
-    event = parse_model_install_event(
-        '{"type":"progress","resource":"whisper","completed":25,"total":100,"bytes_per_second":12.5,"message":"下载中"}',
-        "whisper",
-    )
-    assert event == {
-        "type": "progress",
-        "completed": 25,
-        "total": 100,
-        "bytes_per_second": 12.5,
-        "message": "下载中",
-    }
-    assert parse_model_install_event("ordinary log output", "whisper") is None
-    assert parse_model_install_event('{"type":"progress","resource":"other"}', "whisper") is None
+@WINDOWS
+def test_repair_reinstalls_only_a_layer_that_is_off(tmp_path, index, origin, built):
+    page = provisioner(tmp_path, index)
+    page.start("media")
+    wait(page)
+    tokcount = page.tool_path("tokcount")
+    tokcount.write_bytes(b"MZ tokcounX")
+    origin.requests.clear()
+
+    page.start("repair")
+    assert wait(page)["state"] == "completed"
+    assert tokcount.read_bytes() == b"MZ tokcount"
+    assert len(origin.archive_requests()) == 1  # the tool layer; the others were never installed
 
 
-def test_optional_tools_are_explicit_install_targets() -> None:
-    assert OPTIONAL_TOOLS == ("yt-dlp", "aria2c", "node", "pot-provider")
-    assert TOOL_GROUPS["video-tools"] == ("yt-dlp", "aria2c", "node", "pot-provider")
-    assert all(tool in OPTIONAL_TOOLS for tool in TOOL_GROUPS["video-tools"])
-    assert all(tool in DONE_MESSAGES for tool in OPTIONAL_TOOLS)
+# --- removal, caches, unused layers ----------------------------------------------------------------------------
 
 
-def test_tokcount_is_required_and_cannot_be_removed() -> None:
-    assert REQUIRED_TOOLS == ("tokcount",)
-    assert all(tool in DONE_MESSAGES for tool in REQUIRED_TOOLS)
-    assert not any("tokcount" in TOOL_GROUPS[group] for group in REMOVABLE_TOOL_GROUPS)
+@WINDOWS
+def test_remove_all_takes_the_layers_and_keeps_tasks_and_settings(tmp_path, index):
+    page = provisioner(tmp_path, index)
+    page.start("media")
+    wait(page)
+    task = page.paths.tasks / "t1"
+    task.mkdir(parents=True)
+    (task / "snapshot.json").write_text('{"state": "completed"}', encoding="utf-8")
+    (page.paths.data / "settings.json").write_text("{}", encoding="utf-8")
+
+    status = page.remove_all()
+
+    assert status["job"]["target"] == "remove-all" and status["job"]["state"] == "completed"
+    left = [entry.name for entry in page.paths.layer("tools").iterdir()]
+    assert left == [".install.lock"]  # no version, no pointer; the lock file stays, as lock files do
+    assert status["resources"][0]["state"] == "missing"
+    assert (task / "snapshot.json").is_file() and (page.paths.data / "settings.json").is_file()
 
 
-def _startup_provisioner(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, state: str, system: str | None) -> tuple[RuntimeProvisioner, list[str]]:
-    provisioner = RuntimeProvisioner(tmp_path, VENDOR)
-    provisioner._runtime_supported = True
-    monkeypatch.setattr("nonoka_x.provision.shutil.which", lambda _name: system)
-    monkeypatch.setattr(provisioner.resources, "status", lambda _id: type("Status", (), {"state": state})())
-    started: list[str] = []
-    monkeypatch.setattr(provisioner, "start", started.append)
-    return provisioner, started
+@WINDOWS
+def test_remove_all_waits_for_unfinished_tasks(tmp_path, index):
+    page = provisioner(tmp_path, index, in_use=lambda: True)
+    with pytest.raises(RuntimeProvisionError, match="未结束的任务"):
+        page.remove_all()
 
 
-def test_startup_fetches_a_missing_required_tool(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    provisioner, started = _startup_provisioner(tmp_path, monkeypatch, state="missing", system=None)
-    provisioner.ensure_required_tools()
-    assert started == ["tokcount"]
+def test_the_video_tools_cannot_be_removed_on_their_own(tmp_path, index):
+    with pytest.raises(RuntimeProvisionError, match="并入工具层"):
+        provisioner(tmp_path, index).remove_tool_group("video-tools")
+    with pytest.raises(RuntimeProvisionError, match="仅支持"):
+        provisioner(tmp_path, index).remove_tool_group("tokcount")
 
 
-def test_startup_leaves_an_installed_or_system_tool_alone(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    provisioner, started = _startup_provisioner(tmp_path, monkeypatch, state="ready", system=None)
-    provisioner.ensure_required_tools()
-    assert started == []
-    provisioner, started = _startup_provisioner(tmp_path, monkeypatch, state="missing", system="C:/tools/tokcount.exe")
-    provisioner.ensure_required_tools()
-    assert started == []
+def test_cache_usage_and_clear_cache_cover_the_downloads(tmp_path, index):
+    page = provisioner(tmp_path, index)
+    downloads = page.paths.cache / "downloads"
+    downloads.mkdir(parents=True)
+    (downloads / "abc.tar.zst.part").write_bytes(b"x" * 1000)
+    state = page.paths.cache / "state"
+    state.mkdir()
+    (state / "keep.json").write_text("{}", encoding="utf-8")
+
+    assert page.cache_usage() == {"schema": 1, "bytes": 1000, "reclaimable": 1000, "files": 1}
+    result = page.clear_cache()
+
+    assert result["freed"] == 1000 and result["failures"] == [] and not any(downloads.iterdir())
+    assert (state / "keep.json").is_file()
 
 
-def test_remove_all_preserves_tasks_and_user_data(tmp_path: Path) -> None:
-    provisioner = RuntimeProvisioner(tmp_path, VENDOR)
-    assert provisioner.paths is not None
-    replaceable = (
-        provisioner.paths.runtime,
-        provisioner.paths.models,
-        provisioner.paths.cache,
-        provisioner.paths.agent_capsules,
-    )
-    for directory in replaceable:
-        directory.mkdir(parents=True, exist_ok=True)
-        (directory / "fixture").write_text("replaceable", encoding="utf-8")
-    task = provisioner.paths.tasks / "task.json"
-    task.parent.mkdir(parents=True, exist_ok=True)
-    task.write_text("important", encoding="utf-8")
-    user_data = provisioner.paths.user_data / "settings.json"
-    user_data.parent.mkdir(parents=True, exist_ok=True)
-    user_data.write_text("important", encoding="utf-8")
-
-    status = provisioner.remove_all()
-
-    assert all(not directory.exists() for directory in replaceable)
-    assert task.read_text(encoding="utf-8") == "important"
-    assert user_data.read_text(encoding="utf-8") == "important"
-    assert status["job"]["target"] == "remove-all"
-
-
-def test_optional_models_are_listed_and_installable_on_their_own(tmp_path: Path) -> None:
-    from nonoka_x.model_install import DIARIZATION_MODEL_IDS
-    from nonoka_x.provision import OPTIONAL_MODELS, OPTIONAL_MODELS_TARGET, START_MESSAGES, TARGETS
-
-    assert OPTIONAL_MODELS == DIARIZATION_MODEL_IDS
-    assert OPTIONAL_MODELS_TARGET in TARGETS
-    assert OPTIONAL_MODELS_TARGET in START_MESSAGES and OPTIONAL_MODELS_TARGET in DONE_MESSAGES
-    status = RuntimeProvisioner(tmp_path, VENDOR).status()
-    assert [item["id"] for item in status["optional_models"]] == list(OPTIONAL_MODELS)
-    assert all(item["state"] == "missing" for item in status["optional_models"])
-    # Never part of the required set: a missing one blocks nothing.
-    assert not set(OPTIONAL_MODELS) & {item["id"] for item in status["models"]}
-
-
-def test_a_runtime_built_for_an_older_lock_is_outdated_not_missing(tmp_path: Path) -> None:
-    provisioner = RuntimeProvisioner(tmp_path, VENDOR)
-    runtime = provisioner.runtime
-    if runtime is None:
-        pytest.skip("no managed runtime on this platform")
-    runtime.python_executable.parent.mkdir(parents=True, exist_ok=True)
-    runtime.python_executable.write_bytes(b"")
-    runtime.marker_path.parent.mkdir(parents=True, exist_ok=True)
-    runtime.marker_path.write_text(
-        json.dumps({"schemaVersion": 2, "pythonVersion": "3.12", "runtimeLockHash": "0" * 64}),
-        encoding="utf-8",
-    )
-    state = provisioner.status()["runtime"]
-    assert state["state"] == "outdated"
-    assert "更新" in state["detail"]
-
-    # A runtime directory that lost its interpreter is damage, not an upgrade.
-    runtime.python_executable.unlink()
-    assert provisioner.status()["runtime"]["state"] == "missing"
-
-
-def _fill_runtime_cache(provisioner: RuntimeProvisioner) -> tuple[Path, Path]:
-    assert provisioner.paths is not None
-    cache = provisioner.paths.cache
-    for name, size in (("uv", 300), ("runtime-wheels", 200), ("downloads", 100)):
-        (cache / name / "nested").mkdir(parents=True, exist_ok=True)
-        (cache / name / "nested" / "blob.bin").write_bytes(b"x" * size)
-    state = cache / "state" / "state.json"
-    state.parent.mkdir(parents=True, exist_ok=True)
-    state.write_text("{}", encoding="utf-8")
-    installed = provisioner.paths.runtime / "linked.bin"
-    installed.parent.mkdir(parents=True, exist_ok=True)
-    os.link(cache / "uv" / "nested" / "blob.bin", installed)
-    return state, installed
-
-
-def test_cache_usage_leaves_out_files_hardlinked_into_the_runtime(tmp_path: Path) -> None:
-    provisioner = RuntimeProvisioner(tmp_path, VENDOR)
-    _fill_runtime_cache(provisioner)
-    usage = provisioner.cache_usage()
-    assert usage["bytes"] == 600
-    assert usage["files"] == 3
-    # The uv blob is also the runtime's file: deleting it frees nothing.
-    assert usage["reclaimable"] == 300
-
-
-def test_clear_cache_empties_download_caches_and_keeps_state_and_runtime(tmp_path: Path) -> None:
-    provisioner = RuntimeProvisioner(tmp_path, VENDOR)
-    state, installed = _fill_runtime_cache(provisioner)
-    assert provisioner.paths is not None
-    job_before = provisioner.status()["job"]
-
-    result = provisioner.clear_cache()
-
-    assert result["freed"] == 300
-    assert result["removed"] == 600
-    assert result["failures"] == []
-    assert result["bytes"] == 0
-    for name in ("uv", "runtime-wheels", "downloads"):
-        entry = provisioner.paths.cache / name
-        assert entry.is_dir() and not any(entry.iterdir())
-    assert state.read_text(encoding="utf-8") == "{}"
-    assert installed.read_bytes() == b"x" * 300
-    assert provisioner.status()["job"] == job_before
-
-
-def test_clear_cache_refuses_while_an_install_is_running(tmp_path: Path) -> None:
-    provisioner = RuntimeProvisioner(tmp_path, VENDOR)
-    _fill_runtime_cache(provisioner)
-    provisioner._job["state"] = "running"
+def test_clear_cache_refuses_while_an_install_is_running(tmp_path, index):
+    page = provisioner(tmp_path, index)
+    page._job["state"] = "running"
     with pytest.raises(RuntimeProvisionError, match="安装任务运行中"):
-        provisioner.clear_cache()
-    assert provisioner.cache_usage()["bytes"] == 600
+        page.clear_cache()
 
 
-def test_clear_cache_reports_entries_it_could_not_remove(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    provisioner = RuntimeProvisioner(tmp_path, VENDOR)
-    _fill_runtime_cache(provisioner)
+@WINDOWS
+def test_unused_layers_are_listed_and_removed(tmp_path, index):
+    page = provisioner(tmp_path, index)
+    stray = page.paths.layer("python") / "0123456789abcdef"
+    stray.mkdir(parents=True)
+    (stray / "python.exe").write_bytes(b"x" * 10)
 
-    def refuse(target: Path) -> None:
-        raise PermissionError(13, "被占用", str(target))
+    listed = page.unused_layers()
+    assert listed["bytes"] == 10 and listed["unused"][0]["layer"] == "python"
+    assert page.status()["unused_bytes"] == 10
 
-    monkeypatch.setattr("nonoka_x.provision._remove_managed_tree", refuse)
-    result = provisioner.clear_cache()
-    assert result["freed"] == 0
-    assert result["failures"] == ["uv/nested（被占用）", "runtime-wheels/nested（被占用）", "downloads/nested（被占用）"]
-    # A failed clear must not leave installs locked out.
-    assert provisioner._clearing_cache is False
+    removed = page.remove_unused_layers()
+    assert removed["freed"] == 10 and not stray.exists()
+
+
+@WINDOWS
+def test_a_system_tokcount_serves_while_the_tool_layer_is_missing(tmp_path, index, monkeypatch):
+    monkeypatch.setattr(provision.shutil, "which", lambda name: r"C:\tools\tokcount.exe" if name == "tokcount" else None)
+    status = provisioner(tmp_path, index).status()
+    tokcount = next(item for item in status["resources"] if item["id"] == "tokcount")
+
+    assert tokcount["state"] == "ready" and tokcount["source"] == "system"
+    assert next(item for item in status["resources"] if item["id"] == "ffmpeg")["state"] == "missing"
+
+
+def test_startup_has_no_separate_tool_fetch_any_more(tmp_path, index, monkeypatch):
+    page = provisioner(tmp_path, index)
+    monkeypatch.setattr(page, "start", lambda target: pytest.fail("nothing to start"))
+    page.ensure_required_tools()

@@ -12,13 +12,16 @@ fails instead.
 Settings, knowledge base and engine state come from a fresh directory beside
 the run, so the user's own configuration does not leak in.
 
-`NONOKA_QUALITY_PYTHON` names another interpreter to run the worker with in
-place of the managed runtime's (`worker_python`), for an environment built
-outside the install root -- a python-build-standalone with the lock installed
-straight into it (plan 4.2 item 14, WP-R1). Models and tools still come from
-the runtime `locate_runtime` finds, read as before; only the interpreter, and
-with it the installed packages, changes. The managed runtime's own
-readiness (its venv and version marker) is then not asked for.
+The managed runtime is the prebuilt layers (WP-E3): the worker runs on the
+Python environment layer's interpreter, with the model layer as its model
+directory and the tool layer's executables, all of the big-file root
+`locate_runtime` finds (`NONOKA_QUALITY_INSTALL_DIR`, e.g. a root the layer
+manager installed into). `NONOKA_QUALITY_PYTHON` names another interpreter to
+run the worker with in place of the Python layer's (`worker_python`), for an
+environment built outside the root -- a python-build-standalone with the lock
+installed straight into it (plan 4.2 item 14, WP-R1); models and tools still
+come from the located root. The Python layer's own readiness is then not
+asked for.
 
 Layout under `test_data/quality-baseline/real/` (never committed: `test_data/`
 is ignored):
@@ -102,19 +105,19 @@ def without_run_timings(value: Any, *, top: bool = True) -> Any:
 
 
 def locate_runtime() -> tuple[Path, Path | None]:
-    """The data dir and install dir of a FineSub runtime on this machine.
+    """The data dir and big-file root (`runtime`, holding `layers`) of the managed runtime on this machine.
 
     `NONOKA_QUALITY_DATA_DIR` / `NONOKA_QUALITY_INSTALL_DIR` win; otherwise the
     development data dir (`.local`, `scripts/run_local_sidecar.py`) when it has
-    a runtime, then the installed app's (`%APPDATA%/Nonoka X`, whose
-    `storage.json` names where the large install root went).
+    installed layers, then the installed app's (`%APPDATA%/Nonoka X`, whose
+    `storage.json` names where the big-file root went).
     """
 
     if os.environ.get("NONOKA_QUALITY_DATA_DIR"):
         install = os.environ.get("NONOKA_QUALITY_INSTALL_DIR")
         return Path(os.environ["NONOKA_QUALITY_DATA_DIR"]), Path(install) if install else None
     development = ROOT / ".local"
-    if (development / "finesub" / "runtime").is_dir():
+    if (development / "runtime" / "layers").is_dir():
         return development, None
     appdata = Path(os.environ.get("APPDATA", "")) / "Nonoka X"
     storage = appdata / "storage.json"
@@ -123,6 +126,23 @@ def locate_runtime() -> tuple[Path, Path | None]:
         runtime_dir = json.loads(storage.read_text(encoding="utf-8")).get("runtimeDir")
         install = Path(runtime_dir) if runtime_dir else None
     return appdata, install
+
+
+def layers_index() -> Path | None:
+    """The `layers.json` `NONOKA_QUALITY_LAYERS_INDEX` names, or None for the one this build ships.
+
+    For a root installed from another index than `resources/layers.json` (before WP-E2 publishes it,
+    or a test origin).
+    """
+
+    named = os.environ.get("NONOKA_QUALITY_LAYERS_INDEX")
+    return Path(named) if named else None
+
+
+def provisioner_for(data_dir: Path, install_dir: Path | None, index: Path | None = None):
+    from nonoka_x.provision import RuntimeProvisioner
+
+    return RuntimeProvisioner(data_dir, VENDOR, install_dir, index_path=index if index is not None else layers_index())
 
 
 def python_override() -> Path | None:
@@ -137,10 +157,9 @@ def runtime_issues() -> list[str]:
 
     sys.path[:0] = [str(ROOT / "src"), str(VENDOR_SOURCE)]
     from nonoka_x.model_install import INSTALLABLE_MODEL_IDS, missing_managed_models
-    from nonoka_x.provision import RuntimeProvisioner
 
     data_dir, install_dir = locate_runtime()
-    provisioner = RuntimeProvisioner(data_dir, VENDOR, install_dir)
+    provisioner = provisioner_for(data_dir, install_dir)
     issues = []
     if provisioner._bootstrap_error:
         issues.append(f"bootstrap: {provisioner._bootstrap_error}")
@@ -149,10 +168,10 @@ def runtime_issues() -> list[str]:
         if not override.is_file():
             issues.append(f"NONOKA_QUALITY_PYTHON is not a file: {override}")
     elif provisioner.worker_python() is None:
-        issues.append(f"no ready managed runtime under {provisioner.install_root}")
-    elif provisioner._runtime_outdated():
-        issues.append("the managed runtime does not match this vendor's lock")
-    models = provisioner.worker_environment().get("FINESUB_MODEL_DIR")
+        python = provisioner.layers.state("python") if provisioner.layers is not None else None
+        issues.append(f"no ready Python environment layer under {provisioner.install_root}"
+                      + (f" ({python.state}: {'; '.join(python.problems[:3])})" if python is not None else ""))
+    models = str(provisioner.model_root()) if provisioner.model_root() is not None else None
     missing = missing_managed_models(Path(models), INSTALLABLE_MODEL_IDS) if models else ("all",)
     if missing:
         issues.append(f"models missing (would be downloaded): {', '.join(missing)}")
@@ -173,7 +192,6 @@ def _worker_launch(run_dir: Path) -> tuple[list[str], dict[str, str], Path, list
 
     sys.path[:0] = [str(ROOT / "src"), str(VENDOR_SOURCE)]
     from nonoka_x import local_provider
-    from nonoka_x.provision import RuntimeProvisioner
     from nonoka_x.settings import FineSubSettings
 
     from .hygiene import scrubbed_environment
@@ -183,6 +201,7 @@ def _worker_launch(run_dir: Path) -> tuple[list[str], dict[str, str], Path, list
     # e.g. the WP-E1 layers staged as an install root) both have to survive it.
     override = python_override()
     data_dir, install_dir = locate_runtime()
+    index = layers_index()
     saved = dict(os.environ)
     clean, removed = scrubbed_environment()
     os.environ.clear()
@@ -190,7 +209,7 @@ def _worker_launch(run_dir: Path) -> tuple[list[str], dict[str, str], Path, list
     try:
         settings = FineSubSettings(run_dir / "config")
         settings.bind_environment()
-        provisioner = RuntimeProvisioner(data_dir, VENDOR, install_dir)
+        provisioner = provisioner_for(data_dir, install_dir, index)
         provider = local_provider.LocalProvider(
             run_dir / "tasks", VENDOR, settings=settings, provisioner=provisioner, issues=[]
         )

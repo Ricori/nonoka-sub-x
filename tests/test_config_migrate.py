@@ -379,7 +379,8 @@ def test_the_migration_command_runs_the_settings_step(tmp_path):
 
     data = _old_install(tmp_path / "Nonoka X")
     (data / "finesub" / "runtime" / "python").mkdir(parents=True)
-    hooks = deferred.available_hooks()
+    # Only the settings step: the layer steps (WP-E3) would reach R2.
+    hooks = {deferred.SETTINGS: deferred.available_hooks()[deferred.SETTINGS]}
     plan = migration.prepare(data, hooks=hooks)
     step = next(step for step in plan.steps if step.id == deferred.SETTINGS)
     assert step.hooked and step.actions

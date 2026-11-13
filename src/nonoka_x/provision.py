@@ -1,4 +1,17 @@
-"""FineSub-native managed runtime and model provisioning for the desktop sidecar."""
+"""The desktop's runtime page over the prebuilt layers: status, install jobs, repair and removal (WP-E3).
+
+The managed environment is three layers (plan 4.2 items 14, 19) -- the Python environment, the
+models, the tools -- installed by `nonoka_x.runtime.layers.LayerManager` under the big-file root
+(`runtime\\layers\\<layer>\\<version>\\`, 4.4 item 24). No venv is built, uv is not run and nothing is
+fetched from Hugging Face: each layer is one archive, from the offline package or downloaded through
+Nonoka's proxy setting, checked against its manifest before `current.json` moves.
+
+The status payload keeps the shape the runtime page reads (`desktop/frontend/src/bridge/runtime.ts`):
+`runtime` is the Python layer, `resources` the tools of the tool layer, `models` /
+`optional_models` the model layer's models; `layers` and `unused_layers` are new, for WP-UI's
+"clean up unused". An install target names what the page offers; each maps to the layers it needs
+(`runtime_install.TARGET_LAYERS`), so installing any tool installs the whole tool layer.
+"""
 
 from __future__ import annotations
 
@@ -7,88 +20,75 @@ import os
 import platform
 import shutil
 import stat
-import subprocess
 import sys
 import threading
-import time
-from collections import deque
 from pathlib import Path
 from typing import Any
 
-from nonoka_x.download_route import (
-    DownloadTooSlow,
-    SpeedWatch,
-    apply_proxy_environment,
-    climb_huggingface,
-    live_proxy,
-    proxy_label,
-    speed_watched,
-)
-
-#: Where the installer's own two assets sit inside the FineSub snapshot. They
-#: used to live under `resources/` and `runtime/`; upstream 0.5.0 made them
-#: package data, resolved by `finesub_bootstrap.resources` and `.environment`
-#: with `Path(__file__).with_name(...)`, so the snapshot no longer carries a
-#: copy anywhere else -- and a copy elsewhere would be the one nobody reads.
-VENDOR_BOOTSTRAP = Path("src") / "finesub_bootstrap"
+from nonoka_x.download_route import apply_proxy_environment, live_proxy, proxy_label
+from nonoka_x.runtime import layer_manifest as lm
+from nonoka_x.runtime.paths import NonokaPaths
 
 OPTIONAL_TOOLS = ("yt-dlp", "aria2c", "node", "pot-provider")
-#: Installed with the runtime, and fetched at startup by installations that
-#: predate the requirement. Never removable.
+#: Part of the tool layer like every other tool; never removable.
 REQUIRED_TOOLS = ("tokcount",)
 
 # 按组安装
 TOOL_GROUPS = {
     "video-tools": ("yt-dlp", "aria2c", "node", "pot-provider"),
 }
+#: The runtime page still offers removing the video tools; they are part of the tool layer now, so
+#: `remove_tool_group` explains instead of removing.
 REMOVABLE_TOOL_GROUPS = frozenset(TOOL_GROUPS)
 #: Models only some runs need: speaker diarization's default backend
-#: (`model_install.DIARIZATION_MODEL_IDS`). Listed and installable on their own,
-#: never part of `models` / `all`, and never a reason a transcription is blocked.
+#: (`model_install.DIARIZATION_MODEL_IDS`). Listed on their own and never a reason a transcription is
+#: blocked; they come with the model layer like the others.
 OPTIONAL_MODELS = ("nemotron3", "speaker-embedding")
 OPTIONAL_MODELS_TARGET = "optional-models"
-TARGETS = {"media", "runtime", "models", "all", OPTIONAL_MODELS_TARGET, *OPTIONAL_TOOLS, *REQUIRED_TOOLS, *TOOL_GROUPS}
+REPAIR_TARGET = "repair"
+TARGETS = {"media", "runtime", "models", "all", OPTIONAL_MODELS_TARGET, REPAIR_TARGET,
+           *OPTIONAL_TOOLS, *REQUIRED_TOOLS, *TOOL_GROUPS}
 PIPELINE_MODELS = ("separator", "whisper", "qwen-referee")
-#: The Windows FFmpeg resource from before the build was pinned.
-UNPINNED_FFMPEG_VERSION = "n9.0-latest"
-UNPINNED_FFMPEG_DIRECTORY = "ffmpeg-n9.0-latest-win64-gpl-9.0"
 
-#: What an installed runtime whose dependency lock moved on is told: an engine
-#: sync changed the pinned packages, so the environment is rebuilt from the new
-#: lock -- with unchanged wheels reused from the local cache.
-RUNTIME_OUTDATED_DETAIL = "引擎依赖有变化，需要更新 Python 运行环境（只下载有变化的部分）"
-
-# The two runtime buttons differ only in how far they go, so each target says so
-# in its own words: a shared "已准备就绪" told the user models were ready after a
-# runtime-only install, which is exactly the confusion these messages exist to
-# prevent.
+# The two runtime buttons differ only in how far they go, so each target says so in its own words.
 START_MESSAGES = {
-    "media": "正在准备下载 FFmpeg",
+    "media": "正在准备下载工具层（FFmpeg 等）",
     "runtime": "正在准备安装运行时（不含模型）",
-    "models": "正在准备下载缺失的模型",
-    "all": "正在准备安装运行时并下载缺失的模型",
-    OPTIONAL_MODELS_TARGET: "正在准备下载说话人分离模型",
-    "yt-dlp": "正在准备安装可选工具 yt-dlp",
-    "tokcount": "正在准备安装 tokcount",
-    "aria2c": "正在准备安装可选工具 aria2c",
-    "node": "正在准备安装可选工具 Node.js",
-    "pot-provider": "正在准备安装 PO Token 生成器",
-    "video-tools": "正在准备安装视频下载工具",
+    "models": "正在准备下载模型层",
+    "all": "正在准备安装运行时并下载模型",
+    OPTIONAL_MODELS_TARGET: "正在准备下载模型层（含说话人分离模型）",
+    REPAIR_TARGET: "正在准备完整核对运行环境",
+    "yt-dlp": "正在准备安装工具层（含 yt-dlp）",
+    "tokcount": "正在准备安装工具层（含 tokcount）",
+    "aria2c": "正在准备安装工具层（含 aria2c）",
+    "node": "正在准备安装工具层（含 Node.js）",
+    "pot-provider": "正在准备安装工具层（含 PO Token 生成器）",
+    "video-tools": "正在准备安装工具层（含视频下载工具）",
 }
 DONE_MESSAGES = {
-    "media": "FFmpeg 与 FFprobe 已准备就绪",
+    "media": "工具层已就绪（FFmpeg 与 FFprobe 可用）",
     "runtime": "运行时已就绪；模型仍需单独下载",
-    "models": "缺失的模型已全部下载并校验完成",
-    "all": "运行时与所需模型已全部准备就绪",
-    OPTIONAL_MODELS_TARGET: "说话人分离模型已下载并校验完成",
-    "yt-dlp": "可选工具 yt-dlp 已安装并校验完成",
-    "tokcount": "tokcount 已安装并校验完成",
-    "aria2c": "可选工具 aria2c 已安装并校验完成",
-    "node": "可选工具 Node.js 已安装并校验完成",
-    "pot-provider": "PO Token 生成器已安装并校验完成",
-    "video-tools": "视频下载工具已安装并校验完成",
+    "models": "模型层已下载并核对完成",
+    "all": "运行时与模型已全部准备就绪",
+    OPTIONAL_MODELS_TARGET: "模型层已下载并核对完成（含说话人分离模型）",
+    REPAIR_TARGET: "运行环境已完整核对，有问题的层已重新安装",
+    "yt-dlp": "工具层已安装并核对完成（含 yt-dlp）",
+    "tokcount": "工具层已安装并核对完成（含 tokcount）",
+    "aria2c": "工具层已安装并核对完成（含 aria2c）",
+    "node": "工具层已安装并核对完成（含 Node.js）",
+    "pot-provider": "工具层已安装并核对完成（含 PO Token 生成器）",
+    "video-tools": "工具层已安装并核对完成（含视频下载工具）",
 }
 CANCELLED_MESSAGE = "已取消；已下载的部分会保留，下次继续时不必重头再来"
+
+#: The children of the big-file root's `cache\\` that hold downloads: archives being fetched.
+RUNTIME_CACHE_ENTRIES = ("downloads",)
+
+LAYER_DETAILS = {
+    "missing": "尚未安装{label}（下载约 {size}）",
+    "outdated": "这个版本需要新的{label}，更新时整层重新下载（约 {size}）",
+    "damaged": "{label}与清单不符，需要修复：{problem}",
+}
 
 
 class RuntimeProvisionError(RuntimeError):
@@ -99,56 +99,29 @@ class RuntimeProvisionCancelled(RuntimeError):
     """Raised at our own checkpoints once the user has asked the job to stop."""
 
 
-def parse_model_install_event(line: str, model_id: str) -> dict[str, Any] | None:
-    """Validate one child-process event, leaving ordinary log lines untouched."""
-
-    try:
-        value = json.loads(line)
-    except (TypeError, ValueError):
-        return None
-    if not isinstance(value, dict) or value.get("resource") != model_id:
-        return None
-    event_type = value.get("type")
-    message = value.get("message")
-    if not isinstance(message, str):
-        return None
-    if event_type == "stage":
-        stage = value.get("stage")
-        if stage not in {"preparing", "downloading", "verifying", "completed"}:
-            return None
-        return {"type": "stage", "stage": stage, "message": message}
-    if event_type != "progress":
-        return None
-    try:
-        completed = max(0, int(value["completed"]))
-        total = max(0, int(value["total"]))
-        bytes_per_second = max(0.0, float(value.get("bytes_per_second", 0.0)))
-    except (KeyError, TypeError, ValueError, OverflowError):
-        return None
-    if total:
-        completed = min(completed, total)
-    return {
-        "type": "progress",
-        "completed": completed,
-        "total": total,
-        "bytes_per_second": bytes_per_second,
-        "message": message,
-    }
+def _size_label(size: int) -> str:
+    if size >= 2**30:
+        return f"{size / 2**30:.1f} GiB"
+    return f"{max(1, round(size / 2**20))} MiB"
 
 
 def _remove_managed_tree(target: Path) -> None:
     """Delete one managed directory, clearing read-only files as they surface.
 
-    uv and pip leave read-only files inside the runtime and model stores, and
-    Windows refuses to unlink those (WinError 5). FineSub's ``remove_tree``
-    stays the only descent, because it is the one that refuses to follow a
-    junction out of the store; only the exact file it names is made writable
-    before retrying, so nothing outside the tree is ever touched. A file that
-    is genuinely in use blocks twice in a row and is reported.
+    `runtime.fsops.remove_tree` stays the only descent, because it refuses to follow a junction out
+    of the store; only the exact file it names is made writable before retrying. A file that is
+    genuinely in use blocks twice in a row and is reported.
     """
 
-    from finesub_bootstrap.fsops import remove_tree
+    from nonoka_x.runtime.fsops import is_directory_link, remove_tree
 
+    if os.path.lexists(target) and not target.is_dir() and not is_directory_link(target):
+        try:
+            target.unlink()
+        except PermissionError:
+            os.chmod(target, os.stat(target).st_mode | stat.S_IWRITE)
+            target.unlink()
+        return
     unblocked: set[str] = set()
     while True:
         try:
@@ -159,27 +132,16 @@ def _remove_managed_tree(target: Path) -> None:
             if not blocked or blocked in unblocked:
                 raise
             unblocked.add(blocked)
-            # Keep the other mode bits: on POSIX a bare S_IWRITE would leave a
-            # surviving file unreadable if the removal fails for another reason.
             os.chmod(blocked, os.stat(blocked).st_mode | stat.S_IWRITE)
-
-
-#: The children of the install root's `cache/` that are download caches: uv's
-#: package cache, the runtime wheels the installer fetched itself, and the
-#: resource archives. The list names what goes rather than what stays because
-#: `cache/state` sits beside them and is FineSub's rate-limit record.
-RUNTIME_CACHE_ENTRIES = ("uv", "runtime-wheels", "downloads")
 
 
 def _measure_cache_tree(path: Path, usage: dict[str, Any], *, top: bool = False) -> None:
     """Add path's files to usage without following a link out of the tree.
 
-    Only the top-level entry may be a link, the same one clear_cache() empties
-    through. `os.lstat` rather than `DirEntry.stat`: on Windows the latter
-    always reports `st_nlink` as zero, and the link count is the whole point.
+    Only the top-level entry may be a link, the same one clear_cache() empties through.
     """
 
-    from finesub_bootstrap.fsops import is_directory_link
+    from nonoka_x.runtime.fsops import is_directory_link
 
     if not top and is_directory_link(path):
         return
@@ -205,12 +167,11 @@ def _measure_cache_tree(path: Path, usage: dict[str, Any], *, top: bool = False)
 
 
 class RuntimeProvisioner:
-    """Own one asynchronous FineSub provisioning operation.
+    """The runtime page's view of one installation's layers, and its one install job at a time.
 
-    FineSub's bootstrap remains the authority for downloads, hashes, safe
-    extraction and the Python lock; every download goes to the official source,
-    through the live proxy or directly (`nonoka_x.download_route`). Nonoka X only exposes its state to
-    Wails and selects the resulting interpreter for workers.
+    `install_dir` is the big-file root (`runtime`, 4.4 item 24) when the desktop passes it; otherwise
+    `storage.json`'s record, else `<data_dir>\\runtime` (`NonokaPaths.for_roots`). `vendor` is kept for
+    the callers that pass it; nothing here reads FineSub's tree any more.
     """
 
     def __init__(
@@ -218,71 +179,31 @@ class RuntimeProvisioner:
         data_dir: str | Path,
         vendor: str | Path,
         install_dir: str | Path | None = None,
+        *,
+        index_path: str | Path | None = None,
+        layer_options: dict[str, Any] | None = None,
     ) -> None:
         self.data_dir = Path(data_dir).expanduser().resolve()
-        # The install root carries everything large -- the Python runtime, the
-        # models and the download caches -- so the desktop shell can put it on
-        # another drive while the small state files stay beside the data dir.
-        # Defaulting keeps every existing installation exactly where it is.
-        self.install_root = (
-            Path(install_dir).expanduser().resolve()
-            if install_dir
-            else self.data_dir / "finesub"
-        )
         self.vendor = Path(vendor).expanduser().resolve()
+        self.paths = NonokaPaths.for_roots(self.data_dir, install_dir)
+        self.install_root = self.paths.runtime
         self.platform = self._platform_id()
-        self._runtime_supported = sys.platform == "win32"
-        self._media_supported = self.platform in {"windows-x64", "macos-amd64", "macos-arm64"}
-        install_root = self.install_root
+        self._runtime_supported = self.platform == lm.PLATFORM
+        # The tool layer is built for Windows only so far (plan appendix B, question 31).
+        self._media_supported = self.platform == lm.PLATFORM
         self._bootstrap_error = ""
-        self.runtime = None
-        try:
-            from finesub_bootstrap.paths import AppPaths
-            from finesub_bootstrap.resources import ResourceManager
-            from finesub_bootstrap.shell import resource_specs
+        self.layers = None
+        if self._runtime_supported:
+            try:
+                from nonoka_x.runtime.layers import LayerManager, load_index
 
-            from nonoka_x.asset_digest import install_cloud_digest_source
-            from nonoka_x.download_route import install_proxy_route_policy
-
-            install_proxy_route_policy()
-            install_cloud_digest_source()
-            self.paths = AppPaths.for_root(
-                install_root,
-                data_root=self.data_dir / "finesub-data",
-                big_data=install_root,
-            )
-            if self.platform in {"macos-arm64", "macos-amd64"}:
-                manifest_path = Path(__file__).resolve().parent / "resources" / self._manifest_name()
-            else:
-                manifest_path = self.vendor / VENDOR_BOOTSTRAP / self._manifest_name()
-            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-            self.resources = ResourceManager(self.paths, resource_specs(manifest))
-        except Exception as exc:
-            self.paths = None
-            self.resources = None
-            self.runtime = None
-            self._bootstrap_error = f"{type(exc).__name__}: {exc}"
-
-        if not self._bootstrap_error and self._runtime_supported:
-            from nonoka_x.runtime_install import ProgressRuntimeEnvironment
-
-            def managed_uv() -> Path:
-                assert self.resources is not None
-                executable = self.resources.active_file("uv", "uv.exe")
-                if executable is None:
-                    raise FileNotFoundError("FineSub uv bootstrap resource is not installed")
-                return executable
-
-            self.runtime = ProgressRuntimeEnvironment(
-                paths=self.paths,
-                app_source=self.vendor,
-                runtime_lock=self.vendor / VENDOR_BOOTSTRAP / "pylock.win-py312.toml",
-                uv_executable=managed_uv,
-                download_progress=self._progress,
-            )
+                index = load_index(Path(index_path) if index_path is not None else None)
+                self.layers = LayerManager(self.paths, index, **(layer_options or {}))
+            except Exception as exc:  # noqa: BLE001 - shown on the page instead of failing the sidecar
+                self._bootstrap_error = f"{type(exc).__name__}: {exc}"
         self._lock = threading.RLock()
-        # Set while clear_cache() is deleting, so an install cannot start and
-        # download into the directories that are being emptied under it.
+        # Set while clear_cache() is deleting, so an install cannot start and download into the
+        # directories that are being emptied under it.
         self._clearing_cache = False
         self._cancel = threading.Event()
         self._job: dict[str, Any] = {
@@ -308,128 +229,99 @@ class RuntimeProvisioner:
                 return "macos-amd64"
         return sys.platform
 
-    def _manifest_name(self) -> str:
-        if self.platform == "windows-x64":
-            return "runtime-manifest.json"
-        if self.platform == "macos-arm64":
-            return "runtime-manifest.macos-arm64.json"
-        if self.platform == "macos-amd64":
-            return "runtime-manifest.macos-amd64.json"
-        # Unsupported desktop platforms retain the Windows resource snapshot in
-        # diagnostics, matching the historical status shape, but installation
-        # remains blocked by the platform capability flags.
-        return "runtime-manifest.json"
+    # -- status ------------------------------------------------------------------------------------------------
+
+    def _job_copy(self) -> dict[str, Any]:
+        with self._lock:
+            return json.loads(json.dumps(self._job))
 
     def status(self) -> dict[str, Any]:
-        if self._bootstrap_error:
-            with self._lock:
-                job = json.loads(json.dumps(self._job))
+        job = self._job_copy()
+        base = {
+            "schema": 1,
+            "platform": self.platform,
+            "supported": self._runtime_supported and self.layers is not None,
+            "runtime_supported": self._runtime_supported and self.layers is not None,
+            "media_supported": self._media_supported and self.layers is not None,
+            "bootstrap_error": self._bootstrap_error,
+            "root": str(self.paths.runtime),
+        }
+        if self.layers is None:
+            detail = (f"运行环境层不可用：{self._bootstrap_error}" if self._bootstrap_error
+                      else "本地 GPU 运行时当前仅支持 Windows x64/NVIDIA")
             return {
-                "schema": 1,
-                "platform": self.platform,
-                "supported": False,
-                "runtime_supported": False,
-                "media_supported": False,
+                **base,
                 "media_ready": False,
-                # The desktop shell disables every install control while the
-                # bootstrap is broken, so the reason travels with the payload
-                # instead of hiding inside a single asset tooltip.
-                "bootstrap_error": self._bootstrap_error,
-                "root": str(self.install_root),
-                "runtime": {"id": "python", "version": "3.12", "state": "missing", "detail": f"FineSub bootstrap 依赖缺失：{self._bootstrap_error}"},
+                "runtime": {"id": "python", "version": "3.12", "state": "missing", "detail": detail},
                 "resources": [],
                 "models": [{"id": model_id, "state": "missing"} for model_id in PIPELINE_MODELS],
                 "optional_models": [{"id": model_id, "state": "missing"} for model_id in OPTIONAL_MODELS],
+                "layers": [],
+                "unused_layers": [],
+                "unused_bytes": 0,
                 "job": job,
             }
-        assert self.resources is not None and self.paths is not None
-        from nonoka_x.model_install import missing_managed_models
-
-        resources = [item.model_dump(mode="json") for item in self.resources.check_all()]
-        for item in resources:
-            item["source"] = "managed"
-            if item["state"] == "missing" and self._unpinned_ffmpeg(item["id"], "ffmpeg.exe") is not None:
-                item.update(state="outdated", installed_version=UNPINNED_FFMPEG_VERSION)
-            if item["id"] != "tokcount" or item["state"] == "ready":
-                continue
-            system_tool = shutil.which(item["id"])
-            if system_tool:
-                item.update(
-                    state="ready",
-                    source="system",
-                    detail=f"使用系统安装：{system_tool}",
-                )
-        if self.runtime is not None:
-            runtime_status = self.runtime.status().model_dump(mode="json")
-            # FineSub names this status after its installer, the same id as the
-            # uv resource listed beside it.
-            runtime_status["id"] = "python"
-            if runtime_status.get("state") == "missing" and self._runtime_outdated():
-                # Installed, but for an older dependency lock: say "update",
-                # not "missing" -- the environment is there and most of it is
-                # reused, which is a very different thing to be told.
-                runtime_status.update(state="outdated", detail=RUNTIME_OUTDATED_DETAIL)
-        else:
-            runtime_status = {
-                "id": "python",
-                "version": "3.12",
-                "state": "missing",
-                "detail": "本地 GPU 运行时当前仅支持 Windows x64/NVIDIA",
-            }
-        missing = list(missing_managed_models(self.paths.models))
-        missing_optional = set(missing_managed_models(self.paths.models, OPTIONAL_MODELS))
-        with self._lock:
-            job = json.loads(json.dumps(self._job))
+        overview = self.layers.overview()
+        by_layer = {item["id"]: item for item in overview["layers"]}
+        runtime_item = {"id": "python", "version": "3.12", **self._item_state("python", by_layer)}
+        models_state = self._item_state("models", by_layer)
         return {
-            "schema": 1,
-            "platform": self.platform,
-            "supported": self._runtime_supported,
-            "runtime_supported": self._runtime_supported,
-            "media_supported": self._media_supported,
-            "bootstrap_error": "",
+            **base,
             "media_ready": self.tool_path("ffmpeg") is not None and self.tool_path("ffprobe") is not None,
-            "root": str(self.paths.root),
-            "runtime": runtime_status,
-            "resources": resources,
-            "models": [
-                {"id": model_id, "state": "missing" if model_id in missing else "ready"}
-                for model_id in PIPELINE_MODELS
-            ],
-            "optional_models": [
-                {"id": model_id, "state": "missing" if model_id in missing_optional else "ready"}
-                for model_id in OPTIONAL_MODELS
-            ],
+            "runtime": runtime_item,
+            "resources": self._tool_items(by_layer),
+            "models": [{"id": model_id, **models_state} for model_id in PIPELINE_MODELS],
+            "optional_models": [{"id": model_id, **models_state} for model_id in OPTIONAL_MODELS],
+            "layers": overview["layers"],
+            "unused_layers": overview["unused"],
+            "unused_bytes": overview["unused_bytes"],
             "job": job,
         }
 
-    def _runtime_outdated(self) -> bool:
-        """Whether the runtime is installed but was built from an older lock.
+    def _item_state(self, layer: str, by_layer: dict[str, dict[str, Any]]) -> dict[str, Any]:
+        """A layer's state in the runtime page's words: ready / missing / outdated / failed (damaged)."""
 
-        `RuntimeEnvironment.status` reports both that and a runtime that was
-        never installed as `missing`; upstream's `condition()` tells them
-        apart (`absent` / `outdated` / `damaged`). A damaged runtime stays
-        `missing`, with the engine's own explanation.
-        """
+        item = by_layer.get(layer) or {"state": "missing", "problems": [], "archive_bytes": 0, "label": layer}
+        state = item["state"]
+        if state == "ready":
+            return {"state": "ready"}
+        detail = LAYER_DETAILS[state].format(
+            label=item.get("label", layer), size=_size_label(int(item.get("archive_bytes") or 0)),
+            problem=(item.get("problems") or ["?"])[0],
+        )
+        return {"state": "failed" if state == "damaged" else state, "detail": detail}
 
-        if self.runtime is None:
-            return False
-        try:
-            return self.runtime.condition() == "outdated"
-        except OSError:
-            return False
+    def _tool_items(self, by_layer: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
+        from nonoka_x.runtime import manifests
+
+        tools_state = self._item_state("tools", by_layer)
+        items = []
+        for resource in manifests.tool_manifest().get("resources") or ():
+            tool_id = resource["id"]
+            if tool_id in lm.TOOLS_LEFT_OUT:
+                continue
+            item = {"id": tool_id, "version": resource.get("version"), "source": "managed", **tools_state}
+            if tool_id == "tokcount" and item["state"] != "ready":
+                system_tool = shutil.which(tool_id)
+                if system_tool:
+                    item.update(state="ready", source="system", detail=f"使用系统安装：{system_tool}")
+            items.append(item)
+        return items
+
+    # -- the install job -----------------------------------------------------------------------------------------
 
     def start(self, target: str) -> dict[str, Any]:
         if target not in TARGETS:
             raise RuntimeProvisionError(
-                f"target must be one of: media, runtime, models, all, {OPTIONAL_MODELS_TARGET}, "
+                f"target must be one of: media, runtime, models, all, {OPTIONAL_MODELS_TARGET}, {REPAIR_TARGET}, "
                 + ", ".join((*OPTIONAL_TOOLS, *REQUIRED_TOOLS, *TOOL_GROUPS))
             )
         if target == "media" and not self._media_supported:
             raise RuntimeProvisionError(f"managed FFmpeg is unavailable on {self.platform}")
         if target != "media" and not self._runtime_supported:
             raise RuntimeProvisionError("FineSub managed GPU runtime currently supports Windows x64 only")
-        if self._bootstrap_error:
-            raise RuntimeProvisionError(f"FineSub bootstrap is unavailable: {self._bootstrap_error}")
+        if self.layers is None:
+            raise RuntimeProvisionError(f"运行环境层不可用：{self._bootstrap_error}")
         with self._lock:
             if self._job["state"] == "running":
                 raise RuntimeProvisionError("FineSub runtime installation is already running")
@@ -444,9 +336,7 @@ class RuntimeProvisioner:
                 "message": START_MESSAGES[target],
                 "progress": None,
                 "error": None,
-                # Shown beside the progress: which local proxy, if any, this
-                # job's downloads go through. Every download in it follows the
-                # same route -- see `nonoka_x.download_route`.
+                # Which local proxy, if any, this job's downloads go through.
                 "proxy": proxy_label(live_proxy()),
             }
         thread = threading.Thread(target=self._run, args=(target,), name="nonoka-runtime-provision", daemon=True)
@@ -454,29 +344,17 @@ class RuntimeProvisioner:
         return self.status()
 
     def ensure_required_tools(self) -> None:
-        """Start fetching a required tool this installation does not have.
+        """Kept for the sidecar's startup call; nothing to do with layers.
 
-        An install that predates the requirement never runs the job that would
-        bring it, and one that only uses the cloud never needs the runtime job
-        at all. Best effort: the engine still works without it.
+        It used to fetch tokcount for installs that predated the requirement. tokcount is in the tool
+        layer now, which every install of the runtime brings, so there is no separate fetch to start.
         """
-
-        if self.resources is None or self._bootstrap_error or not self._runtime_supported:
-            return
-        for resource_id in REQUIRED_TOOLS:
-            if resource_id not in self.resources.resources or shutil.which(resource_id):
-                continue
-            if self.resources.status(resource_id).state != "ready":
-                self.start(resource_id)
-                return
 
     def cancel(self) -> dict[str, Any]:
         """Ask the running job to stop at its next checkpoint.
 
-        Cancelling is cooperative rather than abrupt: FineSub's downloader keeps
-        the partial file and resumes from it, and an archive is only activated
-        once it is complete, so a cancelled install leaves no half-installed
-        resource behind and the next attempt continues where this one stopped.
+        A download keeps its `.part` and resumes from it; an unpack is redone; the pointer only moves
+        once a layer checks out, so a cancelled install leaves no half-installed layer behind.
         """
 
         with self._lock:
@@ -497,342 +375,155 @@ class RuntimeProvisioner:
         with self._lock:
             self._job.update(values)
 
-    def _stage(self, stage: str, message: str, *, reset_progress: bool = True) -> None:
-        values: dict[str, Any] = {"stage": stage, "message": message}
-        if reset_progress:
-            values["progress"] = None
-        self._update(**values)
-
-    def _progress(self, value: Any, *, completed_before: int = 0, total_override: int = 0) -> None:
-        item_total = max(0, int(value.total))
-        total = max(item_total, int(total_override))
-        downloaded = max(0, int(value.downloaded)) + max(0, int(completed_before))
-        if total:
-            downloaded = min(downloaded, total)
-        self._update(progress={"completed": downloaded, "total": total, "unit": "bytes", "bytes_per_second": value.bytes_per_second})
+    def _layer_progress(self, value: Any) -> None:
+        progress = None
+        if value.total:
+            progress = {"completed": min(int(value.completed), int(value.total)), "total": int(value.total),
+                        "unit": "bytes", "bytes_per_second": float(value.bytes_per_second)}
+        self._update(resource=value.layer, stage=value.stage, message=value.message, progress=progress)
 
     def _run(self, target: str) -> None:
-        try:
-            assert self.paths is not None and self.resources is not None
-            from nonoka_x.model_install import missing_managed_models
-            from finesub_bootstrap.paths import ensure_store
+        from nonoka_x.runtime.layers import LayerBusy, PathTooDeep
+        from nonoka_x.runtime_install import layers_for, ordered, vc_runtime_problem
 
-            ensure_store(self.paths)
+        try:
+            assert self.layers is not None
             self._stop_if_cancelled()
-            if target in TOOL_GROUPS:
-                self._install_tool_group(target)
-            elif target in OPTIONAL_TOOLS or target in REQUIRED_TOOLS:
-                self._install_optional_tool(target)
-            if target == "media":
-                self._install_media_tools()
-            if target in {"runtime", "all"}:
-                assert self.runtime is not None
-                for resource_id in ("uv", "ffmpeg", *REQUIRED_TOOLS):
+            needed = ordered(layers_for(target))
+            if target == REPAIR_TARGET:
+                for layer in needed:
                     self._stop_if_cancelled()
-                    if self.resources.status(resource_id).state != "ready":
-                        self._stage("resource", f"正在安装 FineSub 资源：{resource_id}")
-                        self.resources.install(resource_id, self._progress, stage=self._stage, should_pause=self._cancelled)
-                self._stop_if_cancelled()
-                if self.runtime.status().state != "ready":
-                    self._stage("runtime", "正在安装 FineSub Python/CUDA 运行时")
-                    self.runtime.install(stage=self._stage, log=lambda line: self._update(message=line), should_pause=self._cancelled)
-            if target in {"models", "all"}:
-                assert self.runtime is not None
-                self._stop_if_cancelled()
-                if self.runtime.status().state != "ready":
-                    raise RuntimeProvisionError("请先安装 FineSub Python 运行时")
-                for model_id in missing_managed_models(self.paths.models):
+                    if self.layers.state(layer, fresh=True).state == "missing":
+                        continue
+                    self._update(resource=layer, stage="checking", message=f"正在完整核对{layer}层", progress=None)
+                    self.layers.repair(layer, progress=self._layer_progress, should_pause=self._cancelled)
+            else:
+                pending = [layer for layer in needed if not self.layers.state(layer, fresh=True).ready]
+                problem = vc_runtime_problem(pending)
+                if problem:
+                    raise RuntimeProvisionError(problem)
+                for layer in pending:
                     self._stop_if_cancelled()
-                    self._install_model(model_id)
-                remaining = missing_managed_models(self.paths.models)
-                if remaining:
-                    raise RuntimeProvisionError(
-                        "模型安装进程已结束，但完整性复核仍未通过：" + "、".join(remaining)
-                    )
-            if target == OPTIONAL_MODELS_TARGET:
-                assert self.runtime is not None
-                self._stop_if_cancelled()
-                if self.runtime.status().state != "ready":
-                    raise RuntimeProvisionError("请先安装或更新 FineSub Python 运行时")
-                for model_id in missing_managed_models(self.paths.models, OPTIONAL_MODELS):
-                    self._stop_if_cancelled()
-                    self._install_model(model_id)
-                remaining = missing_managed_models(self.paths.models, OPTIONAL_MODELS)
-                if remaining:
-                    raise RuntimeProvisionError(
-                        "模型安装进程已结束，但完整性复核仍未通过：" + "、".join(remaining)
-                    )
+                    state = self.layers.install(layer, progress=self._layer_progress, should_pause=self._cancelled)
+                    if not state.ready:
+                        raise RuntimeProvisionError(f"{layer} 层安装完成后仍不可用：{'；'.join(state.problems[:3])}")
             self._update(state="completed", stage="completed", message=DONE_MESSAGES[target], progress=None)
         except Exception as exc:
-            # Whatever surfaces once the user has asked to stop is that request
-            # arriving -- our own checkpoints, FineSub's `DownloadPaused`, or a
-            # step failing because we killed the subprocess it was waiting on --
-            # so it is reported as a cancellation rather than as a failure.
+            # Whatever surfaces once the user has asked to stop is that request arriving -- our own
+            # checkpoints or the download's `DownloadPaused` -- so it is a cancellation, not a failure.
             if self._cancel.is_set():
-                self._update(state="cancelled", stage="cancelled", message=CANCELLED_MESSAGE, resource="", progress=None, error=None)
+                self._update(state="cancelled", stage="cancelled", message=CANCELLED_MESSAGE, resource="",
+                             progress=None, error=None)
                 return
-            self._update(state="failed", stage="failed", message=str(exc), error={"code": "runtime_install_failed", "message": str(exc)}, progress=None)
+            code = ("install_path_too_deep" if isinstance(exc, PathTooDeep)
+                    else "runtime_in_use" if isinstance(exc, LayerBusy) else "runtime_install_failed")
+            self._update(state="failed", stage="failed", message=str(exc), error={"code": code, "message": str(exc)},
+                         progress=None)
 
-    def _install_tool_group(self, group: str) -> None:
-        """安装一组工具。
-
-        组员里可能有当前清单还没声明的资源（例如尚未发布的 pot-provider），
-        那种情况跳过而不是让整组失败：装上其余几样仍然有用，缺的那样由
-        「还缺什么」的上报去提示。
-        """
-
-        assert self.resources is not None
-        for resource_id in TOOL_GROUPS[group]:
-            self._stop_if_cancelled()
-            if resource_id not in self.resources.resources:
-                continue
-            if self.resources.status(resource_id).state == "ready":
-                continue
-            self._install_optional_tool(resource_id)
-
-    def _install_optional_tool(self, resource_id: str) -> None:
-        assert self.resources is not None
-        if resource_id not in self.resources.resources:
-            raise RuntimeProvisionError(f"当前平台没有可安装的 {resource_id} 资源")
-        self._update(resource=resource_id, stage="resource", message=f"正在准备 {resource_id}", progress=None)
-
-        def resource_stage(stage: str, message: str) -> None:
-            self._stage(stage, f"{resource_id}：{message}", reset_progress=stage == "downloading")
-
-        self.resources.install(resource_id, self._progress, stage=resource_stage, should_pause=self._cancelled)
-        if self.resources.status(resource_id).state != "ready":
-            raise RuntimeProvisionError(f"{resource_id} 安装完成后仍不可用")
-
-    def _install_media_tools(self) -> None:
-        assert self.resources is not None
-        resource_ids = ("ffmpeg",) if self.platform == "windows-x64" else ("ffmpeg", "ffprobe")
-        pending = [resource_id for resource_id in resource_ids if self.resources.status(resource_id).state != "ready"]
-        sizes = {
-            resource_id: max(0, int(getattr(self.resources.resources[resource_id].asset, "size", 0)))
-            for resource_id in pending
-        }
-        total = sum(sizes.values())
-        completed_before = 0
-        for resource_id in pending:
-            self._stop_if_cancelled()
-            self._update(resource=resource_id, stage="resource", message=f"正在准备 {resource_id}", progress=None)
-
-            def resource_stage(stage: str, message: str, *, current: str = resource_id) -> None:
-                with self._lock:
-                    progress = self._job.get("progress")
-                    if stage != "downloading" and isinstance(progress, dict):
-                        progress = {**progress, "bytes_per_second": 0.0}
-                    self._job.update(stage=stage, message=f"{current}：{message}", progress=progress)
-
-            def resource_progress(value: Any, *, before: int = completed_before) -> None:
-                self._progress(value, completed_before=before, total_override=total)
-
-            self.resources.install(resource_id, resource_progress, stage=resource_stage, should_pause=self._cancelled)
-            completed_before += sizes[resource_id]
-        for tool in ("ffmpeg", "ffprobe"):
-            executable = self.tool_path(tool)
-            if executable is None:
-                raise RuntimeProvisionError(f"{tool} 安装完成后仍不可用")
-            if os.name != "nt":
-                executable.chmod(executable.stat().st_mode | 0o755)
-
-    def _install_model(self, model_id: str) -> None:
-        assert self.paths is not None and self.runtime is not None
-        self._stage("model", f"正在下载并校验 FineSub 模型：{model_id}")
-        environment = self.worker_environment()
-        environment["PYTHONUTF8"] = "1"
-        environment["PYTHONIOENCODING"] = "utf-8"
-        project_src = Path(__file__).resolve().parents[1]
-        python_paths = [str(project_src), str(self.vendor / "src")]
-        if environment.get("PYTHONPATH"):
-            python_paths.append(environment["PYTHONPATH"])
-        environment["PYTHONPATH"] = os.pathsep.join(python_paths)
-        if model_id == "separator":
-            # GitHub files, each already on the ladder inside the installer.
-            self._run_model_installer(model_id, environment)
-            return
-        # Hugging Face reads its endpoint during import, so each rung has to be
-        # its own process: `_install_huggingface` calls `snapshot_download`
-        # directly, so `model_fetch.fetch_with_fallback` never sees this one.
-        from finesub_bootstrap import model_fetch
-
-        climb_huggingface(
-            lambda routed: self._run_model_installer(model_id, routed),
-            environment,
-            is_retryable=model_fetch.is_mirror_failure,
-            announce=lambda message: self._stage("model", f"{message}：{model_id}"),
-        )
-
-    def _run_model_installer(self, model_id: str, environment: dict[str, str]) -> None:
-        assert self.paths is not None and self.runtime is not None
-        # Polled rather than waited on, so a cancel reaches a model download that
-        # would otherwise run for minutes. The reader thread is what keeps the
-        # pipe from filling up and deadlocking the installer in the meantime.
-        from finesub_bootstrap.processes import terminate_process_tree
-
-        process = subprocess.Popen(
-            [
-                str(self.runtime.python_executable), "-m", "nonoka_x.model_install",
-                "--model", model_id,
-                "--models-root", str(self.paths.models),
-                "--data-root", str(self.paths.data_root),
-            ],
-            cwd=self.vendor,
-            env=environment,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            creationflags=(
-                getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0) | getattr(subprocess, "CREATE_NO_WINDOW", 0)
-                if os.name == "nt"
-                else 0
-            ),
-            start_new_session=os.name != "nt",
-        )
-        tail: deque[str] = deque(maxlen=200)
-        # Dropped once the bytes are in: verifying sends none, and is not a crawl.
-        watch = SpeedWatch() if speed_watched() else None
-        received = 0
-
-        def read_output() -> None:
-            nonlocal watch, received
-            assert process.stdout is not None
-            for line in process.stdout:
-                output = line.rstrip()
-                event = parse_model_install_event(output, model_id)
-                if event is None:
-                    tail.append(output)
-                    continue
-                if event["type"] == "progress":
-                    if watch is not None:
-                        watch.add(max(0, event["completed"] - received))
-                        received = max(received, event["completed"])
-                        if event["total"] and event["completed"] >= event["total"]:
-                            watch = None
-                    self._update(
-                        resource=model_id,
-                        stage="downloading",
-                        message=event["message"],
-                        progress={
-                            "completed": event["completed"],
-                            "total": event["total"],
-                            "unit": "bytes",
-                            "bytes_per_second": event["bytes_per_second"],
-                        },
-                    )
-                else:
-                    if event["stage"] in {"verifying", "completed"}:
-                        watch = None
-                    self._stage(event["stage"], event["message"], reset_progress=event["stage"] == "preparing")
-
-        reader = threading.Thread(target=read_output, name="nonoka-model-installer-output", daemon=True)
-        reader.start()
-
-        def stop_installer() -> None:
-            terminate_process_tree(process)
-            try:
-                process.wait(timeout=10)
-            except subprocess.TimeoutExpired:
-                process.kill()
-                process.wait()
-            reader.join(timeout=1)
-
-        while process.poll() is None:
-            if self._cancel.is_set():
-                stop_installer()
-                raise RuntimeProvisionCancelled(CANCELLED_MESSAGE)
-            current = watch
-            if current is not None:
-                try:
-                    current.check()
-                except DownloadTooSlow:
-                    stop_installer()
-                    raise
-            time.sleep(0.2)
-        reader.join(timeout=1)
-        if process.returncode != 0:
-            detail = "\n".join(tail).strip()
-            raise RuntimeProvisionError(detail[-4000:] or f"model installer exited with {process.returncode}")
+    # -- what workers use ----------------------------------------------------------------------------------------
 
     def worker_python(self) -> Path | None:
-        if self.runtime is None:
+        return self.layers.python_executable() if self.layers is not None else None
+
+    def tool_path(self, name: str) -> Path | None:
+        if self.layers is None or name not in {"ffmpeg", "ffprobe", "tokcount"}:
             return None
-        return self.runtime.python_executable if self.runtime.status().state == "ready" else None
+        return self.layers.tool_file(name)
 
-    def remove_all(self) -> dict[str, Any]:
-        """Remove only replaceable managed assets, never tasks or user data."""
+    def model_root(self) -> Path | None:
+        """The model layer's current directory (what `FINESUB_MODEL_DIR` names), or None when not ready."""
 
-        if self.paths is None:
-            raise RuntimeProvisionError("FineSub runtime installer is unavailable")
+        return self.layers.root("models") if self.layers is not None else None
+
+    def worker_environment(self) -> dict[str, str]:
+        environment = os.environ.copy()
+        # The engine is pointed at the wanted model layer version even before it is installed (the
+        # readiness checks keep a run from starting without it), and somewhere under `layers\\models\\`
+        # when this build has no layers.json: the variables are there either way.
+        if self.layers is not None:
+            models = self.model_root() or self.layers.wanted_dir("models")
+        else:
+            models = self.paths.layer("models") / "unavailable"
+        environment.update({
+            "FINESUB_MODEL_DIR": str(models),
+            "HF_HOME": str(models / lm.HF_HOME_DIR),
+            "TORCH_HOME": str(models / "torch"),
+        })
+        path_dirs: list[str] = []
+        for name in ("ffmpeg", "ffprobe", "tokcount"):
+            executable = self.tool_path(name)
+            if executable is not None and str(executable.parent) not in path_dirs:
+                path_dirs.append(str(executable.parent))
+        if path_dirs:
+            environment["PATH"] = os.pathsep.join([*path_dirs, environment.get("PATH", "")])
+        yt_dlp = self.layers.tool_dir("yt-dlp") if self.layers is not None else None
+        if yt_dlp is not None:
+            environment["PYTHONPATH"] = os.pathsep.join(
+                part for part in (str(yt_dlp), environment.get("PYTHONPATH", "")) if part
+            )
+        apply_proxy_environment(environment)
+        return environment
+
+    # -- removal, cleaning, caches -------------------------------------------------------------------------------
+
+    def _refuse_while_busy(self, words: str) -> None:
         with self._lock:
             if self._job["state"] == "running":
-                raise RuntimeProvisionError("安装任务运行中，无法删除环境；请先取消安装")
-        targets = (self.paths.runtime, self.paths.models, self.paths.cache, self.paths.agent_capsules)
-        allowed_roots = (self.paths.root.resolve(), self.paths.big_data.resolve())
-        for target in targets:
-            resolved = target.resolve()
-            if not any(resolved != root and root in resolved.parents for root in allowed_roots):
-                raise RuntimeProvisionError(f"拒绝删除托管目录之外的路径：{resolved}")
-        failures: list[str] = []
-        for target in targets:
-            try:
-                _remove_managed_tree(target)
-            except OSError as error:
-                failures.append(f"{target.name}（{error.strerror or error}）")
+                raise RuntimeProvisionError(f"安装任务运行中，无法{words}；请先取消安装")
+        if self.layers is not None and self.layers._in_use():
+            raise RuntimeProvisionError(f"有未结束的任务，无法{words}；请等任务结束")
+
+    def remove_all(self) -> dict[str, Any]:
+        """Remove every layer and the download cache, never tasks or user data."""
+
+        if self.layers is None:
+            raise RuntimeProvisionError(f"运行环境层不可用：{self._bootstrap_error}")
+        self._refuse_while_busy("删除环境")
+        failures = self.layers.remove_all()
+        for entry in self._cache_entries():
+            if os.path.lexists(entry):
+                for child in list(entry.iterdir()):
+                    try:
+                        _remove_managed_tree(child)
+                    except OSError as error:
+                        failures.append(f"{entry.name}/{child.name}（{error.strerror or error}）")
         if failures:
-            # Reporting the reason beats the bare HTTP 500 a raw OSError used to
-            # produce: the shell can show what is still on disk and why.
             detail = "以下目录未能完全删除，可能有文件正在被占用：" + "、".join(failures)
-            self._update(
-                state="failed",
-                target="remove-all",
-                resource="",
-                stage="failed",
-                message=detail,
-                progress=None,
-                error={"code": "remove_failed", "message": detail},
-            )
+            self._update(state="failed", target="remove-all", resource="", stage="failed", message=detail,
+                         progress=None, error={"code": "remove_failed", "message": detail})
             raise RuntimeProvisionError(detail)
-        self._update(
-            state="completed",
-            target="remove-all",
-            resource="",
-            stage="completed",
-            message="运行时、模型、可选工具与下载缓存已全部删除；任务、字幕和设置已保留",
-            progress=None,
-            error=None,
-        )
+        self._update(state="completed", target="remove-all", resource="", stage="completed",
+                     message="运行时、模型、工具与下载缓存已全部删除；任务、字幕和设置已保留",
+                     progress=None, error=None)
         return self.status()
 
-    def cache_usage(self) -> dict[str, Any]:
-        """Measure the download caches clear_cache() would empty.
+    def unused_layers(self) -> dict[str, Any]:
+        """For WP-UI's "clean up unused": the versions and leftovers no one uses, with their sizes."""
 
-        `bytes` is what the files add up to; `reclaimable` leaves out the files
-        uv hardlinked into the runtime, which stay on disk through the other
-        link and are most of the uv cache on a single-volume install. The page
-        offers the second number, because it is the one clearing delivers.
-        """
+        if self.layers is None:
+            return {"schema": 1, "unused": [], "bytes": 0}
+        unused = [item.to_dict() for item in self.layers.unused()]
+        return {"schema": 1, "unused": unused, "bytes": sum(item["bytes"] for item in unused)}
+
+    def remove_unused_layers(self) -> dict[str, Any]:
+        if self.layers is None:
+            raise RuntimeProvisionError(f"运行环境层不可用：{self._bootstrap_error}")
+        with self._lock:
+            if self._job["state"] == "running":
+                raise RuntimeProvisionError("安装任务运行中，无法清理；请等待安装完成或先取消安装")
+        return {"schema": 1, **self.layers.remove_unused()}
+
+    def cache_usage(self) -> dict[str, Any]:
+        """Measure the downloads clear_cache() would empty (`reclaimable` leaves out hard-linked files)."""
 
         usage = {"schema": 1, "bytes": 0, "reclaimable": 0, "files": 0}
-        if self.paths is None:
-            return usage
         for entry in self._cache_entries():
             _measure_cache_tree(entry, usage, top=True)
         return usage
 
     def clear_cache(self) -> dict[str, Any]:
-        """Empty the runtime's download caches and report what was freed.
+        """Empty the download cache (partly downloaded archives) and report what was freed."""
 
-        Only the entries in RUNTIME_CACHE_ENTRIES go; `cache/state` beside them
-        is FineSub's rate-limit record and is not a cache at all. The install
-        job state is left alone: this is not a provisioning step, and the
-        runtime page's last result should not be replaced by it.
-        """
-
-        if self.paths is None:
-            raise RuntimeProvisionError("FineSub runtime installer is unavailable")
         with self._lock:
             if self._job["state"] == "running":
                 raise RuntimeProvisionError("安装任务运行中，无法清理缓存；请等待安装完成或先取消安装")
@@ -845,9 +536,8 @@ class RuntimeProvisioner:
             for entry in self._cache_entries():
                 if not os.path.lexists(entry):
                     continue
-                # Empty the entry rather than remove it: it may be a link the
-                # user made to keep the cache on another drive, and removing
-                # the link would leave that data behind and the drive unused.
+                # Empty the entry rather than remove it: it may be a link the user made to keep the
+                # cache on another drive.
                 for child in entry.iterdir():
                     try:
                         _remove_managed_tree(child)
@@ -857,25 +547,21 @@ class RuntimeProvisioner:
         finally:
             with self._lock:
                 self._clearing_cache = False
-        result = {
+        return {
             **after,
             "freed": max(0, before["reclaimable"] - after["reclaimable"]),
             "removed": max(0, before["bytes"] - after["bytes"]),
             "failures": failures,
         }
-        return result
 
     def _cache_entries(self) -> list[Path]:
-        assert self.paths is not None
         cache = self.paths.cache
-        allowed_roots = (self.paths.root.resolve(), self.paths.big_data.resolve())
+        allowed_roots = (self.paths.runtime.resolve(), self.paths.data.resolve())
         entries: list[Path] = []
         for name in RUNTIME_CACHE_ENTRIES:
             entry = cache / name
-            # Clearing empties the entry's children, so an entry that resolves
-            # to the install root or above it would take the runtime and the
-            # models with it. A link to anywhere else is the user's own cache
-            # arrangement and is emptied like the default.
+            # Clearing empties the entry's children, so an entry that resolves to the big-file root or
+            # above it would take the layers with it.
             resolved = entry.resolve()
             if any(resolved == root or resolved in root.parents for root in allowed_roots):
                 raise RuntimeProvisionError(f"拒绝清理托管目录本身：{resolved}")
@@ -883,110 +569,26 @@ class RuntimeProvisioner:
         return entries
 
     def remove_tool_group(self, group: str) -> dict[str, Any]:
-        """Remove one managed optional-tool group and leave every other asset intact."""
+        """The video tools are part of the tool layer now: they come and go with it, not on their own."""
 
         if group not in REMOVABLE_TOOL_GROUPS:
             raise RuntimeProvisionError("仅支持卸载视频下载工具或可选工具")
-        if self.paths is None or self.resources is None:
-            raise RuntimeProvisionError("FineSub runtime installer is unavailable")
-        with self._lock:
-            if self._job["state"] == "running":
-                raise RuntimeProvisionError("安装任务运行中，无法卸载工具；请先取消安装")
+        raise RuntimeProvisionError("视频下载工具已并入工具层，随工具层一起安装和删除，不能单独卸载")
 
-        runtime_root = self.paths.runtime.resolve()
-        targets: list[Path] = []
-        for resource_id in TOOL_GROUPS[group]:
-            if resource_id not in self.resources.resources:
-                continue
-            resource_root = self.resources.install_path(resource_id).parent.resolve()
-            if resource_root == runtime_root or runtime_root not in resource_root.parents:
-                raise RuntimeProvisionError(f"拒绝删除托管运行时之外的路径：{resource_root}")
-            targets.append(resource_root)
 
-        failures: list[str] = []
-        for target in targets:
-            try:
-                _remove_managed_tree(target)
-            except OSError as error:
-                failures.append(f"{target.name}（{error.strerror or error}）")
-        if failures:
-            detail = "以下工具未能完全卸载，可能有文件正在被占用：" + "、".join(failures)
-            self._update(
-                state="failed",
-                target=f"remove-{group}",
-                resource="",
-                stage="failed",
-                message=detail,
-                progress=None,
-                error={"code": "remove_failed", "message": detail},
-            )
-            raise RuntimeProvisionError(detail)
-
-        label = "视频下载工具" if group == "video-tools" else "可选工具"
-        self._update(
-            state="completed",
-            target=f"remove-{group}",
-            resource="",
-            stage="completed",
-            message=f"{label}已卸载；其他运行时与模型保持不变",
-            progress=None,
-            error=None,
-        )
-        return self.status()
-
-    def tool_path(self, name: str) -> Path | None:
-        if self.resources is None or name not in {"ffmpeg", "ffprobe", "tokcount"}:
-            return None
-        filename = f"{name}.exe" if os.name == "nt" else name
-        resource_ids = (name, "ffmpeg") if name == "ffprobe" else (name,)
-        for resource_id in resource_ids:
-            if resource_id not in self.resources.resources:
-                continue
-            executable = self.resources.active_file(resource_id, filename) or self._unpinned_ffmpeg(resource_id, filename)
-            if executable is not None:
-                return executable
-        return None
-
-    def _unpinned_ffmpeg(self, resource_id: str, filename: str) -> Path | None:
-        """`filename` in a copy of the FFmpeg that followed upstream's `latest` tag.
-
-        Pinning the build changed the manifest's required paths, which that copy
-        no longer matches. It still works, so it keeps serving instead of the
-        update declaring the media tools gone.
-        """
-
-        if resource_id != "ffmpeg" or self.resources.active_version(resource_id) != UNPINNED_FFMPEG_VERSION:
-            return None
-        candidate = (
-            self.resources.install_path(resource_id).parent
-            / UNPINNED_FFMPEG_VERSION
-            / UNPINNED_FFMPEG_DIRECTORY
-            / "bin"
-            / filename
-        )
-        return candidate if candidate.is_file() else None
-
-    def worker_environment(self) -> dict[str, str]:
-        environment = os.environ.copy()
-        if self.paths is None or self.resources is None:
-            return environment
-        environment.update({
-            "FINESUB_MODEL_DIR": str(self.paths.models),
-            "HF_HOME": str(self.paths.models / "huggingface"),
-            "TORCH_HOME": str(self.paths.models / "torch"),
-            "UV_CACHE_DIR": str(self.paths.cache / "uv"),
-        })
-        path_dirs: list[str] = []
-        for name in ("ffmpeg", "ffprobe", "tokcount"):
-            executable = self.tool_path(name)
-            if executable is not None:
-                path_dirs.append(str(executable.parent))
-        if path_dirs:
-            environment["PATH"] = os.pathsep.join([*path_dirs, environment.get("PATH", "")])
-        if "yt-dlp" in self.resources.resources and self.resources.status("yt-dlp").state == "ready":
-            yt_dlp_path = str(self.resources.install_path("yt-dlp"))
-            environment["PYTHONPATH"] = os.pathsep.join(
-                part for part in (yt_dlp_path, environment.get("PYTHONPATH", "")) if part
-            )
-        apply_proxy_environment(environment)
-        return environment
+__all__ = [
+    "CANCELLED_MESSAGE",
+    "DONE_MESSAGES",
+    "OPTIONAL_MODELS",
+    "OPTIONAL_MODELS_TARGET",
+    "OPTIONAL_TOOLS",
+    "PIPELINE_MODELS",
+    "REPAIR_TARGET",
+    "REQUIRED_TOOLS",
+    "START_MESSAGES",
+    "TARGETS",
+    "TOOL_GROUPS",
+    "RuntimeProvisionCancelled",
+    "RuntimeProvisionError",
+    "RuntimeProvisioner",
+]

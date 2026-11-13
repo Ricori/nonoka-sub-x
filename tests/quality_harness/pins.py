@@ -421,7 +421,24 @@ def measure(python: Path, models_dir: Path, runtime_dir: Path, pins: dict[str, A
         }
 
     tools = {}
+    # The tool layer (WP-E3) holds `<directory>\<archive content>` with no version directory; its
+    # manifest says which version each tool is. The older layout had `<id>\<version>\` per tool.
+    layer_tools = {}
+    if (runtime_dir / ".nonoka-layer.json").is_file():
+        layer = json.loads((runtime_dir / ".nonoka-layer.json").read_text(encoding="utf-8"))
+        layer_tools = {item["id"]: item for item in layer.get("sources", {}).get("tools", [])}
     for tool in pins["tools"]["resources"]:
+        if layer_tools:
+            item = layer_tools.get(tool["id"])
+            directory = runtime_dir / (item["directory"] if item else tool["id"])
+            versions = [item["version"]] if item and directory.is_dir() else []
+            required = all((directory / name).is_file() for name in tool["required_files"])
+            tools[tool["id"]] = {
+                "pinned": tool["version"],
+                "installed_versions": versions,
+                "status": "match" if tool["version"] in versions and required else "absent" if not versions else "differs",
+            }
+            continue
         directory = runtime_dir / tool["id"]
         versions = sorted(path.name for path in directory.iterdir() if path.is_dir()) if directory.is_dir() else []
         required = all((directory / tool["version"] / name).is_file() for name in tool["required_files"])
@@ -440,19 +457,21 @@ def measure_installed() -> dict[str, Any]:
     (`real.python_override`); models and tools are always the located runtime's.
     """
 
-    from .real import locate_runtime, python_override
+    from .real import locate_runtime, provisioner_for, python_override
 
     import sys
 
     sys.path[:0] = [str(ROOT / "src"), str(VENDOR_SOURCE)]
-    from nonoka_x.provision import RuntimeProvisioner
-
     data_dir, install_dir = locate_runtime()
-    provisioner = RuntimeProvisioner(data_dir, ROOT / "third_party" / "finesub", install_dir)
+    provisioner = provisioner_for(data_dir, install_dir)
     python = python_override() or provisioner.worker_python()
     if python is None:
         return {"skipped": f"no ready managed runtime under {provisioner.install_root}"}
-    result = measure(Path(python), Path(provisioner.paths.models), Path(provisioner.paths.runtime))
+    layers = provisioner.layers
+    models, tools = provisioner.model_root(), layers.root("tools") if layers is not None else None
+    if models is None or tools is None:
+        return {"skipped": f"the model or tool layer is not ready under {provisioner.install_root}"}
+    result = measure(Path(python), Path(models), Path(tools))
     MEASURED_FILE.parent.mkdir(parents=True, exist_ok=True)
     MEASURED_FILE.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
     return result

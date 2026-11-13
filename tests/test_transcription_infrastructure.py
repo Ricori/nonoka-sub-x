@@ -367,21 +367,35 @@ def test_config_state_file(tmp_path: Path) -> None:
             store.state_file(bad)
 
 
-def test_runtime_model_dir_finds_the_pinned_snapshot_only_when_complete(tmp_path: Path) -> None:
-    entry = manifests.model_manifest()["models"]["speaker-embedding"]
-    manager = RuntimeManager(SimpleNamespace(paths=SimpleNamespace(models=tmp_path)))
-    assert manager.model_dir("speaker-embedding") is None
-    snapshot = (tmp_path / "huggingface" / "hub" / ("models--" + entry["repo"].replace("/", "--"))
-                / "snapshots" / entry["revision"])
-    for item in entry["files"]:
-        path = snapshot / item["name"]
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with open(path, "wb") as handle:
-            handle.truncate(item["size"])
-    assert manager.model_dir("speaker-embedding") == snapshot
-    with open(snapshot / entry["files"][0]["name"], "ab") as handle:
-        handle.write(b"x")
-    assert manager.model_dir("speaker-embedding") is None  # a file of the wrong size
+def test_runtime_model_dir_answers_from_the_model_layer_only_when_it_is_ready(tmp_path: Path) -> None:
+    """WP-E3: a model's directory is inside the model layer's current version, and only while it checks out."""
+
+    import os
+
+    if os.name != "nt":
+        pytest.skip("layers are Windows-only (tar.exe)")
+    from nonoka_x.runtime import layers as L
+    from nonoka_x.runtime.fetch import NetworkRoute
+    from nonoka_x.runtime.paths import NonokaPaths
+    from tests import layer_fakes as fakes
+
+    built = {"models": fakes.build_layer(tmp_path / "built", "models")}
+    pack = fakes.publish(built, tmp_path / "pack")
+    (pack / L.OFFLINE_PACK_MARKER).write_text("{}", encoding="utf-8")
+    layers = L.LayerManager(NonokaPaths.for_roots(tmp_path / "data"),
+                            L.parse_index(fakes.index_bytes(built, "http://127.0.0.1:9/")),
+                            offline=lambda: pack, routes=lambda: [NetworkRoute("direct", None)], in_use=lambda: False)
+    manager = RuntimeManager(SimpleNamespace(layers=layers))
+    assert manager.model_dir("whisper") is None
+
+    root = layers.install("models").path
+    snapshot = root / fakes.HF_SNAPSHOT
+    assert manager.model_dir("whisper") == snapshot
+    assert manager.model_dir("separator") == root / "audio-separator"
+    assert manager.model_dir("moss-transcribe-diarize") is None  # in the manifest, not in the layer
+    (snapshot / "config.json").unlink()
+    layers.forget()
+    assert manager.model_dir("whisper") is None  # the layer no longer checks out
     with pytest.raises(UnknownComponent):
         manager.model_dir("no-such-model")
     assert RuntimeManager(None).model_dir("speaker-embedding") is None

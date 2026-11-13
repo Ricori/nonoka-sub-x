@@ -87,11 +87,18 @@ Hooks = Mapping[str, StepHook]
 
 
 def available_hooks() -> dict[str, StepHook]:
-    """The deferred steps whose owners have implemented them: `settings` (WP-R4, `config.migrate`)."""
+    """The deferred steps whose owners have implemented them.
+
+    `settings` (WP-R4, `config.migrate`); `model-completion` and `layer-download` (WP-E3,
+    `model_install.ModelCompletionHook`, `runtime_install.LayerDownloadHook`: the layer manager
+    against this build's `resources/layers.json`).
+    """
 
     from nonoka_x.config.migrate import SettingsHook
+    from nonoka_x.model_install import ModelCompletionHook
+    from nonoka_x.runtime_install import LayerDownloadHook
 
-    return {SETTINGS: SettingsHook()}
+    return {SETTINGS: SettingsHook(), MODEL_COMPLETION: ModelCompletionHook(), LAYER_DOWNLOAD: LayerDownloadHook()}
 
 __all__ = [
     "DEFERRED_OWNERS",

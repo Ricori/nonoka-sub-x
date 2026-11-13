@@ -425,7 +425,10 @@ def test_unrecognised_root_entries_move_along_and_stay(make_install):
     assert (install.new_root / "agent-capsules" / "mine.txt").read_text(encoding="utf-8") == "user's"
 
 
-def test_a_checkout_clears_its_vendor_cache(tmp_path, capsys):
+def test_a_checkout_clears_its_vendor_cache(tmp_path, capsys, monkeypatch):
+    # The layer steps (WP-E3) would reach R2; this test is about the vendor cache.
+    only_settings = {deferred.SETTINGS: deferred.available_hooks()[deferred.SETTINGS]}
+    monkeypatch.setattr(cli, "available_hooks", lambda: only_settings)
     repo = tmp_path / "nonoka-sub-x"
     install = OldInstall(tmp_path / "base", relocated=False, python_builds=False, complete_models=True)
     # A checkout's data directory is its .local: lay the old install there.

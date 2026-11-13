@@ -1,167 +1,110 @@
+"""`nonoka_x.model_install`: the model ids, model presence in a model layer, migration's model completion (WP-E3)."""
+
 from __future__ import annotations
 
+import json
+from pathlib import Path
 import sys
-from types import ModuleType, SimpleNamespace
+from types import SimpleNamespace
 
-import pytest
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "src"))
 
-from nonoka_x.model_install import ByteProgressReporter, _install_huggingface, emit_event, missing_managed_models
-
-
-def test_model_byte_reporter_emits_bounded_percentage_inputs() -> None:
-    events: list[dict] = []
-    reporter = ByteProgressReporter("whisper", 100, events.append)
-
-    reporter.update(0, force=True)
-    reporter.update(125, force=True)
-
-    assert events[0]["completed"] == 0
-    assert events[-1]["completed"] == 100
-    assert events[-1]["total"] == 100
-    assert events[-1]["unit"] == "bytes"
-    assert events[-1]["bytes_per_second"] >= 0
+from nonoka_x import model_install  # noqa: E402
+from nonoka_x.model_install import (  # noqa: E402
+    DIARIZATION_MODEL_IDS,
+    INSTALLABLE_MODEL_IDS,
+    PIPELINE_MODEL_IDS,
+    missing_managed_models,
+    model_files,
+)
+from nonoka_x.runtime import layer_manifest as lm  # noqa: E402
+from nonoka_x.runtime import manifests  # noqa: E402
 
 
-def test_model_event_wire_format_is_ascii_safe(capsys) -> None:
-    emit_event({"type": "stage", "resource": "whisper", "message": "正在下载模型：whisper"})
-
-    output = capsys.readouterr().out.strip()
-    output.encode("ascii")
-    assert "\\u6b63\\u5728" in output
-
-
-def test_huggingface_download_reports_dry_run_total(monkeypatch, tmp_path) -> None:
-    module = ModuleType("huggingface_hub")
-    calls: list[dict] = []
-
-    def snapshot_download(**kwargs):
-        calls.append(kwargs)
-        if kwargs.get("dry_run"):
-            return [SimpleNamespace(file_size=100, will_download=True)]
-        bar = kwargs["tqdm_class"](total=100, desc="Downloading bytes")
-        bar.update(40)
-        bar.update(60)
-        bar.close()
-        return str(tmp_path / "snapshot")
-
-    module.snapshot_download = snapshot_download
-    monkeypatch.setitem(sys.modules, "huggingface_hub", module)
-    events: list[dict] = []
-
-    snapshot = _install_huggingface(
-        SimpleNamespace(repo="owner/model", revision="abc123"),
-        "whisper",
-        tmp_path,
-        events.append,
-    )
-
-    assert snapshot == tmp_path / "snapshot"
-    assert calls[0]["dry_run"] is True
-    progress = [event for event in events if event["type"] == "progress"]
-    assert progress[-1]["completed"] == 100
-    assert progress[-1]["total"] == 100
+def _lay_out(root: Path, model_id: str, *, skip: str | None = None, short: str | None = None) -> None:
+    for name, size in model_files(model_id):
+        if name == skip:
+            continue
+        path = root / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "wb") as handle:
+            handle.truncate((size or 1) - (1 if name == short else 0))
 
 
-def test_listed_only_entry_fetches_only_its_manifest_files(monkeypatch, tmp_path) -> None:
-    module = ModuleType("huggingface_hub")
-    calls: list[dict] = []
-
-    def snapshot_download(**kwargs):
-        calls.append(kwargs)
-        return [] if kwargs.get("dry_run") else str(tmp_path / "snapshot")
-
-    module.snapshot_download = snapshot_download
-    monkeypatch.setitem(sys.modules, "huggingface_hub", module)
-    entry = SimpleNamespace(
-        repo="nvidia/model",
-        revision="abc123",
-        listed_only=True,
-        files=(SimpleNamespace(name="model.safetensors"), SimpleNamespace(name="config.json")),
-    )
-
-    _install_huggingface(entry, "nemotron3", tmp_path, lambda _event: None)
-    _install_huggingface(SimpleNamespace(repo="o/m", revision="r", listed_only=False, files=()), "whisper", tmp_path, lambda _event: None)
-
-    assert calls[0]["allow_patterns"] == ["model.safetensors", "config.json"]
-    assert calls[1]["allow_patterns"] == ["model.safetensors", "config.json"]
-    assert calls[2]["allow_patterns"] is None
+def test_the_model_layer_holds_exactly_the_installable_models():
+    assert set(INSTALLABLE_MODEL_IDS) == set(lm.MODEL_LAYER_IDS)
+    assert set(PIPELINE_MODEL_IDS).isdisjoint(DIARIZATION_MODEL_IDS)
+    for model_id in INSTALLABLE_MODEL_IDS:
+        assert model_id in manifests.model_manifest()["models"]
 
 
-def test_diarization_models_are_in_the_engine_manifest() -> None:
-    from finesub_bootstrap.model_manifest import entry_for
-    from nonoka_x.model_install import DIARIZATION_MODEL_IDS
-
-    for model_id in DIARIZATION_MODEL_IDS:
-        assert entry_for(model_id) is not None, model_id
-
-
-def test_managed_model_status_ignores_orphan_incomplete_files(monkeypatch, tmp_path) -> None:
-    def wanted(name: str, size: int):
-        return SimpleNamespace(name=name, size=size, sha256="a" * 64, is_verifiable=True)
-
-    entries = {
-        "separator": SimpleNamespace(
-            repo="",
-            revision="",
-            files=(wanted("separator.ckpt", 4),),
-        ),
-        "whisper": SimpleNamespace(
-            repo="owner/whisper",
-            revision="whisper-revision",
-            files=(wanted("model.bin", 5),),
-        ),
-        "qwen-referee": SimpleNamespace(
-            repo="owner/qwen",
-            revision="qwen-revision",
-            files=(wanted("model.safetensors", 6),),
-        ),
-    }
-    import finesub_bootstrap.model_manifest as manifest
-
-    monkeypatch.setattr(manifest, "entry_for", entries.get)
-    separator = tmp_path / "audio-separator" / "separator.ckpt"
-    separator.parent.mkdir(parents=True)
-    separator.write_bytes(b"1234")
-    for model_id in ("whisper", "qwen-referee"):
-        entry = entries[model_id]
-        repository = f"models--{entry.repo.replace('/', '--')}"
-        snapshot = tmp_path / "huggingface" / "hub" / repository / "snapshots" / entry.revision
-        snapshot.mkdir(parents=True)
-        (snapshot / entry.files[0].name).write_bytes(b"x" * entry.files[0].size)
-    orphan = tmp_path / "huggingface" / "hub" / "models--owner--whisper" / "blobs" / "old-attempt.incomplete"
-    orphan.parent.mkdir(parents=True)
-    orphan.write_bytes(b"partial")
-
-    assert missing_managed_models(tmp_path) == ()
-
-    (tmp_path / "huggingface" / "hub" / "models--owner--qwen" / "snapshots" / "qwen-revision" / "model.safetensors").unlink()
-    assert missing_managed_models(tmp_path) == ("qwen-referee",)
+def test_model_files_follow_the_layout_the_engine_reads():
+    separator = model_files("separator")
+    assert all(name.startswith("audio-separator/") for name, _size in separator)
+    whisper = model_files("whisper")
+    entry = manifests.model_manifest()["models"]["whisper"]
+    expected = f"huggingface/hub/models--{entry['repo'].replace('/', '--')}/snapshots/{entry['revision']}/"
+    assert all(name.startswith(expected) for name, _size in whisper)
 
 
-def test_managed_model_status_hashes_git_blobs(monkeypatch, tmp_path) -> None:
-    # A non-LFS file's blob is named by its git SHA-1, not the pinned SHA-256.
-    import hashlib
+def test_presence_is_by_pinned_files_and_sizes(tmp_path):
+    for model_id in INSTALLABLE_MODEL_IDS:
+        _lay_out(tmp_path, model_id)
+    assert missing_managed_models(tmp_path, INSTALLABLE_MODEL_IDS) == ()
 
-    import finesub_bootstrap.model_manifest as manifest
+    first = model_files("whisper")[0][0]
+    (tmp_path / first).unlink()
+    separator = model_files("separator")[0][0]
+    with open(tmp_path / separator, "r+b") as handle:
+        handle.truncate(1)
+    assert missing_managed_models(tmp_path, INSTALLABLE_MODEL_IDS) == ("separator", "whisper")
+    assert missing_managed_models(tmp_path, DIARIZATION_MODEL_IDS) == ()
 
-    content = b'{"model": "nemotron3"}'
-    wanted = SimpleNamespace(
-        name="config.json", size=len(content), sha256=hashlib.sha256(content).hexdigest(), is_verifiable=True
-    )
-    entry = SimpleNamespace(repo="owner/diar", revision="rev", files=(wanted,))
-    monkeypatch.setattr(manifest, "entry_for", {"nemotron3": entry}.get)
-    repository = tmp_path / "huggingface" / "hub" / "models--owner--diar"
-    blob = repository / "blobs" / ("d" * 40)
-    blob.parent.mkdir(parents=True)
-    blob.write_bytes(content)
-    snapshot = repository / "snapshots" / "rev"
-    snapshot.mkdir(parents=True)
-    try:
-        (snapshot / "config.json").symlink_to(blob)
-    except OSError:
-        pytest.skip("symlinks unavailable")
 
-    assert missing_managed_models(tmp_path, ("nemotron3",)) == ()
+def test_an_unknown_model_id_counts_as_missing(tmp_path):
+    assert missing_managed_models(tmp_path, ("no-such-model",)) == ("no-such-model",)
 
-    blob.write_bytes(content.replace(b"3", b"4"))
-    assert missing_managed_models(tmp_path, ("nemotron3",)) == ("nemotron3",)
+
+def test_the_completion_hook_completes_the_migrated_directory():
+    asked: list[Path] = []
+    report = SimpleNamespace(version="v", kept=3, fetched=("a",), source="offline", rebuilt=(), removed=("b", "c"))
+    manager = SimpleNamespace(complete_models=lambda directory, log: asked.append(directory) or report)
+    lines: list[str] = []
+    context = SimpleNamespace(migrated_models=Path("layers/models/migrated"), log=lines.append)
+    hook = model_install.ModelCompletionHook(lambda _context: manager)
+
+    assert hook.download_bytes(context) is None  # unknown until every moved file is hashed
+    hook.run(context)
+
+    assert asked == [Path("layers/models/migrated")]
+    assert "kept 3, fetched 1 (offline)" in lines[-1] and "removed 2" in lines[-1]
+
+
+def test_the_layer_markers_the_completion_rebuilds_are_the_builds(tmp_path):
+    """`layers._marker_content` derives the stamps and markers exactly as `scripts/build_layers.py` writes them."""
+
+    sys.path.insert(0, str(ROOT))
+    from nonoka_x.runtime import layers as L
+    from scripts import build_layers
+
+    spec = manifests.model_manifest()["models"]["whisper"]
+    directory = f"huggingface/hub/models--{spec['repo'].replace('/', '--')}"
+    marker = {"manifest": build_layers.engine_entry_digest(spec), "repo": spec["repo"], "revision": spec["revision"]}
+    built = json.dumps(marker, ensure_ascii=False).encode("utf-8")
+    sources = {directory: {"directory": directory, "repo": spec["repo"], "revision": spec["revision"]}}
+    assert L._marker_content(f"{directory}/{lm.HF_MARKER_NAME}", {}, sources) == built
+
+    item = lm.LayerFile("audio-separator/model.ckpt", 10, "a" * 64)
+    stamp = json.dumps({"sha256": item.sha256, "size": item.size, "mtime_ns": lm.FIXED_MTIME * 10**9}).encode()
+    assert L._marker_content("audio-separator/model.ckpt.verified", {item.path: item}, {}) == stamp
+    assert L._marker_content("audio-separator/model.ckpt", {item.path: item}, {}) is None
+
+
+def test_migration_runs_the_two_layer_steps():
+    from nonoka_x.migration import hooks
+    from nonoka_x.runtime_install import LayerDownloadHook
+
+    registered = hooks.available_hooks()
+    assert isinstance(registered[hooks.MODEL_COMPLETION], model_install.ModelCompletionHook)
+    assert isinstance(registered[hooks.LAYER_DOWNLOAD], LayerDownloadHook)
