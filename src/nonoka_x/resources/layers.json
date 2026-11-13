@@ -1,0 +1,50 @@
+{
+  "schema": 1,
+  "platform": "windows-x64",
+  "baseUrl": "https://layers.nonoka.online/",
+  "layers": {
+    "python": {
+      "version": "8cc0ee612a5db785",
+      "manifest": {
+        "path": "v1/python/8cc0ee612a5db78589e870f8963e36c179b06c9618bcbec376677c493f85ab76.json",
+        "size": 9067779,
+        "sha256": "8cc0ee612a5db78589e870f8963e36c179b06c9618bcbec376677c493f85ab76"
+      },
+      "archive": {
+        "path": "v1/python/23ab9e58bf7ceb6c6633d960368732fd32f972f66032f43a7ec9ccb5990b0e32.tar.zst",
+        "size": 2681919360,
+        "sha256": "23ab9e58bf7ceb6c6633d960368732fd32f972f66032f43a7ec9ccb5990b0e32"
+      }
+    },
+    "models": {
+      "version": "f2a2b753498be37c",
+      "manifest": {
+        "path": "v1/models/f2a2b753498be37c57bccd66f2e4b2828f780476561c8e53dc02a9d11f9c2575.json",
+        "size": 14812,
+        "sha256": "f2a2b753498be37c57bccd66f2e4b2828f780476561c8e53dc02a9d11f9c2575"
+      },
+      "archive": {
+        "path": "v1/models/d81f9de187b2d89a47d9d50871fd92c4e2fdabb74f48872faef65bee12528eb3.tar.zst",
+        "size": 3194267488,
+        "sha256": "d81f9de187b2d89a47d9d50871fd92c4e2fdabb74f48872faef65bee12528eb3"
+      }
+    },
+    "tools": {
+      "version": "b2e46916329ea7c4",
+      "manifest": {
+        "path": "v1/tools/b2e46916329ea7c409db6a9adbff8f2a4a8fa878d2af94fdcec20839c8e21407.json",
+        "size": 1745723,
+        "sha256": "b2e46916329ea7c409db6a9adbff8f2a4a8fa878d2af94fdcec20839c8e21407"
+      },
+      "archive": {
+        "path": "v1/tools/bf01e8fcf4fd999f09b1b279e56c23bed02db478127dc7ab9c5eeb00773c212f.tar.zst",
+        "size": 260283489,
+        "sha256": "bf01e8fcf4fd999f09b1b279e56c23bed02db478127dc7ab9c5eeb00773c212f"
+      }
+    }
+  },
+  "files": {
+    "layers": [],
+    "path": "v1/files/{sha256}"
+  }
+}

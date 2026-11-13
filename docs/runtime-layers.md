@@ -1,6 +1,6 @@
 # 预制环境层：构建与发布手册
 
-本手册分两部分：**构建**（WP-E1，本节）与**发布**（WP-E2，待写）。设计依据见 `docs/transcription-engines-plan.md` 第 0 节第 5 条、4.2 第 14–20 条、WP-E1；前提实验见 `docs/engine-sandbox-experiment.md`。
+本手册分两部分：**构建**（WP-E1，第 1 节）与**发布**（WP-E2，第 2 节）。设计依据见 `docs/transcription-engines-plan.md` 第 0 节第 5 条、4.2 第 14–20 条、WP-E1；前提实验见 `docs/engine-sandbox-experiment.md`。
 
 ## 1. 构建
 
@@ -149,3 +149,122 @@ D:\Envir\Python312\python scripts/build_layers.py compare dist\layers-first dist
 ### 1.9 已知问题
 
 - **numba 在运行时往 Python 层里写缓存**：跑过 `--real` 后，Python 层多出 46 个文件 `Lib\site-packages\librosa\{core,util}\__pycache__\*.nbi|*.nbc`（librosa 里 `cache=True` 的 numba 函数；没有 `NUMBA_CACHE_DIR` 时 numba 把缓存写在源码旁边，`-B` 管不到）。不影响结果，但层因此不再只读、层管理器的快速检查会认为它与清单不符。要在转写进程的环境里设 `NUMBA_CACHE_DIR`（指向沙箱里的缓存目录），属于 4.5 第 27 条的变量分类，交给 WP-R5 / WP-H；本包没有改。
+
+## 2. 发布
+
+设计依据：计划 4.2 第 18、19 条与 WP-E2；用户 2026-11-13 的决定见附录 B 第 59–61 问。脚本是 `scripts/publish_layers.py`，测试是 `tests/test_publish_layers.py`（假的桶加本地 HTTP 服务，不碰 Cloudflare）。
+
+### 2.1 桶里放什么
+
+桶 `nonoka-x-layers`，经自定义域名 `https://layers.nonoka.online/` 公开读。对象全部按内容哈希命名，上传后不再改：
+
+```text
+v1/<层>/<清单 sha256>.json       层的逐文件清单（与压缩包里的 .nonoka-layer.json 同字节）
+v1/<层>/<压缩包 sha256>.tar.zst  层的压缩包
+```
+
+- **模型文件不单独托管**（用户 2026-11-13）：计划 4.2 第 18 条原先要把模型层的每个文件另按 sha256 存一份 `v1/files/<文件 sha256>`，供迁移时按文件补齐（4.4 第 25 条）；现在不传。`layers.json` 的 `files` 键保留、`files.layers` 为空列表，格式不变；脚本里按文件托管的逻辑还在，由 `layers.json` 决定，以后要恢复只改 `FILE_LAYERS`。
+
+- 每个对象带 `Cache-Control: public, max-age=31536000, immutable` 和元数据 `x-amz-meta-sha256`（脚本据此判断「已经在桶里、内容相同」）。
+- 这个桌面版本要哪几层写在 `src/nonoka_x/resources/layers.json`，格式见计划 WP-E2 一节开头（WP-E3 按同一份格式读）。它随桌面安装包发布，**不上传**。
+- 2026-11-13 的这一版：6 个对象，共 5.73 GiB（3 个压缩包 5.72 GiB、3 份清单 10.33 MiB）。
+
+### 2.2 要在 Cloudflare 上建的东西（用户自己建）
+
+账号、令牌都只在用户本机，不进仓库、不进日志。会话只往这个桶里上传，不碰其他资源（Worker、`nonoka-x-cloud` 桶等）。
+
+1. **桶**：R2 object storage → Create bucket，名字 `nonoka-x-layers`，位置 Automatic，存储类 **Standard**（Infrequent Access 有取回费和 30 天最短存储期，不适合）。
+2. **公开读，只经自定义域名**：桶 → Settings → Custom Domains → Add，填 `layers.nonoka.online` → Connect Domain，等状态从 Initializing 变成 Active。域名所在的 zone `nonoka.online` 必须在同一个账号里。**`r2.dev` 公共地址保持关闭**：速率限制和 WAF 只作用在自定义域名上，`r2.dev` 开着就能绕过去。
+3. **速率限制规则**（挡盗链；用户 2026-11-13 定）：Security → WAF → Rate limiting rules → Create rule。
+   - Free 计划只有 1 条规则，表达式只能用路径（Path），不能用主机名；而 `cloud.nonoka.online` 的 Worker 也用 `/v1/…` 路径（`/v1/tasks`、`/v1/uploads`、`/v1/library`、`/v1/session`、`/v1/capabilities`、`/v1/admin`），所以规则只匹配层用到的三个前缀，和它不重叠：
+
+     ```text
+     (starts_with(http.request.uri.path, "/v1/python/") or starts_with(http.request.uri.path, "/v1/models/")
+      or starts_with(http.request.uri.path, "/v1/tools/"))
+     ```
+
+     Pro 及以上再加 `and http.host eq "layers.nonoka.online"`。以后云端 Worker 若要加以这三个前缀开头的路径（或者恢复按文件托管、用到 `/v1/files/`），先改这条规则。
+   - 计数特征：IP；周期：10 秒；阈值：**50 次请求**；动作：Block；封禁时长：10 秒（Free 计划只有这一档）。
+   - 阈值的依据：一个新用户装三层是 3 份清单 + 3 个压缩包，断点续传每次再多一个请求。50 次/10 秒对正常下载绰绰有余，经同一个代理出口的多个用户同时装也够用。
+   - 验证步骤见 2.4。
+4. **API 令牌**：R2 object storage → Manage R2 API Tokens → Create API token。权限 **Object Read & Write**，范围 **只限桶 `nonoka-x-layers`**（Apply to specific buckets only），有效期可以设短一点（发布完就到期或手动撤销）。创建后页面只显示一次 Access Key ID 和 Secret Access Key；账号 ID 在 R2 概览页右侧（Account ID）。
+5. **凭据放哪**（用户 2026-11-13 定）：主检出的 `scripts\.env`，即 `D:\Development\nonoka-sub-x\scripts\.env`（已在 `.gitignore` 里；脚本在 worktree 里跑时也读这一份，先找脚本旁边的 `.env`）。主检出要包含了 `.gitignore` 里这一行才算忽略，在那之前只能放在 worktree 自己的 `scripts\.env`。内容：
+
+   ```text
+   R2_ACCOUNT_ID=<32 位十六进制的账号 ID>
+   R2_ACCESS_KEY_ID=<令牌的 Access Key ID>
+   R2_SECRET_ACCESS_KEY=<令牌的 Secret Access Key>
+   ```
+
+   脚本只从这个文件读；文件没被 git 忽略（比如被 `git add -f` 进了仓库）就拒绝读。脚本从不打印、记录这三个值，出错时只报文件名和键名；S3 的错误回复里可能带 Access Key ID，脚本只取其中的错误码和说明。
+6. **缓存**：不用配。Free 计划单个文件超过 512 MB 不进 CDN 缓存（三个压缩包都超过），`.json` 默认也不缓存，所以下载基本都回源到 R2；R2 不收流量费，只按请求计费（2.6）。不要加 Cache Everything 规则。
+
+### 2.3 发布步骤
+
+```text
+D:\Envir\Python312\python scripts/publish_layers.py index                 # dist\layers -> layers.json（只读 dist，每个压缩包重算 sha256）
+D:\Envir\Python312\python scripts/publish_layers.py plan --list --remote  # 要传的对象、数量、总大小，哪些已在桶里
+D:\Envir\Python312\python scripts/publish_layers.py upload [--proxy http://127.0.0.1:7890 | --direct]
+D:\Envir\Python312\python scripts/publish_layers.py upload                # 再跑一次：应当全部 skipped
+D:\Envir\Python312\python scripts/publish_layers.py verify --direct
+D:\Envir\Python312\python scripts/publish_layers.py verify --proxy http://127.0.0.1:7890
+D:\Envir\Python312\python scripts/publish_layers.py ratelimit --direct
+```
+
+- `index` 先核对每层：目录名是清单的版本、`summary.json` 与文件相符、压缩包 sha256 与 summary 相同、压缩包里的 `.nonoka-layer.json` 与 `manifest.json` 同字节。`dist\layers\<层>\` 下有多个版本时用 `--version <层>=<版本>` 指定。生成的 `layers.json` 要提交。
+- `files.layers` 为空，`plan`/`upload` 不解压任何层；只有按文件托管时才会把那一层解到主检出的 `.tmp\layer-publish\`。
+- **上传幂等、绝不覆盖**：先 HEAD；已存在且大小和 `x-amz-meta-sha256` 都对得上就跳过；名字被占用但内容不同（或没有记录 sha256）就停下报错，不动它。写入一律带 `If-None-Match: *`，所以 HEAD 与写入之间被别人抢先也不会覆盖。64 MiB 以上分片上传（每片 64 MiB），每个请求都带载荷的 sha256 由 R2 校验，整对象的 sha256 在完成上传前再核一遍，对不上就放弃这次分片上传。传完再 HEAD 一次确认。中途被杀留下的未完成分片上传，R2 默认 7 天后自动清掉。
+- 上传走 R2 的 S3 接口 `https://<账号 ID>.r2.cloudflarestorage.com`，不经自定义域名；默认按 Nonoka 的网络线路选代理或直连，也可以 `--proxy`/`--direct` 指定。
+- **gzip**：客户端声明接受 gzip 时，R2（S3 接口和自定义域名都是）会把 JSON 对象压缩后发出，回包没有 `Content-Length`；带 `Range` 的请求则拿到原始字节。脚本发给 R2 的请求一律带 `Accept-Encoding: identity`（2026-11-13 第一次真实上传就因为 HEAD 读不到长度停过一次）。层管理器下载清单时也应带 `Accept-Encoding: identity`，大小核对和断点续传才可靠。
+- **外网校验**（发版约束，附录 B 第 14 问）：`verify` 从 `layers.json` 的 `baseUrl` 下载全部对象，用 Nonoka 自己的下载器按大小和 sha256 校验，核对清单的版本，把压缩包解开、核对它带的清单与下载的清单同字节、逐文件比 sha256（`files.layers` 列了层时再逐个下载它的单文件校验）。经代理和不经代理各跑一次。每次下载约 5.7 GiB；临时目录默认是主检出的 `.tmp\layer-verify\`，一层一层解开核对、核完就删，最多同时占约 8 GiB（Python 层的压缩包加解开的 5.3 GiB），`--keep` 全部保留。
+- 桶里已经有的对象不会因为重新跑 `index` 而改变：内容不变，名字就不变。
+
+### 2.4 验证速率限制
+
+`ratelimit --direct`（或 `--proxy …`）：挑 `layers.json` 里最小的对象（模型层清单，14812 字节），8 个线程连发 120 个 GET，统计状态码；然后等 15 秒再发 1 个。期望：前一批里有 429（被规则拦下），等过封禁时长后的那一个是 200。脚本打印各状态码的次数，不符合期望时退出码为 1。另外：
+
+- Cloudflare 面板 Security → Events 里能看到这条规则的命中记录（来源 IP、路径）。
+- 确认没误伤云端：同一时间 `cloud.nonoka.online` 的请求不受影响（路径不在规则的三个前缀里）。
+- 这一步本身只产生约 120 次 B 类操作，可以忽略。
+
+### 2.5 旧版本
+
+不自动删（用户 2026-11-13，附录 B 第 60 问）。`unreferenced` 列出桶里没被任何已发布版本引用的对象和各自大小：已发布版本 = 每个 `v*` 标签上的 `src/nonoka_x/resources/layers.json`，加上当前工作区这份（用户 2026-11-13 定）；按文件托管的层（现在没有）的单文件，是否被引用按这些 `layers.json` 指向的清单算。脚本没有删除命令；要删哪些，由用户确认后单独执行（R2 面板里删，或另写一次性的命令，删除本身不收费）。
+
+```text
+D:\Envir\Python312\python scripts/publish_layers.py unreferenced
+```
+
+### 2.6 流量与请求费用的估算
+
+R2 的价格（2026-11-13 查 <https://developers.cloudflare.com/r2/pricing/>）：Standard 存储 $0.015 / GB·月；A 类操作（PutObject、CreateMultipartUpload、UploadPart、CompleteMultipartUpload、ListObjects 等）$4.50 / 百万次；B 类操作（GetObject、HeadObject 等）$0.36 / 百万次；**出口流量免费**。每月免费额度：存储 10 GB·月、A 类 100 万次、B 类 1000 万次。
+
+估算方法：
+
+```text
+每月费用 ≈ max(0, 存储 GB − 10) × 0.015
+         + max(0, A 类次数 − 1,000,000) / 1e6 × 4.50
+         + max(0, B 类次数 − 10,000,000) / 1e6 × 0.36
+```
+
+- **存储**：一整套层 5.73 GiB ≈ 6.15 GB，在免费额度内，$0/月。再多保留一整套旧版本共约 12.3 GB，超出约 2.3 GB，约 $0.035/月；之后每多一整套约 $0.09/月。只换一层时按那一层算（Python 层 2.5 GiB）。
+- **每个新用户**：下载 3 份清单 + 3 个压缩包 ≈ **5.73 GiB**（计划里说的约 5.8 GiB），流量免费；请求是 6 次 GET，加上断点续传时每续一次多 1 次，按 10 次算。即使每月 1 万个新用户也只有约 10 万次 B 类操作，在免费额度内。
+- **迁移补齐**：模型文件不在 R2 上单独托管，迁移时按文件补齐不产生 R2 的请求（怎么补由 WP-E3 / 计划另定）。
+- **一次发布**：A 类约 100 次（3 次 PUT 清单 + 3 个压缩包的分片上传：Python 40 片、模型 48 片、工具 4 片，各加创建与完成），B 类十几次 HEAD；重复上传只有 6 次 HEAD。
+- **盗链的上限**：流量不要钱，能推高费用的只有请求次数。速率限制把每个 IP 压在 10 秒 50 次以内，一个 IP 持续打满一个月约 1300 万次 B 类操作（约 $1，超出免费额度的部分）；靠规则挡住突发、看用量发现持续的异常 IP（2.7），必要时再加规则封掉。
+
+### 2.7 看用量的地方
+
+- **R2 → 桶 `nonoka-x-layers` → Metrics**：存储量、对象数、A 类与 B 类操作次数（默认看最近 24 小时，可以改时间范围）。
+- **账号的 Billing 页（计费用量）**：本月 R2 存储与操作的计费用量，和免费额度的对照（菜单位置以面板为准）。
+- **zone `nonoka.online` → Analytics & Logs → Traffic**：按主机名筛 `layers.nonoka.online`，看请求数、流量、来源国家。
+- **Security → Events**：速率限制规则的命中记录，找盗链的 IP。
+- 需要程序化查询时用 GraphQL Analytics API 的 `r2OperationsAdaptiveGroups`、`r2StorageAdaptiveGroups` 数据集（最多 31 天范围）。
+
+### 2.8 第一次发布（2026-11-13）
+
+- **建了什么**：桶 `nonoka-x-layers` 由会话用用户本机已登录的 wrangler 建（用户同意；Standard，位置自动分到 APAC，`r2.dev` 关闭）；自定义域名 `layers.nonoka.online` 由用户自己在面板里绑定（zone `nonoka.online`，最低 TLS 1.0，所有权与 SSL 均 active）；R2 API 令牌由用户建，写进 worktree 的 `scripts\.env`。**速率限制规则没建**（用户决定先不做）。
+- **上传**（直连，约 10 MiB/s）：6 个对象 5.73 GiB 全部在桶里。第一次在 Python 层清单处停下（上面 gzip 一条），修好后续传，已传的 2 个跳过、其余 4 个上传。再跑一次：6 个全部 skipped，只发了 HEAD，桶里每个对象的 etag、修改时间、`x-amz-meta-sha256` 前后完全相同。
+- **外网校验，不经代理**：通过。从 `https://layers.nonoka.online/` 下载 5.73 GiB，用时 13 分 03 秒；三层的清单、压缩包、版本都对，解开后逐文件比 sha256：python 45563、models 33、tools 9225 个文件全部相符。
+- **外网校验，经代理**：**待补，发版前必须补上**（用户 2026-11-13 决定这次不跑）。当时本机 `127.0.0.1:7890` 没有代理在监听。
+- **速率限制**：**待补**。`ratelimit --direct` 的 120 个请求全部 200，即规则不存在；建好规则后重跑，期望出现 429。
