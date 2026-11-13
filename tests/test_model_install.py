@@ -99,3 +99,12 @@ def test_the_layer_markers_the_completion_rebuilds_are_the_builds(tmp_path):
     stamp = json.dumps({"sha256": item.sha256, "size": item.size, "mtime_ns": lm.FIXED_MTIME * 10**9}).encode()
     assert L._marker_content("audio-separator/model.ckpt.verified", {item.path: item}, {}) == stamp
     assert L._marker_content("audio-separator/model.ckpt", {item.path: item}, {}) is None
+
+
+def test_migration_runs_the_two_layer_steps():
+    from nonoka_x.migration import hooks
+    from nonoka_x.runtime_install import LayerDownloadHook
+
+    registered = hooks.available_hooks()
+    assert isinstance(registered[hooks.MODEL_COMPLETION], model_install.ModelCompletionHook)
+    assert isinstance(registered[hooks.LAYER_DOWNLOAD], LayerDownloadHook)
