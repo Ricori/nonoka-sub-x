@@ -111,6 +111,10 @@ class FakeR2:
             item = self.objects.get(key)
             if item is None:
                 return httpx.Response(404)
+            if (item["meta"].get("content-type") == "application/json"
+                    and request.headers.get("accept-encoding") != "identity"):
+                # As R2 does: a JSON object gzipped for a client that accepts it, no Content-Length.
+                return httpx.Response(200, headers={"content-encoding": "gzip", **item["meta"]})
             return httpx.Response(200, headers={"content-length": str(len(item["data"])), **item["meta"]})
         if request.method == "GET":
             item = self.objects.get(key)

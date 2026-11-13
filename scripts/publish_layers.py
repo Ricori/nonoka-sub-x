@@ -577,6 +577,9 @@ class R2Store:
                           secret_access_key=self.credentials.secret_access_key, now=self.clock())
             if body or method in ("PUT", "POST"):
                 signed["Content-Length"] = str(len(body))
+            # R2 gzips a JSON object for a client that accepts it, and then a HEAD carries no
+            # Content-Length (seen 2026-11-13 on the Python layer's manifest): ask for the bytes as stored.
+            signed["Accept-Encoding"] = "identity"
             try:
                 response = self.client.request(method, url, headers=signed, content=body or None)
             except httpx.TransportError as error:
