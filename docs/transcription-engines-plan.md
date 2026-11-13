@@ -1,6 +1,6 @@
 # 转写引擎重构计划
 
-> 状态（2026-11-11）：WP-Q、WP-A、WP0、WP-R0 已完成并合进 main；WP-C 的 harness 已合进 main，云端基线还没录成（见 WP-C）；编译加速已在 `85ae2b9` 关闭；WP-R2、WP-B、WP-R1、WP1、WP4a、WP4b、WP4c、WP3a/b/c、WP-C、WP-P0、WP-M1（最后一条完成标准除外）、WP-R4、WP-K、WP-E1、WP-CL0、WP5 已完成并合进 main（WP-CL0 的预热脚本合进云端仓库的 main；各包按附录 B 的答复调整）；2026-11-12 用户决定知识库独立成第三个包、全部经协议访问（第 0.1 节第 5 条、4.6 第 35a 条、WP-K）；WP-E2、WP-E3 已派给各自的会话（第五批，2026-11-13；同批的 WP5 已完成）；2026-11-13 用户决定模型层不再按单文件放 R2，迁移时模型补齐改为下整个模型层压缩包（附录 B 第 63、64 问）；其余未开工。本文档是交给子代理执行的工作说明，每个工作包可以单独领走。
+> 状态（2026-11-11）：WP-Q、WP-A、WP0、WP-R0 已完成并合进 main；WP-C 的 harness 已合进 main，云端基线还没录成（见 WP-C）；编译加速已在 `85ae2b9` 关闭；WP-R2、WP-B、WP-R1、WP1、WP4a、WP4b、WP4c、WP3a/b/c、WP-C、WP-P0、WP-M1（最后一条完成标准除外）、WP-R4、WP-K、WP-E1、WP-CL0、WP5、WP-E2、WP-E3 已完成并合进 main（WP-CL0 的预热脚本合进云端仓库的 main；各包按附录 B 的答复调整）；2026-11-12 用户决定知识库独立成第三个包、全部经协议访问（第 0.1 节第 5 条、4.6 第 35a 条、WP-K）；第五批（WP5、WP-E2、WP-E3，2026-11-13）已全部完成；三层已传上 R2（发版前还要补经代理的下载校验和速率限制规则，见 WP-E2）；2026-11-13 用户决定模型层不再按单文件放 R2，迁移时模型补齐改为下整个模型层压缩包（附录 B 第 63、64 问）；其余未开工。本文档是交给子代理执行的工作说明，每个工作包可以单独领走。
 > 写于 2026-11-10，基于 `main@1f14db3`、FineSub `v0.7.0@7123055`。
 > **2026-11-11 整理成干净版本**（用户决定，附录 B 第 1 问）：现行决定直接写在正文里，不再有「以后者为准」的追加条款。每个决定的来历、被推翻的旧说法，以及旧条款编号到新编号的对照，见附录 A；向用户问过的问题和答复见附录 B；还没定的事见附录 C。整理前的版本在 git 历史里（`main` 上的 `docs/transcription-engines-plan.md`）。
 > 相关文档：`docs/runtime-and-config.md`（WP-R0 的调查与设计答复 D1–D23，下称「R0 文档」；其中被本计划取代的答复已在那边标注，对照见附录 A.3）；`docs/engine-sandbox-experiment.md`（预制环境包与进程级沙箱两个前提的实验报告，下称「实验报告」）。本文档与 R0 文档冲突时以本文档为准。
@@ -492,7 +492,7 @@ FineSub 转写引擎也要写 `transcript.json`（从它的 stable 投影出来�
 ## 6. 工作包
 
 ```text
-已完成：WP-Q、WP-A、WP0、WP-R0、WP-R2、WP-B、WP-R1、WP1、WP4a、WP4b、WP4c、WP3a/b/c、WP-C、WP-P0、WP-M1（最后一条完成标准等 WP-E3）、WP-R4、WP-K、WP-E1、WP-CL0、WP5
+已完成：WP-Q、WP-A、WP0、WP-R0、WP-R2、WP-B、WP-R1、WP1、WP4a、WP4b、WP4c、WP3a/b/c、WP-C、WP-P0、WP-M1（最后一条完成标准还没做，WP-E3 已完成、可以做了）、WP-R4、WP-K、WP-E1、WP-CL0、WP5、WP-E2、WP-E3
 
 引擎线：
 WP-B ──┬─► WP1 ──► WP3a / WP3b / WP3c ───────────────┐
@@ -517,7 +517,7 @@ WP4c、WP5、WP-R7 ────────────────────�
 
 云端：WP-C（结构与统计，阈值经批准）──► WP-CL0（预热脚本）──► WP-R7；WP-R7、WP-CL、WP8 各跑一次 --cloud
 收尾：WP-UI（等 WP-P1、WP-L、WP-H、WP6、WP-E3）──► WP8
-交叉：WP-M1 的最后一条完成标准要等 WP-E3（WP-E1 已完成）；WP-E3 的真实下载测试要等 WP-E2；WP-M2 等 WP-E3、WP-R4、WP-R5、WP-R7、WP-P1、WP-L。
+交叉：WP-M1 的最后一条完成标准已不再等别的包（WP-E1、WP-E3 已完成）；WP-M2 等 WP-E3、WP-R4、WP-R5、WP-R7、WP-P1、WP-L。
 ```
 
 **发版约束**：一次性发布（用户 2026-11-11，附录 B 第 14 问）。改变磁盘布局或运行环境的工作包（WP-E3、WP-R4、WP-R5、WP-R7、WP-P1、WP-H）、WP-M1、WP-M2 和引擎线进同一个版本；不能发一个「布局已改、迁移工具还没有」的版本。另加一条：**发版前，这个版本要的每一层都已上传 R2，并从外网（经代理和不经代理各一次）下载、校验通过**，否则不发。
@@ -538,7 +538,7 @@ D:\Envir\Python312\python scripts/quality_gate.py --real   # 再加真实样本�
 D:\Envir\Python312\python scripts/quality_gate.py --cloud  # 云端（WP-C；基线未录成）
 ```
 
-**WP-R1 之后**，本机已装的运行时与新锁对不上（锁里去掉了 `onnx`），`--real` 改用按新锁装的 PBS 环境，跑之前设 `NONOKA_QUALITY_PYTHON=D:\Development\nonoka-sub-x\.tmp\pbs-3.12.1\python\python.exe`（附录 B 第 27 问；模型与工具仍只读地取自已装运行时）。WP-E1 出层后改为指向层。几个会话同时工作时，跑 `--real` 前先 `mkdir .tmp\real-gpu.lock` 抢锁（里面写 `owner.txt`），跑完删掉。
+**WP-R1 之后**，本机已装的运行时与新锁对不上（锁里去掉了 `onnx`），`--real` 改用按新锁装的 PBS 环境，跑之前设 `NONOKA_QUALITY_PYTHON=D:\Development\nonoka-sub-x\.tmp\pbs-3.12.1\python\python.exe`（附录 B 第 27 问；模型与工具仍只读地取自已装运行时）。WP-E1 出层后改为指向层。**WP-E3 合并后（2026-11-13）**，旧布局（`%APPDATA%\Nonoka X\finesub\…` 的 venv）不再被认，`--real` 改为设 `NONOKA_QUALITY_DATA_DIR`、`NONOKA_QUALITY_INSTALL_DIR` 指向一个装好三层的数据目录和大文件根（不再设 `NONOKA_QUALITY_PYTHON`）；索引默认读 `resources/layers.json`，测别的版本时用 `NONOKA_QUALITY_LAYERS_INDEX` 指向另一份。现成的一份是 WP-E3 从 R2 装的：数据目录 `C:\Users\Chika\AppData\Local\Temp\nonoka e3 r2\data`、根 `C:\Users\Chika\AppData\Local\Temp\nonoka e3 r2\runtime`（在 Temp 下，被清掉就用层管理器重装）；WP-M1 的最后一条完成标准做完后改为开发机自己的新布局。跑过 `--real` 的 Python 层会多出 numba 的 46 个缓存文件，此后对它跑 `--layers` 会报这 46 处，在 WP-R5 / WP-H 设好 `NUMBA_CACHE_DIR` 之前属已知情况。几个会话同时工作时，跑 `--real` 前先 `mkdir .tmp\real-gpu.lock` 抢锁（里面写 `owner.txt`），跑完删掉。
 
 退出码 0 通过、1 有一项失败、2 没有失败但有「未判定」的产物。每项失败都会指出哪个场景、哪个算法入口的哪个参数、或哪个文件不一样，以及基线文件的位置。`--record <calls|environment|replay|real|cloud>` 用当前代码重录某项基线，只能在用户批准后单独提交（第 0 节第 7 条）。
 
@@ -742,7 +742,9 @@ harness 已在 main（`tests/quality_harness/cloud.py`、`quality_gate.py --clou
   - 模型层（无符号链接）在 `hf_verify` 和各加载器下可用；用层里的解释器、模型、工具跑 `quality_gate.py --real`（harness 临时指向层目录，不进沙箱）与 eager 基线一致。
   - 交付说明里写明三层的原始大小与压缩后大小、构建耗时。
 
-### WP-E2 R2 托管与发布（新）
+### WP-E2 R2 托管与发布（新；已完成 2026-11-13）
+
+> 交付：`scripts/publish_layers.py`（`index`、`plan`、`upload`、`verify`、`unreferenced`、`ratelimit`；S3 SigV4 签名用 httpx 自己写，不加依赖；上传先 HEAD，大小与 `x-amz-meta-sha256` 都对上才跳过，写入一律 `If-None-Match: *`，绝不覆盖；64 MiB 以上分片；发给 R2 的请求一律 `Accept-Encoding: identity`；凭据只从被 git 忽略的 `scripts\.env` 读，不打印、不记日志）、`src/nonoka_x/resources/layers.json`（格式没改，`files.layers` 为 `[]`）、`tests/test_publish_layers.py`（21 个，假 R2 校验签名与条件写入）、`docs/runtime-layers.md` 第 2 节（建桶步骤、发布步骤、速率限制验证、费用估算、看用量）、`.gitignore` 加 `scripts/.env`。按附录 B 第 65 问的答复做。Cloudflare 上：桶 `nonoka-x-layers`（APAC，`r2.dev` 关闭）由会话经用户本机已登录的 wrangler 建，自定义域名 `layers.nonoka.online` 由用户自己绑，R2 令牌由用户建。上传 6 个对象共 5.73 GiB（三层的压缩包与清单）；重传一次 6 个全部跳过、对象的 etag 与修改时间不变；不经代理的外网校验通过（13 分钟下完，三层逐文件 sha256 相符）。踩到的坑：R2 对 JSON 自动 gzip，HEAD 没有 `Content-Length`，所以一律带 `identity`。主会话复核：与 WP-E3 一起试合并，pytest 925 通过，闸门含 `--real` 通过，没重录基线。**发版前待补**：①经代理的外网校验（`verify --proxy <代理>`；这次本机代理没开，用户决定以后再补）；②速率限制规则（用户决定先不建，建好后跑 `ratelimit --direct` 确认出现 429）；③令牌的值在对话里出现过，用户应撤销这个 R2 令牌，下次发布再建新的；`scripts\.env` 在 WP-E2 的 worktree 里，清理 worktree 时一并删掉。下面是原始说明。
 
 > 用户 2026-11-13（附录 B 第 59–61 问）：桶 `nonoka-x-layers`（新建、公开读，不复用云端任务用的私有桶 `nonoka-x-cloud`），自定义域名 `layers.nonoka.online`；桶、域名、速率限制规则由用户在 Cloudflare 上建，会话先写好脚本和手册里的建桶步骤，桶建好后用用户本机的凭据上传（传之前列出对象与大小），之后做外网下载校验；没被任何已发布版本引用的旧版本不自动删，脚本只列出来，删除由用户确认。
 
@@ -781,7 +783,9 @@ harness 已在 main（`tests/quality_harness/cloud.py`、`quality_gate.py --clou
   - 在手册里记下流量与请求费用的估算方法（每个新用户约 5.8 GiB），以及看用量的地方。
 - 完成标准：脚本把 WP-E1 的产出传上去；从外网（经代理和不经代理各一次）按 `layers.json` 下载、按清单校验通过；对同一对象重复上传不产生变化；速率限制规则生效（手册里有验证步骤）。
 
-### WP-E3 层管理器（新，取代原 WP-R3）
+### WP-E3 层管理器（新，取代原 WP-R3；已完成 2026-11-13）
+
+> 交付：`runtime/layers.py`（读 `layers.json` 并核对；装一层：清单 → 路径深度 → 磁盘空间 → 压缩包（离线包优先、从不删；否则断点续传、走 Nonoka 的代理设置）→ 系统 `tar.exe` 解到 `<版本>.unpack\`（保留修改时间）→ 按清单核对 → 改名 → 才切 `current.json` → 删下载的压缩包 → 没有未结束任务就删旧版本；被杀在每一步后都能续上；就绪 `ready/missing/outdated/damaged`，快速检查单趟扫描，真 Python 层 45563 个文件 0.46 s；`repair`；`unused()`/`remove_unused()`/`overview()`，删之前先改名到 `.retired`、被占用就整份留下；迁移用的 `complete_models()`），`provision.py` 重写在层上（对外状态结构不变，新增 `layers`、`unused_layers`、`unused_bytes`、`repair` 目标、`install_path_too_deep`、`runtime_in_use`；不建 venv、不调 uv、不从 HF 下载），`runtime/__init__.py` 门面（WP5 要的 `status()`、`tool_path()` 保住；`model_dir` 从模型层答），`runtime_install.py`、`model_install.py`，迁移钩子 `ModelCompletionHook`、`LayerDownloadHook` 登记进 `migration/hooks.py`；harness 只改定位（`real.py` 的 `provisioner_for`、`NONOKA_QUALITY_LAYERS_INDEX`，`pins.py` 量模型层与工具层）。`model_specs.py`、`msvc_runtime.py` 没改。`test_finesub_boundary.py` 去掉三条 WP-R3 过渡项。按附录 B 第 66、67 问的答复做。实测：从本地服务装真实三层约 3.6 分钟；从 R2 直连装真实三层（工具 55 s、Python 442 s、模型 331 s），完整核对全部就绪、下载缓存为空，`--real` 通过；整个大文件根搬到另一个盘、带空格的路径，不修补，就绪与 `--real` 都通过；真实三层最长相对路径 python 144、models 145 字符，默认位置算下来约 232。主会话复核：与 WP-E2 一起试合并，pytest 925 通过，闸门质量锁、钉住内容（installed runtime matches）、调用等价、环境、LLM 回放、知识库、`--real`（7 个逐字节、8 个按认可标准）通过，没重录基线；`--layers` 只报跑过 `--real` 后 Python 层多出的 46 个 numba 缓存文件，模型层与工具层干净。小改进（不挡合并）：层的下载走 `runtime.fetch.download_file`，没带 `Accept-Encoding: identity`，现在靠 httpx 自动解 gzip 才对，以后补上更稳。交回：WP-R5 / WP-H——`NUMBA_CACHE_DIR`；`local_provider.py` 的 `_prepare_msvc_environment`、`_clear_legacy_separator_decode_probes` 随「环境从零构建」删掉；`worker_environment` 仍是父环境加层路径。WP-R6——运行环境页文案（前端仍写「FineSub bootstrap 不可用」）、`remove_tool_group` 按钮（视频工具已并入工具层，不再单独卸载）、新的 `repair` 目标与字段；`download_route.py` 里 `offline_snapshot`、`offline_python`、`ensure_fast_enough`、`stage_environment`、`SpeedWatch` 已无调用方；Go 传给 sidecar 的 `--install-dir` 现在当作大文件根。WP-UI——「清理未使用的」用 `unused_layers()`/`remove_unused_layers()` 或门面 `layer_overview()`，sidecar 还没有对应路由。WP-M2——两个钩子已登记，迁移命令现在会真做模型补齐、下 Python 层和工具层。macOS 没有工具层，运行环境页在 mac 上显示不支持。下面是原始说明。
 
 > `layers.json` 的格式见 WP-E2 一节（两包按同一份格式并行）。WP-E1 交来的：解压必须保留文件的修改时间（否则分离器的 `.verified` 戳记失效、引擎往模型层写新戳）；Python 层最长相对路径 138 字符；numba 会往 Python 层写缓存（`NUMBA_CACHE_DIR` 归 WP-R5 / WP-H，本包的只读核对要能指出是哪些文件）。
 
@@ -843,7 +847,7 @@ harness 已在 main（`tests/quality_harness/cloud.py`、`quality_gate.py --clou
   - 删一个模型目录后跑引擎：报明确的错误，没有任何网络请求（测试里打桩网络，断言零请求）。
   - `tests/test_runtime_pins.py` 通过；`quality_gate.py --real` 通过；`quality_gate.py --cloud` 通过（云端镜像复制的就是这份 vendor，靠 WP-CL0 的预热）。
 
-### WP-M1 迁移核心（重写；除最后一条完成标准外已完成 2026-11-12）
+### WP-M1 迁移核心（重写；除最后一条完成标准外已完成 2026-11-12；最后一条 2026-11-13 起可以做）
 
 > 交付：`python -m nonoka_x.migration [--dry-run] [--json] [--yes] [--data-dir] [--checkout]`；旧根在同一父目录下改名为 `runtime`，永不跨盘复制；新根已存在、有未结束的任务、记录的旧根不存在、旧根或模型目录里有目录链接时阻断。11 步（设置、知识库、限流状态、任务产物、模型补齐、下载新层留接口跳过），每步写进 `runtime-state\migration.json`，每个操作点被杀后都能续上。边界测试加了 `LEGACY_LAYOUT` 放行，只许 `migration/legacy.py` 写出旧文件名。本机 `--dry-run`：旧根 10.21 GiB，搬 4.00 GiB 模型，删 6.22 GiB（`accel\` 只有 5.94 MiB）。交回 WP-M2：桌面未完成的存储搬家只在目标旁留 `.nonoka-partial`，Python 侧查不到；日志里已跳过的步骤怎么补跑。最后一条完成标准（真把开发机搬过去）等 WP-E1、WP-E3。下面是原始说明。
 
@@ -1238,6 +1242,9 @@ R0 文档里这几条已按此加了标注（只加标注，不删原文）。
 | 62 | WP5：改计划清单以外的三个文件；FineSub 的 `raw-srt` 档用原来的判断还是 WP4a 的；worker 怎么拿到数据目录；请求校验与就绪的 8 条细则 | 三个都允许；原样搬原来的判断；命令行加参数；按这套做（都是推荐项，2026-11-13） |
 | 63 | WP-E2：模型要不要自托管（原计划模型层压缩包之外再按文件放 33 个单文件） | 只不放单文件：R2 上只有三层的压缩包和清单，6 个对象约 5.73 GiB；`layers.json` 的 `files.layers` 为空列表（2026-11-13） |
 | 64 | 不放单文件后，迁移时搬来的模型有缺或不对从哪补（4.4 第 25 条） | 下整个模型层压缩包，只解出缺的和不对的文件；全部对上就不下（推荐项，2026-11-13） |
+| 65 | WP-E2：上传怎么实现；凭据放哪；「已发布版本」怎么认；速率限制规则怎么写；Cloudflare 上谁来建；经代理的外网校验 | 自己写 S3 签名（httpx）；放在被 git 忽略的 `scripts\.env`（`.gitignore` 加一行）；git 的 `v*` 标签上的 `layers.json` 加工作区这份；只匹配 `/v1/python/`、`/v1/models/`、`/v1/tools/`、按 IP 10 秒 50 次封 10 秒，但**先不建**；会话代建桶、用户自己绑域名和建令牌；代理 `http://127.0.0.1:7890`，这次没开，**以后再补，发版前必须补**（2026-11-13） |
+| 66 | WP-E3：安装路径太深怎么办；下载的压缩包装好后留不留 | 完整路径超过 259 个字符就不装，提示换短路径，不看系统长路径设置；装好就删（离线包不删）（都是推荐项，2026-11-13） |
+| 67 | WP-E3：迁移的两个钩子现在登不登记；清单外多出来的文件算不算不就绪；迁移补齐时引擎戳记怎么办；层版本不对时用不用旧的 | 现在登记（批准改 `migration/hooks.py`）；不算，按名字列在 `extra`，修复时清掉；按构建的公式重写，sha256 等于清单才采用；不用，显示「需要更新」（都是推荐项，2026-11-13） |
 
 更早的问答：WP-R0 的 D1–D23 见 R0 文档第 0 节；WP0 的细节见附录 A.1；沙箱实验中的决定见实验报告。
 
