@@ -371,39 +371,72 @@ class SpecTests(unittest.TestCase):
 
 
 class FakeRuntime:
-    def __init__(self, missing: set[str] = frozenset(), unknown: set[str] = frozenset()) -> None:
-        self.missing, self.unknown, self.asked = set(missing), set(unknown), []
+    """The runtime facade as the readiness check asks it: `status()` and `tool_path()`."""
 
-    def _answer(self, name: str) -> bool:
-        self.asked.append(name)
-        if name in self.unknown:
-            raise LookupError(name)
-        return name not in self.missing
+    def __init__(self, *, state: str = "ready", missing_models: set[str] = frozenset(),
+                 tools: bool = True, managed: bool = True) -> None:
+        self.state, self.missing_models, self.tools, self.managed = state, set(missing_models), tools, managed
 
-    def component_ready(self, name: str) -> bool:
-        return self._answer(name)
+    def status(self) -> dict:
+        if not self.managed:
+            return {}
+        return {
+            "runtime": {"state": self.state},
+            "models": [
+                {"id": model, "state": "missing" if model in self.missing_models else "ready"}
+                for model in SPEC.environment.models
+            ],
+        }
 
-    def model_ready(self, name: str) -> bool:
-        return self._answer(name)
+    def tool_path(self, name: str) -> Path | None:
+        return Path(f"{name}.exe") if self.tools else None
 
 
 class ReadinessTests(unittest.TestCase):
-    def test_ready_when_everything_declared_is_installed(self) -> None:
-        runtime = FakeRuntime()
-        self.assertTrue(FineSubEngine(runtime).readiness(ReadinessContext(target="raw-srt")).ready)
-        self.assertEqual(runtime.asked, ["asr-runtime", "media", "separator", "whisper", "qwen-referee"])
+    """The sidecar's `raw-srt` tier, moved here by WP5 with its codes and words unchanged."""
 
-    def test_speaker_models_are_asked_for_only_with_speakers(self) -> None:
-        runtime = FakeRuntime(missing={"nemotron3"})
-        engine = FineSubEngine(runtime)
-        self.assertTrue(engine.readiness(ReadinessContext(options={"diarization": {"level": "off"}})).ready)
-        readiness = engine.readiness(ReadinessContext(options={"diarization": {"level": "acoustics"}}))
-        self.assertEqual([issue.to_dict() for issue in readiness.issues],
-                         [{"code": "missing_model", "message": "缺少模型：nemotron3"}])
+    def readiness(self, runtime: FakeRuntime, *, platform: str = "win32", missing_modules=frozenset(),
+                  which: bool = False) -> list[dict]:
+        def find_spec(name, *_args, **_kwargs):
+            return None if name in missing_modules else object()
 
-    def test_missing_and_unknown_components_are_issues(self) -> None:
-        readiness = FineSubEngine(FakeRuntime(missing={"media"}, unknown={"whisper"})).readiness(ReadinessContext())
-        self.assertEqual([issue.code for issue in readiness.issues], ["missing_component", "missing_model"])
+        with (
+            mock.patch.object(engine_module.sys, "platform", platform),
+            mock.patch.object(engine_module.shutil, "which", return_value="x" if which else None),
+            mock.patch.object(engine_module.importlib.util, "find_spec", side_effect=find_spec),
+        ):
+            readiness = FineSubEngine(runtime).readiness(ReadinessContext(target="raw-srt"))
+        return [issue.to_dict() for issue in readiness.issues]
+
+    def test_ready_when_the_managed_runtime_and_models_are_there(self) -> None:
+        self.assertEqual(self.readiness(FakeRuntime(), missing_modules={"torch"}), [])
+
+    def test_missing_models_are_named(self) -> None:
+        issues = self.readiness(FakeRuntime(missing_models={"whisper", "qwen-referee"}))
+        self.assertEqual(issues, [{"code": "missing_model", "message": "ASR 所需模型尚未安装：whisper、qwen-referee"}])
+
+    def test_an_outdated_runtime_asks_for_an_update_instead_of_listing_modules(self) -> None:
+        issues = self.readiness(FakeRuntime(state="outdated"), missing_modules={"torch"})
+        self.assertEqual([issue["code"] for issue in issues], ["runtime_outdated"])
+        self.assertIn("需要更新", issues[0]["message"])
+
+    def test_a_missing_runtime_lists_the_modules_the_launcher_lacks(self) -> None:
+        issues = self.readiness(FakeRuntime(state="missing"), missing_modules={"torch", "audio_separator"})
+        self.assertEqual(issues, [{"code": "missing_runtime", "message": "AI 运行时缺失：torch、audio_separator"}])
+
+    def test_media_tools_from_the_runtime_or_path(self) -> None:
+        self.assertEqual(self.readiness(FakeRuntime(tools=False), which=True), [])
+        self.assertEqual(
+            self.readiness(FakeRuntime(tools=False)),
+            [{"code": "missing_ffmpeg", "message": "缺少项目必备依赖 FFmpeg 或 FFprobe"}],
+        )
+
+    def test_only_windows_runs_the_local_gpu_stack(self) -> None:
+        codes = [issue["code"] for issue in self.readiness(FakeRuntime(), platform="darwin")]
+        self.assertEqual(codes, ["unsupported_platform"])
+
+    def test_nothing_managed_asks_no_model(self) -> None:
+        self.assertEqual(self.readiness(FakeRuntime(managed=False)), [])
 
     def test_no_runtime_is_not_ready(self) -> None:
         readiness = FineSubEngine().readiness(ReadinessContext())

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import importlib.util
 import locale
 import os
 import shutil
@@ -72,22 +71,14 @@ TARGET_READINESS = {
 }
 # The same, for a run that continues from a stable.json the cloud recognised.
 # Nothing here transcribes, so none of it needs the ASR runtime: the raw SRT
-# is rendered by the harness alone, and the LLM stages add the model.
+# is rendered by the harness alone, and the LLM stages add the model. A cloud
+# API engine clears these too, after its own `raw-srt` tier (its readiness:
+# the media tools and its keys), since nothing of the ASR stack runs here.
 CONTINUATION_READINESS = {
     "raw-srt": ("harness",),
     "translated-srt": ("final-srt",),
     "final-srt": ("final-srt",),
 }
-# What FineSub's `[harness]` extra brings that the launcher must have to run
-# the LLM half: (distribution, module) pairs. `cryptography` is left out -- it
-# is imported only to sign a knowledge-share snapshot, which no task does.
-HARNESS_MODULES = (
-    ("httpx", "httpx"),
-    ("opencc-python-reimplemented", "opencc"),
-)
-# `finesub.llm.rate_limit` resolves America/Los_Angeles at import, and Windows
-# ships no tz database for zoneinfo to find it in.
-HARNESS_WINDOWS_MODULES = (("tzdata", "tzdata"),)
 # The text-only roles plugins may ask for, mapped onto engine roles by
 # `nonoka_x.llm_worker.ENGINE_ROLES`. The multimodal role is omitted
 # deliberately: it exists to put a clip in front of a model, and this entry
@@ -229,7 +220,9 @@ def _prepare_msvc_environment(
             environment[key] = value
 
 
-def runtime_report(settings: FineSubSettings | None = None, provisioner: RuntimeProvisioner | None = None) -> dict[str, Any]:
+def _media_issues(provisioner: Any | None) -> list[dict[str, str]]:
+    """The `media` tier: the sidecar's own probe (each engine checks the tools it needs itself)."""
+
     managed = provisioner.status() if provisioner is not None else None
     managed_runtime_ready = managed is not None and managed["runtime"].get("state") == "ready"
     media_issues: list[dict[str, str]] = []
@@ -239,44 +232,55 @@ def runtime_report(settings: FineSubSettings | None = None, provisioner: Runtime
     managed_ffprobe = provisioner.tool_path("ffprobe") if provisioner is not None else None
     if not (shutil.which("ffmpeg") or managed_ffmpeg) or not (shutil.which("ffprobe") or managed_ffprobe):
         media_issues.append(_issue("missing_ffmpeg", "缺少项目必备依赖 FFmpeg 或 FFprobe"))
+    return media_issues
 
-    asr_issues = list(media_issues)
-    # 没有 N 卡不是不能跑，而是跑得慢，所以这条只作为警告传出。
-    asr_warnings: list[dict[str, str]] = []
-    if sys.platform != "win32":
-        asr_issues.append(_issue("unsupported_platform", "本地 GPU 流水线当前仅支持 Windows x64/NVIDIA"))
-    elif not shutil.which("nvidia-smi"):
-        asr_warnings.append(_issue("missing_gpu", "未检测到 NVIDIA 驱动或 GPU，将以 CPU 模式运行，速度显著低于显卡"))
-    managed_runtime_state = str((managed or {}).get("runtime", {}).get("state") or "")
-    missing_modules = [
-        name for name in ("torch", "faster_whisper", "audio_separator")
-        if importlib.util.find_spec(name) is None
-    ]
-    if managed_runtime_state == "outdated":
-        # Installed for an older dependency lock (an engine upgrade changed the
-        # pinned packages). The sidecar's own interpreter never carries these
-        # modules, so listing them would read as "the runtime is gone".
-        asr_issues.append(_issue(
-            "runtime_outdated",
-            "运行环境需要更新：引擎依赖有变化，请到「运行环境」页点击「更新」（只下载有变化的部分，约几分钟）",
-        ))
-    elif missing_modules and not managed_runtime_ready:
-        asr_issues.append(_issue("missing_runtime", "AI 运行时缺失：" + "、".join(missing_modules)))
-    if managed is not None:
-        missing_models = [
-            str(item.get("id"))
-            for item in managed.get("models", [])
-            if item.get("state") != "ready"
-        ]
-        if missing_models:
-            asr_issues.append(_issue("missing_model", "ASR 所需模型尚未安装：" + "、".join(missing_models)))
 
-    settings_snapshot = settings.snapshot() if settings is not None else {"llmReady": False, "retrievalKeyConfigured": False}
+class _StatusOnce:
+    """A provisioner whose `status()` is read once: one report asks it of every engine.
+
+    The status walks the model directories, and a report asks for it once per
+    engine and tier.
+    """
+
+    def __init__(self, provisioner: Any) -> None:
+        self._provisioner = provisioner
+        self._status: Any = None
+
+    def status(self) -> Any:
+        if self._status is None:
+            self._status = self._provisioner.status()
+        return self._status
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._provisioner, name)
+
+
+def _issues_of(readiness: Any) -> list[dict[str, str]]:
+    return [issue.to_dict() for issue in readiness.issues]
+
+
+def _gpu_findings(spec: Any) -> tuple[list[dict[str, str]], list[dict[str, str]]]:
+    """What a missing card means for an engine, from `spec.environment.gpu`: (issues, warnings).
+
+    `optional`: it runs on the CPU too, only slowly, so the card is a warning
+    -- an issue would make `ready` false and grey the whole local execution
+    card out. Only asked on Windows, the one platform the local GPU stack runs on.
+    """
+
+    need = spec.environment.gpu
+    if need == "none" or sys.platform != "win32" or shutil.which("nvidia-smi"):
+        return [], []
+    if need == "required":
+        return [_issue("missing_gpu", f"{spec.label} 需要 NVIDIA 显卡，未检测到 NVIDIA 驱动或 GPU")], []
+    return [], [_issue("missing_gpu", "未检测到 NVIDIA 驱动或 GPU，将以 CPU 模式运行，速度显著低于显卡")]
+
+
+def _local_agent() -> str:
     # A routable provider first — the Codex app hides its CLI in a directory
     # PATH never sees, so a plain `which` reports "no agent" on a machine that
     # has one. The remaining vendors have no desktop route yet, so PATH is the
     # whole question for them.
-    local_agent = next(
+    return next(
         (
             LOCAL_AGENT_PROVIDERS[provider]["command"]
             for provider in LOCAL_AGENT_PROVIDERS
@@ -284,35 +288,89 @@ def runtime_report(settings: FineSubSettings | None = None, provisioner: Runtime
         ),
         "",
     ) or next((name for name in ("codex", "claude", "agy") if shutil.which(name)), "")
-    # From stable.json onward the worker runs FineSub's LLM layer and nothing
-    # of the ASR stack, so a run continuing from the cloud's recognition needs
-    # neither the GPU platform, nor torch, nor the models -- only the harness.
-    # The worker runs on the managed runtime once it is ready, whose lock
-    # carries `[harness]`; until then it runs on this very interpreter, so this
-    # is the one to ask.
-    harness_issues = list(media_issues)
-    if not managed_runtime_ready:
-        wanted = HARNESS_MODULES + (HARNESS_WINDOWS_MODULES if sys.platform == "win32" else ())
-        missing_harness = [
-            distribution for distribution, module in wanted
-            if importlib.util.find_spec(module) is None
-        ]
-        if missing_harness:
-            harness_issues.append(_issue(
-                "missing_harness",
-                "本地续跑依赖缺失：" + "、".join(missing_harness)
-                + "；请在「运行环境」页重建 Python 启动环境，或安装完整运行环境",
-            ))
-    llm_issues = list(harness_issues)
-    # 装了 CLI 不等于配好了模型：只有设置里保存下来的全局模型（提供商 + 模型，
-    # 且凭据或 CLI 到位）才放行 LLM 环节。
-    if not settings_snapshot.get("llmReady"):
-        llm_issues.append(_issue("missing_llm_key", "尚未配置模型提供商，请在设置里选择提供商与全局模型并保存"))
 
-    # The knowledge base is a versioned SQLite store. Its update path needs a
-    # configured LLM, but Git has not been part of persistence since the node
-    # store migration; keep the readiness stage aligned with that contract.
-    knowledge_issues = list(llm_issues)
+
+def built_engines(settings: FineSubSettings | None, provisioner: Any | None) -> tuple[list[Any], list[Any]]:
+    """The built-in engines (`worker.TRANSCRIPTION_ENGINES`, `CORRECTION_ENGINES`), on the
+    config and runtime facades of `settings` and `provisioner`: (transcription, correction)."""
+
+    from .config import ConfigStore
+    from .runtime import RuntimeManager
+    from .worker import build_engines
+
+    store = ConfigStore(settings) if settings is not None else None
+    return build_engines(store=store, runtime=RuntimeManager(provisioner))
+
+
+def _find(engines: list[Any], engine_id: str) -> Any | None:
+    return next((engine for engine in engines if engine.spec.id == engine_id), None)
+
+
+def _engine_readiness(engine: Any | None, engine_id: str, context: Any) -> list[dict[str, str]]:
+    if engine is None:
+        return [_issue("missing_engine", f"转写引擎 {engine_id} 未安装")]
+    return _issues_of(engine.readiness(context))
+
+
+def runtime_report(
+    settings: FineSubSettings | None = None,
+    provisioner: RuntimeProvisioner | None = None,
+    *,
+    engine: str | None = None,
+    context: Any | None = None,
+) -> dict[str, Any]:
+    """The readiness tiers (`runtime.stages`) and what the `ready` of local execution means.
+
+    Each tier is asked of the engine it belongs to (WP5): `raw-srt` of the
+    transcription engine `engine` (the default one, FineSub, unless a task
+    picked another), with `context`; `harness` and the LLM tiers of the
+    correction engine. Only `media` is the sidecar's own probe.
+    """
+
+    return _report(settings, provisioner, engine=engine, context=context)[0]
+
+
+def _report(
+    settings: FineSubSettings | None,
+    provisioner: RuntimeProvisioner | None,
+    *,
+    engine: str | None = None,
+    context: Any | None = None,
+) -> tuple[dict[str, Any], list[Any], list[Any]]:
+    """`runtime_report`, and the engines it asked: (report, transcription engines, correction engines)."""
+
+    from .correction import DEFAULT_ENGINE as DEFAULT_CORRECTION
+    from .transcription import DEFAULT_ENGINE, ReadinessContext
+
+    if provisioner is not None:
+        provisioner = _StatusOnce(provisioner)
+    managed = provisioner.status() if provisioner is not None else None
+    transcription_engines, correction_engines = built_engines(settings, provisioner)
+    engine_id = engine or DEFAULT_ENGINE
+    transcriber = _find(transcription_engines, engine_id)
+    media_issues = _media_issues(provisioner)
+    asr_issues = _engine_readiness(transcriber, engine_id, context or ReadinessContext(target="raw-srt"))
+    asr_warnings: list[dict[str, str]] = []
+    if transcriber is not None:
+        gpu_issues, asr_warnings = _gpu_findings(transcriber.spec)
+        asr_issues += gpu_issues
+
+    corrector = _find(correction_engines, DEFAULT_CORRECTION)
+    if corrector is None:
+        missing = [_issue("missing_engine", f"纠错引擎 {DEFAULT_CORRECTION} 未安装")]
+        harness_issues = llm_issues = knowledge_issues = video_issues = missing
+    else:
+        harness_issues = _issues_of(corrector.readiness(ReadinessContext(target="raw-srt"), {}))
+        llm_issues = _issues_of(corrector.readiness(ReadinessContext(target="final-srt"), {"knowledge": "none"}))
+        # The knowledge base is a versioned SQLite store. Its update path needs a
+        # configured LLM, but Git has not been part of persistence since the node
+        # store migration; keep the readiness stage aligned with that contract.
+        knowledge_issues = _issues_of(
+            corrector.readiness(ReadinessContext(target="final-srt"), {"knowledge": "update"})
+        )
+        video_issues = _issues_of(corrector.readiness(
+            ReadinessContext(target="final-srt"), {"knowledge": "none", "correction": {"media": "video"}}
+        ))
 
     def stage(stage_id: str, label: str, issues: list[dict[str, str]]) -> dict[str, Any]:
         return {"id": stage_id, "label": label, "ready": not issues, "issues": issues}
@@ -323,16 +381,17 @@ def runtime_report(settings: FineSubSettings | None = None, provisioner: Runtime
         stage("harness", "云端识别后本地续跑", harness_issues),
         stage("final-srt", "纠错与翻译", llm_issues),
         stage("knowledge", "知识库更新", knowledge_issues),
-        stage("video-multimodal", "视频多模态纠错", llm_issues),
+        stage("video-multimodal", "视频多模态纠错", video_issues),
     ]
-    return {
+    report = {
         "ready": not asr_issues,
         "issues": asr_issues,
         "warnings": asr_warnings,
         "stages": stages,
-        "localAgent": local_agent,
+        "localAgent": _local_agent(),
         "managed": managed,
     }
+    return report, transcription_engines, correction_engines
 
 
 def runtime_issues() -> list[dict[str, str]]:
@@ -389,8 +448,11 @@ def capabilities(
     settings: FineSubSettings | None = None,
     provisioner: RuntimeProvisioner | None = None,
 ) -> dict[str, Any]:
+    from .correction import correction_capability
+    from .transcription import ReadinessContext, engine_capability
+
     upstream = _load_upstream(vendor)
-    runtime = runtime_report(settings, provisioner)
+    runtime, transcription_engines, correction_engines = _report(settings, provisioner)
     if issues is not None:
         runtime["issues"] = issues
         runtime["ready"] = not issues
@@ -414,6 +476,17 @@ def capabilities(
         },
         "devices": detect_devices(),
         "runtime": runtime,
+        # Every engine this sidecar can run, ready or not (plan 5.3). A
+        # transcription engine is asked whether it can run at all; the
+        # correction engine whether it can take a task to `final-srt`.
+        "transcription_engines": [
+            engine_capability(engine.spec, engine.readiness(ReadinessContext()))
+            for engine in transcription_engines
+        ],
+        "correction_engines": [
+            correction_capability(engine.spec, engine.readiness(ReadinessContext(target="final-srt"), {}))
+            for engine in correction_engines
+        ],
         "settings": {
             "llm_key_configured": bool(settings.snapshot().get("llmKeyConfigured")) if settings else False
         },
@@ -493,7 +566,37 @@ def _normalize_knowledge_subjects(request: Mapping[str, Any], knowledge: str) ->
     return subjects
 
 
-def validate_request(value: Mapping[str, Any]) -> dict[str, Any]:
+#: What a request asks of the local GPU stack, dropped for an engine that runs
+#: on none (`environment.gpu == "none"`), and of the vocal separation, dropped
+#: for an engine that does not separate (WP5, owner 2026-11-13).
+GPU_FIELDS = ("device", "gpu_tier", "gpu_budget_gb")
+SEPARATION_FIELDS = ("separate", "vocal_profile")
+
+
+def builtin_engine_specs() -> dict[str, Any]:
+    """The built-in transcription engines' specs by id (`worker.TRANSCRIPTION_ENGINES`)."""
+
+    from .worker import build_engines
+
+    return {engine.spec.id: engine.spec for engine in build_engines()[0]}
+
+
+def dropped_fields(value: Mapping[str, Any], validated: Mapping[str, Any]) -> list[str]:
+    """The fields the caller sent that `validate_request` dropped for the engine."""
+
+    return [name for name in (*SEPARATION_FIELDS, *GPU_FIELDS) if name in value and name not in validated]
+
+
+def validate_request(value: Mapping[str, Any], *, engines: Mapping[str, Any] | None = None) -> dict[str, Any]:
+    """The TaskRequest, checked and normalized for this provider.
+
+    `engines` maps the transcription engines this provider has to their
+    specs (`builtin_engine_specs()` when absent). A request on the default
+    engine, FineSub, comes out exactly as it did before engines were
+    selectable: a `transcription` block it carries is kept as it is, and none
+    is added when it has none.
+    """
+
     request = json.loads(json.dumps(value))
     if request.get("schema") != 1:
         raise ProviderError("unsupported_schema", "TaskRequest.schema must be 1")
@@ -631,7 +734,76 @@ def validate_request(value: Mapping[str, Any]) -> dict[str, Any]:
         request.pop("diarization", None)
     else:
         request["diarization"] = diarization
+    _normalize_transcription(request, builtin_engine_specs() if engines is None else engines)
     return request
+
+
+def _normalize_transcription(request: dict[str, Any], specs: Mapping[str, Any]) -> None:
+    """Check `transcription` against the engine it names, and drop what that engine cannot use (WP5)."""
+
+    from .transcription import DEFAULT_ENGINE, ContractError, check_id
+
+    block = request.get("transcription")
+    engine_id = DEFAULT_ENGINE
+    if block is not None:
+        if not isinstance(block, dict):
+            raise ProviderError("invalid_request", "transcription must be an object")
+        if block.get("engine") is not None:
+            try:
+                engine_id = check_id(block["engine"], "transcription.engine")
+            except ContractError as exc:
+                raise ProviderError("invalid_request", str(exc)) from exc
+        options = block.get("options")
+        if options is not None and not isinstance(options, dict):
+            raise ProviderError("invalid_request", "transcription.options must be an object")
+    spec = specs.get(engine_id)
+    if spec is None:
+        raise ProviderError(
+            "unsupported_engine",
+            f"transcription engine {engine_id!r} is not available; available: " + (", ".join(specs) or "none"),
+        )
+    if engine_id != DEFAULT_ENGINE:
+        # Both replace recognition: the cloud's FineSub made the one, the user
+        # brought the other. Another engine would have nothing to transcribe.
+        if request["source"]["kind"] == "cloud_stable":
+            raise ProviderError(
+                "invalid_request",
+                f"a cloud_stable source continues the cloud's recognition; it cannot run on {engine_id}",
+            )
+        if "axis" in request:
+            raise ProviderError(
+                "invalid_request", f"a source-text axis replaces recognition; it cannot run on {engine_id}"
+            )
+    if spec.kind != "local-gpu" and request["target"] not in CONTINUATION_TARGETS:
+        # Such an engine's one product is transcript.json; the first artifact
+        # of a task on it is the raw SRT the correction renders from that.
+        raise ProviderError(
+            "unsupported_target",
+            f"{spec.label} transcribes to transcript.json only; target must be one of: "
+            + ", ".join(CONTINUATION_TARGETS),
+        )
+    if spec.environment.gpu == "none":
+        for name in GPU_FIELDS:
+            request.pop(name, None)
+    if not spec.features.separate:
+        for name in SEPARATION_FIELDS:
+            request.pop(name, None)
+    diarization = request.get("diarization")
+    if diarization is not None:
+        for key in ("level", "requested_level"):
+            level = diarization.get(key)
+            if level is not None and level not in spec.features.diarization_levels:
+                raise ProviderError(
+                    "invalid_request",
+                    f"{spec.label} does not support diarization.level={level}; supported: "
+                    + ", ".join(spec.features.diarization_levels),
+                )
+    languages = spec.features.languages
+    if languages and request["language"] != "auto" and request["language"] not in languages:
+        raise ProviderError(
+            "invalid_request", f"{spec.label} does not support language={request['language']}; supported: "
+            + ", ".join(languages),
+        )
 
 
 #: Where a task's input comes from. `local_file` is media this machine
@@ -890,6 +1062,13 @@ class LocalProvider:
         self._issues = runtime_issues() if issues is None else issues
         self._settings = settings
         self._provisioner = provisioner
+        # The cloud ASR engines' keys (OpenRouter STT, Azure Speech and its
+        # endpoint, the MOSS Pro pool): registered with the config facade so
+        # `update_keys` can save them. Nonoka's own engines read them; nothing
+        # derives them for FineSub (WP5).
+        from .transcription.keys import register_key_specs
+
+        register_key_specs()
         from .telemetry import Telemetry
 
         self.telemetry = Telemetry(self.root.parent)
@@ -920,7 +1099,7 @@ class LocalProvider:
 
     def _default_worker_command(self, task_id: str, task_dir: Path) -> list[str]:
         managed_python = self._provisioner.worker_python() if self._provisioner is not None else None
-        return [
+        command = [
             str(managed_python or sys.executable),
             "-m",
             "nonoka_x.worker",
@@ -930,7 +1109,24 @@ class LocalProvider:
             str(task_dir),
             "--vendor",
             str(self.vendor),
+            # Where the worker's engines read keys and find the runtime (WP5).
+            "--data-dir",
+            str(self._data_dir()),
         ]
+        install_root = getattr(self._provisioner, "install_root", None)
+        if install_root is not None:
+            command += ["--install-dir", str(install_root)]
+        return command
+
+    def _data_dir(self) -> Path:
+        """The data directory: the settings' own, else the one the task root sits in."""
+
+        if self._settings is not None:
+            return Path(self._settings.root)
+        return self.root.parent
+
+    def _engine_specs(self) -> dict[str, Any]:
+        return {engine.spec.id: engine.spec for engine in built_engines(self._settings, self._provisioner)[0]}
 
     def _default_llm_worker_command(self) -> list[str]:
         managed_python = self._provisioner.worker_python() if self._provisioner is not None else None
@@ -1071,8 +1267,11 @@ class LocalProvider:
             raise ProviderError("settings_unavailable", "FineSub settings are unavailable", http_status=503)
         if not isinstance(updates, Mapping):
             raise ProviderError("invalid_request", "keys must be an object")
+        from .config import ConfigStore
+
         try:
-            result = self._settings.update_keys(updates)
+            # Through the facade: it also takes the registered engine keys.
+            result = ConfigStore(self._settings).update(updates)
         except ValueError as exc:
             raise ProviderError("invalid_settings", str(exc)) from exc
         self._llm_config_stale = True
@@ -1102,28 +1301,53 @@ class LocalProvider:
             raise
 
     def _start(self, request: Mapping[str, Any]) -> dict[str, Any]:
-        validated = validate_request(request)
+        from .transcription import ReadinessContext, requested_engine, requested_options
+
+        specs = self._engine_specs()
+        validated = validate_request(request, engines=specs)
         if self._issues_override and self._issues:
             issue = self._issues[0]
             raise ProviderError(issue["code"], issue["message"], http_status=503)
         if not self._issues_override:
+            engine_id = requested_engine(validated)
             # A source-text axis replaces recognition the way a cloud stable.json
             # does, so it clears the same tiers: the LLM half, not the ASR one.
-            readiness = (
-                CONTINUATION_READINESS
-                if validated["source"]["kind"] == "cloud_stable" or "axis" in validated
-                else TARGET_READINESS
+            # A cloud API engine transcribes here, but with nothing of the ASR
+            # stack: its own readiness (the `raw-srt` tier, keys included),
+            # then the continuation's tiers.
+            if validated["source"]["kind"] == "cloud_stable" or "axis" in validated:
+                readiness = CONTINUATION_READINESS[validated["target"]]
+            elif specs[engine_id].kind == "local-gpu":
+                readiness = TARGET_READINESS[validated["target"]]
+            else:
+                readiness = ("raw-srt", *CONTINUATION_READINESS[validated["target"]])
+            context = ReadinessContext(
+                target=validated["target"],
+                language=validated.get("language"),
+                device=validated.get("device"),
+                options=dict(requested_options(validated)),
             )
             stages = {
                 item["id"]: item
-                for item in runtime_report(self._settings, self._provisioner)["stages"]
+                for item in runtime_report(
+                    self._settings, self._provisioner, engine=engine_id, context=context
+                )["stages"]
             }
-            for stage_id in readiness[validated["target"]]:
+            for stage_id in readiness:
                 if validated.get("knowledge") == "update" and stage_id == "final-srt":
                     stage_id = "knowledge"
                 if not stages[stage_id]["ready"]:
                     issue = stages[stage_id]["issues"][0]
                     raise ProviderError(issue["code"], issue["message"], http_status=503)
+            # The worker refuses the same request the same way, with the same
+            # check (plan 4.6 item 35a): a run that reads or writes the
+            # knowledge base, or picks its ASR context from it, needs the
+            # knowledge package.
+            from .worker import knowledge_package_problem
+
+            problem = knowledge_package_problem(validated)
+            if problem:
+                raise ProviderError("missing_knowledge_package", problem, http_status=503)
         task_id = uuid.uuid4().hex
         now = utc_now()
         snapshot = {
@@ -1151,6 +1375,15 @@ class LocalProvider:
         task_dir = self._task_dir(task_id)
         _atomic_json(task_dir / "request.json", validated)
         _atomic_json(task_dir / "snapshot.json", snapshot)
+        dropped = dropped_fields(request, validated)
+        if dropped:
+            from .transcription import requested_engine
+
+            spec = specs[requested_engine(validated)]
+            self._append_event(task_id, "log", {
+                "message": f"{spec.label} 不用这些选项，已忽略：" + "、".join(dropped),
+                "fields": {"engine": spec.id, "dropped": dropped},
+            })
         self._spawn(task_id)
         return self.status(task_id)
 

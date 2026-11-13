@@ -39,10 +39,13 @@ from __future__ import annotations
 from collections import Counter
 from dataclasses import dataclass
 import hashlib
+import importlib.util
 import json
 import logging
 import os
 from pathlib import Path
+import shutil
+import sys
 from typing import Any, Mapping
 
 from nonoka_x.transcription import (
@@ -393,18 +396,41 @@ def _mute_separator_onnx_warning() -> None:
 # --- the engine ----------------------------------------------------------------------
 
 
-def _speakers_requested(options: Mapping[str, Any]) -> bool:
-    block = options.get("diarization")
-    level = block.get("level") if isinstance(block, Mapping) else block
-    return bool(level) and str(level) != "off"
+#: Modules of the ASR stack the launcher interpreter has only when it is the
+#: runtime itself (a source checkout run on a full environment).
+ASR_MODULES = ("torch", "faster_whisper", "audio_separator")
+
+
+def managed_status(runtime: Any) -> Mapping[str, Any] | None:
+    """The runtime facade's status payload, None when nothing is managed here."""
+
+    status = runtime.status()
+    return status if status else None
+
+
+def media_issues(runtime: Any, managed: Mapping[str, Any] | None) -> list[Issue]:
+    """The interpreter and the media tools: the sidecar's `media` tier (WP5, moved as it was)."""
+
+    managed_runtime_ready = managed is not None and (managed.get("runtime") or {}).get("state") == "ready"
+    issues: list[Issue] = []
+    if sys.version_info < (3, 12) and not managed_runtime_ready:
+        issues.append(Issue("missing_python", "需要 Python 3.12 或更高版本"))
+    if not (shutil.which("ffmpeg") or runtime.tool_path("ffmpeg")) or not (
+        shutil.which("ffprobe") or runtime.tool_path("ffprobe")
+    ):
+        issues.append(Issue("missing_ffmpeg", "缺少项目必备依赖 FFmpeg 或 FFprobe"))
+    return issues
 
 
 class FineSubEngine:
     """FineSub's recognition chain behind `TranscriptionEngine`.
 
-    `runtime` answers `component_ready(id)` and `model_ready(id)`
-    (`nonoka_x.runtime.RuntimeManager` does); readiness is asked of it for
-    exactly what `spec.environment` declares, nothing else.
+    `runtime` is the runtime facade (`nonoka_x.runtime.RuntimeManager`:
+    `status`, `tool_path`). Readiness is the sidecar's `raw-srt` tier as it
+    was before WP5 moved it here, word for word: the media tools, the
+    platform, the runtime and its models. Whether there is a card to run on is
+    the caller's to say, from `spec.environment.gpu` (`optional`: a missing
+    card is a warning, never an issue).
     """
 
     spec = SPEC
@@ -415,24 +441,29 @@ class FineSubEngine:
     def readiness(self, context: ReadinessContext) -> Readiness:
         if self._runtime is None:
             return Readiness((Issue("runtime_unavailable", "无法查询本机运行环境，FineSub 不可用"),))
-        environment = self.spec.environment
-        models = list(environment.models)
-        if _speakers_requested(context.options):
-            models += environment.optional_models
-        issues = []
-        for component in environment.components:
-            if not self._ask("component_ready", component):
-                issues.append(Issue("missing_component", f"缺少运行环境组件：{component}"))
-        for model in models:
-            if not self._ask("model_ready", model):
-                issues.append(Issue("missing_model", f"缺少模型：{model}"))
+        managed = managed_status(self._runtime)
+        issues = media_issues(self._runtime, managed)
+        if sys.platform != "win32":
+            issues.append(Issue("unsupported_platform", "本地 GPU 流水线当前仅支持 Windows x64/NVIDIA"))
+        runtime_state = str(((managed or {}).get("runtime") or {}).get("state") or "")
+        missing_modules = [name for name in ASR_MODULES if importlib.util.find_spec(name) is None]
+        if runtime_state == "outdated":
+            # Installed for an older dependency lock (an engine upgrade changed the
+            # pinned packages). The sidecar's own interpreter never carries these
+            # modules, so listing them would read as "the runtime is gone".
+            issues.append(Issue(
+                "runtime_outdated",
+                "运行环境需要更新：引擎依赖有变化，请到「运行环境」页点击「更新」（只下载有变化的部分，约几分钟）",
+            ))
+        elif missing_modules and runtime_state != "ready":
+            issues.append(Issue("missing_runtime", "AI 运行时缺失：" + "、".join(missing_modules)))
+        if managed is not None:
+            missing_models = [
+                str(item.get("id")) for item in managed.get("models", []) if item.get("state") != "ready"
+            ]
+            if missing_models:
+                issues.append(Issue("missing_model", "ASR 所需模型尚未安装：" + "、".join(missing_models)))
         return Readiness(tuple(issues))
-
-    def _ask(self, question: str, name: str) -> bool:
-        try:
-            return bool(getattr(self._runtime, question)(name))
-        except LookupError:
-            return False
 
     def transcribe(self, job: TranscriptionJob, report: Reporter) -> TranscriptionResult:
         if report.cancelled():

@@ -18,6 +18,7 @@ import contextlib
 import dataclasses
 import hashlib
 import importlib
+import inspect
 import json
 import logging
 import os
@@ -486,7 +487,14 @@ def format_worker_exception(exc: BaseException) -> str:
 #: the engine packages are discovered from `engines/` (WP-P1): an id that is
 #: not in its registry is simply not available, the way a removed package
 #: will be. Tests replace these to run with other engines, or without one.
-TRANSCRIPTION_ENGINES: tuple[str, ...] = ("nonoka_x.transcription.engines.finesub:FineSubEngine",)
+#: A factory is handed whichever of `store` (the config facade) and `runtime`
+#: (the runtime facade) it takes by name (`build_engines`).
+TRANSCRIPTION_ENGINES: tuple[str, ...] = (
+    "nonoka_x.transcription.engines.finesub:FineSubEngine",
+    "nonoka_x.transcription.engines.mai2:Mai2Engine",
+    "nonoka_x.transcription.engines.gemini:GeminiEngine",
+    "nonoka_x.transcription.engines.moss_pro:MossProEngine",
+)
 CORRECTION_ENGINES: tuple[str, ...] = ("nonoka_x.correction.finesub:FineSubCorrection",)
 
 #: Every TaskRequest target, in order; the transcription's reach ends at `stable`.
@@ -499,20 +507,90 @@ TRANSCRIPTION_TARGETS = TARGETS[: TARGETS.index("stable") + 1]
 CLOUD_NATIVE = (("stable_json", "finesub.stable_json"), ("diar_json", "finesub.diar_json"))
 
 
-def register_engines() -> None:
+def _construct(factory: Any, context: Mapping[str, Any]) -> Any:
+    """`factory` called with the items of `context` it names as parameters."""
+
+    try:
+        parameters = inspect.signature(factory).parameters
+    except (TypeError, ValueError):
+        return factory()
+    if any(parameter.kind is inspect.Parameter.VAR_KEYWORD for parameter in parameters.values()):
+        return factory(**context)
+    return factory(**{name: value for name, value in context.items() if name in parameters})
+
+
+def build_engines(*, store: Any | None = None, runtime: Any | None = None) -> tuple[list[Any], list[Any]]:
+    """One instance of every built-in implementation: (transcription engines, correction engines).
+
+    The sidecar builds its own set for readiness and capabilities; the worker
+    registers one (`register_engines`).
+    """
+
+    context = {"store": store, "runtime": runtime}
+    built: list[list[Any]] = []
+    for entries in (TRANSCRIPTION_ENGINES, CORRECTION_ENGINES):
+        engines = []
+        for entry in entries:
+            module_name, _, factory = entry.partition(":")
+            engines.append(_construct(getattr(importlib.import_module(module_name), factory), context))
+        built.append(engines)
+    return built[0], built[1]
+
+
+def register_engines(*, store: Any | None = None, runtime: Any | None = None) -> None:
     """Register every built-in implementation whose id is not registered yet."""
 
     from . import correction, transcription
 
-    for registry, entries in (
-        (transcription.registry, TRANSCRIPTION_ENGINES),
-        (correction.registry, CORRECTION_ENGINES),
+    transcription_engines, correction_engines = build_engines(store=store, runtime=runtime)
+    for registry, engines in (
+        (transcription.registry, transcription_engines),
+        (correction.registry, correction_engines),
     ):
-        for entry in entries:
-            module_name, _, factory = entry.partition(":")
-            engine = getattr(importlib.import_module(module_name), factory)()
+        for engine in engines:
             if engine.spec.id not in registry:
                 registry.register(engine)
+
+
+class _Deferred:
+    """What `build()` returns, built the first time anything is asked of it.
+
+    The worker's config and runtime facades: only a cloud engine's run reads
+    them, and opening the runtime installs download policies a FineSub run
+    must not see.
+    """
+
+    def __init__(self, build: Any) -> None:
+        self._deferred_build = build
+        self._deferred_value: Any = None
+
+    def __getattr__(self, name: str) -> Any:
+        if name.startswith("_deferred_"):
+            raise AttributeError(name)
+        if self._deferred_value is None:
+            self._deferred_value = self._deferred_build()
+        return getattr(self._deferred_value, name)
+
+
+def engine_context(
+    data_dir: Path | None, install_dir: Path | None, vendor: Path
+) -> dict[str, Any]:
+    """The `store` and `runtime` the built-in engines are built with in this worker (WP5)."""
+
+    if data_dir is None:
+        return {"store": None, "runtime": None}
+
+    def store() -> Any:
+        from .config import ConfigStore
+
+        return ConfigStore.open(data_dir)
+
+    def runtime() -> Any:
+        from .runtime import RuntimeManager
+
+        return RuntimeManager.open(data_dir, vendor, install_dir)
+
+    return {"store": _Deferred(store), "runtime": _Deferred(runtime)}
 
 
 def transcription_in_hand(request: Mapping[str, Any], task_dir: Path) -> Any | None:
@@ -544,8 +622,9 @@ def transcription_job(
     `options` carry them in TaskRequest terms (WP4a, owner 2026-11-11): the
     device as requested, the GPU tier resolved, the speaker block as the
     provider normalized it, the extra-info with the picked knowledge subjects
-    written in, the effective knowledge switch. `transcription.options` (none
-    yet: WP5) lies underneath, so a resolved field always wins.
+    written in, the effective knowledge switch. `transcription.options` (the
+    engine's own, e.g. a cloud engine's `split_length_scale`) lies
+    underneath, so a resolved field always wins.
     """
 
     from .transcription import TranscriptionJob, requested_options
@@ -703,6 +782,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--task-id", required=True)
     parser.add_argument("--task-dir", type=Path, required=True)
     parser.add_argument("--vendor", type=Path, required=True)
+    # Where the engines read keys and find the managed runtime (WP5); a worker
+    # started without them runs only the engines that need neither.
+    parser.add_argument("--data-dir", type=Path, default=None)
+    parser.add_argument("--install-dir", type=Path, default=None)
     args = parser.parse_args(argv)
     try:
         request = json.loads(sys.stdin.readline())
@@ -744,6 +827,7 @@ def main(argv: list[str] | None = None) -> int:
                 "final_srt": translated.final_srt,
             }
         else:
+            register_engines(**engine_context(args.data_dir, args.install_dir, args.vendor))
             candidates = run_engines(
                 request, args.task_dir, args.task_id, title=title, subject_names=subjects["names"]
             )
