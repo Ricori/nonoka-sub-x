@@ -1,9 +1,7 @@
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 
-from finesub_bootstrap.environment import RuntimeEnvironment
 import nonoka_x.runtime_install as runtime_install
 from nonoka_x.msvc_runtime import (
     REDIST_URL,
@@ -11,7 +9,6 @@ from nonoka_x.msvc_runtime import (
     explaining,
     msvc_runtime_problem,
 )
-from nonoka_x.runtime_install import ProgressRuntimeEnvironment
 
 C10_FAILURE = (
     'OSError: [WinError 1114] Error loading "H:\\Program\\Nonoka X\\finesub\\runtime\\python.staging'
@@ -89,29 +86,10 @@ def test_the_validator_rewords_a_c10_failure() -> None:
     assert REDIST_URL in detail
 
 
-def _bare_runtime(tmp_path: Path, state: str) -> ProgressRuntimeEnvironment:
-    runtime = object.__new__(ProgressRuntimeEnvironment)
-    runtime.paths = SimpleNamespace(runtime=tmp_path / "runtime", cache=tmp_path / "cache")
-    runtime.development_python = None
-    runtime.condition = lambda: "missing"
-    runtime.status = lambda: SimpleNamespace(state=state)
-    return runtime
+def test_an_install_without_a_usable_vc_runtime_stops_before_downloading(monkeypatch) -> None:
+    """The check runs before the Python layer is fetched, in `msvc_runtime`'s words (WP-E3)."""
 
-
-def test_an_install_without_a_usable_vc_runtime_stops_before_downloading(tmp_path: Path, monkeypatch) -> None:
-    rebuilt: list[bool] = []
-    monkeypatch.setattr(runtime_install, "msvc_runtime_problem", lambda: "缺少 VC++ 运行库")
-    monkeypatch.setattr(
-        RuntimeEnvironment, "_install_locked", lambda self, uv, **kwargs: rebuilt.append(True) or "built"
-    )
-
-    runtime = _bare_runtime(tmp_path, "missing")
-    with pytest.raises(RuntimeError, match="缺少 VC\\+\\+ 运行库"):
-        runtime._install_locked(Path("uv.exe"), stage=None, log=None, should_pause=None)
-    assert rebuilt == []
-
-    # A runtime that already works is not taken away by the check.
-    ready = _bare_runtime(tmp_path, "ready")
-    assert ready._install_locked(Path("uv.exe"), stage=None, log=None, should_pause=None) == "built"
-    with pytest.raises(RuntimeError):
-        ready._install_locked(Path("uv.exe"), stage=None, log=None, should_pause=None, force=True)
+    monkeypatch.setattr(runtime_install, "msvc_runtime_problem", lambda *, platform: "缺少 VC++ 运行库")
+    assert runtime_install.vc_runtime_problem(["tools", "python"]) == "缺少 VC++ 运行库"
+    # Layers that do not load torch are not held up by it.
+    assert runtime_install.vc_runtime_problem(["tools", "models"]) is None

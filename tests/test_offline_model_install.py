@@ -1,66 +1,85 @@
+"""The offline package and the layers (WP-E3): every layer, the model layer included, comes from it first.
+
+The package stores `layers.json`'s objects under the same relative paths (plan WP-E2) next to its
+`pack.json`; the desktop names it in `NONOKA_OFFLINE_PACK`. Nothing in it is ever deleted.
+"""
+
 from __future__ import annotations
 
+import os
 from pathlib import Path
-from types import SimpleNamespace
+import sys
+import time
 
 import pytest
 
-from nonoka_x import model_install
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "src"))
 
+from nonoka_x.provision import RuntimeProvisioner  # noqa: E402
+from nonoka_x.runtime import layer_manifest as lm  # noqa: E402
+from nonoka_x.runtime import layers as L  # noqa: E402
+from nonoka_x.runtime.fetch import NetworkRoute  # noqa: E402
 
-REPOSITORY = "example/model"
-REVISION = "abc123"
+from tests import layer_fakes as fakes  # noqa: E402
+
+pytestmark = pytest.mark.skipif(os.name != "nt", reason="layers are Windows-only")
 
 
 @pytest.fixture
-def pack(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    root = tmp_path / "offline-pack"
-    snapshot = root / "huggingface" / "models--example--model" / REVISION / "plda"
-    snapshot.mkdir(parents=True)
-    (root / "pack.json").write_text("{}", encoding="utf-8")
-    (snapshot.parent / "model.bin").write_bytes(b"weights")
-    (snapshot / "plda.npz").write_bytes(b"nested")
-    monkeypatch.setenv("NONOKA_OFFLINE_PACK", str(root))
-    return root
+def setup(tmp_path, monkeypatch):
+    built = {layer: fakes.build_layer(tmp_path / "built", layer) for layer in lm.LAYERS}
+    origin = fakes.Origin(tmp_path / "empty origin")
+    origin.fail_with = 503
+    pack = fakes.publish(built, tmp_path / "offline 离线包")
+    (pack / L.OFFLINE_PACK_MARKER).write_text("{}", encoding="utf-8")
+    monkeypatch.setenv(L.OFFLINE_PACK_ENVIRONMENT, str(pack))
+    index = tmp_path / "layers.json"
+    index.write_bytes(fakes.index_bytes(built, origin.base))
+    yield built, origin, pack, index
+    origin.close()
 
 
-def _entry() -> SimpleNamespace:
-    return SimpleNamespace(repo=REPOSITORY, revision=REVISION)
+def test_the_models_come_from_the_offline_package_through_the_job(tmp_path, setup, monkeypatch):
+    built, origin, pack, index = setup
+    from nonoka_x import runtime_install
+
+    monkeypatch.setattr(runtime_install, "msvc_runtime_problem", lambda **_: None)
+    page = RuntimeProvisioner(tmp_path / "data", ROOT / "third_party" / "finesub", index_path=index,
+                              layer_options={"routes": lambda: [NetworkRoute("直连", None)], "in_use": lambda: False})
+    page.start("all")
+    deadline = time.monotonic() + 60
+    while page.status()["job"]["state"] == "running" and time.monotonic() < deadline:
+        time.sleep(0.05)
+
+    assert page.status()["job"]["state"] == "completed"
+    assert origin.requests == []
+    assert all(item["state"] == "ready" for item in page.status()["models"])
+    for item in built.values():
+        assert all((pack / path).is_file() for path in item.object_paths())
 
 
-def test_a_snapshot_is_copied_as_plain_files_with_progress(tmp_path: Path, pack: Path) -> None:
-    models = tmp_path / "models"
-    events: list[dict] = []
+def test_a_package_missing_an_archive_falls_through_to_the_network(tmp_path, setup):
+    built, origin, pack, index = setup
+    (pack / built["tools"].object_paths()[1]).unlink()
+    layers = L.LayerManager(L.NonokaPaths.for_roots(tmp_path / "data"), L.load_index(index),
+                            routes=lambda: [NetworkRoute("直连", None)], in_use=lambda: False)
 
-    snapshot = model_install._install_from_offline_pack(_entry(), "m", models, events.append)
-
-    assert snapshot == models / "huggingface" / "hub" / "models--example--model" / "snapshots" / REVISION
-    assert (snapshot / "model.bin").read_bytes() == b"weights"
-    assert (snapshot / "plda" / "plda.npz").read_bytes() == b"nested"
-    assert not snapshot.is_symlink()
-    assert [path.name for path in snapshot.parent.iterdir()] == [REVISION]
-    finished = [event for event in events if event["type"] == "progress"][-1]
-    assert finished["completed"] == finished["total"] == len(b"weights") + len(b"nested")
+    with pytest.raises(Exception):
+        layers.install("tools")  # the origin answers 503
+    assert [path for path, _ in origin.requests if path.endswith(".tar.zst")]
 
 
-def test_a_partial_snapshot_from_an_earlier_attempt_is_replaced(tmp_path: Path, pack: Path) -> None:
-    models = tmp_path / "models"
-    stale = models / "huggingface" / "hub" / "models--example--model" / "snapshots" / REVISION
-    stale.mkdir(parents=True)
-    (stale / "leftover").write_bytes(b"x")
+def test_a_corrupt_archive_in_the_package_is_not_used(tmp_path, setup):
+    built, origin, pack, index = setup
+    archive = pack / built["tools"].object_paths()[1]
+    data = bytearray(archive.read_bytes())
+    data[-1] ^= 0xFF
+    archive.write_bytes(bytes(data))
+    origin.fail_with = None
+    fakes.publish(built, origin.root)
+    layers = L.LayerManager(L.NonokaPaths.for_roots(tmp_path / "data"), L.load_index(index),
+                            routes=lambda: [NetworkRoute("直连", None)], in_use=lambda: False)
 
-    snapshot = model_install._install_from_offline_pack(_entry(), "m", models, lambda _event: None)
-
-    assert not (snapshot / "leftover").exists()
-
-
-def test_a_model_the_package_lacks_goes_online(tmp_path: Path, pack: Path) -> None:
-    other = SimpleNamespace(repo="example/other", revision=REVISION)
-
-    assert model_install._install_from_offline_pack(other, "m", tmp_path / "models", lambda _event: None) is None
-
-
-def test_nothing_happens_without_a_package(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("NONOKA_OFFLINE_PACK", raising=False)
-
-    assert model_install._install_from_offline_pack(_entry(), "m", tmp_path / "models", lambda _event: None) is None
+    assert layers.install("tools").ready
+    assert origin.archive_requests()  # the package's copy failed its digest; the network's was used

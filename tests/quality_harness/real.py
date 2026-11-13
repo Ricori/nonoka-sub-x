@@ -12,13 +12,16 @@ fails instead.
 Settings, knowledge base and engine state come from a fresh directory beside
 the run, so the user's own configuration does not leak in.
 
-`NONOKA_QUALITY_PYTHON` names another interpreter to run the worker with in
-place of the managed runtime's (`worker_python`), for an environment built
-outside the install root -- a python-build-standalone with the lock installed
-straight into it (plan 4.2 item 14, WP-R1). Models and tools still come from
-the runtime `locate_runtime` finds, read as before; only the interpreter, and
-with it the installed packages, changes. The managed runtime's own
-readiness (its venv and version marker) is then not asked for.
+The managed runtime is the prebuilt layers (WP-E3): the worker runs on the
+Python environment layer's interpreter, with the model layer as its model
+directory and the tool layer's executables, all of the big-file root
+`locate_runtime` finds (`NONOKA_QUALITY_INSTALL_DIR`, e.g. a root the layer
+manager installed into). `NONOKA_QUALITY_PYTHON` names another interpreter to
+run the worker with in place of the Python layer's (`worker_python`), for an
+environment built outside the root -- a python-build-standalone with the lock
+installed straight into it (plan 4.2 item 14, WP-R1); models and tools still
+come from the located root. The Python layer's own readiness is then not
+asked for.
 
 Layout under `test_data/quality-baseline/real/` (never committed: `test_data/`
 is ignored):
@@ -102,19 +105,19 @@ def without_run_timings(value: Any, *, top: bool = True) -> Any:
 
 
 def locate_runtime() -> tuple[Path, Path | None]:
-    """The data dir and install dir of a FineSub runtime on this machine.
+    """The data dir and big-file root (`runtime`, holding `layers`) of the managed runtime on this machine.
 
     `NONOKA_QUALITY_DATA_DIR` / `NONOKA_QUALITY_INSTALL_DIR` win; otherwise the
     development data dir (`.local`, `scripts/run_local_sidecar.py`) when it has
-    a runtime, then the installed app's (`%APPDATA%/Nonoka X`, whose
-    `storage.json` names where the large install root went).
+    installed layers, then the installed app's (`%APPDATA%/Nonoka X`, whose
+    `storage.json` names where the big-file root went).
     """
 
     if os.environ.get("NONOKA_QUALITY_DATA_DIR"):
         install = os.environ.get("NONOKA_QUALITY_INSTALL_DIR")
         return Path(os.environ["NONOKA_QUALITY_DATA_DIR"]), Path(install) if install else None
     development = ROOT / ".local"
-    if (development / "finesub" / "runtime").is_dir():
+    if (development / "runtime" / "layers").is_dir():
         return development, None
     appdata = Path(os.environ.get("APPDATA", "")) / "Nonoka X"
     storage = appdata / "storage.json"
@@ -149,10 +152,10 @@ def runtime_issues() -> list[str]:
         if not override.is_file():
             issues.append(f"NONOKA_QUALITY_PYTHON is not a file: {override}")
     elif provisioner.worker_python() is None:
-        issues.append(f"no ready managed runtime under {provisioner.install_root}")
-    elif provisioner._runtime_outdated():
-        issues.append("the managed runtime does not match this vendor's lock")
-    models = provisioner.worker_environment().get("FINESUB_MODEL_DIR")
+        python = provisioner.layers.state("python") if provisioner.layers is not None else None
+        issues.append(f"no ready Python environment layer under {provisioner.install_root}"
+                      + (f" ({python.state}: {'; '.join(python.problems[:3])})" if python is not None else ""))
+    models = str(provisioner.model_root()) if provisioner.model_root() is not None else None
     missing = missing_managed_models(Path(models), INSTALLABLE_MODEL_IDS) if models else ("all",)
     if missing:
         issues.append(f"models missing (would be downloaded): {', '.join(missing)}")
