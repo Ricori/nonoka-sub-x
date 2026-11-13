@@ -35,6 +35,33 @@ func TestHistoryPersistsOutsidePreferences(t *testing.T) {
 	}
 }
 
+// The tasks page reads the engine a task ran on from its snapshot (WP6). The
+// history keeps every entry as the renderer wrote it, so the field survives a
+// save and a reload untouched.
+func TestHistoryKeepsTheTranscriptionEngine(t *testing.T) {
+	root := t.TempDir()
+	service, err := New(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	entry := map[string]any{
+		"taskId": "task-1", "provider": "local", "mediaId": "loc_0123456789ab", "title": "clip",
+		"snapshot": map[string]any{"schema": 1, "task_id": "task-1", "provider": "local", "state": "completed", "transcription_engine": "mai2"},
+	}
+	if _, err := service.Save([]any{entry}); err != nil {
+		t.Fatal(err)
+	}
+	reloaded, err := New(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	entries := reloaded.Get()
+	snapshot, _ := entries[0]["snapshot"].(map[string]any)
+	if len(entries) != 1 || snapshot["transcription_engine"] != "mai2" {
+		t.Fatalf("reloaded = %#v", entries)
+	}
+}
+
 func TestHistoryMigratesFromLegacyPreferences(t *testing.T) {
 	root := t.TempDir()
 	legacy := map[string]any{

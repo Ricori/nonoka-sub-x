@@ -1,4 +1,5 @@
 import type { TaskSnapshot } from "../providers/types.ts";
+import { CLOUD_TRANSCRIPTION_ENGINE, DEFAULT_TRANSCRIPTION_ENGINE } from "../providers/types.ts";
 import type { TaskHistoryEntry } from "./types.ts";
 import { activeStates, taskHistoryLimit } from "./types.ts";
 
@@ -45,6 +46,30 @@ export function formatTaskDate(value: number | string): string {
     minute: "2-digit",
     hour12: false,
   });
+}
+
+/** Display names of the built-in transcription engines (their `EngineSpec.label`). */
+const TRANSCRIPTION_ENGINE_LABELS: Record<string, string> = {
+  [DEFAULT_TRANSCRIPTION_ENGINE]: "FineSub",
+  [CLOUD_TRANSCRIPTION_ENGINE]: "FineSub",
+  mai2: "MAI-Transcribe-2",
+  "gemini-transcribe": "Gemini 3.5 Transcribe",
+  "moss-pro": "MOSS Pro",
+};
+
+/**
+ * The transcription engine a task ran on. Snapshots written before engines
+ * were selectable carry none; those tasks could only run on FineSub, here or
+ * in the cloud.
+ */
+export function taskTranscriptionEngine(snapshot: TaskSnapshot, provider: TaskSnapshot["provider"]): string {
+  const recorded = snapshot.transcription_engine;
+  if (typeof recorded === "string" && recorded) return recorded;
+  return provider === "cloud" ? CLOUD_TRANSCRIPTION_ENGINE : DEFAULT_TRANSCRIPTION_ENGINE;
+}
+
+export function transcriptionEngineLabel(engine: string): string {
+  return TRANSCRIPTION_ENGINE_LABELS[engine] ?? engine;
 }
 
 export function taskStateLabel(state: TaskSnapshot["state"]): string {

@@ -51,6 +51,52 @@ export interface Capabilities {
     } | null;
   };
   settings?: { llm_key_configured: boolean };
+  /** 这个 Provider 能跑的转写引擎，就绪与否都列（provider-spec 4.1.1）。旧 Provider 没有，视为只有 `finesub`。 */
+  transcription_engines?: TranscriptionEngineInfo[];
+  /** 纠错引擎；界面不提供选择，目前只有 `finesub`。 */
+  correction_engines?: CorrectionEngineInfo[];
+}
+
+/** 本机 FineSub 是缺省；`finesub-cloud` 是 Nonoka Cloud 的 FineSub，选它时任务交给云端 Provider。 */
+export const DEFAULT_TRANSCRIPTION_ENGINE = "finesub";
+export const CLOUD_TRANSCRIPTION_ENGINE = "finesub-cloud";
+
+export interface ReadinessIssue {
+  code: string;
+  message: string;
+}
+
+export interface TranscriptionEngineInfo {
+  id: string;
+  label: string;
+  /** `cloud-api` 在本机跑但音频会发给第三方；`cloud-service` 整个任务交给云端 Provider。 */
+  kind: "local-gpu" | "cloud-api" | "cloud-service";
+  provider: ProviderID;
+  ready: boolean;
+  issues: ReadinessIssue[];
+  features: {
+    speakers: boolean;
+    word_timestamps: boolean;
+    separate: boolean;
+    diarization_levels: DiarizationLevel[];
+    /** 空数组表示不限。 */
+    languages: string[];
+  };
+  /** 一句计费说明；不计费时为空字符串。 */
+  billing: string;
+}
+
+export interface CorrectionEngineInfo {
+  id: string;
+  ready: boolean;
+  issues: ReadinessIssue[];
+}
+
+/** 任务用哪个转写引擎。缺省（或整个字段缺省）为 `finesub`；引擎记在请求里，重试与续跑沿用。 */
+export interface TranscriptionRequest {
+  engine: string;
+  /** 交给该引擎的选项，缺省为 `{}`。 */
+  options: Record<string, unknown>;
 }
 
 export interface LocalSource {
@@ -132,6 +178,8 @@ export interface TaskRequest {
    */
   diarization?: DiarizationRequest;
   cleanup_intermediate: boolean;
+  /** 转写引擎。本机 FineSub 的请求除多这一个字段外与引入引擎选择之前相同。 */
+  transcription?: TranscriptionRequest;
   /** 只在日文轴上出现：worker 据它跳过识别，直接补译文。其余轴型不进任务请求 */
   axis?: TaskAxis;
 }
@@ -164,6 +212,8 @@ export interface TaskSnapshot {
   stage: string;
   progress: TaskProgress | null;
   engine: Pick<EngineIdentity, "version" | "commit">;
+  /** 任务所用的转写引擎 ID。旧任务没有：本机的是 `finesub`，云端的是 `finesub-cloud`。 */
+  transcription_engine?: string;
   requested_capabilities: Record<string, unknown>;
   effective_capabilities: Record<string, unknown>;
   error: TaskError | null;

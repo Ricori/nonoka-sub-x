@@ -230,7 +230,7 @@ interface ExecutionProvider {
 | `knowledge_subjects` | `[{id?, kind, subject, aliases, description}]` | `knowledge=update` 的新任务至少一项 | 用户手动选择的知识主体，最多 8 个，读取与写回共用。每项的 `kind` 为 `streamer`、`work` 或 `topic`，`subject` 是必填的官方/源语言名称，`aliases` 与 `description` 用于消歧。带 `id` 的是知识库里已有的主体；不带 `id` 的是新建主体，仅 `knowledge=update` 允许，Local Provider 会在任务开始前幂等建好词条。所选主体的词条常驻每个纠错窗口（引擎补丁 `0006`），`update` 时也固定为知识更新的写回目标。`read` 可不选，此时由模型按内容挑选条目；`none` 时忽略。旧版请求的单个 `knowledge_context` 在 `update` 下按一项列表处理，两个字段都没有的已排队请求仍可重试 |
 | `llm_model` | `string` \| `{任务组: string}` | — | 本次运行的模型覆盖，等价于引擎的 `--llm-model`。字符串钉住所有任务组，对象只钉它点名的那些。值是模型组或路由 target；名字由引擎的路由加载器校验。⚠ 钉住即**替换整条链**——钉住的模型做不了的调用会直接失败，后面不再挂任何兜底 |
 | `diarization` | `{level, max_speakers?}` | — | 说话人分离，需 `features.diarization=true`；缺省或 `level=off` 即不分离。`level` 为 `acoustics`（按声音区分）、`judge-text` / `judge-audio`（再由 LLM 在纠错阶段按窗口复核，实验）。裁判只在 `final-srt` 下运行，其余目标降为 `acoustics`；云端的纠错只读文本，`judge-audio` 降为 `judge-text`。有日文轴时拒绝（不跑识别）。`max_speakers` 为 1–32，上游建议不设。结果写在 `stable_json` 的 `speaker` 与 `annotated_csv` 的 `spk` 列里，只决定每行放进哪条说话人轨，不改变字幕文本与时间；`-diar.json`（说话人时间线）留作复用，删掉才会重算 |
-| `transcription` | `{engine, options?}` | — | 转写引擎选择。`engine` 是 `Capabilities.transcription_engines` 里的 ID，缺省（或整个字段缺省）视为 `finesub`；`options` 是交给该引擎的选项对象，缺省为 `{}`。旧请求和已落盘的任务不用迁移。引擎记在请求里，重试与续跑沿用原引擎 |
+| `transcription` | `{engine, options?}` | — | 转写引擎选择。`engine` 是 `Capabilities.transcription_engines` 里的 ID，缺省（或整个字段缺省）视为 `finesub`；`options` 是交给该引擎的选项对象，缺省为 `{}`。旧请求和已落盘的任务不用迁移。引擎记在请求里，重试与续跑沿用原引擎。不在注册表里的引擎以 `unsupported_engine` 拒绝。`kind` 不是 `local-gpu` 的引擎只接受 `raw-srt` / `translated-srt` / `final-srt`（`unsupported_target`），不能与 `cloud_stable` 或 `axis` 同用（`invalid_request`）；引擎用不上的字段被丢掉——不用 GPU 的引擎丢 `device`、`gpu_tier`、`gpu_budget_gb`，不做人声分离的引擎丢 `separate`、`vocal_profile`——并在任务日志里写一条 `log` 事件（`payload.fields = {engine, dropped}`）；`diarization.level` 或 `language` 超出引擎声明的以 `invalid_request` 拒绝。`engine=finesub` 时规范化结果与不带此字段时完全相同，块原样保留。桌面端：本机 FineSub 发 `{"engine":"finesub","options":{}}`；云端任务的请求记 `finesub-cloud`，但桌面不把它转发给云端，云端识别后的本机续跑请求（`cloud_stable`）也不带此字段 |
 | `correction.engine` | 纠错引擎 ID | — | 缺省为 `finesub`；界面不提供选择 |
 | `cleanup_intermediate` | `boolean` | — | 完成后是否清理中间产物 |
 | `axis` | `Axis` | — | 用户导入的已有产物；见 4.2.2。只在 `kind="ja"` 时出现，其余轴型不进任务请求 |
@@ -317,6 +317,7 @@ interface UploadedAudioSource {
     "message": "正在识别"
   },
   "engine": { "version": "0.5.1", "commit": "b9b2f10c..." },
+  "transcription_engine": "finesub",  // 可选，任务所用的转写引擎 ID（取自请求的 transcription.engine）
   "requested_capabilities": { "target": "final-srt", "video_multimodal": false },
   "effective_capabilities": { "target": "final-srt", "video_multimodal": false },
   "error": null,                   // 或 { "code": "...", "message": "..." }
@@ -325,6 +326,8 @@ interface UploadedAudioSource {
   "updated_at": "2026-08-28T00:01:00Z"
 }
 ```
+
+`transcription_engine` 供宿主在任务列表里显示所用引擎。没有此字段的快照（旧任务、尚未接入引擎选择的 Provider）按 Provider 推断：本地视为 `finesub`，云端视为 `finesub-cloud`。
 
 **状态枚举与合法转换**
 
@@ -463,7 +466,10 @@ interface UploadedAudioSource {
 | `task_not_found` | 404 | 未知 `task_id` |
 | `invalid_state` | 409 | `retry` / `resume` 的状态前置不满足 |
 | `artifacts_not_ready` | 409 | 任务尚未产出产物清单 |
+| `unsupported_engine` | 400 | `transcription.engine` 不在本 Provider 的 `transcription_engines` 里 |
 | `missing_engine` / `invalid_engine` | 503 | 引擎快照缺失或损坏 |
+| `missing_key` | 503 | 所选转写引擎缺少它要的密钥（如 MAI-Transcribe-2 没配 OpenRouter STT 或 Azure Speech）；同时出现在该引擎 `transcription_engines[].issues` 与 `runtime.stages` 的 `raw-srt` 档里 |
+| `missing_knowledge_package` | 503 | 任务读写知识库或从知识库取 ASR 上下文，而知识库包不在 |
 | *运行时就绪 issue code* | 503 | `start()` 时目标阶段未就绪，直接返回该 issue |
 | `internal_error` | 500 | 未归类的内部异常 |
 

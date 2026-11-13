@@ -7,6 +7,7 @@ import { PipelineController } from "../src/home/pipelineController.ts";
 import { CloudExecutionProvider } from "../src/providers/cloudProvider.ts";
 import { LocalExecutionProvider } from "../src/providers/localProvider.ts";
 import { ProviderRegistry } from "../src/providers/registry.ts";
+import { taskTranscriptionEngine, transcriptionEngineLabel } from "../src/app/format.ts";
 
 const taskId = "0123456789abcdef0123456789abcdef";
 
@@ -311,6 +312,85 @@ test("requestForEngine changes who recognises and nothing else", () => {
     assert.equal(value.correction.media, "audio");
     assert.equal(value.correction.retrieval, "local");
   }
+});
+
+// The quality red line for WP6: choosing FineSub must send exactly what the
+// desktop sent before engines were selectable, plus the `transcription` block.
+// BEFORE is that request, written out field by field in the order it was sent.
+const wp6Media = {
+  id: "loc_0123456789ab", sourcePath: "C:\media\clip.mp4", title: "clip", size: 100,
+  duration: 12, width: 1920, height: 1080, fingerprint: "fp", addedAt: 0,
+  lastAccess: 0, thumbnailAvailable: false, available: true, documentAvailable: false,
+};
+const BEFORE_LOCAL = {
+  schema: 1,
+  provider: "local",
+  source: { kind: "local_file", path: "C:\media\clip.mp4", title: "clip", fingerprint: "fp", video_id: "loc_0123456789ab", duration: 12 },
+  target: "final-srt",
+  language: "ja",
+  device: "cuda",
+  gpu_tier: "auto",
+  separate: true,
+  vocal_profile: "quality",
+  correction: { enabled: true, media: "text", retrieval: "none", difficulty: "quality", fast: "auto", extra_info: "", extra_style: "" },
+  knowledge: "read",
+  knowledge_subjects: [],
+  cleanup_intermediate: false,
+};
+
+function withoutTranscription(value) {
+  const { transcription, ...rest } = value;
+  return { transcription, rest };
+}
+
+test("a FineSub request is the request from before plus the transcription block", async () => {
+  const value = requestForEngine("local", defaultTaskRequest(wp6Media), wp6Media);
+  const { transcription, rest } = withoutTranscription(value);
+  assert.deepEqual(transcription, { engine: "finesub", options: {} });
+  // Same fields, same values, same order: byte-for-byte the old JSON body.
+  assert.equal(JSON.stringify(rest), JSON.stringify(BEFORE_LOCAL));
+
+  // ...and the local bridge forwards it untouched.
+  const sent = [];
+  const provider = new LocalExecutionProvider({
+    async StartTask(body) { sent.push(body); return snapshot(); },
+  });
+  await provider.start(value);
+  assert.equal(JSON.stringify(sent[0]), JSON.stringify({ ...BEFORE_LOCAL, transcription: { engine: "finesub", options: {} } }));
+});
+
+test("a cloud request records finesub-cloud and changes nothing else", () => {
+  const before = {
+    ...BEFORE_LOCAL,
+    provider: "cloud",
+    source: { kind: "uploaded_audio", object_id: "loc_0123456789ab", title: "clip", fingerprint: "fp", duration: 12 },
+    device: "cuda",
+    vocal_profile: "cost",
+    cleanup_intermediate: false,
+  };
+  const value = requestForEngine("cloud", defaultTaskRequest(wp6Media), wp6Media);
+  const { transcription, rest } = withoutTranscription(value);
+  assert.deepEqual(transcription, { engine: "finesub-cloud", options: {} });
+  assert.equal(JSON.stringify(rest), JSON.stringify(before));
+});
+
+test("going back to this machine keeps a local engine and drops the cloud one", () => {
+  const settings = defaultTaskRequest(wp6Media);
+  const viaCloud = requestForEngine("local", requestForEngine("cloud", settings, wp6Media), wp6Media);
+  assert.deepEqual(viaCloud.transcription, { engine: "finesub", options: {} });
+  const mai2 = { ...settings, transcription: { engine: "mai2", options: { split_length_scale: 1.2 } } };
+  assert.deepEqual(requestForEngine("local", mai2, wp6Media).transcription, mai2.transcription);
+});
+
+test("the task list names the engine, and old snapshots fall back by provider", () => {
+  assert.equal(taskTranscriptionEngine({ ...snapshot(), transcription_engine: "mai2" }, "local"), "mai2");
+  assert.equal(taskTranscriptionEngine(snapshot(), "local"), "finesub");
+  assert.equal(taskTranscriptionEngine({ ...snapshot(), provider: "cloud" }, "cloud"), "finesub-cloud");
+  assert.equal(transcriptionEngineLabel("mai2"), "MAI-Transcribe-2");
+  assert.equal(transcriptionEngineLabel("gemini-transcribe"), "Gemini 3.5 Transcribe");
+  assert.equal(transcriptionEngineLabel("moss-pro"), "MOSS Pro");
+  assert.equal(transcriptionEngineLabel("finesub-cloud"), "FineSub");
+  assert.equal(transcriptionEngineLabel("someday"), "someday");
 });
 
 // `runtime.ready` is the recognition tier. A source-text axis recognises

@@ -1358,6 +1358,9 @@ class LocalProvider:
             "stage": "",
             "progress": None,
             "engine": {"version": self._upstream["engine_version"], "commit": self._upstream["commit"]},
+            # The transcription engine the task runs on, for the desktop's task
+            # list (WP6). Tasks written before this field carry none: FineSub.
+            "transcription_engine": requested_engine(validated),
             "requested_capabilities": {
                 "video_multimodal": validated["correction"].get("media") == "video",
                 "target": validated["target"],

@@ -1324,6 +1324,21 @@ class EngineSelectionTests(ProviderFixture):
         self.assertFalse([event for event in finesub.events(plain["task_id"])["events"]
                           if event["payload"].get("fields", {}).get("dropped")])
 
+    def test_the_snapshot_names_the_transcription_engine(self) -> None:
+        provider = self.tools_only_provider({"OPENROUTER_STT_KEY": SECRET})
+        with self.no_gpu_no_harness_probe():
+            task = provider.start(self.mai2("raw-srt"))
+        self.assertEqual(task["transcription_engine"], "mai2")
+        wait_state(provider, task["task_id"], {"completed"})
+        self.assertEqual(provider.status(task["task_id"])["transcription_engine"], "mai2")
+        # A request without the block runs on FineSub, and says so.
+        finesub = self.provider()
+        plain = finesub.start(self.request())
+        self.assertEqual(plain["transcription_engine"], "finesub")
+        wait_state(finesub, plain["task_id"], {"completed"})
+        listed = {item["snapshot"]["task_id"]: item["snapshot"] for item in finesub.list_tasks()["tasks"]}
+        self.assertEqual(listed[plain["task_id"]]["transcription_engine"], "finesub")
+
     def test_a_task_on_the_knowledge_base_needs_the_knowledge_package(self) -> None:
         from finesub_knowledge import client
 
