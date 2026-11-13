@@ -22,3 +22,6 @@ desktop/internal/app/bundled/nonoka_x/*
 upstream-prs
 test_data/*
 *.egg-info/
+
+# Local R2 credentials for scripts/publish_layers.py (never committed)
+scripts/.env
