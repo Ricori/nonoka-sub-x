@@ -309,16 +309,19 @@ class PublishFlowTests(TempCase):
         self.client.close()
         super().tearDown()
 
-    def index(self) -> dict[str, Any]:
+    def index(self, file_layers: tuple[str, ...] = ("models",)) -> dict[str, Any]:
+        """By default with the model layer's files hosted one by one, to exercise that path too."""
+
         built = {layer: pl.find_built(self.dist, layer) for layer in lm.LAYERS}
-        return pl.check_index(json.loads(pl.render_index(pl.build_index(built))))
+        return pl.check_index(json.loads(pl.render_index(pl.build_index(built, file_layers=file_layers))))
 
     def test_index_is_the_agreed_format(self) -> None:
-        index = self.index()
+        index = self.index(pl.FILE_LAYERS)
         self.assertEqual(list(index), ["schema", "platform", "baseUrl", "layers", "files"])
         self.assertEqual((index["schema"], index["platform"], index["baseUrl"]),
                          (1, "windows-x64", "https://layers.nonoka.online/"))
-        self.assertEqual(index["files"], {"layers": ["models"], "path": "v1/files/{sha256}"})
+        # The model files are not hosted one by one (owner 2026-11-13): the key stays, the list is empty.
+        self.assertEqual(index["files"], {"layers": [], "path": "v1/files/{sha256}"})
         self.assertEqual(list(index["layers"]), ["python", "models", "tools"])
         for layer, entry in index["layers"].items():
             directory = self.dist / layer / entry["version"]
@@ -338,7 +341,7 @@ class PublishFlowTests(TempCase):
     def test_index_command_writes_the_file(self) -> None:
         out = self.dir / "layers.json"
         self.assertEqual(pl.main(["index", "--source", str(self.dist), "--out", str(out)]), 0)
-        self.assertEqual(pl.load_index(out), self.index())
+        self.assertEqual(pl.load_index(out), self.index(pl.FILE_LAYERS))
 
     def test_a_layer_that_does_not_add_up_is_refused(self) -> None:
         version = next((self.dist / "tools").iterdir()).name
@@ -357,6 +360,20 @@ class PublishFlowTests(TempCase):
         index["layers"]["tools"]["version"] = "0" * 16
         with self.assertRaisesRegex(pl.PublishError, "version"):
             pl.check_index(index)
+
+    def test_by_default_only_archives_and_manifests_are_published(self) -> None:
+        index = self.index(pl.FILE_LAYERS)
+        objects = pl.plan_objects(index, self.dist, self.work)
+        self.assertEqual(sorted(item.kind for item in objects), ["archive"] * 3 + ["manifest"] * 3)
+        self.assertFalse(self.work.exists())  # nothing unpacked
+        smallest = min((entry for item in index["layers"].values() for entry in (item["manifest"], item["archive"])),
+                       key=lambda entry: entry["size"])
+        self.assertEqual(pl.smallest_object_url(index, "https://h/"), "https://h/" + smallest["path"])
+        pl.upload_all(self.store, objects)
+        self.assertFalse(any(key.startswith("v1/files/") for key in self.fake.objects))
+        with PublicServer(self.fake) as public:
+            result = pl.verify(index, DIRECT, self.dir / "verify", base_url=public.base_url)
+        self.assertEqual((result.problems, len(result.checked)), ([], 3))
 
     def test_plan_lists_archives_manifests_and_each_model_file_once(self) -> None:
         index = self.index()

@@ -18,7 +18,11 @@ The objects (all named by content, never changed once uploaded; 4.2 item 18):
 
     v1/<layer>/<manifest sha256>.json       the layer's manifest
     v1/<layer>/<archive sha256>.tar.zst     the layer's archive
-    v1/files/<file sha256>                  every file of the model layer on its own (migration, 4.4 item 25)
+    v1/files/<file sha256>                  every file of a layer `files.layers` lists, on its own
+
+`files.layers` is empty: the model files are not hosted one by one (owner 2026-11-13; plan 4.2 item 18
+had the model layer's files there for the migration's per-file fill, 4.4 item 25). The machinery stays,
+driven by `layers.json` alone.
 
 `upload` sends them to the bucket `nonoka-x-layers` over R2's S3 API (SigV4 signed here with httpx; no
 other dependency). It is idempotent and never overwrites: an object that is there already with the same
@@ -29,7 +33,7 @@ checks, and the whole object's digest is checked before the upload is completed.
 
 `verify` downloads everything `layers.json` names from its public `baseUrl`, through the given route (a
 proxy or direct, one at a time; plan WP-E2), and checks it against the manifests: sizes and digests,
-the version, the manifest inside each archive, every file of each unpacked archive, every model file.
+the version, the manifest inside each archive, every file of each unpacked archive, every single file.
 
 `unreferenced` lists the objects in the bucket that no published desktop version refers to, with their
 sizes. A published version is a `v*` tag; what it refers to is the `layers.json` at that tag, and the one
@@ -86,8 +90,9 @@ INDEX_SCHEMA = 1
 BUCKET = "nonoka-x-layers"
 BASE_URL = "https://layers.nonoka.online/"
 PREFIX = "v1"
-#: The layers whose files are also stored one by one (plan WP-E2: the model layer only).
-FILE_LAYERS = ("models",)
+#: The layers whose files are also stored one by one. None: the owner decided on 2026-11-13 that the
+#: model files are not hosted on their own (only the model layer's archive and manifest are).
+FILE_LAYERS: tuple[str, ...] = ()
 FILES_PATH = f"{PREFIX}/files/{{sha256}}"
 
 #: Every object is immutable, so caches may keep it for good.
@@ -230,8 +235,9 @@ def file_key(sha256: str, pattern: str = FILES_PATH) -> str:
     return pattern.replace("{sha256}", sha256)
 
 
-def build_index(built: dict[str, Built], base_url: str = BASE_URL) -> dict[str, Any]:
-    """`layers.json` in the format fixed in the plan's WP-E2 section."""
+def build_index(built: dict[str, Built], base_url: str = BASE_URL,
+                file_layers: Iterable[str] = FILE_LAYERS) -> dict[str, Any]:
+    """`layers.json` in the format fixed in the plan's WP-E2 section (`files.layers` = `file_layers`)."""
 
     layers: dict[str, Any] = {}
     for layer in lm.LAYERS:
@@ -248,7 +254,7 @@ def build_index(built: dict[str, Built], base_url: str = BASE_URL) -> dict[str, 
         "platform": lm.PLATFORM,
         "baseUrl": base_url,
         "layers": layers,
-        "files": {"layers": list(FILE_LAYERS), "path": FILES_PATH},
+        "files": {"layers": list(file_layers), "path": FILES_PATH},
     }
 
 
@@ -974,20 +980,17 @@ def burst(url: str, route: fetch.NetworkRoute, count: int, workers: int = 8) -> 
     return statuses
 
 
-def smallest_file_url(index: dict[str, Any], manifest: lm.LayerManifest, base: str) -> str:
-    item = min(manifest.files, key=lambda item: (item.size, item.path))
-    return base + file_key(item.sha256, index["files"]["path"])
+def smallest_object_url(index: dict[str, Any], base: str) -> str:
+    """The smallest object `index` names (a manifest): what a burst of requests fetches."""
+
+    entries = [entry for item in index["layers"].values() for entry in (item["manifest"], item["archive"])]
+    return base + min(entries, key=lambda entry: (entry["size"], entry["path"]))["path"]
 
 
 def ratelimit_command(args: argparse.Namespace) -> int:
     index = load_index(Path(args.index))
     route = chosen_route(args, required=True)
-    base = args.base_url or index["baseUrl"]
-    entry = index["layers"][index["files"]["layers"][0]]
-    with fetch.create_client(route, timeout=httpx.Timeout(60.0)) as client:
-        response = client.get(base + entry["manifest"]["path"])
-        response.raise_for_status()
-    url = smallest_file_url(index, lm.parse(response.content), base)
+    url = smallest_object_url(index, args.base_url or index["baseUrl"])
     log(f"{args.requests} GETs of {url} via {route.label}")
     statuses = burst(url, route, args.requests)
     counts = {str(code): statuses.count(code) for code in sorted(set(statuses))}
@@ -1014,7 +1017,8 @@ def main(argv: list[str] | None = None) -> int:
     def common(command: argparse.ArgumentParser, *, route: bool) -> None:
         command.add_argument("--index", default=str(INDEX_FILE))
         command.add_argument("--source", default=source, help="WP-E1's output (read only)")
-        command.add_argument("--work", help="where the model layer is unpacked (default <main>/.tmp/layer-publish)")
+        command.add_argument("--work", help="where a layer whose files are hosted one by one is unpacked "
+                             "(default <main>/.tmp/layer-publish; unused while files.layers is empty)")
         if route:
             group = command.add_mutually_exclusive_group()
             group.add_argument("--direct", action="store_true", help="no proxy")

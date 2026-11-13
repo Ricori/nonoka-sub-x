@@ -44,9 +44,7 @@
     }
   },
   "files": {
-    "layers": [
-      "models"
-    ],
+    "layers": [],
     "path": "v1/files/{sha256}"
   }
 }
