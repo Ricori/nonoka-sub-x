@@ -1,91 +1,43 @@
 // Assembles the offline edition: the application beside an offline-pack
 // directory holding everything its installers would otherwise download.
 //
-//   node scripts/build-offline-package.mjs --uv <uv> --models <finesub/models> --exe <exe>
-//       [--out <directory>] [--since <old offline-pack>]
+//   node scripts/build-offline-package.mjs --uv <uv> [--exe <exe>] [--out <directory>]
+//       [--layers <dist\layers>] [--index <layers.json>] [--since <old offline-pack>]
+//       [--layers-only]
 //
-// Models come from an installed copy (--models), checked against the manifest.
-// Everything else is downloaded and checked here. Re-running keeps what is
-// already right. --since leaves out what an older package already has, for a
-// delta to merge into it.
+// The pack holds two things:
+//
+// - The three prebuilt layers this release wants (src/nonoka_x/resources/layers.json):
+//   each layer's manifest and archive, under the same relative paths as on R2
+//   (v1/<layer>/<sha256>.json and .tar.zst), which is where the sidecar's layer
+//   manager looks for them before going online. They are downloaded from the
+//   index's baseUrl, or copied from a local build (--layers, the dist\layers of
+//   scripts/build_layers.py); either way every file is checked against the
+//   index's size and sha256, so it is byte for byte the object on R2.
+// - What the launcher bootstrap (desktop/internal/app/python_bootstrap.go)
+//   downloads before there is any sidecar: uv (files/<sha256>/), the
+//   interpreter uv installs (python/<tag>/) and the launcher's wheels
+//   (launcher/). --layers-only leaves these out.
+//
+// Re-running keeps what is already right. --since leaves out what an older
+// package already has, for a delta to merge into it. Without --exe only the
+// offline-pack directory is written.
 import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   bootstrapAssets,
   desktop,
   download,
-  engine,
-  lockFiles,
-  modelManifest,
+  layerObjects,
   pythonBuilds,
+  readLayersIndex,
   repository,
-  runtimeAssets,
   sha256Of,
 } from "./resource-sources.mjs";
 
-function readArgument(name) {
-  const index = process.argv.indexOf(name);
-  return index < 0 ? "" : process.argv[index + 1] || "";
-}
-
-const uv = readArgument("--uv");
-const models = readArgument("--models");
-const exe = readArgument("--exe");
-const since = readArgument("--since");
-if (!uv || !models || !exe) {
-  throw new Error("Usage: node scripts/build-offline-package.mjs --uv <uv> --models <finesub/models> --exe <exe> [--out <dir>] [--since <old offline-pack>]");
-}
-const out = path.resolve(readArgument("--out") || path.join(desktop, "bin", "offline", "Nonoka-Sub-X-Offline"));
-const pack = path.join(out, "offline-pack");
-let placed = 0;
-let skipped = 0;
-let bytes = 0;
-
 function fileName(url) {
   return decodeURIComponent(new URL(url).pathname.split("/").pop());
-}
-
-/** Puts one file at `relative`, from `local` when that is given, else from `url`. */
-async function place(relative, { url = "", local = "", sha256 = "", size = 0 }) {
-  if (since && existsSync(path.join(since, relative))) {
-    skipped += 1;
-    return;
-  }
-  const target = path.join(pack, relative);
-  if (existsSync(target) && (!sha256 || await sha256Of(target) === sha256)) {
-    placed += 1;
-    bytes += statSync(target).size;
-    return;
-  }
-  mkdirSync(path.dirname(target), { recursive: true });
-  const partial = `${target}.part`;
-  const usable = local && existsSync(local);
-  if (!usable && !url) throw new Error(`${local} is missing and has no download source`);
-  console.log(`${usable ? "Copying" : "Downloading"} ${relative}`);
-  if (usable) copyFileSync(local, partial);
-  else await download(url, partial);
-  const actual = statSync(partial).size;
-  if (size && actual !== size) throw new Error(`${relative}: ${actual} bytes, wanted ${size}`);
-  if (sha256) {
-    const digest = await sha256Of(partial);
-    if (digest !== sha256) throw new Error(`${relative}: sha256 ${digest}, wanted ${sha256}`);
-  }
-  renameSync(partial, target);
-  placed += 1;
-  bytes += actual;
-}
-
-function byDigest(asset) {
-  return [`files/${asset.sha256}/${fileName(asset.url)}`, asset];
-}
-
-function desktopModelIds() {
-  const source = readFileSync(path.join(repository, "src", "nonoka_x", "model_install.py"), "utf8");
-  return ["PIPELINE_MODEL_IDS", "DIARIZATION_MODEL_IDS"].flatMap(name => {
-    const match = new RegExp(`^${name} = \\(([^)]*)\\)`, "m").exec(source);
-    if (!match) throw new Error(`${name} not found in model_install.py`);
-    return [...match[1].matchAll(/"([^"]+)"/g)].map(found => found[1]);
-  });
 }
 
 function walk(directory, base = directory) {
@@ -96,37 +48,103 @@ function walk(directory, base = directory) {
   });
 }
 
-async function placeHuggingFaceModel(id, model) {
-  const repositoryDirectory = `models--${model.repo.replace("/", "--")}`;
-  const snapshot = path.join(models, "huggingface", "hub", repositoryDirectory, "snapshots", model.revision);
-  if (!existsSync(snapshot)) throw new Error(`${id}: ${snapshot} is missing; install the model on this machine first`);
-  const listed = new Map(model.files.map(file => [file.name, file]));
-  const names = model.listedOnly ? [...listed.keys()] : walk(snapshot);
-  for (const name of listed.keys()) {
-    if (!names.includes(name)) throw new Error(`${id}: ${name} is not in ${snapshot}`);
-  }
-  for (const name of names) {
-    const wanted = listed.get(name);
-    await place(`huggingface/${repositoryDirectory}/${model.revision}/${name}`, {
-      local: path.join(snapshot, name),
-      sha256: wanted?.sha256 ?? "",
-      size: wanted?.size ?? 0,
-    });
-  }
+function gib(bytes) {
+  return `${(bytes / 1024 ** 3).toFixed(2)} GiB`;
 }
 
-async function placeSeparator(model) {
-  const directory = path.join(models, "audio-separator");
-  for (const file of model.files) {
-    const local = path.join(directory, file.name);
-    if (file.sha256) await place(`files/${file.sha256}/${file.name}`, { url: file.url, local, sha256: file.sha256, size: file.size });
-    else await place(`unverified/${file.name}`, { url: file.url, local });
+/**
+ * Builds `<out>/offline-pack`. Returns what it placed. `index` is a
+ * readLayersIndex() result; `layersFrom` a dist\layers directory to copy the
+ * layers from instead of downloading them; `uv` the pinned uv, needed for the
+ * launcher's interpreter unless `launcher` is false.
+ */
+export async function buildOfflinePack({
+  out,
+  index = readLayersIndex(),
+  layersFrom = "",
+  since = "",
+  launcher = true,
+  uv = "",
+  exe = "",
+  log = console.log,
+}) {
+  const pack = path.join(out, "offline-pack");
+  const totals = { placed: 0, skipped: 0, bytes: 0 };
+
+  /** Puts one file at `relative`, from `local` when that is given, else from `url`. */
+  async function place(relative, { url = "", local = "", sha256 = "", size = 0 }) {
+    if (since && existsSync(path.join(since, relative))) {
+      totals.skipped += 1;
+      return;
+    }
+    const target = path.join(pack, relative);
+    if (existsSync(target) && (!size || statSync(target).size === size) && (!sha256 || await sha256Of(target) === sha256)) {
+      totals.placed += 1;
+      totals.bytes += statSync(target).size;
+      return;
+    }
+    mkdirSync(path.dirname(target), { recursive: true });
+    const partial = `${target}.part`;
+    rmSync(partial, { force: true });
+    if (local && !existsSync(local)) throw new Error(`${local} is missing`);
+    if (!local && !url) throw new Error(`${relative} has no source`);
+    log(`${local ? "Copying" : "Downloading"} ${relative}${size ? ` (${gib(size)})` : ""}`);
+    if (local) copyFileSync(local, partial);
+    else await download(url, partial);
+    const actual = statSync(partial).size;
+    if (size && actual !== size) {
+      rmSync(partial, { force: true });
+      throw new Error(`${relative}: ${actual} bytes, wanted ${size}`);
+    }
+    if (sha256) {
+      const digest = await sha256Of(partial);
+      if (digest !== sha256) {
+        rmSync(partial, { force: true });
+        throw new Error(`${relative}: sha256 ${digest}, wanted ${sha256}`);
+      }
+    }
+    renameSync(partial, target);
+    totals.placed += 1;
+    totals.bytes += actual;
   }
+
+  mkdirSync(pack, { recursive: true });
+
+  // The layers, where the layer manager looks for them (`nonoka_x.runtime.layers`).
+  for (const object of layerObjects(index)) {
+    const local = layersFrom
+      ? path.join(layersFrom, object.layer, object.version, object.kind === "archive" ? "layer.tar.zst" : "manifest.json")
+      : "";
+    await place(object.path, { url: object.url, local, sha256: object.sha256, size: object.size });
+  }
+
+  if (launcher) {
+    if (!uv) throw new Error("the launcher's interpreter needs --uv");
+    for (const asset of bootstrapAssets().filter(item => item.url.includes("windows"))) {
+      await place(`files/${asset.sha256}/${fileName(asset.url)}`, asset);
+    }
+    for (const { url } of pythonBuilds(uv, ["windows/x86_64"])) {
+      const [tag, name] = decodeURIComponent(new URL(url).pathname).split("/").slice(-2);
+      await place(`python/${tag}/${name}`, { url });
+    }
+    await placeLauncherWheels(place);
+  }
+
+  // Tidy leftovers of an interrupted run; they are never looked at.
+  for (const relative of walk(pack).filter(name => name.endsWith(".part"))) rmSync(path.join(pack, relative));
+
+  const versions = Object.fromEntries(Object.entries(index.layers).map(([layer, entry]) => [layer, entry.version]));
+  writeFileSync(
+    path.join(pack, "pack.json"),
+    `${JSON.stringify({ schema: 2, platform: index.platform, layers: versions, launcher, delta: Boolean(since), files: totals.placed }, null, 2)}\n`,
+  );
+  if (exe) copyFileSync(exe, path.join(out, "Nonoka Sub X.exe"));
+  return { pack, ...totals };
 }
 
-async function placeLauncherWheels() {
+async function placeLauncherWheels(place) {
   const body = readFileSync(path.join(repository, "bootstrap-requirements.py312.txt"), "utf8");
-  const blocks = [...body.matchAll(/^([A-Za-z0-9_.-]+)==([^\s;\\]+)[^\n]*\\\n((?:\s+--hash=sha256:[0-9a-f]{64}[ \\]*\n?)+)/gm)];
+  const blocks = [...body.matchAll(/^([A-Za-z0-9_.-]+)==([^\s;\\]+)[^\n]*\\\r?\n((?:\s+--hash=sha256:[0-9a-f]{64}[ \\]*\r?\n?)+)/gm)];
   if (blocks.length === 0) throw new Error("no requirements parsed from bootstrap-requirements.py312.txt");
   for (const [, name, version, hashes] of blocks) {
     const allowed = new Set([...hashes.matchAll(/sha256:([0-9a-f]{64})/g)].map(found => found[1]));
@@ -141,31 +159,35 @@ async function placeLauncherWheels() {
   }
 }
 
-mkdirSync(pack, { recursive: true });
-const unique = new Map(
-  [...runtimeAssets(), ...lockFiles(), ...bootstrapAssets().filter(asset => asset.url.includes("windows"))].map(asset => [asset.sha256, asset]),
-);
-for (const asset of unique.values()) await place(...byDigest(asset));
-
-for (const { url } of pythonBuilds(uv, ["windows/x86_64"])) {
-  const [tag, name] = decodeURIComponent(new URL(url).pathname).split("/").slice(-2);
-  await place(`python/${tag}/${name}`, { url });
-}
-await placeLauncherWheels();
-
-const manifest = modelManifest();
-for (const id of desktopModelIds()) {
-  if (id === "separator") await placeSeparator(manifest[id]);
-  else await placeHuggingFaceModel(id, manifest[id]);
+function readArgument(name) {
+  const index = process.argv.indexOf(name);
+  return index < 0 ? "" : process.argv[index + 1] || "";
 }
 
-// Tidy leftovers of an interrupted run; they are never looked at.
-for (const relative of walk(pack).filter(name => name.endsWith(".part"))) rmSync(path.join(pack, relative));
+async function main() {
+  const layersOnly = process.argv.includes("--layers-only");
+  const uv = readArgument("--uv");
+  if (!uv && !layersOnly) {
+    throw new Error("Usage: node scripts/build-offline-package.mjs --uv <uv> [--exe <exe>] [--out <dir>] [--layers <dist\\layers>] [--index <layers.json>] [--since <old offline-pack>] [--layers-only]");
+  }
+  const exe = readArgument("--exe");
+  const indexFile = readArgument("--index");
+  const out = path.resolve(readArgument("--out") || path.join(desktop, "bin", "offline", "Nonoka-Sub-X-Offline"));
+  const started = Date.now();
+  const result = await buildOfflinePack({
+    out,
+    index: indexFile ? readLayersIndex(path.resolve(indexFile)) : readLayersIndex(),
+    layersFrom: readArgument("--layers") ? path.resolve(readArgument("--layers")) : "",
+    since: readArgument("--since"),
+    launcher: !layersOnly,
+    uv,
+    exe,
+  });
+  const seconds = Math.round((Date.now() - started) / 1000);
+  console.log(`${result.placed} files, ${gib(result.bytes)} in ${result.pack} (${seconds} s)${result.skipped ? `; ${result.skipped} already in the older package` : ""}`);
+  if (!exe) console.log("No --exe: only the offline-pack directory was written.");
+}
 
-const upstream = JSON.parse(readFileSync(path.join(path.dirname(path.dirname(engine)), "UPSTREAM.json"), "utf8"));
-writeFileSync(
-  path.join(pack, "pack.json"),
-  `${JSON.stringify({ schema: 1, engine: upstream.engine_version, delta: Boolean(since), files: placed }, null, 2)}\n`,
-);
-copyFileSync(exe, path.join(out, "Nonoka Sub X.exe"));
-console.log(`${placed} files, ${(bytes / 1024 ** 3).toFixed(2)} GB in ${out}${since ? `; ${skipped} already in ${since}` : ""}`);
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  await main();
+}

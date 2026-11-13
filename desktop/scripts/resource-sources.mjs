@@ -1,5 +1,7 @@
-// What the installers fetch, read from the files that decide it. Shared by
-// publish-github-mirror.mjs and build-offline-package.mjs.
+// What the installers fetch, read from the files that decide it: the prebuilt
+// layers this release wants (src/nonoka_x/resources/layers.json) and what the
+// launcher bootstrap downloads before there is a sidecar to install them
+// (desktop/internal/app/python_bootstrap.go). Used by build-offline-package.mjs.
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { createReadStream, createWriteStream, readFileSync } from "node:fs";
@@ -11,29 +13,70 @@ import { fileURLToPath } from "node:url";
 const scriptsDir = path.dirname(fileURLToPath(import.meta.url));
 export const desktop = path.dirname(scriptsDir);
 export const repository = path.dirname(desktop);
-export const engine = path.join(repository, "third_party", "finesub", "src", "finesub_bootstrap");
+export const layersIndexFile = path.join(repository, "src", "nonoka_x", "resources", "layers.json");
 const bootstrapSource = path.join(desktop, "internal", "app", "python_bootstrap.go");
 
 export const PYTHON_RELEASES = "https://github.com/astral-sh/python-build-standalone/releases/download/";
 const ASTRAL_RELEASES = "https://releases.astral.sh/github/python-build-standalone/releases/download/";
 
+/** The layer kinds, in the order the layer manager installs them. */
+export const LAYERS = ["tools", "python", "models"];
+
+const SHA256 = /^[0-9a-f]{64}$/;
+
 function readJson(file) {
   return JSON.parse(readFileSync(file, "utf8"));
 }
 
-export function runtimeAssets() {
-  return readJson(path.join(engine, "runtime-manifest.json")).resources.map(resource => resource.asset);
+function checkObject(where, object) {
+  if (!object || typeof object.path !== "string" || !Number.isSafeInteger(object.size) || object.size < 0 || !SHA256.test(object.sha256 ?? "")) {
+    throw new Error(`${where}: needs path, size and sha256`);
+  }
+  const parts = object.path.split("/");
+  if (object.path.startsWith("/") || object.path.includes("\\") || parts.some(part => part === "" || part === "." || part === "..")) {
+    throw new Error(`${where}: ${object.path} is not a plain relative path`);
+  }
+  return { path: object.path, size: object.size, sha256: object.sha256 };
 }
 
-export function modelManifest() {
-  return readJson(path.join(engine, "model-manifest.json")).models;
+/**
+ * The layer index (plan WP-E2), checked the way the layer manager reads it
+ * (`nonoka_x.runtime.layers.parse_index`): each layer's version is the first 16
+ * hex digits of its manifest's sha256, and every object names a plain relative
+ * path, a size and a sha256.
+ */
+export function readLayersIndex(file = layersIndexFile) {
+  const index = readJson(file);
+  if (index.schema !== 1) throw new Error(`${file}: unknown schema ${index.schema}`);
+  if (typeof index.baseUrl !== "string" || !/^https?:\/\/.+\/$/.test(index.baseUrl)) {
+    throw new Error(`${file}: baseUrl must be an http(s) URL ending in /`);
+  }
+  if ((index.files?.layers ?? []).length) {
+    throw new Error(`${file}: files.layers lists single files, which the offline package does not carry`);
+  }
+  const layers = {};
+  for (const layer of LAYERS) {
+    const entry = index.layers?.[layer];
+    if (!entry) throw new Error(`${file}: no ${layer} layer`);
+    const manifest = checkObject(`${layer}.manifest`, entry.manifest);
+    const archive = checkObject(`${layer}.archive`, entry.archive);
+    if (entry.version !== manifest.sha256.slice(0, 16)) {
+      throw new Error(`${file}: ${layer} version ${entry.version} is not its manifest's sha256 prefix`);
+    }
+    layers[layer] = { version: entry.version, manifest, archive };
+  }
+  return { file, platform: index.platform, baseUrl: index.baseUrl, layers };
 }
 
-/** Every wheel and archive in the runtime lock. uv never takes an sdist over a wheel. */
-export function lockFiles() {
-  const body = readFileSync(path.join(engine, "pylock.win-py312.toml"), "utf8");
-  const found = /(?<!sdist = \{ )url = "(https:[^"]+)"[^\n]*sha256 = "([0-9a-f]{64})"/g;
-  return [...body.matchAll(found)].map(match => ({ url: match[1], sha256: match[2] }));
+/** Every object of the index: the layer, which object it is, and where it lives under baseUrl. */
+export function layerObjects(index) {
+  return LAYERS.flatMap(layer => ["manifest", "archive"].map(kind => ({
+    layer,
+    kind,
+    version: index.layers[layer].version,
+    ...index.layers[layer][kind],
+    url: new URL(index.layers[layer][kind].path, index.baseUrl).href,
+  })));
 }
 
 export function bootstrapVersion() {
@@ -76,8 +119,16 @@ export function pythonBuilds(uv, platforms) {
   });
 }
 
+/**
+ * Downloads url to destination. `Accept-Encoding: identity` because R2 gzips
+ * JSON objects for a client that accepts it (docs/runtime-layers.md 2.3): the
+ * bytes on disk must be the object's own.
+ */
 export async function download(url, destination) {
-  const response = await fetch(url, { redirect: "follow", headers: { "User-Agent": "nonoka-release-tools" } });
+  const response = await fetch(url, {
+    redirect: "follow",
+    headers: { "User-Agent": "nonoka-release-tools", "Accept-Encoding": "identity" },
+  });
   if (!response.ok || !response.body) throw new Error(`${url} answered ${response.status}`);
   await pipeline(Readable.fromWeb(response.body), createWriteStream(destination));
 }
