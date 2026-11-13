@@ -24,7 +24,9 @@ interface RuntimePageProps {
   onInstallPython: () => Promise<void>;
   onCancelInstall: () => Promise<void>;
   onRemoveAll: () => Promise<void>;
-  onRemoveGroup: (target: RuntimeToolGroup) => Promise<void>;
+  /** 不再使用：视频下载工具已并入工具层，随工具层一起安装和删除，不能单独卸载。
+      保留这个属性只为不改调用方，引擎配置页（WP-UI）重做时删掉。 */
+  onRemoveGroup?: (target: RuntimeToolGroup) => Promise<void>;
   storage: StorageStatus | null;
   storageProgress: RelocationProgress | null;
   storageBusy: boolean;
@@ -61,7 +63,6 @@ const diarizationIds: ReadonlySet<string> = new Set(["diarization"]);
 
 const assetLabels: Record<string, string> = {
   python: "Python / CUDA",
-  uv: "uv",
   ffmpeg: "FFmpeg",
   ffprobe: "FFprobe",
   separator: "人声分离模型",
@@ -204,7 +205,7 @@ function AssetTile({ item, optional = false, action }: {
   );
 }
 
-function AssetGroup({ title, items, optional = false, optionalIds, itemActions, target, installing, blocked, removable = false, confirmingRemove = false, onInstall, onRemove, onCancelRemove }: {
+function AssetGroup({ title, items, optional = false, optionalIds, itemActions, target, installing, blocked, onInstall }: {
   title: string;
   items: RuntimeItem[];
   optional?: boolean;
@@ -215,17 +216,15 @@ function AssetGroup({ title, items, optional = false, optionalIds, itemActions, 
   target: RuntimeInstallTarget;
   installing: boolean;
   blocked: string;
-  removable?: boolean;
-  confirmingRemove?: boolean;
   onInstall: (target: RuntimeInstallTarget) => Promise<void>;
-  onRemove?: () => void;
-  onCancelRemove?: () => void;
 }) {
   const readyCount = items.filter((item) => item.state === "ready").length;
   const groupItems = items.filter((item) => !itemActions?.[item.id]);
   const allReady = groupItems.length > 0 && groupItems.every((item) => item.state === "ready");
-  // 已装好、只是依赖锁变了的运行时：动作是「更新」，不是「下载缺失项」。
+  // 这个版本要的是另一个版本的层：动作是「更新」（整层替换），不是「下载缺失项」。
   const needsUpdate = groupItems.some((item) => item.state === "outdated");
+  // 层与清单不符（文件缺了或被改过）：重新安装这一层就是修复。
+  const needsRepair = groupItems.some((item) => item.state === "failed");
   const disabledReason = blocked
     || (!items.length ? "当前平台没有可安装的项目。" : "")
     || (allReady ? "该分组已全部安装并通过校验。" : "");
@@ -237,35 +236,15 @@ function AssetGroup({ title, items, optional = false, optionalIds, itemActions, 
           <small>{readyCount}/{items.length} 已就绪</small>
         </div>
         <div className="asset-group-actions">
-          {(!allReady || !removable) && (
-            <button
-              className="quiet-button asset-group-action"
-              disabled={disabledReason !== ""}
-              onClick={() => void onInstall(target)}
-              title={disabledReason || (needsUpdate ? `按新的依赖锁更新「${title}」，只下载有变化的部分` : `下载并安装「${title}」中的缺失项`)}
-              type="button"
-            >
-              {installing ? needsUpdate ? "更新中…" : "安装中…" : allReady ? "已安装" : needsUpdate ? "更新" : "下载缺失项"}
-            </button>
-          )}
-          {removable && onRemove && (
-            <button
-              className={`asset-group-remove${allReady ? " installed" : ""}${confirmingRemove ? " confirming" : ""}`}
-              disabled={blocked !== ""}
-              onBlur={onCancelRemove}
-              onClick={onRemove}
-              title={blocked || `卸载「${title}」中的所有托管工具`}
-              aria-label={confirmingRemove ? `确认卸载「${title}」` : `卸载「${title}」`}
-              type="button"
-            >
-              {confirmingRemove ? "确认卸载" : allReady ? (
-                <>
-                  <span className="remove-idle-label">已安装</span>
-                  <span className="remove-hover-label">卸载整组</span>
-                </>
-              ) : "卸载整组"}
-            </button>
-          )}
+          <button
+            className="quiet-button asset-group-action"
+            disabled={disabledReason !== ""}
+            onClick={() => void onInstall(target)}
+            title={disabledReason || (needsRepair ? `重新安装「${title}」所在的运行环境层` : needsUpdate ? `这个版本需要新的运行环境层，更新时整层重新下载` : `下载并安装「${title}」所在的运行环境层`)}
+            type="button"
+          >
+            {installing ? needsRepair ? "修复中…" : needsUpdate ? "更新中…" : "安装中…" : allReady ? "已安装" : needsRepair ? "修复" : needsUpdate ? "更新" : "下载缺失项"}
+          </button>
         </div>
       </div>
       <div className="asset-grid">
@@ -298,9 +277,8 @@ function DiarizationAction({ item, installing, blocked, onInstall }: {
   );
 }
 
-export function RuntimePage({ capabilities, message, provisionMessage, provision, pythonBootstrap, ready, sidecar, onCancelInstall, onDismissProvisionMessage, onInstall, onInstallPython, onRemoveAll, onRemoveGroup, storage, storageProgress, storageBusy, onChooseStorage, onRelocateStorage, onCancelStorage }: RuntimePageProps) {
+export function RuntimePage({ capabilities, message, provisionMessage, provision, pythonBootstrap, ready, sidecar, onCancelInstall, onDismissProvisionMessage, onInstall, onInstallPython, onRemoveAll, storage, storageProgress, storageBusy, onChooseStorage, onRelocateStorage, onCancelStorage }: RuntimePageProps) {
   const [confirmRemove, setConfirmRemove] = useState(false);
-  const [confirmRemoveGroup, setConfirmRemoveGroup] = useState<RuntimeToolGroup | null>(null);
   // 用户点了大安装但还没确认位置时，先停在这里等确认。
   const [awaitingLocation, setAwaitingLocation] = useState<RuntimeInstallTarget | null>(null);
   const runtimeLocation = (storage?.locations ?? []).find((item) => item.target === "runtime") ?? null;
@@ -319,9 +297,10 @@ export function RuntimePage({ capabilities, message, provisionMessage, provision
   const job = provision?.job;
   const pythonInstalling = pythonBootstrap?.state === "running";
   const pythonNeedsRepair = Boolean(pythonBootstrap?.python) && (pythonInstalling || pythonBootstrap?.state === "failed");
-  // A sidecar started on an interpreter without FineSub's bootstrap dependencies
-  // answers requests but cannot build its provisioner. The card is the way out
-  // of that state, so a running sidecar must not hide it.
+  // A sidecar that cannot build its layer manager (no readable layers.json, or
+  // an interpreter missing the launcher's dependencies) answers requests but
+  // cannot install anything. The card is the way out of the interpreter half of
+  // that, so a running sidecar must not hide it.
   const bootstrapBroken = (provision?.bootstrap_error ?? "") !== "";
   const showPythonCard = !sidecar?.running || pythonInstalling || bootstrapBroken || pythonBootstrap?.state === "failed";
   const resources = provision?.resources ?? [];
@@ -350,12 +329,12 @@ export function RuntimePage({ capabilities, message, provisionMessage, provision
           // 平台没有自动安装，按钮点不动，所以这里必须给出手动出路，否则整页无解。
           : `本地执行服务尚未连接：${pythonBootstrap.platform} 暂不支持自动安装 Python。可自行准备一个 Python 3.12 环境并安装 httpx、pydantic，用环境变量 NONOKA_PYTHON 指向它后重启应用。`
     : provision.bootstrap_error
-      ? `FineSub bootstrap 不可用，暂时无法安装运行时或模型：${provision.bootstrap_error}。可用下方「Python 3.12」卡片安装隔离的启动环境后重试。`
+      ? `运行环境层不可用，暂时无法安装运行时或模型：${provision.bootstrap_error}。如果本地服务运行在缺少依赖的 Python 上，可用下方「Python 3.12」卡片安装隔离的启动环境后重试。`
       : "";
   // 本地不支持 ≠ 用不了：云端不依赖这里的任何运行时与模型，所以这条提示要把出路说清楚，
   // 而不是只报告「不支持」。
   const platformNotice = provision && !provision.runtime_supported
-    ? `本地 GPU 流水线仅面向 Windows x64/NVIDIA，${provision.platform} 上${provision.media_supported ? "只能安装 FFmpeg 媒体工具" : "无法安装托管运行时"}。在此平台请在首页把运行方式切到「云端」——云端转写不需要本地运行时与模型，只需登录账号。`
+    ? `本地 GPU 流水线仅面向 Windows x64/NVIDIA，${provision.platform} 上${provision.media_supported ? "只能安装工具层（FFmpeg 等）" : "暂时没有预制的运行环境层，本地转写与托管 FFmpeg 都不可用"}。在此平台请在首页把运行方式切到「云端」——云端转写不需要本地运行时与模型，只需登录账号。`
     : "";
   const jobBlocked = jobRunning ? "已有安装任务正在进行，请等待其结束。" : "";
   const runtimeUnavailable = provision && !provision.runtime_supported && !provision.media_supported
@@ -428,7 +407,7 @@ export function RuntimePage({ capabilities, message, provisionMessage, provision
                 setConfirmRemove(false);
                 void onRemoveAll();
               }}
-              title={jobRunning ? "请先取消或等待当前安装任务结束。" : "删除托管的运行时、模型与缓存；不会删除任务、字幕和用户设置。"}
+              title={jobRunning ? "请先取消或等待当前安装任务结束。" : "删除全部运行环境层（Python、模型、工具）与下载缓存；不会删除任务、字幕和用户设置。"}
               type="button"
             >
               {confirmRemove ? "确认删除环境" : "删除环境"}
@@ -524,18 +503,7 @@ export function RuntimePage({ capabilities, message, provisionMessage, provision
             target="video-tools"
             installing={jobRunning && job?.target === "video-tools"}
             blocked={toolsBlocked}
-            removable={videoTools.some((item) => item.source !== "system" && item.state !== "missing")}
-            confirmingRemove={confirmRemoveGroup === "video-tools"}
             onInstall={requestInstall}
-            onCancelRemove={() => setConfirmRemoveGroup((current) => current === "video-tools" ? null : current)}
-            onRemove={() => {
-              if (confirmRemoveGroup !== "video-tools") {
-                setConfirmRemoveGroup("video-tools");
-                return;
-              }
-              setConfirmRemoveGroup(null);
-              void onRemoveGroup("video-tools");
-            }}
           />
         </div>
         {provision?.root && <div className="runtime-storage-row">

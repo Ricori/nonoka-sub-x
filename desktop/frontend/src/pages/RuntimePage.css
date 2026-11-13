@@ -477,53 +477,6 @@
   white-space: nowrap;
 }
 
-.asset-group-remove {
-  min-width: 68px;
-  padding: 5px 9px;
-  border: 1px solid color-mix(in srgb, var(--warn) 30%, var(--line-soft));
-  border-radius: 8px;
-  background: transparent;
-  color: var(--mut);
-  font-size: 11px;
-  font-weight: 650;
-  line-height: 1.4;
-  white-space: nowrap;
-  cursor: pointer;
-}
-
-.asset-group-remove.installed {
-  border-color: var(--line-soft);
-  background: color-mix(in srgb, var(--ok) 7%, transparent);
-  color: var(--ok);
-}
-
-.asset-group-remove .remove-hover-label {
-  display: none;
-}
-
-.asset-group-remove.installed:not(.confirming):hover .remove-idle-label,
-.asset-group-remove.installed:not(.confirming):focus-visible .remove-idle-label {
-  display: none;
-}
-
-.asset-group-remove.installed:not(.confirming):hover .remove-hover-label,
-.asset-group-remove.installed:not(.confirming):focus-visible .remove-hover-label {
-  display: inline;
-}
-
-.asset-group-remove:hover:not(:disabled),
-.asset-group-remove:focus-visible:not(:disabled),
-.asset-group-remove.confirming {
-  border-color: var(--warn);
-  background: color-mix(in srgb, var(--warn) 10%, transparent);
-  color: var(--warn);
-}
-
-.asset-group-remove:disabled {
-  opacity: .42;
-  cursor: not-allowed;
-}
-
 .asset-group.categorized .asset-grid {
   grid-template-columns: minmax(0, 1fr);
   gap: 8px;
