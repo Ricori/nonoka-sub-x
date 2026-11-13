@@ -29,9 +29,11 @@ a transcription engine.
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
 import shutil
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
@@ -236,17 +238,79 @@ class _ReporterAdapter:
         return
 
 
+#: What FineSub's `[harness]` extra brings that the launcher must have to run
+#: the LLM half: (distribution, module) pairs. `cryptography` is left out -- it
+#: is imported only to sign a knowledge-share snapshot, which no task does.
+HARNESS_MODULES = (
+    ("httpx", "httpx"),
+    ("opencc-python-reimplemented", "opencc"),
+)
+# `finesub.llm.rate_limit` resolves America/Los_Angeles at import, and Windows
+# ships no tz database for zoneinfo to find it in.
+HARNESS_WINDOWS_MODULES = (("tzdata", "tzdata"),)
+#: The targets that need a configured LLM.
+LLM_TARGETS = ("translated-srt", "final-srt")
+
+
 class FineSubCorrection:
-    """The `CorrectionEngine` that runs FineSub's correction and translation."""
+    """The `CorrectionEngine` that runs FineSub's correction and translation.
+
+    `store` is the config facade (`nonoka_x.config.ConfigStore`: `snapshot`),
+    `runtime` the runtime facade (`nonoka_x.runtime.RuntimeManager`: `status`,
+    `tool_path`); both only answer readiness, the run needs neither.
+    """
 
     spec = SPEC
 
-    def readiness(self, context: ReadinessContext, request: Mapping[str, Any]) -> Readiness:
-        import importlib.util
+    def __init__(self, store: Any | None = None, runtime: Any | None = None) -> None:
+        self._store = store
+        self._runtime = runtime
 
-        if importlib.util.find_spec("finesub") is None:
-            return Readiness((Issue("engine_missing", "FineSub 纠错引擎不可用"),))
-        return Readiness()
+    def readiness(self, context: ReadinessContext, request: Mapping[str, Any]) -> Readiness:
+        """The sidecar's LLM tiers, as they were before WP5 moved them here.
+
+        Any target: the `harness` tier -- the media tools and, until the
+        managed runtime (whose lock carries `[harness]`) is ready, the
+        launcher's own harness modules, since the worker runs on this very
+        interpreter until then. A translating target (`translated-srt`,
+        `final-srt`) adds the configured LLM, and so does every tier built on
+        it: a knowledge update and a video correction (`request`) ask for
+        nothing more today.
+        """
+
+        managed = None
+        if self._runtime is not None:
+            status = self._runtime.status()
+            managed = status if status else None
+        managed_runtime_ready = managed is not None and (managed.get("runtime") or {}).get("state") == "ready"
+        issues: list[Issue] = []
+        if sys.version_info < (3, 12) and not managed_runtime_ready:
+            issues.append(Issue("missing_python", "需要 Python 3.12 或更高版本"))
+        if not self._tool("ffmpeg") or not self._tool("ffprobe"):
+            issues.append(Issue("missing_ffmpeg", "缺少项目必备依赖 FFmpeg 或 FFprobe"))
+        if not managed_runtime_ready:
+            wanted = HARNESS_MODULES + (HARNESS_WINDOWS_MODULES if sys.platform == "win32" else ())
+            missing_harness = [
+                distribution for distribution, module in wanted if importlib.util.find_spec(module) is None
+            ]
+            if missing_harness:
+                issues.append(Issue(
+                    "missing_harness",
+                    "本地续跑依赖缺失：" + "、".join(missing_harness)
+                    + "；请在「运行环境」页重建 Python 启动环境，或安装完整运行环境",
+                ))
+        if context.target in LLM_TARGETS:
+            snapshot = self._store.snapshot() if self._store is not None else {}
+            # 装了 CLI 不等于配好了模型：只有设置里保存下来的全局模型（提供商 + 模型，
+            # 且凭据或 CLI 到位）才放行 LLM 环节。
+            if not snapshot.get("llmReady"):
+                issues.append(Issue("missing_llm_key", "尚未配置模型提供商，请在设置里选择提供商与全局模型并保存"))
+        return Readiness(tuple(issues))
+
+    def _tool(self, name: str) -> bool:
+        if shutil.which(name):
+            return True
+        return self._runtime is not None and self._runtime.tool_path(name) is not None
 
     def check(self, job: CorrectionJob, report: Reporter) -> None:
         """Fail now on what this job would fail on only once the transcription is done.

@@ -179,9 +179,60 @@ def test_the_engine_meets_the_protocol() -> None:
     assert isinstance(instance, correction.CorrectionEngine)
     assert instance.spec.id == correction.DEFAULT_ENGINE
     assert instance.spec.environment.components == () and instance.spec.environment.gpu == "none"
+
+
+class _Store:
+    def __init__(self, llm_ready: bool) -> None:
+        self.llm_ready = llm_ready
+
+    def snapshot(self) -> dict:
+        return {"llmReady": self.llm_ready}
+
+
+class _Runtime:
+    def __init__(self, state: str = "ready", tools: bool = True) -> None:
+        self.state, self.tools = state, tools
+
+    def status(self) -> dict:
+        return {"runtime": {"state": self.state}, "models": []}
+
+    def tool_path(self, name: str):  # noqa: ANN201
+        return Path(f"{name}.exe") if self.tools else None
+
+
+def _codes(instance, target: str, *, missing=frozenset(), platform: str = "win32") -> list[str]:  # noqa: ANN001
+    """The issue codes for `target`, with only `missing` absent from the launcher."""
+
     from nonoka_x.transcription import ReadinessContext
 
-    assert instance.readiness(ReadinessContext(target="final-srt"), {}).ready
+    def find_spec(name, *_args, **_kwargs):  # noqa: ANN001, ANN202
+        return None if name in missing else object()
+
+    with (
+        mock.patch.object(engine.importlib.util, "find_spec", side_effect=find_spec),
+        mock.patch.object(engine.shutil, "which", return_value=None),
+        mock.patch.object(engine.sys, "platform", platform),
+    ):
+        return [issue.code for issue in instance.readiness(ReadinessContext(target=target), {}).issues]
+
+
+def test_readiness_is_the_sidecars_llm_tiers() -> None:
+    """WP5 moved the `harness` and LLM tiers here as they were (codes and words unchanged)."""
+
+    ready = engine.FineSubCorrection(_Store(True), _Runtime())
+    assert _codes(ready, "raw-srt") == [] and _codes(ready, "final-srt") == []
+    # No LLM configured: only a translating target needs one.
+    unconfigured = engine.FineSubCorrection(_Store(False), _Runtime())
+    assert _codes(unconfigured, "raw-srt") == []
+    assert _codes(unconfigured, "translated-srt") == ["missing_llm_key"]
+    assert _codes(engine.FineSubCorrection(None, _Runtime()), "final-srt") == ["missing_llm_key"]
+    # The launcher's harness is asked only until the managed runtime is ready.
+    launcher = engine.FineSubCorrection(_Store(True), _Runtime(state="missing"))
+    assert _codes(launcher, "raw-srt", missing={"opencc"}) == ["missing_harness"]
+    assert _codes(launcher, "raw-srt", missing={"tzdata"}, platform="darwin") == []
+    assert _codes(ready, "raw-srt", missing={"opencc"}) == []
+    # The media tools: the runtime's or PATH's.
+    assert _codes(engine.FineSubCorrection(_Store(True), _Runtime(tools=False)), "raw-srt") == ["missing_ffmpeg"]
 
 
 # --- the module stays movable ------------------------------------------------------

@@ -730,7 +730,7 @@ class LLMCallTests(ProviderFixture):
 
     def test_saving_keys_retires_the_worker_holding_the_old_ones(self) -> None:
         provider = self.llm_provider()
-        provider._settings = SimpleNamespace(update_keys=lambda updates: {"saved": dict(updates)})
+        provider._settings = SimpleNamespace(update_keys=lambda updates, **_: {"saved": dict(updates)})
         provider.llm_complete(self.call("one"))
         started = provider._llm_process
         provider.update_keys({"OPENAI_KEYS": "new-secret"})
@@ -895,7 +895,7 @@ class HarnessReadinessTests(unittest.TestCase):
             patch("nonoka_x.local_provider.sys.platform", platform),
             patch("nonoka_x.local_provider.shutil.which", return_value=str(media_tool)),
             patch("nonoka_x.local_provider.local_agent_executable", return_value=None),
-            patch("nonoka_x.local_provider.importlib.util.find_spec", side_effect=find_spec),
+            patch("importlib.util.find_spec", side_effect=find_spec),
         ):
             report = runtime_report(settings=Settings(), provisioner=Provisioner())
         return {stage["id"]: stage for stage in report["stages"]}
@@ -1096,3 +1096,333 @@ class RuntimeOutdatedReportTests(unittest.TestCase):
         self.assertNotIn("missing_runtime", codes)
         message = next(issue["message"] for issue in report["issues"] if issue["code"] == "runtime_outdated")
         self.assertIn("需要更新", message)
+
+
+# --- WP5: the transcription engine a request picks ----------------------------------------------------------
+
+#: Stands in for any secret value; must never appear in a snapshot, log or event.
+SECRET = "sk-or-wp5-never-shown-0123456789"
+
+
+class KeySettings:
+    """The settings as the config facade reads them: saved keys, and a configured LLM."""
+
+    def __init__(self, root: Path, secrets: dict[str, str] | None = None) -> None:
+        self.root = root
+        self.secrets = dict(secrets or {})
+        self.llm_ready = True
+
+    def secret_values(self) -> dict[str, str]:
+        return dict(self.secrets)
+
+    def snapshot(self) -> dict:
+        return {"llmReady": self.llm_ready, "llmKeyConfigured": self.llm_ready, "retrievalKeyConfigured": False}
+
+    def update_keys(self, updates, *, extra_key_names=frozenset()):  # noqa: ANN001, ANN201
+        self.secrets.update({name: value for name, value in updates.items() if value is not None})
+        return self.snapshot()
+
+
+class ToolsOnly:
+    """A machine with the tool layer and nothing else: no Python runtime, no model."""
+
+    def __init__(self, media_tool: Path) -> None:
+        self.media_tool = media_tool
+
+    def status(self) -> dict:
+        return {
+            "runtime": {"state": "missing"},
+            "resources": [],
+            "models": [{"id": model, "state": "missing"} for model in ("separator", "whisper", "qwen-referee")],
+            "optional_models": [],
+        }
+
+    def tool_path(self, name: str) -> Path | None:
+        return self.media_tool if name in {"ffmpeg", "ffprobe"} else None
+
+    def worker_python(self) -> None:
+        return None
+
+    def worker_environment(self) -> dict[str, str]:
+        return os.environ.copy()
+
+
+class EngineSelectionTests(ProviderFixture):
+    """`transcription.engine` (WP5): validation, readiness per engine, capabilities, keys."""
+
+    def mai2(self, target: str = "final-srt", **extra) -> dict:  # noqa: ANN003
+        request = self.request()
+        request.update(target=target, transcription={"engine": "mai2", "options": {"split_length_scale": 1.2}})
+        request.update(extra)
+        return request
+
+    # validation
+
+    def test_a_finesub_request_is_normalized_exactly_as_before(self) -> None:
+        from nonoka_x.local_provider import validate_request
+
+        plain = validate_request(self.request())
+        self.assertNotIn("transcription", plain)
+        # An explicit FineSub block is kept as it came, and changes nothing else.
+        explicit = self.request()
+        explicit["transcription"] = {"engine": "finesub", "options": {"anything": 1}}
+        normalized = validate_request(explicit)
+        self.assertEqual(normalized.pop("transcription"), {"engine": "finesub", "options": {"anything": 1}})
+        self.assertEqual(json.dumps(normalized, sort_keys=True), json.dumps(plain, sort_keys=True))
+
+    def test_a_malformed_block_is_refused(self) -> None:
+        from nonoka_x.local_provider import validate_request
+
+        for block, code in (
+            ("mai2", "invalid_request"),
+            ({"engine": "Not An Id"}, "invalid_request"),
+            ({"engine": "mai2", "options": []}, "invalid_request"),
+            ({"engine": "no-such-engine"}, "unsupported_engine"),
+        ):
+            request = self.request()
+            request["transcription"] = block
+            with self.subTest(block=block), self.assertRaises(ProviderError) as caught:
+                validate_request(request)
+            self.assertEqual(caught.exception.code, code)
+
+    def test_a_cloud_engine_drops_what_it_cannot_use(self) -> None:
+        from nonoka_x.local_provider import dropped_fields, validate_request
+
+        request = self.mai2(separate=False, gpu_tier="auto", vocal_profile="quality")
+        validated = validate_request(request)
+        for name in ("separate", "device", "gpu_tier", "gpu_budget_gb", "vocal_profile"):
+            self.assertNotIn(name, validated)
+        self.assertEqual(validated["transcription"], {"engine": "mai2", "options": {"split_length_scale": 1.2}})
+        self.assertEqual(dropped_fields(request, validated),
+                         ["separate", "vocal_profile", "device", "gpu_tier", "gpu_budget_gb"])
+
+    def test_a_cloud_engine_runs_only_to_a_subtitle(self) -> None:
+        from nonoka_x.local_provider import validate_request
+
+        for target in ("vocal", "aligned", "stable"):
+            with self.subTest(target=target), self.assertRaises(ProviderError) as caught:
+                validate_request(self.mai2(target))
+            self.assertEqual(caught.exception.code, "unsupported_target")
+        for target in ("raw-srt", "translated-srt", "final-srt"):
+            self.assertEqual(validate_request(self.mai2(target))["target"], target)
+
+    def test_recognition_in_hand_cannot_pick_another_engine(self) -> None:
+        from nonoka_x.local_provider import validate_request
+
+        stable = self.root / "cloud.stable.json"
+        stable.write_bytes((ROOT / "tests/fixtures/finesub/sample-stable.json").read_bytes())
+        continuation = self.mai2()
+        continuation["source"] = {"kind": "cloud_stable", "path": str(self.source), "stable_json": str(stable)}
+        axis = self.mai2(axis={"kind": "ja", "rows": [{"t0": 0.0, "t1": 1.0, "ja": "x"}]})
+        for request in (continuation, axis):
+            with self.assertRaises(ProviderError) as caught:
+                validate_request(request)
+            self.assertEqual(caught.exception.code, "invalid_request")
+
+    def test_the_engines_declared_features_bound_the_request(self) -> None:
+        from nonoka_x.local_provider import validate_request
+        from nonoka_x.transcription import EngineFeatures, EngineSpec
+
+        narrow = EngineSpec(id="narrow", label="Narrow", kind="cloud-api",
+                            features=EngineFeatures(diarization_levels=("off", "acoustics"), languages=("ja",)))
+        engines = {"narrow": narrow}
+
+        def request(**extra) -> dict:  # noqa: ANN003
+            value = self.request()
+            value.update(target="final-srt", transcription={"engine": "narrow"}, **extra)
+            return value
+
+        validate_request(request(diarization={"level": "acoustics"}), engines=engines)
+        validate_request(request(language="auto"), engines=engines)
+        for bad in (request(diarization={"level": "judge-text"}), request(language="zh")):
+            with self.assertRaises(ProviderError) as caught:
+                validate_request(bad, engines=engines)
+            self.assertEqual(caught.exception.code, "invalid_request")
+
+    # readiness
+
+    def tools_only_provider(self, secrets: dict[str, str] | None = None) -> LocalProvider:
+        provider = LocalProvider(
+            self.root / "tasks",
+            ROOT / "third_party/finesub",
+            worker_command=self.command,
+            settings=KeySettings(self.root, secrets),
+            provisioner=ToolsOnly(self.source),
+        )
+        self.providers.append(provider)
+        return provider
+
+    def no_gpu_no_harness_probe(self):  # noqa: ANN201
+        """No card, nothing on PATH, and the launcher's harness taken as present."""
+
+        from contextlib import ExitStack
+
+        from nonoka_x.correction import finesub as correction_finesub
+
+        stack = ExitStack()
+        stack.enter_context(patch("shutil.which", return_value=None))
+        stack.enter_context(patch.object(correction_finesub, "HARNESS_MODULES", ()))
+        stack.enter_context(patch.object(correction_finesub, "HARNESS_WINDOWS_MODULES", ()))
+        stack.enter_context(patch("nonoka_x.local_provider.local_agent_executable", return_value=None))
+        return stack
+
+    def test_mai2_starts_final_srt_with_only_the_tool_layer_and_its_key(self) -> None:
+        """The WP5 completion criterion: no runtime, no model, no GPU; the MAI2 key is enough."""
+
+        with self.no_gpu_no_harness_probe():
+            for secrets in ({"OPENROUTER_STT_KEY": SECRET},
+                            {"AZURE_SPEECH_KEY": SECRET, "AZURE_SPEECH_ENDPOINT": "https://x.example/speech"}):
+                provider = self.tools_only_provider(secrets)
+                # FineSub cannot run here at all...
+                with self.assertRaises(ProviderError) as caught:
+                    provider.start({**self.request(), "target": "final-srt"})
+                # (whichever of its issues this launcher shows first: it has no runtime and no model)
+                self.assertIn(caught.exception.code, {"missing_runtime", "missing_model", "unsupported_platform"})
+                # ...and MAI2 can.
+                task = provider.start(self.mai2("final-srt"))
+                wait_state(provider, task["task_id"], {"completed"})
+
+    def test_mai2_without_its_keys_says_missing_key(self) -> None:
+        with self.no_gpu_no_harness_probe():
+            # An endpoint alone is half of the Azure route, and not a route.
+            for secrets in ({}, {"AZURE_SPEECH_ENDPOINT": "https://x.example/speech"}):
+                provider = self.tools_only_provider(secrets)
+                with self.assertRaises(ProviderError) as caught:
+                    provider.start(self.mai2("final-srt"))
+                self.assertEqual(caught.exception.code, "missing_key")
+                self.assertIn("OPENROUTER_STT_KEY", str(caught.exception))
+                self.assertEqual(caught.exception.http_status, 503)
+
+    def test_a_cloud_engine_still_needs_the_llm_for_a_translation(self) -> None:
+        provider = self.tools_only_provider({"OPENROUTER_STT_KEY": SECRET})
+        provider._settings.llm_ready = False
+        with self.no_gpu_no_harness_probe():
+            with self.assertRaises(ProviderError) as caught:
+                provider.start(self.mai2("final-srt"))
+            self.assertEqual(caught.exception.code, "missing_llm_key")
+            # The raw SRT needs no LLM.
+            task = provider.start(self.mai2("raw-srt"))
+        wait_state(provider, task["task_id"], {"completed"})
+
+    def test_the_dropped_fields_are_said_in_the_task_log(self) -> None:
+        provider = self.tools_only_provider({"OPENROUTER_STT_KEY": SECRET})
+        with self.no_gpu_no_harness_probe():
+            task = provider.start(self.mai2("raw-srt"))
+        wait_state(provider, task["task_id"], {"completed"})
+        events = provider.events(task["task_id"])["events"]
+        notice = next(event for event in events if event["payload"].get("fields", {}).get("dropped"))
+        self.assertEqual(notice["type"], "log")
+        self.assertEqual(notice["payload"]["fields"]["dropped"], ["device", "gpu_budget_gb"])
+        self.assertIn("MAI-Transcribe-2", notice["payload"]["message"])
+        stored = json.loads((self.root / "tasks" / task["task_id"] / "request.json").read_text(encoding="utf-8"))
+        self.assertNotIn("device", stored)
+        self.assertNotIn(SECRET, json.dumps(events, ensure_ascii=False))
+        # A FineSub task says nothing of the kind.
+        finesub = self.provider()
+        plain = finesub.start(self.request())
+        wait_state(finesub, plain["task_id"], {"completed"})
+        self.assertFalse([event for event in finesub.events(plain["task_id"])["events"]
+                          if event["payload"].get("fields", {}).get("dropped")])
+
+    def test_a_task_on_the_knowledge_base_needs_the_knowledge_package(self) -> None:
+        from finesub_knowledge import client
+
+        provider = self.tools_only_provider({"OPENROUTER_STT_KEY": SECRET})
+        with self.no_gpu_no_harness_probe(), patch.object(client, "package_problem", return_value="知识库包未安装"):
+            with self.assertRaises(ProviderError) as caught:
+                provider.start(self.mai2("final-srt", knowledge="read"))
+            self.assertEqual(caught.exception.code, "missing_knowledge_package")
+            self.assertIn("knowledge=read", str(caught.exception))
+            # Off is off: nothing to refuse.
+            task = provider.start(self.mai2("final-srt", knowledge="none"))
+        wait_state(provider, task["task_id"], {"completed"})
+
+    # capabilities
+
+    def test_capabilities_list_every_engine_and_its_readiness(self) -> None:
+        provider = self.tools_only_provider({})
+        with self.no_gpu_no_harness_probe(), patch("nonoka_x.local_provider.sys.platform", "win32"):
+            capabilities = provider.get_capabilities()
+        engines = {item["id"]: item for item in capabilities["transcription_engines"]}
+        self.assertEqual(list(engines), ["finesub", "mai2", "gemini-transcribe", "moss-pro"])
+        self.assertEqual(engines["mai2"]["kind"], "cloud-api")
+        self.assertEqual([issue["code"] for issue in engines["mai2"]["issues"]], ["missing_key"])
+        self.assertFalse(engines["finesub"]["ready"])
+        self.assertEqual(engines["finesub"]["issues"], capabilities["runtime"]["issues"])
+        self.assertEqual(capabilities["correction_engines"], [{"id": "finesub", "ready": True, "issues": []}])
+        # The stages keep their ids, and FineSub's tier is still the one the desktop greys out on.
+        self.assertEqual([stage["id"] for stage in capabilities["runtime"]["stages"]],
+                         ["media", "raw-srt", "harness", "final-srt", "knowledge", "video-multimodal"])
+        self.assertIn("missing_gpu", {warning["code"] for warning in capabilities["runtime"]["warnings"]})
+        with self.no_gpu_no_harness_probe():
+            keyed = self.tools_only_provider({"MOSS_PRO": SECRET}).get_capabilities()
+        self.assertTrue({item["id"]: item for item in keyed["transcription_engines"]}["moss-pro"]["ready"])
+        self.assertNotIn(SECRET, json.dumps(keyed, ensure_ascii=False))
+
+    # keys
+
+    def test_the_engine_keys_are_saved_through_the_facade_and_never_shown(self) -> None:
+        from nonoka_x.config import ConfigStore, registered_key_specs
+        from nonoka_x.settings import KEY_SPECS, FineSubSettings
+
+        settings = FineSubSettings(self.root / "data")
+        provider = LocalProvider(self.root / "data" / "tasks", ROOT / "third_party/finesub",
+                                 worker_command=self.command, issues=[], settings=settings)
+        self.providers.append(provider)
+        self.assertLessEqual(
+            {"OPENROUTER_STT_KEY", "AZURE_SPEECH_KEY", "AZURE_SPEECH_ENDPOINT", "MOSS_PRO"},
+            {spec.name for spec in registered_key_specs()} | {spec["name"] for spec in KEY_SPECS},
+        )
+        snapshot = provider.update_keys({
+            "OPENROUTER_STT_KEY": SECRET,
+            "AZURE_SPEECH_ENDPOINT": "https://eastus.api.cognitive.microsoft.com/speech/v1",
+        })
+        store = ConfigStore(settings)
+        self.assertEqual([entry.value for entry in store.key_pool("OPENROUTER_STT_KEY")], [SECRET])
+        self.assertEqual([entry.value for entry in store.key_pool("AZURE_SPEECH_ENDPOINT")],
+                         ["https://eastus.api.cognitive.microsoft.com/speech/v1"])
+        # The settings page's list is still its own twelve, and no value is in it.
+        self.assertEqual([item["name"] for item in snapshot["keys"]], [spec["name"] for spec in KEY_SPECS])
+        self.assertNotIn(SECRET, json.dumps(snapshot, ensure_ascii=False))
+        # Nonoka's engines only: nothing is derived for FineSub.
+        settings.bind_environment()
+        derived = settings.env_file.read_text(encoding="utf-8") if settings.env_file.exists() else ""
+        for name in ("OPENROUTER_STT_KEY", "AZURE_SPEECH_KEY", "AZURE_SPEECH_ENDPOINT"):
+            self.assertNotIn(name, derived)
+        self.assertNotIn(SECRET, derived)
+
+    # the worker's side
+
+    def test_the_worker_is_told_where_the_keys_and_the_runtime_are(self) -> None:
+        provider = LocalProvider(self.root / "tasks", ROOT / "third_party/finesub", issues=[],
+                                 settings=KeySettings(self.root), provisioner=SimpleNamespace(
+                                     install_root=self.root / "runtime", worker_python=lambda: None))
+        self.providers.append(provider)
+        command = provider._default_worker_command("t", self.root / "tasks" / "t")
+        self.assertEqual(command[command.index("--data-dir") + 1], str(self.root))
+        self.assertEqual(command[command.index("--install-dir") + 1], str(self.root / "runtime"))
+
+    def test_the_worker_registers_the_cloud_engines_on_deferred_facades(self) -> None:
+        from nonoka_x import worker
+
+        opened: list[str] = []
+
+        class Store:
+            def key_pool(self, name: str):  # noqa: ANN201
+                return ("pool", name)
+
+        def open_store(root):  # noqa: ANN001, ANN202
+            opened.append(str(root))
+            return Store()
+
+        with patch("nonoka_x.config.ConfigStore.open", side_effect=open_store):
+            context = worker.engine_context(self.root, None, ROOT / "third_party/finesub")
+            transcription_engines, correction_engines = worker.build_engines(**context)
+            self.assertEqual([engine.spec.id for engine in transcription_engines],
+                             ["finesub", "mai2", "gemini-transcribe", "moss-pro"])
+            self.assertEqual([engine.spec.id for engine in correction_engines], ["finesub"])
+            # Nothing is opened until an engine asks.
+            self.assertEqual(opened, [])
+            self.assertEqual(transcription_engines[1]._store.key_pool("MOSS_PRO"), ("pool", "MOSS_PRO"))
+            self.assertEqual(opened, [str(self.root)])
+        self.assertEqual(worker.engine_context(None, None, ROOT), {"store": None, "runtime": None})
