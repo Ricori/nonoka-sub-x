@@ -1368,6 +1368,13 @@ class EngineSelectionTests(ProviderFixture):
         # The settings page's list is still its own twelve, and no value is in it.
         self.assertEqual([item["name"] for item in snapshot["keys"]], [spec["name"] for spec in KEY_SPECS])
         self.assertNotIn(SECRET, json.dumps(snapshot, ensure_ascii=False))
+        # ...the engine keys are listed apart, configured or not, masked (WP6).
+        engine_keys = {item["name"]: item for item in snapshot["engineKeys"]}
+        self.assertLessEqual({"OPENROUTER_STT_KEY", "AZURE_SPEECH_KEY", "AZURE_SPEECH_ENDPOINT", "MOSS_PRO"}, set(engine_keys))
+        self.assertTrue(engine_keys["OPENROUTER_STT_KEY"]["configured"])
+        self.assertEqual(engine_keys["OPENROUTER_STT_KEY"]["count"], 1)
+        self.assertFalse(engine_keys["AZURE_SPEECH_KEY"]["configured"])
+        self.assertEqual(provider.get_settings()["engineKeys"], snapshot["engineKeys"])
         # Nonoka's engines only: nothing is handed to FineSub, neither as a variable nor in a file.
         environment, run = provider._engine_launch("task")
         try:

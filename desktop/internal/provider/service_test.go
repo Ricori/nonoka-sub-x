@@ -58,7 +58,7 @@ func TestServiceMapsFixedProviderEndpoints(t *testing.T) {
 	_, _ = service.InstallRuntime("yt-dlp")
 	_, _ = service.CancelRuntimeInstall()
 	_, _ = service.RemoveRuntime()
-	_, _ = service.RemoveRuntimeGroup("video-tools")
+	_, _ = service.RemoveUnusedRuntime()
 	_, _ = service.RuntimeCacheStatus()
 	_, _ = service.ClearRuntimeCache()
 	_, _ = service.Settings()
@@ -79,7 +79,7 @@ func TestServiceMapsFixedProviderEndpoints(t *testing.T) {
 		{method: "POST", endpoint: "/v1/runtime/provision", body: map[string]any{"target": "yt-dlp"}},
 		{method: "POST", endpoint: "/v1/runtime/provision/cancel", body: map[string]any{}},
 		{method: "DELETE", endpoint: "/v1/runtime/provision"},
-		{method: "DELETE", endpoint: "/v1/runtime/provision/group", body: map[string]any{"target": "video-tools"}},
+		{method: "DELETE", endpoint: "/v1/runtime/provision/unused"},
 		{method: "GET", endpoint: "/v1/runtime/cache"},
 		{method: "DELETE", endpoint: "/v1/runtime/cache"},
 		{method: "GET", endpoint: "/v1/settings"},
@@ -110,17 +110,6 @@ func TestServiceRejectsUnknownRuntimeTarget(t *testing.T) {
 	}
 	if len(transport.calls) != 0 {
 		t.Fatalf("invalid runtime target reached transport: %#v", transport.calls)
-	}
-}
-
-func TestServiceRejectsUnknownRemovableRuntimeGroup(t *testing.T) {
-	transport := &fakeCaller{}
-	service, _ := New(transport)
-	if _, err := service.RemoveRuntimeGroup("runtime"); err == nil {
-		t.Fatal("required runtime group was accepted for removal")
-	}
-	if len(transport.calls) != 0 {
-		t.Fatalf("invalid removal target reached transport: %#v", transport.calls)
 	}
 }
 

@@ -303,6 +303,7 @@ def test_capability_entries_match_provider_spec() -> None:
             "languages": [],
         },
         "billing": "按音频时长计费",
+        "keys": ["OPENROUTER_STT"],
     }
     spec = correction.CorrectionSpec(id="finesub", label="finesub correction")
     assert correction.correction_capability(spec, Readiness()) == {"id": "finesub", "ready": True, "issues": []}
@@ -559,7 +560,12 @@ def test_registered_key_specs_live_in_memory_and_their_keys_in_secrets_json(conf
         assert config_store.key_pool("WP0_TEST_STT_KEYS") == ()
         snapshot = config_store.update({"WP0_TEST_STT_KEYS": "label:fake-registered-key"})
         assert config_store.key_pool("WP0_TEST_STT_KEYS") == (KeyEntry("label", "fake-registered-key"),)
-        assert "WP0_TEST" not in repr(snapshot)
+        # The settings' own list never learns it; the engine panel's `engineKeys` lists it, masked
+        # (WP6, owner 2026-11-16).
+        assert "WP0_TEST" not in repr(snapshot["keys"])
+        listed = {item["name"]: item for item in snapshot["engineKeys"]}["WP0_TEST_STT_KEYS"]
+        assert listed["configured"] and listed["count"] == 1
+        assert "fake-registered-key" not in repr(snapshot)
         from nonoka_x.settings import CORRECTION_SECRET_NAMES, TRANSCRIPTION_SECRET_NAMES
 
         assert "WP0_TEST_STT_KEYS" not in (*CORRECTION_SECRET_NAMES, *TRANSCRIPTION_SECRET_NAMES)

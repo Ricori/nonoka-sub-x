@@ -163,15 +163,42 @@ class ConfigStore:
         return self.root / "state" / f"{name}.json"
 
     def snapshot(self) -> dict[str, Any]:
-        """The settings as the desktop sees them; secret values never appear."""
+        """The settings as the desktop sees them; secret values never appear.
 
-        return self._settings.snapshot()
+        `engineKeys` lists the registered keys (Nonoka's own engines', e.g.
+        MAI-Transcribe-2's) apart from the settings' `keys`: the desktop's
+        transcription engine panel shows them, and they are never handed to
+        FineSub.
+        """
+
+        return {**self._settings.snapshot(), "engineKeys": self._engine_keys()}
 
     def update(self, updates: Mapping[str, Any]) -> dict[str, Any]:
         """Save settings and keys (`None` clears one); returns the new snapshot."""
 
         registered = frozenset(spec.name for spec in registered_key_specs())
-        return self._settings.update_keys(updates, extra_key_names=registered)
+        snapshot = self._settings.update_keys(updates, extra_key_names=registered)
+        return {**snapshot, "engineKeys": self._engine_keys()}
+
+    def _engine_keys(self) -> list[dict[str, Any]]:
+        from nonoka_x.config import secrets
+
+        if not hasattr(self._settings, "secret_values"):
+            return []  # a stand-in without a secret store has no engine keys to show
+
+        status = getattr(getattr(self._settings, "secret_store", None), "status", None)
+        states = status() if status is not None else {}
+        result: list[dict[str, Any]] = []
+        for spec in registered_key_specs():
+            entries = self.key_pool(spec.name)
+            result.append({
+                **spec.to_dict(),
+                "configured": bool(entries),
+                "count": len(entries),
+                "masked": [{"name": entry.label, "value": secrets.masked(entry.value)} for entry in entries],
+                "storage": states.get(spec.name, "missing"),
+            })
+        return result
 
 
 __all__ = [

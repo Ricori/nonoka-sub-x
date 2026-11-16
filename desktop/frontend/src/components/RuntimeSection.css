@@ -421,7 +421,9 @@
 
 .asset-groups {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  /* Three groups in the settings page's column: as many as fit at a width
+     where the asset names are not cut off. */
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
   align-items: stretch;
   gap: 14px;
 }
@@ -707,3 +709,15 @@
 
 /* 卡片标题上方不再有 eyebrow，去掉为它留的上边距。 */
 .runtime-layout .panel-heading h2 { margin-top: 0; }
+
+/* 「清理未使用的」：层的旧版本与中断留下的目录。 */
+.runtime-unused { display: grid; gap: 10px; margin-top: 16px; border: 1px solid var(--line-soft); border-radius: 12px; padding: 14px 16px; }
+.runtime-unused-heading { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
+.runtime-unused-heading > div { display: grid; gap: 3px; min-width: 0; }
+.runtime-unused-heading strong { font-size: 13px; }
+.runtime-unused-heading small { color: var(--faint); font-size: 12px; }
+.runtime-unused-heading button { flex: 0 0 auto; }
+.runtime-unused ul { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.runtime-unused li { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 10px; color: var(--mut); font-size: 12px; }
+.runtime-unused li code { overflow: hidden; color: var(--faint); text-overflow: ellipsis; white-space: nowrap; }
+.runtime-unused li b { color: var(--text); font-weight: 600; }

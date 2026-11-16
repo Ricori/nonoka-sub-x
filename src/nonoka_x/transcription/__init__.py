@@ -366,6 +366,8 @@ def engine_capability(spec: EngineSpec, readiness: Readiness) -> dict[str, Any]:
         **readiness.to_dict(),
         "features": spec.features.to_dict(),
         "billing": spec.billing,
+        # The key names the engine reads, for the desktop's engine panel (WP6).
+        "keys": list(spec.keys),
     }
 
 

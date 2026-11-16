@@ -56,7 +56,7 @@ export function useRuntimeCache(refreshKey: string, onCleared: () => void): Runt
         setMessage(`部分缓存正在使用，未能删除：${named}。其余已清理${freed}。`);
       } else {
         setTone("success");
-        setMessage(`下载缓存已清理${freed}。`);
+        setMessage(`缓存已清理${freed}。`);
       }
       onCleared();
     } catch (value) {

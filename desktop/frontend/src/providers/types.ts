@@ -84,6 +84,8 @@ export interface TranscriptionEngineInfo {
   };
   /** 一句计费说明；不计费时为空字符串。 */
   billing: string;
+  /** 引擎读的 Key 名；设置页的引擎面板按它列输入框。旧 sidecar 没有。 */
+  keys?: string[];
 }
 
 export interface CorrectionEngineInfo {

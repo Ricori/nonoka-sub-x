@@ -1,15 +1,17 @@
 import type { Snapshot as SidecarSnapshot } from "../../bindings/github.com/Ricori/nonoka-x/desktop/internal/sidecar/models.js";
 import { useState, type ReactNode } from "react";
-import type { PythonBootstrapState, RuntimeInstallTarget, RuntimeItem, RuntimeProvisionState, RuntimeToolGroup } from "../bridge/runtime.ts";
+import type { PythonBootstrapState, RuntimeInstallTarget, RuntimeItem, RuntimeProvisionState } from "../bridge/runtime.ts";
 import type { RelocationProgress, StorageDestination, StorageStatus, StorageTarget } from "../bridge/storage.ts";
-import { InstallLocationCard } from "../components/InstallLocationCard.tsx";
-import { installLocationView } from "../components/installLocation.ts";
-import { Mark } from "../components/Mark.tsx";
+import { InstallLocationCard } from "./InstallLocationCard.tsx";
+import { installLocationView } from "./installLocation.ts";
+import { Mark } from "./Mark.tsx";
 import type { Capabilities } from "../providers/types.ts";
-import "./RuntimePage.css";
-import { Notice } from "../components/Notice.tsx";
+import "./RuntimeSection.css";
+import { Notice } from "./Notice.tsx";
+import { formatStorageBytes } from "./StorageRelocation.tsx";
 
-interface RuntimePageProps {
+/** The settings page's 「运行环境」 section: what the runtime page was before WP6 folded it in. */
+interface RuntimeSectionProps {
   capabilities: Capabilities | null;
   message: string;
   /** Failure of the last install/cancel/remove action, shown next to the
@@ -24,9 +26,8 @@ interface RuntimePageProps {
   onInstallPython: () => Promise<void>;
   onCancelInstall: () => Promise<void>;
   onRemoveAll: () => Promise<void>;
-  /** 不再使用：视频下载工具已并入工具层，随工具层一起安装和删除，不能单独卸载。
-      保留这个属性只为不改调用方，引擎配置页（WP-UI）重做时删掉。 */
-  onRemoveGroup?: (target: RuntimeToolGroup) => Promise<void>;
+  /** 删掉没有用到的层版本（既不是当前的、也不是这个版本要的）。 */
+  onRemoveUnused: () => Promise<void>;
   storage: StorageStatus | null;
   storageProgress: RelocationProgress | null;
   storageBusy: boolean;
@@ -54,6 +55,12 @@ const assetStateLabels: Record<RuntimeItem["state"], string> = {
 };
 
 const optionalToolIds = new Set(["yt-dlp", "aria2c", "node", "pot-provider"]);
+
+const layerLabels: Record<string, string> = {
+  python: "Python 环境层",
+  models: "模型层",
+  tools: "工具层",
+};
 
 // 这几样单独装没有意义：yt-dlp 下载，aria2c 提速，node 与 pot-provider 一起
 // 提供 YouTube 要的 PO token。所以它们作为一件事呈现，也作为一件事安装。
@@ -277,8 +284,9 @@ function DiarizationAction({ item, installing, blocked, onInstall }: {
   );
 }
 
-export function RuntimePage({ capabilities, message, provisionMessage, provision, pythonBootstrap, ready, sidecar, onCancelInstall, onDismissProvisionMessage, onInstall, onInstallPython, onRemoveAll, storage, storageProgress, storageBusy, onChooseStorage, onRelocateStorage, onCancelStorage }: RuntimePageProps) {
+export function RuntimeSection({ capabilities, message, provisionMessage, provision, pythonBootstrap, ready, sidecar, onCancelInstall, onDismissProvisionMessage, onInstall, onInstallPython, onRemoveAll, onRemoveUnused, storage, storageProgress, storageBusy, onChooseStorage, onRelocateStorage, onCancelStorage }: RuntimeSectionProps) {
   const [confirmRemove, setConfirmRemove] = useState(false);
+  const [confirmUnused, setConfirmUnused] = useState(false);
   // 用户点了大安装但还没确认位置时，先停在这里等确认。
   const [awaitingLocation, setAwaitingLocation] = useState<RuntimeInstallTarget | null>(null);
   const runtimeLocation = (storage?.locations ?? []).find((item) => item.target === "runtime") ?? null;
@@ -355,6 +363,13 @@ export function RuntimePage({ capabilities, message, provisionMessage, provision
     || jobBlocked;
   // 位置卡上的「开始安装」用它对应目标的门槛，包括改完位置后 sidecar 重启的那几秒。
   const awaitingBlocked = awaitingLocation === "models" ? modelsBlocked : awaitingLocation === "runtime" ? runtimeBlocked : allBlocked;
+  // 「完整核对」逐文件比 sha256，只对已经装上的层有意义。
+  const installedLayers = (provision?.layers ?? []).filter((layer) => layer.current !== null);
+  const repairBlocked = connectionBlocked || jobBlocked
+    || (provision && provision.layers && installedLayers.length === 0 ? "还没有安装任何运行环境层。" : "");
+  const unusedLayers = provision?.unused_layers ?? [];
+  const unusedBytes = provision?.unused_bytes ?? unusedLayers.reduce((sum, item) => sum + item.bytes, 0);
+  const unusedBlocked = connectionBlocked || jobBlocked;
   const pythonBlocked = !pythonBootstrap
     ? ""
     : !pythonBootstrap.supported
@@ -411,6 +426,15 @@ export function RuntimePage({ capabilities, message, provisionMessage, provision
               type="button"
             >
               {confirmRemove ? "确认删除环境" : "删除环境"}
+            </button>
+            <button
+              className="quiet-button"
+              disabled={repairBlocked !== ""}
+              onClick={() => void onInstall("repair")}
+              title={repairBlocked || "逐个文件核对已安装的运行环境层；与清单不符的层整层重新安装"}
+              type="button"
+            >
+              {jobRunning && job?.target === "repair" ? "核对中…" : "完整核对"}
             </button>
             <button className="primary-button" disabled={allBlocked !== ""} onClick={() => void requestInstall("all")} title={allBlocked || "安装必备运行时，并下载全部缺失模型"}>一键准备全部</button>
           </div>
@@ -506,6 +530,40 @@ export function RuntimePage({ capabilities, message, provisionMessage, provision
             onInstall={requestInstall}
           />
         </div>
+        {unusedLayers.length > 0 && <section className="runtime-unused" aria-labelledby="runtime-unused-title">
+          <div className="runtime-unused-heading">
+            <div>
+              <strong id="runtime-unused-title">未使用的旧版本</strong>
+              <small>{`${unusedLayers.length} 项，共 ${formatStorageBytes(unusedBytes)}；当前版本用不到，删掉不影响任何引擎`}</small>
+            </div>
+            <button
+              className={confirmUnused ? "runtime-remove-button confirming" : "quiet-button"}
+              disabled={unusedBlocked !== ""}
+              onBlur={() => setConfirmUnused(false)}
+              onClick={() => {
+                if (!confirmUnused) {
+                  setConfirmUnused(true);
+                  return;
+                }
+                setConfirmUnused(false);
+                void onRemoveUnused();
+              }}
+              title={unusedBlocked || "删除下面列出的层版本；正在使用的层和有任务在跑时都不会删"}
+              type="button"
+            >
+              {confirmUnused ? `确认删除，腾出 ${formatStorageBytes(unusedBytes)}` : "清理未使用的"}
+            </button>
+          </div>
+          <ul>
+            {unusedLayers.map((item) => (
+              <li key={item.path} title={item.path}>
+                <span>{layerLabels[item.layer] ?? item.layer}</span>
+                <code>{item.name}</code>
+                <b>{formatStorageBytes(item.bytes)}</b>
+              </li>
+            ))}
+          </ul>
+        </section>}
         {provision?.root && <div className="runtime-storage-row">
           <small className="runtime-root">安装目录：{provision.root}</small>
         </div>}

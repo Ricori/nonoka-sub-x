@@ -162,3 +162,30 @@ func TestInvalidStoredProxyFollowsSystem(t *testing.T) {
 		t.Fatalf("invalid stored proxy kept: %#v, %v", service.Get().Proxy, err)
 	}
 }
+
+func TestTranscriptionEngineDefaultsToFineSubAndPersists(t *testing.T) {
+	root := t.TempDir()
+	// A file from before WP6 has no engine: FineSub on this machine.
+	if err := os.WriteFile(filepath.Join(root, "preferences.json"), []byte(`{"schema":2,"homeTheme":"dark"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	service, err := New(root)
+	if err != nil || service.Get().TranscriptionEngine != "finesub" {
+		t.Fatalf("engine = %q, %v", service.Get().TranscriptionEngine, err)
+	}
+	if _, err := service.Save(map[string]any{"transcriptionEngine": "mai2"}); err != nil {
+		t.Fatal(err)
+	}
+	reloaded, err := New(root)
+	if err != nil || reloaded.Get().TranscriptionEngine != "mai2" || reloaded.Get().HomeTheme != "dark" {
+		t.Fatalf("reloaded = %#v, %v", reloaded.Get(), err)
+	}
+	for _, invalid := range []any{"", "MAI2", "../x", 3} {
+		if _, err := reloaded.Save(map[string]any{"transcriptionEngine": invalid}); err == nil {
+			t.Fatalf("engine %#v was accepted", invalid)
+		}
+	}
+	if reloaded.Get().TranscriptionEngine != "mai2" {
+		t.Fatalf("a refused save changed the engine: %q", reloaded.Get().TranscriptionEngine)
+	}
+}

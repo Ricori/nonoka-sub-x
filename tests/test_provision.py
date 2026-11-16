@@ -270,13 +270,6 @@ def test_remove_all_waits_for_unfinished_tasks(tmp_path, index):
         page.remove_all()
 
 
-def test_the_video_tools_cannot_be_removed_on_their_own(tmp_path, index):
-    with pytest.raises(RuntimeProvisionError, match="并入工具层"):
-        provisioner(tmp_path, index).remove_tool_group("video-tools")
-    with pytest.raises(RuntimeProvisionError, match="仅支持"):
-        provisioner(tmp_path, index).remove_tool_group("tokcount")
-
-
 def test_cache_usage_and_clear_cache_cover_the_downloads(tmp_path, index):
     page = provisioner(tmp_path, index)
     downloads = page.paths.cache / "downloads"
@@ -291,6 +284,23 @@ def test_cache_usage_and_clear_cache_cover_the_downloads(tmp_path, index):
 
     assert result["freed"] == 1000 and result["failures"] == [] and not any(downloads.iterdir())
     assert (state / "keep.json").is_file()
+
+
+def test_clear_cache_also_empties_the_compile_cache(tmp_path, index):
+    page = provisioner(tmp_path, index)
+    numba = page.paths.cache / "finesub-transcribe" / "numba"
+    numba.mkdir(parents=True)
+    (numba / "f.nbi").write_bytes(b"x" * 300)
+    downloads = page.paths.cache / "downloads"
+    downloads.mkdir(parents=True)
+    (downloads / "a.part").write_bytes(b"x" * 100)
+
+    assert page.cache_usage()["bytes"] == 400
+    result = page.clear_cache()
+
+    assert result["freed"] == 400 and not any(numba.iterdir()) and numba.is_dir()
+    # The rest of the package's cache directory is not the compile cache's.
+    assert (page.paths.cache / "finesub-transcribe").is_dir()
 
 
 def test_clear_cache_refuses_while_an_install_is_running(tmp_path, index):

@@ -161,7 +161,8 @@ interface ExecutionProvider {
       "diarization_levels": ["off", "acoustics", "judge-text", "judge-audio"],
       "languages": []              // 支持的语言码；空数组表示不限
     },
-    "billing": "按音频时长计费，约 $0.10/小时"   // 一句计费说明；不计费时为空字符串
+    "billing": "按音频时长计费，约 $0.10/小时",  // 一句计费说明；不计费时为空字符串
+    "keys": ["OPENROUTER_STT_KEY", "AZURE_SPEECH_KEY", "AZURE_SPEECH_ENDPOINT"]  // 引擎读的 Key 名；宿主的引擎面板按它列输入框
   }
 ],
 "correction_engines": [{ "id": "finesub", "ready": true, "issues": [] }]
@@ -612,7 +613,9 @@ kind|position|duration|gap|corrected|translation|conf|chars|note               �
 | :--- | :--- | :--- |
 | `GET` / `POST` / `DELETE` | `/v1/runtime/provision` | 查询 / 安装 / 卸载运行时 |
 | `POST` | `/v1/runtime/provision/cancel` | 取消安装 |
-| `GET` | `/v1/settings` | 读取配置快照（**不得**回传密钥明文） |
+| `DELETE` | `/v1/runtime/provision/unused` | 删掉没有用到的运行环境层版本（既不是当前的、也不是这个版本要的），回报 `{removed, kept, freed}`；有任务或安装在跑时拒绝 |
+| `GET` / `DELETE` | `/v1/runtime/cache` | 统计 / 清空缓存：未装完的层压缩包与转写引擎的编译缓存 |
+| `GET` | `/v1/settings` | 读取配置快照（**不得**回传密钥明文）；`engineKeys` 另列转写引擎自己的 Key（与 `keys` 同形，只有掩码），不交给 FineSub |
 | `PUT` | `/v1/settings/keys` | 写入用户自持 API Key |
 
 ### 9.1 隔离 Worker 的 NDJSON 约定（可选实现范式）

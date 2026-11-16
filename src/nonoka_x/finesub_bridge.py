@@ -88,6 +88,9 @@ _CLOUD_DIGEST_ATTRIBUTE = "_nonoka_cloud_digest_source"
 
 TRANSCRIPTION_PACKAGE = "finesub-transcribe"
 CORRECTION_PACKAGE = "finesub-correct"
+#: The compile caches under the big-file root's cache directory (`NUMBA_CACHE_DIR` below): the
+#: settings page's "clear the cache" empties them with the downloads; the next run recompiles.
+COMPILE_CACHES = (f"{TRANSCRIPTION_PACKAGE}/numba",)
 
 #: The derived files in a run directory, by the variable that points FineSub at each.
 CONFIG_NAME = "finesub.toml"
