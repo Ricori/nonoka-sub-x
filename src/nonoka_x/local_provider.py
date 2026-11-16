@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import locale
 import os
 import shutil
 import signal
@@ -124,100 +123,6 @@ def _issue(code: str, message: str) -> dict[str, str]:
 _IGNORED_WORKER_LOG_SUBSTRINGS = (
     "CUDAExecutionProvider not available in ONNXruntime",
 )
-
-
-def _clear_legacy_separator_decode_probes(environment: Mapping[str, str]) -> None:
-    """Retry AOT builds whose recorded failure was a fixed toolchain or locale bug."""
-
-    models_root = environment.get("FINESUB_MODEL_DIR")
-    if not models_root:
-        return
-    accel_root = Path(models_root).expanduser() / "audio-separator" / "accel"
-    try:
-        probes = tuple(accel_root.glob("*/probe.json"))
-    except OSError:
-        return
-    for probe in probes:
-        try:
-            value = json.loads(probe.read_text(encoding="utf-8"))
-            reason = str(value.get("reason") or "") if isinstance(value, Mapping) else ""
-            if isinstance(value, Mapping) and value.get("aoti") == "unavailable":
-                if (
-                    ("UnicodeDecodeError" in reason and "utf-8" in reason)
-                    or "array" in reason
-                    or "C1083" in reason
-                    or "C2059" in reason
-                    or "__triton_launcher" in reason
-                    or "autotuning" in reason
-                ):
-                    probe.unlink(missing_ok=True)
-        except (OSError, json.JSONDecodeError):
-            continue
-
-
-def _prepare_msvc_environment(
-    environment: dict[str, str],
-    *,
-    _run: Callable[..., Any] = subprocess.run,
-    _windows: bool = os.name == "nt",
-) -> None:
-    """Populate MSVC and Windows SDK variables when only cl.exe is on PATH."""
-
-    if not _windows:
-        return
-    include_dirs = [Path(item) for item in environment.get("INCLUDE", "").split(os.pathsep) if item]
-    if any((directory / "array").is_file() for directory in include_dirs):
-        return
-
-    program_files_x86 = environment.get("ProgramFiles(x86)", r"C:\Program Files (x86)")
-    vswhere = Path(program_files_x86) / "Microsoft Visual Studio" / "Installer" / "vswhere.exe"
-    if not vswhere.is_file():
-        return
-    try:
-        located = _run(
-            [
-                str(vswhere),
-                "-latest",
-                "-products",
-                "*",
-                "-requires",
-                "Microsoft.VisualStudio.Component.VC.Tools.x86.x64",
-                "-property",
-                "installationPath",
-            ],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=30,
-            env=environment,
-        )
-        roots = located.stdout.strip().splitlines() if located.returncode == 0 else []
-        if not roots:
-            return
-        vcvars = Path(roots[0]) / "VC" / "Auxiliary" / "Build" / "vcvars64.bat"
-        if not vcvars.is_file():
-            return
-        activated = _run(
-            f'call "{vcvars}" >nul && set',
-            shell=True,
-            capture_output=True,
-            text=True,
-            encoding=locale.getencoding(),
-            errors="replace",
-            timeout=30,
-            env=environment,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-        )
-        if activated.returncode != 0:
-            return
-    except (OSError, subprocess.SubprocessError):
-        return
-
-    for line in activated.stdout.splitlines():
-        key, separator, value = line.partition("=")
-        if separator and key:
-            environment[key] = value
 
 
 def _media_issues(provisioner: Any | None) -> list[dict[str, str]]:
@@ -1094,8 +999,25 @@ class LocalProvider:
         # an in-flight call reads as "the worker died" and the retry starts a
         # new one -- an orphan process, spawned while the app is closing.
         self._closed = False
-        self._separator_probe_checked = False
+        # Run directories of the processes this provider starts (`_engine_launch`):
+        # the LLM worker's, closed with it, and those handed out by
+        # `_engine_environment`, closed at shutdown.
+        self._llm_run: Any | None = None
+        self._retained_runs: list[Any] = []
+        self._sweep_engine_runs()
         self._recover_interrupted()
+
+    def _sweep_engine_runs(self) -> None:
+        """Remove run directories a previous sidecar left behind (D6)."""
+
+        from . import finesub_bridge
+
+        try:
+            paths = self._paths()
+            packages = (finesub_bridge.CORRECTION_PACKAGE, finesub_bridge.TRANSCRIPTION_PACKAGE)
+            finesub_bridge.sweep_runs(paths.engine(package) for package in packages)
+        except Exception as exc:  # noqa: BLE001 - leftovers only cost disk space
+            print(f"engine run sweep skipped: {exc}", file=sys.stderr, flush=True)
 
     def _default_worker_command(self, task_id: str, task_dir: Path) -> list[str]:
         managed_python = self._provisioner.worker_python() if self._provisioner is not None else None
@@ -1121,9 +1043,8 @@ class LocalProvider:
     def _data_dir(self) -> Path:
         """The data directory: the settings' own, else the one the task root sits in."""
 
-        if self._settings is not None:
-            return Path(self._settings.root)
-        return self.root.parent
+        root = getattr(self._settings, "root", None)
+        return Path(root) if root is not None else self.root.parent
 
     def _engine_specs(self) -> dict[str, Any]:
         return {engine.spec.id: engine.spec for engine in built_engines(self._settings, self._provisioner)[0]}
@@ -1136,11 +1057,15 @@ class LocalProvider:
         managed_python = self._provisioner.worker_python() if self._provisioner is not None else None
         kwargs = {"creationflags": subprocess.CREATE_NO_WINDOW} if os.name == "nt" else {}
         try:
-            result = subprocess.run(
-                [str(managed_python or sys.executable), "-m", "nonoka_x.knowledge_worker"],
-                input=json.dumps(request, ensure_ascii=False), capture_output=True,
-                text=True, encoding="utf-8", env=self._engine_environment(), timeout=110, **kwargs,
-            )
+            environment, run = self._engine_launch("knowledge")
+            try:
+                result = subprocess.run(
+                    [str(managed_python or sys.executable), "-m", "nonoka_x.knowledge_worker"],
+                    input=json.dumps(request, ensure_ascii=False), capture_output=True,
+                    text=True, encoding="utf-8", env=environment, timeout=110, **kwargs,
+                )
+            finally:
+                run.close()
             if result.returncode:
                 raise ProviderError("knowledge_unavailable", "无法读取知识库，请检查本地运行环境", http_status=503)
             response = json.loads(result.stdout)
@@ -1150,16 +1075,39 @@ class LocalProvider:
             raise ProviderError("knowledge_error", response["error"], http_status=409)
         return response["result"]
 
-    def _engine_environment(self) -> dict[str, str]:
-        """The environment every process that imports FineSub is spawned into.
+    def _engine_environment(self, purpose: str = "task") -> dict[str, str]:
+        """The environment a `purpose` process is spawned into, its run directory kept until `shutdown`.
 
-        Shared by the task worker and the LLM worker rather than written twice:
-        the two would drift, and each item here is a bug someone already had to
-        find -- an agent CLI that PATH cannot see, the vendored engine that is
-        not installed anywhere, MSVC output in the ANSI code page.
+        For callers that only want to see the environment (the quality gate);
+        the provider's own spawns use `_engine_launch` and close the run when
+        the process is gone.
         """
 
-        environment = self._provisioner.worker_environment() if self._provisioner is not None else os.environ.copy()
+        environment, run = self._engine_launch(purpose)
+        with self._lock:
+            self._retained_runs.append(run)
+        return environment
+
+    def _engine_launch(self, purpose: str) -> tuple[dict[str, str], Any]:
+        """The environment of a process that imports FineSub, and its run directory (`EngineRun`).
+
+        `purpose` is `task` (the task worker: both halves of FineSub until the
+        engine packages split), `llm` or `knowledge` (the correction half).
+        Shared by every spawn rather than written for each: the items here are
+        bugs someone already had to find -- an agent CLI that PATH cannot see,
+        the vendored engine that is not installed anywhere, native output in
+        the ANSI code page.
+
+        What FineSub reads of its own -- its files, keys, model directory and
+        switches -- comes from the bridge, derived from this process's launch
+        context into its own run directory (`nonoka_x.finesub_bridge`, WP-R5);
+        none of it is inherited from the sidecar's environment.
+        """
+
+        from . import finesub_bridge
+
+        base = self._provisioner.worker_environment() if self._provisioner is not None else os.environ.copy()
+        environment = finesub_bridge.without_inherited(base)
         # The engine resolves an agent CLI by name off PATH, so an install that
         # is not on PATH has to be put there for the worker.
         agent_dirs = local_agent_path_entries()
@@ -1171,18 +1119,76 @@ class LocalProvider:
             python_paths.append(environment["PYTHONPATH"])
         environment["PYTHONPATH"] = os.pathsep.join(python_paths)
         # The worker's own NDJSON must be UTF-8, but stderr also carries native
-        # compiler and library output in the Windows ANSI code page. Keep the
-        # Python standard streams on UTF-8 while leaving locale-based subprocess
-        # decoding on that native code page. PYTHONUTF8=1 would make PyTorch
-        # decode MSVC's GBK diagnostics as UTF-8 during AOT compilation.
+        # library output in the Windows ANSI code page. Keep the Python
+        # standard streams on UTF-8 while leaving locale-based subprocess
+        # decoding on that native code page.
         environment["PYTHONUTF8"] = "0"
         environment["PYTHONIOENCODING"] = "utf-8"
-        _prepare_msvc_environment(environment)
-        with self._lock:
-            if not self._separator_probe_checked:
-                _clear_legacy_separator_decode_probes(environment)
-                self._separator_probe_checked = True
-        return environment
+
+        paths = self._paths()
+        run = finesub_bridge.EngineRun.claim(paths.engine(finesub_bridge.CORRECTION_PACKAGE))
+        try:
+            correction = self._correction_context(paths, run.directory)
+            if purpose == "task":
+                transcription = self._transcription_context(paths, run.directory.name)
+                environment.update(finesub_bridge.combined_environment(transcription, correction))
+            else:
+                environment.update(finesub_bridge.correction_environment(correction))
+        except BaseException:
+            run.close()
+            raise
+        return environment, run
+
+    def _paths(self) -> Any:
+        from .runtime.paths import NonokaPaths
+
+        paths = getattr(self._provisioner, "paths", None)
+        return paths if paths is not None else NonokaPaths.for_roots(self._data_dir())
+
+    def _transcription_context(self, paths: Any, process: str) -> dict[str, Any]:
+        """FineSub's transcription half's launch context (R0 document 1.15)."""
+
+        from . import finesub_bridge
+        from .settings import TRANSCRIPTION_SECRET_NAMES
+
+        package = finesub_bridge.TRANSCRIPTION_PACKAGE
+        model_dir = getattr(self._provisioner, "engine_model_dir", None)
+        models = model_dir() if model_dir is not None else paths.layer("models") / "unavailable"
+        return {
+            "schema": 1,
+            "package_id": package,
+            "paths": {"run": str(paths.engine_run(package, process)), "state_file": str(paths.data / "state")},
+            "runtime": {"models": str(models), "cache": str(paths.cache / package)},
+            "secrets": self._settings_call("engine_secrets", {}, TRANSCRIPTION_SECRET_NAMES),
+        }
+
+    def _settings_call(self, name: str, default: Any, *args: Any) -> Any:
+        """`settings.<name>(*args)`, or `default` for a settings object that has no such call (tests' stand-ins)."""
+
+        call = getattr(self._settings, name, None)
+        return call(*args) if call is not None else default
+
+    def _correction_context(self, paths: Any, run: Path) -> dict[str, Any]:
+        """FineSub's correction half's launch context (R0 document 1.15).
+
+        The knowledge base and the rate-limit state stay where they are until
+        the migration moves them into the packages' directories (WP-M2).
+        """
+
+        from . import finesub_bridge
+        from .settings import CORRECTION_SECRET_NAMES
+
+        return {
+            "schema": 1,
+            "package_id": finesub_bridge.CORRECTION_PACKAGE,
+            "paths": {
+                "run": str(run),
+                "state_file": str(paths.data / "state"),
+                "knowledge_root": str(paths.data / "knowledge"),
+            },
+            "secrets": self._settings_call("engine_secrets", {}, CORRECTION_SECRET_NAMES),
+            "llm": self._settings_call("llm_context", {}),
+        }
 
     def get_capabilities(self) -> dict[str, Any]:
         issues = self._issues if self._issues_override else runtime_report(self._settings, self._provisioner)["issues"]
@@ -1675,13 +1681,17 @@ class LocalProvider:
             return process
         self._stop_llm_worker()
         self._llm_config_stale = False
+        try:
+            environment, self._llm_run = self._engine_launch("llm")
+        except OSError as exc:
+            raise ProviderError("llm_unavailable", f"The LLM worker could not be prepared: {exc}", http_status=503) from exc
         kwargs: dict[str, Any] = {
             "stdin": subprocess.PIPE,
             "stdout": subprocess.PIPE,
             "text": True,
             "encoding": "utf-8",
             "errors": "replace",
-            "env": self._engine_environment(),
+            "env": environment,
         }
         if os.name == "nt":
             kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
@@ -1690,6 +1700,7 @@ class LocalProvider:
         try:
             self._llm_process = subprocess.Popen(self._llm_worker_command(), **kwargs)
         except OSError as exc:
+            self._close_llm_run()
             raise ProviderError("llm_unavailable", f"The LLM worker could not be started: {exc}", http_status=503) from exc
         return self._llm_process
 
@@ -1716,6 +1727,7 @@ class LocalProvider:
             self._llm_idle_timer = None
         process, self._llm_process = self._llm_process, None
         if process is None:
+            self._close_llm_run()
             return
         self._close_llm_stream(process.stdin)
         if process.poll() is None:
@@ -1723,6 +1735,12 @@ class LocalProvider:
         # Last: closing stdout under a timed-out reader blocks until that read
         # returns, which is only once the process is gone.
         self._close_llm_stream(process.stdout)
+        self._close_llm_run()
+
+    def _close_llm_run(self) -> None:
+        run, self._llm_run = self._llm_run, None
+        if run is not None:
+            run.close()
 
     @staticmethod
     def _close_llm_stream(stream: Any) -> None:
@@ -1763,6 +1781,10 @@ class LocalProvider:
         for thread in threads:
             if thread is not threading.current_thread():
                 thread.join(timeout=6)
+        with self._lock:
+            retained, self._retained_runs = self._retained_runs, []
+        for run in retained:
+            run.close()
 
     def _restart(self, task_id: str, allowed: set[str]) -> dict[str, Any]:
         with self._lock:
@@ -1790,19 +1812,20 @@ class LocalProvider:
         task_dir = self._task_dir(task_id)
         request = _read_json_when_free(task_dir / "request.json")
         command = self._worker_command(task_id, task_dir)
-        environment = self._engine_environment()
-        request_device = str(request.get("device") or "").strip().lower()
-        if request_device.startswith("cuda:"):
-            gpu_index = request_device.split(":", 1)[1].strip()
-            if gpu_index.isdigit():
-                environment["CUDA_VISIBLE_DEVICES"] = gpu_index
-        kwargs: dict[str, Any] = {"stdin": subprocess.PIPE, "stdout": subprocess.PIPE, "stderr": subprocess.STDOUT, "text": True, "encoding": "utf-8", "errors": "replace", "env": environment}
-        if os.name == "nt":
-            kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
-        else:
-            kwargs["start_new_session"] = True
         process: subprocess.Popen[str] | None = None
+        run: Any | None = None
         try:
+            environment, run = self._engine_launch("task")
+            request_device = str(request.get("device") or "").strip().lower()
+            if request_device.startswith("cuda:"):
+                gpu_index = request_device.split(":", 1)[1].strip()
+                if gpu_index.isdigit():
+                    environment["CUDA_VISIBLE_DEVICES"] = gpu_index
+            kwargs: dict[str, Any] = {"stdin": subprocess.PIPE, "stdout": subprocess.PIPE, "stderr": subprocess.STDOUT, "text": True, "encoding": "utf-8", "errors": "replace", "env": environment}
+            if os.name == "nt":
+                kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
+            else:
+                kwargs["start_new_session"] = True
             process = subprocess.Popen(command, **kwargs)
             with self._lock:
                 self._processes[task_id] = process
@@ -1878,6 +1901,8 @@ class LocalProvider:
                 for stream in (process.stdin, process.stdout):
                     if stream is not None and not stream.closed:
                         stream.close()
+            if run is not None:
+                run.close()
             with self._lock:
                 self._processes.pop(task_id, None)
                 self._threads.pop(task_id, None)

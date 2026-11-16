@@ -35,13 +35,9 @@ ALLOWED = frozenset({
 
 #: (file, kind) -> the work package that removes the crossing.
 TRANSITIONAL: dict[tuple[str, str], str] = {
-    ("provision.py", "env:FINESUB_"): "WP-R5",
-    ("local_provider.py", "env:FINESUB_"): "WP-R5",
     ("worker.py", "import:finesub"): "WP-P1",  # WP4c removes finesub.stages first
     ("worker.py", "env:FINESUB_"): "WP-P1",
     ("settings.py", "import:finesub"): "WP-P1",
-    ("settings.py", "env:FINESUB_"): "WP-R5",
-    ("settings.py", "file:finesub"): "WP-R5",
     ("projector.py", "import:finesub"): "WP-P1",
     ("gpu_tier.py", "import:finesub"): "WP-P1",
     ("llm_worker.py", "import:finesub"): "WP-P1",

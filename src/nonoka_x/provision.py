@@ -431,24 +431,30 @@ class RuntimeProvisioner:
         return self.layers.tool_file(name)
 
     def model_root(self) -> Path | None:
-        """The model layer's current directory (what `FINESUB_MODEL_DIR` names), or None when not ready."""
+        """The model layer's current directory, or None when not ready."""
 
         return self.layers.root("models") if self.layers is not None else None
 
-    def worker_environment(self) -> dict[str, str]:
-        environment = os.environ.copy()
-        # The engine is pointed at the wanted model layer version even before it is installed (the
-        # readiness checks keep a run from starting without it), and somewhere under `layers\\models\\`
-        # when this build has no layers.json: the variables are there either way.
+    def engine_model_dir(self) -> Path:
+        """The model directory an engine is pointed at (its launch context's `runtime.models`).
+
+        The wanted model layer version even before it is installed (the
+        readiness checks keep a run from starting without it), and somewhere
+        under `layers\\models\\` when this build has no layers.json.
+        """
+
         if self.layers is not None:
-            models = self.model_root() or self.layers.wanted_dir("models")
-        else:
-            models = self.paths.layer("models") / "unavailable"
-        environment.update({
-            "FINESUB_MODEL_DIR": str(models),
-            "HF_HOME": str(models / lm.HF_HOME_DIR),
-            "TORCH_HOME": str(models / "torch"),
-        })
+            return self.model_root() or self.layers.wanted_dir("models")
+        return self.paths.layer("models") / "unavailable"
+
+    def worker_environment(self) -> dict[str, str]:
+        """The parent's environment plus the tool layer and the proxy.
+
+        What an engine reads of its own (the model layer, its keys and files)
+        is added by its bridge from the launch context (`nonoka_x.finesub_bridge`).
+        """
+
+        environment = os.environ.copy()
         path_dirs: list[str] = []
         for name in ("ffmpeg", "ffprobe", "tokcount"):
             executable = self.tool_path(name)

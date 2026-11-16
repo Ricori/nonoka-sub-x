@@ -2,23 +2,22 @@
 
 Replays what `nonoka_x.sidecar.main` does at startup -- name the preferences
 file, install the proxy policy, bind `FineSubSettings`, save fixed settings,
-refresh the model catalog, build the `RuntimeProvisioner` and the
+refresh the saved routes, build the `RuntimeProvisioner` and the
 `LocalProvider` -- in a child interpreter with a scrubbed environment, then
 records:
 
 - compared: every variable FineSub reads (`finesub_facing`) in the
   environment `LocalProvider._engine_environment()` hands the worker, with
-  paths recorded by role so the data directories can move; and the content of
+  paths recorded by role so the data directories can move -- since WP-R5 that
+  includes the keys, which are handed as variables (D3); and the content of
   the files `FINESUB_CONFIG_FILE`, `FINESUB_MODEL_CATALOG` and
   `FINESUB_ENV_FILE` point at;
 - recorded but not compared: the launcher's part (Python variables, PATH,
-  the uv cache, the interpreter), which the hermetic launcher (WP-H) rebuilds.
+  the interpreter), which the hermetic launcher (WP-H) rebuilds.
 
 The machine-dependent inputs are pinned: no preferences proxy and the
-download route pinned direct (otherwise the Windows system proxy leaks in), an
-`INCLUDE` that already satisfies the MSVC probe (otherwise the developer's
-Visual Studio is activated), and the agent CLI directories found on this
-machine replaced by a placeholder. Run as
+download route pinned direct (otherwise the Windows system proxy leaks in),
+and the agent CLI directories found on this machine replaced by a placeholder. Run as
 `python -m tests.quality_harness.environment --child <spec.json>`.
 """
 
@@ -47,9 +46,20 @@ GENERATED_FILE_VARIABLES = ("FINESUB_CONFIG_FILE", "FINESUB_MODEL_CATALOG", "FIN
 FINESUB_FACING_PREFIXES = ("FINESUB_", "HF_", "HUGGINGFACE", "TRANSFORMERS_", "TORCH_HOME")
 FINESUB_FACING_NAMES = frozenset(name.lower() for name in (
     "CUDA_VISIBLE_DEVICES", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY",
+    # numba's cache, which would otherwise be written into the Python layer (WP-R5).
+    "NUMBA_CACHE_DIR",
+    # The keys and endpoints FineSub reads by name; since WP-R5 the keys are
+    # handed as process variables (D3). Every name the settings page stores,
+    # so one that should not reach the engine shows up as well.
+    "GEMINI_FREE", "GEMINI_PAID", "EXA_KEYS", "TAVILY_KEYS", "ANTHROPIC_API_KEY", "OPENAI_API_KEY",
+    "DEEPSEEK_API_KEY", "KIMI_API_KEY", "DASHSCOPE_API_KEY", "OPENAI_COMPAT_API_KEY",
+    "ANTHROPIC_COMPAT_API_KEY", "HF_TOKEN", "NONOKA_CLOUD_KEY",
+    "GEMINI_BASE_URL", "OPENAI_BASE_URL", "ANTHROPIC_BASE_URL", "OPENAI_COMPAT_BASE_URL",
+    "ANTHROPIC_COMPAT_BASE_URL", "NONOKA_CLOUD_BASE_URL",
 ))
-#: Set by this harness for its own determinism (plaintext key file), not by Nonoka.
-HARNESS_SETTINGS = frozenset({"FINESUB_ENV_PROTECT"})
+#: Set by this harness for its own determinism, not by Nonoka. Empty since WP-R5:
+#: `FINESUB_ENV_PROTECT` is the bridge's now (D22) and compared like the rest.
+HARNESS_SETTINGS: frozenset[str] = frozenset()
 
 
 def finesub_facing(name: str) -> bool:
@@ -155,13 +165,11 @@ def run_profile(profile: str, scratch: Path) -> dict[str, Any]:
     root = (scratch / profile).resolve()
     if root.exists():
         shutil.rmtree(root)
-    for directory in ("data", "tmp", "include"):
+    for directory in ("data", "tmp"):
         (root / directory).mkdir(parents=True)
-    (root / "include" / "array").write_text("// satisfies the MSVC probe\n", encoding="utf-8")
     spec = {"profile": profile, "root": str(root), "out": str(root / "record.json")}
     (root / "spec.json").write_text(json.dumps(spec), encoding="utf-8")
     environment = hermetic_environment(root)
-    environment["INCLUDE"] = str(root / "include")
     environment["NONOKA_DOWNLOAD_DIRECT"] = "1"
     completed = subprocess.run(
         [sys.executable, "-m", "tests.quality_harness.environment", "--child", str(root / "spec.json")],

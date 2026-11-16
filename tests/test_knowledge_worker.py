@@ -1,5 +1,6 @@
 import pytest
 import os
+from types import SimpleNamespace
 from pathlib import Path
 
 from nonoka_x.knowledge_worker import handle
@@ -56,7 +57,8 @@ def test_provider_worker_roundtrip(knowledge, tmp_path, monkeypatch):
     project = Path(__file__).resolve().parents[1]
     provider = LocalProvider(tmp_path / "tasks", project / "third_party/finesub", issues=[])
     environment = dict(os.environ, PYTHONPATH=os.pathsep.join([str(project / "src"), str(project / "third_party/finesub/src")]), PYTHONIOENCODING="utf-8")
-    monkeypatch.setattr(provider, "_engine_environment", lambda: environment)
+    # The fixture's own knowledge base (its `FINESUB_KNOWLEDGE_ROOT`), not the one the bridge would name.
+    monkeypatch.setattr(provider, "_engine_launch", lambda purpose: (environment, SimpleNamespace(close=lambda: None)))
     assert provider.knowledge({"action": "list"})["entries"][0]["id"] == ident
     before = provider.knowledge({"action": "read", "id": ident})
     saved = provider.knowledge({"action": "save", "id": ident, "version": before["version"],

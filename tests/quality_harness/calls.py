@@ -78,7 +78,7 @@ def bind_settings(data_dir: Path, profile: str) -> Any:
     if "cloud_account" in spec:
         settings.set_cloud_account(*spec["cloud_account"])
     settings.update_keys(spec["keys"])
-    settings.refresh_model_catalog()
+    settings.refresh_model_routes()
     return settings
 
 
@@ -450,7 +450,8 @@ def hermetic_environment(root: Path) -> dict[str, str]:
         "PYTHONPATH": os.pathsep.join([str(ROOT / "src"), str(VENDOR_SOURCE)]),
         "PYTHONIOENCODING": "utf-8",
         "PYTHONDONTWRITEBYTECODE": "1",
-        # The env file in plaintext: DPAPI output differs on every write.
+        # Any key file in plaintext: DPAPI output differs on every write.
+        # (Since WP-R5 no key is written and the bridge sets this itself.)
         "FINESUB_ENV_PROTECT": "0",
         "TEMP": str(root / "tmp"),
         "TMP": str(root / "tmp"),
@@ -476,6 +477,17 @@ def adopt_worker_environment(data_dir: Path, settings: Any) -> dict[str, str]:
     environment = provider._engine_environment()
     os.environ.clear()
     os.environ.update(environment)
+    # A spawned worker is a fresh process, so the engine's per-process caches
+    # of config, catalog and routes start empty there. Here they may already
+    # hold what this process read as the sidecar (its packaged defaults, since
+    # WP-R5 the files are derived per worker), so they are emptied too.
+    from finesub.config import clear_config_cache
+    from finesub.llm.routing.model_catalog import default_model_catalog
+    from finesub.llm.routing.model_routes import default_model_routes
+
+    clear_config_cache()
+    default_model_catalog.cache_clear()
+    default_model_routes.cache_clear()
     return environment
 
 
