@@ -32,27 +32,28 @@ when their owner is gone (D6). The two halves derive only what each needs, so
 WP-P1 can move each into its package as it is; until then the core calls them
 in the sidecar just before it starts a worker.
 
-**Patching FineSub in-process** -- route FineSub's downloads and API calls the
-way Nonoka routes its own -- behind the same functions it had before:
+**Patching FineSub in-process** -- route FineSub's API calls the way Nonoka
+routes its own, and keep its route lookup off the network -- behind the same
+functions it had before:
 
 - `install_app_proxy_policy`: FineSub's `http_client` discovers routes through
   Nonoka's proxy setting (`nonoka_x.runtime.fetch`), and `finesub.api_http`
   sends API calls the same way. Moved from
   `nonoka_x.download_route.install_app_proxy_policy`.
 - `install_download_policy`: FineSub never picks a regional mirror by itself
-  (`download_routes.resolve_region` always answers `global`), and its file and
-  model downloads take Nonoka's route ladder (`nonoka_x.download_route.climb`).
-  Moved from `nonoka_x.download_route.install_proxy_route_policy` and
-  `_install_download_ladder`.
-- `install_cloud_digest_source`: FineSub's release-asset lookup asks the Nonoka
-  cloud before GitHub. Moved from `nonoka_x.asset_digest`.
+  (`download_routes.resolve_region` always answers `global`). Still needed now
+  that the engine downloads no model (WP-R7): the separator stage asks for the
+  region before it checks its files (`separation.place_separator_files`), and
+  FineSub's own answer probes a country endpoint once its cached one expires.
+  Moved from `nonoka_x.download_route.install_proxy_route_policy`.
 
-The code moved verbatim (WP-R2, user decision 2026-11-11), with two changes
-that follow from the same package: the ladder has no mirror or backup rung any
-more, and the app policy reads the system proxy, the liveness probe and the
-custom proxy from `nonoka_x.runtime.fetch` instead of FineSub's copies (the
-same code). `nonoka_x.download_route` and `nonoka_x.asset_digest` keep their
-public functions and call in here, so no caller changed. Everything here is
+The code moved verbatim (WP-R2, user decision 2026-11-11), with one change
+that follows from the same package: the app policy reads the system proxy, the
+liveness probe and the custom proxy from `nonoka_x.runtime.fetch` instead of
+FineSub's copies (the same code). WP-R7 removed what served only the engine's
+own downloads -- the route ladder for its file and model fetches and the
+release-digest lookup in the Nonoka cloud. `nonoka_x.download_route` keeps its
+public functions and calls in here, so no caller changed. Everything here is
 idempotent and does nothing when FineSub cannot be imported.
 
 WP-P1 moves this file into the engine packages.
@@ -60,7 +61,7 @@ WP-P1 moves this file into the engine packages.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Iterable, Mapping
 from contextlib import ExitStack
 import hashlib
 import json
@@ -68,20 +69,13 @@ import os
 from pathlib import Path
 import secrets
 import sys
-from typing import Any, TypeVar
-from urllib.parse import urlparse
-import time
+from typing import Any
 
 from nonoka_x import download_route
-from nonoka_x.download_route import DownloadStage, DownloadUnreachable
 from nonoka_x.runtime import fetch, fsops
-
-_T = TypeVar("_T")
 
 _INSTALLED_ATTRIBUTE = "_nonoka_proxy_route_policy"
 _APP_POLICY_ATTRIBUTE = "_nonoka_app_proxy_policy"
-_LADDER_ATTRIBUTE = "_nonoka_download_ladder"
-_CLOUD_DIGEST_ATTRIBUTE = "_nonoka_cloud_digest_source"
 
 
 # -- what FineSub reads, derived per process (WP-R5) --------------------------------------------------------------
@@ -492,17 +486,15 @@ def install_app_proxy_policy() -> None:
         api_http.configured_proxy = configured_proxy
 
 
-# -- FineSub's downloads -----------------------------------------------------------------------------------------
+# -- FineSub's route lookup --------------------------------------------------------------------------------------
 
 
 def install_download_policy() -> None:
-    """Put FineSub's downloads in this process on Nonoka's ladder.
+    """Pin FineSub's region answer in this process to `global`, without asking the network.
 
     Every engine call site imports `resolve_region` from the module at call
     time, so replacing the module attribute reaches all of them in this
-    process. Each process that downloads installs it for itself; it is
-    idempotent and the ladder is worked out per download, so turning the proxy
-    on or off takes effect at the next one without a restart.
+    process. Idempotent.
     """
 
     try:
@@ -511,167 +503,15 @@ def install_download_policy() -> None:
         return
 
     original = download_routes.resolve_region
-    if not getattr(original, _INSTALLED_ATTRIBUTE, False):
-
-        def resolve_region(data_root, *args: Any, **kwargs: Any):
-            return download_routes.RouteDecision(region="global", source="ladder")
-
-        setattr(resolve_region, _INSTALLED_ATTRIBUTE, True)
-        resolve_region.__doc__ = original.__doc__
-        download_routes.resolve_region = resolve_region
-    _install_download_ladder()
-
-
-def _seed_from_offline_pack(asset, destination: Path, progress, should_pause) -> None:
-    """Put `asset` where the downloader looks first, if the offline package has it.
-
-    The downloader then hashes it like any finished download and goes no
-    further, so a package holding the wrong bytes cannot get them installed.
-    """
-
-    from finesub_bootstrap import downloader
-
-    source = download_route.offline_file(asset.sha256)
-    if source is None or (destination.is_file() and downloader._sha256(destination) == asset.sha256):
-        return
-    started = time.monotonic()
-
-    def report(copied: int) -> None:
-        if should_pause is not None and should_pause():
-            raise downloader.DownloadPaused("Download paused")
-        elapsed = max(time.monotonic() - started, 1e-6)
-        progress(downloader.DownloadProgress(downloaded=copied, total=asset.size, bytes_per_second=copied / elapsed))
-
-    download_route._copy_into_place(source, destination, report)
-
-
-def _file_advances(stage: DownloadStage, error: Exception) -> bool:
-    """Which failures of a verified file download move to the next rung.
-
-    Wrong bytes never do: every rung fetches from the official source, and
-    another route would fetch the same wrong file.
-    """
-
-    from finesub_bootstrap.downloader import DownloadError
-    from finesub_bootstrap.model_fetch import is_mirror_failure
-
-    if isinstance(error, DownloadError):
-        return False
-    return is_mirror_failure(error) or download_route.is_transport_failure(error)
-
-
-def _laddered_download(download: Callable[..., _T]) -> Callable[..., _T]:
-    """`_download_locked`, climbing the ladder unless a caller already is."""
-
-    def download_locked(asset, destination, progress, should_pause):
-        _seed_from_offline_pack(asset, destination, progress, should_pause)
-        if download_route.current_stage() is not None:
-            return download(asset, destination, progress, should_pause)
-
-        def attempt(stage: DownloadStage):
-            with download_route.pinned_stage(stage):
-                return download(asset, destination, progress, should_pause)
-
-        try:
-            return download_route.climb(download_route.download_stages(), attempt, advances=_file_advances)
-        except DownloadUnreachable as error:
-            if download_route.offline_pack() is None:
-                raise
-            raise DownloadUnreachable(f"离线资源包里没有 {Path(urlparse(asset.url).path).name}，{error}") from error
-
-    return download_locked
-
-
-def _fingerprint(path: Path) -> tuple[int, int] | None:
-    try:
-        status = path.stat()
-    except OSError:
-        return None
-    return status.st_mtime_ns, status.st_size
-
-
-def _laddered_unverified(fetch_file: Callable[..., None]) -> Callable[..., None]:
-    """`_fetch_unverified`, which reports nothing: a written file means it worked."""
-
-    def fetch_unverified(url, destination, proxy, *, data_root=None) -> None:
-        root = download_route.offline_pack()
-        source = root / "unverified" / Path(urlparse(url).path).name if root is not None else None
-        if source is not None and source.is_file():
-            download_route._copy_into_place(source, destination)
-            return
-        for stage in download_route.download_stages():
-            before = _fingerprint(destination)
-            with download_route.pinned_stage(stage):
-                fetch_file(url, destination, "", data_root=None)
-            if _fingerprint(destination) != before:
-                return
-
-    return fetch_unverified
-
-
-def _install_download_ladder() -> None:
-    """Route FineSub's file and model downloads through `download_route.climb`.
-
-    `_download_locked` rather than `download_asset`, which callers import by
-    name: the wrapper is then the one every caller already reaches.
-    """
-
-    from finesub_bootstrap import downloader, http_client, model_fetch
-
-    if getattr(downloader._download_locked, _LADDER_ATTRIBUTE, False):
-        return
-    routes = http_client.network_routes
-    create_client = downloader.create_client
-
-    def network_routes():
-        stage = download_route.current_stage()
-        return routes() if stage is None else [http_client.NetworkRoute(stage.label, stage.proxy)]
-
-    def watched_client(route, *, timeout, headers=None):
-        client = create_client(route, timeout=timeout, headers=headers)
-        if download_route.speed_watched():
-            client.event_hooks["response"].append(download_route.meter_response)
-        return client
-
-    def fetch_with_fallback(fetch_model, *, base_environment, data_root, region, is_retryable=None) -> None:
-        download_route.climb_huggingface(fetch_model, base_environment, is_retryable=is_retryable)
-
-    download_locked = _laddered_download(downloader._download_locked)
-    setattr(download_locked, _LADDER_ATTRIBUTE, True)
-    downloader._download_locked = download_locked
-    downloader.network_routes = network_routes
-    downloader.create_client = watched_client
-    http_client.network_routes = network_routes
-    model_fetch._fetch_unverified = _laddered_unverified(model_fetch._fetch_unverified)
-    model_fetch.fetch_with_fallback = fetch_with_fallback
-
-
-# -- release digests ---------------------------------------------------------------------------------------------
-
-
-def install_cloud_digest_source(cloud_asset: Callable[[str, str, str, str], dict | None]) -> None:
-    """Wrap `asset_resolve._find_asset` so `cloud_asset` is asked before GitHub.
-
-    `resolve_asset` looks `_find_asset` up in its module at call time, so
-    replacing the module attribute reaches it. Idempotent.
-    """
-
-    try:
-        from finesub_bootstrap import asset_resolve
-    except ImportError:
+    if getattr(original, _INSTALLED_ATTRIBUTE, False):
         return
 
-    original = asset_resolve._find_asset
-    if getattr(original, _CLOUD_DIGEST_ATTRIBUTE, False):
-        return
+    def resolve_region(data_root, *args: Any, **kwargs: Any):
+        return download_routes.RouteDecision(region="global", source="ladder")
 
-    def _find_asset(owner: str, repo: str, tag: str, name: str) -> dict:
-        entry = cloud_asset(owner, repo, tag, name)
-        return entry if entry is not None else original(owner, repo, tag, name)
-
-    setattr(_find_asset, _CLOUD_DIGEST_ATTRIBUTE, True)
-    _find_asset.__doc__ = original.__doc__
-    asset_resolve._find_asset = _find_asset
+    setattr(resolve_region, _INSTALLED_ATTRIBUTE, True)
+    resolve_region.__doc__ = original.__doc__
+    download_routes.resolve_region = resolve_region
 
 
 __all__ = [
@@ -685,7 +525,6 @@ __all__ = [
     "derive_llm_files",
     "gemini_targets",
     "install_app_proxy_policy",
-    "install_cloud_digest_source",
     "install_download_policy",
     "local_agent_targets",
     "sweep_runs",

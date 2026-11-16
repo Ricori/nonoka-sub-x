@@ -82,6 +82,12 @@ jobs:
           cache: npm
           cache-dependency-path: desktop/frontend/package-lock.json
 
+      # Staging precompiles the engine code, and only the interpreter the
+      # Python environment layer pins is accepted (desktop/build/tools/stage).
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12.1"
+
       - name: Install wails3
         shell: bash
         run: |

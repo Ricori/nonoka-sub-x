@@ -26,20 +26,18 @@
 ### 2.1 目录结构
 ```text
 third_party/finesub/
-├── README.md
 ├── UPSTREAM.json           # 对应的上游仓库、tag、commit、版本与 engine_bundle_id
 ├── QUALITY_LOCK.json       # 上锁文件的 sha256
 ├── LOCAL_CHANGES.md        # 相对上游改过什么、为什么、何时可以去掉
 ├── LICENSE                 # 上游 GPL-3.0-or-later 开源协议（0.5.0 起，此前为 MIT）
 ├── LICENSES.json
 ├── PROMPT_LICENSE.md       # Prompt 模板的 CC BY-SA 4.0 协议
-├── UPSTREAM_README.md      # 上游原始说明
-├── pyproject.toml
-├── VERSION                 # pyproject.toml 读取的动态版本号
 └── src/
     ├── finesub/            # 核心转写流水线
-    └── finesub_bootstrap/  # 运行时与模型下载管理器（计划 WP-R7 删除）
+    └── finesub_bootstrap/  # 运行时设施；缺模型时报错、不再自己下载（WP-R7）
 ```
+
+只留这些核心文件（计划第 1 节第 7 条）：没有 `pyproject.toml`、`VERSION`、README，版本号以 `UPSTREAM.json` 为准；目录里不同时有 `pyproject.toml` 和 `src/finesub`，引擎也就不会把它当成源码检出。
 
 不要把机器上安装的 `site-packages/finesub` 复制到这里。
 

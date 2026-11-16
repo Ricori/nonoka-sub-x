@@ -99,7 +99,7 @@ ENTRIES: dict[str, list[tuple[str, str]]] = {
         # transcript.json (plan 4.6 item 34); today the core reads it with this
         # (projector.py:224), and WP4a's transcript.json carries no speaker.
         ("finesub.speech.diarization.product:read_product", "src/nonoka_x/projector.py:224"),
-        ("finesub_bootstrap.model_ensure:<main>", "third_party/finesub/src/finesub_bootstrap/model_ensure.py:241 (download child)"),
+        # `finesub_bootstrap.model_ensure`'s `-m` download child was an entry here until WP-R7 removed it.
     ],
     "correct": [
         ("finesub.stages:run_post_stable", "src/nonoka_x/correction/finesub.py:265"),

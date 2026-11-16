@@ -1,30 +1,21 @@
-"""Fetching model weights through whichever entry point is configured.
+"""What is left of fetching model weights: the endpoint rules and the fixed-file check.
 
-One decision for every entry point. The desktop prefetched before the first
-task; the CLI has no prefetch at all and downloads lazily inside the run. Had
-the endpoint been chosen only in that prefetch, half the users would never
-have got it -- so the decision lives here, and `RuntimeEnvironment.
-worker_context` is where it reaches a run.
-
-Two shapes matter:
-
-* **The endpoint is an environment variable, so it must be set before the
-  process starts.** `huggingface_hub` reads it at import time, so a fallback
-  that flips it mid-process changes nothing. Retrying means a new process.
-* **One process per model.** Three models in one process means a failure in
-  the third re-downloads the first two on retry -- 1.6 GB of already-finished
-  work thrown away because something else failed.
+The engine no longer downloads a model itself (Nonoka X WP-R7,
+`LOCAL_CHANGES.md` 0012): the weights come in Nonoka's prebuilt model layer.
+`fetch_fixed_files` checks the separator's files and raises when one is
+missing or wrong instead of fetching it; `fetch_with_fallback` (mirror first,
+then the official source) and `_fetch_unverified` (the separator's undigested
+index) are gone with the download. The endpoint rules below stay for the
+installer (`RuntimeEnvironment.worker_context`), which still sets them.
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
 import json
 import os
 from pathlib import Path
 
 from finesub_bootstrap import download_routes
-from finesub_bootstrap.fsops import RECORD_REPLACE, replace_path
 
 #: The resource class these downloads are accounted under, for the per-machine
 #: degrade rule.
@@ -114,53 +105,6 @@ def apply_hf_endpoint(
     return apply_mirror_policy(environment, endpoint=endpoint)
 
 
-def fetch_with_fallback(
-    fetch: Callable[[Mapping[str, str]], None],
-    *,
-    base_environment: Mapping[str, str],
-    data_root: Path,
-    region: str,
-    is_retryable: Callable[[BaseException], bool] | None = None,
-) -> None:
-    """Fetch once through the configured endpoint, then once through the official.
-
-    Only a retryable failure earns the second attempt: a full disk is not a
-    reason to re-download several GB from somewhere else. A verification
-    mismatch *is* retryable, but only because its verifier holds up both ends
-    of a bargain -- the corrupt bytes are removed before the retry, and the
-    official result is verified in its turn. A mismatch dressed up as
-    retryable without those two properties is how a corrupt file gets a second
-    chance to be accepted.
-    """
-
-    environment = dict(base_environment)
-    chosen = os.environ.get(HF_ENDPOINT) or ""
-    endpoint = "" if chosen else hf_endpoint_for(data_root, region)
-    if not endpoint:
-        # No mirror of ours, so there is no fallback to make -- but the user's
-        # own endpoint, if that is why we are here, still cannot serve Xet.
-        apply_mirror_policy(environment, endpoint=chosen)
-        fetch(environment)
-        return
-
-    environment[HF_ENDPOINT] = endpoint
-    apply_mirror_policy(environment, endpoint=endpoint)
-    try:
-        fetch(environment)
-    except BaseException as error:
-        if is_retryable is not None and not is_retryable(error):
-            raise
-        download_routes.record_failure(data_root, RESOURCE_CLASS)
-        official = dict(base_environment)
-        official.pop(HF_ENDPOINT, None)
-        # The official host is the one endpoint that serves Xet correctly, so
-        # the fallback gets it back rather than inheriting the mirror's ban.
-        apply_mirror_policy(official, endpoint="")
-        fetch(official)
-        return
-    download_routes.record_success(data_root, RESOURCE_CLASS)
-
-
 #: What a failure says when a host, rather than this machine, is at fault.
 #: Needed because some of these failures cross a process boundary -- a
 #: download that ran in a subprocess hands back its message, never the httpx
@@ -247,54 +191,6 @@ def is_mirror_failure(error: BaseException) -> bool:
     return any(marker in text for marker in NETWORK_FAILURE_MARKERS)
 
 
-def _fetch_unverified(
-    url: str, destination: Path, proxy: str, *, data_root: Path | None = None
-) -> None:
-    """Fetch a small file that carries no digest, mirror first, official after.
-
-    With no digest to check, the body is validated by *parsing* it: a proxy
-    that answers 200 with an interception page or a truncated document is
-    indistinguishable from success at the HTTP layer, and writing that would
-    leave audio-separator to die inside `json.load` on a file it now believes
-    it already has -- with the mirror never recorded as having failed.
-
-    Written through a temporary name, so a half-written index is never visible.
-    Failing outright is fine: the library fetches it itself the first time it
-    is needed, which is the behaviour without any of this.
-    """
-
-    import json
-
-    import httpx
-
-    from finesub_bootstrap.http_client import CONNECT_TIMEOUT_SEC, create_client, network_routes
-
-    candidates = [(f"{proxy}{url}", True), (url, False)] if proxy else [(url, False)]
-    route = network_routes()[0]
-    for candidate, through_proxy in candidates:
-        try:
-            with create_client(route, timeout=httpx.Timeout(30.0, connect=CONNECT_TIMEOUT_SEC)) as client:
-                response = client.get(candidate)
-                response.raise_for_status()
-                body = response.content
-            if destination.suffix == ".json":
-                json.loads(body)
-        except Exception:
-            if through_proxy and data_root is not None:
-                download_routes.record_failure(data_root, "github")
-            continue
-        temporary = destination.with_name(f".{destination.name}.part")
-        try:
-            temporary.write_bytes(body)
-            # Record budget, not publish: losing this cached manifest already
-            # degrades to fetching it again, and a ten-second stall on a file
-            # nobody is waiting for is the worse outcome.
-            replace_path(temporary, destination, budget=RECORD_REPLACE)
-        except OSError:
-            temporary.unlink(missing_ok=True)
-        return
-
-
 def verified_stamp_path(path: Path) -> Path:
     return path.with_name(f"{path.name}{VERIFIED_SUFFIX}")
 
@@ -350,72 +246,37 @@ def fetch_fixed_files(
     region: str,
     progress=None,
 ) -> None:
-    """Place a model that is a fixed list of URLs, verified against the manifest.
+    """Check that a model that is a fixed list of URLs is in place, verified against the manifest.
 
-    Used for the separator checkpoint, which audio-separator otherwise fetches
-    from GitHub itself -- outside `HF_ENDPOINT`, and outside the region
-    fallback every other download goes through. Separating "download" from
-    "load" is what lets the same verification apply.
+    Used for the separator checkpoint, its config and its index. A file that is
+    already here and already matches is left alone, and a verifiable one is
+    stamped as before. A file that is missing or does not match raises
+    `ModelUnavailable` instead of being fetched (Nonoka X WP-R7): nothing is
+    downloaded, patched over or moved aside here any more.
 
-    A file that is already here and already matches is left alone. A mismatch
-    is never patched over: the quarantined copy stays for inspection and the
-    official source is asked for a whole new one, because splicing bytes from
-    two sources produces something neither of them signed.
+    `data_root`, `region` and `progress` are what the caller has always passed;
+    they served the download this no longer starts.
     """
 
-    from finesub_bootstrap.downloader import DigestMismatch, download_asset
-    from finesub_bootstrap.models import DownloadAsset
+    from finesub_bootstrap.model_ensure import ModelUnavailable
     from finesub_bootstrap.model_manifest import file_matches
 
-    proxy = download_routes.active_mirror(data_root, "github", region)
-    directory.mkdir(parents=True, exist_ok=True)
-    report = progress or (lambda _progress: None)
+    unavailable: list[str] = []
     for wanted in entry.files:
         destination = directory / wanted.name
         if destination.is_file():
             if wanted.is_verifiable and _stamp_still_describes(destination, wanted):
                 continue
             if file_matches(destination, wanted):
-                # Stamped here too, not only after a download: an install that
-                # predates the stamp -- or one whose files came from a shared
-                # cache -- gets it on its first full check rather than paying
-                # for one forever.
+                # Stamped here too: an install that predates the stamp -- or
+                # one whose files came from a shared cache -- gets it on its
+                # first full check rather than paying for one forever.
                 if wanted.is_verifiable:
                     _write_verified_stamp(destination, wanted)
                 continue
-        if not wanted.is_verifiable:
-            # No digest, so the verified downloader cannot carry it -- that one
-            # exists to refuse exactly what this file cannot promise. Fetched
-            # plainly instead, and still worth routing: the separator's index
-            # is 28 KB from the single hardest-to-reach host in this path, and
-            # without it a present checkpoint separates nothing.
-            _fetch_unverified(wanted.url, destination, proxy, data_root=data_root)
-            continue
-        asset = DownloadAsset(
-            url=f"{proxy}{wanted.url}" if proxy else wanted.url,
-            size=wanted.size,
-            sha256=wanted.sha256,
+        unavailable.append(wanted.name)
+    if unavailable:
+        raise ModelUnavailable(
+            f"模型 {entry.model_id} 的文件不在 {directory} 或与清单不符：{', '.join(unavailable)}。"
+            "引擎不会自己下载模型，请在设置里安装或修复模型层。"
         )
-        try:
-            download_asset(asset, destination, report)
-        except Exception as error:
-            if not proxy or not is_mirror_failure(error):
-                raise
-            download_routes.record_failure(data_root, "github")
-            if isinstance(error, DigestMismatch):
-                # The mirror served something else. Start over from the
-                # official URL rather than resuming into a quarantined body.
-                destination.unlink(missing_ok=True)
-            download_asset(
-                DownloadAsset(
-                    url=wanted.url, size=wanted.size, sha256=wanted.sha256
-                ),
-                destination,
-                report,
-            )
-        else:
-            if proxy:
-                download_routes.record_success(data_root, "github")
-        # Reached only when the download returned without raising, which for a
-        # verifiable file means the downloader matched the digest itself.
-        _write_verified_stamp(destination, wanted)

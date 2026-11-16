@@ -5,7 +5,7 @@ import importlib
 import json
 import sys
 import tempfile
-import tomllib
+import subprocess
 import unittest
 from pathlib import Path
 
@@ -36,6 +36,22 @@ def _enum_members(path: Path, name: str) -> set[str]:
                 if isinstance(statement, ast.Assign) and isinstance(statement.value, ast.Constant)
             }
     raise AssertionError(f"{name} is not defined in {path}")
+
+
+def _vendored_top_level() -> set[str]:
+    """The names directly under the vendor that the repository tracks.
+
+    Asked of git, so a cache a local run left there (ignored, never committed)
+    does not count; the directory itself outside a git checkout.
+    """
+
+    try:
+        listed = subprocess.run(
+            ["git", "ls-files", "--", "."], cwd=DEFAULT_VENDOR, capture_output=True, text=True, check=True
+        ).stdout.splitlines()
+    except (OSError, subprocess.CalledProcessError):
+        return {entry.name for entry in DEFAULT_VENDOR.iterdir()}
+    return {line.split("/", 1)[0] for line in listed if line}
 
 
 class VendorContractTests(unittest.TestCase):
@@ -69,22 +85,34 @@ class VendorContractTests(unittest.TestCase):
             sys.modules.pop("finesub", None)
             sys.modules.pop("finesub_bootstrap", None)
 
-    def test_version_and_runtime_metadata_match(self) -> None:
-        """The snapshot's own numbers, read where upstream 0.5.0 keeps them.
+    def test_the_vendor_keeps_only_its_core_files(self) -> None:
+        """Plan section 1 item 7 (WP-R7): the engine source and the files that vouch for it.
 
-        `project.version` went dynamic when the desktop split moved the single
-        number to a repository-root `VERSION`, and the installer's two assets
-        became package data under `src/finesub_bootstrap/` -- resolved there by
-        `finesub_bootstrap.resources` and `.environment`, which makes those the
-        only copies that are ever read.
+        No `pyproject.toml`, `VERSION` or README: the engine is not installed from
+        here, its version is `UPSTREAM.json`'s, and without `pyproject.toml` beside
+        `src/finesub` the engine no longer takes this directory for a source
+        checkout (`finesub.paths._is_checkout_root`).
         """
 
-        project = tomllib.loads((DEFAULT_VENDOR / "pyproject.toml").read_text(encoding="utf-8"))
-        self.assertIn("version", project["project"]["dynamic"])
         self.assertEqual(
-            (DEFAULT_VENDOR / "VERSION").read_text(encoding="utf-8").strip(),
-            self.upstream["engine_version"],
+            _vendored_top_level(),
+            {"src", "LICENSE", "LICENSES.json", "PROMPT_LICENSE.md", "UPSTREAM.json",
+             "QUALITY_LOCK.json", "LOCAL_CHANGES.md"},
         )
+        sys.path.insert(0, str(DEFAULT_VENDOR / "src"))
+        try:
+            from finesub.paths import _is_checkout_root
+        finally:
+            sys.path.remove(str(DEFAULT_VENDOR / "src"))
+        self.assertFalse(_is_checkout_root(DEFAULT_VENDOR))
+
+    def test_runtime_metadata_is_package_data(self) -> None:
+        """The installer's two assets are package data under `src/finesub_bootstrap/`.
+
+        Resolved there by `finesub_bootstrap.resources` and `.environment`, which
+        makes those the only copies that are ever read.
+        """
+
         bootstrap = DEFAULT_VENDOR / "src/finesub_bootstrap"
         runtime = json.loads(
             (bootstrap / "runtime-manifest.json").read_text(encoding="utf-8")
