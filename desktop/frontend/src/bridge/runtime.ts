@@ -8,8 +8,37 @@ export interface RuntimeItem {
   source?: "managed" | "system";
 }
 
-export type RuntimeInstallTarget = "media" | "runtime" | "models" | "all" | "optional-models" | "yt-dlp" | "tokcount" | "aria2c" | "node" | "pot-provider" | "video-tools";
+/** 每个目标对应它要的运行环境层（`nonoka_x.runtime_install.TARGET_LAYERS`）：装任何一个工具都是装整个工具层。
+    `repair` 对已装的层做完整核对（逐文件 sha256），有问题的整层重新安装。 */
+export type RuntimeInstallTarget = "media" | "runtime" | "models" | "all" | "optional-models" | "repair" | "yt-dlp" | "tokcount" | "aria2c" | "node" | "pot-provider" | "video-tools";
+/** 视频下载工具已并入工具层，后端不再单独卸载；类型留到引擎配置页（WP-UI）重做时删。 */
 export type RuntimeToolGroup = "video-tools";
+
+/** 一个运行环境层的状态（`LayerManager.overview()`），给引擎配置页的「清理未使用的」用。 */
+export interface RuntimeLayerOverview {
+  id: "python" | "models" | "tools";
+  label: string;
+  state: "ready" | "missing" | "outdated" | "damaged";
+  /** 这个版本要的层版本。 */
+  version: string;
+  /** current.json 指向的版本。 */
+  current: string | null;
+  path: string | null;
+  problems: string[];
+  /** 清单以外多出来的文件（不影响就绪，修复时清掉）。 */
+  extra: string[];
+  checked: "quick" | "full";
+  bytes: number;
+  archive_bytes: number;
+}
+
+/** 不是当前、也不是这个版本要的层版本，或中断留下的目录。 */
+export interface RuntimeUnusedLayer {
+  layer: string;
+  name: string;
+  path: string;
+  bytes: number;
+}
 
 export interface RuntimeProvisionState {
   schema: 1;
@@ -18,8 +47,9 @@ export interface RuntimeProvisionState {
   runtime_supported: boolean;
   media_supported: boolean;
   media_ready: boolean;
-  /** Non-empty when the sidecar could not construct its provisioner: every
-      install target is unavailable until it is resolved. */
+  /** Non-empty when the sidecar could not construct its layer manager (for
+      example layers.json is unreadable): every install target is unavailable
+      until it is resolved. */
   bootstrap_error?: string;
   root: string;
   runtime: RuntimeItem;
@@ -27,6 +57,10 @@ export interface RuntimeProvisionState {
   models: RuntimeItem[];
   /** 只有部分任务用得到的模型（目前是说话人分离的两个），可单独下载，从不阻断转写。 */
   optional_models?: RuntimeItem[];
+  /** 三层各自的状态；旧版 sidecar 没有这几个字段。 */
+  layers?: RuntimeLayerOverview[];
+  unused_layers?: RuntimeUnusedLayer[];
+  unused_bytes?: number;
   job: {
     state: "idle" | "running" | "completed" | "cancelled" | "failed";
     target: string;
@@ -40,11 +74,11 @@ export interface RuntimeProvisionState {
   };
 }
 
-/** 运行环境下载缓存（uv 缓存、运行时 wheel、资源压缩包）的占用。 */
+/** 运行环境下载缓存（还没装完的层压缩包，`<大文件根>\cache\downloads\`）的占用。 */
 export interface RuntimeCacheStatus {
   schema: 1;
   bytes: number;
-  /** 不含 uv 硬链接进运行环境的文件：那部分删掉缓存也还在磁盘上，清理腾不出来。 */
+  /** 删掉能腾出的空间（不算硬链接到别处的文件）。 */
   reclaimable: number;
   files: number;
 }

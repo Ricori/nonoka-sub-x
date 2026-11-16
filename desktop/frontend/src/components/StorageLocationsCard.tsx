@@ -34,7 +34,7 @@ interface StorageLocationsCardProps {
 }
 
 const targetDetails: Record<StorageTarget, string> = {
-  runtime: "Python 运行时、转写模型与下载缓存，占用最大。",
+  runtime: "运行环境层（Python、模型、工具）与下载缓存，占用最大。",
   video: "处理过的视频副本，超出上限按最近使用自动回收。",
 };
 
@@ -101,7 +101,7 @@ export function StorageLocationsCard(props: StorageLocationsCardProps) {
           const movingThis = active && progress?.target === location.target;
           const isVideo = target === "video";
           const runtimeCacheStatus = target === "runtime" && !location.missing ? runtimeCache?.status : null;
-          // uv 把包硬链接进运行环境，这部分删掉缓存也还在磁盘上；按钮只看真能腾出的空间。
+          // 按钮只看真能腾出的空间（sidecar 统计时不算硬链接到别处的文件）。
           const sharedOnly = runtimeCacheStatus != null && runtimeCacheStatus.bytes > 0 && runtimeCacheStatus.reclaimable === 0;
           const fileCount = isVideo && cache ? cache.files : location.files;
           const bytes = isVideo && cache ? cache.bytes : location.bytes;
@@ -180,7 +180,7 @@ export function StorageLocationsCard(props: StorageLocationsCardProps) {
                     </label>
                   )}
                   {runtimeCacheStatus != null && runtimeCacheStatus.bytes > 0 && (
-                    <span title="已下载的安装包与 uv 缓存。与运行环境共用的部分清理后不会腾出空间。">
+                    <span title="还没装完的运行环境层压缩包，留着是为了断点续传；装好的层不在这里。">
                       下载缓存 <b>{formatStorageBytes(runtimeCacheStatus.bytes)}</b>
                       {runtimeCacheStatus.reclaimable < runtimeCacheStatus.bytes && (
                         <>，可释放 <b>{formatStorageBytes(runtimeCacheStatus.reclaimable)}</b></>
@@ -211,7 +211,7 @@ export function StorageLocationsCard(props: StorageLocationsCardProps) {
                           ? "没有可清理的下载缓存"
                           : sharedOnly
                             ? "缓存里的文件都与已安装的运行环境共用，删除不会腾出空间"
-                            : "删除已下载的安装包与 uv 缓存；已安装的运行环境和模型不受影响，以后重装或更新时会重新下载"
+                            : "删除还没装完的运行环境层压缩包；已安装的层不受影响，下次安装时从头下载"
                       }
                       onClick={() => void runtimeCache.clear()}
                       type="button"

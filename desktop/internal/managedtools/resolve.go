@@ -16,9 +16,10 @@ import (
 // PythonEnvironment overrides the interpreter Nonoka X runs Python code with.
 const PythonEnvironment = "NONOKA_PYTHON"
 
-// Find prefers an existing system tool and falls back to the verified copy in
-// Nonoka X's application-data runtime. The active version pointer is written
-// atomically by the Python provisioner after download and checksum validation.
+// Find prefers an existing system tool and falls back to the copy in the tool
+// layer under the big-file root. The layer's version pointer is written
+// atomically by the Python layer manager once the layer is unpacked and checked
+// against its manifest (nonoka_x.runtime.layers).
 func Find(dataDirectory, name string) (string, error) {
 	if executable, err := exec.LookPath(name); err == nil {
 		return executable, nil
@@ -40,12 +41,10 @@ func findManaged(dataDirectory, name string) string {
 		resourceIDs = append(resourceIDs, "ffmpeg")
 	}
 	for _, resourceID := range resourceIDs {
-		root := filepath.Join(storage.RuntimeDirectory(dataDirectory), "runtime", resourceID)
-		version := activeVersion(filepath.Join(root, "current.json"))
-		if version == "" {
+		active := toolDirectory(dataDirectory, resourceID)
+		if active == "" {
 			continue
 		}
-		active := filepath.Join(root, version)
 		var result string
 		_ = filepath.WalkDir(active, func(path string, entry os.DirEntry, err error) error {
 			if err != nil || result != "" {
@@ -71,18 +70,38 @@ func findManaged(dataDirectory, name string) string {
 	return ""
 }
 
+// toolDirectory is `<big-file root>\layers\tools\<version>\<tool id>\`: one
+// tool of the tool layer, each unpacked as its archive came under a directory
+// named after its id (docs/runtime-layers.md 1.1). It is "" until the layer is
+// installed. The version is whichever one current.json names: a layer the
+// sidecar would call outdated still serves the desktop until it is replaced
+// (owner 2026-11-13).
+func toolDirectory(dataDirectory, toolID string) string {
+	layer := filepath.Join(storage.RuntimeDirectory(dataDirectory), "layers", "tools")
+	version := activeVersion(filepath.Join(layer, "current.json"))
+	if version == "" {
+		return ""
+	}
+	directory := filepath.Join(layer, version, toolID)
+	if info, err := os.Stat(directory); err != nil || !info.IsDir() {
+		return ""
+	}
+	return directory
+}
+
+// activeVersion reads a layer's version pointer, `{"layer", "version"}`.
 func activeVersion(pointer string) string {
 	data, err := os.ReadFile(pointer)
 	if err != nil {
 		return ""
 	}
 	var value struct {
-		Current string `json:"current"`
+		Version string `json:"version"`
 	}
-	if json.Unmarshal(data, &value) != nil || value.Current == "" || filepath.Base(value.Current) != value.Current || strings.ContainsAny(value.Current, `/\\`) {
+	if json.Unmarshal(data, &value) != nil || value.Version == "" || filepath.Base(value.Version) != value.Version || strings.ContainsAny(value.Version, `/\\`) || value.Version == ".." {
 		return ""
 	}
-	return value.Current
+	return value.Version
 }
 
 // Everything below resolves yt-dlp, which ships as a Python wheel.
@@ -122,14 +141,12 @@ func FindYTDLP(dataDirectory string) (YTDLP, error) {
 		return YTDLP{Executable: native}, nil
 	}
 	notInstalled := errors.New("Nonoka X yt-dlp is not installed; install it from 运行环境 first")
-	root := filepath.Join(storage.RuntimeDirectory(dataDirectory), "runtime", "yt-dlp")
-	version := activeVersion(filepath.Join(root, "current.json"))
-	if version == "" {
+	// The tool manifest declares yt_dlp/__init__.py as the resource's required
+	// file, so the layer manager and host agree on what "installed" means.
+	packageRoot := toolDirectory(dataDirectory, "yt-dlp")
+	if packageRoot == "" {
 		return YTDLP{}, notInstalled
 	}
-	// The runtime manifest declares yt_dlp/__init__.py as the resource's
-	// required file, so provisioner and host agree on what "installed" means.
-	packageRoot := filepath.Join(root, version)
 	if info, err := os.Stat(filepath.Join(packageRoot, "yt_dlp", "__init__.py")); err != nil || !info.Mode().IsRegular() {
 		return YTDLP{}, notInstalled
 	}
@@ -158,12 +175,10 @@ const potProviderDirectory = "pot-provider"
 // PYTHONPATH instead of executing anything in it.
 func FindPOTPlugin(dataDirectory string) (string, error) {
 	notInstalled := errors.New("the PO Token provider is not installed; install it from 运行环境 first")
-	root := filepath.Join(storage.RuntimeDirectory(dataDirectory), "runtime", potProviderDirectory)
-	version := activeVersion(filepath.Join(root, "current.json"))
-	if version == "" {
+	packageRoot := toolDirectory(dataDirectory, potProviderDirectory)
+	if packageRoot == "" {
 		return "", notInstalled
 	}
-	packageRoot := filepath.Join(root, version)
 	// The same file the runtime manifest declares as the resource's required
 	// file, so provisioner and host agree on what "installed" means.
 	marker := filepath.Join(packageRoot, "yt_dlp_plugins", "extractor", "getpot_bgutil_http.py")
@@ -181,12 +196,10 @@ func FindPOTPlugin(dataDirectory string) (string, error) {
 // long-running daemon and no listening port.
 func FindPOTServer(dataDirectory string) (string, error) {
 	notInstalled := errors.New("the PO Token provider is not installed; install it from 运行环境 first")
-	root := filepath.Join(storage.RuntimeDirectory(dataDirectory), "runtime", potProviderDirectory)
-	version := activeVersion(filepath.Join(root, "current.json"))
-	if version == "" {
+	home := toolDirectory(dataDirectory, potProviderDirectory)
+	if home == "" {
 		return "", notInstalled
 	}
-	home := filepath.Join(root, version)
 	// The generator the plugin actually invokes; the manifest declares the same
 	// file, so provisioner and host agree on what "installed" means.
 	if info, err := os.Stat(filepath.Join(home, "build", "generate_once.js")); err != nil || !info.Mode().IsRegular() {

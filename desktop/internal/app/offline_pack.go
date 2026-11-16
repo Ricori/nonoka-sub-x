@@ -8,12 +8,17 @@ import (
 	"strings"
 )
 
-// An offline package is a directory named offline-pack beside the executable.
-// Files are kept by what they are (files/<sha256>/, python/<tag>/, launcher/),
-// not by which release they belong to, so a package is never out of date as a
-// whole: whatever it lacks is downloaded as usual, and new files can be merged
-// in. NONOKA_OFFLINE_PACK names one elsewhere, and is how the sidecar and its
-// children are told about the one found here.
+// An offline package is a directory named offline-pack beside the executable
+// (desktop/scripts/build-offline-package.mjs builds it). It holds the prebuilt
+// layers under the same relative paths as on R2 (v1/<layer>/<sha256>.json and
+// .tar.zst, read by the sidecar's layer manager) and what the launcher
+// bootstrap here needs before there is any sidecar: uv (files/<sha256>/), the
+// interpreter uv installs (python/<tag>/) and the launcher's wheels
+// (launcher/). Files are kept by what they are, not by which release they
+// belong to, so a package is never out of date as a whole: whatever it lacks is
+// downloaded as usual, and new files can be merged in. NONOKA_OFFLINE_PACK
+// names one elsewhere, and is how the sidecar and its children are told about
+// the one found here.
 const (
 	offlinePackEnvironment = "NONOKA_OFFLINE_PACK"
 	offlinePackDirectory   = "offline-pack"

@@ -84,14 +84,17 @@ python scripts/quality_gate.py
 python scripts/finesub_align.py diff --ref v0.8.0
 ```
 
-### 3.4 下载兜底与离线版
+### 3.4 下载线路与离线版
 
-> **GitHub 文件的兜底副本**：下载阶梯的最后一级是 `cloudfile.nonoka.online/github-mirror/<host>/<path>`（R2），覆盖运行时清单、模型清单、lock 与启动器用到的全部 GitHub 文件，以及 uv 下载的 Python。任何改变这些文件的操作（升级上游、升级 uv、换 FFmpeg）之后，都要在 `desktop/scripts` 下运行一次：
-> `node publish-github-mirror.mjs --uv <对应版本的 uv>`（凭据读 `desktop/.env.release`，已存在且大小相同的文件会跳过）。
+> **下载线路**：桌面端和本地服务的每个下载都走同一条阶梯：离线包（有就用）→ 经代理（设置页的自定义代理，没有则系统代理）从官方源 → 直连官方源 → 报错提示开代理。**没有镜像、不按地区选线路**：官方源慢的地方靠用户自己的本地代理（计划 4.2 第 18 条）。Go 侧是 `desktop/internal/app/download_route.go`（启动器 Python），Python 侧是 `nonoka_x.runtime.fetch` 与 `nonoka_x.download_route`。运行环境的三层托管在 R2（`https://layers.nonoka.online/`），发布方法见 `docs/runtime-layers.md` 第 2 节。
 
-> **离线版**：exe 旁边的 `offline-pack/`（或 `NONOKA_OFFLINE_PACK` 指向的目录）排在下载阶梯最前面，缺的文件照常在线下载。文件按内容存放，不绑定版本：`files/<sha256>/`（工具、wheel、separator）、`python/<tag>/`（uv 的镜像结构）、`launcher/`（启动器 wheel）、`huggingface/<repo>/<revision>/`（整个快照）、`unverified/`（没有摘要的小文件）。在 `desktop/scripts` 下构建（`--models` 指向一份已装好模型的 `finesub/models`，产物默认在 `desktop/bin/offline/`）：
-> `node build-offline-package.mjs --uv <对应版本的 uv> --models <models 目录> --exe "../bin/Nonoka Sub X.exe"`
-> 版本更新时加 `--since <旧的 offline-pack>` 只输出新增文件，合并进旧包并换上新 exe 即可。
+> **离线版**：exe 旁边的 `offline-pack/`（或 `NONOKA_OFFLINE_PACK` 指向的目录，里面有 `pack.json`）排在下载阶梯最前面，缺的文件照常在线下载。内容：
+> - 三层的清单与压缩包，路径与 R2 上相同：`v1/<层>/<清单 sha256>.json`、`v1/<层>/<压缩包 sha256>.tar.zst`。层管理器（`nonoka_x.runtime.layers`）按 `layers.json` 找它们，大小对上就原地读、不复制、不删，装完照常按清单核对。
+> - 启动器 Python 要的三样（断网机器要先有它才能跑本地服务，层是本地服务装的）：`files/<sha256>/`（uv）、`python/<tag>/`（uv 安装的解释器，uv 的镜像结构）、`launcher/`（启动器 wheel）。
+>
+> 文件按内容存放，不绑定版本，新文件可以直接合并进旧包。在 `desktop/scripts` 下构建，产物默认在 `desktop/bin/offline/`：
+> `node build-offline-package.mjs --uv <对应版本的 uv> --exe "../bin/Nonoka Sub X.exe"`
+> 层默认按 `src/nonoka_x/resources/layers.json` 从 R2 下载；`--layers <dist\layers>` 改从本机构建产出（`scripts/build_layers.py`）复制。两种来源都按 `layers.json` 的大小和 sha256 校验，所以包里的层文件与 R2 上同版本的逐字节相同。`--layers-only` 只放三层；不给 `--exe` 只写 `offline-pack/`。版本更新时加 `--since <旧的 offline-pack>` 只输出新增文件，合并进旧包并换上新 exe 即可。约 5.8 GB。
 
 ---
 

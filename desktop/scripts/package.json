@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node --test publish-update.test.mjs"
+    "test": "node --test publish-update.test.mjs build-offline-package.test.mjs"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1091.0"
