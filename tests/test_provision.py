@@ -134,10 +134,9 @@ def test_all_installs_the_three_layers_and_workers_find_them(tmp_path, index, bu
     assert all(item["state"] == "ready" for item in status["resources"] + status["models"] + status["optional_models"])
     models = page.paths.layer_version("models", built["models"].version)
     assert page.worker_python() == page.paths.layer_version("python", built["python"].version) / "python.exe"
+    # The model layer reaches the engine through its bridge (the launch context's `runtime.models`).
+    assert page.engine_model_dir() == models
     environment = page.worker_environment()
-    assert environment["FINESUB_MODEL_DIR"] == str(models)
-    assert environment["HF_HOME"] == str(models / "huggingface")
-    assert environment["TORCH_HOME"] == str(models / "torch")
     assert "UV_CACHE_DIR" not in environment or environment["UV_CACHE_DIR"] == os.environ.get("UV_CACHE_DIR")
     tools = page.paths.layer_version("tools", built["tools"].version)
     assert environment["PATH"].split(os.pathsep)[:2] == [str(tools / "ffmpeg" / "ffmpeg-n9" / "bin"),

@@ -1,6 +1,6 @@
 """Declared facts for the models the desktop routes to over HTTP.
 
-``FineSubSettings._sync_model_routing`` writes one ``model_catalog.toml`` table per
+``FineSubSettings.llm_context`` gives the engine's model catalog one table per
 user-selected model, and the engine plans against what that table claims. The two
 numbers that matter are not cosmetic:
 

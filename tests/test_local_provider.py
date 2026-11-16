@@ -19,8 +19,6 @@ sys.path.insert(0, str(ROOT / "src"))
 from nonoka_x.local_provider import (
     LocalProvider,
     ProviderError,
-    _clear_legacy_separator_decode_probes,
-    _prepare_msvc_environment,
     detect_devices,
     runtime_report,
 )
@@ -61,14 +59,6 @@ class ProviderFixture(unittest.TestCase):
         self.source = self.root / "video.mp4"
         self.source.write_bytes(b"fixture")
         self.providers: list[LocalProvider] = []
-        # Every worker spawn asks this machine for its MSVC environment, which
-        # runs vswhere and vcvars64.bat wherever Visual Studio is installed:
-        # ~1.7s per task, more under load, against `wait_state`'s 5s. The
-        # fixture workers never compile anything, and the activation itself is
-        # covered with an injected runner, so the probe is kept out of here.
-        msvc = patch("nonoka_x.local_provider._prepare_msvc_environment")
-        msvc.start()
-        self.addCleanup(msvc.stop)
 
     def tearDown(self) -> None:
         # A test that fails part way never reaches its own `provider.shutdown()`,
@@ -192,6 +182,28 @@ class LocalProviderTests(ProviderFixture):
         self.assertEqual(logs[0]["payload"]["python_utf8"], "0")
         self.assertEqual(logs[0]["payload"]["python_io_encoding"], "utf-8")
         provider.shutdown()
+
+    def test_each_worker_gets_its_own_run_directory_and_nothing_inherited(self) -> None:
+        """WP-R5: FineSub's files are derived for this process alone and gone with it; no outside `FINESUB_*` gets in."""
+
+        with patch.dict(os.environ, {"FINESUB_TASK_STRATEGY": "from-outside"}):
+            provider = self.provider()
+            task = provider.start(self.request("encoding-environment"))
+            wait_state(provider, task["task_id"], {"completed"})
+        payload = next(event for event in provider.events(task["task_id"])["events"] if event["type"] == "log")["payload"]
+        self.assertIsNone(payload["finesub_task_strategy"])
+        run = Path(payload["finesub_config_file"]).parent
+        self.assertEqual(run.parent, self.root.resolve() / "engines" / "finesub-correct" / "run")
+        provider.shutdown()
+        self.assertFalse(run.exists())
+        self.assertEqual(list(run.parent.iterdir()), [])
+
+    def test_a_run_directory_left_by_a_crash_is_swept_at_start_up(self) -> None:
+        left = self.root / "engines" / "finesub-correct" / "run" / "999-deadbeef0000"
+        left.mkdir(parents=True)
+        (left / "finesub.toml").write_text("x", encoding="utf-8")
+        self.provider()
+        self.assertFalse(left.exists())
 
     def test_worker_environment_sets_cuda_visible_devices(self) -> None:
         provider = self.provider()
@@ -397,49 +409,6 @@ class LocalProviderTests(ProviderFixture):
         normalized = validate_request(request)
         self.assertNotIn("knowledge_context", normalized)
         self.assertNotIn("knowledge_subjects", normalized)
-
-    def test_old_separator_unicode_probe_is_retried_once(self) -> None:
-        accel = self.root / "models" / "audio-separator" / "accel"
-        decode_probe = accel / "decode" / "probe.json"
-        compiler_probe = accel / "compiler" / "probe.json"
-        for probe, reason in (
-            (decode_probe, "InductorError: UnicodeDecodeError: 'utf-8' codec cannot decode byte 0xd3"),
-            (compiler_probe, "CppCompileError: compiler returned exit status 2"),
-        ):
-            probe.parent.mkdir(parents=True)
-            probe.write_text(json.dumps({"aoti": "unavailable", "reason": reason}), encoding="utf-8")
-
-        _clear_legacy_separator_decode_probes({"FINESUB_MODEL_DIR": str(self.root / "models")})
-
-        self.assertFalse(decode_probe.exists())
-        self.assertTrue(compiler_probe.exists())
-
-    def test_msvc_environment_is_activated_when_standard_headers_are_missing(self) -> None:
-        program_files = self.root / "Program Files (x86)"
-        vswhere = program_files / "Microsoft Visual Studio" / "Installer" / "vswhere.exe"
-        install = self.root / "Visual Studio" / "BuildTools"
-        vcvars = install / "VC" / "Auxiliary" / "Build" / "vcvars64.bat"
-        vswhere.parent.mkdir(parents=True)
-        vswhere.write_bytes(b"")
-        vcvars.parent.mkdir(parents=True)
-        vcvars.write_bytes(b"")
-        calls: list[list[str] | str] = []
-
-        def run(command: list[str] | str, **_kwargs: object) -> SimpleNamespace:
-            calls.append(command)
-            if isinstance(command, (list, tuple)) and command and command[0] == str(vswhere):
-                return SimpleNamespace(returncode=0, stdout=str(install) + "\n")
-            return SimpleNamespace(
-                returncode=0,
-                stdout=f"INCLUDE={self.root / 'msvc' / 'include'}{os.pathsep}{self.root / 'sdk' / 'include'}\nLIB={self.root / 'msvc' / 'lib'}\n",
-            )
-
-        environment = {"ProgramFiles(x86)": str(program_files), "PATH": "existing"}
-        _prepare_msvc_environment(environment, _run=run, _windows=True)
-
-        self.assertEqual(len(calls), 2)
-        self.assertIn(str(self.root / "msvc" / "include"), environment["INCLUDE"])
-        self.assertEqual(environment["LIB"], str(self.root / "msvc" / "lib"))
 
     def test_cancel_and_resume_interrupted_task(self) -> None:
         provider = self.provider()
@@ -1384,12 +1353,18 @@ class EngineSelectionTests(ProviderFixture):
         # The settings page's list is still its own twelve, and no value is in it.
         self.assertEqual([item["name"] for item in snapshot["keys"]], [spec["name"] for spec in KEY_SPECS])
         self.assertNotIn(SECRET, json.dumps(snapshot, ensure_ascii=False))
-        # Nonoka's engines only: nothing is derived for FineSub.
-        settings.bind_environment()
-        derived = settings.env_file.read_text(encoding="utf-8") if settings.env_file.exists() else ""
-        for name in ("OPENROUTER_STT_KEY", "AZURE_SPEECH_KEY", "AZURE_SPEECH_ENDPOINT"):
-            self.assertNotIn(name, derived)
-        self.assertNotIn(SECRET, derived)
+        # Nonoka's engines only: nothing is handed to FineSub, neither as a variable nor in a file.
+        environment, run = provider._engine_launch("task")
+        try:
+            for name in ("OPENROUTER_STT_KEY", "AZURE_SPEECH_KEY", "AZURE_SPEECH_ENDPOINT"):
+                self.assertNotIn(name, environment)
+            self.assertNotIn(SECRET, json.dumps(environment, ensure_ascii=False))
+            for path in run.directory.iterdir():
+                if path.name == "owner.lock":  # held by this process
+                    continue
+                self.assertNotIn(SECRET, path.read_text(encoding="utf-8", errors="replace"))
+        finally:
+            run.close()
 
     # the worker's side
 

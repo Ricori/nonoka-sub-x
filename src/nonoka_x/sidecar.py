@@ -182,12 +182,12 @@ def main(argv: list[str] | None = None) -> int:
     settings = FineSubSettings(args.data_dir)
     settings.bind_environment()
     try:
-        # The generated model catalog is only as current as the last settings
-        # save; a build that ships new model facts has to restate them itself,
-        # or an existing install keeps planning against the old ones.
-        settings.refresh_model_catalog()
-    except Exception as exc:  # noqa: BLE001 - a stale catalog is not fatal
-        print(f"model catalog refresh skipped: {exc}", file=sys.stderr, flush=True)
+        # A build that retires a model moves the saved routes off it before
+        # anything is planned against them (the engines' files are derived per
+        # process from whatever is saved).
+        settings.refresh_model_routes()
+    except Exception as exc:  # noqa: BLE001 - a stale route is not fatal
+        print(f"model route refresh skipped: {exc}", file=sys.stderr, flush=True)
     provisioner = RuntimeProvisioner(args.data_dir, args.vendor, args.install_dir)
     try:
         provisioner.ensure_required_tools()

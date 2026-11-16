@@ -13,13 +13,52 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "third_party/finesub/src"))
 
+from nonoka_x.finesub_bridge import custom_target
 from nonoka_x.settings import FineSubSettings, LOCAL_AGENT_PROVIDERS, correction_proofread
 
 
-def _derived(data_dir: str | Path, name: str) -> Path:
-    """Where `FineSubSettings` derives the file FineSub reads (until WP-R5): `engines/finesub-shared/`."""
+def _reset_engine_caches() -> None:
+    from finesub.config import clear_config_cache
+    from finesub.llm.routing.model_catalog import default_model_catalog
+    from finesub.llm.routing.model_routes import default_model_routes
 
-    return Path(data_dir) / "engines" / "finesub-shared" / name
+    clear_config_cache()
+    default_model_catalog.cache_clear()
+    default_model_routes.cache_clear()
+
+
+def _derive(data_dir: str | Path) -> dict[str, str]:
+    """Derive what a correction worker would be handed now, and make this process read it.
+
+    The way `LocalProvider._engine_launch` does (`finesub_bridge.correction_environment`
+    over the settings' launch context), into one fixed run directory; the
+    variables go into `os.environ` so the engine imported here reads what the
+    worker would. `FineSubSettingsTests.setUp` restores the environment.
+    """
+
+    from nonoka_x import finesub_bridge
+    from nonoka_x.settings import CORRECTION_SECRET_NAMES
+
+    data = Path(data_dir).resolve()
+    settings = FineSubSettings(data)
+    environment = finesub_bridge.correction_environment({
+        "paths": {
+            "run": str(data / "engines" / "finesub-correct" / "run" / "test"),
+            "state_file": str(data / "state"),
+            "knowledge_root": str(data / "knowledge"),
+        },
+        "secrets": settings.engine_secrets(CORRECTION_SECRET_NAMES),
+        "llm": settings.llm_context(),
+    })
+    os.environ.update(environment)
+    return environment
+
+
+def _derived(data_dir: str | Path, name: str) -> Path:
+    """One file FineSub is handed, derived afresh (`_derive`)."""
+
+    environment = _derive(data_dir)
+    return Path(environment["FINESUB_CONFIG_FILE"]).with_name(name)
 
 
 def _only_row(catalog: str) -> dict:
@@ -43,6 +82,10 @@ def _spec_fields(row: dict) -> tuple:
 
 class FineSubSettingsTests(unittest.TestCase):
     def setUp(self) -> None:
+        # `_derive` points this process at what a worker is handed.
+        environment = patch.dict(os.environ)
+        environment.start()
+        self.addCleanup(environment.stop)
         # The engine caches config, catalog and routes per process, so a test
         # that pins a route would otherwise answer the next one's questions.
         from finesub.config import clear_config_cache
@@ -80,8 +123,15 @@ class FineSubSettingsTests(unittest.TestCase):
                 )
                 self.assertEqual(gemini_base_url["value"], "https://gemini.example.test/v1beta")
                 self.assertTrue(gemini_base_url["customized"])
-                if os.name != "nt":
-                    self.assertEqual(_derived(temporary, "finesub.env").stat().st_mode & 0o077, 0)
+                # Keys are handed as variables, never written (D3); the one
+                # file carries the Gemini endpoint alone.
+                environment = _derive(temporary)
+                self.assertEqual(environment["GEMINI_FREE"], "primary:gemini-secret")
+                self.assertEqual(environment["EXA_KEYS"], "exa-secret")
+                self.assertEqual(
+                    Path(environment["FINESUB_ENV_FILE"]).read_text(encoding="utf-8"),
+                    "GEMINI_BASE_URL=https://gemini.example.test/v1beta\n",
+                )
         finally:
             if previous is None:
                 os.environ.pop("FINESUB_ENV_PROTECT", None)
@@ -138,6 +188,8 @@ class FineSubSettingsTests(unittest.TestCase):
 
             clear_config_cache()
             default_model_catalog.cache_clear()
+            _derive(temporary)
+            _reset_engine_caches()
             routes = default_model_routes()
             correction, _ = routes.resolve_binding(
                 routes.active_preset_id, "correction-text", "quality"
@@ -213,18 +265,22 @@ class FineSubSettingsTests(unittest.TestCase):
                 self.assertTrue(snapshot["llmReady"])
                 self.assertTrue(snapshot["llmKeyConfigured"])
                 self.assertNotIn(f"{provider}-secret", json.dumps(snapshot))
-                target_id = settings._custom_target(provider, model)
+                target_id = custom_target(provider, model)
+                _derive(temporary)
+                _reset_engine_caches()
                 fact = next(item for item in default_model_catalog() if item.fact_id == target_id)
                 self.assertEqual(fact.provider_kind, "openai_compat")
                 self.assertEqual(fact.base_url, url)
                 self.assertEqual(fact.key_env, key_name)
+                _derive(temporary)
+                _reset_engine_caches()
                 routes = default_model_routes()
                 for group in ("correction-text", "research"):
                     binding, _ = routes.resolve_binding(routes.active_preset_id, group, "quality")
                     self.assertEqual(binding.target_ids, (target_id,))
                     self.assertEqual(routes.targets[target_id].backend, "openai_compat")
                 restarted = FineSubSettings(temporary)
-                restarted.refresh_model_catalog()
+                restarted.refresh_model_routes()
                 self.assertEqual(restarted.snapshot()["modelRouting"]["defaultRoute"], {"provider": provider, "model": model})
                 snapshot = restarted.update_keys({key_name: None})
                 self.assertFalse(snapshot["llmReady"])
@@ -274,12 +330,16 @@ class FineSubSettingsTests(unittest.TestCase):
             self.assertTrue(snapshot["llmReady"])
             self.assertTrue(snapshot["modelRouting"]["providers"][0]["available"])
             self.assertNotIn("cloud-secret", json.dumps(snapshot))
-            target_id = settings._custom_target("nonoka-cloud", "gpt-6.1-terra")
+            target_id = custom_target("nonoka-cloud", "gpt-6.1-terra")
+            _derive(temporary)
+            _reset_engine_caches()
             fact = next(item for item in default_model_catalog() if item.fact_id == target_id)
             self.assertEqual(
                 (fact.provider_kind, fact.base_url, fact.key_env),
                 ("openai_compat", "https://cloud-jp.nonoka.online/v1/llm", "NONOKA_CLOUD_KEY"),
             )
+            _derive(temporary)
+            _reset_engine_caches()
             routes = default_model_routes()
             binding, _ = routes.resolve_binding(routes.active_preset_id, "correction-text", "quality")
             self.assertEqual(binding.target_ids, (target_id,))
@@ -475,6 +535,8 @@ class FineSubSettingsTests(unittest.TestCase):
             clear_config_cache()
             default_model_catalog.cache_clear()
             default_model_routes.cache_clear()
+            _derive(temporary)
+            _reset_engine_caches()
             routes = default_model_routes()
             correction, _ = routes.resolve_binding(
                 routes.active_preset_id, "correction-text", "quality"
@@ -511,6 +573,8 @@ class FineSubSettingsTests(unittest.TestCase):
                     "LLM_ROUTE_RESEARCH_MODEL": model,
                 })
                 self.assertEqual(snapshot["modelRouting"]["defaultRoute"]["model"], model)
+                _derive(temporary)
+                _reset_engine_caches()
                 routes = default_model_routes()
                 for group in ("correction-text", "research"):
                     binding, _ = routes.resolve_binding(routes.active_preset_id, group, "quality")
@@ -523,7 +587,7 @@ class FineSubSettingsTests(unittest.TestCase):
                 self.assertEqual(fact.supports_video, media)
                 # Reloading the settings must keep the selected model and target.
                 restarted = FineSubSettings(temporary)
-                restarted.refresh_model_catalog()
+                restarted.refresh_model_routes()
                 self.assertEqual(restarted.snapshot()["modelRouting"]["defaultRoute"]["model"], model)
 
     def test_changing_model_invalidates_loaded_routes(self) -> None:
@@ -536,6 +600,8 @@ class FineSubSettingsTests(unittest.TestCase):
             settings.bind_environment()
             for model in ("gpt-6-luna", "gpt-6.1-sol", "gpt-6-luna"):
                 settings.update_keys({"LLM_DEFAULT_PROVIDER": "local-codex", "LLM_DEFAULT_MODEL": model})
+                _derive(temporary)
+                _reset_engine_caches()
                 routes = default_model_routes()
                 binding, _ = routes.resolve_binding(routes.active_preset_id, "research", "quality")
                 self.assertEqual(binding.target_ids, (f"local-codex-{model.replace('.', '_')}",))
@@ -562,7 +628,9 @@ class FineSubSettingsTests(unittest.TestCase):
                 selected = next(p for p in snapshot["modelRouting"]["providers"] if p["id"] == provider)
                 option = next(item for item in selected["models"] if item["id"] == model)
                 supported = option["supportsNativeSearch"]
-                before = settings.config_file.read_bytes()
+                config_file = Path(_derive(temporary)["FINESUB_CONFIG_FILE"])
+                _reset_engine_caches()
+                before = config_file.read_bytes()
                 install_llm_model_override({"correction": {"retrieval": "native"}})
                 routes = default_model_routes()
                 for group_id in ("correction-text", "correction-mm", "research"):
@@ -571,7 +639,7 @@ class FineSubSettingsTests(unittest.TestCase):
                     self.assertEqual(routes.target_fact(group.target_ids[0]).api_model_id, model)
                     plan = ModelRouter().plan(role_config_for(group_id, "quality"), native_search=True)
                     self.assertEqual(bool(plan.candidates[0].endpoint.native_search_tool), supported)
-                self.assertEqual(settings.config_file.read_bytes(), before)
+                self.assertEqual(config_file.read_bytes(), before)
 
     def test_local_agy_route_binds_the_packaged_agent_target(self) -> None:
         with tempfile.TemporaryDirectory() as temporary, patch.dict(
@@ -616,6 +684,8 @@ class FineSubSettingsTests(unittest.TestCase):
             clear_config_cache()
             default_model_catalog.cache_clear()
             default_model_routes.cache_clear()
+            _derive(temporary)
+            _reset_engine_caches()
             routes = default_model_routes()
             correction, _ = routes.resolve_binding(
                 routes.active_preset_id, "correction-text", "quality"
@@ -681,6 +751,8 @@ class FineSubSettingsTests(unittest.TestCase):
             clear_config_cache()
             default_model_catalog.cache_clear()
             default_model_routes.cache_clear()
+            _derive(temporary)
+            _reset_engine_caches()
             routes = default_model_routes()
             correction, _ = routes.resolve_binding(
                 routes.active_preset_id, "correction-text", "quality"
@@ -765,7 +837,7 @@ class FineSubSettingsTests(unittest.TestCase):
             # Planning's work moved into the preparation task, routed as research.
             self.assertEqual(routes["research"], {"provider": "local-agy", "model": "claude-sonnet-5-5"})
 
-            settings.refresh_model_catalog()
+            settings.refresh_model_routes()
             config = _derived(temporary, "finesub.toml").read_text(encoding="utf-8")
             for stale in ("planning", "search_judge", "workbuddy", "hy4", "gpt-5", "opus-4"):
                 self.assertNotIn(stale, config)
@@ -774,6 +846,8 @@ class FineSubSettingsTests(unittest.TestCase):
 
             from finesub.llm.routing.model_routes import default_model_routes
 
+            _derive(temporary)
+            _reset_engine_caches()
             routes_table = default_model_routes()
             binding, _ = routes_table.resolve_binding(
                 routes_table.active_preset_id, "correction-text", "quality"
@@ -931,6 +1005,8 @@ class FineSubSettingsTests(unittest.TestCase):
                     "LLM_DEFAULT_PROVIDER": "openai",
                     "LLM_DEFAULT_MODEL": model,
                 })
+                _derive(temporary)
+                _reset_engine_caches()
                 entry = next(item for item in default_model_catalog()
                              if item.api_model_id == model and item.provider_tier == "NONOKA_OPENAI")
                 self.assertEqual(entry.max_input_tokens, 1_050_000)
@@ -1033,8 +1109,8 @@ class FineSubSettingsTests(unittest.TestCase):
             self.assertEqual(entry.max_output_tokens, 65_536)
             self.assertEqual(entry.thinking_levels, ("high", "medium", "low"))
 
-    def test_refresh_rewrites_a_catalog_written_by_an_older_build(self) -> None:
-        """New model facts have to reach installs nobody re-saves settings on."""
+    def test_every_launch_derives_the_catalog_afresh(self) -> None:
+        """New model facts reach installs nobody re-saves settings on: nothing derived is kept."""
 
         with tempfile.TemporaryDirectory() as temporary, patch.dict(
             os.environ, {"FINESUB_ENV_PROTECT": "0"}, clear=False
@@ -1057,8 +1133,8 @@ class FineSubSettingsTests(unittest.TestCase):
 
             restarted = FineSubSettings(temporary)
             restarted.bind_environment()
-            restarted.refresh_model_catalog()
-            self.assertIn("max_output_tokens = 384000", catalog.read_text(encoding="utf-8"))
+            restarted.refresh_model_routes()
+            self.assertIn("max_output_tokens = 384000", _derived(temporary, "model_catalog.toml").read_text(encoding="utf-8"))
 
     def test_a_catalog_in_the_retired_format_is_removed_at_startup(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -1066,7 +1142,13 @@ class FineSubSettingsTests(unittest.TestCase):
             legacy.write_text("fact_id|provider_tier\n", encoding="utf-8")
             with patch.dict(os.environ, {}, clear=False):
                 FineSubSettings(temporary).bind_environment()
-                self.assertEqual(os.environ["FINESUB_MODEL_CATALOG"], str(_derived(temporary, "model_catalog.toml").resolve()))
+                # The sidecar's own FineSub reads nothing but its packaged defaults.
+                host = Path(temporary).resolve() / "engines" / "finesub-correct" / "run" / "host"
+                for name, file in (("FINESUB_MODEL_CATALOG", "model_catalog.toml"), ("FINESUB_CONFIG_FILE", "finesub.toml"),
+                                   ("FINESUB_ENV_FILE", ".env")):
+                    self.assertEqual(os.environ[name], str(host / file))
+                self.assertEqual(os.environ["FINESUB_CHECKOUT_DATA"], "0")
+                self.assertFalse(host.exists())
             self.assertFalse(legacy.exists())
 
     def test_a_correction_on_nonoka_cloud_is_not_proofread(self) -> None:
@@ -1078,9 +1160,13 @@ class FineSubSettingsTests(unittest.TestCase):
         ):
             settings = FineSubSettings(temporary)
             settings.bind_environment()
+            _derive(temporary)
+            _reset_engine_caches()
             self.assertEqual(correction_proofread({"difficulty": "quality"}), "auto")
             settings.set_cloud_account("https://cloud.example", "cloud-secret")
             settings.update_keys({"LLM_DEFAULT_PROVIDER": "nonoka-cloud", "LLM_DEFAULT_MODEL": "gpt-6.1-terra"})
+            _derive(temporary)
+            _reset_engine_caches()
             self.assertEqual(correction_proofread({"difficulty": "quality"}), "off")
 
     def test_unknown_model_row_clears_the_engines_refusal_line(self) -> None:
@@ -1155,6 +1241,8 @@ class FineSubSettingsTests(unittest.TestCase):
             clear_config_cache()
             default_model_catalog.cache_clear()
             default_model_routes.cache_clear()
+            _derive(temporary)
+            _reset_engine_caches()
             routes = default_model_routes()
             correction, _ = routes.resolve_binding(
                 routes.active_preset_id, "correction-text", "quality"

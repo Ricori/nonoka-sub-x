@@ -228,41 +228,55 @@ def test_migration_round_trip(tmp_path, protect, capsys):
 
 
 def test_what_fineSub_is_handed_after_migration(tmp_path, monkeypatch):
-    """The derived files hold the known settings only, and FineSub's own reader opens the key file."""
+    """A worker's launch derives the known settings only: keys as variables, files in its own run directory."""
+
+    from nonoka_x.local_provider import LocalProvider
 
     data = _old_install(tmp_path / "Nonoka X")
-    monkeypatch.delenv("FINESUB_ENV_FILE", raising=False)
     settings = FineSubSettings(data)
     settings.bind_environment()  # migrates on its own: the old files, no new store
-    settings.refresh_model_catalog()
+    settings.refresh_model_routes()
     assert (data / "settings.json").is_file() and not (data / OLD_ENV).exists()
 
-    env_text = settings.env_file.read_text(encoding="utf-8")
-    _assert_no_values(env_text)  # sealed
-    read = finesub_secrets.read_env_file(settings.env_file)
-    assert read == {name: FAKE_ENV[name] for name in (
-        "GEMINI_FREE", "GEMINI_PAID", "EXA_KEYS", "OPENAI_COMPAT_API_KEY", "OPENAI_COMPAT_BASE_URL", "GEMINI_BASE_URL",
-        "NONOKA_CLOUD_KEY", "NONOKA_CLOUD_BASE_URL",
-    )}
-    # The engines' own keys are Nonoka's: not handed to FineSub (plan WP5).
-    assert set(read).isdisjoint({"MOSS_PRO", "OPENROUTER_STT_KEY", "AZURE_SPEECH_KEY", "AZURE_SPEECH_ENDPOINT", *migrate.LEGACY_RENAMES})
-    assert finesub_secrets.env_status(settings.env_file) == {name: "protected" for name in read}
+    provider = LocalProvider(data / "tasks", ROOT / "third_party/finesub", issues=[], settings=settings)
+    try:
+        environment, run = provider._engine_launch("task")
+        try:
+            handed = {name: environment[name] for name in FAKE_ENV if name in environment}
+            assert handed == {name: FAKE_ENV[name] for name in (
+                "GEMINI_FREE", "GEMINI_PAID", "EXA_KEYS", "OPENAI_COMPAT_API_KEY", "NONOKA_CLOUD_KEY",
+            )}
+            # The engines' own keys are Nonoka's: not handed to FineSub (plan WP5).
+            assert set(environment).isdisjoint({"MOSS_PRO", "OPENROUTER_STT_KEY", "AZURE_SPEECH_KEY", "AZURE_SPEECH_ENDPOINT", *migrate.LEGACY_RENAMES})
+            # No key on disk (D3): the key file holds the one setting FineSub reads only from there.
+            env_file = Path(environment["FINESUB_ENV_FILE"])
+            assert env_file.read_text(encoding="utf-8") == "GEMINI_BASE_URL=https://gemini.example.test/v1beta\n"
+            for path in run.directory.iterdir():
+                if path.name == "owner.lock":  # held by this process
+                    continue
+                _assert_no_values(path.read_text(encoding="utf-8", errors="replace"))
 
-    config_text = settings.config_file.read_text(encoding="utf-8")
-    assert config_text.startswith(
-        "[nonoka_models]\n"
-        'default_provider = "local-codex"\n'
-        'default_model = "gpt-6.1-sol"\n'
-        'correction_provider = "openai-compat"\n'
-        'correction_model = "vendor-correction-model"\n'
-        'research_provider = "local-agy"\n'
-        'research_model = "gemini-3.8-flash"\n'
-        "\n[llm.preferred_targets]\n"
-    )
-    for gone in ("segmentation", "pools", "finoka", "planning", "mystery", "custom-group", "model_groups", "temperature"):
-        assert gone not in config_text
-    assert os.environ["FINESUB_CONFIG_FILE"] == str(settings.config_file)
-    assert settings.config_file.parent == data.resolve() / "engines" / "finesub-shared"
+            config_file = Path(environment["FINESUB_CONFIG_FILE"])
+            config_text = config_file.read_text(encoding="utf-8")
+            assert config_text.startswith(
+                "[nonoka_models]\n"
+                'default_provider = "local-codex"\n'
+                'default_model = "gpt-6.1-sol"\n'
+                'correction_provider = "openai-compat"\n'
+                'correction_model = "vendor-correction-model"\n'
+                'research_provider = "local-agy"\n'
+                'research_model = "gemini-3.8-flash"\n'
+                "\n[llm.preferred_targets]\n"
+            )
+            for gone in ("segmentation", "pools", "finoka", "planning", "mystery", "custom-group", "model_groups", "temperature"):
+                assert gone not in config_text
+            assert config_file.parent == run.directory
+            assert run.directory.parent == data.resolve() / "engines" / "finesub-correct" / "run"
+        finally:
+            run.close()
+        assert not run.directory.exists()
+    finally:
+        provider.shutdown()
 
 
 def test_the_engines_key_names_match_the_engines(tmp_path):
@@ -470,8 +484,11 @@ def test_the_facade_saves_and_reads_a_registered_key(tmp_path, monkeypatch):
         assert "WP_R4_TEST_ENDPOINT" not in {item["name"] for item in snapshot["keys"]}
         assert store.key_pool("WP_R4_TEST_ENDPOINT") == (config.KeyEntry("", "https://endpoint.example.test:8443/x"),)
         # Nonoka's own, not FineSub's.
-        settings = FineSubSettings(tmp_path)
-        assert not settings.env_file.exists() or "WP_R4_TEST" not in settings.env_file.read_text(encoding="utf-8")
+        from nonoka_x.settings import CORRECTION_SECRET_NAMES, TRANSCRIPTION_SECRET_NAMES
+
+        handed = (*CORRECTION_SECRET_NAMES, *TRANSCRIPTION_SECRET_NAMES)
+        assert "WP_R4_TEST_ENDPOINT" not in handed
+        assert "WP_R4_TEST_ENDPOINT" not in FineSubSettings(tmp_path).engine_secrets(handed)
         with pytest.raises(KeyError):
             store.key_pool("NOT_A_KEY")
     finally:

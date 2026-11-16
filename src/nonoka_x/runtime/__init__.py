@@ -160,9 +160,9 @@ class RuntimeManager:
     def worker_environment(self) -> dict[str, str]:
         """The environment a worker process is spawned into.
 
-        The provisioner's (`provision.worker_environment`): the parent's environment plus the model
-        layer, the tool layer's directories and the proxy. WP-R5 and WP-H replace it with one built
-        from nothing.
+        The provisioner's (`provision.worker_environment`): the parent's environment plus the tool
+        layer's directories and the proxy. An engine's own variables (the model layer among them) come
+        from its bridge; WP-H replaces the parent's environment with one built from nothing.
         """
 
         if self._provisioner is None:

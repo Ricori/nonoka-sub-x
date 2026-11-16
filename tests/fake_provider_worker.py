@@ -46,6 +46,8 @@ def main() -> int:
                 "python_utf8": os.environ.get("PYTHONUTF8"),
                 "python_io_encoding": os.environ.get("PYTHONIOENCODING"),
                 "cuda_visible_devices": os.environ.get("CUDA_VISIBLE_DEVICES"),
+                "finesub_config_file": os.environ.get("FINESUB_CONFIG_FILE"),
+                "finesub_task_strategy": os.environ.get("FINESUB_TASK_STRATEGY"),
             },
         )
     if should_pause:

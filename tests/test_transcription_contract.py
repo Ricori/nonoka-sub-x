@@ -560,8 +560,9 @@ def test_registered_key_specs_live_in_memory_and_their_keys_in_secrets_json(conf
         snapshot = config_store.update({"WP0_TEST_STT_KEYS": "label:fake-registered-key"})
         assert config_store.key_pool("WP0_TEST_STT_KEYS") == (KeyEntry("label", "fake-registered-key"),)
         assert "WP0_TEST" not in repr(snapshot)
-        derived = config_store.root / "engines" / "finesub-shared" / ("finesub" + ".env")
-        assert not derived.exists() or "WP0_TEST" not in derived.read_text(encoding="utf-8")
+        from nonoka_x.settings import CORRECTION_SECRET_NAMES, TRANSCRIPTION_SECRET_NAMES
+
+        assert "WP0_TEST_STT_KEYS" not in (*CORRECTION_SECRET_NAMES, *TRANSCRIPTION_SECRET_NAMES)
         assert "fake-registered-key" not in (config_store.root / "secrets.json").read_text(encoding="utf-8")
         with pytest.raises(ValueError):
             config_store.update({"WP0_NOT_REGISTERED": "x"})

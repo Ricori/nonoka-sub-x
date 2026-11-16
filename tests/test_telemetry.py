@@ -79,7 +79,7 @@ class LifecycleTelemetryTests(ProviderFixture):
         provider = self.provider()
         provider._settings = SimpleNamespace(telemetry_models=lambda request: {"default": {"provider": "openai", "model": "model-a"}, "overrides": {}})
         # The fixture has no engine credentials; keep execution environment independent.
-        provider._engine_environment = lambda: dict(__import__("os").environ)
+        provider._engine_launch = lambda purpose: (dict(__import__("os").environ), SimpleNamespace(close=lambda: None))
         return provider
 
     def await_events(self, provider, count):
