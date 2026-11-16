@@ -1,6 +1,6 @@
 # 转写引擎重构计划
 
-> 状态（2026-11-11）：WP-Q、WP-A、WP0、WP-R0 已完成并合进 main；WP-C 的 harness 已合进 main，云端基线还没录成（见 WP-C）；编译加速已在 `85ae2b9` 关闭；WP-R2、WP-B、WP-R1、WP1、WP4a、WP4b、WP4c、WP3a/b/c、WP-C、WP-P0、WP-M1（最后一条完成标准除外）、WP-R4、WP-K、WP-E1、WP-CL0、WP5、WP-E2、WP-E3、WP-R5、WP-R6、WP6（第一阶段）已完成并合进 main（WP-CL0 的预热脚本合进云端仓库的 main；各包按附录 B 的答复调整）；2026-11-12 用户决定知识库独立成第三个包、全部经协议访问（第 0.1 节第 5 条、4.6 第 35a 条、WP-K）；第五批（WP5、WP-E2、WP-E3，2026-11-13）已全部完成；第六批（附录 B 第 69 问）的 WP-R5、WP-R6 与 WP6 第一阶段已于 2026-11-16 合进 main；用户 2026-11-13 决定去掉「运行环境」页、引擎与环境都放进设置页（4.9 第 39 条，附录 B 第 73 问），这部分界面作为 WP6 第二阶段在 WP6 会话里做；WP-M1 的最后一条完成标准先不做（第 70 问）；三层已传上 R2（经代理的下载校验和速率限制规则用户决定先不做，见 WP-E2）；2026-11-13 用户决定模型层不再按单文件放 R2，迁移时模型补齐改为下整个模型层压缩包（附录 B 第 63、64 问）；其余未开工。本文档是交给子代理执行的工作说明，每个工作包可以单独领走。
+> 状态（2026-11-11）：WP-Q、WP-A、WP0、WP-R0 已完成并合进 main；WP-C 的 harness 已合进 main，云端基线还没录成（见 WP-C）；编译加速已在 `85ae2b9` 关闭；WP-R2、WP-B、WP-R1、WP1、WP4a、WP4b、WP4c、WP3a/b/c、WP-C、WP-P0、WP-M1（最后一条完成标准除外）、WP-R4、WP-K、WP-E1、WP-CL0、WP5、WP-E2、WP-E3、WP-R5、WP-R6、WP6 已完成并合进 main（WP-CL0 的预热脚本合进云端仓库的 main；各包按附录 B 的答复调整）；2026-11-12 用户决定知识库独立成第三个包、全部经协议访问（第 0.1 节第 5 条、4.6 第 35a 条、WP-K）；第五批（WP5、WP-E2、WP-E3，2026-11-13）已全部完成；第六批（附录 B 第 69 问）的 WP-R5、WP-R6 与 WP6 第一阶段已于 2026-11-16 合进 main；用户 2026-11-13 决定去掉「运行环境」页、引擎与环境都放进设置页（4.9 第 39 条，附录 B 第 73 问），这部分界面已作为 WP6 第二阶段完成（2026-11-16），依赖 WP-P1 / WP-H 的部分留给 WP-UI；WP-M1 的最后一条完成标准先不做（第 70 问）；三层已传上 R2（经代理的下载校验和速率限制规则用户决定先不做，见 WP-E2）；2026-11-13 用户决定模型层不再按单文件放 R2，迁移时模型补齐改为下整个模型层压缩包（附录 B 第 63、64 问）；其余未开工。本文档是交给子代理执行的工作说明，每个工作包可以单独领走。
 > 写于 2026-11-10，基于 `main@1f14db3`、FineSub `v0.7.0@7123055`。
 > **2026-11-11 整理成干净版本**（用户决定，附录 B 第 1 问）：现行决定直接写在正文里，不再有「以后者为准」的追加条款。每个决定的来历、被推翻的旧说法，以及旧条款编号到新编号的对照，见附录 A；向用户问过的问题和答复见附录 B；还没定的事见附录 C。整理前的版本在 git 历史里（`main` 上的 `docs/transcription-engines-plan.md`）。
 > 相关文档：`docs/runtime-and-config.md`（WP-R0 的调查与设计答复 D1–D23，下称「R0 文档」；其中被本计划取代的答复已在那边标注，对照见附录 A.3）；`docs/engine-sandbox-experiment.md`（预制环境包与进程级沙箱两个前提的实验报告，下称「实验报告」）。本文档与 R0 文档冲突时以本文档为准。
@@ -342,7 +342,7 @@
 ### 4.9 引擎配置页
 
 39. **「运行环境」页改成「引擎配置」页，全局只选一个转写引擎**（用户 2026-11-11，WP-UI）。重构完成后做，只重做这一块，媒体库、编辑器、导出不动。
-    - **2026-11-13 改（用户，附录 B 第 73 问；与下面几条冲突处以此为准）**：不单独做引擎配置页，**去掉「运行环境」页**；环境安装、转写引擎、纠错翻译引擎的选择全放进**设置页**，一页长滚动，从上到下：转写引擎 / 运行环境 / 纠错与翻译 / 存储与网络，不加导航。纠错引擎是「当前纠错引擎」卡片（finesub correction 与就绪状态），LLM 提供商配置挂在它下面，有第二个纠错引擎再加单选。三组云引擎密钥放在设置页转写引擎面板里。新建任务对话框去掉本机 / 云端开关，只显示当前引擎和去设置页的入口；云端 FineSub 是引擎列表里的一项，请求带 `transcription.engine="finesub-cloud"`（Go 不转发）。这部分界面在 WP-R6 合并后作为 WP6 第二阶段先做；依赖 WP-P1 / WP-H 的部分（删掉转写包后的表现、按包列占用）留在 WP-UI 以后补。
+    - **2026-11-13 改（用户，附录 B 第 73 问；与下面几条冲突处以此为准）**：不单独做引擎配置页，**去掉「运行环境」页**；环境安装、转写引擎、纠错翻译引擎的选择全放进**设置页**，一页长滚动，从上到下：转写引擎 / 运行环境 / 纠错与翻译 / 存储与网络，不加导航。纠错引擎是「当前纠错引擎」卡片（finesub correction 与就绪状态），LLM 提供商配置挂在它下面，有第二个纠错引擎再加单选。三组云引擎密钥放在设置页转写引擎面板里。新建任务对话框去掉本机 / 云端开关，只显示当前引擎和去设置页的入口；云端 FineSub 是引擎列表里的一项，请求带 `transcription.engine="finesub-cloud"`（Go 不转发）。这部分界面已由 WP6 第二阶段做完（2026-11-16）；依赖 WP-P1 / WP-H 的部分（删掉转写包后的表现、按包列占用、只装所选引擎缺的层）留在 WP-UI 以后补。
     - **全局单选**：用户在引擎配置页选定当前的转写引擎，之后所有新任务都用它。新建任务的对话框不再让选引擎，只显示当前用的是哪个，并给一个去引擎配置页的入口。任务请求里仍然记着引擎（提交时从全局设置填入），所以重试和续跑沿用原引擎（第 11 条）。
     - **可选项来自注册表**：本机的 FineSub 转写包（装了才出现）、MAI-Transcribe-2、Gemini 3.5 Transcribe、MOSS Pro，以及云端 FineSub。云端 FineSub 是列表里的一项：它不需要安装，就绪条件是已登录且有额度；选中它时任务的 `provider` 是云端，选其余各项时是本机。
     - **选哪个装哪个**：每个引擎声明自己要的层（第 15 条）。选中一个引擎时，页面列出它缺哪几层、要下载多少、装在哪，用户确认后只下载缺的层。云 API 引擎只要工具层和密钥；它们的可选增强（要 Python 环境层与模型层）在该引擎的面板里单独列为可选安装。引擎没装好之前不能设为当前引擎，或设了之后新建任务被拦住并指回这一页。
@@ -493,7 +493,7 @@ FineSub 转写引擎也要写 `transcript.json`（从它的 stable 投影出来�
 ## 6. 工作包
 
 ```text
-已完成：WP-Q、WP-A、WP0、WP-R0、WP-R2、WP-B、WP-R1、WP1、WP4a、WP4b、WP4c、WP3a/b/c、WP-C、WP-P0、WP-M1（最后一条完成标准还没做，WP-E3 已完成、可以做了）、WP-R4、WP-K、WP-E1、WP-CL0、WP5、WP-E2、WP-E3、WP-R5、WP-R6、WP6（第一阶段；第二阶段设置页重组在做）
+已完成：WP-Q、WP-A、WP0、WP-R0、WP-R2、WP-B、WP-R1、WP1、WP4a、WP4b、WP4c、WP3a/b/c、WP-C、WP-P0、WP-M1（最后一条完成标准还没做，WP-E3 已完成、可以做了）、WP-R4、WP-K、WP-E1、WP-CL0、WP5、WP-E2、WP-E3、WP-R5、WP-R6、WP6
 
 引擎线：
 WP-B ──┬─► WP1 ──► WP3a / WP3b / WP3c ───────────────┐
@@ -692,9 +692,11 @@ harness 已在 main（`tests/quality_harness/cloud.py`、`quality_gate.py --clou
   - 各引擎的就绪检查从 `EngineSpec.environment`（要哪几层）和层管理器得出。
 - 完成标准：没装任何层（只有工具层）、没有 GPU 的环境里，配了 MAI2 密钥就能通过 `final-srt` 的启动检查；没配时报 `missing_key`；闸门通过。
 
-### WP6 桌面界面与 Go（第一阶段已完成 2026-11-16；第二阶段在做）
+### WP6 桌面界面与 Go（已完成 2026-11-16，含第二阶段设置页重组）
 
-> 第一阶段交付（管线）：前端 `providers/types.ts`（`Capabilities.transcription_engines` / `correction_engines`、`TaskRequest.transcription`、`TaskSnapshot.transcription_engine`）、`home/defaultRequest.ts`（本机带 `{"engine":"finesub","options":{}}`，云端带 `finesub-cloud`）、`app/format.ts` 与 `pages/TasksPage.tsx`（任务行显示「本机 · FineSub」「☁ 云端 · FineSub」，旧快照按 provider 推断）、`local_provider.py`（任务快照加 `transcription_engine`）、`docs/provider-spec.md`（`transcription` 的校验与丢字段日志、快照字段、三个新错误码）。Go 不改代码：任务历史原样存，云端 relay 不转发 `transcription`，加了两条测试证明。清单外的文件经用户批准（附录 B 第 73 问）。本机 FineSub 请求去掉 `transcription` 后与改前逐字节相同（有测试）。主会话复核：与 WP-R5、WP-R6 一起试合并，pytest 935 通过，`go test ./...`、前端 `typecheck` 与 156 个测试通过，闸门含 `--real` 通过，没重录基线。第二阶段：按 4.9 第 39 条 2026-11-13 的改法重组设置页、删「运行环境」页、对话框去开关、当前引擎存成设置项，在 WP6 会话里做。没做：遥测记引擎（要改服务端格式）；插件发起的任务不带 `transcription`，按缺省 FineSub 跑。下面是原始说明。
+> 第二阶段交付（按 4.9 第 39 条 2026-11-13 的改法，问题与答复见附录 B 第 74 问）：设置页改成一页长滚动——转写引擎 / 运行环境 / 纠错与翻译 / 存储与网络；运行环境页删掉（`RuntimePage` 搬成 `components/RuntimeSection`），导航去掉「运行环境」，原来跳运行环境页的地方改成跳设置页对应段。转写引擎段：`Capabilities.transcription_engines` 加上合成的「FineSub（云端）」单选，每项显示就绪、运行位置、音频去向、计费；选中云 API 引擎时展开它的密钥（`transcription_engines[].keys` 与设置快照新增的 `engineKeys`，原 12 个 `keys` 不变、不派生给 FineSub；Gemini 的 `GEMINI_FREE` 与纠错共用）；当前引擎不在列表里时提示重选、不静默回落。当前引擎存在 Go 桌面偏好 `preferences.json` 的 `transcriptionEngine`，缺省或非法值回到 `finesub`。纠错与翻译段：「当前纠错引擎：finesub correction」卡片，下面是原样的模型配置。新建任务对话框去掉本机 / 云端开关，只显示当前引擎和「更换」；选项按引擎藏（设备 / 显卡档位只给本机 GPU 引擎，人声分离按 `features.separate`，说话人档与语言按声明）；未就绪的引擎可选，但新建任务被拦、指回设置页；日文轴无论选哪个引擎都走本机 FineSub；选 FineSub 时请求与第一阶段逐字节相同（有测试）。运行环境段加「完整核对」（`repair`）和「清理未使用的」（新路由 `DELETE /v1/runtime/provision/unused`、Go `RemoveUnusedRuntime`）；卸载视频工具的死代码（前端、Go `RemoveRuntimeGroup`、sidecar 路由、`remove_tool_group`）删掉；numba 编译缓存纳入「清理缓存」（`finesub_bridge.COMPILE_CACHES`）。`docs/provider-spec.md` 跟上。预览里用假后端走过一遍（四段显示、配假密钥后就绪、清理两步确认、完整核对、对话框按引擎藏选项、FineSub 的请求、云端未登录与引擎被移除时拦下、窄窗口）。主会话复核：pytest 935 通过，`go test ./...`、前端 `typecheck` 与 160 个测试通过，默认闸门通过（Python 侧没动派生，没跑 `--real`），没重录基线。交回 WP-UI：见 WP-UI 一节开头的说明。下面是第一阶段的交付和原始说明。
+
+> 第一阶段交付（管线）：前端 `providers/types.ts`（`Capabilities.transcription_engines` / `correction_engines`、`TaskRequest.transcription`、`TaskSnapshot.transcription_engine`）、`home/defaultRequest.ts`（本机带 `{"engine":"finesub","options":{}}`，云端带 `finesub-cloud`）、`app/format.ts` 与 `pages/TasksPage.tsx`（任务行显示「本机 · FineSub」「☁ 云端 · FineSub」，旧快照按 provider 推断）、`local_provider.py`（任务快照加 `transcription_engine`）、`docs/provider-spec.md`（`transcription` 的校验与丢字段日志、快照字段、三个新错误码）。Go 不改代码：任务历史原样存，云端 relay 不转发 `transcription`，加了两条测试证明。清单外的文件经用户批准（附录 B 第 73 问）。本机 FineSub 请求去掉 `transcription` 后与改前逐字节相同（有测试）。主会话复核：与 WP-R5、WP-R6 一起试合并，pytest 935 通过，`go test ./...`、前端 `typecheck` 与 156 个测试通过，闸门含 `--real` 通过，没重录基线。没做：遥测记引擎（要改服务端格式）；插件发起的任务不带 `transcription`，按缺省 FineSub 跑。下面是原始说明。
 
 - 文件：`desktop/frontend/src/providers/types.ts`、`home/defaultRequest.ts`、`components/TranscriptionDialog.tsx`（及其 CSS）、`app/App.tsx`、`app/types.ts`、`providers/localProvider.ts`、`test/provider.test.mjs`；Go 侧 `desktop/internal/taskhistory`、`internal/telemetry` 如需记录引擎。
 - 内容：只做管线——类型、请求里带上 `transcription` 字段、任务列表和历史显示所用引擎、Go 侧的记录。引擎的选择在引擎配置页（WP-UI）；对话框暂时保留现有的本机 / 云端开关，等 WP-UI 换掉。
@@ -1014,7 +1016,7 @@ harness 已在 main（`tests/quality_harness/cloud.py`、`quality_gate.py --clou
 
 重构的其余部分做完之后开工：等 WP-P1、WP-L、WP-H、WP6、WP-E3，排在 WP8 之前，随同一个版本发布。规则见 4.9 第 39 条。
 
-> 2026-11-13 用户改了方向（4.9 第 39 条第一个子条目，附录 B 第 73 问）：没有单独的引擎配置页，「运行环境」页去掉，下面写到引擎配置页的内容都放进设置页；界面主体由 WP6 第二阶段先做，本包只剩依赖 WP-P1、WP-L、WP-H 的部分和完成标准里的整体验收。WP-R6 交来的：`App.tsx` 的 `removeRuntimeGroup`、`RuntimePage` 的 `onRemoveGroup`、`RuntimeToolGroup` 类型、Go `provider` 与 sidecar 的 `DELETE /v1/runtime/provision/group` 路由、后端 `remove_tool_group` 都可以删；`repair` 目标还没有界面入口；「清理未使用的」用状态里的 `unused_layers` / `unused_bytes`。WP-R5 交来的：`cache\finesub-transcribe\numba\` 不在「清理」范围内，要不要纳入由本包定。
+> 2026-11-13 用户改了方向（4.9 第 39 条第一个子条目，附录 B 第 73 问）：没有单独的引擎配置页，「运行环境」页去掉，下面写到引擎配置页的内容都放进设置页；界面主体已由 WP6 第二阶段做完（见 WP6 一节），本包只剩依赖 WP-P1、WP-L、WP-H 的部分和完成标准里的整体验收：删掉转写包后的表现、按包列占用空间、选中未装的引擎时只装它缺的层（现在仍是运行环境段的「一键准备全部」与分组安装）、从 FineSub 换到云 API 引擎再换回来不重下的实测；Python 侧有些就绪文案还写「在『运行环境』页……」（如 `missing_harness`），要改成指向设置页。WP-R6、WP-R5 交来的界面事项（卸载视频工具的死代码、`repair` 的入口、「清理未使用的」、numba 缓存进不进「清理」）已由 WP6 第二阶段处理（附录 B 第 74 问）。
 
 - 文件：`desktop/frontend/src/pages/RuntimePage.tsx`（及 CSS，改成引擎配置页）、`components/TranscriptionDialog.tsx`（去掉引擎选择）、`components/InstallLocationCard.tsx`、`StorageLocationsCard.tsx`、`StorageRelocation.tsx`、`runtimeCache.ts`、`bridge/runtime.ts`、`app/App.tsx`（导航与文案）、`pages/SettingsPage.tsx`（只移走转写引擎的密钥，其余不动）、`home/defaultRequest.ts`、`providers/types.ts`；Go 侧 `desktop/internal/preferences`（当前引擎的设置项）；Python 侧 `nonoka_x.runtime` 门面的层查询（WP-E3 已提供）。
 - 内容：
@@ -1260,6 +1262,7 @@ R0 文档里这几条已按此加了标注（只加标注，不删原文）。
 | 71 | WP-R5：派生在哪个进程做；两份桥接怎么分；sidecar 自己的 FineSub 绑定；外部变量与 MSVC 遗留；`NUMBA_CACHE_DIR` 指向哪；`engines\finesub-shared\` 残留；环境基线的比对范围；知识库与状态文件变量 | 全部推荐项：sidecar 在拉起 worker 前派生、交给子进程；转写与纠错分两份，分包前 task worker 合用；sidecar 只读打包默认值；去掉继承的 `FINESUB_*`、删两个 MSVC 函数（批准改 `local_provider.py`），从零构建留给 WP-H；`<大文件根>\cache\finesub-transcribe\numba\`；sidecar 启动时删；比对范围加上密钥名、Base URL 名、`NUMBA_CACHE_DIR`、`FINESUB_ENV_PROTECT`；无条件写、位置等 WP-M2（2026-11-13） |
 | 72 | WP-R6：离线包装什么；断网怎么模拟；计划外文件；视频工具卸载按钮；预估占用；测试大文件；桌面端找工具改到工具层 | 三层加启动器；进程级断网；`engine.md` 3.4、`LOCAL_CHANGES.md` 一句、`download_route.py` 死代码、`offline_pack.go` 注释、`managedtools/resolve.go`、`storage_service.go` 都允许；只删页面按钮；14 GiB；**做完就删**（非推荐项）；改到工具层，**按 `current.json` 就用、不核对版本**（非推荐项）（2026-11-13） |
 | 73 | WP6（在 WP6 会话里直接说的）：去掉运行环境页，环境安装、转写引擎、纠错翻译引擎的选择全放进设置页，LLM 提供商配置放在纠错引擎下面；什么时候做；对话框开关；纠错引擎怎么呈现；设置页布局；provider-spec 谁写；云端请求带不带引擎；任务列表的引擎从哪来；遥测；三组密钥放哪 | WP-R6 合并后在 WP6 会话里做，依赖 WP-P1 / WP-H 的以后补；对话框去掉开关、云端 FineSub 成为引擎列表一项；「当前纠错引擎」卡片下挂 LLM 配置；**一页长滚动**、不加导航（推荐的是左侧分组导航）；WP6 写；带 `finesub-cloud`、Go 不转发；**Python 快照带引擎**（推荐的是前端提交时记，批准改 `local_provider.py`）；不做；放在设置页转写引擎面板（2026-11-13） |
+| 74 | WP6 第二阶段：三组云引擎密钥在设置页怎么取；当前转写引擎存哪；WP-R6 / WP-R5 交来的界面事项；对话框与未就绪引擎 | 设置快照另加 `engineKeys`（原 `keys` 不变，WP0 测试那一句随之改）；存 Go 桌面偏好 `transcriptionEngine`；全做，**numba 缓存纳入清理**（非推荐项）；按引擎藏选项，未就绪的引擎可选但新建任务被拦、指回设置页（其余都是推荐项，2026-11-16） |
 
 更早的问答：WP-R0 的 D1–D23 见 R0 文档第 0 节；WP0 的细节见附录 A.1；沙箱实验中的决定见实验报告。
 
