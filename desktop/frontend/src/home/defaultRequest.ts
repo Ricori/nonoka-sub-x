@@ -1,6 +1,7 @@
 import type { MediaEntry } from "../bridge/library.ts";
 import type { ExecutionMode } from "../app/types.ts";
-import type { TaskRequest } from "../providers/types.ts";
+import type { TaskRequest, TranscriptionRequest } from "../providers/types.ts";
+import { CLOUD_TRANSCRIPTION_ENGINE, DEFAULT_TRANSCRIPTION_ENGINE } from "../providers/types.ts";
 
 /**
  * 一份转写设置，两种计算引擎共用。
@@ -39,7 +40,13 @@ export function defaultTaskRequest(entry: MediaEntry): TaskRequest {
     knowledge: "read",
     knowledge_subjects: [],
     cleanup_intermediate: false,
+    transcription: localTranscription(),
   };
+}
+
+/** 本机 FineSub。引擎配置做好之前（WP-UI），本机任务都跑它。 */
+function localTranscription(): TranscriptionRequest {
+  return { engine: DEFAULT_TRANSCRIPTION_ENGINE, options: {} };
 }
 
 /**
@@ -48,10 +55,16 @@ export function defaultTaskRequest(entry: MediaEntry): TaskRequest {
  * 本机：原样，source 是本地文件。云端：source 换成待上传的音频（`object_id` 先填
  * 媒体 id，Go 侧上传后换成真正的对象 id），人声分离按时长自动分档（`cost`）；纠错
  * 与知识库设置原样带上——它们交给本机那一段续跑用，云端那一段不读。
+ *
+ * 转写引擎跟着走：云端记成 `finesub-cloud`（Go 不把它转发给云端，本机续跑的请求
+ * 也不带它）；回到本机时，原先选的本机引擎原样保留，原先是云端的换回本机 FineSub。
  */
 export function requestForEngine(engine: ExecutionMode, request: TaskRequest, entry: MediaEntry): TaskRequest {
   if (engine === "local") {
-    return { ...request, provider: "local", vocal_profile: "quality" };
+    const transcription = request.transcription && request.transcription.engine !== CLOUD_TRANSCRIPTION_ENGINE
+      ? request.transcription
+      : localTranscription();
+    return { ...request, provider: "local", vocal_profile: "quality", transcription };
   }
   return {
     ...request,
@@ -66,5 +79,6 @@ export function requestForEngine(engine: ExecutionMode, request: TaskRequest, en
     device: "cuda",
     vocal_profile: "cost",
     cleanup_intermediate: false,
+    transcription: { engine: CLOUD_TRANSCRIPTION_ENGINE, options: {} },
   };
 }

@@ -296,6 +296,9 @@ func TestRelayRecognisesInTheCloudAndContinuesHere(t *testing.T) {
 			"level": "judge-text",
 		},
 		"knowledge_subjects": []any{map[string]any{"kind": "streamer", "subject": "のの"}},
+		// The desktop records the engine on a cloud request (WP6); it names
+		// the task's engine and neither leg's request may carry it.
+		"transcription": map[string]any{"engine": "finesub-cloud", "options": map[string]any{}},
 	}
 	snapshot, err := service.StartTask("loc_0123456789ab", options)
 	if err != nil {
@@ -320,7 +323,7 @@ func TestRelayRecognisesInTheCloudAndContinuesHere(t *testing.T) {
 	if diarization, _ := submitted[0]["diarization"].(map[string]any); diarization["level"] != "judge-text" {
 		t.Fatalf("cloud diarization = %#v", submitted[0]["diarization"])
 	}
-	for _, key := range []string{"correction", "knowledge", "knowledge_subjects"} {
+	for _, key := range []string{"correction", "knowledge", "knowledge_subjects", "transcription"} {
 		if _, exists := submitted[0][key]; exists {
 			t.Fatalf("cloud request carries %s: %#v", key, submitted[0])
 		}
@@ -341,6 +344,11 @@ func TestRelayRecognisesInTheCloudAndContinuesHere(t *testing.T) {
 	source := request["source"].(map[string]any)
 	if source["kind"] != "cloud_stable" || source["video_id"] != "loc_0123456789ab" || request["target"] != "final-srt" {
 		t.Fatalf("local request = %#v", request)
+	}
+	// The local leg continues the cloud's recognition on FineSub: a request
+	// without the block, exactly as before engines were selectable.
+	if _, exists := request["transcription"]; exists {
+		t.Fatalf("local continuation carries transcription: %#v", request)
 	}
 	if request["knowledge"] != "update" || request["knowledge_subjects"] == nil {
 		t.Fatalf("local request lost the knowledge settings: %#v", request)

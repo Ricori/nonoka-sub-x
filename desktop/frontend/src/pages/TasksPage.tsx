@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { MediaEntry } from "../bridge/library.ts";
-import { formatTaskDate, taskActivityText, taskProgress, taskStageLabel, taskStateLabel } from "../app/format.ts";
+import { formatTaskDate, taskActivityText, taskProgress, taskStageLabel, taskStateLabel, taskTranscriptionEngine, transcriptionEngineLabel } from "../app/format.ts";
 import type { TaskHistoryEntry } from "../app/types.ts";
 import { activeStates, recoverableStates } from "../app/types.ts";
 import { Mark } from "../components/Mark.tsx";
@@ -131,7 +131,7 @@ export function TasksPage(props: TasksPageProps) {
               <article className={`task-row task-${snapshot.state}`} key={item.taskId}>
                 <div className="task-state-icon" aria-hidden="true">{snapshot.state === "completed" ? "✓" : activeStates.has(snapshot.state) ? "↻" : recoverableStates.has(snapshot.state) ? "!" : "·"}</div>
                 <div className="task-row-copy">
-                  <div className="task-row-title"><strong>{item.title}</strong><span className={`task-state task-state-${snapshot.state}`}>{taskStateLabel(snapshot.state)}</span><small>{item.provider === "cloud" ? "☁ 云端" : "本机"}</small></div>
+                  <div className="task-row-title"><strong>{item.title}</strong><span className={`task-state task-state-${snapshot.state}`}>{taskStateLabel(snapshot.state)}</span><small>{`${item.provider === "cloud" ? "☁ 云端" : "本机"} · ${transcriptionEngineLabel(taskTranscriptionEngine(snapshot, item.provider))}`}</small></div>
                   <div className="task-row-meta"><span>{taskStageLabel(snapshot.stage, snapshot.state)}</span><code>{item.taskId.slice(0, 12)}</code><time dateTime={snapshot.updated_at}>{formatTaskDate(snapshot.updated_at)}</time></div>
                   <AnimatedTaskProgress snapshot={snapshot} />
                   <TaskActivityText snapshot={snapshot} />
