@@ -1,6 +1,6 @@
 # 转写引擎重构计划
 
-> 状态（2026-11-11）：WP-Q、WP-A、WP0、WP-R0 已完成并合进 main；WP-C 的 harness 已合进 main，云端基线还没录成（见 WP-C）；编译加速已在 `85ae2b9` 关闭；WP-R2、WP-B、WP-R1、WP1、WP4a、WP4b、WP4c、WP3a/b/c、WP-C、WP-P0、WP-M1（最后一条完成标准除外）、WP-R4、WP-K、WP-E1、WP-CL0、WP5、WP-E2、WP-E3 已完成并合进 main（WP-CL0 的预热脚本合进云端仓库的 main；各包按附录 B 的答复调整）；2026-11-12 用户决定知识库独立成第三个包、全部经协议访问（第 0.1 节第 5 条、4.6 第 35a 条、WP-K）；第五批（WP5、WP-E2、WP-E3，2026-11-13）已全部完成；第六批 WP6、WP-R5、WP-R6 已派给各自的会话（2026-11-13，附录 B 第 69 问）；WP-M1 的最后一条完成标准先不做（第 70 问）；三层已传上 R2（经代理的下载校验和速率限制规则用户决定先不做，见 WP-E2）；2026-11-13 用户决定模型层不再按单文件放 R2，迁移时模型补齐改为下整个模型层压缩包（附录 B 第 63、64 问）；其余未开工。本文档是交给子代理执行的工作说明，每个工作包可以单独领走。
+> 状态（2026-11-11）：WP-Q、WP-A、WP0、WP-R0 已完成并合进 main；WP-C 的 harness 已合进 main，云端基线还没录成（见 WP-C）；编译加速已在 `85ae2b9` 关闭；WP-R2、WP-B、WP-R1、WP1、WP4a、WP4b、WP4c、WP3a/b/c、WP-C、WP-P0、WP-M1（最后一条完成标准除外）、WP-R4、WP-K、WP-E1、WP-CL0、WP5、WP-E2、WP-E3、WP-R5、WP-R6、WP6（第一阶段）已完成并合进 main（WP-CL0 的预热脚本合进云端仓库的 main；各包按附录 B 的答复调整）；2026-11-12 用户决定知识库独立成第三个包、全部经协议访问（第 0.1 节第 5 条、4.6 第 35a 条、WP-K）；第五批（WP5、WP-E2、WP-E3，2026-11-13）已全部完成；第六批（附录 B 第 69 问）的 WP-R5、WP-R6 与 WP6 第一阶段已于 2026-11-16 合进 main；用户 2026-11-13 决定去掉「运行环境」页、引擎与环境都放进设置页（4.9 第 39 条，附录 B 第 73 问），这部分界面作为 WP6 第二阶段在 WP6 会话里做；WP-M1 的最后一条完成标准先不做（第 70 问）；三层已传上 R2（经代理的下载校验和速率限制规则用户决定先不做，见 WP-E2）；2026-11-13 用户决定模型层不再按单文件放 R2，迁移时模型补齐改为下整个模型层压缩包（附录 B 第 63、64 问）；其余未开工。本文档是交给子代理执行的工作说明，每个工作包可以单独领走。
 > 写于 2026-11-10，基于 `main@1f14db3`、FineSub `v0.7.0@7123055`。
 > **2026-11-11 整理成干净版本**（用户决定，附录 B 第 1 问）：现行决定直接写在正文里，不再有「以后者为准」的追加条款。每个决定的来历、被推翻的旧说法，以及旧条款编号到新编号的对照，见附录 A；向用户问过的问题和答复见附录 B；还没定的事见附录 C。整理前的版本在 git 历史里（`main` 上的 `docs/transcription-engines-plan.md`）。
 > 相关文档：`docs/runtime-and-config.md`（WP-R0 的调查与设计答复 D1–D23，下称「R0 文档」；其中被本计划取代的答复已在那边标注，对照见附录 A.3）；`docs/engine-sandbox-experiment.md`（预制环境包与进程级沙箱两个前提的实验报告，下称「实验报告」）。本文档与 R0 文档冲突时以本文档为准。
@@ -113,7 +113,7 @@
 - 引擎读密钥时**进程环境变量优先于 `.env`**，不落盘就能读到全部密钥；例外是 `GEMINI_BASE_URL` 只从 `.env` 读（R0 文档 1.2）。引擎首次读到 `.env` 里的明文时会就地加密改写它，`FINESUB_ENV_PROTECT=0` 关掉（R0 文档 1.3；实验报告 1.4 在沙箱下复测成立）。
 - worker 的环境变量由 `provision.worker_environment` 组装（`provision.py:968`）；现有安装位于 `<数据目录>/finesub/{runtime,models,cache}`。
 - macOS 的运行时清单已经是 Nonoka 自己的（`src/nonoka_x/resources/runtime-manifest.macos-*.json`），macOS 只有媒体工具，没有 Python 运行时（`provision.py:233`）。
-- 桌面脚本 `desktop/scripts/resource-sources.mjs`、`build-offline-package.mjs`、`publish-github-mirror.mjs` 读 FineSub 的清单来准备离线包和镜像。
+- 桌面脚本 `desktop/scripts/resource-sources.mjs`、`build-offline-package.mjs`、`publish-github-mirror.mjs` 读 FineSub 的清单来准备离线包和镜像。（WP-R6 后：镜像脚本已删，离线包脚本改读 Nonoka 的清单与 `layers.json`。）
 - 云端：Modal 的 GPU worker 缺模型时靠引擎自己下载进 `/models` Volume；预热脚本 `prime_diarization_models` 也调引擎自己的 `hf_weights.prepare_directory`（`nonoka-sub-cloud/modal_compute/nonoka_x_compute/operations/prime.py:168`）。云端镜像整个复制 `third_party/finesub`（`images.py:159`、`:247`、`:264`），`PYTHONPATH` 含本仓库的 `src`。
 
 ### 2.5 外部环境现在从哪里漏进引擎
@@ -342,6 +342,7 @@
 ### 4.9 引擎配置页
 
 39. **「运行环境」页改成「引擎配置」页，全局只选一个转写引擎**（用户 2026-11-11，WP-UI）。重构完成后做，只重做这一块，媒体库、编辑器、导出不动。
+    - **2026-11-13 改（用户，附录 B 第 73 问；与下面几条冲突处以此为准）**：不单独做引擎配置页，**去掉「运行环境」页**；环境安装、转写引擎、纠错翻译引擎的选择全放进**设置页**，一页长滚动，从上到下：转写引擎 / 运行环境 / 纠错与翻译 / 存储与网络，不加导航。纠错引擎是「当前纠错引擎」卡片（finesub correction 与就绪状态），LLM 提供商配置挂在它下面，有第二个纠错引擎再加单选。三组云引擎密钥放在设置页转写引擎面板里。新建任务对话框去掉本机 / 云端开关，只显示当前引擎和去设置页的入口；云端 FineSub 是引擎列表里的一项，请求带 `transcription.engine="finesub-cloud"`（Go 不转发）。这部分界面在 WP-R6 合并后作为 WP6 第二阶段先做；依赖 WP-P1 / WP-H 的部分（删掉转写包后的表现、按包列占用）留在 WP-UI 以后补。
     - **全局单选**：用户在引擎配置页选定当前的转写引擎，之后所有新任务都用它。新建任务的对话框不再让选引擎，只显示当前用的是哪个，并给一个去引擎配置页的入口。任务请求里仍然记着引擎（提交时从全局设置填入），所以重试和续跑沿用原引擎（第 11 条）。
     - **可选项来自注册表**：本机的 FineSub 转写包（装了才出现）、MAI-Transcribe-2、Gemini 3.5 Transcribe、MOSS Pro，以及云端 FineSub。云端 FineSub 是列表里的一项：它不需要安装，就绪条件是已登录且有额度；选中它时任务的 `provider` 是云端，选其余各项时是本机。
     - **选哪个装哪个**：每个引擎声明自己要的层（第 15 条）。选中一个引擎时，页面列出它缺哪几层、要下载多少、装在哪，用户确认后只下载缺的层。云 API 引擎只要工具层和密钥；它们的可选增强（要 Python 环境层与模型层）在该引擎的面板里单独列为可选安装。引擎没装好之前不能设为当前引擎，或设了之后新建任务被拦住并指回这一页。
@@ -492,7 +493,7 @@ FineSub 转写引擎也要写 `transcript.json`（从它的 stable 投影出来�
 ## 6. 工作包
 
 ```text
-已完成：WP-Q、WP-A、WP0、WP-R0、WP-R2、WP-B、WP-R1、WP1、WP4a、WP4b、WP4c、WP3a/b/c、WP-C、WP-P0、WP-M1（最后一条完成标准还没做，WP-E3 已完成、可以做了）、WP-R4、WP-K、WP-E1、WP-CL0、WP5、WP-E2、WP-E3
+已完成：WP-Q、WP-A、WP0、WP-R0、WP-R2、WP-B、WP-R1、WP1、WP4a、WP4b、WP4c、WP3a/b/c、WP-C、WP-P0、WP-M1（最后一条完成标准还没做，WP-E3 已完成、可以做了）、WP-R4、WP-K、WP-E1、WP-CL0、WP5、WP-E2、WP-E3、WP-R5、WP-R6、WP6（第一阶段；第二阶段设置页重组在做）
 
 引擎线：
 WP-B ──┬─► WP1 ──► WP3a / WP3b / WP3c ───────────────┐
@@ -691,7 +692,9 @@ harness 已在 main（`tests/quality_harness/cloud.py`、`quality_gate.py --clou
   - 各引擎的就绪检查从 `EngineSpec.environment`（要哪几层）和层管理器得出。
 - 完成标准：没装任何层（只有工具层）、没有 GPU 的环境里，配了 MAI2 密钥就能通过 `final-srt` 的启动检查；没配时报 `missing_key`；闸门通过。
 
-### WP6 桌面界面与 Go
+### WP6 桌面界面与 Go（第一阶段已完成 2026-11-16；第二阶段在做）
+
+> 第一阶段交付（管线）：前端 `providers/types.ts`（`Capabilities.transcription_engines` / `correction_engines`、`TaskRequest.transcription`、`TaskSnapshot.transcription_engine`）、`home/defaultRequest.ts`（本机带 `{"engine":"finesub","options":{}}`，云端带 `finesub-cloud`）、`app/format.ts` 与 `pages/TasksPage.tsx`（任务行显示「本机 · FineSub」「☁ 云端 · FineSub」，旧快照按 provider 推断）、`local_provider.py`（任务快照加 `transcription_engine`）、`docs/provider-spec.md`（`transcription` 的校验与丢字段日志、快照字段、三个新错误码）。Go 不改代码：任务历史原样存，云端 relay 不转发 `transcription`，加了两条测试证明。清单外的文件经用户批准（附录 B 第 73 问）。本机 FineSub 请求去掉 `transcription` 后与改前逐字节相同（有测试）。主会话复核：与 WP-R5、WP-R6 一起试合并，pytest 935 通过，`go test ./...`、前端 `typecheck` 与 156 个测试通过，闸门含 `--real` 通过，没重录基线。第二阶段：按 4.9 第 39 条 2026-11-13 的改法重组设置页、删「运行环境」页、对话框去开关、当前引擎存成设置项，在 WP6 会话里做。没做：遥测记引擎（要改服务端格式）；插件发起的任务不带 `transcription`，按缺省 FineSub 跑。下面是原始说明。
 
 - 文件：`desktop/frontend/src/providers/types.ts`、`home/defaultRequest.ts`、`components/TranscriptionDialog.tsx`（及其 CSS）、`app/App.tsx`、`app/types.ts`、`providers/localProvider.ts`、`test/provider.test.mjs`；Go 侧 `desktop/internal/taskhistory`、`internal/telemetry` 如需记录引擎。
 - 内容：只做管线——类型、请求里带上 `transcription` 字段、任务列表和历史显示所用引擎、Go 侧的记录。引擎的选择在引擎配置页（WP-UI）；对话框暂时保留现有的本机 / 云端开关，等 WP-UI 换掉。
@@ -785,7 +788,7 @@ harness 已在 main（`tests/quality_harness/cloud.py`、`quality_gate.py --clou
 
 ### WP-E3 层管理器（新，取代原 WP-R3；已完成 2026-11-13）
 
-> 交付：`runtime/layers.py`（读 `layers.json` 并核对；装一层：清单 → 路径深度 → 磁盘空间 → 压缩包（离线包优先、从不删；否则断点续传、走 Nonoka 的代理设置）→ 系统 `tar.exe` 解到 `<版本>.unpack\`（保留修改时间）→ 按清单核对 → 改名 → 才切 `current.json` → 删下载的压缩包 → 没有未结束任务就删旧版本；被杀在每一步后都能续上；就绪 `ready/missing/outdated/damaged`，快速检查单趟扫描，真 Python 层 45563 个文件 0.46 s；`repair`；`unused()`/`remove_unused()`/`overview()`，删之前先改名到 `.retired`、被占用就整份留下；迁移用的 `complete_models()`），`provision.py` 重写在层上（对外状态结构不变，新增 `layers`、`unused_layers`、`unused_bytes`、`repair` 目标、`install_path_too_deep`、`runtime_in_use`；不建 venv、不调 uv、不从 HF 下载），`runtime/__init__.py` 门面（WP5 要的 `status()`、`tool_path()` 保住；`model_dir` 从模型层答），`runtime_install.py`、`model_install.py`，迁移钩子 `ModelCompletionHook`、`LayerDownloadHook` 登记进 `migration/hooks.py`；harness 只改定位（`real.py` 的 `provisioner_for`、`NONOKA_QUALITY_LAYERS_INDEX`，`pins.py` 量模型层与工具层）。`model_specs.py`、`msvc_runtime.py` 没改。`test_finesub_boundary.py` 去掉三条 WP-R3 过渡项。按附录 B 第 66、67 问的答复做。实测：从本地服务装真实三层约 3.6 分钟；从 R2 直连装真实三层（工具 55 s、Python 442 s、模型 331 s），完整核对全部就绪、下载缓存为空，`--real` 通过；整个大文件根搬到另一个盘、带空格的路径，不修补，就绪与 `--real` 都通过；真实三层最长相对路径 python 144、models 145 字符，默认位置算下来约 232。主会话复核：与 WP-E2 一起试合并，pytest 925 通过，闸门质量锁、钉住内容（installed runtime matches）、调用等价、环境、LLM 回放、知识库、`--real`（7 个逐字节、8 个按认可标准）通过，没重录基线；`--layers` 只报跑过 `--real` 后 Python 层多出的 46 个 numba 缓存文件，模型层与工具层干净。小改进（不挡合并）：层的下载走 `runtime.fetch.download_file`，没带 `Accept-Encoding: identity`，现在靠 httpx 自动解 gzip 才对，以后补上更稳。交回：WP-R5 / WP-H——`NUMBA_CACHE_DIR`；`local_provider.py` 的 `_prepare_msvc_environment`、`_clear_legacy_separator_decode_probes` 随「环境从零构建」删掉；`worker_environment` 仍是父环境加层路径。WP-R6——运行环境页文案（前端仍写「FineSub bootstrap 不可用」）、`remove_tool_group` 按钮（视频工具已并入工具层，不再单独卸载）、新的 `repair` 目标与字段；`download_route.py` 里 `offline_snapshot`、`offline_python`、`ensure_fast_enough`、`stage_environment`、`SpeedWatch` 已无调用方；Go 传给 sidecar 的 `--install-dir` 现在当作大文件根。WP-UI——「清理未使用的」用 `unused_layers()`/`remove_unused_layers()` 或门面 `layer_overview()`，sidecar 还没有对应路由。WP-M2——两个钩子已登记，迁移命令现在会真做模型补齐、下 Python 层和工具层。macOS 没有工具层，运行环境页在 mac 上显示不支持。下面是原始说明。
+> 交付：`runtime/layers.py`（读 `layers.json` 并核对；装一层：清单 → 路径深度 → 磁盘空间 → 压缩包（离线包优先、从不删；否则断点续传、走 Nonoka 的代理设置）→ 系统 `tar.exe` 解到 `<版本>.unpack\`（保留修改时间）→ 按清单核对 → 改名 → 才切 `current.json` → 删下载的压缩包 → 没有未结束任务就删旧版本；被杀在每一步后都能续上；就绪 `ready/missing/outdated/damaged`，快速检查单趟扫描，真 Python 层 45563 个文件 0.46 s；`repair`；`unused()`/`remove_unused()`/`overview()`，删之前先改名到 `.retired`、被占用就整份留下；迁移用的 `complete_models()`），`provision.py` 重写在层上（对外状态结构不变，新增 `layers`、`unused_layers`、`unused_bytes`、`repair` 目标、`install_path_too_deep`、`runtime_in_use`；不建 venv、不调 uv、不从 HF 下载），`runtime/__init__.py` 门面（WP5 要的 `status()`、`tool_path()` 保住；`model_dir` 从模型层答），`runtime_install.py`、`model_install.py`，迁移钩子 `ModelCompletionHook`、`LayerDownloadHook` 登记进 `migration/hooks.py`；harness 只改定位（`real.py` 的 `provisioner_for`、`NONOKA_QUALITY_LAYERS_INDEX`，`pins.py` 量模型层与工具层）。`model_specs.py`、`msvc_runtime.py` 没改。`test_finesub_boundary.py` 去掉三条 WP-R3 过渡项。按附录 B 第 66、67 问的答复做。实测：从本地服务装真实三层约 3.6 分钟；从 R2 直连装真实三层（工具 55 s、Python 442 s、模型 331 s），完整核对全部就绪、下载缓存为空，`--real` 通过；整个大文件根搬到另一个盘、带空格的路径，不修补，就绪与 `--real` 都通过；真实三层最长相对路径 python 144、models 145 字符，默认位置算下来约 232。主会话复核：与 WP-E2 一起试合并，pytest 925 通过，闸门质量锁、钉住内容（installed runtime matches）、调用等价、环境、LLM 回放、知识库、`--real`（7 个逐字节、8 个按认可标准）通过，没重录基线；`--layers` 只报跑过 `--real` 后 Python 层多出的 46 个 numba 缓存文件，模型层与工具层干净。小改进（不挡合并）：层的下载走 `runtime.fetch.download_file`，没带 `Accept-Encoding: identity`，现在靠 httpx 自动解 gzip 才对，以后补上更稳。交回：WP-R5 / WP-H——`NUMBA_CACHE_DIR`；`local_provider.py` 的 `_prepare_msvc_environment`、`_clear_legacy_separator_decode_probes` 随「环境从零构建」删掉；`worker_environment` 仍是父环境加层路径。WP-R6——运行环境页文案（前端仍写「FineSub bootstrap 不可用」）、`remove_tool_group` 按钮（视频工具已并入工具层，不再单独卸载）、新的 `repair` 目标与字段；`download_route.py` 里 `offline_snapshot`、`offline_python`、`ensure_fast_enough`、`stage_environment`、`SpeedWatch` 已无调用方（WP-R6 更正：`stage_environment`、`SpeedWatch` 仍有调用方，留着；其余已删）；Go 传给 sidecar 的 `--install-dir` 现在当作大文件根。WP-UI——「清理未使用的」用 `unused_layers()`/`remove_unused_layers()` 或门面 `layer_overview()`，sidecar 还没有对应路由。WP-M2——两个钩子已登记，迁移命令现在会真做模型补齐、下 Python 层和工具层。macOS 没有工具层，运行环境页在 mac 上显示不支持。下面是原始说明。
 
 > `layers.json` 的格式见 WP-E2 一节（两包按同一份格式并行）。WP-E1 交来的：解压必须保留文件的修改时间（否则分离器的 `.verified` 戳记失效、引擎往模型层写新戳）；Python 层最长相对路径 138 字符；numba 会往 Python 层写缓存（`NUMBA_CACHE_DIR` 归 WP-R5 / WP-H，本包的只读核对要能指出是哪些文件）。
 
@@ -812,7 +815,9 @@ harness 已在 main（`tests/quality_harness/cloud.py`、`quality_gate.py --clou
 - 内容：`settings.json`、`secrets.json`（R0 文档 2.1、2.2，D1、D2）；密钥沿用 FineSub 现行的信封方案（Windows DPAPI 绑账户），代码复制过来注明来源；读旧的 `finesub.env`、`finesub.toml` 的迁移逻辑放在 `config/migrate.py`，由本包接进 WP-M1 的迁移命令，迁移规则按 R0 文档 2.7 第 3 条；存储放在主数据目录里；`settings.py` 的快照接口对界面保持兼容，底下改读新存储。本包**不**负责生成 FineSub 的文件，那是 WP-R5。
 - 完成标准：迁移往返测试——拿一组真实形态的旧文件（含 Nonoka 不认识的键、多 key 池、自定义端点、本地 Agent 路由）迁移后，Nonoka 认识的设置和密钥都读得回来，不认识的键和变量被丢弃并出现在迁移报告里（只列名字不列值）；密钥不出现在日志和快照里；`tests/test_settings.py` 全过。
 
-### WP-R5 FineSub 桥接
+### WP-R5 FineSub 桥接（已完成 2026-11-16）
+
+> 交付：`finesub_bridge.py` 按进程派生（附录 B 第 71 问，8 条都是推荐项）：核心在拉起 worker 前组一份中性启动上下文，桥接分转写、纠错两份——转写只给模型目录变量、两个加速开关、`NUMBA_CACHE_DIR=<大文件根>\cache\finesub-transcribe\numba`、`HF_TOKEN`（配了才有）、`FINESUB_STATE_FILE`，不写文件；纠错在 `engines\finesub-correct\run\<pid>-<随机>\` 写 `model_catalog.toml`、`finesub.toml`（有内容才写）、`.env`（只在改过 `GEMINI_BASE_URL` 时写这一行），LLM 与检索密钥、`NONOKA_CLOUD_KEY` 走进程变量，`FINESUB_ENV_PROTECT=0`，`FINESUB_KNOWLEDGE_ROOT`、`FINESUB_STATE_FILE` 无条件写（位置等 WP-M2）。task worker 两份合用；run 目录持锁、进程结束即删，sidecar 启动时清残留；继承来的 `FINESUB_*` 一律去掉。sidecar 自己只钉住 FineSub 读打包默认值，并删掉 `engines\finesub-shared\`。`settings.py` 不再写派生文件，`config_file.py` 删除，`provision.worker_environment` 不再设模型变量；`local_provider.py`（用户批准）删 `_prepare_msvc_environment`、`_clear_legacy_separator_decode_probes`，加 `_engine_launch`。WP-R2 搬来的运行时补丁原样保留。harness：`environment.py` 扩大比对范围（13 个密钥名、6 个 Base URL 名、`NUMBA_CACHE_DIR`、`FINESUB_ENV_PROTECT`）。环境基线单独重录（`23d59c4`），差异：`.env` 不再有（密钥改成进程变量，值不变）、新增 `FINESUB_ENV_PROTECT=0` 与 `NUMBA_CACHE_DIR`、`UV_CACHE_DIR` 随 uv 消失；`finesub.toml`、`model_catalog.toml` 内容不变。跑 `--real` 后 Python 层不再新增 numba 缓存。主会话复核：与 WP-R6、WP6 一起试合并，pytest 935 通过，闸门含 `--real` 通过，基线差异与说明一致、里面只有闸门的假密钥。行为上的小变化：任务进行中改密钥，正在跑的 task worker 看不到新值（LLM worker 照旧保存后重启）；外部的 `FINESUB_*` 不再漏进引擎。交回：WP-P1——`_engine_launch` 里对桥接的调用挪进包进程，桥接仍 import `download_route`、`runtime.fetch`、`runtime.fsops`，sidecar 进程内仍 import FineSub；WP-H——环境仍以父环境为底，白名单、`-I -B`、沙箱、`HF_HUB_OFFLINE=1` 没做；WP-M2——搬知识库与限流状态时改两份上下文里的 `knowledge_root`、`state_file`；WP-UI——numba 缓存目录要不要进「清理」。下面是原始说明。
 
 - 文件：`finesub_bridge.py`、`tests/test_finesub_bridge.py`；`provision.worker_environment` 和 `settings.bind_environment` 里与 FineSub 有关的部分收进来（含 `85ae2b9` 加的两个加速开关）。
 - 内容：按 4.3 第 22、23 条，每次启动 worker 时从 Nonoka 的配置、密钥、目录（层的当前版本目录）派生 `finesub.toml`、模型目录文件和全部 `FINESUB_*` 环境变量；派生文件放 `engines\<包>\run\<进程标识>\`；密钥只走环境变量。按 4.6 第 35 条写成将来要搬进两个包的样子：转写那一份和纠错那一份分开（各自只派生自己要的东西）。
@@ -823,7 +828,9 @@ harness 已在 main（`tests/quality_harness/cloud.py`、`quality_gate.py --clou
   - `src/nonoka_x/` 里只有本文件和两个适配器知道 `FINESUB_*`（WP0 的边界测试，白名单变短）。
   - `quality_gate.py --real` 通过。
 
-### WP-R6 桌面、脚本、离线包与文档
+### WP-R6 桌面、脚本、离线包与文档（已完成 2026-11-16）
+
+> 交付：启动器 Python 的下载去掉所有镜像与 R2 兜底，阶梯为「离线包 → 代理 → 直连 → 报错」（`python_bootstrap.go`、`download_route.go`）；`runtimeName` = `runtime`（`locations.go`），搬迁本来就整目录搬、没改；桌面端自己找 ffmpeg / ffprobe / tokcount / yt-dlp / PO Token 改到 `layers\tools\<版本>\<工具 id>\`，版本取 `current.json`、不核对是不是这个版本要的（`managedtools/resolve.go`）；预估占用 16 → 14 GiB；离线包＝三层（`v1/<层>/<sha256>.json|.tar.zst`，与 R2 同路径，层管理器原地读）加启动器三样，默认按 `layers.json` 从 R2 下、`--layers` 从本机构建复制，都按索引核大小与 sha256，`pack.json` schema 2；`publish-github-mirror.mjs` 删除；运行环境页、存储卡片的文案按层改（「运行环境层不可用」、macOS 没有预制层、层损坏时显示「修复」、删视频工具卸载按钮），类型加 `repair` 与三个层字段；`download_route.py` 删 `offline_python`、`offline_snapshot`、`ensure_fast_enough` 与 4 个测速测试（`stage_environment`、`SpeedWatch` 仍有调用方，留着）；`docs/architecture.md` 4.3、`docs/engine.md` 3.4、`LOCAL_CHANGES.md` 一句。计划外的文件与两项非推荐选择见附录 B 第 72 问。实测：离线包从 R2 直连构建 626 秒，21 个文件 5.77 GiB，层对象与 R2 同版本逐字节相同；进程级断网（审计钩子拒绝一切连接与名字解析）从离线包装三层 112 秒、零次联网尝试，完整核对三层就绪；`--layers` 对离线装好的三层通过；`--real` 在这份层上通过。测试用的约 16 GB 文件按用户选择做完就删了。没做到：断网是进程级的不是整机；Go 启动器的离线安装只由单元测试覆盖；没给 `--exe`（本机没有桌面 exe）。主会话复核：与 WP-R5、WP6 一起试合并，pytest 935 通过，`go test ./...`、前端测试通过，闸门含 `--real` 通过。交回：WP-UI——见 WP-UI 一节的说明；WP-R7——删自下载后 `download_route.offline_file`、`_copy_into_place` 和离线包 `files/<sha>/` 里除 uv 以外的用途会消失；WP-M2 / 发版——老用户的大文件根从 `finesub` 变成 `runtime` 靠迁移改名，迁移接进启动之前没迁移的数据目录在新版里看起来是「没装」；macOS 没有工具层，`managedtools` 在 mac 上只能用系统工具。下面是原始说明。
 
 - 文件：`desktop/scripts/resource-sources.mjs`、`build-offline-package.mjs`、`publish-github-mirror.mjs`（删除）、`desktop/internal/app/python_bootstrap.go` 及其测试、`desktop/internal/storage/locations.go`、「运行环境」页与设置页相关前端文件、`docs/architecture.md` 4.3 节。
 - 内容：
@@ -1006,6 +1013,8 @@ harness 已在 main（`tests/quality_harness/cloud.py`、`quality_gate.py --clou
 ### WP-UI 引擎配置页
 
 重构的其余部分做完之后开工：等 WP-P1、WP-L、WP-H、WP6、WP-E3，排在 WP8 之前，随同一个版本发布。规则见 4.9 第 39 条。
+
+> 2026-11-13 用户改了方向（4.9 第 39 条第一个子条目，附录 B 第 73 问）：没有单独的引擎配置页，「运行环境」页去掉，下面写到引擎配置页的内容都放进设置页；界面主体由 WP6 第二阶段先做，本包只剩依赖 WP-P1、WP-L、WP-H 的部分和完成标准里的整体验收。WP-R6 交来的：`App.tsx` 的 `removeRuntimeGroup`、`RuntimePage` 的 `onRemoveGroup`、`RuntimeToolGroup` 类型、Go `provider` 与 sidecar 的 `DELETE /v1/runtime/provision/group` 路由、后端 `remove_tool_group` 都可以删；`repair` 目标还没有界面入口；「清理未使用的」用状态里的 `unused_layers` / `unused_bytes`。WP-R5 交来的：`cache\finesub-transcribe\numba\` 不在「清理」范围内，要不要纳入由本包定。
 
 - 文件：`desktop/frontend/src/pages/RuntimePage.tsx`（及 CSS，改成引擎配置页）、`components/TranscriptionDialog.tsx`（去掉引擎选择）、`components/InstallLocationCard.tsx`、`StorageLocationsCard.tsx`、`StorageRelocation.tsx`、`runtimeCache.ts`、`bridge/runtime.ts`、`app/App.tsx`（导航与文案）、`pages/SettingsPage.tsx`（只移走转写引擎的密钥，其余不动）、`home/defaultRequest.ts`、`providers/types.ts`；Go 侧 `desktop/internal/preferences`（当前引擎的设置项）；Python 侧 `nonoka_x.runtime` 门面的层查询（WP-E3 已提供）。
 - 内容：
@@ -1248,6 +1257,9 @@ R0 文档里这几条已按此加了标注（只加标注，不删原文）。
 | 68 | 经代理的外网下载校验先不做之后，发版约束里「经代理和不经代理各下载校验一次」怎么办 | 删去经代理的一次，发版前只要求不经代理下载校验通过；WP8 新用户验收的「经代理从 R2 装好三层」也改为不限经不经代理；速率限制规则也先不建（2026-11-13） |
 | 69 | 第六批开哪几个包 | WP6、WP-R5、WP-R6 三个并行（推荐项，2026-11-13） |
 | 70 | WP-M1 的最后一条完成标准（用迁移命令把开发机真实的安装搬到新布局）现在做不做 | 先不做：等开发机准备换到新版时再做，在那之前真实安装继续只读（推荐项，2026-11-13） |
+| 71 | WP-R5：派生在哪个进程做；两份桥接怎么分；sidecar 自己的 FineSub 绑定；外部变量与 MSVC 遗留；`NUMBA_CACHE_DIR` 指向哪；`engines\finesub-shared\` 残留；环境基线的比对范围；知识库与状态文件变量 | 全部推荐项：sidecar 在拉起 worker 前派生、交给子进程；转写与纠错分两份，分包前 task worker 合用；sidecar 只读打包默认值；去掉继承的 `FINESUB_*`、删两个 MSVC 函数（批准改 `local_provider.py`），从零构建留给 WP-H；`<大文件根>\cache\finesub-transcribe\numba\`；sidecar 启动时删；比对范围加上密钥名、Base URL 名、`NUMBA_CACHE_DIR`、`FINESUB_ENV_PROTECT`；无条件写、位置等 WP-M2（2026-11-13） |
+| 72 | WP-R6：离线包装什么；断网怎么模拟；计划外文件；视频工具卸载按钮；预估占用；测试大文件；桌面端找工具改到工具层 | 三层加启动器；进程级断网；`engine.md` 3.4、`LOCAL_CHANGES.md` 一句、`download_route.py` 死代码、`offline_pack.go` 注释、`managedtools/resolve.go`、`storage_service.go` 都允许；只删页面按钮；14 GiB；**做完就删**（非推荐项）；改到工具层，**按 `current.json` 就用、不核对版本**（非推荐项）（2026-11-13） |
+| 73 | WP6（在 WP6 会话里直接说的）：去掉运行环境页，环境安装、转写引擎、纠错翻译引擎的选择全放进设置页，LLM 提供商配置放在纠错引擎下面；什么时候做；对话框开关；纠错引擎怎么呈现；设置页布局；provider-spec 谁写；云端请求带不带引擎；任务列表的引擎从哪来；遥测；三组密钥放哪 | WP-R6 合并后在 WP6 会话里做，依赖 WP-P1 / WP-H 的以后补；对话框去掉开关、云端 FineSub 成为引擎列表一项；「当前纠错引擎」卡片下挂 LLM 配置；**一页长滚动**、不加导航（推荐的是左侧分组导航）；WP6 写；带 `finesub-cloud`、Go 不转发；**Python 快照带引擎**（推荐的是前端提交时记，批准改 `local_provider.py`）；不做；放在设置页转写引擎面板（2026-11-13） |
 
 更早的问答：WP-R0 的 D1–D23 见 R0 文档第 0 节；WP0 的细节见附录 A.1；沙箱实验中的决定见实验报告。
 
