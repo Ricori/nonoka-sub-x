@@ -1,0 +1,89 @@
+.engine-section { display: grid; gap: 10px; }
+
+.engine-missing {
+  margin: 0;
+  border: 1px solid color-mix(in srgb, var(--warn) 32%, transparent);
+  border-radius: 10px;
+  padding: 9px 12px;
+  background: color-mix(in srgb, var(--warn) 8%, var(--panel));
+  color: var(--warn);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+/* One panel, one row per engine; only the chosen row opens its detail. */
+.engine-list { display: grid; padding: 6px; }
+.engine-row { border-radius: 12px; transition: background .15s; }
+.engine-row + .engine-row { margin-top: 2px; }
+.engine-row.selected { background: color-mix(in srgb, var(--accent) 7%, transparent); }
+
+.engine-row-main {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  border: 0;
+  border-radius: 12px;
+  padding: 12px 14px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.engine-row:not(.selected) .engine-row-main:hover { background: color-mix(in srgb, var(--accent) 4%, transparent); }
+.engine-row-main:focus-visible { outline: 2px solid var(--accent-line, var(--accent)); outline-offset: -2px; }
+
+.engine-radio {
+  width: 16px;
+  height: 16px;
+  border: 1.5px solid var(--line-soft);
+  border-radius: 50%;
+  transition: border-color .15s, box-shadow .15s;
+}
+.engine-row.selected .engine-radio { border-color: var(--accent); box-shadow: inset 0 0 0 3.5px var(--panel), inset 0 0 0 8px var(--accent); }
+
+.engine-row-copy { display: grid; gap: 3px; min-width: 0; }
+.engine-row-title { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.engine-row-title strong { color: var(--text); font-size: 13px; }
+.engine-kind, .engine-current {
+  border: 1px solid var(--line-soft);
+  border-radius: 999px;
+  padding: 1px 7px;
+  color: var(--mut);
+  font-size: 11px;
+}
+.engine-kind-cloud-api, .engine-kind-cloud-service { border-color: color-mix(in srgb, var(--accent) 30%, var(--line-soft)); color: var(--accent); }
+.engine-current { border-color: var(--accent); background: var(--accent); color: var(--panel); }
+.engine-row-note, .engine-row-billing { color: var(--faint); font-size: 12px; line-height: 1.5; }
+.engine-row-billing { color: var(--mut); }
+
+.engine-row-detail { display: grid; gap: 12px; padding: 0 14px 14px 42px; }
+.engine-row-detail:empty { display: none; }
+.engine-issue { margin: 0; color: var(--warn); font-size: 12px; line-height: 1.5; }
+.engine-issue .inline-link {
+  margin-left: 8px;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--accent);
+  font-size: inherit;
+  cursor: pointer;
+}
+/* Cards inside a panel: borders only, like the advanced keys. */
+.engine-keys .key-card { box-shadow: none; }
+.engine-key-unknown { margin: 0; color: var(--faint); font-size: 12px; }
+
+/* The correction engine is one card for now; the LLM settings hang below it. */
+.correction-engine-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 20px;
+}
+.correction-engine-card > div { display: grid; gap: 3px; min-width: 0; }
+.correction-engine-card strong { color: var(--text); font-size: 13px; }
+.correction-engine-card small { color: var(--faint); font-size: 12px; line-height: 1.5; }
+.correction-engine-card .engine-issue { grid-column: 1 / -1; }

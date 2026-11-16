@@ -11,10 +11,7 @@ export interface RuntimeItem {
 /** 每个目标对应它要的运行环境层（`nonoka_x.runtime_install.TARGET_LAYERS`）：装任何一个工具都是装整个工具层。
     `repair` 对已装的层做完整核对（逐文件 sha256），有问题的整层重新安装。 */
 export type RuntimeInstallTarget = "media" | "runtime" | "models" | "all" | "optional-models" | "repair" | "yt-dlp" | "tokcount" | "aria2c" | "node" | "pot-provider" | "video-tools";
-/** 视频下载工具已并入工具层，后端不再单独卸载；类型留到引擎配置页（WP-UI）重做时删。 */
-export type RuntimeToolGroup = "video-tools";
-
-/** 一个运行环境层的状态（`LayerManager.overview()`），给引擎配置页的「清理未使用的」用。 */
+/** 一个运行环境层的状态（`LayerManager.overview()`），给设置页的「清理未使用的」用。 */
 export interface RuntimeLayerOverview {
   id: "python" | "models" | "tools";
   label: string;
@@ -38,6 +35,14 @@ export interface RuntimeUnusedLayer {
   name: string;
   path: string;
   bytes: number;
+}
+
+/** 「清理未使用的」的结果：删掉的、因占用或任务未结束而留下的，以及腾出的字节数。 */
+export interface RuntimeUnusedRemoval {
+  schema: 1;
+  removed: RuntimeUnusedLayer[];
+  kept: Array<RuntimeUnusedLayer & { reason: string }>;
+  freed: number;
 }
 
 export interface RuntimeProvisionState {
@@ -74,7 +79,7 @@ export interface RuntimeProvisionState {
   };
 }
 
-/** 运行环境下载缓存（还没装完的层压缩包，`<大文件根>\cache\downloads\`）的占用。 */
+/** 运行环境缓存的占用：还没装完的层压缩包（`<大文件根>\cache\downloads\`）与转写引擎的编译缓存（numba），都可以清掉。 */
 export interface RuntimeCacheStatus {
   schema: 1;
   bytes: number;
@@ -110,7 +115,7 @@ export const fineSubRuntime = {
   install: (target: RuntimeInstallTarget) => ProviderService.InstallRuntime(target) as Promise<unknown> as Promise<RuntimeProvisionState>,
   cancel: () => ProviderService.CancelRuntimeInstall() as Promise<unknown> as Promise<RuntimeProvisionState>,
   removeAll: () => ProviderService.RemoveRuntime() as Promise<unknown> as Promise<RuntimeProvisionState>,
-  removeGroup: (target: RuntimeToolGroup) => ProviderService.RemoveRuntimeGroup(target) as Promise<unknown> as Promise<RuntimeProvisionState>,
+  removeUnused: () => ProviderService.RemoveUnusedRuntime() as Promise<unknown> as Promise<RuntimeUnusedRemoval>,
   cacheStatus: () => ProviderService.RuntimeCacheStatus() as Promise<unknown> as Promise<RuntimeCacheStatus>,
   clearCache: () => ProviderService.ClearRuntimeCache() as Promise<unknown> as Promise<RuntimeCacheClearResult>,
 };

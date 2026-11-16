@@ -82,3 +82,22 @@ export function requestForEngine(engine: ExecutionMode, request: TaskRequest, en
     transcription: { engine: CLOUD_TRANSCRIPTION_ENGINE, options: {} },
   };
 }
+
+/** 设置页选的引擎由谁来跑：`finesub-cloud` 交给云端 Provider，其余都在本机。 */
+export function executionModeFor(engine: string): ExecutionMode {
+  return engine === CLOUD_TRANSCRIPTION_ENGINE ? "cloud" : "local";
+}
+
+/**
+ * 对话框开始任务时的请求：按设置页选定的转写引擎落成请求（WP6）。
+ *
+ * 本机任务把引擎记进 `transcription`；选 FineSub 时就是默认的
+ * `{"engine":"finesub","options":{}}`，请求与引擎可选之前只差这一个字段。
+ * 日文轴（`sourceTextAxis`）不跑识别，只能在本机走 FineSub 的续跑那条路，
+ * 不管选的是哪个引擎。
+ */
+export function requestForTranscriptionEngine(engine: string, request: TaskRequest, entry: MediaEntry, sourceTextAxis = false): TaskRequest {
+  const runsOn: ExecutionMode = sourceTextAxis ? "local" : executionModeFor(engine);
+  const transcription = runsOn === "local" && !sourceTextAxis ? { engine, options: {} } : request.transcription;
+  return requestForEngine(runsOn, { ...request, transcription }, entry);
+}

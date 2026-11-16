@@ -1250,23 +1250,28 @@ class LocalProvider:
         except OSError as exc:
             raise ProviderError("runtime_cache_failed", f"清理缓存失败：{exc}", http_status=409) from exc
 
-    def remove_runtime_group(self, group: str) -> dict[str, Any]:
+    def remove_unused_runtime(self) -> dict[str, Any]:
+        """Delete the layer versions nothing uses (the settings page's "clean up unused")."""
+
         if self._provisioner is None:
             raise ProviderError("runtime_unavailable", "FineSub runtime installer is unavailable", http_status=503)
         with self._lock:
             if any(process.poll() is None for process in self._processes.values()):
-                raise ProviderError("runtime_in_use", "有本地任务正在运行，请先停止任务再卸载工具", http_status=409)
+                raise ProviderError("runtime_in_use", "有本地任务正在运行，请等任务结束后再清理", http_status=409)
         try:
-            return self._provisioner.remove_tool_group(group)
+            return self._provisioner.remove_unused_layers()
         except RuntimeProvisionError as exc:
             raise ProviderError("runtime_remove_unavailable", str(exc), http_status=409) from exc
         except OSError as exc:
-            raise ProviderError("runtime_remove_failed", f"卸载工具失败：{exc}", http_status=409) from exc
+            raise ProviderError("runtime_remove_failed", f"清理失败：{exc}", http_status=409) from exc
 
     def get_settings(self) -> dict[str, Any]:
         if self._settings is None:
             raise ProviderError("settings_unavailable", "FineSub settings are unavailable", http_status=503)
-        return self._settings.snapshot()
+        from .config import ConfigStore
+
+        # Through the facade: it adds the registered engine keys (`engineKeys`).
+        return ConfigStore(self._settings).snapshot()
 
     def update_keys(self, updates: Mapping[str, Any]) -> dict[str, Any]:
         if self._settings is None:

@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sync"
 
 	"github.com/Ricori/nonoka-x/desktop/internal/netproxy"
@@ -18,11 +19,21 @@ type State struct {
 	SidebarCollapsed bool                    `json:"sidebarCollapsed"`
 	LibraryView      string                  `json:"libraryView"`
 	Bounds           map[string]WindowBounds `json:"bounds"`
+	// TranscriptionEngine is the engine new tasks run on (WP6): a
+	// `Capabilities.transcription_engines` id, or "finesub-cloud" for Nonoka
+	// Cloud's FineSub. Tasks record it in their request; retries keep theirs.
+	TranscriptionEngine string `json:"transcriptionEngine"`
 	// Proxy is a custom proxy for everything the app sends off this machine,
 	// or nil to follow the system proxy. The Python sidecar reads this key from
 	// preferences.json too (`nonoka_x.download_route`).
 	Proxy *netproxy.Custom `json:"proxy"`
 }
+
+// DefaultTranscriptionEngine is FineSub on this machine.
+const DefaultTranscriptionEngine = "finesub"
+
+// engineID is the registry's id shape (`nonoka_x.transcription.check_id`).
+var engineID = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,63}$`)
 
 type WindowBounds struct {
 	X          int  `json:"x"`
@@ -46,7 +57,7 @@ func New(dataDirectory string) (*Service, error) {
 	}
 	service := &Service{
 		path: filepath.Join(root, "preferences.json"),
-		data: State{Schema: 2, HomeTheme: "light", EditorTheme: "dark", LibraryView: "grid", Bounds: map[string]WindowBounds{}},
+		data: State{Schema: 2, HomeTheme: "light", EditorTheme: "dark", LibraryView: "grid", TranscriptionEngine: DefaultTranscriptionEngine, Bounds: map[string]WindowBounds{}},
 	}
 	service.load()
 	netproxy.SetCustom(service.data.Proxy)
@@ -93,6 +104,13 @@ func (s *Service) Save(patch map[string]any) (State, error) {
 			return s.data, errors.New("libraryView must be grid or list")
 		}
 		next.LibraryView = view
+	}
+	if value, exists := patch["transcriptionEngine"]; exists {
+		engine, ok := value.(string)
+		if !ok || !engineID.MatchString(engine) {
+			return s.data, errors.New("transcriptionEngine must be an engine id")
+		}
+		next.TranscriptionEngine = engine
 	}
 	if value, exists := patch["proxy"]; exists {
 		custom, err := decodeProxy(value)
@@ -182,6 +200,11 @@ func (s *Service) load() {
 	}
 	if state.LibraryView != "grid" && state.LibraryView != "list" {
 		state.LibraryView = "grid"
+	}
+	// Before WP6 every task ran on FineSub here or in the cloud; a file
+	// without the key keeps doing so here.
+	if !engineID.MatchString(state.TranscriptionEngine) {
+		state.TranscriptionEngine = DefaultTranscriptionEngine
 	}
 	state.Schema = 2
 	if state.Bounds == nil {

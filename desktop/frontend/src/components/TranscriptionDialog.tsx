@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Service } from "../../bindings/github.com/Ricori/nonoka-x/desktop/internal/provider/index.js";
 import type { MediaEntry } from "../bridge/library.ts";
-import { defaultTaskRequest, requestForEngine } from "../home/defaultRequest.ts";
+import { defaultTaskRequest, requestForTranscriptionEngine } from "../home/defaultRequest.ts";
 import { cloudAcceptsDuration } from "../home/executionAvailability.ts";
-import { GPU_TIERS } from "../providers/types.ts";
+import { CLOUD_TRANSCRIPTION_ENGINE, DEFAULT_TRANSCRIPTION_ENGINE, GPU_TIERS } from "../providers/types.ts";
 import type { Capabilities, DiarizationLevel, GpuTier, KnowledgeSubject, TaskAxis, TaskRequest } from "../providers/types.ts";
 import type { FineSubSettingsState } from "../bridge/settings.ts";
 import type { ExecutionMode } from "../app/types.ts";
+import { transcriptionEngineLabel } from "../app/format.ts";
+import type { SettingsAnchor } from "../pages/SettingsPage.tsx";
 import { CustomSelect } from "./CustomSelect.tsx";
 import {
   AXIS_KIND_HINT, AXIS_KIND_LABEL, AXIS_KIND_SHORT, parseAxisFile, recolumn,
@@ -24,12 +26,13 @@ interface TranscriptionDialogProps {
   localIssue?: string;
   cloudAuthenticated: boolean;
   cloudRemaining?: number;
+  /** 设置页选定的转写引擎（`finesub-cloud` 即云端）；对话框不再让选，只显示它和去设置页的入口。 */
+  transcriptionEngine: string;
   busy: boolean;
   error: string;
   onClose: () => void;
-  onOpenRuntime: () => void;
+  onOpenSettings: (anchor: SettingsAnchor) => void;
   onOpenAccount: () => void;
-  onOpenKeys: () => void;
   onImport: (axis: TaskAxis) => Promise<void>;
   onStart: (engine: ExecutionMode, request: TaskRequest, axis: TaskAxis | null) => Promise<void>;
 }
@@ -179,8 +182,10 @@ const SKIP_SEPARATION_HINT ="仅在输入本身就是纯人声（已分离的人
 export function TranscriptionDialog(props: TranscriptionDialogProps) {
   const {
     entry, localReady, localCapabilities, cloudCapabilities, settings, localIssue, cloudAuthenticated,
-    cloudRemaining, busy, error, onClose, onOpenRuntime, onOpenAccount, onOpenKeys, onImport, onStart,
+    cloudRemaining, transcriptionEngine, busy, error, onClose, onOpenSettings, onOpenAccount, onImport, onStart,
   } = props;
+  const onOpenRuntime = () => onOpenSettings("runtime");
+  const onOpenKeys = () => onOpenSettings("correction");
   const [step, setStep] = useState<Step>("axis");
   const [axisOn, setAxisOn] = useState(false);
   const [axisFile, setAxisFile] = useState("");
@@ -211,13 +216,28 @@ export function TranscriptionDialog(props: TranscriptionDialogProps) {
     const stage = localStages.find((item) => item.id === id);
     return stage && !stage.ready ? stage.issues[0]?.message || "尚未就绪" : "";
   };
-  const localUnavailable = !localCapabilities
+  // 当前引擎来自设置页。`finesub-cloud` 交给云端 Provider，其余都在本机 Provider 下跑。
+  const engine: ExecutionMode = transcriptionEngine === CLOUD_TRANSCRIPTION_ENGINE ? "cloud" : "local";
+  const listedEngines = localCapabilities?.transcription_engines;
+  const engineInfo = engine === "local" ? listedEngines?.find((item) => item.id === transcriptionEngine) ?? null : null;
+  // 本机 GPU 引擎（FineSub）才有计算设备、显卡档位和说话人模型这些事。
+  const localGpuEngine = engine === "local" && (engineInfo ? engineInfo.kind === "local-gpu" : transcriptionEngine === DEFAULT_TRANSCRIPTION_ENGINE);
+  const remoteAudio = engine === "cloud" || engineInfo?.kind === "cloud-api";
+  const engineLabel = engineInfo?.label ?? (engine === "cloud" ? "FineSub（云端）" : transcriptionEngineLabel(transcriptionEngine));
+  const fineSubLocalUnavailable = !localCapabilities
     ? "本地服务尚未启动"
     : localReady ? "" : localIssue || "本地运行环境尚未就绪";
   // 不报分档的旧版 sidecar：只能拿整体就绪状态兜底。
   const harnessIssue = !localCapabilities
     ? "本地服务尚未启动"
-    : localStages.some((item) => item.id === "harness") ? stageIssue("harness") : localUnavailable;
+    : localStages.some((item) => item.id === "harness") ? stageIssue("harness") : fineSubLocalUnavailable;
+  // FineSub 照旧看整体就绪；其他本机引擎看它自己的就绪，再加上转写之后的续跑档。
+  // 引擎不在列表里（包被移除、旧版 sidecar）不静默换成别的：拦下，指回设置页。
+  const localUnavailable = transcriptionEngine === DEFAULT_TRANSCRIPTION_ENGINE ? fineSubLocalUnavailable
+    : !localCapabilities ? "本地服务尚未启动"
+      : !engineInfo ? `转写引擎「${engineLabel}」不可用，请到设置里重新选择`
+        : !engineInfo.ready ? engineInfo.issues[0]?.message || `${engineLabel} 尚未就绪`
+          : harnessIssue;
   const cloudDurationExceeded = !cloudAcceptsDuration(entry.duration);
   const cloudUnavailable = !cloudAuthenticated
     ? "需要先登录云端账户"
@@ -225,9 +245,6 @@ export function TranscriptionDialog(props: TranscriptionDialogProps) {
       ? `视频时长 ${clock(entry.duration)}，超过云端 2 小时上限`
       : harnessIssue ? `云端识别结果要回到本机继续处理：${harnessIssue}` : "";
   const engineIssue = (engine: ExecutionMode) => engine === "local" ? localUnavailable : cloudUnavailable;
-
-  // 默认本机；本机转写不了而云端可以时才改选云端。
-  const [engine, setEngine] = useState<ExecutionMode>(() => !localUnavailable || cloudUnavailable ? "local" : "cloud");
   const [request, setRequest] = useState<TaskRequest>(() => initialRequest(entry, localCapabilities));
   const [knowledgeEntries, setKnowledgeEntries] = useState<KnowledgeEntry[]>([]);
   const [pickedSubjects, setPickedSubjects] = useState<PickedSubject[]>([]);
@@ -281,22 +298,29 @@ export function TranscriptionDialog(props: TranscriptionDialogProps) {
     || localStages.find((item) => item.id === "final-srt")?.issues.some((issue) => issue.code === "missing_llm_key") === true);
 
   // 说话人分离：轴里已经标了说话人时以轴为准，不再分离；日文轴不跑识别，也就无从分离。
-  const diarizationAvailable = !translateOnly && speakers.length === 0 && engineCapabilities?.features.diarization === true;
+  const diarizationAvailable = !translateOnly && speakers.length === 0 && engineCapabilities?.features.diarization === true
+    && (engineInfo?.features.diarization_levels ?? ["acoustics"]).some((level) => level !== "off");
+  // 引擎声明的档位；没声明（旧版 sidecar、云端）就是全部。
+  const levelOffered = (level: DiarizationLevel) => !engineInfo || engineInfo.features.diarization_levels.includes(level);
+  // 语言同理：声明了列表才限制，空列表表示不限。
+  const languageOffered = (language: string) => !engineInfo || engineInfo.features.languages.length === 0 || engineInfo.features.languages.includes(language);
+  // 人声分离：云端 FineSub 与本机 FineSub 都做；其他引擎按声明。
+  const separationOffered = engine === "cloud" || (engineInfo?.features.separate ?? localGpuEngine);
   // 本地模型没下载时不让选：先到运行环境页的「可选模型」下载。云端的模型在云端。
   // 没报 optional_models 的旧版 sidecar 无从判断，按已安装处理，不在这里拦。
   const optionalModels = localCapabilities?.runtime?.managed?.optional_models ?? [];
-  const diarizationModelsMissing = engine === "local" && optionalModels.length > 0
+  const diarizationModelsMissing = localGpuEngine && optionalModels.length > 0
     && DIARIZATION_MODEL_IDS.some((id) => optionalModels.find((item) => item.id === id)?.state !== "ready");
   const diarizationSelectable = diarizationAvailable && !diarizationModelsMissing;
   // 裁判在 LLM 纠错阶段运行，要读说话人时间线；云端转写会把时间线连同 stable.json 一起交回本机，
   // 所以两种引擎都能复核。
-  const judgeTextAllowed = finalOutput;
-  const judgeAudioAllowed = judgeTextAllowed && limits.audio;
+  const judgeTextAllowed = finalOutput && levelOffered("judge-text");
+  const judgeAudioAllowed = finalOutput && limits.audio && levelOffered("judge-audio");
   const diarization: DiarizationLevel = !diarizationSelectable ? "off"
     : diarizationChoice === "judge-audio" && !judgeAudioAllowed ? (judgeTextAllowed ? "judge-text" : "acoustics")
       : diarizationChoice === "judge-text" && !judgeTextAllowed ? "acoustics"
         : diarizationChoice;
-  const diarizationOnCpu = engine === "local" && (cpuOnly || request.device === "cpu");
+  const diarizationOnCpu = localGpuEngine && (cpuOnly || request.device === "cpu");
   const diarizationNote = diarizationAvailable && diarizationModelsMissing ? "说话人分离模型尚未安装（约 450MB），需要先在运行环境页的「可选模型」中下载"
     : diarization === "off" ? ""
       : diarizationOnCpu ? "本次在 CPU 上运行，约为音频时长的五分之一" : "";
@@ -323,11 +347,11 @@ export function TranscriptionDialog(props: TranscriptionDialogProps) {
   const summary = useMemo(() => {
     if (axis && importOnly) return `直接导入 ${axis.rows.length} 条字幕，不做任何处理`;
     if (axis && translateOnly) return `按你的轴在本机补中文译文，不做识别（${axis.rows.length} 条）`;
-    const where = engine === "local" ? "本机转写" : "云端转写";
+    const where = engine === "local" ? `本机转写（${engineLabel}）` : "云端转写";
     const output = !finalOutput ? "只输出原始字幕" : chineseSource ? "本机 AI 纠错与润色（不翻译）" : "本机 AI 纠错与翻译";
     const source = request.language === "auto" ? "自动检测语言" : languageOptions.find(([id]) => id === request.language)?.[1] ?? request.language;
     return `${source} · ${where} · ${output}${axis ? " · 按导入的轴重排" : ""}${diarization !== "off" ? " · 区分说话人" : ""}`;
-  }, [axis, chineseSource, diarization, engine, finalOutput, importOnly, request.language, translateOnly]);
+  }, [axis, chineseSource, diarization, engine, engineLabel, finalOutput, importOnly, request.language, translateOnly]);
 
   const back = useCallback(() => {
     if (step === "settings") setStep("axis");
@@ -442,12 +466,6 @@ export function TranscriptionDialog(props: TranscriptionDialogProps) {
     setAxisOn(true);
   };
 
-  // 换引擎不动其余设置：两边共用一份，只是「谁来识别」不同。
-  const chooseEngine = (next: ExecutionMode) => {
-    if (engineIssue(next)) return;
-    setEngine(next);
-  };
-
   const setCorrection = (on: boolean) => {
     if (on && !correctionAvailable) return;
     setRequest((current) => ({
@@ -500,13 +518,14 @@ export function TranscriptionDialog(props: TranscriptionDialogProps) {
     || (translateOnly ? !correctionAvailable : engineIssue(engine) !== "")
     || (finalOutput && !correctionAvailable)
     || knowledgeSubjectMissing;
-  const startRequest: TaskRequest = requestForEngine(runsOn, {
+  // 引擎记进请求（见 requestForTranscriptionEngine）：选 FineSub 时请求与第一阶段相同。
+  const startRequest: TaskRequest = requestForTranscriptionEngine(transcriptionEngine, {
     ...request,
     knowledge: finalOutput && !chineseSource ? request.knowledge : "none",
     knowledge_subjects: knowledgeSubjects,
     correction: chineseSource ? { ...request.correction, extra_style: "" } : request.correction,
     ...(diarization !== "off" ? { diarization: { level: diarization } } : {}),
-  }, entry);
+  }, entry, translateOnly);
   const uploadingCloudAudio = busy && runsOn === "cloud";
   const coverage = axisParse ? clock(Math.max(...axisParse.rows.map((row) => row.t1))) : "";
   const notes = axisParse && axisParse.skipped > 0 ? `跳过 ${axisParse.skipped} 条注释或无效行` : "";
@@ -515,7 +534,7 @@ export function TranscriptionDialog(props: TranscriptionDialogProps) {
   // 用户自己写好的，重叠再多也无害。
   const overlaps = axisParse && axisKind === "empty" ? axisParse.overlaps : 0;
 
-  const localBadge = localUnavailable ? "未就绪" : cpuOnly ? "可用 · CPU" : "可用";
+  const localBadge = localUnavailable ? "未就绪" : localGpuEngine && cpuOnly ? "可用 · CPU" : "可用";
   const cloudBadge = !cloudAuthenticated ? "未登录" : cloudDurationExceeded ? "时长超限" : harnessIssue ? "需本机环境"
     : cloudRemaining === undefined ? "已登录" : `剩余 ${cloudRemaining} 次`;
   const chosenIssue = engineIssue(engine);
@@ -611,26 +630,30 @@ export function TranscriptionDialog(props: TranscriptionDialogProps) {
               {translateOnly ? (
                 <p className="transcription-note">已导入原文，跳过转写。</p>
               ) : <>
-                <div className="option-cards two-columns engine-cards" role="radiogroup" aria-label="转写引擎">
-                  <button role="radio" aria-checked={engine === "local"} className={`${engine === "local" ? "selected" : ""} ${localUnavailable ? "unavailable" : ""}`.trim()} aria-disabled={Boolean(localUnavailable) || undefined} title={localUnavailable || undefined} onClick={() => chooseEngine("local")}>
-                    <span className="engine-card-head"><span className="execution-icon local" aria-hidden="true">⌁</span><strong>本机</strong><em>{localBadge}</em></span>
-                  </button>
-                  <button role="radio" aria-checked={engine === "cloud"} className={`${engine === "cloud" ? "selected" : ""} ${cloudUnavailable ? "unavailable" : ""}`.trim()} aria-disabled={Boolean(cloudUnavailable) || undefined} title={cloudUnavailable || undefined} onClick={() => chooseEngine("cloud")}>
-                    <span className="engine-card-head"><span className="execution-icon cloud" aria-hidden="true">☁</span><strong>云端</strong><em>{cloudBadge}</em></span>
-                  </button>
+                <div className={`current-engine ${chosenIssue ? "unavailable" : ""}`.trim()}>
+                  <span className={`execution-icon ${remoteAudio ? "cloud" : "local"}`} aria-hidden="true">{remoteAudio ? "☁" : "⌁"}</span>
+                  <span className="current-engine-copy">
+                    <small>转写引擎</small>
+                    <strong>{engineLabel}</strong>
+                    <small>{engine === "cloud" ? "音轨上传到云端识别，纠错与翻译回到本机" : remoteAudio ? "在本机调用第三方语音识别服务，音频会发送给该服务" : "在本机识别，音频不离开这台电脑"}</small>
+                  </span>
+                  <em>{engine === "cloud" ? cloudBadge : localBadge}</em>
+                  <button type="button" className="quiet-button" onClick={() => onOpenSettings("engine")}>更换</button>
                 </div>
                 {chosenIssue && <p className="option-unavailable">{chosenIssue}{engine === "cloud" && !cloudAuthenticated
                   ? <button onClick={onOpenAccount}>前往登录</button>
-                  : <button onClick={onOpenRuntime}>检查运行环境</button>}</p>}
+                  : localGpuEngine || engine === "cloud"
+                    ? <button onClick={onOpenRuntime}>检查运行环境</button>
+                    : <button onClick={() => onOpenSettings("engine")}>前往设置</button>}</p>}
 
                 <div className="form-grid transcription-block-fields">
-                  {engine === "local" && <label>计算设备<CustomSelect value={request.device} options={deviceOptions(devices)} onChange={(device) => setRequest((current) => ({ ...current, device, gpu_tier: device === "cpu" ? "cpu" : current.gpu_tier === "cpu" ? "auto" : current.gpu_tier }))} /></label>}
-                  {engine === "local" && <label>显卡档位<CustomSelect value={request.gpu_tier} options={GPU_TIER_OPTIONS} onChange={(gpu_tier) => setRequest((current) => ({ ...current, gpu_tier }))} /></label>}
-                  <label>原始语言<CustomSelect value={request.language} options={languageOptions.map(([value, label]) => ({ value, label }))} onChange={(language) => setRequest((current) => ({ ...current, language }))} /></label>
-                  <label>人声分离<CustomSelect value={request.separate ? "on" : "off"} options={[{ value: "on", label: "开启" }, { value: "off", label: "关闭（输入已是纯人声）", hint: SKIP_SEPARATION_HINT }]} onChange={(value) => setRequest((current) => ({ ...current, separate: value === "on" }))} /></label>
+                  {localGpuEngine && <label>计算设备<CustomSelect value={request.device} options={deviceOptions(devices)} onChange={(device) => setRequest((current) => ({ ...current, device, gpu_tier: device === "cpu" ? "cpu" : current.gpu_tier === "cpu" ? "auto" : current.gpu_tier }))} /></label>}
+                  {localGpuEngine && <label>显卡档位<CustomSelect value={request.gpu_tier} options={GPU_TIER_OPTIONS} onChange={(gpu_tier) => setRequest((current) => ({ ...current, gpu_tier }))} /></label>}
+                  <label>原始语言<CustomSelect value={request.language} options={languageOptions.map(([value, label]) => ({ value, label, disabled: !languageOffered(value), hint: languageOffered(value) ? undefined : `${engineLabel} 不支持这种语言` }))} onChange={(language) => setRequest((current) => ({ ...current, language }))} /></label>
+                  {separationOffered && <label>人声分离<CustomSelect value={request.separate ? "on" : "off"} options={[{ value: "on", label: "开启" }, { value: "off", label: "关闭（输入已是纯人声）", hint: SKIP_SEPARATION_HINT }]} onChange={(value) => setRequest((current) => ({ ...current, separate: value === "on" }))} /></label>}
                   <label>说话人分离<CustomSelect value={diarization} disabled={!diarizationSelectable} options={[
                     { value: "off" as const, label: "关闭" },
-                    { value: "acoustics" as const, label: "按声音区分说话人" },
+                    { value: "acoustics" as const, label: localGpuEngine || engine === "cloud" ? "按声音区分说话人" : "按引擎标注区分说话人", disabled: !levelOffered("acoustics") },
                     { value: "judge-text" as const, label: "声音 + 文本复核（实验）", disabled: !judgeTextAllowed, hint: DIARIZATION_JUDGE_HINT },
                     { value: "judge-audio" as const, label: "声音 + 音频复核（实验）", disabled: !judgeAudioAllowed, hint: finalOutput && !limits.audio ? mediaHint("supportsAudio") : DIARIZATION_JUDGE_HINT },
                   ]} onChange={setDiarizationChoice} /></label>

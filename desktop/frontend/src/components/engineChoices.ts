@@ -1,0 +1,47 @@
+import type { Capabilities, ReadinessIssue, TranscriptionEngineInfo } from "../providers/types.ts";
+import { CLOUD_TRANSCRIPTION_ENGINE, DEFAULT_TRANSCRIPTION_ENGINE } from "../providers/types.ts";
+import { transcriptionEngineLabel } from "../app/format.ts";
+
+/** One row of the engine list: an engine the local provider registered, or Nonoka Cloud's FineSub. */
+export interface EngineChoice {
+  id: string;
+  label: string;
+  kind: TranscriptionEngineInfo["kind"];
+  ready: boolean;
+  issues: ReadinessIssue[];
+  billing: string;
+  keys: string[];
+}
+
+/**
+ * What the list offers: the local provider's engines (FineSub first, as
+ * registered), then Nonoka Cloud's FineSub. A sidecar that does not list its
+ * engines yet (an older one, or one still starting) is taken to have only
+ * FineSub, ready as far as its runtime says.
+ */
+export function engineChoices(capabilities: Capabilities | null, cloud: { authenticated: boolean; remaining?: number }): EngineChoice[] {
+  const listed = capabilities?.transcription_engines;
+  const local: EngineChoice[] = listed
+    ? listed.filter((item) => item.kind !== "cloud-service").map((item) => ({
+      id: item.id, label: item.label, kind: item.kind, ready: item.ready, issues: item.issues, billing: item.billing, keys: item.keys ?? [],
+    }))
+    : [{
+      id: DEFAULT_TRANSCRIPTION_ENGINE,
+      label: transcriptionEngineLabel(DEFAULT_TRANSCRIPTION_ENGINE),
+      kind: "local-gpu",
+      ready: capabilities?.runtime?.ready === true,
+      issues: capabilities ? capabilities.runtime?.issues ?? [] : [{ code: "sidecar_unavailable", message: "本地服务尚未启动" }],
+      billing: "",
+      keys: [],
+    }];
+  const cloudChoice: EngineChoice = {
+    id: CLOUD_TRANSCRIPTION_ENGINE,
+    label: "FineSub（云端）",
+    kind: "cloud-service",
+    ready: cloud.authenticated,
+    issues: cloud.authenticated ? [] : [{ code: "cloud_signed_out", message: "需要先登录云端账户" }],
+    billing: cloud.remaining === undefined ? "每个任务扣一次云端额度" : `每个任务扣一次云端额度，剩余 ${cloud.remaining} 次`,
+    keys: [],
+  };
+  return [...local, cloudChoice];
+}

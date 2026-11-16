@@ -1,13 +1,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { defaultTaskRequest, requestForEngine } from "../src/home/defaultRequest.ts";
+import { defaultTaskRequest, requestForEngine, requestForTranscriptionEngine } from "../src/home/defaultRequest.ts";
 import { cloudAcceptsDuration } from "../src/home/executionAvailability.ts";
 import { PipelineController } from "../src/home/pipelineController.ts";
 import { CloudExecutionProvider } from "../src/providers/cloudProvider.ts";
 import { LocalExecutionProvider } from "../src/providers/localProvider.ts";
 import { ProviderRegistry } from "../src/providers/registry.ts";
 import { taskTranscriptionEngine, transcriptionEngineLabel } from "../src/app/format.ts";
+import { engineChoices } from "../src/components/engineChoices.ts";
 
 const taskId = "0123456789abcdef0123456789abcdef";
 
@@ -382,6 +383,33 @@ test("going back to this machine keeps a local engine and drops the cloud one", 
   assert.deepEqual(requestForEngine("local", mai2, wp6Media).transcription, mai2.transcription);
 });
 
+// WP6 stage two: the dialog no longer picks local or cloud; the engine chosen on
+// the settings page does. Choosing FineSub must still send stage one's request.
+test("the settings page's FineSub sends the same request as stage one", () => {
+  const value = requestForTranscriptionEngine("finesub", defaultTaskRequest(wp6Media), wp6Media);
+  assert.equal(JSON.stringify(value), JSON.stringify({ ...BEFORE_LOCAL, transcription: { engine: "finesub", options: {} } }));
+  assert.equal(JSON.stringify(value), JSON.stringify(requestForEngine("local", defaultTaskRequest(wp6Media), wp6Media)));
+});
+
+test("another engine is recorded in the request, the cloud's goes to the cloud provider", () => {
+  const settings = defaultTaskRequest(wp6Media);
+  const mai2 = requestForTranscriptionEngine("mai2", settings, wp6Media);
+  assert.equal(mai2.provider, "local");
+  assert.deepEqual(mai2.transcription, { engine: "mai2", options: {} });
+  assert.equal(JSON.stringify(withoutTranscription(mai2).rest), JSON.stringify(BEFORE_LOCAL));
+  const cloud = requestForTranscriptionEngine("finesub-cloud", settings, wp6Media);
+  assert.equal(JSON.stringify(cloud), JSON.stringify(requestForEngine("cloud", settings, wp6Media)));
+});
+
+test("a source-text axis runs here on FineSub whatever engine is chosen", () => {
+  const settings = defaultTaskRequest(wp6Media);
+  for (const engine of ["mai2", "finesub-cloud", "finesub"]) {
+    const value = requestForTranscriptionEngine(engine, settings, wp6Media, true);
+    assert.equal(value.provider, "local", engine);
+    assert.deepEqual(value.transcription, { engine: "finesub", options: {} }, engine);
+  }
+});
+
 test("the task list names the engine, and old snapshots fall back by provider", () => {
   assert.equal(taskTranscriptionEngine({ ...snapshot(), transcription_engine: "mai2" }, "local"), "mai2");
   assert.equal(taskTranscriptionEngine(snapshot(), "local"), "finesub");
@@ -429,4 +457,30 @@ test("capability failures report once without starting a task or leaking error t
     await assert.rejects(controller.start({provider, correction: {media: "text"}}), error => error === failure);
     assert.deepEqual(reported, [[provider, provider === "local" ? "sidecar_unavailable" : "unknown"]]);
   }
+});
+
+test("the settings page lists the provider's engines, then the cloud's FineSub", () => {
+  const listed = capabilities({
+    transcription_engines: [
+      { id: "finesub", label: "FineSub", kind: "local-gpu", provider: "local", ready: true, issues: [], billing: "", keys: [],
+        features: { speakers: true, word_timestamps: true, separate: true, diarization_levels: ["off", "acoustics"], languages: [] } },
+      { id: "mai2", label: "MAI-Transcribe-2", kind: "cloud-api", provider: "local", ready: false,
+        issues: [{ code: "missing_key", message: "需要 Key" }], billing: "约 $0.10/小时",
+        keys: ["OPENROUTER_STT_KEY", "AZURE_SPEECH_KEY", "AZURE_SPEECH_ENDPOINT"],
+        features: { speakers: true, word_timestamps: true, separate: false, diarization_levels: ["off", "acoustics"], languages: [] } },
+    ],
+  });
+  const choices = engineChoices(listed, { authenticated: false });
+  assert.deepEqual(choices.map((item) => item.id), ["finesub", "mai2", "finesub-cloud"]);
+  assert.deepEqual(choices[1].keys, ["OPENROUTER_STT_KEY", "AZURE_SPEECH_KEY", "AZURE_SPEECH_ENDPOINT"]);
+  assert.equal(choices[2].kind, "cloud-service");
+  assert.equal(choices[2].ready, false);
+  assert.equal(engineChoices(listed, { authenticated: true, remaining: 3 })[2].ready, true);
+
+  // A sidecar that lists no engines has FineSub, ready as its runtime says; none at all says why.
+  const older = engineChoices(capabilities(), { authenticated: false });
+  assert.deepEqual(older.map((item) => item.id), ["finesub", "finesub-cloud"]);
+  const offline = engineChoices(null, { authenticated: false });
+  assert.equal(offline[0].ready, false);
+  assert.equal(offline[0].issues[0].message, "本地服务尚未启动");
 });

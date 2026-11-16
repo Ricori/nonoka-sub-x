@@ -37,9 +37,6 @@ REQUIRED_TOOLS = ("tokcount",)
 TOOL_GROUPS = {
     "video-tools": ("yt-dlp", "aria2c", "node", "pot-provider"),
 }
-#: The runtime page still offers removing the video tools; they are part of the tool layer now, so
-#: `remove_tool_group` explains instead of removing.
-REMOVABLE_TOOL_GROUPS = frozenset(TOOL_GROUPS)
 #: Models only some runs need: speaker diarization's default backend
 #: (`model_install.DIARIZATION_MODEL_IDS`). Listed on their own and never a reason a transcription is
 #: blocked; they come with the model layer like the others.
@@ -81,8 +78,15 @@ DONE_MESSAGES = {
 }
 CANCELLED_MESSAGE = "已取消；已下载的部分会保留，下次继续时不必重头再来"
 
-#: The children of the big-file root's `cache\\` that hold downloads: archives being fetched.
+#: The children of the big-file root's `cache\\` that "clear the cache" empties: archives being
+#: fetched, and the engines' compile caches (`_cache_entry_names`; rebuilt by the next run).
 RUNTIME_CACHE_ENTRIES = ("downloads",)
+
+
+def _cache_entry_names() -> tuple[str, ...]:
+    from nonoka_x import finesub_bridge
+
+    return (*RUNTIME_CACHE_ENTRIES, *finesub_bridge.COMPILE_CACHES)
 
 LAYER_DETAILS = {
     "missing": "尚未安装{label}（下载约 {size}）",
@@ -564,7 +568,7 @@ class RuntimeProvisioner:
         cache = self.paths.cache
         allowed_roots = (self.paths.runtime.resolve(), self.paths.data.resolve())
         entries: list[Path] = []
-        for name in RUNTIME_CACHE_ENTRIES:
+        for name in _cache_entry_names():
             entry = cache / name
             # Clearing empties the entry's children, so an entry that resolves to the big-file root or
             # above it would take the layers with it.
@@ -573,13 +577,6 @@ class RuntimeProvisioner:
                 raise RuntimeProvisionError(f"拒绝清理托管目录本身：{resolved}")
             entries.append(entry)
         return entries
-
-    def remove_tool_group(self, group: str) -> dict[str, Any]:
-        """The video tools are part of the tool layer now: they come and go with it, not on their own."""
-
-        if group not in REMOVABLE_TOOL_GROUPS:
-            raise RuntimeProvisionError("仅支持卸载视频下载工具或可选工具")
-        raise RuntimeProvisionError("视频下载工具已并入工具层，随工具层一起安装和删除，不能单独卸载")
 
 
 __all__ = [

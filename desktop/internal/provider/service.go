@@ -25,7 +25,6 @@ var validTaskID = regexp.MustCompile(`^[0-9a-f]{32}$`)
 // drifted apart once already -- aria2c was added to the Python side and this
 // list still refused it, naming the old tools in the error.
 var runtimeTargets = []string{"media", "runtime", "models", "all", "optional-models", "yt-dlp", "tokcount", "aria2c", "node", "pot-provider", "video-tools"}
-var removableRuntimeGroups = []string{"video-tools"}
 
 type caller interface {
 	DoJSON(context.Context, string, string, any, any) error
@@ -127,14 +126,12 @@ func (s *Service) ClearRuntimeCache() (map[string]any, error) {
 	return result, err
 }
 
-// RemoveRuntimeGroup removes one managed optional-tool group without touching
-// the required runtime, models, tasks, subtitles, or user settings.
-func (s *Service) RemoveRuntimeGroup(target string) (map[string]any, error) {
-	if !slices.Contains(removableRuntimeGroups, target) {
-		return nil, fmt.Errorf("removable runtime group must be one of: %s", strings.Join(removableRuntimeGroups, ", "))
-	}
+// RemoveUnusedRuntime deletes the runtime layer versions nothing uses any
+// more (neither current nor wanted by this version) and reports what went and
+// what stayed. The sidecar refuses while an install or a local task runs.
+func (s *Service) RemoveUnusedRuntime() (map[string]any, error) {
 	var result map[string]any
-	err := s.provider.DoJSON(context.Background(), http.MethodDelete, "/v1/runtime/provision/group", map[string]any{"target": target}, &result)
+	err := s.provider.DoJSON(context.Background(), http.MethodDelete, "/v1/runtime/provision/unused", nil, &result)
 	return result, err
 }
 

@@ -933,37 +933,54 @@
   padding: 14px;
 }
 
-.engine-card-head {
-  display: flex;
+/* 当前转写引擎：设置页选定，这里只显示，「更换」去设置页。 */
+.current-engine {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
   align-items: center;
-  gap: 9px;
+  gap: 12px;
+  border: 1px solid var(--line-soft);
+  border-radius: 12px;
+  padding: 10px 12px;
 }
 
-.engine-card-head .execution-icon {
-  width: 28px;
-  height: 28px;
-  border-radius: 8px;
-  font-size: 14px;
+.current-engine .execution-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  font-size: 15px;
 }
 
-.engine-card-head strong {
-  flex: 1;
+.current-engine-copy {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.current-engine-copy strong {
+  color: var(--text);
   font-size: 13px;
 }
 
-.engine-card-head em {
+.current-engine-copy small {
+  color: var(--faint);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.current-engine em {
   border-radius: 999px;
   padding: 3px 7px;
-  background: var(--raised);
-  color: var(--mut);
+  background: color-mix(in srgb, var(--accent) 14%, var(--panel));
+  color: var(--accent);
   font-size: 10px;
   font-style: normal;
   white-space: nowrap;
 }
 
-.engine-cards button.selected .engine-card-head em {
-  background: color-mix(in srgb, var(--accent) 14%, var(--panel));
-  color: var(--accent);
+.current-engine.unavailable em {
+  background: var(--raised);
+  color: var(--mut);
 }
 
 /* 分区开关：原生 checkbox 保留语义与键盘操作，外观画成拨动开关。 */
@@ -1031,8 +1048,16 @@
 
 @media (max-width: 640px) {
   .transcription-block .form-grid,
-  .transcription-block .prompt-grid,
-  .engine-cards {
+  .transcription-block .prompt-grid {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .current-engine {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+  }
+
+  .current-engine button {
+    grid-column: 2 / -1;
+    justify-self: start;
   }
 }

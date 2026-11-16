@@ -27,14 +27,14 @@ interface StorageLocationsCardProps {
   onOpen?: (target: StorageTarget) => Promise<void>;
   onSaveCacheLimit?: (limit: number) => Promise<void>;
   onClearCache?: () => Promise<void>;
-  /** 只有设置页传：运行环境那一行多出下载缓存的占用和清理按钮。 */
+  /** 只有设置页传：运行环境那一行多出缓存（下载与编译）的占用和清理按钮。 */
   runtimeCache?: RuntimeCacheState;
   onDismissMessage: () => void;
   onDismissCacheMessage?: () => void;
 }
 
 const targetDetails: Record<StorageTarget, string> = {
-  runtime: "运行环境层（Python、模型、工具）与下载缓存，占用最大。",
+  runtime: "运行环境层（Python、模型、工具）与缓存，占用最大。",
   video: "处理过的视频副本，超出上限按最近使用自动回收。",
 };
 
@@ -180,8 +180,8 @@ export function StorageLocationsCard(props: StorageLocationsCardProps) {
                     </label>
                   )}
                   {runtimeCacheStatus != null && runtimeCacheStatus.bytes > 0 && (
-                    <span title="还没装完的运行环境层压缩包，留着是为了断点续传；装好的层不在这里。">
-                      下载缓存 <b>{formatStorageBytes(runtimeCacheStatus.bytes)}</b>
+                    <span title="还没装完的运行环境层压缩包（留着是为了断点续传），以及转写引擎的编译缓存（下次运行时重新生成）；装好的层不在这里。">
+                      缓存 <b>{formatStorageBytes(runtimeCacheStatus.bytes)}</b>
                       {runtimeCacheStatus.reclaimable < runtimeCacheStatus.bytes && (
                         <>，可释放 <b>{formatStorageBytes(runtimeCacheStatus.reclaimable)}</b></>
                       )}
@@ -208,15 +208,15 @@ export function StorageLocationsCard(props: StorageLocationsCardProps) {
                       disabled={runtimeCache.busy || busy || active || runtimeCacheStatus.reclaimable === 0}
                       title={
                         runtimeCacheStatus.bytes === 0
-                          ? "没有可清理的下载缓存"
+                          ? "没有可清理的缓存"
                           : sharedOnly
                             ? "缓存里的文件都与已安装的运行环境共用，删除不会腾出空间"
-                            : "删除还没装完的运行环境层压缩包；已安装的层不受影响，下次安装时从头下载"
+                            : "删除还没装完的运行环境层压缩包和转写引擎的编译缓存；已安装的层不受影响，下次安装从头下载，下次转写重新编译"
                       }
                       onClick={() => void runtimeCache.clear()}
                       type="button"
                     >
-                      {runtimeCache.busy ? "正在清理…" : "清理下载缓存"}
+                      {runtimeCache.busy ? "正在清理…" : "清理缓存"}
                     </button>
                   )}
                   {location.custom && (

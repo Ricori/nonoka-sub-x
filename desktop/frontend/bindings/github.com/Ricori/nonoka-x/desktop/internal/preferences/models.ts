@@ -14,6 +14,13 @@ export interface State {
     "bounds": { [_ in string]?: WindowBounds } | null;
 
     /**
+     * TranscriptionEngine is the engine new tasks run on (WP6): a
+     * `Capabilities.transcription_engines` id, or "finesub-cloud" for Nonoka
+     * Cloud's FineSub. Tasks record it in their request; retries keep theirs.
+     */
+    "transcriptionEngine": string;
+
+    /**
      * Proxy is a custom proxy for everything the app sends off this machine,
      * or nil to follow the system proxy. The Python sidecar reads this key from
      * preferences.json too (`nonoka_x.download_route`).

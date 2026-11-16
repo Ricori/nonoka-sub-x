@@ -4,8 +4,8 @@
 /**
  * StorageService moves Nonoka X's two large directories to another drive.
  * 
- * The move is the easy half; the hard half is that the FineSub install root is
- * in use by a running sidecar whose Python interpreter lives inside it. So a
+ * The move is the easy half; the hard half is that the big-file root is in use
+ * by a running sidecar: its workers run the Python layer inside it. So a
  * runtime relocation stops the sidecar, moves, records, and starts it again
  * against a freshly resolved configuration — the same sequence the managed
  * Python installer already uses to swap interpreters.

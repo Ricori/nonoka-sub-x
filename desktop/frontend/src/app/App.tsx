@@ -11,7 +11,7 @@ import type { CloudEntry, CloudSession } from "../bridge/cloud.ts";
 import { fineSubSettings } from "../bridge/settings.ts";
 import type { FineSubSettingsState } from "../bridge/settings.ts";
 import { fineSubRuntime } from "../bridge/runtime.ts";
-import type { PythonBootstrapState, RuntimeInstallTarget, RuntimeProvisionState, RuntimeToolGroup } from "../bridge/runtime.ts";
+import type { PythonBootstrapState, RuntimeInstallTarget, RuntimeProvisionState } from "../bridge/runtime.ts";
 import { desktopPreferences } from "../bridge/preferences.ts";
 import { desktopTaskHistory } from "../bridge/taskHistory.ts";
 import { desktopPlugins, mountedTools } from "../bridge/plugins.ts";
@@ -32,8 +32,9 @@ import { WindowDropOverlay } from "../components/WindowDropOverlay.tsx";
 import { AccountPage } from "../pages/AccountPage.tsx";
 import { AboutPage } from "../pages/AboutPage.tsx";
 import { AdminKeysPage } from "../pages/AdminKeysPage.tsx";
-import { RuntimePage } from "../pages/RuntimePage.tsx";
-import { SettingsPage } from "../pages/SettingsPage.tsx";
+import { SettingsPage, type SettingsAnchor } from "../pages/SettingsPage.tsx";
+import { engineChoices } from "../components/engineChoices.ts";
+import { CLOUD_TRANSCRIPTION_ENGINE, DEFAULT_TRANSCRIPTION_ENGINE } from "../providers/types.ts";
 import { KnowledgePage } from "../pages/KnowledgePage.tsx";
 import { TasksPage } from "../pages/TasksPage.tsx";
 import { LibraryPage } from "../pages/LibraryPage.tsx";
@@ -94,7 +95,6 @@ function NavIcon({ kind }: { kind: NavigationSection }) {
     library: "M4 6.5h16M6 3h12a2 2 0 0 1 2 2v14H4V5a2 2 0 0 1 2-2Zm3 7h6m-6 4h4",
     tasks: "M5 4h14v16H5zM8 8h8m-8 4h8m-8 4h5",
     plugins: "M8 3v4m8-4v4M6 7h12v4a6 6 0 0 1-5 5.9V21h-2v-4.1A6 6 0 0 1 6 11V7Z",
-    runtime: "M4 5h16v14H4zM8 9h3m2 0h3m-8 4h8m-8 3h5",
     adminKeys: "M8.5 14.5 14 9m-1.5-2.5a3.5 3.5 0 1 1 5 5l-1 1-2-2-2 2-2-2-2 2-2.5-2.5 1-1Z",
     settings:
       "M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Zm0-5v2m0 13v2m8.5-8.5h-2m-13 0h-2m15-6.5-1.4 1.4M6.9 17.1l-1.4 1.4m13 0-1.4-1.4M6.9 6.9 5.5 5.5",
@@ -164,6 +164,14 @@ export default function App() {
   // which the runtime page only renders while capabilities are missing — so a
   // refused removal looked like a page that simply did not react.
   const [provisionMessage, setProvisionMessage] = useState("");
+  // The engine new tasks run on, chosen on the settings page (desktop preferences, WP6).
+  const [transcriptionEngine, setTranscriptionEngine] = useState(DEFAULT_TRANSCRIPTION_ENGINE);
+  // Where the settings page should scroll when another page sends the user there.
+  const [settingsAnchor, setSettingsAnchor] = useState<{ target: SettingsAnchor; seq: number } | null>(null);
+  const openSettings = useCallback((target: SettingsAnchor) => {
+    setSection("keys");
+    setSettingsAnchor((current) => ({ target, seq: (current?.seq ?? 0) + 1 }));
+  }, []);
   const [pythonBootstrap, setPythonBootstrap] = useState<PythonBootstrapState | null>(null);
   const [keyDraft, setKeyDraft] = useState<Record<string, string>>({});
   const [keysBusy, setKeysBusy] = useState(false);
@@ -291,6 +299,7 @@ export default function App() {
       setTheme(value.homeTheme === "dark" ? "dark" : "light");
       setSidebarCollapsed(value.sidebarCollapsed);
       setViewMode(value.libraryView === "list" ? "list" : "grid");
+      if (value.transcriptionEngine) setTranscriptionEngine(value.transcriptionEngine);
     }).catch(() => undefined).finally(() => {
       preferencesHydrated.current = true;
     });
@@ -731,7 +740,7 @@ export default function App() {
 
   const importMedia = useCallback(async (paths?: string[]) => {
     if (mediaDependencyMissing) {
-      setSection("runtime");
+      openSettings("runtime");
       setMessage("导入视频需要 FFmpeg 与 FFprobe，正在准备下载到 Nonoka Sub X 缓存目录。");
       if (runtimeProvision?.media_supported && runtimeProvision.job.state !== "running") {
         try {
@@ -753,7 +762,7 @@ export default function App() {
     } finally {
       setLibraryBusy(false);
     }
-  }, [acceptImport, mediaDependencyMissing, runtimeProvision]);
+  }, [acceptImport, mediaDependencyMissing, openSettings, runtimeProvision]);
 
   useEffect(() => {
     void Promise.all([refresh(), loadLibrary(), loadCloud(), loadCacheStatus(), loadStorageStatus()]);
@@ -1610,16 +1619,27 @@ export default function App() {
     }
   }, [refresh]);
 
-  const removeRuntimeGroup = useCallback(async (target: RuntimeToolGroup) => {
+  const removeUnusedRuntime = useCallback(async () => {
     setProvisionMessage("");
     try {
-      setRuntimeProvision(await fineSubRuntime.removeGroup(target));
-      await refresh();
+      const result = await fineSubRuntime.removeUnused();
+      if (result.kept.length > 0) {
+        setProvisionMessage(`有 ${result.kept.length} 项未能删除：${result.kept.map((item) => `${item.name}（${item.reason}）`).join("、")}`);
+      }
+      setRuntimeProvision(await fineSubRuntime.status());
+      await refresh({ silent: true });
     } catch (value) {
       setProvisionMessage(value instanceof Error ? value.message : String(value));
       await refresh({ silent: true });
     }
   }, [refresh]);
+
+  const selectTranscriptionEngine = useCallback((engine: string) => {
+    setTranscriptionEngine(engine);
+    void desktopPreferences.save({ transcriptionEngine: engine }).catch((value) => {
+      setKeysMessage(`转写引擎未能保存：${value instanceof Error ? value.message : String(value)}`);
+    });
+  }, []);
 
   const cancelRuntimeInstall = useCallback(async () => {
     setProvisionMessage("");
@@ -1632,7 +1652,7 @@ export default function App() {
   }, [refresh]);
 
   const installPython = useCallback(async () => {
-    setSection("runtime");
+    openSettings("runtime");
     setMessage("正在准备 Python，以启用本地服务。");
     try {
       setPythonBootstrap(await fineSubRuntime.installPython());
@@ -1640,7 +1660,7 @@ export default function App() {
       setMessage(value instanceof Error ? value.message : String(value));
       setPythonBootstrap(await fineSubRuntime.pythonStatus().catch(() => null));
     }
-  }, []);
+  }, [openSettings]);
 
   useEffect(() => {
     if (sidecar?.running || pythonBootstrap?.state !== "missing" || !pythonBootstrap.supported || pythonBootstrapStarted.current) return;
@@ -1677,13 +1697,22 @@ export default function App() {
 
   const runtimeReady = capabilities?.runtime?.ready === true;
   const issues = capabilities?.runtime?.issues ?? [];
+  const engines = useMemo(
+    () => engineChoices(capabilities, { authenticated: cloudSession?.authenticated === true, remaining: cloudSession?.remaining ?? undefined }),
+    [capabilities, cloudSession?.authenticated, cloudSession?.remaining],
+  );
+  // The banner speaks for the engine new tasks run on: FineSub here needs the
+  // runtime; a cloud API engine its keys; the cloud's FineSub a signed-in account.
+  const currentEngine = engines.find((item) => item.id === transcriptionEngine) ?? null;
+  const currentEngineReady = transcriptionEngine === DEFAULT_TRANSCRIPTION_ENGINE ? runtimeReady : currentEngine?.ready === true;
+  const currentEngineIssue = transcriptionEngine === DEFAULT_TRANSCRIPTION_ENGINE
+    ? message || issues[0]?.message || "正在读取 capabilities…"
+    : currentEngine ? currentEngine.issues[0]?.message ?? "" : "当前转写引擎不可用，请到设置里重新选择";
   const title = section === "knowledge" ? "知识库" : section === "library"
     ? "媒体库"
     : section === "tasks"
       ? "处理任务"
-      : section === "runtime"
-        ? "运行环境"
-        : section === "plugins"
+      : section === "plugins"
           ? "插件管理"
           : section === "plugin"
             ? activeMountedPlugin?.tool.title ?? "插件工具"
@@ -1784,10 +1813,6 @@ export default function App() {
         </nav>
         <span className="nav-label management-label">管理</span>
         <nav aria-label="管理导航">
-          <button className={section === "runtime" ? "active" : ""} title="运行环境" onClick={() => setSection("runtime")}>
-            <NavIcon kind="runtime" />
-            <span className="nav-text">运行环境</span>
-          </button>
           <button className={section === "keys" ? "active" : ""} title="设置" onClick={() => setSection("keys")}>
             <NavIcon kind="settings" />
             <span className="nav-text">设置</span>
@@ -1848,22 +1873,20 @@ export default function App() {
                 <button className="quiet-button" onClick={() => void refreshTaskHistory()} disabled={taskHistoryBusy}>{taskHistoryBusy ? "正在刷新…" : "刷新任务"}</button>
               ) : section === "plugins" ? (
                 <button className="primary-button" disabled={pluginBusy !== ""} onClick={() => void installPlugin()}>{pluginBusy === "install" ? "正在安装…" : "＋ 安装插件"}</button>
-              ) : section === "runtime" ? (
+              ) : section === "keys" ? (
                 <button className="quiet-button" onClick={() => void refresh()} disabled={loadState === "loading"}>{loadState === "loading" ? "正在检查…" : "重新检查"}</button>
               ) : null}
             </div>
           </header>
 
-          {!runtimeReady && loadState !== "loading" && (section === "library" || section === "tasks") && <section className={`runtime-banner warning`}>
+          {!currentEngineReady && loadState !== "loading" && (section === "library" || section === "tasks") && <section className={`runtime-banner warning`}>
             <div className="runtime-symbol">!</div>
             <div className="runtime-copy">
-              <span className="eyebrow">本地执行环境</span>
-              <h2>需要完成运行时配置</h2>
-              <p>
-                {message || issues[0]?.message || "正在读取 capabilities…"}
-              </p>
+              <span className="eyebrow">{`转写引擎 · ${currentEngine?.label ?? transcriptionEngine}`}</span>
+              <h2>{transcriptionEngine === DEFAULT_TRANSCRIPTION_ENGINE ? "需要完成运行时配置" : transcriptionEngine === CLOUD_TRANSCRIPTION_ENGINE ? "需要登录云端账户" : "当前转写引擎尚未就绪"}</h2>
+              <p>{currentEngineIssue}</p>
             </div>
-            <button onClick={() => setSection("runtime")}>查看详情 →</button>
+            <button onClick={() => openSettings(transcriptionEngine === DEFAULT_TRANSCRIPTION_ENGINE ? "runtime" : "engine")}>查看详情 →</button>
           </section>}
 
           {section === "library" && (
@@ -1946,31 +1969,7 @@ export default function App() {
               theme={theme}
               onOpenManager={() => setSection("plugins")}
               onOpenLibrary={() => setSection("library")}
-              onOpenRuntime={() => setSection("runtime")}
-            />
-          )}
-
-          {section === "runtime" && (
-            <RuntimePage
-              capabilities={capabilities}
-              message={message}
-              provisionMessage={provisionMessage}
-              onDismissProvisionMessage={() => setProvisionMessage("")}
-              provision={runtimeProvision}
-              pythonBootstrap={pythonBootstrap}
-              ready={runtimeReady}
-              sidecar={sidecar}
-              onCancelInstall={cancelRuntimeInstall}
-              onInstall={installRuntime}
-              onInstallPython={installPython}
-              onRemoveAll={removeRuntime}
-              onRemoveGroup={removeRuntimeGroup}
-              storage={storageStatus}
-              storageProgress={storageProgress}
-              storageBusy={storageBusy}
-              onChooseStorage={chooseStorage}
-              onRelocateStorage={relocateStorage}
-              onCancelStorage={cancelStorage}
+              onOpenRuntime={() => openSettings("runtime")}
             />
           )}
 
@@ -2002,6 +2001,26 @@ export default function App() {
               onDismissMessage={() => setKeysMessage("")}
               onDismissCacheMessage={() => setCacheMessage("")}
               onDismissStorageMessage={() => setStorageMessage("")}
+              capabilities={capabilities}
+              engines={engines}
+              transcriptionEngine={transcriptionEngine}
+              onSelectEngine={selectTranscriptionEngine}
+              onOpenAccount={() => setSection("account")}
+              runtime={{
+                message,
+                provisionMessage,
+                onDismissProvisionMessage: () => setProvisionMessage(""),
+                provision: runtimeProvision,
+                pythonBootstrap,
+                ready: runtimeReady,
+                sidecar,
+                onCancelInstall: cancelRuntimeInstall,
+                onInstall: installRuntime,
+                onInstallPython: installPython,
+                onRemoveAll: removeRuntime,
+                onRemoveUnused: removeUnusedRuntime,
+              }}
+              anchor={settingsAnchor}
             />
           )}
 
@@ -2025,12 +2044,12 @@ export default function App() {
         localIssue={message || issues[0]?.message}
         cloudAuthenticated={cloudSession?.authenticated === true}
         cloudRemaining={cloudSession?.remaining ?? undefined}
+        transcriptionEngine={transcriptionEngine}
         busy={transcriptionBusy}
         error={transcriptionError}
         onClose={() => { if (!transcriptionBusy) setTranscriptionMedia(null); }}
-        onOpenRuntime={() => { setTranscriptionMedia(null); setSection("runtime"); }}
+        onOpenSettings={(anchor) => { setTranscriptionMedia(null); openSettings(anchor); }}
         onOpenAccount={() => { setTranscriptionMedia(null); setSection("account"); }}
-        onOpenKeys={() => { setTranscriptionMedia(null); setSection("keys"); }}
         onImport={importAxis}
         onStart={confirmTranscription}
       />}

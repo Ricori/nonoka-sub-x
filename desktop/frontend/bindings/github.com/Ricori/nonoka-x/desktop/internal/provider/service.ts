@@ -91,11 +91,12 @@ export function RemoveRuntime(): $CancellablePromise<{ [_ in string]?: any } | n
 }
 
 /**
- * RemoveRuntimeGroup removes one managed optional-tool group without touching
- * the required runtime, models, tasks, subtitles, or user settings.
+ * RemoveUnusedRuntime deletes the runtime layer versions nothing uses any
+ * more (neither current nor wanted by this version) and reports what went and
+ * what stayed. The sidecar refuses while an install or a local task runs.
  */
-export function RemoveRuntimeGroup(target: string): $CancellablePromise<{ [_ in string]?: any } | null> {
-    return $Call.ByID(3789074711, target);
+export function RemoveUnusedRuntime(): $CancellablePromise<{ [_ in string]?: any } | null> {
+    return $Call.ByID(2086091386);
 }
 
 /**

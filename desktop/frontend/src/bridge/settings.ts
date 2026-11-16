@@ -20,6 +20,9 @@ export interface FineSubSettingsState {
   llmReady: boolean;
   retrievalKeyConfigured: boolean;
   protection: "empty" | "protected" | "plaintext" | "unreadable";
+  /** Nonoka 自己的转写引擎读的 Key（OpenRouter STT、Azure Speech、MOSS Pro 等），不在 `keys` 里、也不交给 FineSub；
+      设置页的转写引擎面板列它们。旧版 sidecar 没有这一项。 */
+  engineKeys?: FineSubKeyState[];
 }
 
 export type FineSubModelProviderID = "nonoka-cloud" | "gemini-free" | "gemini-paid" | "openai" | "anthropic" | "deepseek" | "kimi" | "aliyun-bailian" | "openai-compat" | "anthropic-compat" | "local-codex" | "local-agy" | "local-codebuddy";
