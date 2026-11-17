@@ -38,8 +38,8 @@ import threading
 from pathlib import Path
 from typing import Any, Mapping
 
-from . import FIXTURES, ROOT, VENDOR
-from .calls import Normalizer, adopt_worker_environment, bind_settings, hermetic_environment, render
+from . import ENGINES, FIXTURES, ROOT
+from .calls import KNOWLEDGE_ENTRY, Normalizer, adopt_worker_environment, bind_settings, hermetic_environment, render
 
 BASELINE_DIR = FIXTURES / "replay"
 #: Baselines made from the real sample's recognition. They quote a real
@@ -302,13 +302,12 @@ def _plain_messages(messages: Any) -> Any:
     return encode(messages)
 
 
-def child_main(spec_path: Path) -> int:
-    spec = json.loads(spec_path.read_text(encoding="utf-8"))
-    root = Path(spec["root"])
-    from . import stubs
+#: The correction package's entry module, and where it keeps a task's files (plan 4.6 item 34).
+CORRECTION_ENTRY = "finesub_correct"
+CORRECTION_OUTPUTS = Path("native") / "finesub-correct"
 
-    sys.meta_path.insert(0, stubs.RefuseHeavyImports())
 
+def _refuse_network() -> None:
     def refuse(*_args: Any, **_kwargs: Any) -> None:
         raise OSError("network refused by the quality gate replay")
 
@@ -316,34 +315,36 @@ def child_main(spec_path: Path) -> int:
     socket.socket.connect_ex = refuse  # type: ignore[method-assign]
     socket.create_connection = refuse  # type: ignore[assignment]
 
-    settings = bind_settings(root / "data", "compat")
-    adopt_worker_environment(root / "data", settings)
-    if spec.get("config_append"):
-        # A case that needs one engine setting off its default (smaller
-        # windows, so the multi-window flow runs on a short sample).
+
+def package_hook(spec: Mapping[str, Any], entry: str, context: Mapping[str, Any]) -> None:
+    """In each engine package's process, once its bridge ran: no network, and the model's answers.
+
+    The correction's requests are taken where they leave FineSub
+    (`llm_runtime.chat_complete`) and written, in the order they are sent, to
+    the run's shared record. A case's `config_append` is one engine setting
+    off its default, added to the `finesub.toml` this process's bridge wrote.
+    """
+
+    from . import stubs
+    from .package_child import SharedRecord
+
+    _refuse_network()
+    if entry == KNOWLEDGE_ENTRY:
+        return
+    sys.meta_path.insert(0, stubs.RefuseHeavyImports())
+    if spec.get("config_append") and os.environ.get("FINESUB_CONFIG_FILE"):
         config = Path(os.environ["FINESUB_CONFIG_FILE"])
-        config.write_text(config.read_text(encoding="utf-8") + "\n" + spec["config_append"], encoding="utf-8")
+        existing = config.read_text(encoding="utf-8") if config.is_file() else ""
+        config.write_text(existing + "\n" + spec["config_append"], encoding="utf-8")
         from finesub.config import clear_config_cache
 
         clear_config_cache()
-    from nonoka_x.local_provider import validate_request
+    try:
+        from finesub.llm import llm_runtime
+    except ImportError:
+        return
 
-    request = validate_request({
-        "schema": 1,
-        "provider": "local",
-        "source": {
-            "kind": "cloud_stable",
-            "path": spec["media_file"],
-            "title": "节目",
-            "stable_json": str(root / "cloud" / "cloud.stable.json"),
-            **({"diar_json": str(root / "cloud" / "cloud.diar.json")} if spec.get("diar") else {}),
-        },
-        **spec["request"],
-    })
-
-    from finesub.llm import llm_runtime
-
-    exchanges: list[dict[str, Any]] = []
+    exchanges = SharedRecord(Path(spec["record"]))
     lock = threading.Lock()
     responder = _load_responder(spec.get("responder"))
 
@@ -368,6 +369,48 @@ def child_main(spec_path: Path) -> int:
         }
 
     llm_runtime.chat_complete = chat_complete
+    if entry != CORRECTION_ENTRY:
+        return
+    # What the correction's behaviour turns on, as its process has it (see `child_main`).
+    machine = Path(spec["record"]).with_suffix(".machine.json")
+    import importlib.util
+
+    machine.write_text(json.dumps({
+        "opencc_importable": importlib.util.find_spec("opencc") is not None,
+        "tokcount_on_path": shutil.which("tokcount") is not None,
+    }), encoding="utf-8")
+
+
+
+
+def child_main(spec_path: Path) -> int:
+    spec = json.loads(spec_path.read_text(encoding="utf-8"))
+    root = Path(spec["root"])
+    from . import stubs
+    from .package_child import read_shared, use_in_worker
+
+    sys.meta_path.insert(0, stubs.RefuseHeavyImports())
+    _refuse_network()
+
+    settings = bind_settings(root / "data", "compat")
+    adopt_worker_environment(root / "data", settings)
+    record_file = root / "exchanges.jsonl"
+    use_in_worker({**spec, "hook": "tests.quality_harness.replay:package_hook", "record": str(record_file)},
+                  root / "package-child.json")
+    from nonoka_x.local_provider import validate_request
+
+    request = validate_request({
+        "schema": 1,
+        "provider": "local",
+        "source": {
+            "kind": "cloud_stable",
+            "path": spec["media_file"],
+            "title": "节目",
+            "stable_json": str(root / "cloud" / "cloud.stable.json"),
+            **({"diar_json": str(root / "cloud" / "cloud.diar.json")} if spec.get("diar") else {}),
+        },
+        **spec["request"],
+    })
 
     from nonoka_x import worker
 
@@ -377,30 +420,30 @@ def child_main(spec_path: Path) -> int:
     sys.stdin = io.StringIO(json.dumps(request, ensure_ascii=False) + "\n")
     try:
         with contextlib.redirect_stdout(stdout):
-            code = worker.main(["--task-id", TASK_ID, "--task-dir", str(task_dir), "--vendor", str(VENDOR)])
+            code = worker.main(["--task-id", TASK_ID, "--task-dir", str(task_dir), "--engines", str(ENGINES),
+                                "--data-dir", str(root / "data")])
     finally:
         sys.stdin = previous
     events = [json.loads(line) for line in stdout.getvalue().splitlines() if line.startswith("{")]
-    workspace = task_dir / "workspace"
+    workspace = task_dir / CORRECTION_OUTPUTS
     outputs = {}
     for name in ("节目.srt", "节目-annotated.csv", "节目-translated.srt", "节目-raw.srt"):
         path = workspace / name
         outputs[name] = path.read_text(encoding="utf-8") if path.is_file() else None
-    import importlib.util
+    machine_file = record_file.with_suffix(".machine.json")
+    machine = json.loads(machine_file.read_text(encoding="utf-8")) if machine_file.is_file() else {}
 
     result = {
-        # Machine facts the correction's behaviour turns on: traditional ->
-        # simplified folding needs opencc, and token counting (so the window
-        # plan) changes when a `tokcount` binary is on PATH. Compared, so a
-        # replay on a different interpreter says so here first.
-        "machine": {
-            "opencc_importable": importlib.util.find_spec("opencc") is not None,
-            "tokcount_on_path": shutil.which("tokcount") is not None,
-        },
+        # Machine facts the correction's behaviour turns on, in the process
+        # the correction ran in: traditional -> simplified folding needs
+        # opencc, and token counting (so the window plan) changes when a
+        # `tokcount` binary is on PATH. Compared, so a replay on a different
+        # interpreter says so here first.
+        "machine": machine,
         "exit": code,
         "failed": [event["payload"].get("message") for event in events if event["type"] == "failed"],
         "warnings": [event["payload"] for event in events if event["type"] == "warning"],
-        "exchanges": exchanges,
+        "exchanges": read_shared(record_file),
         "outputs": outputs,
     }
     Path(spec["out"]).write_text(json.dumps(result, ensure_ascii=False), encoding="utf-8")

@@ -3,8 +3,10 @@
 FineSub 0.5.0 replaced `--gpu-budget-gb 4|8|12|16` with `--gpu-tier`, whose
 names say what a machine *is* rather than how many gigabytes to spend:
 `cpu`, `entry`, `standard`, `standard_large_vram`, `high`, and `auto`, which
-detects. The engine owns that list (`finesub.speech.runtime.resources`), so
-this module never restates it -- it validates against it and falls back to
+detects. The engine owns that list, so this module never restates it: the
+transcription package declares it in its `PACKAGE.json` (`gpu_tiers`, checked
+against the engine by `tests/test_engine_packages.py`), the caller hands it
+over (`known`), and a request is validated against it and falls back to
 `auto`, which is also the engine's own default.
 
 The legacy mapping is here because Nonoka X's own stored state outlives the
@@ -16,7 +18,7 @@ already started, so the number is read once, converted, and said out loud.
 
 from __future__ import annotations
 
-from typing import Any, Callable, Mapping
+from typing import Any, Callable, Iterable, Mapping
 
 
 #: What each retired budget meant on the hardware it was offered for. `4` was
@@ -33,37 +35,24 @@ LEGACY_BUDGET_TIERS: dict[int, str] = {
 AUTO = "auto"
 
 
-def _known_tiers() -> frozenset[str] | None:
-    """The engine's own list of tier names, or None when it cannot be asked.
-
-    Not restated here: the names are the engine's, and a copy would go stale
-    the next time upstream adds a tier (`standard_large_vram` arrived in
-    0.5.0). When the engine is not importable -- an adapter test that stubs
-    it, a sidecar started before the runtime is installed -- validation is
-    skipped rather than guessed at, and an unknown name travels on to
-    `resolve_gpu_tier`, whose error names the choices it does know.
-    """
-
-    try:
-        from finesub.speech.runtime.resources import gpu_tier_cli_choices
-    except Exception:  # noqa: BLE001 - no engine is a valid answer here
-        return None
-    return frozenset(gpu_tier_cli_choices())
-
-
 def resolve_request_gpu_tier(
     request: Mapping[str, Any],
     *,
     warn: Callable[[str], None] | None = None,
+    known: Iterable[str] | None = None,
 ) -> str:
-    """The `gpu_tier` to hand `run_pipeline`, migrating a legacy request.
+    """The `gpu_tier` to hand the engine, migrating a legacy request.
 
+    `known` is the engine's own list of tier names; None when there is no
+    engine to ask (no transcription package installed, a test that stubs
+    it), and then validation is skipped rather than guessed at: an unknown
+    name travels on to the engine, whose error names the choices it does know.
     `warn` is called at most once, with a message meant for the task log, when
     a request arrives carrying only the retired `gpu_budget_gb`.
     """
 
     tier = str(request.get("gpu_tier") or "").strip()
-    known = _known_tiers()
+    known = frozenset(known) if known is not None else None
     if tier:
         if known is None or tier in known:
             return tier

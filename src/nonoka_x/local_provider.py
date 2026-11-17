@@ -78,8 +78,8 @@ CONTINUATION_READINESS = {
     "translated-srt": ("final-srt",),
     "final-srt": ("final-srt",),
 }
-# The text-only roles plugins may ask for, mapped onto engine roles by
-# `nonoka_x.llm_worker.ENGINE_ROLES`. The multimodal role is omitted
+# The text-only roles plugins may ask for, mapped onto engine roles by the
+# correction package (its `llm.ENGINE_ROLES`). The multimodal role is omitted
 # deliberately: it exists to put a clip in front of a model, and this entry
 # point has no way to pass one, so asking for it would only route text at a
 # more expensive model.
@@ -106,14 +106,16 @@ def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
-def _load_upstream(vendor: Path) -> dict[str, Any]:
-    try:
-        value = json.loads((vendor / "UPSTREAM.json").read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        raise ProviderError("missing_engine", f"FineSub snapshot is unavailable: {exc}", http_status=503) from exc
-    if not isinstance(value, dict) or not value.get("commit"):
-        raise ProviderError("invalid_engine", "FineSub UPSTREAM.json is invalid", http_status=503)
-    return value
+def _engine_upstream(packages: Mapping[str, Any]) -> dict[str, Any]:
+    """The engine release the installed packages carry (`PACKAGE.json` `upstream`); empty when none is installed."""
+
+    from . import engine_host
+
+    for kind in ("correction", "transcription", "knowledge"):
+        for package in engine_host.of_kind(packages, kind):
+            if package.upstream.get("commit"):
+                return dict(package.upstream)
+    return {}
 
 
 def _issue(code: str, message: str) -> dict[str, str]:
@@ -195,8 +197,10 @@ def _local_agent() -> str:
     ) or next((name for name in ("codex", "claude", "agy") if shutil.which(name)), "")
 
 
-def built_engines(settings: FineSubSettings | None, provisioner: Any | None) -> tuple[list[Any], list[Any]]:
-    """The built-in engines (`worker.TRANSCRIPTION_ENGINES`, `CORRECTION_ENGINES`), on the
+def built_engines(
+    settings: FineSubSettings | None, provisioner: Any | None, packages: Mapping[str, Any] | None = None
+) -> tuple[list[Any], list[Any]]:
+    """Every engine (the installed packages' and the core's own, `worker.build_engines`), on the
     config and runtime facades of `settings` and `provisioner`: (transcription, correction)."""
 
     from .config import ConfigStore
@@ -204,7 +208,7 @@ def built_engines(settings: FineSubSettings | None, provisioner: Any | None) -> 
     from .worker import build_engines
 
     store = ConfigStore(settings) if settings is not None else None
-    return build_engines(store=store, runtime=RuntimeManager(provisioner))
+    return build_engines(store=store, runtime=RuntimeManager(provisioner), packages=packages)
 
 
 def _find(engines: list[Any], engine_id: str) -> Any | None:
@@ -223,6 +227,7 @@ def runtime_report(
     *,
     engine: str | None = None,
     context: Any | None = None,
+    packages: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """The readiness tiers (`runtime.stages`) and what the `ready` of local execution means.
 
@@ -232,7 +237,7 @@ def runtime_report(
     correction engine. Only `media` is the sidecar's own probe.
     """
 
-    return _report(settings, provisioner, engine=engine, context=context)[0]
+    return _report(settings, provisioner, engine=engine, context=context, packages=packages)[0]
 
 
 def _report(
@@ -241,6 +246,7 @@ def _report(
     *,
     engine: str | None = None,
     context: Any | None = None,
+    packages: Mapping[str, Any] | None = None,
 ) -> tuple[dict[str, Any], list[Any], list[Any]]:
     """`runtime_report`, and the engines it asked: (report, transcription engines, correction engines)."""
 
@@ -250,7 +256,7 @@ def _report(
     if provisioner is not None:
         provisioner = _StatusOnce(provisioner)
     managed = provisioner.status() if provisioner is not None else None
-    transcription_engines, correction_engines = built_engines(settings, provisioner)
+    transcription_engines, correction_engines = built_engines(settings, provisioner, packages)
     engine_id = engine or DEFAULT_ENGINE
     transcriber = _find(transcription_engines, engine_id)
     media_issues = _media_issues(provisioner)
@@ -347,17 +353,19 @@ def detect_devices() -> list[dict[str, Any]]:
 
 
 def capabilities(
-    vendor: Path,
+    packages: Mapping[str, Any] | None = None,
     *,
     issues: list[dict[str, str]] | None = None,
     settings: FineSubSettings | None = None,
     provisioner: RuntimeProvisioner | None = None,
 ) -> dict[str, Any]:
+    from . import engine_host
     from .correction import correction_capability
     from .transcription import ReadinessContext, engine_capability
 
-    upstream = _load_upstream(vendor)
-    runtime, transcription_engines, correction_engines = _report(settings, provisioner)
+    packages = engine_host.discover() if packages is None else packages
+    upstream = _engine_upstream(packages)
+    runtime, transcription_engines, correction_engines = _report(settings, provisioner, packages=packages)
     if issues is not None:
         runtime["issues"] = issues
         runtime["ready"] = not issues
@@ -365,11 +373,12 @@ def capabilities(
         "provider": "local",
         "adapter_schema": 1,
         "artifact_schema": 1,
+        # The engine release the installed packages carry; empty when none is installed.
         "engine": {
-            "name": "finesub",
-            "version": upstream["engine_version"],
-            "commit": upstream["commit"],
-            "bundle_id": upstream["engine_bundle_id"],
+            "name": str(upstream.get("repository") or "").rstrip("/").rsplit("/", 1)[-1],
+            "version": str(upstream.get("engine_version") or ""),
+            "commit": str(upstream.get("commit") or ""),
+            "bundle_id": str(upstream.get("engine_bundle_id") or ""),
         },
         "features": {
             "raw_srt": True,
@@ -951,7 +960,7 @@ class LocalProvider:
     def __init__(
         self,
         root: str | Path,
-        vendor: str | Path,
+        engines: str | Path | None = None,
         *,
         worker_command: WorkerCommand | None = None,
         llm_worker_command: Callable[[], list[str]] | None = None,
@@ -959,10 +968,12 @@ class LocalProvider:
         settings: FineSubSettings | None = None,
         provisioner: RuntimeProvisioner | None = None,
     ) -> None:
+        from . import engine_host
+
         self.root = Path(root).expanduser().resolve()
-        self.vendor = Path(vendor).expanduser().resolve()
+        #: Where the engine packages are; each one present there is an engine (plan 4.6 item 33).
+        self.engines = Path(engines).expanduser().resolve() if engines is not None else engine_host.default_engines_root()
         self.root.mkdir(parents=True, exist_ok=True)
-        self._upstream = _load_upstream(self.vendor)
         self._issues_override = issues is not None
         self._issues = runtime_issues() if issues is None else issues
         self._settings = settings
@@ -979,7 +990,8 @@ class LocalProvider:
         self.telemetry = Telemetry(self.root.parent)
         self.documents = DocumentStore(self.root.parent / "documents")
         self._worker_command = worker_command or self._default_worker_command
-        self._llm_worker_command = llm_worker_command or self._default_llm_worker_command
+        #: A command for the resident process instead of the correction package's (tests' stand-ins).
+        self._llm_worker_command = llm_worker_command
         self._lock = threading.RLock()
         self._processes: dict[str, subprocess.Popen[str]] = {}
         self._threads: dict[str, threading.Thread] = {}
@@ -999,38 +1011,44 @@ class LocalProvider:
         # an in-flight call reads as "the worker died" and the retry starts a
         # new one -- an orphan process, spawned while the app is closing.
         self._closed = False
-        # Run directories of the processes this provider starts (`_engine_launch`):
-        # the LLM worker's, closed with it, and those handed out by
-        # `_engine_environment`, closed at shutdown.
+        # The launch context (and run directory) of the resident correction
+        # process, released with it.
         self._llm_run: Any | None = None
-        self._retained_runs: list[Any] = []
         self._sweep_engine_runs()
         self._recover_interrupted()
 
-    def _sweep_engine_runs(self) -> None:
-        """Remove run directories a previous sidecar left behind (D6)."""
+    def packages(self) -> dict[str, Any]:
+        """The engine packages installed now (read each time: a removed package is a removed engine)."""
 
-        from . import finesub_bridge
+        from . import engine_host
+
+        return engine_host.discover(self.engines)
+
+    def _sweep_engine_runs(self) -> None:
+        """Remove run directories a previous sidecar or worker left behind (D6)."""
+
+        from . import engine_host
 
         try:
             paths = self._paths()
-            packages = (finesub_bridge.CORRECTION_PACKAGE, finesub_bridge.TRANSCRIPTION_PACKAGE)
-            finesub_bridge.sweep_runs(paths.engine(package) for package in packages)
+            engine_host.sweep_runs(paths.engine(package) for package in self.packages())
         except Exception as exc:  # noqa: BLE001 - leftovers only cost disk space
             print(f"engine run sweep skipped: {exc}", file=sys.stderr, flush=True)
 
     def _default_worker_command(self, task_id: str, task_dir: Path) -> list[str]:
-        managed_python = self._provisioner.worker_python() if self._provisioner is not None else None
+        # The core's worker only orchestrates: it runs on the launcher, like
+        # the sidecar, and starts each engine package's process on the
+        # interpreter that package runs on (`engine_host.interpreter_for`).
         command = [
-            str(managed_python or sys.executable),
+            sys.executable,
             "-m",
             "nonoka_x.worker",
             "--task-id",
             task_id,
             "--task-dir",
             str(task_dir),
-            "--vendor",
-            str(self.vendor),
+            "--engines",
+            str(self.engines),
             # Where the worker's engines read keys and find the runtime (WP5).
             "--data-dir",
             str(self._data_dir()),
@@ -1047,74 +1065,49 @@ class LocalProvider:
         return Path(root) if root is not None else self.root.parent
 
     def _engine_specs(self) -> dict[str, Any]:
-        return {engine.spec.id: engine.spec for engine in built_engines(self._settings, self._provisioner)[0]}
-
-    def _default_llm_worker_command(self) -> list[str]:
-        managed_python = self._provisioner.worker_python() if self._provisioner is not None else None
-        return [str(managed_python or sys.executable), "-m", "nonoka_x.llm_worker"]
+        return {
+            engine.spec.id: engine.spec
+            for engine in built_engines(self._settings, self._provisioner, self.packages())[0]
+        }
 
     def knowledge(self, request: dict) -> dict:
-        managed_python = self._provisioner.worker_python() if self._provisioner is not None else None
-        kwargs = {"creationflags": subprocess.CREATE_NO_WINDOW} if os.name == "nt" else {}
+        """The knowledge page's list, read or save, in a short-lived knowledge package process."""
+
+        from . import engine_contexts, engine_host
+
+        package = engine_host.knowledge_package(self.packages())
+        if package is None:
+            raise ProviderError("missing_knowledge_package", "知识库包未安装", http_status=503)
         try:
-            environment, run = self._engine_launch("knowledge")
-            try:
-                result = subprocess.run(
-                    [str(managed_python or sys.executable), "-m", "nonoka_x.knowledge_worker"],
-                    input=json.dumps(request, ensure_ascii=False), capture_output=True,
-                    text=True, encoding="utf-8", env=environment, timeout=110, **kwargs,
-                )
-            finally:
-                run.close()
-            if result.returncode:
-                raise ProviderError("knowledge_unavailable", "无法读取知识库，请检查本地运行环境", http_status=503)
-            response = json.loads(result.stdout)
-        except (OSError, subprocess.TimeoutExpired, json.JSONDecodeError) as exc:
+            with engine_contexts.build({package.id: package}, paths=self._paths()) as built:
+                with engine_host.PackageProcess(
+                    package, built.contexts[package.id], environment=self._worker_environment()
+                ) as process:
+                    response = process.request("manage", {"request": request})
+        except (OSError, engine_host.PackageError, engine_host.PackageUnavailable) as exc:
             raise ProviderError("knowledge_unavailable", "知识库服务不可用，请稍后重试", http_status=503) from exc
         if "error" in response:
             raise ProviderError("knowledge_error", response["error"], http_status=409)
         return response["result"]
 
-    def _engine_environment(self, purpose: str = "task") -> dict[str, str]:
-        """The environment a `purpose` process is spawned into, its run directory kept until `shutdown`.
+    def _worker_environment(self) -> dict[str, str]:
+        """The environment of a process the core starts for its engines: the task worker, an engine package's.
 
-        For callers that only want to see the environment (the quality gate);
-        the provider's own spawns use `_engine_launch` and close the run when
-        the process is gone.
-        """
-
-        environment, run = self._engine_launch(purpose)
-        with self._lock:
-            self._retained_runs.append(run)
-        return environment
-
-    def _engine_launch(self, purpose: str) -> tuple[dict[str, str], Any]:
-        """The environment of a process that imports FineSub, and its run directory (`EngineRun`).
-
-        `purpose` is `task` (the task worker: both halves of FineSub until the
-        engine packages split), `llm` or `knowledge` (the correction half).
         Shared by every spawn rather than written for each: the items here are
         bugs someone already had to find -- an agent CLI that PATH cannot see,
-        the vendored engine that is not installed anywhere, native output in
-        the ANSI code page.
-
-        What FineSub reads of its own -- its files, keys, model directory and
-        switches -- comes from the bridge, derived from this process's launch
-        context into its own run directory (`nonoka_x.finesub_bridge`, WP-R5);
-        none of it is inherited from the sidecar's environment.
+        native output in the ANSI code page. What an engine reads of its own
+        is not here: its package's bridge derives that from its launch context
+        (`nonoka_x.engine_contexts`), inside the package's process.
         """
 
-        from . import finesub_bridge
-
-        base = self._provisioner.worker_environment() if self._provisioner is not None else os.environ.copy()
-        environment = finesub_bridge.without_inherited(base)
+        environment = self._provisioner.worker_environment() if self._provisioner is not None else os.environ.copy()
         # The engine resolves an agent CLI by name off PATH, so an install that
         # is not on PATH has to be put there for the worker.
         agent_dirs = local_agent_path_entries()
         if agent_dirs:
             environment["PATH"] = os.pathsep.join([*agent_dirs, environment.get("PATH", "")])
         project_src = Path(__file__).resolve().parents[1]
-        python_paths = [str(project_src), str(self.vendor / "src")]
+        python_paths = [str(project_src)]
         if environment.get("PYTHONPATH"):
             python_paths.append(environment["PYTHONPATH"])
         environment["PYTHONPATH"] = os.pathsep.join(python_paths)
@@ -1124,20 +1117,20 @@ class LocalProvider:
         # decoding on that native code page.
         environment["PYTHONUTF8"] = "0"
         environment["PYTHONIOENCODING"] = "utf-8"
+        return environment
 
-        paths = self._paths()
-        run = finesub_bridge.EngineRun.claim(paths.engine(finesub_bridge.CORRECTION_PACKAGE))
-        try:
-            correction = self._correction_context(paths, run.directory)
-            if purpose == "task":
-                transcription = self._transcription_context(paths, run.directory.name)
-                environment.update(finesub_bridge.combined_environment(transcription, correction))
-            else:
-                environment.update(finesub_bridge.correction_environment(correction))
-        except BaseException:
-            run.close()
-            raise
-        return environment, run
+    def launch_contexts(self, packages: Mapping[str, Any] | None = None) -> Any:
+        """Launch contexts (and run directories) for `packages` (every installed one), as a worker builds them."""
+
+        from . import engine_contexts
+
+        return engine_contexts.build(
+            self.packages() if packages is None else packages,
+            paths=self._paths(),
+            settings=self._settings,
+            provisioner=self._provisioner,
+            proxy=engine_contexts.proxy_context(),
+        )
 
     def _paths(self) -> Any:
         from .runtime.paths import NonokaPaths
@@ -1145,54 +1138,35 @@ class LocalProvider:
         paths = getattr(self._provisioner, "paths", None)
         return paths if paths is not None else NonokaPaths.for_roots(self._data_dir())
 
-    def _transcription_context(self, paths: Any, process: str) -> dict[str, Any]:
-        """FineSub's transcription half's launch context (R0 document 1.15)."""
+    def _knowledge_problem(self, request: Mapping[str, Any], task_dir: Path | None = None) -> str | None:
+        """`worker.knowledge_package_problem` for `request` as the worker would run it.
 
-        from . import finesub_bridge
-        from .settings import TRANSCRIPTION_SECRET_NAMES
-
-        package = finesub_bridge.TRANSCRIPTION_PACKAGE
-        model_dir = getattr(self._provisioner, "engine_model_dir", None)
-        models = model_dir() if model_dir is not None else paths.layer("models") / "unavailable"
-        return {
-            "schema": 1,
-            "package_id": package,
-            "paths": {"run": str(paths.engine_run(package, process)), "state_file": str(paths.data / "state")},
-            "runtime": {"models": str(models), "cache": str(paths.cache / package)},
-            "secrets": self._settings_call("engine_secrets", {}, TRANSCRIPTION_SECRET_NAMES),
-        }
-
-    def _settings_call(self, name: str, default: Any, *args: Any) -> Any:
-        """`settings.<name>(*args)`, or `default` for a settings object that has no such call (tests' stand-ins)."""
-
-        call = getattr(self._settings, name, None)
-        return call(*args) if call is not None else default
-
-    def _correction_context(self, paths: Any, run: Path) -> dict[str, Any]:
-        """FineSub's correction half's launch context (R0 document 1.15).
-
-        The knowledge base and the rate-limit state stay where they are until
-        the migration moves them into the packages' directories (WP-M2).
+        A Chinese-source task's mode is the correction engine's to say
+        (`task_mode`, asked of the resident correction process); a new task has
+        no record yet, so `task_dir` defaults to one that does not exist.
         """
 
-        from . import finesub_bridge
-        from .settings import CORRECTION_SECRET_NAMES
+        from . import engine_host
+        from .worker import knowledge_package_problem
 
-        return {
-            "schema": 1,
-            "package_id": finesub_bridge.CORRECTION_PACKAGE,
-            "paths": {
-                "run": str(run),
-                "state_file": str(paths.data / "state"),
-                "knowledge_root": str(paths.data / "knowledge"),
-            },
-            "secrets": self._settings_call("engine_secrets", {}, CORRECTION_SECRET_NAMES),
-            "llm": self._settings_call("llm_context", {}),
-        }
+        packages = self.packages()
+        if request.get("knowledge", "update") == "none" or engine_host.knowledge_package(packages) is not None:
+            return None
+        effective = dict(request)
+        axis = request.get("axis")
+        if request.get("language") == "zh" and not (isinstance(axis, Mapping) and axis.get("kind") == "ja"):
+            package = engine_host.correction_package(packages)
+            if package is None:
+                effective["knowledge"] = "none"
+            else:
+                directory = task_dir if task_dir is not None else self.root / f".new-{uuid.uuid4().hex}"
+                record = directory / "native" / package.id / "llm-artifacts"
+                effective = dict(self._service_call("task_mode", {"request": dict(request), "record_dir": str(record)}))
+        return knowledge_package_problem(effective, packages)
 
     def get_capabilities(self) -> dict[str, Any]:
         issues = self._issues if self._issues_override else runtime_report(self._settings, self._provisioner)["issues"]
-        return capabilities(self.vendor, issues=issues, settings=self._settings, provisioner=self._provisioner)
+        return capabilities(self.packages(), issues=issues, settings=self._settings, provisioner=self._provisioner)
 
     def runtime_provision_status(self) -> dict[str, Any]:
         if self._provisioner is None:
@@ -1353,10 +1327,9 @@ class LocalProvider:
             # The worker refuses the same request the same way, with the same
             # check (plan 4.6 item 35a): a run that reads or writes the
             # knowledge base, or picks its ASR context from it, needs the
-            # knowledge package.
-            from .worker import knowledge_package_problem
-
-            problem = knowledge_package_problem(validated)
+            # knowledge package -- after what a Chinese-source task cannot use
+            # is taken out, as the worker takes it out (`worker.for_task_mode`).
+            problem = self._knowledge_problem(validated)
             if problem:
                 raise ProviderError("missing_knowledge_package", problem, http_status=503)
         task_id = uuid.uuid4().hex
@@ -1368,7 +1341,10 @@ class LocalProvider:
             "state": "queued",
             "stage": "",
             "progress": None,
-            "engine": {"version": self._upstream["engine_version"], "commit": self._upstream["commit"]},
+            "engine": {
+                "version": str(_engine_upstream(self.packages()).get("engine_version") or ""),
+                "commit": str(_engine_upstream(self.packages()).get("commit") or ""),
+            },
             # The transcription engine the task runs on, for the desktop's task
             # list (WP6). Tasks written before this field carry none: FineSub.
             "transcription_engine": requested_engine(validated),
@@ -1643,45 +1619,76 @@ class LocalProvider:
         }
 
     def _llm_exchange(self, request: Mapping[str, Any], deadline: float) -> dict[str, Any]:
-        """Send one request to the LLM worker and read its one response.
+        """One `llm.complete` of the resident correction process, and its answer."""
 
-        Caller holds `_llm_lock`. A worker that died between calls -- the CLI it
-        drives crashed, the machine slept -- is replaced once and the request
-        retried, because the failure has nothing to do with this request.
+        return self._exchange("llm.complete", {"request": dict(request)}, deadline,
+                              timeout=float(request.get("timeout_seconds", LLM_CALL_TIMEOUT_SEC)))
+
+    def _service_call(self, op: str, payload: Mapping[str, Any] | None = None, *, timeout: float = 120.0) -> Any:
+        """One request of the resident correction process (its catalog, a task's speaker rows, a task's mode)."""
+
+        deadline = time.monotonic() + timeout
+        if not self._llm_lock.acquire(timeout=timeout):
+            raise _llm_timeout_error(timeout)
+        try:
+            return self._exchange(op, dict(payload or {}), deadline, timeout=timeout)
+        finally:
+            self._llm_lock.release()
+
+    def _exchange(self, op: str, payload: Mapping[str, Any], deadline: float, *, timeout: float) -> Any:
+        """Send one request to the resident correction process and read until its answer.
+
+        Caller holds `_llm_lock`. A process that died between calls -- the CLI
+        it drives crashed, the machine slept -- is replaced once and the
+        request retried, because the failure has nothing to do with this request.
         """
 
         for attempt in range(2):
             process = self._llm_worker()
             assert process.stdin is not None and process.stdout is not None
             try:
-                process.stdin.write(json.dumps(request, ensure_ascii=False) + "\n")
+                process.stdin.write(json.dumps({"op": op, **payload}, ensure_ascii=False) + "\n")
                 process.stdin.flush()
             except (BrokenPipeError, OSError, ValueError):
                 self._stop_llm_worker()
                 if attempt == 0:
                     continue
                 raise ProviderError("llm_unavailable", "The LLM worker could not be started", http_status=503)
-            line = _read_line_with_timeout(process, max(0.0, deadline - time.monotonic()))
-            if line is None:
-                self._stop_llm_worker()
-                raise _llm_timeout_error(float(request.get("timeout_seconds", LLM_CALL_TIMEOUT_SEC)))
-            if not line.strip():
-                # EOF: the worker is gone. Its stderr went to the sidecar's.
-                self._stop_llm_worker()
-                if attempt == 0:
-                    continue
-                raise ProviderError("llm_unavailable", "The LLM worker stopped unexpectedly", http_status=503)
-            self._schedule_llm_idle_stop()
-            try:
-                value = json.loads(line)
-            except json.JSONDecodeError as exc:
-                raise ProviderError("llm_protocol", "The LLM worker sent an unreadable response", http_status=502) from exc
-            if not isinstance(value, dict):
-                raise ProviderError("llm_protocol", "The LLM worker sent an unreadable response", http_status=502)
-            return value
+            while True:
+                line = _read_line_with_timeout(process, max(0.0, deadline - time.monotonic()))
+                if line is None:
+                    self._stop_llm_worker()
+                    raise _llm_timeout_error(timeout)
+                if not line.strip():
+                    break
+                try:
+                    value = json.loads(line)
+                except json.JSONDecodeError as exc:
+                    raise ProviderError("llm_protocol", "The LLM worker sent an unreadable response", http_status=502) from exc
+                if not isinstance(value, dict):
+                    raise ProviderError("llm_protocol", "The LLM worker sent an unreadable response", http_status=502)
+                kind = value.get("type")
+                if kind == "result":
+                    self._schedule_llm_idle_stop()
+                    return value.get("payload")
+                if kind == "error":
+                    self._schedule_llm_idle_stop()
+                    error = value.get("payload") or {}
+                    message = str(error.get("formatted") or error.get("message") or "engine request failed")
+                    raise ProviderError("engine_request_failed", message, http_status=502)
+                # A reporter call or a stray line: nothing the caller waits for.
+            # EOF: the process is gone. Its stderr went to the sidecar's.
+            self._stop_llm_worker()
+            if attempt == 0:
+                continue
+            raise ProviderError("llm_unavailable", "The LLM worker stopped unexpectedly", http_status=503)
         raise ProviderError("llm_unavailable", "The LLM worker stopped unexpectedly", http_status=503)
 
     def _llm_worker(self) -> subprocess.Popen[str]:
+        """The resident correction process: the correction package's entry, holding a routed client."""
+
+        from . import engine_contexts, engine_host
+
         if self._closed:
             raise ProviderError("llm_unavailable", "The application is shutting down", http_status=503)
         process = self._llm_process
@@ -1689,9 +1696,24 @@ class LocalProvider:
             return process
         self._stop_llm_worker()
         self._llm_config_stale = False
+        package = engine_host.correction_package(self.packages())
+        if package is None and self._llm_worker_command is None:
+            raise ProviderError("missing_engine", "纠错翻译包未安装", http_status=503)
         try:
-            environment, self._llm_run = self._engine_launch("llm")
+            packages = {package.id: package} if package is not None else {}
+            self._llm_run = engine_contexts.build(
+                packages, paths=self._paths(), settings=self._settings, provisioner=self._provisioner,
+                proxy=engine_contexts.proxy_context(),
+            )
+            context = self._llm_run.contexts.get(package.id) if package is not None else {}
+            environment = self._worker_environment()
+            if package is not None:
+                environment = engine_host.package_environment(package, environment)
+                command = engine_host.package_command(package, engine_host.interpreter_for(package, context))
+            if self._llm_worker_command is not None:
+                command = self._llm_worker_command()
         except OSError as exc:
+            self._close_llm_run()
             raise ProviderError("llm_unavailable", f"The LLM worker could not be prepared: {exc}", http_status=503) from exc
         kwargs: dict[str, Any] = {
             "stdin": subprocess.PIPE,
@@ -1706,7 +1728,10 @@ class LocalProvider:
         else:
             kwargs["start_new_session"] = True
         try:
-            self._llm_process = subprocess.Popen(self._llm_worker_command(), **kwargs)
+            self._llm_process = subprocess.Popen(command, **kwargs)
+            assert self._llm_process.stdin is not None
+            self._llm_process.stdin.write(json.dumps({"context": context}, ensure_ascii=False) + "\n")
+            self._llm_process.stdin.flush()
         except OSError as exc:
             self._close_llm_run()
             raise ProviderError("llm_unavailable", f"The LLM worker could not be started: {exc}", http_status=503) from exc
@@ -1789,10 +1814,6 @@ class LocalProvider:
         for thread in threads:
             if thread is not threading.current_thread():
                 thread.join(timeout=6)
-        with self._lock:
-            retained, self._retained_runs = self._retained_runs, []
-        for run in retained:
-            run.close()
 
     def _restart(self, task_id: str, allowed: set[str]) -> dict[str, Any]:
         with self._lock:
@@ -1821,9 +1842,8 @@ class LocalProvider:
         request = _read_json_when_free(task_dir / "request.json")
         command = self._worker_command(task_id, task_dir)
         process: subprocess.Popen[str] | None = None
-        run: Any | None = None
         try:
-            environment, run = self._engine_launch("task")
+            environment = self._worker_environment()
             request_device = str(request.get("device") or "").strip().lower()
             if request_device.startswith("cuda:"):
                 gpu_index = request_device.split(":", 1)[1].strip()
@@ -1909,8 +1929,6 @@ class LocalProvider:
                 for stream in (process.stdin, process.stdout):
                     if stream is not None and not stream.closed:
                         stream.close()
-            if run is not None:
-                run.close()
             with self._lock:
                 self._processes.pop(task_id, None)
                 self._threads.pop(task_id, None)

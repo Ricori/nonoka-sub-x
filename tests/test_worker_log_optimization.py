@@ -9,6 +9,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
+from finesub_correct import failures
+
 from nonoka_x import local_provider, worker
 
 
@@ -83,14 +85,14 @@ class WorkerLogOptimizationTests(unittest.TestCase):
             ],
         )
 
-        formatted = worker.format_worker_exception(exc)
+        formatted = failures.format_worker_exception(exc)
         self.assertIn("本地模型 CLI 调用失败", formatted)
         self.assertIn("You've hit your usage limit", formatted)
         self.assertNotIn("inspect events/stderr.log", formatted)
 
     def test_format_worker_exception_fallback_when_no_vendor_error(self) -> None:
         exc = RuntimeError("Generic engine crash")
-        formatted = worker.format_worker_exception(exc)
+        formatted = failures.format_worker_exception(exc)
         self.assertEqual(formatted, "RuntimeError: Generic engine crash")
 
     def test_classify_failure_detects_quota_and_auth(self) -> None:

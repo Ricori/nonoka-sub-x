@@ -1,0 +1,81 @@
+{
+  "schema": 1,
+  "id": "finesub-transcribe",
+  "kind": "transcription",
+  "label": "FineSub 转写包",
+  "entry": "finesub_transcribe",
+  "paths": [
+    "adapter",
+    "../../third_party/finesub/src"
+  ],
+  "interpreter": "python-layer",
+  "secrets": [
+    "HF_TOKEN"
+  ],
+  "upstream": {
+    "commit": "7123055da0cd6e037d8e37feb53b82f9e428c5cb",
+    "engine_bundle_id": "finesub-0.7.0+7123055da0cd",
+    "engine_version": "0.7.0",
+    "ref": "v0.7.0",
+    "repository": "https://github.com/caca2331/finesub"
+  },
+  "engine": {
+    "id": "finesub",
+    "label": "FineSub",
+    "kind": "local-gpu",
+    "features": {
+      "speakers": true,
+      "word_timestamps": true,
+      "separate": true,
+      "diarization_levels": [
+        "off",
+        "acoustics",
+        "judge-text",
+        "judge-audio"
+      ],
+      "languages": []
+    },
+    "keys": [],
+    "environment": {
+      "components": [
+        "asr-runtime",
+        "media"
+      ],
+      "models": [
+        "separator",
+        "whisper",
+        "qwen-referee"
+      ],
+      "optional_components": [],
+      "optional_models": [
+        "nemotron3",
+        "speaker-embedding"
+      ],
+      "gpu": "optional"
+    },
+    "billing": ""
+  },
+  "gpu_tiers": [
+    "auto",
+    "cpu",
+    "entry",
+    "standard",
+    "standard_large_vram",
+    "high"
+  ],
+  "readiness": {
+    "profile": "managed-runtime",
+    "platforms": [
+      "win32"
+    ],
+    "platform_message": "本地 GPU 流水线当前仅支持 Windows x64/NVIDIA",
+    "modules": [
+      "torch",
+      "faster_whisper",
+      "audio_separator"
+    ]
+  },
+  "caches": [
+    "numba"
+  ]
+}

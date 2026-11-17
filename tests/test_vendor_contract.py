@@ -135,7 +135,7 @@ class VendorContractTests(unittest.TestCase):
         """
 
         from nonoka_x.local_provider import LLM_ROLES, PIPELINE_TARGETS
-        from nonoka_x.llm_worker import ENGINE_ROLES, ROLES
+        from finesub_correct.llm import ENGINE_ROLES, ROLES
 
         stages = _assignment(DEFAULT_VENDOR / "src/finesub/stages.py", "PIPELINE_STAGE_ORDER")
         self.assertEqual(

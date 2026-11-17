@@ -57,7 +57,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
-from . import FIXTURES, ROOT
+from . import ENGINES, FIXTURES, ROOT
 from .calls import Normalizer, manifest_record, render
 from .calls import hermetic_environment as _calls_environment
 from .replay import GateResponder
@@ -368,6 +368,12 @@ def run_replay_case(name: str, scratch: Path) -> dict[str, Any]:
     raw = json.loads(out.read_text(encoding="utf-8"))
     artifacts = root / "data" / "tasks" / "gate-replay"
     task_artifacts = sorted(artifacts.rglob("task-artifacts.jsonl"))
+
+    def where(path: Path) -> str:
+        # Since WP-P1 in the correction package's directory of the task
+        # (plan 4.6 item 34); the baselines name it `workspace`.
+        return path.relative_to(artifacts).as_posix().replace("native/finesub-correct/", "workspace/", 1)
+
     record = {
         "case": name,
         "machine": raw["machine"],
@@ -379,7 +385,7 @@ def run_replay_case(name: str, scratch: Path) -> dict[str, Any]:
         "exchanges": raw["exchanges"],
         "outputs": raw["outputs"],
         "task_artifacts": {
-            path.relative_to(artifacts).as_posix(): [
+            where(path): [
                 {key: value for key, value in json.loads(line).items() if key != "created_at"}
                 for line in path.read_text(encoding="utf-8").splitlines() if line.strip()
             ]
@@ -456,15 +462,39 @@ def run_asr_context_case(name: str, scratch: Path) -> dict[str, Any]:
 UI_LOCK_TIMEOUT_SECONDS = 2.0
 
 
-def ui_door_main() -> int:
-    """`python -m nonoka_x.knowledge_worker`, the door `LocalProvider.knowledge` uses, with the lock wait shortened."""
+def ui_door_hook(spec: Mapping[str, Any], entry: str, context: Mapping[str, Any]) -> None:
+    """In the knowledge package's process: the write lock's wait shortened (`UI_LOCK_TIMEOUT_SECONDS`)."""
 
     from finesub.llm.knowledge import base
 
     base.KNOWLEDGE_LOCK_TIMEOUT_SECONDS = UI_LOCK_TIMEOUT_SECONDS
-    from nonoka_x import knowledge_worker
 
-    knowledge_worker.main()
+
+def knowledge_process(root: Path, knowledge_root: Path, *, hook: str | None = None) -> Any:
+    """The knowledge package's process the way the desktop starts one (`LocalProvider.knowledge`), on `knowledge_root`."""
+
+    from nonoka_x import engine_host
+
+    from .package_child import use_in_worker
+
+    if hook is not None:
+        use_in_worker({"hook": hook}, root / "package-child.json")
+    package = engine_host.knowledge_package(engine_host.discover(ENGINES))
+    run = root / "run"
+    run.mkdir(exist_ok=True)
+    context = {"schema": 1, "package_id": package.id,
+               "paths": {"run": str(run), "knowledge_root": str(knowledge_root)}}
+    return engine_host.PackageProcess(package, context)
+
+
+def ui_door_main(spec: Mapping[str, Any]) -> int:
+    """The door `LocalProvider.knowledge` uses (the knowledge package's `manage`), with the lock wait shortened."""
+
+    requests = json.loads(Path(spec["requests"]).read_text(encoding="utf-8"))
+    with knowledge_process(Path(spec["root"]), Path(spec["knowledge_root"]),
+                           hook="tests.quality_harness.knowledge:ui_door_hook") as process:
+        response = process.request("manage", {"request": requests})
+    print(json.dumps(response, ensure_ascii=False))
     return 0
 
 
@@ -486,16 +516,23 @@ def run_ui_case(name: str, scratch: Path) -> dict[str, Any]:
     fixture_base(root, knowledge_root)
     environment = hermetic_environment(root)
     environment["FINESUB_KNOWLEDGE_ROOT"] = str(knowledge_root)
+    door_root = root / "door"
+    door_root.mkdir()
 
     def door(request: Mapping[str, Any]) -> Any:
+        requests = door_root / "request.json"
+        requests.write_text(json.dumps(request, ensure_ascii=False), encoding="utf-8")
+        spec = door_root / "ui-door.spec.json"
+        spec.write_text(json.dumps({"root": str(door_root), "knowledge_root": str(knowledge_root),
+                                    "requests": str(requests)}, ensure_ascii=False), encoding="utf-8")
         completed = subprocess.run(
-            [sys.executable, "-m", "tests.quality_harness.knowledge", "--ui-door", "-"],
-            input=json.dumps(request, ensure_ascii=False), cwd=ROOT, env=environment, capture_output=True,
+            [sys.executable, "-m", "tests.quality_harness.knowledge", "--ui-door", str(spec)],
+            cwd=ROOT, env=environment, capture_output=True,
             text=True, encoding="utf-8", errors="replace", timeout=120,
         )
         if completed.returncode != 0:
-            raise RuntimeError(f"knowledge_worker failed ({completed.returncode}):\n{completed.stderr[-4000:]}")
-        return json.loads(completed.stdout)
+            raise RuntimeError(f"knowledge door failed ({completed.returncode}):\n{completed.stderr[-4000:]}")
+        return json.loads(completed.stdout.strip().splitlines()[-1])
 
     steps: list[dict[str, Any]] = []
 
@@ -653,17 +690,23 @@ PREPARE_FIXTURE_STEPS: tuple[tuple[str, dict[str, Any]], ...] = (
 
 
 def prepare_main(spec: Mapping[str, Any]) -> int:
-    os.environ["FINESUB_KNOWLEDGE_ROOT"] = spec["knowledge_root"]
-    from nonoka_x import worker
+    """What a task's worker asks the knowledge package before it starts (`prepare_subjects`), step by step."""
+
+    from nonoka_x import engine_host, worker
 
     steps = PREPARE_FIXTURE_STEPS if spec["fixture"] else PREPARE_STEPS
     results = []
-    for label, request in steps:
-        try:
-            outcome: dict[str, Any] = {"result": worker.prepare_knowledge_subjects(request, f"gate-{label}")}
-        except Exception as exc:  # noqa: BLE001 - the error is the result
-            outcome = {"error": {"type": type(exc).__name__, "message": str(exc)}}
-        results.append({"step": label, "request": request, **outcome})
+    root = Path(spec["out"]).parent / f"prepare-{'fixture' if spec['fixture'] else 'empty'}"
+    root.mkdir(exist_ok=True)
+    with knowledge_process(root, Path(spec["knowledge_root"])) as process:
+        for label, request in steps:
+            asked = worker.subject_request(request, f"gate-{label}")
+            try:
+                prepared = process.request("prepare_subjects", asked) if asked else {"names": [], "created": []}
+                outcome: dict[str, Any] = {"result": prepared}
+            except engine_host.PackageError as exc:  # the error is the result
+                outcome = {"error": {"type": exc.payload.get("type"), "message": exc.payload.get("message")}}
+            results.append({"step": label, "request": request, **outcome})
     Path(spec["out"]).write_text(json.dumps(results, ensure_ascii=False), encoding="utf-8")
     return 0
 
@@ -746,15 +789,17 @@ def main(argv: list[str] | None = None) -> int:
     for role in ("build", "mcp", "prepare", "hold-lock", "ui-door"):
         group.add_argument(f"--{role}", type=str)
     args = parser.parse_args(argv)
-    if args.ui_door:
-        return ui_door_main()
     role, value = next((role, getattr(args, role.replace("-", "_"))) for role in
-                       ("build", "mcp", "prepare", "hold-lock") if getattr(args, role.replace("-", "_")))
+                       ("build", "mcp", "prepare", "hold-lock", "ui-door") if getattr(args, role.replace("-", "_")))
     spec = json.loads(Path(value).read_text(encoding="utf-8"))
-    from . import stubs
+    from . import stubs, union
 
     sys.meta_path.insert(0, stubs.RefuseHeavyImports())
-    return {"build": build_main, "mcp": mcp_main, "prepare": prepare_main, "hold-lock": hold_lock_main}[role](spec)
+    # The knowledge code, the protocol's client and its server side by side in
+    # this one process (they live in different engine packages).
+    union.install()
+    return {"build": build_main, "mcp": mcp_main, "prepare": prepare_main, "hold-lock": hold_lock_main,
+            "ui-door": ui_door_main}[role](spec)
 
 
 if __name__ == "__main__":

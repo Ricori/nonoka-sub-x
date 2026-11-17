@@ -1,0 +1,17 @@
+{
+  "schema": 1,
+  "id": "finesub-knowledge",
+  "kind": "knowledge",
+  "label": "FineSub 知识库包",
+  "entry": "finesub_knowledge_host",
+  "paths": ["adapter", "../../third_party/finesub/src"],
+  "interpreter": "launcher",
+  "secrets": [],
+  "upstream": {
+    "commit": "7123055da0cd6e037d8e37feb53b82f9e428c5cb",
+    "engine_bundle_id": "finesub-0.7.0+7123055da0cd",
+    "engine_version": "0.7.0",
+    "ref": "v0.7.0",
+    "repository": "https://github.com/caca2331/finesub"
+  }
+}

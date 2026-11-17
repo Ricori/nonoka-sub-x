@@ -1,34 +1,40 @@
 """The task worker. Stdin is one TaskRequest; stdout is NDJSON events.
 
-Only orchestration (`docs/transcription-engines-plan.md`, WP4c): the request's
-transcription engine (`transcription.engine`, `finesub` when absent) turns the
-source into a `TranscriptionResult`, and, for a target past `stable`, the
-request's correction engine (`correction.engine`) takes it from there. Both
-are looked up by id in their registries; nothing here knows which engine it
-is talking to. A result already in hand -- the cloud's recognition, which a
-`cloud_stable` source continues from -- takes the transcription's place.
-A source-text axis (`axis.kind == "ja"`) needs no transcription at all and
-goes straight to the shared axis run (`nonoka_x.axis`).
+Only orchestration (`docs/transcription-engines-plan.md`, WP4c, WP-P1): the
+request's transcription engine (`transcription.engine`, `finesub` when absent)
+turns the source into a `TranscriptionResult`, and, for a target past
+`stable`, the request's correction engine (`correction.engine`) takes it from
+there. Both are looked up by id in their registries; nothing here knows which
+engine it is talking to. A result already in hand -- the cloud's recognition,
+which a `cloud_stable` source continues from -- takes the transcription's
+place. A source-text axis (`axis.kind == "ja"`) needs no transcription at all
+and goes straight to the correction engine's axis run.
+
+The engines an engine package provides run in the package's own processes
+(`nonoka_x.engine_host`, plan 4.6 item 33): the worker starts them, hands each
+its launch context (`nonoka_x.engine_contexts`), and hears what they report
+through the one reporter that hears every half of the task. A request that
+reads or writes the knowledge base gets one knowledge process for the task,
+started here, which the engine processes reach through their contexts. The
+cloud API engines are the core's own and run in this process.
 """
 
 from __future__ import annotations
 
 import argparse
-import contextlib
 import dataclasses
 import hashlib
 import importlib
 import inspect
 import json
-import logging
 import os
 import sys
 import traceback
 from pathlib import Path
-from typing import Any, Iterator, Mapping
+from typing import Any, Mapping
 
-from .axis import AxisTranslation, translate_axis as translate_rows
-from .download_route import install_proxy_route_policy
+from . import engine_host
+from .download_route import install_app_proxy_policy
 from .fast_mode import resolve_request_fast
 from .gpu_tier import resolve_request_gpu_tier
 
@@ -50,27 +56,6 @@ def emit(event_type: str, payload: Mapping[str, Any] | None = None) -> None:
 _API_CALL_MESSAGE = "llm api call"
 _SLOW_API_CALL_SECONDS = 60.0
 
-# audio-separator checks ONNXruntime execution providers on initialization and
-# logs a warning if onnxruntime-gpu is missing. FineSub uses PyTorch CUDA and
-# AOTInductor for BS-Roformer, not ONNXruntime, so this warning is irrelevant
-# and misleads users into believing GPU acceleration is disabled.
-_MISLEADING_ONNX_CUDA_WARNING = "CUDAExecutionProvider not available in ONNXruntime"
-
-
-class _MuteSeparatorONNXWarningFilter(logging.Filter):
-    def filter(self, record: logging.LogRecord) -> bool:
-        return _MISLEADING_ONNX_CUDA_WARNING not in record.getMessage()
-
-
-def _install_separator_logging_filters() -> None:
-    mute_filter = _MuteSeparatorONNXWarningFilter()
-    for name in ("separator", "audio_separator", "audio_separator.separator.separator"):
-        logging.getLogger(name).addFilter(mute_filter)
-
-
-_install_separator_logging_filters()
-
-
 def _is_slow_call(fields: Mapping[str, Any]) -> bool:
     try:
         return float(fields.get("sec") or 0) >= _SLOW_API_CALL_SECONDS
@@ -79,12 +64,11 @@ def _is_slow_call(fields: Mapping[str, Any]) -> bool:
 
 
 class NonokaXReporter:
-    """FineSub's reporter protocol (`finesub.reporting.Reporter`) as worker events.
+    """An engine's reporter protocol (FineSub's `Reporter`) as worker events.
 
-    One instance hears every half of a task -- the worker binds it around the
-    transcription and the correction alike, and both FineSub adapters keep a
-    reporter their caller bound -- so a warning either half raises is said
-    once. `announce_completion=False` leaves the final progress line to the
+    One instance hears every half of a task -- the engine packages' processes
+    make their reporter's calls on it through the engine host -- so a warning
+    either half raises is said once. `announce_completion=False` leaves the final progress line to the
     caller: a run in two halves completes twice, and only the task's own end
     is "字幕已完成".
     """
@@ -222,83 +206,63 @@ def knowledge_task_summary(request: Mapping[str, Any], title: str) -> str:
     return f"字幕任务：{title}" + (f"\n\n{identity}" if identity else "")
 
 
-def prepare_knowledge_subjects(
-    request: Mapping[str, Any], task_id: str, *, knowledge_root: str | Path | None = None
-) -> dict[str, Any]:
-    """Resolve the picked subjects to engine names, creating new ones first.
-
-    Existing subjects travel by store id, which survives a rename; the engine
-    is handed `category/key`, the qualified form its human lookup accepts
-    without ambiguity. A subject without an id is created -- the provider
-    only lets that through under `update` -- unless an entry of that name
-    already exists, which is then reused rather than duplicated.
-
-    The store is the knowledge package's (plan 4.6 item 35a): the lookup and
-    the creation run there (`finesub_knowledge.manage.prepare_subjects`).
-    """
-
-    subjects = knowledge_subjects(request)
-    if not subjects:
-        return {"names": [], "created": []}
-
-    from finesub_knowledge.client import prepare_subjects
-
-    return prepare_subjects(
-        [dict(item) for item in subjects], knowledge=request.get("knowledge"), task_id=task_id,
-        knowledge_root=knowledge_root,
-    )
-
-
-def knowledge_package_problem(request: Mapping[str, Any]) -> str | None:
+def knowledge_package_problem(request: Mapping[str, Any], packages: Mapping[str, Any]) -> str | None:
     """Why this request cannot run without the knowledge package, or None.
 
     A request that reads or writes the base needs it, and so does its ASR
-    context, which picks its names from the base (`stages.resolve_asr_context`
-    turns it on whenever `knowledge` is not `none`). Refused before anything
-    runs, not left to fail later or to run silently without the base (plan
-    4.6 item 35a, appendix B question 39).
+    context, which picks its names from the base (on whenever `knowledge` is
+    not `none`). Refused before anything runs, not left to fail later or to
+    run silently without the base (plan 4.6 item 35a, appendix B question 39).
     """
 
     if request.get("knowledge", "update") == "none":
         return None
-    from finesub_knowledge.client import package_problem
-
-    problem = package_problem()
-    if problem is None:
+    if engine_host.knowledge_package(packages) is not None:
         return None
-    return f"{problem}：这个任务用到知识库（knowledge={request.get('knowledge', 'update')}），请安装知识库包或关闭知识库后重试"
+    return (
+        f"知识库包未安装：这个任务用到知识库（knowledge={request.get('knowledge', 'update')}），"
+        "请安装知识库包或关闭知识库后重试"
+    )
 
 
-def translate_axis(
-    request: Mapping[str, Any],
-    axis: Mapping[str, Any],
-    output: Path,
-    task_id: str,
-    task_artifact_dir: Path,
-    subject_names: list[str] | None = None,
-) -> AxisTranslation:
-    """Local entry to the shared source-text-axis run.
+def needs_knowledge_process(request: Mapping[str, Any], corrector: Any | None) -> bool:
+    """Whether this task's engine processes may reach the knowledge base.
 
-    The run itself lives in `nonoka_x.axis` because the cloud's LLM container
-    performs exactly the same one -- keeping a second copy here is how the two
-    modes would drift into producing different subtitles from the same axis.
-    The media file never left this machine and is still on disk, so an audio or
-    video correction reference works here as it does after a real recognition
-    run; the windows are simply cut on the user's own timings.
+    One that reads or writes it, or picks its ASR context from it; and every
+    correction a package runs, which reads its style catalog from it whatever
+    the `knowledge` switch says (`--style auto`).
     """
 
-    return translate_rows(
-        axis["rows"],
-        output_path=output,
-        task_id=task_id,
-        task_artifact_dir=task_artifact_dir,
-        task_summary=knowledge_task_summary(request, str(request["source"].get("title") or output.stem)),
-        correction=request.get("correction") or {},
-        knowledge=request.get("knowledge", "none"),
-        source_path=Path(request["source"]["path"]),
-        knowledge_subjects=subject_names or None,
-        on_notice=lambda notice: emit("log", {"message": notice}),
-    )
+    from .correction import CORRECTION_TARGETS
+
+    if request.get("knowledge", "update") != "none":
+        return True
+    if getattr(corrector, "package", None) is None:
+        return False
+    axis = request.get("axis")
+    return request.get("target") in CORRECTION_TARGETS or (isinstance(axis, Mapping) and axis.get("kind") == "ja")
+
+
+def subject_request(request: Mapping[str, Any], task_id: str) -> dict[str, Any] | None:
+    """What the knowledge package is asked to prepare for this task, or None when it picked no subject.
+
+    Existing subjects travel by store id, which survives a rename; the engine
+    is handed `category/key`, the qualified form its human lookup accepts
+    without ambiguity. A subject without an id is created there -- the
+    provider only lets that through under `update` -- unless an entry of that
+    name already exists, which is then reused rather than duplicated
+    (`finesub_knowledge.manage.prepare_subjects`, in the knowledge package).
+    """
+
+    subjects = knowledge_subjects(request)
+    if not subjects:
+        return None
+    return {
+        "subjects": [dict(item) for item in subjects],
+        "knowledge": request.get("knowledge"),
+        "task_id": task_id,
+        "knowledge_root": None,
+    }
 
 
 def diarization_kwargs(request: Mapping[str, Any]) -> dict[str, Any]:
@@ -320,37 +284,31 @@ def diarization_kwargs(request: Mapping[str, Any]) -> dict[str, Any]:
     return kwargs
 
 
-def for_task_mode(request: Mapping[str, Any], artifact_dir: Path) -> dict[str, Any]:
-    """The request without what a Chinese-source task cannot use.
+def for_task_mode(request: Mapping[str, Any], correction: Any | None, record_dir: Path) -> dict[str, Any]:
+    """The request without what a Chinese-source task cannot use, as the correction engine says.
 
-    Since 0.7.0 such a task only corrects: it neither reads nor writes the
-    knowledge base and ignores `extra_style`. The engine turns those off itself
-    but warns about each one, and it validates pinned subjects before it gets
-    that far, so a subject it would never have read could still fail the run.
-
-    Follows the engine's own decision (`three_pass.task_correct_only`): a task
-    whose record or windows say it translated -- one begun before 0.7.0, say --
-    goes on translating, with the knowledge settings it started with. A source
-    only detected as Chinese (`language=auto`) cannot be known here and is left
-    to the engine. A Japanese axis has its source text and is always translated.
+    Since engine 0.7.0 such a task only corrects: no knowledge base, no extra
+    style. Whether a task already began translating (and goes on doing so) is
+    in the correction's own records, so the correction engine decides
+    (`task_mode`). Only a source declared Chinese is asked about, and never a
+    Japanese axis, which has its source text and is always translated. With no
+    correction engine there is no record of a correction either: such a task
+    only corrects.
     """
 
     axis = request.get("axis")
     if request.get("language") != "zh" or (isinstance(axis, Mapping) and axis.get("kind") == "ja"):
         return dict(request)
-    from finesub.llm.correction_mode import recorded_choice, started
-
-    recorded = recorded_choice(artifact_dir)
-    if not (recorded.correct_only if recorded is not None else not started(artifact_dir)):
-        return dict(request)
-    return {
-        **request,
-        "knowledge": "none",
-        "correction": {**(request.get("correction") or {}), "extra_style": ""},
-    }
+    if correction is None:
+        return {
+            **request,
+            "knowledge": "none",
+            "correction": {**(request.get("correction") or {}), "extra_style": ""},
+        }
+    return dict(correction.call("task_mode", {"request": dict(request), "record_dir": str(record_dir)}))
 
 
-def emit_request_notices(request: Mapping[str, Any]) -> None:
+def emit_request_notices(request: Mapping[str, Any], models_dir: str | Path | None = None) -> None:
     """Say once what the provider adjusted in this request, and why."""
 
     if request.get("legacy_knowledge") == "collect":
@@ -359,7 +317,7 @@ def emit_request_notices(request: Mapping[str, Any]) -> None:
                        "需要写回请选择自动更新",
         })
     block = request.get("diarization")
-    if diarization_kwargs(request)["diarize"] != "off" and diarization_models_missing():
+    if diarization_kwargs(request)["diarize"] != "off" and diarization_models_missing(models_dir):
         emit("log", {
             "message": "首次使用说话人分离：需要下载约 450MB 模型，将在说话人分离阶段自动下载并校验",
         })
@@ -373,7 +331,7 @@ def emit_request_notices(request: Mapping[str, Any]) -> None:
         })
 
 
-def diarization_models_missing() -> bool:
+def diarization_models_missing(models_dir: str | Path | None) -> bool:
     """Whether the default diarization backend still has weights to fetch.
 
     The engine fetches them itself, with its own mirror routing and checks,
@@ -382,9 +340,9 @@ def diarization_models_missing() -> bool:
     counts as present: this only decides whether to warn.
     """
 
-    models_root = os.environ.get("FINESUB_MODEL_DIR")
-    if not models_root:
+    if not models_dir:
         return False
+    models_root = str(models_dir)
     try:
         from .model_install import DIARIZATION_MODEL_IDS, missing_managed_models
 
@@ -393,109 +351,20 @@ def diarization_models_missing() -> bool:
         return False
 
 
-def install_llm_model_override(request: Mapping[str, Any]) -> None:
-    """Apply this run's `llm_model` pin, or clear whatever a previous one left.
-
-    The engine's equivalent of `--llm-model`: a model group or route target
-    that replaces the bound chain for one run, without touching the saved
-    settings. Upstream installs it from its own CLI entry points, which this
-    worker is not one of, so the call has to happen here -- and unconditionally,
-    because the overlay is process-global. One task per process makes a leak
-    impossible today; installing only when the field is present would make that
-    a property of the process model rather than of this function.
-
-    A bare string pins every task group. A table may use either the desktop's
-    route names (`{"correction": "..."}`) or upstream's exact task groups;
-    the two desktop media routes expand to both their ``-mm`` and ``-text``
-    cells before the engine validates the result.
-    """
-
-    try:
-        from finesub.llm.routing.model_routes import (
-            install_runtime_preferred,
-            parse_llm_model_args,
-        )
-    except ImportError:
-        # No engine, nothing to override -- the caller fails on its own import.
-        return
-    value = request.get("llm_model")
-    if isinstance(value, Mapping):
-        overlay = {str(key): str(item) for key, item in value.items()}
-    elif isinstance(value, str) and value.strip():
-        overlay = parse_llm_model_args([value.strip()])
-    else:
-        overlay = {}
-    from .settings import TASK_GROUPS_BY_ROUTE
-
-    expanded: dict[str, str] = {}
-    for key, target in overlay.items():
-        groups = TASK_GROUPS_BY_ROUTE.get(key, (key,))
-        for group in groups:
-            previous = expanded.get(group)
-            if previous is not None and previous != target:
-                raise ValueError(
-                    f"llm_model assigns conflicting targets to {group}: "
-                    f"{previous!r} and {target!r}"
-                )
-            expanded[group] = target
-    install_runtime_preferred(expanded)
-
-
-def extract_execution_failure_detail(exc: BaseException) -> str:
-    """Extract vendor/CLI diagnostic details from agent execution attempts or capsules."""
-    attempts = getattr(exc, "_harness_execution_attempts", None) or []
-    for attempt in attempts:
-        if isinstance(attempt, Mapping):
-            vendor_err = attempt.get("vendor_error")
-            if vendor_err and isinstance(vendor_err, str) and vendor_err.strip():
-                return vendor_err.strip()
-
-    try:
-        from finesub.llm.agent.agent_paths import vendor_error_text
-
-        text = vendor_error_text(exc)
-        if text and text.strip():
-            return text.strip()
-    except Exception:
-        pass
-
-    current = getattr(exc, "__cause__", None) or getattr(exc, "__context__", None)
-    while current is not None:
-        sub = extract_execution_failure_detail(current)
-        if sub:
-            return sub
-        current = getattr(current, "__cause__", None) or getattr(current, "__context__", None)
-
-    return ""
-
-
-def format_worker_exception(exc: BaseException) -> str:
-    vendor_detail = extract_execution_failure_detail(exc)
-    exc_type = type(exc).__name__
-    exc_msg = str(exc).strip()
-    if vendor_detail:
-        if "inspect events/stderr.log" in exc_msg or "exited with status" in exc_msg:
-            return f"{exc_type}: 本地模型 CLI 调用失败: {vendor_detail}"
-        return f"{exc_type}: {exc_msg} ({vendor_detail})"
-    return f"{exc_type}: {exc_msg}"
-
-
 # --- orchestration -----------------------------------------------------------
 
-#: The built-in implementations, as `module:factory`, registered by
-#: `register_engines` (owner 2026-11-12). A stand-in for the engine host until
-#: the engine packages are discovered from `engines/` (WP-P1): an id that is
-#: not in its registry is simply not available, the way a removed package
-#: will be. Tests replace these to run with other engines, or without one.
-#: A factory is handed whichever of `store` (the config facade) and `runtime`
+#: The core's own implementations, as `module:factory`, registered by
+#: `register_engines` after the engine packages' engines (owner 2026-11-12):
+#: an id that is not in its registry is simply not available, the way a
+#: removed package is. Tests replace these to run with other engines. A
+#: factory is handed whichever of `store` (the config facade) and `runtime`
 #: (the runtime facade) it takes by name (`build_engines`).
 TRANSCRIPTION_ENGINES: tuple[str, ...] = (
-    "nonoka_x.transcription.engines.finesub:FineSubEngine",
     "nonoka_x.transcription.engines.mai2:Mai2Engine",
     "nonoka_x.transcription.engines.gemini:GeminiEngine",
     "nonoka_x.transcription.engines.moss_pro:MossProEngine",
 )
-CORRECTION_ENGINES: tuple[str, ...] = ("nonoka_x.correction.finesub:FineSubCorrection",)
+CORRECTION_ENGINES: tuple[str, ...] = ()
 
 #: Every TaskRequest target, in order; the transcription's reach ends at `stable`.
 TARGETS = ("vocal", "aligned", "stable", "raw-srt", "translated-srt", "final-srt")
@@ -505,6 +374,9 @@ TRANSCRIPTION_TARGETS = TARGETS[: TARGETS.index("stable") + 1]
 #: transcription the cloud's FineSub made (plan 5.1): its stable and, when it
 #: diarized, its speaker timeline.
 CLOUD_NATIVE = (("stable_json", "finesub.stable_json"), ("diar_json", "finesub.diar_json"))
+
+#: Where an engine package keeps its files of one task (plan 4.6 item 34).
+NATIVE_DIRECTORY = "native"
 
 
 def _construct(factory: Any, context: Mapping[str, Any]) -> Any:
@@ -519,30 +391,53 @@ def _construct(factory: Any, context: Mapping[str, Any]) -> Any:
     return factory(**{name: value for name, value in context.items() if name in parameters})
 
 
-def build_engines(*, store: Any | None = None, runtime: Any | None = None) -> tuple[list[Any], list[Any]]:
-    """One instance of every built-in implementation: (transcription engines, correction engines).
+def build_engines(
+    *,
+    store: Any | None = None,
+    runtime: Any | None = None,
+    packages: Mapping[str, Any] | None = None,
+    session: Any | None = None,
+) -> tuple[list[Any], list[Any]]:
+    """One instance of every engine: (transcription engines, correction engines).
 
-    The sidecar builds its own set for readiness and capabilities; the worker
-    registers one (`register_engines`).
+    The engine packages' first (`packages`, the ones found under the engines
+    root when not given), then the core's own (`TRANSCRIPTION_ENGINES`,
+    `CORRECTION_ENGINES`). The sidecar builds its own set for readiness and
+    capabilities; the worker registers one (`register_engines`), with the
+    task's `session`.
     """
 
+    found = engine_host.discover() if packages is None else packages
+    transcription: list[Any] = [
+        engine_host.PackageTranscriptionEngine(package, session, runtime=runtime)
+        for package in engine_host.of_kind(found, "transcription")
+    ]
+    correction: list[Any] = [
+        engine_host.PackageCorrectionEngine(package, session, store=store, runtime=runtime)
+        for package in engine_host.of_kind(found, "correction")
+    ]
     context = {"store": store, "runtime": runtime}
-    built: list[list[Any]] = []
-    for entries in (TRANSCRIPTION_ENGINES, CORRECTION_ENGINES):
-        engines = []
+    for entries, engines in ((TRANSCRIPTION_ENGINES, transcription), (CORRECTION_ENGINES, correction)):
         for entry in entries:
             module_name, _, factory = entry.partition(":")
             engines.append(_construct(getattr(importlib.import_module(module_name), factory), context))
-        built.append(engines)
-    return built[0], built[1]
+    return transcription, correction
 
 
-def register_engines(*, store: Any | None = None, runtime: Any | None = None) -> None:
-    """Register every built-in implementation whose id is not registered yet."""
+def register_engines(
+    *,
+    store: Any | None = None,
+    runtime: Any | None = None,
+    packages: Mapping[str, Any] | None = None,
+    session: Any | None = None,
+) -> None:
+    """Register every engine whose id is not registered yet."""
 
     from . import correction, transcription
 
-    transcription_engines, correction_engines = build_engines(store=store, runtime=runtime)
+    transcription_engines, correction_engines = build_engines(
+        store=store, runtime=runtime, packages=packages, session=session
+    )
     for registry, engines in (
         (transcription.registry, transcription_engines),
         (correction.registry, correction_engines),
@@ -556,8 +451,8 @@ class _Deferred:
     """What `build()` returns, built the first time anything is asked of it.
 
     The worker's config and runtime facades: only a cloud engine's run reads
-    them, and opening the runtime installs download policies a FineSub run
-    must not see.
+    them, and opening the runtime installs download policies a run that does
+    not need them must not see.
     """
 
     def __init__(self, build: Any) -> None:
@@ -572,10 +467,8 @@ class _Deferred:
         return getattr(self._deferred_value, name)
 
 
-def engine_context(
-    data_dir: Path | None, install_dir: Path | None, vendor: Path
-) -> dict[str, Any]:
-    """The `store` and `runtime` the built-in engines are built with in this worker (WP5)."""
+def engine_context(data_dir: Path | None, install_dir: Path | None, engines: Path) -> dict[str, Any]:
+    """The `store` and `runtime` the core's engines are built with in this worker (WP5)."""
 
     if data_dir is None:
         return {"store": None, "runtime": None}
@@ -588,9 +481,30 @@ def engine_context(
     def runtime() -> Any:
         from .runtime import RuntimeManager
 
-        return RuntimeManager.open(data_dir, vendor, install_dir)
+        return RuntimeManager.open(data_dir, engines, install_dir)
 
     return {"store": _Deferred(store), "runtime": _Deferred(runtime)}
+
+
+def launch_contexts(packages: Mapping[str, Any], data_dir: Path | None, install_dir: Path | None, engines: Path) -> Any:
+    """The launch contexts of this task's package processes (`nonoka_x.engine_contexts`), from the data directory."""
+
+    from . import engine_contexts
+    from .provision import RuntimeProvisioner
+    from .runtime.paths import NonokaPaths
+    from .settings import FineSubSettings
+
+    if data_dir is None:
+        return engine_contexts.LaunchContexts()
+    provisioner = RuntimeProvisioner(data_dir, engines, install_dir)
+    paths = getattr(provisioner, "paths", None) or NonokaPaths.for_roots(data_dir, install_dir)
+    return engine_contexts.build(
+        packages,
+        paths=paths,
+        settings=FineSubSettings(data_dir),
+        provisioner=provisioner,
+        proxy=engine_contexts.proxy_context(),
+    )
 
 
 def transcription_in_hand(request: Mapping[str, Any], task_dir: Path) -> Any | None:
@@ -614,39 +528,77 @@ def transcription_in_hand(request: Mapping[str, Any], task_dir: Path) -> Any | N
     )
 
 
+def native_dir(task_dir: Path, engine: Any | None) -> Path:
+    """The directory of `task_dir` an engine package keeps its files of the task in (plan 4.6 item 34)."""
+
+    package = getattr(engine, "package", None)
+    return task_dir / NATIVE_DIRECTORY / (package.id if package is not None else "")
+
+
+def record_dir(task_dir: Path, corrector: Any | None) -> Path:
+    """The correction's own records of the task (`llm-artifacts`), in its package's directory."""
+
+    return native_dir(task_dir, corrector) / "llm-artifacts"
+
+
 def transcription_job(
-    request: Mapping[str, Any], task_dir: Path, task_id: str, *, title: str, gpu_tier: str
+    request: Mapping[str, Any],
+    task_dir: Path,
+    task_id: str,
+    *,
+    title: str,
+    gpu_tier: str,
+    engine: Any | None = None,
+    corrector: Any | None = None,
 ) -> Any:
     """The transcription engine's job: the request's fields for that half, resolved.
 
     `options` carry them in TaskRequest terms (WP4a, owner 2026-11-11): the
     device as requested, the GPU tier resolved, the speaker block as the
     provider normalized it, the extra-info with the picked knowledge subjects
-    written in, the effective knowledge switch. `transcription.options` (the
-    engine's own, e.g. a cloud engine's `split_length_scale`) lies
-    underneath, so a resolved field always wins.
+    written in, the effective knowledge switch, the task's LLM model pin (the
+    preparation of a run reads the routes). A package engine also gets its own
+    directory in the task and the correction's record directory.
+    `transcription.options` (the engine's own, e.g. a cloud engine's
+    `split_length_scale`) lies underneath, so a resolved field always wins.
     """
 
+    from .settings import TASK_GROUPS_BY_ROUTE
     from .transcription import TranscriptionJob, requested_options
 
     source = request["source"]
+    options: dict[str, Any] = {
+        **requested_options(request),
+        "title": title,
+        "device": request.get("device"),
+        "gpu_tier": gpu_tier,
+        "separate": bool(request.get("separate", True)),
+        "diarization": request.get("diarization"),
+        "extra_info": str((request.get("correction") or {}).get("extra_info") or ""),
+        "knowledge": request.get("knowledge", "update"),
+        "task_id": task_id,
+    }
+    if getattr(engine, "package", None) is not None:
+        options.update({
+            "native_dir": str(native_dir(task_dir, engine)),
+            "record_dir": str(record_dir(task_dir, corrector) if corrector is not None else native_dir(task_dir, engine) / "llm-artifacts"),
+        })
+        if not getattr(corrector, "started", False):
+            # The task's LLM model pin is applied once per task, in the first
+            # engine process of it, as the worker applied it once in its own:
+            # here, unless the correction's process already did (`begin`).
+            options.update({
+                "llm_model": request.get("llm_model"),
+                "task_groups": {route: list(groups) for route, groups in TASK_GROUPS_BY_ROUTE.items()},
+                "install_llm_model": True,
+            })
     return TranscriptionJob(
         source=Path(source["path"]),
         language=request.get("language", "ja"),
         task_dir=task_dir,
         cache_dir=task_dir / "cache",
         target=request["target"],
-        options={
-            **requested_options(request),
-            "title": title,
-            "device": request.get("device"),
-            "gpu_tier": gpu_tier,
-            "separate": bool(request.get("separate", True)),
-            "diarization": request.get("diarization"),
-            "extra_info": str((request.get("correction") or {}).get("extra_info") or ""),
-            "knowledge": request.get("knowledge", "update"),
-            "task_id": task_id,
-        },
+        options=options,
     )
 
 
@@ -658,19 +610,26 @@ def correction_job(
     *,
     title: str,
     fast: str,
-    proofread: str,
     subject_names: list[str],
+    corrector: Any | None = None,
 ) -> Any:
-    """The correction engine's job (WP4b): the correction block with `fast` and `proofread` resolved."""
+    """The correction engine's job (WP4b): the correction block with `fast` resolved.
+
+    Whether to proofread is the correction engine's to resolve: it depends on
+    its own route table. A package engine also gets its own directory in the task.
+    """
 
     from .correction import CorrectionJob
 
+    options: dict[str, Any] = {**(request.get("correction") or {}), "fast": fast}
+    if getattr(corrector, "package", None) is not None:
+        options["native_dir"] = str(native_dir(task_dir, corrector))
     return CorrectionJob(
         transcription=transcription,
         source=Path(request["source"]["path"]),
         target=request["target"],
         task_dir=task_dir,
-        options={**(request.get("correction") or {}), "fast": fast, "proofread": proofread},
+        options=options,
         knowledge={"knowledge": request.get("knowledge", "update"), "knowledge_subjects": list(subject_names)},
         diarization_level=diarization_kwargs(request)["diarize"],
         title=title,
@@ -679,35 +638,25 @@ def correction_job(
     )
 
 
-@contextlib.contextmanager
-def engine_reporting(reporter: NonokaXReporter) -> Iterator[None]:
-    """Bind `reporter` as FineSub's reporter for the engines run inside, when FineSub is there to hear it.
-
-    The FineSub adapters keep a reporter their caller bound; any other engine
-    reports through the `Reporter` it is handed.
-    """
-
-    try:
-        from finesub.reporting import quieted_libraries, reporting_to
-    except ImportError:
-        yield
-        return
-    with reporting_to(reporter), quieted_libraries("normal"):
-        yield
-
-
 def manifest_candidates(transcription: Any, correction: Any | None) -> dict[str, Path]:
     """The task's artifacts by manifest name: the transcription's attachments, then the correction's.
 
     An attachment `<engine>.<name>` is listed as `<name>`; where the
     correction names the same artifact, its file is the one the task's
-    subtitles were made from (a continuation's copy of the cloud stable).
+    subtitles were made from (its own copy of a FineSub stable).
     """
 
     candidates = {key.split(".", 1)[1]: Path(path) for key, path in transcription.native.items()}
     if correction is not None:
         candidates.update(correction.artifacts)
     return candidates
+
+
+def known_gpu_tiers(packages: Mapping[str, Any]) -> frozenset[str] | None:
+    """The GPU tier names the transcription packages declare, or None when none is installed."""
+
+    tiers = {tier for package in engine_host.of_kind(packages, "transcription") for tier in package.gpu_tiers}
+    return frozenset(tiers) if tiers else None
 
 
 def run_engines(
@@ -717,14 +666,15 @@ def run_engines(
     *,
     title: str,
     subject_names: list[str],
+    session: Any,
+    packages: Mapping[str, Any],
+    corrector: Any | None,
 ) -> dict[str, Path]:
     """Transcribe (or take the transcription in hand), then correct up to the target."""
 
     from . import correction as corrections
     from . import transcription as transcriptions
-    from .settings import correction_proofread
 
-    register_engines()
     target = request["target"]
     if target not in TARGETS:
         raise ValueError(f"unknown target {target!r}; known: {', '.join(TARGETS)}")
@@ -732,68 +682,113 @@ def run_engines(
     if in_hand is not None:
         emit("log", {"message": "从云端识别结果续跑：跳过人声分离与识别"})
     reporter = NonokaXReporter(announce_completion=False)
+    session.reporter = reporter
     report = transcriptions.EventReporter(emit)
-    gpu_tier = resolve_request_gpu_tier(request, warn=lambda message: reporter.warning("gpu-tier", message))
+    gpu_tier = resolve_request_gpu_tier(
+        request, warn=lambda message: reporter.warning("gpu-tier", message), known=known_gpu_tiers(packages)
+    )
     correction_block = request.get("correction") or {}
     fast = resolve_request_fast(correction_block, warn=lambda message: reporter.warning("fast-mode", message))
-    proofread = correction_proofread(correction_block)
 
     # Both looked up before anything runs: an engine that is not there fails
     # the task now, not after the other half has run.
     engine = None if in_hand is not None else transcriptions.registry.get(transcriptions.requested_engine(request))
-    corrector = None
+    # The task's correction engine: the transcription's record directory is
+    # its own, and its process may already have applied the task's LLM pin.
+    task_corrector = corrector
     if target in corrections.CORRECTION_TARGETS:
         corrector = corrections.registry.get(corrections.requested_engine(request))
+        task_corrector = corrector
+    else:
+        corrector = None
 
-    with engine_reporting(reporter):
-        pending = None
-        if corrector is not None:
-            placeholder = transcriptions.TranscriptionResult(
-                transcript_json=task_dir / transcriptions.TRANSCRIPT_FILENAME
-            )
-            pending = correction_job(
-                request, task_dir, task_id, placeholder,
-                title=title, fast=fast, proofread=proofread, subject_names=subject_names,
-            )
-            # What the correction can refuse is refused before the
-            # transcription spends anything (an engine without the hook has
-            # nothing to refuse early).
-            check = getattr(corrector, "check", None)
-            if callable(check):
-                check(pending, report)
-        if in_hand is None:
-            job = transcription_job(request, task_dir, task_id, title=title, gpu_tier=gpu_tier)
-            result = engine.transcribe(job, report)
-        else:
-            # The stages up to the result in hand are done, and said to be,
-            # as a run resuming from them says it.
-            for stage in TRANSCRIPTION_TARGETS:
-                reporter.stage_started(stage, reused=True)
-            result = in_hand
-        corrected = None
-        if corrector is not None:
-            corrected = corrector.run(dataclasses.replace(pending, transcription=result), report)
+    pending = None
+    if corrector is not None:
+        placeholder = transcriptions.TranscriptionResult(
+            transcript_json=task_dir / transcriptions.TRANSCRIPT_FILENAME
+        )
+        pending = correction_job(
+            request, task_dir, task_id, placeholder,
+            title=title, fast=fast, subject_names=subject_names, corrector=corrector,
+        )
+        # What the correction can refuse is refused before the transcription
+        # spends anything (an engine without the hook has nothing to refuse early).
+        check = getattr(corrector, "check", None)
+        if callable(check):
+            check(pending, report)
+    if in_hand is None:
+        job = transcription_job(
+            request, task_dir, task_id, title=title, gpu_tier=gpu_tier, engine=engine, corrector=task_corrector
+        )
+        result = engine.transcribe(job, report)
+    else:
+        # The stages up to the result in hand are done, and said to be,
+        # as a run resuming from them says it.
+        for stage in TRANSCRIPTION_TARGETS:
+            reporter.stage_started(stage, reused=True)
+        result = in_hand
+    corrected = None
+    if corrector is not None:
+        if not result.native:
+            # The transcript is what the correction reads: checked here, as
+            # reading it was before the correction moved into its package.
+            result.read_transcript()
+        corrected = corrector.run(dataclasses.replace(pending, transcription=result), report)
     emit_completion()
     return manifest_candidates(result, corrected)
+
+
+def _engine_commit(packages: Mapping[str, Any], *engines: Any) -> str:
+    """The engine release a task's artifacts came from: the package that ran it, else any installed one."""
+
+    for engine in engines:
+        package = getattr(engine, "package", None)
+        if package is not None and package.engine_commit:
+            return package.engine_commit
+    return next((package.engine_commit for package in packages.values() if package.engine_commit), "")
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--task-id", required=True)
     parser.add_argument("--task-dir", type=Path, required=True)
-    parser.add_argument("--vendor", type=Path, required=True)
+    # Where the engine packages are (`engine_host.default_engines_root()` when not given).
+    parser.add_argument("--engines", type=Path, default=None)
+    # Accepted and ignored: a sidecar from before the engine packages still names the vendored engine.
+    parser.add_argument("--vendor", type=Path, default=None, help=argparse.SUPPRESS)
     # Where the engines read keys and find the managed runtime (WP5); a worker
     # started without them runs only the engines that need neither.
     parser.add_argument("--data-dir", type=Path, default=None)
     parser.add_argument("--install-dir", type=Path, default=None)
     args = parser.parse_args(argv)
+    engines_root = (args.engines or engine_host.default_engines_root()).resolve()
+    session = engine_host.TaskSession(emit=emit)
+    contexts = None
     try:
+        from . import correction as corrections
+        from .settings import TASK_GROUPS_BY_ROUTE
+
         request = json.loads(sys.stdin.readline())
-        artifact_dir = args.task_dir / "workspace" / "llm-artifacts"
-        request = for_task_mode(request, artifact_dir)
-        install_proxy_route_policy()
-        install_llm_model_override(request)
-        emit_request_notices(request)
+        args.task_dir.mkdir(parents=True, exist_ok=True)
+        packages = engine_host.discover(engines_root)
+        install_app_proxy_policy()
+        contexts = launch_contexts(packages, args.data_dir, args.install_dir, engines_root)
+        session.contexts = contexts.contexts
+        register_engines(**engine_context(args.data_dir, args.install_dir, engines_root),
+                         packages=packages, session=session)
+        requested_correction = corrections.requested_engine(request)
+        corrector = corrections.registry.get(requested_correction) if requested_correction in corrections.registry else None
+        if corrector is not None and hasattr(corrector, "begin"):
+            # The task's LLM model pin, applied in the correction's process
+            # before anything of it runs (it is process-global there).
+            corrector.begin = {"llm_model": request.get("llm_model"),
+                               "task_groups": {route: list(groups) for route, groups in TASK_GROUPS_BY_ROUTE.items()}}
+        request = for_task_mode(request, corrector, record_dir(args.task_dir, corrector))
+        from . import transcription as transcriptions
+
+        transcriber = engine_host.transcription_package(packages, transcriptions.requested_engine(request))
+        models_dir = ((session.contexts.get(transcriber.id) or {}).get("runtime") or {}).get("models") if transcriber else None
+        emit_request_notices(request, models_dir)
         source = request["source"]
         correction = dict(request.get("correction") or {})
         correction["extra_info"] = compose_knowledge_context(
@@ -801,52 +796,80 @@ def main(argv: list[str] | None = None) -> int:
         )
         request["correction"] = correction
         title = str(source.get("title") or Path(source["path"]).stem)
-        output = args.task_dir / "workspace" / f"{title}.srt"
-        output.parent.mkdir(parents=True, exist_ok=True)
 
         axis = request.get("axis") if isinstance(request.get("axis"), dict) else None
-        problem = knowledge_package_problem(request)
+        problem = knowledge_package_problem(request, packages)
         if problem:
             raise RuntimeError(problem)
         # Before the transcription: the ASR context may pick the entries of a
         # subject created here.
-        subjects = prepare_knowledge_subjects(request, args.task_id)
+        subjects: dict[str, Any] = {"names": [], "created": []}
+        knowledge_package = engine_host.knowledge_package(packages)
+        if knowledge_package is not None and needs_knowledge_process(request, corrector):
+            prepared = engine_host.start_knowledge_service(
+                session, knowledge_package, subjects=subject_request(request, args.task_id)
+            )
+            if prepared is not None:
+                subjects = prepared
         for entry in subjects["created"]:
             emit("log", {
                 "message": "knowledge subject initialized",
                 "fields": {"entry": entry, "rev": subjects["rev"]},
             })
         if axis is not None and axis.get("kind") == "ja":
-            with engine_reporting(NonokaXReporter()):
-                translated = translate_axis(
-                    request, axis, output, args.task_id, artifact_dir, subjects["names"]
-                )
+            if corrector is None:
+                raise RuntimeError(f"纠错引擎 {requested_correction} 未安装：日文轴只能交给纠错引擎翻译")
+            session.reporter = NonokaXReporter()
+            directory = native_dir(args.task_dir, corrector)
+            translated = corrector.call("axis", {
+                "rows": axis["rows"],
+                "output_path": str(directory / f"{title}.srt"),
+                "task_id": args.task_id,
+                "task_artifact_dir": str(record_dir(args.task_dir, corrector)),
+                "task_summary": knowledge_task_summary(request, str(source.get("title") or title)),
+                "options": {
+                    **correction,
+                    "fast": resolve_request_fast(correction, warn=lambda notice: emit("log", {"message": notice})),
+                },
+                "knowledge": request.get("knowledge", "none"),
+                "source_path": str(source["path"]),
+                "knowledge_subjects": subjects["names"] or None,
+            })
             candidates = {
-                "stable_json": translated.stable_json,
-                "annotated_csv": translated.annotated_csv,
-                "final_srt": translated.final_srt,
+                "stable_json": Path(translated["stable_json"]),
+                "annotated_csv": Path(translated["annotated_csv"]),
+                "final_srt": Path(translated["final_srt"]),
             }
+            ran: tuple[Any, ...] = (corrector,)
         else:
-            register_engines(**engine_context(args.data_dir, args.install_dir, args.vendor))
             candidates = run_engines(
-                request, args.task_dir, args.task_id, title=title, subject_names=subjects["names"]
+                request, args.task_dir, args.task_id, title=title, subject_names=subjects["names"],
+                session=session, packages=packages, corrector=corrector,
             )
-        upstream = json.loads((args.vendor / "UPSTREAM.json").read_text(encoding="utf-8"))
+            requested = transcriptions.requested_engine(request)
+            transcriber_engine = transcriptions.registry.get(requested) if requested in transcriptions.registry else None
+            ran = (corrector, transcriber_engine)
         manifest = {
             "schema": 1,
             "task_id": args.task_id,
-            "engine_commit": upstream["commit"],
+            "engine_commit": _engine_commit(packages, *ran),
             "artifacts": {name: artifact(path) for name, path in candidates.items() if path.is_file()},
         }
         emit("completed", {"artifacts": manifest})
         return 0
+    except engine_host.PackageError as exc:
+        # The package formatted its failure, and printed its traceback, itself.
+        emit("failed", {"message": exc.formatted})
+        return 1
     except Exception as exc:
-        formatted_message = format_worker_exception(exc)
-        emit("failed", {"message": formatted_message})
-        vendor_detail = extract_execution_failure_detail(exc)
-        if os.environ.get("NONOKA_DEBUG") or (not vendor_detail and not type(exc).__name__.startswith("LocalAgent")):
+        emit("failed", {"message": f"{type(exc).__name__}: {str(exc).strip()}"})
+        if os.environ.get("NONOKA_DEBUG") or not type(exc).__name__.startswith("LocalAgent"):
             traceback.print_exc(file=sys.stderr)
         return 1
+    finally:
+        session.close()
+        if contexts is not None:
+            contexts.close()
 
 
 if __name__ == "__main__":

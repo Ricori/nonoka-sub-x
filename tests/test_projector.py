@@ -8,12 +8,27 @@ from pathlib import Path
 from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "third_party" / "finesub" / "src"))
 
 from finesub.speech.diarization.judgments import Inserted, Judgments
 from finesub.subtitles.stable_rows import lines_hash
 from nonoka_x.document_store import DocumentError, DocumentStore, RevisionConflict
+from nonoka_x import projector
 from nonoka_x.projector import ProjectionError, hide_source_lanes, parse_srt, project_edit_document
+
+
+def setUpModule() -> None:
+    """The speaker rows read in this process, as the correction package's process reads them (`product_rows`).
+
+    The process itself is asked in `ProductRowsThroughThePackageTests`.
+    """
+
+    from finesub_correct.engine import product_rows
+
+    projector.set_product_reader(product_rows)
+
+
+def tearDownModule() -> None:
+    projector.set_product_reader(None)
 
 
 FIXTURES = Path(__file__).parent / "fixtures" / "finesub"
@@ -408,6 +423,28 @@ class DocumentStoreTests(unittest.TestCase):
             )
 
         self.assertFalse(replaced["track_meta"]["ja"]["hidden"])
+
+
+class ProductRowsThroughThePackageTests(unittest.TestCase):
+    """The speaker rows asked of a correction package's own process, as the sidecar asks its resident one."""
+
+    def setUp(self) -> None:
+        projector.set_product_reader(None)
+        self.addCleanup(setUpModule)
+
+    def test_the_package_process_reads_what_this_process_reads(self) -> None:
+        from finesub_correct.engine import product_rows
+
+        stable = FIXTURES / "sample-stable.json"
+        self.assertEqual(projector.product_rows(stable), json.loads(json.dumps(product_rows(stable))))
+        document = project_edit_document(
+            stable,
+            annotated_csv=FIXTURES / "sample-annotated.csv",
+            final_srt=FIXTURES / "sample-final.srt",
+            video_id="video-1",
+            title="Sample",
+        )
+        self.assertTrue(document["subtitles"])
 
 
 if __name__ == "__main__":

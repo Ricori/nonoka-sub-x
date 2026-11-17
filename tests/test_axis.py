@@ -19,7 +19,6 @@ from nonoka_x.axis import (
     conform_to_axis,
     normalize_axis,
     split_speaker_tracks,
-    stable_from_axis,
 )
 from nonoka_x.local_provider import LocalProvider, ProviderError
 from nonoka_x.sidecar import SidecarServer
@@ -77,22 +76,6 @@ class SpeakerTests(unittest.TestCase):
         _, tracks, _ = split_speaker_tracks(segments, rows)
         self.assertEqual(tracks[0]["zh"], {"hidden": False, "style": "cn"})
         self.assertEqual(tracks[0]["ja"], {"hidden": True, "style": "origin"})
-
-
-class StableFromAxisTests(unittest.TestCase):
-    def test_blank_rows_are_dropped_but_ids_stay_positional(self) -> None:
-        rows = [row(0, 1, ja="一"), row(1, 2), row(2, 3, ja="三")]
-        self.assertEqual(
-            stable_from_axis(rows)["segments"],
-            [
-                {"id": "1", "start": 0.0, "end": 1.0, "text": "一"},
-                {"id": "3", "start": 2.0, "end": 3.0, "text": "三"},
-            ],
-        )
-
-    def test_an_axis_with_no_text_cannot_be_translated(self) -> None:
-        with self.assertRaisesRegex(AxisError, "no source text"):
-            stable_from_axis([row(0, 1)])
 
 
 class ImportProjectionTests(unittest.TestCase):
@@ -218,7 +201,7 @@ class ProviderAxisTests(unittest.TestCase):
         self.root = Path(self.temp.name)
         self.source = self.root / "video.mp4"
         self.source.write_bytes(b"fixture")
-        self.provider = LocalProvider(self.root / "tasks", ROOT / "third_party/finesub", issues=[])
+        self.provider = LocalProvider(self.root / "tasks", ROOT / "engines", issues=[])
 
     def tearDown(self) -> None:
         self.provider.shutdown()
@@ -301,7 +284,7 @@ class SidecarAxisRouteTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory()
         self.root = Path(self.temp.name)
-        self.provider = LocalProvider(self.root / "tasks", ROOT / "third_party/finesub", issues=[])
+        self.provider = LocalProvider(self.root / "tasks", ROOT / "engines", issues=[])
         try:
             self.server = SidecarServer(("127.0.0.1", 0), self.provider, "secret-token")
         except PermissionError:

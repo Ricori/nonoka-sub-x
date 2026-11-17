@@ -7,8 +7,7 @@ timeout, which failures and statuses are worth sending again (copied unchanged),
 The route is Nonoka's proxy setting (R0 document D17), the one downloads take (`runtime.fetch.live_proxy`): the
 custom proxy from the settings page, else the Windows system proxy, else the environment's, each only while its
 local client is listening; otherwise direct. Inside FineSub the same calls reached this route through the
-bridge's patch of `api_http.configured_proxy` (`finesub_bridge.install_app_proxy_policy`), so the route is what
-it was. As there, a SOCKS route goes direct with a warning: httpx would need `socksio`, and its SOCKS handshake
+bridge's patch of its API client's proxy (now in the engine packages), so the route is what it was. As there, a SOCKS route goes direct with a warning: httpx would need `socksio`, and its SOCKS handshake
 reads without a timeout. The client never consults the environment itself (`trust_env=False`).
 """
 

@@ -11,7 +11,8 @@ There is no mirror and no route choice by region (plan 4.2 item 18): users
 whose route to the official sources is poor rely on their own local proxy, which
 the settings page names (`nonoka_x.runtime.fetch`, R0 document D17). FineSub on
 its own picks `cn` or `global` per machine and probes a country endpoint to do
-so; the bridge pins that answer to `global` (`install_proxy_route_policy`).
+so; each engine package's bridge pins that answer to `global` in its own
+process.
 
 The engine downloads nothing any more (WP-R7: the models come in the prebuilt
 model layer), so the route ladder its file and model fetches used to climb --
@@ -44,7 +45,6 @@ __all__ = [
     # Defined here.
     "apply_proxy_environment",
     "install_app_proxy_policy",
-    "install_proxy_route_policy",
     "live_proxy",
 ]
 
@@ -62,41 +62,22 @@ def apply_proxy_environment(environment: dict[str, str]) -> None:
 
 
 def install_app_proxy_policy() -> None:
-    """Make this process's route, FineSub's route discovery and its LLM layer
-    follow the app's proxy setting.
+    """Make this process's route follow the app's proxy setting.
 
-    * this process (`nonoka_x.runtime.fetch.install_app_policy`): a custom proxy
-      is the only candidate; without one, the system proxy and the environment.
-      The liveness probe still skips a local proxy whose client is not running.
-    * FineSub's `http_client` and `finesub.api_http` follow the same route
-      (`nonoka_x.finesub_bridge.install_app_proxy_policy`). An explicit
-      `[api] proxy` in config.toml still wins.
-    * `os.environ`: kept on that route, so in-process clients that read the
-      environment and every child spawned from a copy of it follow too. Direct
-      is spelled `NO_PROXY=*`, which stops Python and Rust clients from falling
-      back to the registry's system proxy.
+    `nonoka_x.runtime.fetch.install_app_policy`: a custom proxy is the only
+    candidate; without one, the system proxy and the environment. The
+    liveness probe still skips a local proxy whose client is not running.
+    `os.environ` is kept on that route, so in-process clients that read the
+    environment and every child spawned from a copy of it follow too. Direct
+    is spelled `NO_PROXY=*`, which stops Python and Rust clients from falling
+    back to the registry's system proxy. An engine package's process is told
+    the route in its launch context (`nonoka_x.engine_contexts.proxy_context`)
+    and applies it itself.
 
     Idempotent; a no-op outside the desktop (no preferences file named).
     """
 
     if not fetch.install_app_policy():
         return
-    from nonoka_x import finesub_bridge
-
-    finesub_bridge.install_app_proxy_policy()
     # Settle the environment now, before anything reads it.
     live_proxy()
-
-
-def install_proxy_route_policy() -> None:
-    """The app policy, and FineSub's region answer pinned to `global`.
-
-    The app policy first, then FineSub's half
-    (`nonoka_x.finesub_bridge.install_download_policy`), so no engine call site
-    asks the network which region it is in. Idempotent.
-    """
-
-    install_app_proxy_policy()
-    from nonoka_x import finesub_bridge
-
-    finesub_bridge.install_download_policy()

@@ -32,11 +32,13 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
-from . import FIXTURES, ROOT, VENDOR, VENDOR_SOURCE
+from . import ENGINES, FIXTURES, ROOT, SETUP_SOURCES
 
 BASELINE_DIR = FIXTURES / "calls"
 STABLE_FIXTURE = ROOT / "tests" / "fixtures" / "finesub" / "sample-stable.json"
 TASK_ID = "gate-task"
+#: The knowledge package's entry module (`engines/finesub-knowledge/PACKAGE.json`).
+KNOWLEDGE_ENTRY = "finesub_knowledge_host"
 
 # --- settings the sidecar would have bound -----------------------------------
 
@@ -270,6 +272,10 @@ SCENARIOS: dict[str, dict[str, Any]] = {
 # --- normalization -------------------------------------------------------------
 
 _PART_NAME = re.compile(r"\.part-\d+-[0-9a-f]{8}")
+#: Since WP-P1 each FineSub package keeps its files of a task in its own directory there
+#: (`native\\<package>\\`, plan 4.6 item 34) where both halves shared `workspace\\` before. The
+#: baselines name `workspace`; both directories are recorded as it (only where they are, not what).
+_NATIVE_DIRECTORY = re.compile(r"/native/finesub-(?:transcribe|correct)(?=/|$|[\s\"',;])")
 
 
 class Normalizer:
@@ -292,11 +298,12 @@ class Normalizer:
             value = pattern.sub(placeholder.replace("\\", "\\\\"), value)
         value = _PART_NAME.sub(".part-$WRITER", value)
         # Inside a placeholder path the separator is the platform's; record one.
-        return re.sub(
+        value = re.sub(
             r"(\$[A-Z_]+)((?:[\\/][^\s\"',;]*)*)",
             lambda match: match.group(1) + match.group(2).replace("\\\\", "/").replace("\\", "/"),
             value,
         )
+        return _NATIVE_DIRECTORY.sub("/workspace", value)
 
     def value(self, value: Any) -> Any:
         if isinstance(value, str):
@@ -346,18 +353,24 @@ def _substitute(value: Any, replacements: Mapping[str, str]) -> Any:
 
 
 def _setup_subject(knowledge_root: Path) -> str:
-    """An existing subject the request picks by id, the way the desktop's picker does."""
+    """An existing subject the request picks by id, the way the desktop's picker does.
 
-    from finesub.llm.knowledge.node.repo import KnowledgeRepo
+    Made by the knowledge package, in a process of its own, as a task's
+    preparation makes one; the setup is not what is recorded.
+    """
 
-    from nonoka_x import worker
+    from nonoka_x import engine_contexts, engine_host
+    from nonoka_x.runtime.paths import NonokaPaths
 
+    package = engine_host.knowledge_package(engine_host.discover(ENGINES))
     item = {"kind": "streamer", "subject": "柊優花", "aliases": "柊优花、yuka", "description": "游戏主播"}
-    worker.prepare_knowledge_subjects(
-        {"knowledge": "update", "knowledge_subjects": [item]}, "gate-setup", knowledge_root=knowledge_root
-    )
-    repo = KnowledgeRepo.open(knowledge_root)
-    return next(subject.local_id for subject in repo.subjects() if subject.payload["surface"] == "柊優花")
+    paths = NonokaPaths.for_roots(knowledge_root.parent)
+    with engine_contexts.build({package.id: package}, paths=paths) as built:
+        with engine_host.PackageProcess(package, built.contexts[package.id]) as process:
+            process.request("prepare_subjects", {"subjects": [item], "knowledge": "update", "task_id": "gate-setup",
+                                                 "knowledge_root": str(knowledge_root)})
+            listed = process.request("manage", {"request": {"action": "list"}})["result"]
+    return next(entry["id"] for entry in listed["entries"] if entry["name"] == "柊優花")
 
 
 def _setup_cloud_diar(path: Path) -> None:
@@ -372,14 +385,34 @@ def _setup_cloud_diar(path: Path) -> None:
     )
 
 
+def package_hook(spec: Mapping[str, Any], entry: str, context: Mapping[str, Any]) -> None:
+    """In each engine package's process, once its bridge ran: the recording stand-ins (`stubs`).
+
+    Not in the knowledge package's: the knowledge process a worker started for
+    itself ran no stand-in either.
+    """
+
+    if entry == KNOWLEDGE_ENTRY:
+        return
+    from . import stubs
+    from .package_child import SharedRecord
+
+    stubs.RECORD = SharedRecord(Path(spec["record"]))
+    stubs.install(STABLE_FIXTURE)
+
+
 def child_main(spec_path: Path) -> int:
     spec = json.loads(spec_path.read_text(encoding="utf-8"))
     root = Path(spec["root"])
     from . import stubs
+    from .package_child import read_shared, use_in_worker
 
     sys.meta_path.insert(0, stubs.RefuseHeavyImports())
     settings = bind_settings(root / "data", spec["settings"])
     adopt_worker_environment(root / "data", settings)
+    record_file = root / "calls.jsonl"
+    use_in_worker({"hook": "tests.quality_harness.calls:package_hook", "record": str(record_file)},
+                  root / "package-child.json")
 
     replacements = {
         "$MEDIA": str(root / "media" / "节目.m4a"),
@@ -388,7 +421,8 @@ def child_main(spec_path: Path) -> int:
         "$CLOUD_DIAR": str(root / "cloud" / "cloud.diar.json"),
     }
     if "subject" in spec["setup"]:
-        replacements["$SUBJECT_ID"] = _setup_subject(Path(os.environ["FINESUB_KNOWLEDGE_ROOT"]))
+        # The knowledge base every launch context names (`nonoka_x.engine_contexts`).
+        replacements["$SUBJECT_ID"] = _setup_subject(root / "data" / "knowledge")
     if "cloud_diar" in spec["setup"]:
         _setup_cloud_diar(Path(replacements["$CLOUD_DIAR"]))
 
@@ -406,7 +440,6 @@ def child_main(spec_path: Path) -> int:
         return 0
     result["request"] = request
 
-    stubs.install(STABLE_FIXTURE)
     from nonoka_x import worker
 
     task_dir = root / "data" / "tasks" / TASK_ID
@@ -415,12 +448,12 @@ def child_main(spec_path: Path) -> int:
     sys.stdin = io.StringIO(json.dumps(request, ensure_ascii=False) + "\n")
     try:
         with contextlib.redirect_stdout(stdout):
-            code = worker.main(["--task-id", TASK_ID, "--task-dir", str(task_dir), "--vendor", str(VENDOR)])
+            code = worker.main(worker_arguments(task_dir, root / "data"))
     finally:
         sys.stdin = previous_stdin
     events = [json.loads(line) for line in stdout.getvalue().splitlines() if line.startswith("{")]
     result["exit"] = code
-    result["calls"] = stubs.RECORD
+    result["calls"] = read_shared(record_file)
     completed = next((event for event in events if event["type"] == "completed"), None)
     result["manifest"] = completed["payload"]["artifacts"] if completed else None
     failed = [event["payload"].get("message") for event in events if event["type"] == "failed"]
@@ -445,9 +478,10 @@ def hermetic_environment(root: Path) -> dict[str, str]:
 
     environment, _removed = isolated_environment(root)
     environment.update({
-        # Only so the child can import the code; `child_main` then runs the
-        # worker under the environment the provider builds.
-        "PYTHONPATH": os.pathsep.join([str(ROOT / "src"), str(VENDOR_SOURCE)]),
+        # Only so the child can import the code (and set up what a scenario
+        # needs with FineSub's own code); `child_main` then runs the worker
+        # under the environment the provider builds.
+        "PYTHONPATH": os.pathsep.join([str(ROOT / "src"), *map(str, SETUP_SOURCES)]),
         "PYTHONIOENCODING": "utf-8",
         "PYTHONDONTWRITEBYTECODE": "1",
         # Any key file in plaintext: DPAPI output differs on every write.
@@ -462,33 +496,30 @@ def hermetic_environment(root: Path) -> dict[str, str]:
 def adopt_worker_environment(data_dir: Path, settings: Any) -> dict[str, str]:
     """Make this process's environment the one `LocalProvider` would spawn the worker into.
 
-    Through the provider's own `_engine_environment()`, so whatever later builds
-    that environment (a bridge module, a hermetic launcher) is what the record
-    runs under. Returns it.
+    Through the provider's own `_worker_environment()`, so whatever later
+    builds that environment (a hermetic launcher) is what the record runs
+    under. What FineSub reads of its own is not in it: each engine package's
+    bridge derives that in the package's process, from the launch context
+    the worker builds from the data directory (`worker_arguments`). Returns it.
     """
 
     from nonoka_x import local_provider
     from nonoka_x.provision import RuntimeProvisioner
 
-    provisioner = RuntimeProvisioner(data_dir, VENDOR, None)
+    provisioner = RuntimeProvisioner(data_dir, ENGINES, None)
     provider = local_provider.LocalProvider(
-        data_dir / "tasks", VENDOR, settings=settings, provisioner=provisioner, issues=[]
+        data_dir / "tasks", ENGINES, settings=settings, provisioner=provisioner, issues=[]
     )
-    environment = provider._engine_environment()
+    environment = provider._worker_environment()
     os.environ.clear()
     os.environ.update(environment)
-    # A spawned worker is a fresh process, so the engine's per-process caches
-    # of config, catalog and routes start empty there. Here they may already
-    # hold what this process read as the sidecar (its packaged defaults, since
-    # WP-R5 the files are derived per worker), so they are emptied too.
-    from finesub.config import clear_config_cache
-    from finesub.llm.routing.model_catalog import default_model_catalog
-    from finesub.llm.routing.model_routes import default_model_routes
-
-    clear_config_cache()
-    default_model_catalog.cache_clear()
-    default_model_routes.cache_clear()
     return environment
+
+
+def worker_arguments(task_dir: Path, data_dir: Path) -> list[str]:
+    """The worker's command line as `LocalProvider._default_worker_command` gives it (no runtime installed)."""
+
+    return ["--task-id", TASK_ID, "--task-dir", str(task_dir), "--engines", str(ENGINES), "--data-dir", str(data_dir)]
 
 
 def run_scenario(name: str, scratch: Path) -> dict[str, Any]:

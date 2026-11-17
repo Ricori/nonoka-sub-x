@@ -1,24 +1,15 @@
-"""Long-lived FineSub LLM worker. Stdin is NDJSON requests; stdout is NDJSON replies.
+"""The editor's and plugins' single LLM calls, in the correction package's resident process.
 
-One process, one routed client, many calls. The task worker (`nonoka_x.worker`)
-exists for the duration of one pipeline run and reports progress as it goes;
-this one is the opposite shape -- it answers single calls for as long as the
-sidecar keeps it around, because building the client is the expensive part and
-a caller that corrects fifty lines makes fifty calls.
-
-It runs in the managed environment for the same reason the task worker does:
-`finesub` is installed there, not in the interpreter serving the sidecar.
-
-The protocol is one line in, one line out, in order. Errors are replies too --
-a spent key or a refused prompt is an answer about that call, not a reason to
-lose the client every other call is about to reuse.
+Moved from the core (`nonoka_x.llm_worker`) into the correction package
+(WP-P1): one routed client, many calls. The sidecar keeps this process around
+because building the client is the expensive part and a caller that corrects
+fifty lines makes fifty calls. Errors are replies too -- a spent key or a
+refused prompt is an answer about that call, not a reason to lose the client
+every other call is about to reuse.
 """
 
 from __future__ import annotations
 
-import json
-import sys
-import traceback
 from typing import Any, Mapping
 
 # The text-only roles plugins may ask for. `nonoka_x.local_provider.LLM_ROLES`
@@ -30,10 +21,6 @@ ROLES = ("lightweight", "general_capable")
 # FineSub 0.6.0 dropped its own lightweight role (and the model group behind
 # it); the name stays in the plugin API so existing plugins keep working.
 ENGINE_ROLES = {"lightweight": "general_capable", "general_capable": "general_capable"}
-
-
-def reply(value: Mapping[str, Any]) -> None:
-    print(json.dumps(value, ensure_ascii=False, separators=(",", ":")), flush=True)
 
 
 class Session:
@@ -119,28 +106,3 @@ def failure(exc: BaseException) -> dict[str, Any]:
     except Exception:  # noqa: BLE001 - classification is a nicety, not the answer
         pass
     return {"ok": False, "error": {"code": code, "message": message}}
-
-
-def main() -> int:
-    from .download_route import install_app_proxy_policy
-
-    install_app_proxy_policy()
-    session = Session()
-    try:
-        for line in sys.stdin:
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                answer = session.complete(json.loads(line))
-            except Exception as exc:  # noqa: BLE001 - every failure is a reply
-                traceback.print_exc(file=sys.stderr)
-                answer = failure(exc)
-            reply(answer)
-    finally:
-        session.close()
-    return 0
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())

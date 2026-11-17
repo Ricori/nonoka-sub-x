@@ -453,18 +453,19 @@ def measure(python: Path, models_dir: Path, runtime_dir: Path, pins: dict[str, A
 def measure_installed() -> dict[str, Any]:
     """`measure` on the runtime `real.locate_runtime` finds; written to test_data/.
 
-    The packages are those of `NONOKA_QUALITY_PYTHON` when it is set
-    (`real.python_override`); models and tools are always the located runtime's.
+    The packages are those of the located runtime's Python layer, the
+    interpreter the transcription package runs on (since WP-P1 the only one
+    `--real` runs it on); models and tools are the same runtime's.
     """
 
-    from .real import locate_runtime, provisioner_for, python_override
+    from .real import locate_runtime, provisioner_for
 
     import sys
 
     sys.path[:0] = [str(ROOT / "src"), str(VENDOR_SOURCE)]
     data_dir, install_dir = locate_runtime()
     provisioner = provisioner_for(data_dir, install_dir)
-    python = python_override() or provisioner.worker_python()
+    python = provisioner.worker_python()
     if python is None:
         return {"skipped": f"no ready managed runtime under {provisioner.install_root}"}
     layers = provisioner.layers

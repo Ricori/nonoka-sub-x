@@ -18,9 +18,7 @@ from urllib.request import url2pathname
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from nonoka_x import worker
-
-
+from nonoka_x import engine_host, worker  # noqa: E402
 from nonoka_x import correction as correction_layer  # noqa: E402
 from nonoka_x import transcription as transcription_layer  # noqa: E402
 from nonoka_x.correction import CorrectionResult, CorrectionSpec  # noqa: E402
@@ -36,6 +34,45 @@ from nonoka_x.transcription import (  # noqa: E402
 
 def file_of(uri: str) -> Path:
     return Path(url2pathname(urlparse(uri).path))
+
+
+ENGINES = ROOT / "engines"
+
+
+def for_task_mode(request: dict, record_dir: Path) -> dict:
+    """What the correction package answers the worker's `task_mode` with (in this process).
+
+    Imported here, not at the top: the orchestration children import this
+    module for `TranscriptOnlyEngine` with only the core on their path.
+    """
+
+    from finesub_correct import engine as correction_package
+
+    return correction_package.for_task_mode(request, record_dir)
+
+
+def prepare_knowledge_subjects(request: dict, task_id: str, *, knowledge_root: Path) -> dict:
+    """What the knowledge package answers the worker's `prepare_subjects` with (in this process)."""
+
+    from finesub_knowledge.manage import prepare_subjects
+
+    asked = worker.subject_request(request, task_id)
+    if asked is None:
+        return {"names": [], "created": []}
+    return prepare_subjects(**{**asked, "knowledge_root": knowledge_root})
+
+
+def engines_without(root: Path, *removed: str) -> Path:
+    """An engines root with every package but `removed`, each one the real package (a directory junction)."""
+
+    import _winapi
+
+    engines = root / "engines"
+    engines.mkdir(parents=True, exist_ok=True)
+    for package in ENGINES.iterdir():
+        if package.is_dir() and package.name not in removed and not (engines / package.name).exists():
+            _winapi.CreateJunction(str(package), str(engines / package.name))
+    return engines
 
 
 # --- stand-in engines ------------------------------------------------------------
@@ -136,7 +173,7 @@ def run_worker(request: dict, task_dir: Path) -> tuple[int, list[dict]]:
         with contextlib.redirect_stdout(output):
             result = worker.main([
                 "--task-id", "abc123", "--task-dir", str(task_dir),
-                "--vendor", str(ROOT / "third_party/finesub"),
+                "--engines", str(ENGINES),
             ])
     finally:
         sys.stdin = old_stdin
@@ -144,9 +181,10 @@ def run_worker(request: dict, task_dir: Path) -> tuple[int, list[dict]]:
 
 
 #: One child of the call-equivalence harness, with its recording stand-ins at
-#: FineSub's algorithm entry points, that runs `worker.main` on the request as
-#: often as asked and keeps every event: `tests.quality_harness.calls`'s child,
-#: plus the events, plus a choice of built-in transcription engines.
+#: FineSub's algorithm entry points in the engine packages' processes, that
+#: runs `worker.main` on the request as often as asked and keeps every event:
+#: `tests.quality_harness.calls`'s child, plus the events, plus a choice of
+#: the core's own transcription engines and of the installed packages.
 _ORCHESTRATION_CHILD = r"""
 import contextlib, io, json, sys
 from pathlib import Path
@@ -154,15 +192,17 @@ from pathlib import Path
 spec = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
 root = Path(spec["root"])
 from tests.quality_harness import calls, stubs
+from tests.quality_harness.package_child import read_shared, use_in_worker
 
 sys.meta_path.insert(0, stubs.RefuseHeavyImports())
 settings = calls.bind_settings(root / "data", "compat")
 calls.adopt_worker_environment(root / "data", settings)
+record = root / "calls.jsonl"
+use_in_worker({"hook": "tests.quality_harness.calls:package_hook", "record": str(record)}, root / "package-child.json")
 from nonoka_x.local_provider import validate_request
 
 request = validate_request(spec["request"])
 request.update(spec.get("after_validation") or {})
-stubs.install(calls.STABLE_FIXTURE)
 from nonoka_x import worker
 
 if "transcription_engines" in spec:
@@ -173,20 +213,26 @@ for _ in range(spec.get("runs", 1)):
     sys.stdin = io.StringIO(json.dumps(request, ensure_ascii=False) + "\n")
     with contextlib.redirect_stdout(stdout):
         code = worker.main(["--task-id", "orchestration", "--task-dir", str(root / "data" / "tasks" / "orchestration"),
-                            "--vendor", str(calls.VENDOR)])
+                            "--engines", spec["engines"], "--data-dir", str(root / "data")])
     events = [json.loads(line) for line in stdout.getvalue().splitlines() if line.startswith("{")]
     runs.append({"exit": code, "events": events})
+records = read_shared(record)
 Path(spec["out"]).write_text(
-    json.dumps({"runs": runs, "calls": [call["entry"] for call in stubs.RECORD]}, ensure_ascii=False),
+    json.dumps({"runs": runs, "calls": [call["entry"] for call in records], "records": records}, ensure_ascii=False),
     encoding="utf-8",
 )
 """
 
 
-def run_orchestration_child(root: Path, request: dict, **spec) -> dict:  # noqa: ANN003
-    """`_ORCHESTRATION_CHILD` on `request` under `root` (the media and cloud files made here)."""
+def run_orchestration_child(root: Path, request: dict, *, without: tuple[str, ...] = (), **spec) -> dict:  # noqa: ANN003
+    """`_ORCHESTRATION_CHILD` on `request` under `root` (the media and cloud files made here).
+
+    `without` names the engine packages that are not installed for the run.
+    """
 
     from tests.quality_harness import calls
+
+    spec["engines"] = str(engines_without(root, *without) if without else ENGINES)
 
     for directory in ("media", "cloud", "data", "tmp"):
         (root / directory).mkdir(parents=True, exist_ok=True)
@@ -295,7 +341,7 @@ class WorkerAdapterTests(unittest.TestCase):
                 ],
             }
             try:
-                result = worker.prepare_knowledge_subjects(first, "task-1", knowledge_root=root)
+                result = prepare_knowledge_subjects(first, "task-1", knowledge_root=root)
                 self.assertEqual(result["created"], ["柊優花", "星之海"])
                 self.assertEqual(result["names"], ["streamer/柊優花", "common/星之海"])
                 repo = KnowledgeRepo.open(root)
@@ -305,11 +351,11 @@ class WorkerAdapterTests(unittest.TestCase):
                 self.assertIn("以游戏直播为主的主播", repo.index_text("streamer"))
 
                 # A repeat creates nothing, and an existing subject travels by id.
-                again = worker.prepare_knowledge_subjects(first, "task-2", knowledge_root=root)
+                again = prepare_knowledge_subjects(first, "task-2", knowledge_root=root)
                 self.assertEqual(again["created"], [])
                 self.assertEqual(again["rev"], result["rev"])
                 ident = next(s.local_id for s in repo.subjects() if s.payload["surface"] == "星之海")
-                read = worker.prepare_knowledge_subjects(
+                read = prepare_knowledge_subjects(
                     {
                         "knowledge": "read",
                         "knowledge_subjects": [
@@ -323,7 +369,7 @@ class WorkerAdapterTests(unittest.TestCase):
 
                 # Reading never creates.
                 with self.assertRaisesRegex(RuntimeError, "只有自动更新模式可以新建主体"):
-                    worker.prepare_knowledge_subjects(
+                    prepare_knowledge_subjects(
                         {
                             "knowledge": "read",
                             "knowledge_subjects": [
@@ -334,7 +380,7 @@ class WorkerAdapterTests(unittest.TestCase):
                         knowledge_root=root,
                     )
                 with self.assertRaisesRegex(RuntimeError, "已不在知识库中"):
-                    worker.prepare_knowledge_subjects(
+                    prepare_knowledge_subjects(
                         {
                             "knowledge": "read",
                             "knowledge_subjects": [
@@ -346,11 +392,6 @@ class WorkerAdapterTests(unittest.TestCase):
                     )
             finally:
                 KnowledgeRepo.forget(root)
-                # The preparation ran in this process's knowledge process
-                # (WP-K): close its store too, or the directory stays in use.
-                from finesub_knowledge.client import KnowledgeRepo as KnowledgePackageRepo
-
-                KnowledgePackageRepo.forget(root)
 
     def test_knowledge_task_summary_reaches_the_update_with_subject_identity(self) -> None:
         summary = worker.knowledge_task_summary(
@@ -377,9 +418,8 @@ class WorkerAdapterTests(unittest.TestCase):
         }
 
     def test_a_new_chinese_task_drops_knowledge_and_style(self) -> None:
-        sys.path.insert(0, str(ROOT / "third_party/finesub/src"))
         with tempfile.TemporaryDirectory() as temp:
-            request = worker.for_task_mode(self.zh_request(), Path(temp) / "llm-artifacts")
+            request = for_task_mode(self.zh_request(), Path(temp) / "llm-artifacts")
 
         self.assertEqual(request["knowledge"], "none")
         self.assertEqual(request["correction"], {"extra_info": "背景", "extra_style": ""})
@@ -387,7 +427,6 @@ class WorkerAdapterTests(unittest.TestCase):
         self.assertEqual(worker.compose_knowledge_context(request, "背景"), "背景")
 
     def test_a_resumed_chinese_translation_keeps_its_settings(self) -> None:
-        sys.path.insert(0, str(ROOT / "third_party/finesub/src"))
         records = {
             "recorded before the field": '{"version": 1, "mode": "single", "proofread": true}',
             "recorded as translating": '{"version": 1, "mode": "single", "proofread": true, "correct_only": false}',
@@ -396,21 +435,20 @@ class WorkerAdapterTests(unittest.TestCase):
             with self.subTest(reason), tempfile.TemporaryDirectory() as temp:
                 directory = Path(temp)
                 (directory / "correction-mode.json").write_text(record, encoding="utf-8")
-                self.assertEqual(worker.for_task_mode(self.zh_request(), directory), self.zh_request())
+                self.assertEqual(for_task_mode(self.zh_request(), directory), self.zh_request())
         with self.subTest("windows but no record"), tempfile.TemporaryDirectory() as temp:
             directory = Path(temp)
             (directory / "correction-windows.jsonl").write_text("", encoding="utf-8")
-            self.assertEqual(worker.for_task_mode(self.zh_request(), directory), self.zh_request())
+            self.assertEqual(for_task_mode(self.zh_request(), directory), self.zh_request())
 
     def test_a_resumed_correct_only_task_stays_correct_only(self) -> None:
-        sys.path.insert(0, str(ROOT / "third_party/finesub/src"))
         with tempfile.TemporaryDirectory() as temp:
             directory = Path(temp)
             (directory / "correction-mode.json").write_text(
                 '{"version": 1, "mode": "single", "proofread": false, "correct_only": true}', encoding="utf-8"
             )
             (directory / "correction-windows.jsonl").write_text("", encoding="utf-8")
-            self.assertEqual(worker.for_task_mode(self.zh_request(), directory)["knowledge"], "none")
+            self.assertEqual(for_task_mode(self.zh_request(), directory)["knowledge"], "none")
 
     def test_only_a_declared_chinese_source_without_a_japanese_axis_changes(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -420,7 +458,7 @@ class WorkerAdapterTests(unittest.TestCase):
                 {**self.zh_request(), "language": "auto"},
                 self.zh_request(axis={"kind": "ja", "rows": []}),
             ):
-                self.assertEqual(worker.for_task_mode(request, directory), request)
+                self.assertEqual(for_task_mode(request, directory), request)
 
     def test_task_request_maps_to_the_engine_jobs_and_returns_hashed_manifest(self) -> None:
         """The request reaches each half as its job, and the manifest lists what they left.
@@ -470,8 +508,7 @@ class WorkerAdapterTests(unittest.TestCase):
                                "extra_info": "背景"},
                 "knowledge": "none",
             }
-            with registered(RecordingEngine("recorder", transcribe), RecordingCorrection(correct)), \
-                    mock.patch("nonoka_x.settings.correction_proofread", return_value="auto"):
+            with registered(RecordingEngine("recorder", transcribe), RecordingCorrection(correct)):
                 result, events = run_worker(request, task_dir)
 
             self.assertEqual(result, 0, events)
@@ -497,7 +534,8 @@ class WorkerAdapterTests(unittest.TestCase):
             correction = captured["correction"]
             self.assertEqual(correction.transcription.transcript_json, task_dir / "transcript.json")
             self.assertEqual((correction.target, correction.title, correction.task_id), ("raw-srt", "video", "abc123"))
-            self.assertEqual(correction.options["proofread"], "auto")
+            # Whether to proofread is the correction engine's to resolve (its own route table).
+            self.assertNotIn("proofread", correction.options)
             self.assertEqual(correction.options["media"], "audio")
             self.assertEqual(correction.task_summary, "字幕任务：video")
             self.assertEqual(correction.diarization_level, "acoustics")
@@ -507,7 +545,7 @@ class WorkerAdapterTests(unittest.TestCase):
             manifest = completed["payload"]["artifacts"]
             self.assertEqual(
                 manifest["engine_commit"],
-                json.loads((ROOT / "third_party/finesub/UPSTREAM.json").read_text(encoding="utf-8"))["commit"],
+                engine_host.discover(ENGINES)["finesub-correct"].engine_commit,
             )
             # An attachment `<engine>.<name>` is listed as `<name>`; only files that exist.
             self.assertEqual(set(manifest["artifacts"]), {"vocal_audio", "stable_json", "raw_srt"})
@@ -584,7 +622,6 @@ class WorkerAdapterTests(unittest.TestCase):
         numpy, so a diarized cloud task continues on the launcher.
         """
 
-        sys.path.insert(0, str(ROOT / "third_party/finesub/src"))
         from finesub.speech.diarization.segments import TrackSegment
         from finesub.speech.diarization.stage import DiarizationResult, write_timeline
 
@@ -615,7 +652,11 @@ class WorkerAdapterTests(unittest.TestCase):
     def continue_without_the_asr_stack(
         self, root: Path, source: dict, request: dict, *, stable: dict | None = None
     ) -> list[dict]:
-        script = """
+        # In every process of the run -- the worker's and the correction package's --
+        # the import system refuses the ASR stack (a `sitecustomize` on the path).
+        hook = root / "refuse"
+        hook.mkdir()
+        (hook / "sitecustomize.py").write_text("""
 import importlib.abc, sys
 BLOCKED = {"torch", "torchaudio", "numpy", "soundfile", "faster_whisper", "ctranslate2", "transformers", "audio_separator"}
 class Refuse(importlib.abc.MetaPathFinder):
@@ -624,6 +665,9 @@ class Refuse(importlib.abc.MetaPathFinder):
             raise ImportError("blocked for this test: " + name)
         return None
 sys.meta_path.insert(0, Refuse())
+""", encoding="utf-8")
+        script = """
+import sys
 from nonoka_x import worker
 raise SystemExit(worker.main(sys.argv[1:]))
 """
@@ -646,16 +690,14 @@ raise SystemExit(worker.main(sys.argv[1:]))
             **request,
         }
         environment = dict(os.environ)
-        environment["PYTHONPATH"] = os.pathsep.join(
-            [str(ROOT / "src"), str(ROOT / "third_party/finesub/src")]
-        )
+        environment["PYTHONPATH"] = os.pathsep.join([str(hook), str(ROOT / "src")])
         environment["PYTHONIOENCODING"] = "utf-8"
         environment["FINESUB_HOME"] = str(root / "finesub-home")
         result = subprocess.run(
             [
                 sys.executable, "-c", script,
                 "--task-id", "cont", "--task-dir", str(root / "task"),
-                "--vendor", str(ROOT / "third_party/finesub"),
+                "--engines", str(ENGINES),
             ],
             input=json.dumps(request, ensure_ascii=False) + "\n",
             capture_output=True, text=True, encoding="utf-8", env=environment, timeout=120,
@@ -664,67 +706,16 @@ raise SystemExit(worker.main(sys.argv[1:]))
         return [json.loads(line) for line in result.stdout.splitlines() if line.startswith("{")]
 
     def test_source_text_axis_skips_recognition_and_only_runs_the_llm_stage(self) -> None:
+        """A Japanese axis goes straight to the correction package's axis run: no recognition at all."""
+
         with tempfile.TemporaryDirectory() as temp:
-            task_dir = Path(temp) / "task"
-            source = Path(temp) / "video.mp4"
-            source.write_bytes(b"media")
-            captured: dict = {}
-
-            def run_correction_task(task):
-                captured.update(vars(task))
-                output = Path(task.output_path)
-                output.write_text("1\n00:00:00,000 --> 00:00:01,000\n你好\n", encoding="utf-8")
-                output.with_name(f"{output.stem}-annotated.csv").write_text("# header\n", encoding="utf-8")
-                return SimpleNamespace(result=output)
-
-            @contextlib.contextmanager
-            def passthrough(_value):
-                yield
-
-            finesub = types.ModuleType("finesub")
-            finesub.__path__ = []
-            llm = types.ModuleType("finesub.llm")
-            llm.__path__ = []
-            routing = types.ModuleType("finesub.llm.routing")
-            routing.__path__ = []
-            correction = types.ModuleType("finesub.llm.correction_translation")
-            correction.run_correction_task = run_correction_task
-            correction_request = types.ModuleType("finesub.llm.correction_request")
-            correction_request.CorrectionRequest = lambda **kwargs: SimpleNamespace(**kwargs)
-            profiles = types.ModuleType("finesub.llm.routing.profiles")
-            profiles.resolve_profile = lambda *args: SimpleNamespace(id="-".join(args))
-            stages = types.ModuleType("finesub.stages")
-            stages.run_pipeline = lambda *args, **kwargs: self.fail("recognition must not run for a source-text axis")
-            stages.resolve_llm_media_for_source = lambda path, **kwargs: (kwargs["llm_media"], None, "")
-            reporting = types.ModuleType("finesub.reporting")
-            reporting.reporting_to = passthrough
-            reporting.quieted_libraries = passthrough
-            names = (
-                "finesub", "finesub.llm", "finesub.llm.routing", "finesub.llm.correction_translation",
-                "finesub.llm.correction_request", "finesub.llm.routing.profiles", "finesub.stages",
-                "finesub.reporting",
-            )
-            previous = {name: sys.modules.get(name) for name in names}
-            sys.modules.update({
-                "finesub": finesub,
-                "finesub.llm": llm,
-                "finesub.llm.routing": routing,
-                "finesub.llm.correction_translation": correction,
-                "finesub.llm.correction_request": correction_request,
-                "finesub.llm.routing.profiles": profiles,
-                "finesub.stages": stages,
-                "finesub.reporting": reporting,
-            })
-            request = {
-                "schema": 1,
-                "provider": "local",
-                "source": {"kind": "local_file", "path": str(source), "title": "video"},
+            root = Path(temp)
+            record = run_orchestration_child(root, {
+                **BASE,
                 "target": "final-srt",
-                "language": "ja",
                 "device": "cuda",
                 "gpu_budget_gb": 8,
                 "correction": {"media": "text", "retrieval": "none", "difficulty": "quality"},
-                "knowledge": "none",
                 "axis": {
                     "kind": "ja",
                     "filename": "轴.ass",
@@ -733,33 +724,23 @@ raise SystemExit(worker.main(sys.argv[1:]))
                         {"t0": 1.0, "t1": 2.0, "ja": "", "zh": "", "spk": ""},
                     ],
                 },
-            }
-            output = io.StringIO()
-            old_stdin = sys.stdin
-            try:
-                sys.stdin = io.StringIO(json.dumps(request) + "\n")
-                with contextlib.redirect_stdout(output):
-                    result = worker.main([
-                        "--task-id", "abc123", "--task-dir", str(task_dir),
-                        "--vendor", str(ROOT / "third_party/finesub"),
-                    ])
-            finally:
-                sys.stdin = old_stdin
-                for name, value in previous.items():
-                    if value is None:
-                        sys.modules.pop(name, None)
-                    else:
-                        sys.modules[name] = value
-            self.assertEqual(result, 0)
+            })
+            (run,) = record["runs"]
+            self.assertEqual(run["exit"], 0, run["events"])
+            self.assertFalse(RECOGNITION_ENTRIES & set(record["calls"]), record["calls"])
+            (task,) = [call["arguments"] for call in record["records"]
+                       if call["entry"] == "correction_translation.run_correction_task"]
+            request = next(iter(task.values()))
             # The axis replaces recognition outright: no audio is decoded when
             # the correction reference is text, and the blank row is not handed
             # to the model as something to correct.
-            self.assertIsNone(captured["audio_path"])
-            self.assertEqual(captured["task_summary"], "字幕任务：video")
-            stable = json.loads(Path(captured["stable_json"]).read_text(encoding="utf-8"))
+            self.assertIsNone(request["audio_path"])
+            self.assertEqual(request["task_summary"], "字幕任务：节目")
+            stable_path = Path(request["stable_json"]["path"])
+            self.assertEqual(stable_path.parent.name, "finesub-correct")
+            stable = json.loads(stable_path.read_text(encoding="utf-8"))
             self.assertEqual(stable["segments"], [{"id": "1", "start": 0.0, "end": 1.0, "text": "こんにちは"}])
-            events = [json.loads(line) for line in output.getvalue().splitlines()]
-            manifest = next(event for event in events if event["type"] == "completed")["payload"]["artifacts"]
+            manifest = next(event for event in run["events"] if event["type"] == "completed")["payload"]["artifacts"]
             self.assertEqual(set(manifest["artifacts"]), {"stable_json", "annotated_csv", "final_srt"})
 
     def test_diarization_request_maps_to_pipeline_keys(self) -> None:
@@ -780,10 +761,12 @@ raise SystemExit(worker.main(sys.argv[1:]))
             install_runtime_preferred,
         )
 
+        from finesub_correct.bridge import install_llm_model_override
+
+        from nonoka_x.settings import TASK_GROUPS_BY_ROUTE
+
         try:
-            worker.install_llm_model_override(
-                {"llm_model": {"correction": "local-agy-gemini-3_8-flash"}}
-            )
+            install_llm_model_override({"correction": "local-agy-gemini-3_8-flash"}, TASK_GROUPS_BY_ROUTE)
             # Through the real route validator, not only the adapter's map.
             routes = default_model_routes()
             for group_id in ("correction-mm", "correction-text"):
@@ -793,20 +776,25 @@ raise SystemExit(worker.main(sys.argv[1:]))
             install_runtime_preferred({})
 
     def test_llm_model_rejects_conflicting_friendly_and_exact_routes(self) -> None:
+        from finesub_correct.bridge import install_llm_model_override
+
+        from nonoka_x.settings import TASK_GROUPS_BY_ROUTE
+
         with self.assertRaisesRegex(ValueError, "conflicting targets"):
-            worker.install_llm_model_override(
-                {
-                    "llm_model": {
-                        "correction": "local-agy-media-gemini-3_7-flash",
-                        "correction-mm": "local-agy-sonnet-5_5",
-                    }
-                }
+            install_llm_model_override(
+                {"correction": "local-agy-media-gemini-3_7-flash", "correction-mm": "local-agy-sonnet-5_5"},
+                TASK_GROUPS_BY_ROUTE,
             )
 
 
     def test_separator_onnx_cuda_warning_is_filtered(self) -> None:
+        """In the transcription package's process, where the separator runs."""
+
         import logging
 
+        from finesub_transcribe.engine import mute_separator_onnx_warning
+
+        mute_separator_onnx_warning()
         logger = logging.getLogger("separator")
         record_warning = logging.LogRecord(
             name="separator",
@@ -851,6 +839,7 @@ class OrchestrationTests(unittest.TestCase):
                 {**BASE, "target": "final-srt", "correction": {"media": "text", "retrieval": "none"}},
                 after_validation={"transcription": {"engine": "transcript-only"}},
                 transcription_engines=[self.TRANSCRIPT_ONLY],
+                without=("finesub-transcribe",),
             )
             (run,) = record["runs"]
             self.assertEqual(run["exit"], 0, run["events"])
@@ -894,6 +883,7 @@ class OrchestrationTests(unittest.TestCase):
             root = Path(temp)
             record = run_orchestration_child(
                 root, {**BASE, "target": "raw-srt"}, transcription_engines=[self.TRANSCRIPT_ONLY],
+                without=("finesub-transcribe",),
             )
             (run,) = record["runs"]
             self.assertEqual(run["exit"], 1)
@@ -913,6 +903,7 @@ class OrchestrationTests(unittest.TestCase):
                 {**BASE, "target": "raw-srt", "source": {"kind": "cloud_stable", "path": "$MEDIA",
                                                          "title": "节目", "stable_json": "$CLOUD_STABLE"}},
                 transcription_engines=[],
+                without=("finesub-transcribe",),
             )
             (run,) = record["runs"]
             self.assertEqual(run["exit"], 0, run["events"])
