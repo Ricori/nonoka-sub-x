@@ -6,123 +6,195 @@
  "generated_by": "scripts/engine_packages.py",
  "entries": [
   {
-   "symbol": "finesub.stages:run_post_stable",
-   "used_at": "src/nonoka_x/correction/finesub.py:265"
-  },
-  {
-   "symbol": "finesub.stages:default_pipeline_paths",
-   "used_at": "src/nonoka_x/correction/finesub.py:106"
-  },
-  {
-   "symbol": "finesub.stages:_run_diarization_stage",
-   "used_at": "src/nonoka_x/correction/finesub.py:336"
-  },
-  {
-   "symbol": "finesub.stages:resolve_llm_media_for_source",
-   "used_at": "src/nonoka_x/correction/finesub.py:450"
-  },
-  {
-   "symbol": "finesub.speech.diarization.evidence:evidence_path",
-   "used_at": "src/nonoka_x/correction/finesub.py:113"
-  },
-  {
-   "symbol": "finesub.subtitles.line_groups:in_order",
-   "used_at": "src/nonoka_x/correction/finesub.py:159"
-  },
-  {
-   "symbol": "finesub.reporting:current_reporter",
-   "used_at": "src/nonoka_x/correction/finesub.py:258"
-  },
-  {
-   "symbol": "finesub.reporting:reporter_delivers",
-   "used_at": "src/nonoka_x/correction/finesub.py:258"
-  },
-  {
-   "symbol": "finesub.reporting:reporting_to",
-   "used_at": "src/nonoka_x/correction/finesub.py:258"
-  },
-  {
-   "symbol": "finesub.reporting:quieted_libraries",
-   "used_at": "src/nonoka_x/worker.py:585"
-  },
-  {
-   "symbol": "finesub.llm.correction_request:CorrectionRequest",
-   "used_at": "src/nonoka_x/correction/finesub.py:436"
-  },
-  {
-   "symbol": "finesub.llm.correction_translation:run_correction_task",
-   "used_at": "src/nonoka_x/correction/finesub.py:437"
-  },
-  {
-   "symbol": "finesub.llm.routing.profiles:resolve_profile",
-   "used_at": "src/nonoka_x/correction/finesub.py:438"
-  },
-  {
-   "symbol": "finesub.llm.correction_mode:recorded_choice",
-   "used_at": "src/nonoka_x/worker.py:407"
-  },
-  {
-   "symbol": "finesub.llm.correction_mode:started",
-   "used_at": "src/nonoka_x/worker.py:407"
-  },
-  {
-   "symbol": "finesub.llm.routing.model_routes:<module>",
-   "used_at": "src/nonoka_x/worker.py:491"
-  },
-  {
-   "symbol": "finesub.llm.routing.model_routes:default_model_routes",
-   "used_at": "src/nonoka_x/settings.py:365"
-  },
-  {
-   "symbol": "finesub.llm.routing.model_routes:load_model_routes",
-   "used_at": "src/nonoka_x/settings.py:384"
-  },
-  {
-   "symbol": "finesub.llm.routing.model_catalog:default_model_catalog",
-   "used_at": "src/nonoka_x/settings.py:476"
-  },
-  {
-   "symbol": "finesub.config:clear_config_cache",
-   "used_at": "src/nonoka_x/settings.py:1071"
-  },
-  {
-   "symbol": "finesub.llm.agent.agent_paths:vendor_error_text",
-   "used_at": "src/nonoka_x/worker.py:531"
+   "symbol": "finesub.llm.agent.agent_mcp_server:<main>",
+   "used_at": "finesub/llm/client.py:2504 (MCP child, `python -m`)"
   },
   {
    "symbol": "finesub.llm.client:RoleClient",
-   "used_at": "src/nonoka_x/llm_worker.py:48"
+   "used_at": "engines/finesub-correct/adapter/finesub_correct/llm.py:35, engines/finesub-correct/adapter/finesub_correct/llm.py:49"
   },
   {
-   "symbol": "finesub.llm.client:is_quota_or_rate_limit_error",
-   "used_at": "src/nonoka_x/llm_worker.py:115"
+   "symbol": "finesub.llm.correction_mode:recorded_choice",
+   "used_at": "engines/finesub-correct/adapter/finesub_correct/engine.py:261"
+  },
+  {
+   "symbol": "finesub.llm.correction_mode:started",
+   "used_at": "engines/finesub-correct/adapter/finesub_correct/engine.py:261"
+  },
+  {
+   "symbol": "finesub.llm.correction_request:CorrectionRequest",
+   "used_at": "engines/finesub-correct/adapter/finesub_correct/engine.py:518"
+  },
+  {
+   "symbol": "finesub.llm.correction_translation:run_correction_task",
+   "used_at": "engines/finesub-correct/adapter/finesub_correct/engine.py:519"
+  },
+  {
+   "symbol": "finesub.llm.knowledge.base:<module>",
+   "used_at": "engines/finesub-correct/adapter/finesub_knowledge/client.py:272, engines/finesub-correct/adapter/finesub_knowledge/client.py:288"
+  },
+  {
+   "symbol": "finesub.llm.knowledge.base:_GENERATION_PINS",
+   "used_at": "engines/finesub-correct/adapter/finesub_knowledge/client.py:276, engines/finesub-correct/adapter/finesub_knowledge/client.py:278, engines/finesub-correct/adapter/finesub_knowledge/client.py:282, engines/finesub-correct/adapter/finesub_knowledge/client.py:291, engines/finesub-correct/adapter/finesub_knowledge/client.py:296"
+  },
+  {
+   "symbol": "finesub.llm.knowledge.base:active_generation_pins",
+   "used_at": "engines/finesub-correct/adapter/finesub_knowledge/client.py:187"
   },
   {
    "symbol": "finesub.llm.rate_limit:ModelRateLimiter",
-   "used_at": "src/nonoka_x/llm_worker.py:63"
+   "used_at": "engines/finesub-correct/adapter/finesub_correct/llm.py:50"
   },
   {
    "symbol": "finesub.llm.routing.config:LLMRole",
-   "used_at": "src/nonoka_x/llm_worker.py:79"
+   "used_at": "engines/finesub-correct/adapter/finesub_correct/llm.py:66"
   },
   {
-   "symbol": "finesub.api_http:<module>",
-   "used_at": "src/nonoka_x/finesub_bridge.py:87"
+   "symbol": "finesub.llm.routing.model_catalog:default_model_catalog",
+   "used_at": "engines/finesub-correct/adapter/finesub_correct/__main__.py:46, engines/finesub-correct/adapter/finesub_correct/bridge.py:225"
+  },
+  {
+   "symbol": "finesub.llm.routing.model_routes:default_model_routes",
+   "used_at": "engines/finesub-correct/adapter/finesub_correct/engine.py:231"
+  },
+  {
+   "symbol": "finesub.llm.routing.model_routes:load_model_routes",
+   "used_at": "engines/finesub-correct/adapter/finesub_correct/__main__.py:47, engines/finesub-correct/adapter/finesub_correct/bridge.py:237"
+  },
+  {
+   "symbol": "finesub.llm.routing.profiles:resolve_profile",
+   "used_at": "engines/finesub-correct/adapter/finesub_correct/engine.py:520"
+  },
+  {
+   "symbol": "finesub.reporting:current_reporter",
+   "used_at": "engines/finesub-correct/adapter/finesub_correct/engine.py:409, engines/finesub-correct/adapter/finesub_knowledge/client.py:188, engines/finesub-correct/adapter/finesub_knowledge/client.py:197"
+  },
+  {
+   "symbol": "finesub.reporting:quieted_libraries",
+   "used_at": "engines/finesub-correct/adapter/finesub_correct/__main__.py:142, engines/finesub-correct/adapter/finesub_correct/engine.py:305, engines/finesub-correct/adapter/finesub_correct/engine.py:322"
+  },
+  {
+   "symbol": "finesub.reporting:reporter_delivers",
+   "used_at": "engines/finesub-correct/adapter/finesub_knowledge/client.py:188"
+  },
+  {
+   "symbol": "finesub.reporting:reporting_to",
+   "used_at": "engines/finesub-correct/adapter/finesub_correct/__main__.py:142, engines/finesub-correct/adapter/finesub_correct/engine.py:305, engines/finesub-correct/adapter/finesub_correct/engine.py:322"
+  },
+  {
+   "symbol": "finesub.speech.diarization.evidence:evidence_path",
+   "used_at": "engines/finesub-correct/adapter/finesub_correct/engine.py:108, engines/finesub-correct/adapter/finesub_correct/engine.py:426"
   },
   {
    "symbol": "finesub.speech.diarization.product:read_product",
-   "used_at": "src/nonoka_x/projector.py:224"
+   "used_at": "engines/finesub-correct/adapter/finesub_correct/engine.py:456"
   },
   {
-   "symbol": "finesub.llm.agent.agent_mcp_server:<main>",
-   "used_at": "third_party/finesub/src/finesub/llm/client.py:2504 (MCP child)"
+   "symbol": "finesub.stages:_pipeline_options",
+   "used_at": "engines/finesub-correct/adapter/finesub_correct/engine.py:306"
+  },
+  {
+   "symbol": "finesub.stages:_prepare_run",
+   "used_at": "engines/finesub-correct/adapter/finesub_correct/engine.py:306"
+  },
+  {
+   "symbol": "finesub.stages:_run_diarization_stage",
+   "used_at": "engines/finesub-correct/adapter/finesub_correct/engine.py:410"
+  },
+  {
+   "symbol": "finesub.stages:default_pipeline_paths",
+   "used_at": "engines/finesub-correct/adapter/finesub_correct/engine.py:101, engines/finesub-correct/adapter/finesub_correct/engine.py:323"
+  },
+  {
+   "symbol": "finesub.stages:resolve_llm_media_for_source",
+   "used_at": "engines/finesub-correct/adapter/finesub_correct/engine.py:532"
+  },
+  {
+   "symbol": "finesub.stages:run_post_stable",
+   "used_at": "engines/finesub-correct/adapter/finesub_correct/engine.py:323"
+  },
+  {
+   "symbol": "finesub.subtitles.line_groups:in_order",
+   "used_at": "engines/finesub-correct/adapter/finesub_correct/engine.py:172"
+  }
+ ],
+ "optional": [
+  {
+   "symbol": "finesub.api_http:<module>",
+   "used_at": "engines/finesub-correct/adapter/finesub_correct/bridge.py:325",
+   "present": true
+  },
+  {
+   "symbol": "finesub.api_http:DIRECT",
+   "used_at": "engines/finesub-correct/adapter/finesub_correct/bridge.py:344, engines/finesub-correct/adapter/finesub_correct/bridge.py:345",
+   "present": true
+  },
+  {
+   "symbol": "finesub.api_http:configured_proxy",
+   "used_at": "engines/finesub-correct/adapter/finesub_correct/bridge.py:328, engines/finesub-correct/adapter/finesub_correct/bridge.py:347",
+   "present": true
+  },
+  {
+   "symbol": "finesub.config:clear_config_cache",
+   "used_at": "engines/finesub-correct/adapter/finesub_correct/bridge.py:259",
+   "present": true
+  },
+  {
+   "symbol": "finesub.llm.agent.agent_paths:vendor_error_text",
+   "used_at": "engines/finesub-correct/adapter/finesub_correct/failures.py:26",
+   "present": true
+  },
+  {
+   "symbol": "finesub.llm.client:is_quota_or_rate_limit_error",
+   "used_at": "engines/finesub-correct/adapter/finesub_correct/llm.py:102",
+   "present": true
+  },
+  {
+   "symbol": "finesub.llm.routing.model_routes:install_runtime_preferred",
+   "used_at": "engines/finesub-correct/adapter/finesub_correct/bridge.py:391",
+   "present": true
+  },
+  {
+   "symbol": "finesub.llm.routing.model_routes:parse_llm_model_args",
+   "used_at": "engines/finesub-correct/adapter/finesub_correct/bridge.py:391",
+   "present": true
+  },
+  {
+   "symbol": "finesub_bootstrap.download_routes:<module>",
+   "used_at": "engines/finesub-correct/adapter/finesub_correct/bridge.py:359",
+   "present": false
+  },
+  {
+   "symbol": "finesub_bootstrap.download_routes:RouteDecision",
+   "used_at": "engines/finesub-correct/adapter/finesub_correct/bridge.py:368",
+   "present": false
+  },
+  {
+   "symbol": "finesub_bootstrap.download_routes:resolve_region",
+   "used_at": "engines/finesub-correct/adapter/finesub_correct/bridge.py:363, engines/finesub-correct/adapter/finesub_correct/bridge.py:372",
+   "present": false
+  },
+  {
+   "symbol": "finesub_bootstrap.http_client:<module>",
+   "used_at": "engines/finesub-correct/adapter/finesub_correct/bridge.py:311",
+   "present": true
+  },
+  {
+   "symbol": "finesub_bootstrap.http_client:_environment_proxies",
+   "used_at": "engines/finesub-correct/adapter/finesub_correct/bridge.py:314, engines/finesub-correct/adapter/finesub_correct/bridge.py:322",
+   "present": true
+  },
+  {
+   "symbol": "finesub_bootstrap.http_client:_windows_proxy",
+   "used_at": "engines/finesub-correct/adapter/finesub_correct/bridge.py:321",
+   "present": true
   }
  ],
  "counts": {
-  "files": 466,
-  "py": 182,
+  "files": 464,
+  "py": 180,
   "data": 284,
-  "locked": 465
+  "locked": 463
  },
  "files": [
   {
@@ -202,7 +274,7 @@
     "static",
     "runtime"
    ],
-   "sha256": "441f590f808ea2a2fcf0fea77f6c1dc7b59da2c0c090716372d0865683650b78",
+   "sha256": "c01db5e8e731ae5ce734fe566b1d2de4c16b3e128307d3e55867255fd0692514",
    "locked": true
   },
   {
@@ -340,7 +412,7 @@
     "static",
     "runtime"
    ],
-   "sha256": "b1a7684a7d70076f712461346209ec7936af8858028de9edeab5003514be034c",
+   "sha256": "b4823749017bf738fd8792734c0798e51aad567913eee6fed32b2a0cb7c1595e",
    "locked": true
   },
   {
@@ -399,7 +471,7 @@
    "why": [
     "static"
    ],
-   "sha256": "34a84795f38c7a95b472992c5444cc5815b8100fb7eed5a51ab675f2777949ac",
+   "sha256": "afe28ae90cccf1780e955a5f8bae9aacd9a391c1e748e1e63200aaf2afcf781a",
    "locked": true
   },
   {
@@ -489,7 +561,7 @@
     "static",
     "runtime"
    ],
-   "sha256": "8a79d94760383a9c8bd86ee505a10ffeda5fe93bfbfa68fb643111e29e94e004",
+   "sha256": "3a8d68c64ca196c2546780ce102fab884c4ab50eb2da80075e7142bea7f6bbef",
    "locked": true
   },
   {
@@ -518,7 +590,7 @@
    "why": [
     "static"
    ],
-   "sha256": "70ccdd8ec84d6dc8f040666d20b0e5ca3e8c7cac8ab4d706528788a597cd52e1",
+   "sha256": "a82c4affbe53a81bc6bb5426df8e539641e3259b7e224af13a60eb73f2906a55",
    "locked": true
   },
   {
@@ -580,15 +652,6 @@
    "locked": true
   },
   {
-   "path": "finesub/llm/knowledge/node/edit.py",
-   "module": "finesub.llm.knowledge.node.edit",
-   "why": [
-    "static"
-   ],
-   "sha256": "67af1cff56f9cfe4accc379cf88d0eac07fd5d1e6def6549a1647feef32d4769",
-   "locked": true
-  },
-  {
    "path": "finesub/llm/knowledge/node/envelope.py",
    "module": "finesub.llm.knowledge.node.envelope",
    "why": [
@@ -635,15 +698,6 @@
     "runtime"
    ],
    "sha256": "1a92ebda4d86660134effce1a40d31a652286e5254a1a28e8ab6320295edb997",
-   "locked": true
-  },
-  {
-   "path": "finesub/llm/knowledge/node/parity.py",
-   "module": "finesub.llm.knowledge.node.parity",
-   "why": [
-    "static"
-   ],
-   "sha256": "9f1557b3986fd4426e8a907329fa0b784d52e5b5d542951d630e8d022767c7b7",
    "locked": true
   },
   {
@@ -813,7 +867,7 @@
    "why": [
     "static"
    ],
-   "sha256": "7597c54457fbcfe0945e5a477bf6aa44617f5694811817ac2509fe7d5fa91b63",
+   "sha256": "26029d06d146ad142d505047ec980fa01d25d1943921840a871cbc0d5bd78ae0",
    "locked": true
   },
   {
@@ -823,7 +877,7 @@
     "static",
     "runtime"
    ],
-   "sha256": "fdf52e9ec5eacab85e967740ad3d3727bc4e088fccac9ed41a6585e397a083f3",
+   "sha256": "cb917d30466b94adab96592f80ab62ebd9213bbcee874f2e304d4bb708d5dd6b",
    "locked": true
   },
   {
@@ -890,7 +944,7 @@
    "why": [
     "static"
    ],
-   "sha256": "4aaeeae72e28f8d1e8dff24c0c5a51650bdb573f1c9cc2e24ab5cc489fdf59cc",
+   "sha256": "62669a53c713b2b45f1e5ad9fc125bfc0f144f68eb011fd3e4c70b0dc26d9946",
    "locked": true
   },
   {
@@ -5143,7 +5197,7 @@
     "static",
     "runtime"
    ],
-   "sha256": "85a70105a694be9fc741174f9c1c7f3db836863b484f93cac8206bc251062de4",
+   "sha256": "88cc015b464b324553f0e83aa1691970f935c42b9bf6eedf7af82e93460b452d",
    "locked": true
   },
   {
@@ -5323,7 +5377,7 @@
     "static",
     "runtime"
    ],
-   "sha256": "157f8c1393b159742000de152a91aa905619d433b4eaa22024e4265f8ffc28fb",
+   "sha256": "d19875a0a5c7137c3f40c2dc14a5a54155d0803308bcc74d93acba5ef6e0f587",
    "locked": true
   },
   {
@@ -5343,7 +5397,7 @@
     "static",
     "runtime"
    ],
-   "sha256": "bffd17015cbe837a8fdc57311efa1fb721ffd3a96099a349e58a8aa9700e65cc",
+   "sha256": "32fb0e9fe22396b0fafa722002cb1b05924aa0953686c05aead3de9ecc383d96",
    "locked": true
   },
   {
@@ -5363,7 +5417,7 @@
     "static",
     "runtime"
    ],
-   "sha256": "a87814c21bdc3a1f108091292360d4cd832ec8e141ae5d2a4e5fcc0e64666829",
+   "sha256": "227b1765e6bfdd05ab82c54b0dfe0617e9ce74b3dcd84cc95c15da754189097b",
    "locked": true
   },
   {
@@ -5383,7 +5437,7 @@
     "static",
     "runtime"
    ],
-   "sha256": "1b55aee398a0e8741d102488d7ede513be26853dd469faca4fa94477851661d9",
+   "sha256": "0724cefe4a3aa2d2fdaedd1ea98d72711d2c8894676b78e5823611591c8786f4",
    "locked": true
   },
   {
@@ -5393,7 +5447,7 @@
     "static",
     "runtime"
    ],
-   "sha256": "55cf042e2e70865639551a7ff67e97ce126df33e8d1ee800535b9c604f2041df",
+   "sha256": "527c3c78e363b665fee2166a454f4af262419e16b3509dfce4a81b9b6d4da8a8",
    "locked": true
   },
   {
@@ -5403,7 +5457,7 @@
     "static",
     "runtime"
    ],
-   "sha256": "473ce499701b07e8e6fd8056ac7845519f2df7dac1014201d911f366e0c71a57",
+   "sha256": "6d8f85e1f5d33b60900cad432d1a4825a470dd7480b683d1b7e529f615d6ddc1",
    "locked": true
   },
   {
@@ -5413,7 +5467,7 @@
     "static",
     "runtime"
    ],
-   "sha256": "fb7b054562f4555640f9ecffcb7f1657807acc754e1b74b41bb1b01103df01e2",
+   "sha256": "681bcbd408477dc06ac4a8ac2049d05cf073f77ca35935756a0a107182c9c7fa",
    "locked": true
   },
   {
@@ -5422,7 +5476,7 @@
    "why": [
     "static"
    ],
-   "sha256": "171c99a42b895a75db42c2c548d62a91bf13b2dee59a006148c389d1cf97d6d8",
+   "sha256": "8c52afc46d37587981d727d2d6cb02b48e9d113faef3d26913d950c8d5116591",
    "locked": true
   },
   {
@@ -5503,7 +5557,7 @@
    "why": [
     "static"
    ],
-   "sha256": "c162506d24f154063f1632e980f1779db0c40092709c413b7d42a303e8aed632",
+   "sha256": "c3d4abc26cef62cd76bd7628f610d40fef67b0e87e826eedc9f9961b64a1f0f3",
    "locked": true
   },
   {
@@ -6024,7 +6078,7 @@
     "static",
     "runtime"
    ],
-   "sha256": "594133fe267b310a7f56addaa59f2f770d2d8866e18b05049023bab5ca207154",
+   "sha256": "c61112f08123dc6ce0312a6496374702dae7ad29b34a061cecf0ac14d34f15c1",
    "locked": false
   },
   {
@@ -6216,7 +6270,7 @@
   "finesub_bootstrap.fsops:remove_tree": [
    "finesub/llm/agent/agent_session_host.py:392",
    "finesub/llm/agent/local_agent.py:33",
-   "finesub/llm/client.py:2110"
+   "finesub/llm/client.py:2109"
   ],
   "finesub_bootstrap.fsops:replace_path": [
    "finesub/media/source.py:10",
@@ -6252,8 +6306,7 @@
    "finesub/llm/agent/agent_paths.py:22"
   ],
   "finesub_bootstrap.locks:LockUnavailable": [
-   "finesub/llm/agent/local_agent.py:34",
-   "finesub/llm/knowledge/base.py:840"
+   "finesub/llm/agent/local_agent.py:34"
   ],
   "finesub_bootstrap.locks:holding_activity": [
    "finesub/llm/agent/agent_session_host.py:59",
@@ -6262,7 +6315,6 @@
   "finesub_bootstrap.locks:holding_lock": [
    "finesub/llm/agent/agent_task_runtime.py:26",
    "finesub/llm/agent/local_agent.py:34",
-   "finesub/llm/knowledge/base.py:840",
    "finesub/state.py:22"
   ],
   "finesub_bootstrap.logs:log_directory": [

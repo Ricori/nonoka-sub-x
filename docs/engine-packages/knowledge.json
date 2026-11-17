@@ -6,31 +6,199 @@
  "generated_by": "scripts/engine_packages.py",
  "entries": [
   {
+   "symbol": "finesub.llm.knowledge.base:_repo",
+   "used_at": "engines/finesub-knowledge/adapter/finesub_knowledge/server.py:47"
+  },
+  {
+   "symbol": "finesub.llm.knowledge.base:bind_generation_pins",
+   "used_at": "engines/finesub-knowledge/adapter/finesub_knowledge/server.py:100"
+  },
+  {
+   "symbol": "finesub.llm.knowledge.base:kb_index_block_text",
+   "used_at": "engines/finesub-knowledge/adapter/finesub_knowledge/server.py:48"
+  },
+  {
    "symbol": "finesub.llm.knowledge.base:knowledge_root_path",
-   "used_at": "src/nonoka_x/knowledge_worker.py:10"
+   "used_at": "engines/finesub-knowledge/adapter/finesub_knowledge/manage.py:149, engines/finesub-knowledge/adapter/finesub_knowledge/manage.py:30, engines/finesub-knowledge/adapter/finesub_knowledge/server.py:49"
+  },
+  {
+   "symbol": "finesub.llm.knowledge.base:knowledge_signals_enabled",
+   "used_at": "engines/finesub-knowledge/adapter/finesub_knowledge/server.py:50"
+  },
+  {
+   "symbol": "finesub.llm.knowledge.base:knowledge_version",
+   "used_at": "engines/finesub-knowledge/adapter/finesub_knowledge/server.py:51"
   },
   {
    "symbol": "finesub.llm.knowledge.base:knowledge_write_lock",
-   "used_at": "src/nonoka_x/knowledge_worker.py:10"
+   "used_at": "engines/finesub-knowledge/adapter/finesub_knowledge/manage.py:30, engines/finesub-knowledge/adapter/finesub_knowledge/server.py:52"
+  },
+  {
+   "symbol": "finesub.llm.knowledge.base:load_entry_texts",
+   "used_at": "engines/finesub-knowledge/adapter/finesub_knowledge/server.py:53"
+  },
+  {
+   "symbol": "finesub.llm.knowledge.base:load_index_entries",
+   "used_at": "engines/finesub-knowledge/adapter/finesub_knowledge/server.py:54"
+  },
+  {
+   "symbol": "finesub.llm.knowledge.base:load_index_texts",
+   "used_at": "engines/finesub-knowledge/adapter/finesub_knowledge/server.py:55"
+  },
+  {
+   "symbol": "finesub.llm.knowledge.base:load_preinjected_entries",
+   "used_at": "engines/finesub-knowledge/adapter/finesub_knowledge/server.py:56"
+  },
+  {
+   "symbol": "finesub.llm.knowledge.base:match_index_keywords",
+   "used_at": "engines/finesub-knowledge/adapter/finesub_knowledge/server.py:57"
+  },
+  {
+   "symbol": "finesub.llm.knowledge.base:match_terms",
+   "used_at": "engines/finesub-knowledge/adapter/finesub_knowledge/server.py:58"
+  },
+  {
+   "symbol": "finesub.llm.knowledge.base:worktree_blocks_knowledge_write",
+   "used_at": "engines/finesub-knowledge/adapter/finesub_knowledge/server.py:59"
   },
   {
    "symbol": "finesub.llm.knowledge.node.edit:edit_subject",
-   "used_at": "src/nonoka_x/knowledge_worker.py:11"
+   "used_at": "engines/finesub-knowledge/adapter/finesub_knowledge/manage.py:31"
   },
   {
-   "symbol": "finesub.llm.knowledge.node.repo:KnowledgeRepo",
-   "used_at": "src/nonoka_x/knowledge_worker.py:12"
+   "symbol": "finesub.llm.knowledge.node.edit:harvest_rendered_edits_at_run_start",
+   "used_at": "engines/finesub-knowledge/adapter/finesub_knowledge/server.py:60"
   },
   {
    "symbol": "finesub.llm.knowledge.node.proposals:apply_model_proposals",
-   "used_at": "src/nonoka_x/worker.py:231"
+   "used_at": "engines/finesub-knowledge/adapter/finesub_knowledge/manage.py:99"
+  },
+  {
+   "symbol": "finesub.llm.knowledge.node.repo:KnowledgeRepo",
+   "used_at": "engines/finesub-knowledge/adapter/finesub_knowledge/manage.py:150, engines/finesub-knowledge/adapter/finesub_knowledge/manage.py:32, engines/finesub-knowledge/adapter/finesub_knowledge/server.py:61, engines/finesub-knowledge/adapter/finesub_knowledge/server.py:62"
+  },
+  {
+   "symbol": "finesub.llm.knowledge.style:load_style_catalog",
+   "used_at": "engines/finesub-knowledge/adapter/finesub_knowledge/server.py:63"
+  },
+  {
+   "symbol": "finesub.llm.knowledge.style:load_style_entries",
+   "used_at": "engines/finesub-knowledge/adapter/finesub_knowledge/server.py:64"
+  },
+  {
+   "symbol": "finesub.llm.knowledge.style:record_style_injected",
+   "used_at": "engines/finesub-knowledge/adapter/finesub_knowledge/server.py:65"
+  },
+  {
+   "symbol": "finesub.llm.knowledge.style:render_style_block",
+   "used_at": "engines/finesub-knowledge/adapter/finesub_knowledge/server.py:66"
+  },
+  {
+   "symbol": "finesub.llm.knowledge.style:resolve_style_keys",
+   "used_at": "engines/finesub-knowledge/adapter/finesub_knowledge/server.py:67"
+  },
+  {
+   "symbol": "finesub.llm.knowledge.style:style_vote_facts",
+   "used_at": "engines/finesub-knowledge/adapter/finesub_knowledge/server.py:68"
+  },
+  {
+   "symbol": "finesub.llm.knowledge.subjects:render_subject_block",
+   "used_at": "engines/finesub-knowledge/adapter/finesub_knowledge/server.py:69"
+  },
+  {
+   "symbol": "finesub.llm.knowledge.subjects:resolve_subject_keys",
+   "used_at": "engines/finesub-knowledge/adapter/finesub_knowledge/server.py:70"
+  },
+  {
+   "symbol": "finesub.llm.routing.model_catalog:default_model_catalog",
+   "used_at": "engines/finesub-knowledge/adapter/finesub_knowledge_host/bridge.py:225"
+  },
+  {
+   "symbol": "finesub.llm.routing.model_routes:load_model_routes",
+   "used_at": "engines/finesub-knowledge/adapter/finesub_knowledge_host/bridge.py:237"
+  },
+  {
+   "symbol": "finesub.reporting:reporting_to",
+   "used_at": "engines/finesub-knowledge/adapter/finesub_knowledge/server.py:101"
+  }
+ ],
+ "optional": [
+  {
+   "symbol": "finesub.api_http:<module>",
+   "used_at": "engines/finesub-knowledge/adapter/finesub_knowledge_host/bridge.py:325",
+   "present": true
+  },
+  {
+   "symbol": "finesub.api_http:DIRECT",
+   "used_at": "engines/finesub-knowledge/adapter/finesub_knowledge_host/bridge.py:344, engines/finesub-knowledge/adapter/finesub_knowledge_host/bridge.py:345",
+   "present": true
+  },
+  {
+   "symbol": "finesub.api_http:configured_proxy",
+   "used_at": "engines/finesub-knowledge/adapter/finesub_knowledge_host/bridge.py:328, engines/finesub-knowledge/adapter/finesub_knowledge_host/bridge.py:347",
+   "present": true
+  },
+  {
+   "symbol": "finesub.config:clear_config_cache",
+   "used_at": "engines/finesub-knowledge/adapter/finesub_knowledge_host/bridge.py:259",
+   "present": true
+  },
+  {
+   "symbol": "finesub.llm.agent.agent_paths:vendor_error_text",
+   "used_at": "engines/finesub-knowledge/adapter/finesub_knowledge_host/failures.py:26",
+   "present": false
+  },
+  {
+   "symbol": "finesub.llm.routing.model_routes:default_model_routes",
+   "used_at": "engines/finesub-knowledge/adapter/finesub_knowledge_host/bridge.py:261",
+   "present": true
+  },
+  {
+   "symbol": "finesub.llm.routing.model_routes:install_runtime_preferred",
+   "used_at": "engines/finesub-knowledge/adapter/finesub_knowledge_host/bridge.py:391",
+   "present": true
+  },
+  {
+   "symbol": "finesub.llm.routing.model_routes:parse_llm_model_args",
+   "used_at": "engines/finesub-knowledge/adapter/finesub_knowledge_host/bridge.py:391",
+   "present": true
+  },
+  {
+   "symbol": "finesub_bootstrap.download_routes:<module>",
+   "used_at": "engines/finesub-knowledge/adapter/finesub_knowledge_host/bridge.py:359",
+   "present": false
+  },
+  {
+   "symbol": "finesub_bootstrap.download_routes:RouteDecision",
+   "used_at": "engines/finesub-knowledge/adapter/finesub_knowledge_host/bridge.py:368",
+   "present": false
+  },
+  {
+   "symbol": "finesub_bootstrap.download_routes:resolve_region",
+   "used_at": "engines/finesub-knowledge/adapter/finesub_knowledge_host/bridge.py:363, engines/finesub-knowledge/adapter/finesub_knowledge_host/bridge.py:372",
+   "present": false
+  },
+  {
+   "symbol": "finesub_bootstrap.http_client:<module>",
+   "used_at": "engines/finesub-knowledge/adapter/finesub_knowledge_host/bridge.py:311",
+   "present": true
+  },
+  {
+   "symbol": "finesub_bootstrap.http_client:_environment_proxies",
+   "used_at": "engines/finesub-knowledge/adapter/finesub_knowledge_host/bridge.py:314, engines/finesub-knowledge/adapter/finesub_knowledge_host/bridge.py:322",
+   "present": true
+  },
+  {
+   "symbol": "finesub_bootstrap.http_client:_windows_proxy",
+   "used_at": "engines/finesub-knowledge/adapter/finesub_knowledge_host/bridge.py:321",
+   "present": true
   }
  ],
  "counts": {
-  "files": 340,
-  "py": 58,
-  "data": 282,
-  "locked": 340
+  "files": 345,
+  "py": 61,
+  "data": 284,
+  "locked": 345
  },
  "files": [
   {
@@ -157,7 +325,7 @@
    "why": [
     "runtime"
    ],
-   "sha256": "70ccdd8ec84d6dc8f040666d20b0e5ca3e8c7cac8ab4d706528788a597cd52e1",
+   "sha256": "a82c4affbe53a81bc6bb5426df8e539641e3259b7e224af13a60eb73f2906a55",
    "locked": true
   },
   {
@@ -4100,6 +4268,55 @@
    "locked": true
   },
   {
+   "path": "finesub/llm/routing/migrate_catalog.py",
+   "module": "finesub.llm.routing.migrate_catalog",
+   "why": [
+    "static"
+   ],
+   "sha256": "d2fbb28333863d550b762d2d4f04c3aa9e06c5305f538b4d80c0b5d0d905868b",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/routing/model_catalog.py",
+   "module": "finesub.llm.routing.model_catalog",
+   "why": [
+    "static"
+   ],
+   "sha256": "352df82da0c31811242be8da97bbdc32f2493976c24a5e0735c3d90d3cc918ef",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/routing/model_catalog.toml",
+   "read_by": [
+    "finesub/llm/routing/model_catalog.py:514"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "d6b4835122f31cf356dc2916357cf2342942623ed83e74c216dd2a1a50197480",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/routing/model_routes.py",
+   "module": "finesub.llm.routing.model_routes",
+   "why": [
+    "static"
+   ],
+   "sha256": "5e4467368715b174db934f57c4b291c7d2430d62adb19fe980361c3432102448",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/routing/model_routes.toml",
+   "read_by": [
+    "finesub/llm/routing/model_routes.py:948"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "4fa7a86062d9fbd21fde3b25b989d5829993cc7d33b66c143363b77e52d336dd",
+   "locked": true
+  },
+  {
    "path": "finesub/llm/routing/profiles.py",
    "module": "finesub.llm.routing.profiles",
    "why": [
@@ -4326,31 +4543,5 @@
   "finesub_bootstrap.token_counter:CHECKOUT_RELATIVE_PATH",
   "finesub_bootstrap.token_counter:configured_path",
   "finesub_bootstrap.token_counter:find_on_path"
- ],
- "server_side": [
-  "finesub.llm.knowledge.base:kb_index_block_text",
-  "finesub.llm.knowledge.base:knowledge_root_path",
-  "finesub.llm.knowledge.base:knowledge_signals_enabled",
-  "finesub.llm.knowledge.base:knowledge_version",
-  "finesub.llm.knowledge.base:knowledge_write_lock",
-  "finesub.llm.knowledge.base:load_entry_texts",
-  "finesub.llm.knowledge.base:load_index_entries",
-  "finesub.llm.knowledge.base:load_index_texts",
-  "finesub.llm.knowledge.base:load_preinjected_entries",
-  "finesub.llm.knowledge.base:match_index_keywords",
-  "finesub.llm.knowledge.base:match_terms",
-  "finesub.llm.knowledge.base:pinned_generation_rev",
-  "finesub.llm.knowledge.base:repin_generation_rev",
-  "finesub.llm.knowledge.base:worktree_blocks_knowledge_write",
-  "finesub.llm.knowledge.node.edit:harvest_rendered_edits_at_run_start",
-  "finesub.llm.knowledge.node.repo:KnowledgeRepo",
-  "finesub.llm.knowledge.style:load_style_catalog",
-  "finesub.llm.knowledge.style:load_style_entries",
-  "finesub.llm.knowledge.style:record_style_injected",
-  "finesub.llm.knowledge.style:render_style_block",
-  "finesub.llm.knowledge.style:resolve_style_keys",
-  "finesub.llm.knowledge.style:style_vote_facts",
-  "finesub.llm.knowledge.subjects:render_subject_block",
-  "finesub.llm.knowledge.subjects:resolve_subject_keys"
  ]
 }

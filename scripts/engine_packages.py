@@ -85,62 +85,121 @@ PACKAGE_DIRS = {
 }
 
 # ---------------------------------------------------------------------------
-# Entry points: what each package's adapter calls, with where the core calls
-# it today (main@98a38f7). `module:name` is a symbol, `module:<main>` is
-# `python -m module`, `module:<module>` the module's import alone.
+# Entry points: what each package's own code calls of FineSub's, with where
+# (since WP-P1 the packages' adapters under `engines/<package>/adapter/`, and
+# the knowledge protocol's two ends). `module:name` is a symbol,
+# `module:<main>` is `python -m module`, `module:<module>` the module's import alone.
 
-ENTRIES: dict[str, list[tuple[str, str]]] = {
+#: Entry points no import in an adapter shows: (symbol, who uses it).
+EXTRA_ENTRIES: dict[str, list[tuple[str, str]]] = {
     "transcribe": [
-        ("finesub.stages:run_transcription", "src/nonoka_x/transcription/engines/finesub.py:447"),
-        ("finesub.reporting:quieted_libraries", "src/nonoka_x/transcription/engines/finesub.py:446"),
-        ("finesub.reporting:reporting_to", "src/nonoka_x/transcription/engines/finesub.py:446"),
-        ("finesub.speech.runtime.resources:gpu_tier_cli_choices", "src/nonoka_x/gpu_tier.py:48"),
-        # The transcription package hands over "Nonoka-format speaker info" with
-        # transcript.json (plan 4.6 item 34); today the core reads it with this
-        # (projector.py:224), and WP4a's transcript.json carries no speaker.
-        ("finesub.speech.diarization.product:read_product", "src/nonoka_x/projector.py:224"),
-        # `finesub_bootstrap.model_ensure`'s `-m` download child was an entry here until WP-R7 removed it.
+        # The tiers a request may name (`PACKAGE.json` `gpu_tiers`, the cloud's
+        # `resolve_request_gpu_tier`); the package declares what this returns.
+        ("finesub.speech.runtime.resources:gpu_tier_cli_choices", "engines/finesub-transcribe/PACKAGE.json gpu_tiers"),
     ],
     "correct": [
-        ("finesub.stages:run_post_stable", "src/nonoka_x/correction/finesub.py:265"),
-        ("finesub.stages:default_pipeline_paths", "src/nonoka_x/correction/finesub.py:106"),
-        ("finesub.stages:_run_diarization_stage", "src/nonoka_x/correction/finesub.py:336"),
-        ("finesub.stages:resolve_llm_media_for_source", "src/nonoka_x/correction/finesub.py:450"),
-        ("finesub.speech.diarization.evidence:evidence_path", "src/nonoka_x/correction/finesub.py:113"),
-        ("finesub.subtitles.line_groups:in_order", "src/nonoka_x/correction/finesub.py:159"),
-        ("finesub.reporting:current_reporter", "src/nonoka_x/correction/finesub.py:258"),
-        ("finesub.reporting:reporter_delivers", "src/nonoka_x/correction/finesub.py:258"),
-        ("finesub.reporting:reporting_to", "src/nonoka_x/correction/finesub.py:258"),
-        ("finesub.reporting:quieted_libraries", "src/nonoka_x/worker.py:585"),
-        ("finesub.llm.correction_request:CorrectionRequest", "src/nonoka_x/correction/finesub.py:436"),
-        ("finesub.llm.correction_translation:run_correction_task", "src/nonoka_x/correction/finesub.py:437"),
-        ("finesub.llm.routing.profiles:resolve_profile", "src/nonoka_x/correction/finesub.py:438"),
-        ("finesub.llm.correction_mode:recorded_choice", "src/nonoka_x/worker.py:407"),
-        ("finesub.llm.correction_mode:started", "src/nonoka_x/worker.py:407"),
-        ("finesub.llm.routing.model_routes:<module>", "src/nonoka_x/worker.py:491"),
-        ("finesub.llm.routing.model_routes:default_model_routes", "src/nonoka_x/settings.py:365"),
-        ("finesub.llm.routing.model_routes:load_model_routes", "src/nonoka_x/settings.py:384"),
-        ("finesub.llm.routing.model_catalog:default_model_catalog", "src/nonoka_x/settings.py:476"),
-        ("finesub.config:clear_config_cache", "src/nonoka_x/settings.py:1071"),
-        ("finesub.llm.agent.agent_paths:vendor_error_text", "src/nonoka_x/worker.py:531"),
-        ("finesub.llm.client:RoleClient", "src/nonoka_x/llm_worker.py:48"),
-        ("finesub.llm.client:is_quota_or_rate_limit_error", "src/nonoka_x/llm_worker.py:115"),
-        ("finesub.llm.rate_limit:ModelRateLimiter", "src/nonoka_x/llm_worker.py:63"),
-        ("finesub.llm.routing.config:LLMRole", "src/nonoka_x/llm_worker.py:79"),
-        ("finesub.api_http:<module>", "src/nonoka_x/finesub_bridge.py:87"),
-        ("finesub.speech.diarization.product:read_product", "src/nonoka_x/projector.py:224"),
-        ("finesub.llm.agent.agent_mcp_server:<main>", "third_party/finesub/src/finesub/llm/client.py:2504 (MCP child)"),
+        ("finesub.llm.agent.agent_mcp_server:<main>", "finesub/llm/client.py:2504 (MCP child, `python -m`)"),
     ],
-    "knowledge": [
-        ("finesub.llm.knowledge.base:knowledge_root_path", "src/nonoka_x/knowledge_worker.py:10"),
-        ("finesub.llm.knowledge.base:knowledge_write_lock", "src/nonoka_x/knowledge_worker.py:10"),
-        ("finesub.llm.knowledge.node.edit:edit_subject", "src/nonoka_x/knowledge_worker.py:11"),
-        ("finesub.llm.knowledge.node.repo:KnowledgeRepo", "src/nonoka_x/knowledge_worker.py:12"),
-        ("finesub.llm.knowledge.node.proposals:apply_model_proposals", "src/nonoka_x/worker.py:231"),
-        # The server side of every access point (question 10) is added by
-        # `access_points()` below: the knowledge functions the two halves call.
-    ],
+    "knowledge": [],
 }
+
+
+_CATCHES_IMPORT_ERROR = {"ImportError", "ModuleNotFoundError", "Exception", "BaseException"}
+
+
+def _optional_imports(tree: ast.AST) -> set[ast.AST]:
+    """Import statements inside a `try:` that catches their failure: the adapter runs on without them."""
+
+    optional: set[ast.AST] = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Try):
+            continue
+        caught = set()
+        for handler in node.handlers:
+            if handler.type is None:
+                caught.add("BaseException")
+            for item in ast.walk(handler.type) if handler.type is not None else ():
+                if isinstance(item, ast.Name):
+                    caught.add(item.id)
+        if not caught & _CATCHES_IMPORT_ERROR:
+            continue
+        for statement in node.body:
+            for inner in ast.walk(statement):
+                if isinstance(inner, (ast.Import, ast.ImportFrom)):
+                    optional.add(inner)
+    return optional
+
+
+def adapter_uses(package: str) -> tuple[list[tuple[str, str]], list[tuple[str, str]]]:
+    """What a package's adapter code uses of FineSub's: (entry points, optional uses).
+
+    Read from the adapters themselves (`engines/<package>/adapter/`), so the
+    lists follow the code: `from finesub.x import name` is `finesub.x:name`;
+    `from finesub.x import module` (a module) is `finesub.x.module:<module>`,
+    plus `finesub.x.module:attr` for each `module.attr` the file reads. In the
+    knowledge package a string `"finesub.x:name"` (the server's allow-list) is
+    `finesub.x:name` too; in the other two such strings name what the
+    knowledge process runs, not this one.
+
+    An import inside a `try:` that catches its failure is optional: the
+    adapter carries on without it (the shared `bridge` pins what is there to
+    pin, `failures` quotes a vendor's words when there are any). It enters a
+    package only when something else reaches it, and is listed as optional.
+    A symbol is resolved against the graph later (`entry_node`), which is
+    where a typo fails.
+    """
+
+    adapter = ROOT / PACKAGE_DIRS[package] / "adapter"
+    found: set[tuple[str, str]] = set()
+    optional_found: set[tuple[str, str]] = set()
+    for path in sorted(adapter.rglob("*.py")):
+        if "__pycache__" in path.parts:
+            continue
+        where = path.relative_to(ROOT).as_posix()
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        optional = _optional_imports(tree)
+        modules: dict[str, tuple[str, bool]] = {}  # local name -> (FineSub module bound to it, optional)
+        for node in ast.walk(tree):
+            target = optional_found if node in optional else found
+            if isinstance(node, ast.ImportFrom) and node.level == 0 and node.module and \
+                    node.module.split(".", 1)[0] in ("finesub", "finesub_bootstrap"):
+                for alias in node.names:
+                    full = f"{node.module}.{alias.name}"
+                    if (SOURCE / (full.replace(".", "/") + ".py")).is_file() or \
+                            (SOURCE / full.replace(".", "/") / "__init__.py").is_file():
+                        modules[alias.asname or alias.name] = (full, node in optional)
+                        target.add((f"{full}:<module>", f"{where}:{node.lineno}"))
+                    else:
+                        target.add((f"{node.module}:{alias.name}", f"{where}:{node.lineno}"))
+            elif isinstance(node, ast.Import):
+                for alias in node.names:
+                    if alias.name.split(".", 1)[0] in ("finesub", "finesub_bootstrap"):
+                        target.add((f"{alias.name}:<module>", f"{where}:{node.lineno}"))
+                        if alias.asname:
+                            modules[alias.asname] = (alias.name, node in optional)
+            elif package == "knowledge" and isinstance(node, ast.Constant) and isinstance(node.value, str) and \
+                    re.fullmatch(r"finesub(_bootstrap)?(\.\w+)+:\w+(\.\w+)*", node.value):
+                module, _, attribute = node.value.partition(":")
+                found.add((f"{module}:{attribute.split('.', 1)[0]}", f"{where}:{node.lineno}"))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name) and node.value.id in modules:
+                module, is_optional = modules[node.value.id]
+                (optional_found if is_optional else found).add((f"{module}:{node.attr}", f"{where}:{node.lineno}"))
+
+    def merged(items: set[tuple[str, str]]) -> list[tuple[str, str]]:
+        by_symbol: dict[str, list[str]] = defaultdict(list)
+        for symbol, where in sorted(items):
+            by_symbol[symbol].append(where)
+        return [(symbol, ", ".join(wheres)) for symbol, wheres in by_symbol.items()]
+
+    entries = merged(found)
+    taken = {symbol for symbol, _ in entries}
+    return sorted(entries + EXTRA_ENTRIES[package]), [item for item in merged(optional_found) if item[0] not in taken]
+
+
+USES = {package: adapter_uses(package) for package in PACKAGES}
+ENTRIES: dict[str, list[tuple[str, str]]] = {package: USES[package][0] for package in PACKAGES}
+OPTIONAL: dict[str, list[tuple[str, str]]] = {package: USES[package][1] for package in PACKAGES}
 
 #: Edges the static graph has but the package's runs never take: (from node,
 #: to node or `module` prefix, why, with the guarding line). Only `stages.py`,
@@ -772,8 +831,7 @@ def build(graph: Graph, records: list[dict]) -> dict:
     # knowledge package's server side.
     outside = reached["transcribe"] | reached["correct"]
     points = access_points(graph, outside)
-    server_side = sorted({point["callee"] for point in points})
-    reached["knowledge"] = graph.reach(starts["knowledge"] + server_side)
+    reached["knowledge"] = graph.reach(starts["knowledge"])
 
     cli = graph.reach([entry_node(graph, spec) for spec, _ in CLI_ENTRIES])
 
@@ -892,6 +950,12 @@ def write(graph: Graph, built: dict, check: bool) -> int:
             "source_root": "third_party/finesub/src",
             "generated_by": "scripts/engine_packages.py",
             "entries": [{"symbol": spec, "used_at": where} for spec, where in ENTRIES[package]],
+            "optional": [
+                {"symbol": spec, "used_at": where, "present": entry_node(graph, spec).split(":", 1)[0] in {
+                    info.get("module") for info in built["lists"][package]["files"].values()
+                } | set(built["lists"][package]["compat_modules"])}
+                for spec, where in OPTIONAL[package]
+            ],
             "counts": {
                 "files": len(info["files"]),
                 "py": sum(1 for path in info["files"] if path.endswith(".py")),
@@ -905,8 +969,6 @@ def write(graph: Graph, built: dict, check: bool) -> int:
             "bootstrap_imports": users,
             "bootstrap_surface_used": bootstrap_used,
         }
-        if package == "knowledge":
-            document["server_side"] = sorted({point["callee"] for point in built["points"]})
         outputs[OUT / f"{package}.json"] = json.dumps(document, ensure_ascii=False, indent=1) + "\n"
 
     coverage = {

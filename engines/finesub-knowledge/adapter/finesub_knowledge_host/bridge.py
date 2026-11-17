@@ -307,11 +307,24 @@ def install_proxy_policy(proxy: Mapping[str, Any] | None) -> None:
         return
     url = proxy.get("url") or None
     sync_proxy_environment(url)
+    _pin_route_discovery(url)
+    _pin_api_proxy(url)
+
+
+def _pin_route_discovery(url: str | None) -> None:
+    """`finesub_bootstrap.http_client`'s own route discovery answers the core's route.
+
+    A package whose `finesub_bootstrap` has no route discovery (the
+    correction and knowledge packages' compatibility packages) has nothing
+    to pin here.
+    """
+
     try:
         from finesub_bootstrap import http_client
     except ImportError:
         return
-    if getattr(http_client._environment_proxies, _APP_POLICY_ATTRIBUTE, False):
+    discovered = getattr(http_client, "_environment_proxies", None)
+    if discovered is None or getattr(discovered, _APP_POLICY_ATTRIBUTE, False):
         return
 
     def environment_proxies() -> list[str]:
@@ -321,11 +334,17 @@ def install_proxy_policy(proxy: Mapping[str, Any] | None) -> None:
     http_client._windows_proxy = lambda: url
     http_client._environment_proxies = environment_proxies
 
+
+def _pin_api_proxy(url: str | None) -> None:
+    """FineSub's API calls (`finesub.api_http`) take the core's route unless its config names one."""
+
     try:
         from finesub import api_http
     except Exception:  # noqa: BLE001 - the LLM layer is optional in some packages
         return
     original_configured = api_http.configured_proxy
+    if getattr(original_configured, _APP_POLICY_ATTRIBUTE, False):
+        return
     warned_socks = False
 
     def configured_proxy() -> str | None:
@@ -344,6 +363,7 @@ def install_proxy_policy(proxy: Mapping[str, Any] | None) -> None:
             return api_http.DIRECT
         return url or api_http.DIRECT
 
+    setattr(configured_proxy, _APP_POLICY_ATTRIBUTE, True)
     api_http.configured_proxy = configured_proxy
 
 
