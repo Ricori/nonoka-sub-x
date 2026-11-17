@@ -1,6 +1,6 @@
 # 转写引擎重构计划
 
-> 状态（2026-11-11）：WP-Q、WP-A、WP0、WP-R0 已完成并合进 main；WP-C 的 harness 已合进 main，云端基线还没录成（见 WP-C）；编译加速已在 `85ae2b9` 关闭；WP-R2、WP-B、WP-R1、WP1、WP4a、WP4b、WP4c、WP3a/b/c、WP-C、WP-P0、WP-M1（最后一条完成标准除外）、WP-R4、WP-K、WP-E1、WP-CL0、WP5、WP-E2、WP-E3、WP-R5、WP-R6、WP6 已完成并合进 main（WP-CL0 的预热脚本合进云端仓库的 main；各包按附录 B 的答复调整）；2026-11-12 用户决定知识库独立成第三个包、全部经协议访问（第 0.1 节第 5 条、4.6 第 35a 条、WP-K）；第五批（WP5、WP-E2、WP-E3，2026-11-13）已全部完成；第六批（附录 B 第 69 问）的 WP-R5、WP-R6 与 WP6 第一阶段已于 2026-11-16 合进 main；用户 2026-11-13 决定去掉「运行环境」页、引擎与环境都放进设置页（4.9 第 39 条，附录 B 第 73 问），这部分界面已作为 WP6 第二阶段完成（2026-11-16），依赖 WP-P1 / WP-H 的部分留给 WP-UI；第七批只开 WP-R7（2026-11-16，附录 B 第 75 问；`--cloud` 花费批准上限 $1.5，第 76 问），WP7 留到 WP-P1、WP-H 之后、WP8 之前；WP-M1 的最后一条完成标准先不做（第 70 问）；三层已传上 R2（经代理的下载校验和速率限制规则用户决定先不做，见 WP-E2）；2026-11-13 用户决定模型层不再按单文件放 R2，迁移时模型补齐改为下整个模型层压缩包（附录 B 第 63、64 问）；其余未开工。本文档是交给子代理执行的工作说明，每个工作包可以单独领走。
+> 状态（2026-11-11）：WP-Q、WP-A、WP0、WP-R0 已完成并合进 main；WP-C 的 harness 已合进 main，云端基线还没录成（见 WP-C）；编译加速已在 `85ae2b9` 关闭；WP-R2、WP-B、WP-R1、WP1、WP4a、WP4b、WP4c、WP3a/b/c、WP-C、WP-P0、WP-M1（最后一条完成标准除外）、WP-R4、WP-K、WP-E1、WP-CL0、WP5、WP-E2、WP-E3、WP-R5、WP-R6、WP6、WP-R7 已完成并合进 main（WP-CL0 的预热脚本合进云端仓库的 main；各包按附录 B 的答复调整）；2026-11-12 用户决定知识库独立成第三个包、全部经协议访问（第 0.1 节第 5 条、4.6 第 35a 条、WP-K）；第五批（WP5、WP-E2、WP-E3，2026-11-13）已全部完成；第六批（附录 B 第 69 问）的 WP-R5、WP-R6 与 WP6 第一阶段已于 2026-11-16 合进 main；用户 2026-11-13 决定去掉「运行环境」页、引擎与环境都放进设置页（4.9 第 39 条，附录 B 第 73 问），这部分界面已作为 WP6 第二阶段完成（2026-11-16），依赖 WP-P1 / WP-H 的部分留给 WP-UI；第七批只开 WP-R7（2026-11-16，附录 B 第 75 问；`--cloud` 花费批准上限 $1.5，第 76 问），已于 2026-11-17 合进两个仓库的 main（`--cloud` 共花 $0.448），WP7 留到 WP-P1、WP-H 之后、WP8 之前；WP-M1 的最后一条完成标准先不做（第 70 问）；三层已传上 R2（经代理的下载校验和速率限制规则用户决定先不做，见 WP-E2）；2026-11-13 用户决定模型层不再按单文件放 R2，迁移时模型补齐改为下整个模型层压缩包（附录 B 第 63、64 问）；其余未开工。本文档是交给子代理执行的工作说明，每个工作包可以单独领走。
 > 写于 2026-11-10，基于 `main@1f14db3`、FineSub `v0.7.0@7123055`。
 > **2026-11-11 整理成干净版本**（用户决定，附录 B 第 1 问）：现行决定直接写在正文里，不再有「以后者为准」的追加条款。每个决定的来历、被推翻的旧说法，以及旧条款编号到新编号的对照，见附录 A；向用户问过的问题和答复见附录 B；还没定的事见附录 C。整理前的版本在 git 历史里（`main` 上的 `docs/transcription-engines-plan.md`）。
 > 相关文档：`docs/runtime-and-config.md`（WP-R0 的调查与设计答复 D1–D23，下称「R0 文档」；其中被本计划取代的答复已在那边标注，对照见附录 A.3）；`docs/engine-sandbox-experiment.md`（预制环境包与进程级沙箱两个前提的实验报告，下称「实验报告」）。本文档与 R0 文档冲突时以本文档为准。
@@ -493,7 +493,7 @@ FineSub 转写引擎也要写 `transcript.json`（从它的 stable 投影出来�
 ## 6. 工作包
 
 ```text
-已完成：WP-Q、WP-A、WP0、WP-R0、WP-R2、WP-B、WP-R1、WP1、WP4a、WP4b、WP4c、WP3a/b/c、WP-C、WP-P0、WP-M1（最后一条完成标准还没做，WP-E3 已完成、可以做了）、WP-R4、WP-K、WP-E1、WP-CL0、WP5、WP-E2、WP-E3、WP-R5、WP-R6、WP6
+已完成：WP-Q、WP-A、WP0、WP-R0、WP-R2、WP-B、WP-R1、WP1、WP4a、WP4b、WP4c、WP3a/b/c、WP-C、WP-P0、WP-M1（最后一条完成标准还没做，WP-E3 已完成、可以做了）、WP-R4、WP-K、WP-E1、WP-CL0、WP5、WP-E2、WP-E3、WP-R5、WP-R6、WP6、WP-R7
 
 引擎线：
 WP-B ──┬─► WP1 ──► WP3a / WP3b / WP3c ───────────────┐
@@ -842,7 +842,9 @@ harness 已在 main（`tests/quality_harness/cloud.py`、`quality_gate.py --clou
   - 界面文案里「FineSub 运行时」之类的说法按新归属改；Go 侧如果有读 FineSub 清单或环境变量的地方一并改。
 - 完成标准：离线包能构建，其中的层文件与 R2 上同版本的逐字节相同；用离线包在断网的机器（或断网的虚拟机）上装好三层、`--real` 通过；`go test ./...`、前端测试通过；仓库里搜不到 `publish-github-mirror`。
 
-### WP-R7 删自下载，vendor 只留核心文件（重写）
+### WP-R7 删自下载，vendor 只留核心文件（已完成 2026-11-17）
+
+> 交付（问题与答复见附录 B 第 77–79 问）：vendor 删 `pyproject.toml`、`VERSION`、`README.md`、`UPSTREAM_README.md`，留 `LICENSE`、`LICENSES.json`、`LOCAL_CHANGES.md`、`PROMPT_LICENSE.md`、`QUALITY_LOCK.json`、`UPSTREAM.json`、`src/`；没了 `pyproject.toml`，`finesub.paths._is_checkout_root` 为假，worker 早已设 `FINESUB_CHECKOUT_DATA=0`，行为不变。引擎不再自己下载（上锁的 550 个文件没动，改的两个不在锁里）：`model_ensure.py` 新增 `ModelUnavailable(VerificationMismatch)`——用子类是因为上锁的 `hf_weights.prepare` 只放过这一种异常，别的吞掉交给加载器懒下载；模型缺失、残缺或标记为 failed / stale 时抛它，消息写明哪个模型、哪个目录、什么原因，并提示在设置里安装或修复模型层，不写标记、不删文件、不联网；删 `_download`、下载子进程 `main` / `__main__`、`_token_for`、`OFFICIAL_HF_HOST`、`verify_downloaded`；模型齐全时走原来的快路径。`model_fetch.py` 删 `fetch_with_fallback`、`_fetch_unverified`，分离器的 `fetch_fixed_files` 只校验盖戳，缺文件或校验不过抛 `ModelUnavailable`。`LOCAL_CHANGES.md` 第 0012 节写明还原方法。死代码：`finesub_bridge.py` 删下载阶梯和云端摘要源，只留 `resolve_region` 钉成 `global`（上锁的 `place_separator_files` 总会先调它，原函数会联网探测）和代理策略；`download_route.py` 只剩代理部分；删 `asset_digest.py`、`tests/test_asset_digest.py`、`tests/test_hf_mirror_transfer.py`。桌面暂存（`desktop/build/tools/stage`）加 `-python`，版本必须等于运行时清单钉住的 3.12.1，只用 `compileall --invalidation-mode unchecked-hash -d third_party/finesub/src` 预编译引擎代码，`main_test.go` 证明两次暂存逐字节相同、只编引擎、版本不对时拒绝；`Taskfile.yml` 去掉 pyproject / VERSION、补上 `src/finesub_knowledge`；`release.yml` 加 `setup-python 3.12.1`。新测试 `tests/test_engine_no_self_download.py`（22 项，审计钩子记录一切连接、域名解析和子进程）：齐全时快路径不变；五种损坏都报明确错误、零记录、目录不变；真实清单里每个模型目录删掉后 `hf_weights.prepare` 与 `prepare_directory` 都报明确错误、零网络请求；下载子进程已不存在；分离器文件三种情况；钩子自检。文档：`docs/engine.md` 目录树、`docs/engine-packages.md`、`scripts/engine_packages.py`。云端仓库只改 `model_prime.py` 注释（Vocal 容器用烤进镜像的分离器，HF 模型由 WP-CL0 预热）。子会话的 `--cloud` 起了三次：L4 跑一半用户叫停；A10 不过（sample_ja text_distance 0.0109 > 0.005，sample_multi_person 0.0298、coverage 0.0032 > 0.002，基线在 L4 上录，跨卡本来不可比）；L4 第二次通过、各项与基线差值为 0，耗时 3920 秒；合计 $0.448，三个临时应用已停，没碰生产 Volume 与生产应用。主会话复核：两个仓库在 main 上试合并，pytest 916 通过 1 跳过，`go test ./...`（暂存预编译测试在 3.12.1 上实跑）、前端 typecheck 与 160 个测试、云端仓库 156 个测试通过，默认闸门与 `--real`（7 个逐字节、8 个按认可标准）通过，`--cloud` 没重跑；没重录基线。交回：WP-P1——`src/nonoka_x/cloud_route.py` 已没有生产调用方，可以删；WP-H——`HF_HUB_OFFLINE=1` 仍只有闸门 `--real` 设；WP-UI——nemotron 说话人后端在模型缺失时仍会先打「首次使用：正在下载…」再报错，文件上锁，只能在界面或日志层面处理；发版——在 mac 上本地构建要自己装 3.12.1（`release.yml` 两个平台都装了）；`docs/engine-packages/*.json` 本来就是冻结快照、与脚本不同步，没重新生成；一次 L4 `--cloud` 约 65 分钟，基线绑在 L4 上不能换卡。下面是原始说明。
 
 等 WP-A、WP-B、WP-R5、WP-R6、WP-CL0、WP-C 做完再开工。WP-CL0 必须在前：云端现在靠引擎自下载补模型，先换成独立的预热脚本，云端才不会因为本包而缺模型。
 
@@ -1265,6 +1267,9 @@ R0 文档里这几条已按此加了标注（只加标注，不删原文）。
 | 74 | WP6 第二阶段：三组云引擎密钥在设置页怎么取；当前转写引擎存哪；WP-R6 / WP-R5 交来的界面事项；对话框与未就绪引擎 | 设置快照另加 `engineKeys`（原 `keys` 不变，WP0 测试那一句随之改）；存 Go 桌面偏好 `transcriptionEngine`；全做，**numba 缓存纳入清理**（非推荐项）；按引擎藏选项，未就绪的引擎可选但新建任务被拦、指回设置页（其余都是推荐项，2026-11-16） |
 | 75 | 第七批开什么（前提满足的只有 WP-R7 和 WP7） | 只开 WP-R7；WP7 的文档写最终架构，留到 WP-P1、WP-H 之后、WP8 之前（推荐项，2026-11-16） |
 | 76 | WP-R7 的 `quality_gate.py --cloud`（Modal L4，按 WP-C 实测一次约 $0.6） | 批准，上限 $1.5：跑一次，失败可以重跑一次，超出先问（推荐项，2026-11-16） |
+| 77 | WP-R7 开工前五问：缺模型怎么报错；只为下载服务的代码；桥接与路由的死代码和云端摘要源；暂存预编译用哪个解释器、编哪些；计划外的小改动 | `ModelUnavailable(VerificationMismatch)` 上抛，`HF_HUB_OFFLINE=1` 仍留给 WP-H；下载代码删掉；死代码全删，含云端摘要源与 `asset_digest.py`；只预编译引擎代码、钉 3.12.1；文档、`engine_packages.py`、Taskfile 补 `src/finesub_knowledge`、云端注释都改（全部推荐项，2026-11-16） |
+| 78 | `release.yml` 要装 Python 3.12.1 才能暂存预编译 | 同意（2026-11-16） |
+| 79 | WP-R7 的 `--cloud`：L4 排队太慢 | 第一次 L4 叫停改 A10；A10 统计超阈值（基线是 L4 录的）后选「再在 L4 跑一次」，通过；共 $0.448，在 $1.5 上限内（2026-11-17） |
 
 更早的问答：WP-R0 的 D1–D23 见 R0 文档第 0 节；WP0 的细节见附录 A.1；沙箱实验中的决定见实验报告。
 
