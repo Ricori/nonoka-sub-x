@@ -79,12 +79,18 @@ tasks:
   stage:resources:
     summary: Stages Python and FineSub resources for embedding in the Go binary
     run: once
+    vars:
+      # Precompiles the engine code (unchecked-hash); must be the Python the environment layer pins.
+      STAGE_PYTHON: '{{.STAGE_PYTHON | default "python"}}'
     sources:
       - ../scripts/run_local_sidecar.py
       - ../bootstrap-requirements.py312.txt
       - ../src/nonoka_x/**/*
       - exclude: ../src/nonoka_x/**/__pycache__/**/*
       - exclude: ../src/nonoka_x/**/*.pyc
+      - ../src/finesub_knowledge/**/*
+      - exclude: ../src/finesub_knowledge/**/__pycache__/**/*
+      - exclude: ../src/finesub_knowledge/**/*.pyc
       - ../third_party/finesub/src/**/*
       - exclude: ../third_party/finesub/src/**/__pycache__/**/*
       - exclude: ../third_party/finesub/src/**/*.pyc
@@ -92,13 +98,11 @@ tasks:
       - ../third_party/finesub/LICENSES.json
       - ../third_party/finesub/PROMPT_LICENSE.md
       - ../third_party/finesub/UPSTREAM.json
-      - ../third_party/finesub/pyproject.toml
-      - ../third_party/finesub/VERSION
       - build/tools/stage/main.go
     generates:
       - internal/app/bundled/nonoka_x/STAGED.json
     cmds:
-      - go run ./build/tools/stage -repository .. -output internal/app/bundled/nonoka_x
+      - go run ./build/tools/stage -repository .. -output internal/app/bundled/nonoka_x -python "{{.STAGE_PYTHON}}"
 
   generate:icons:
     summary: Generates PNG, ICNS, and ICO icons from the Nonoka X mascot

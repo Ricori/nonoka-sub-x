@@ -6,10 +6,11 @@ peak hours. `cloud-jp.nonoka.online` is a reverse proxy in Tokyo in front of
 the same backend, with far shorter routes from all three carriers.
 
 The Go half (`desktop/internal/cloud/failover.go`) sends the desktop's own API
-calls and subtitle downloads there when the primary fails, and
-`asset_digest` does the same for release digests, keeping its choice here:
-once the backup has had to step in, lookups keep going there for a while
-before the primary gets another chance.
+calls and subtitle downloads there when the primary fails. This is the same
+choice for a Python caller: once the backup has had to step in, lookups keep
+going there for a while before the primary gets another chance. (Its one
+caller, the release-digest lookup `asset_digest`, went with the engine's own
+installs in WP-R7.)
 
 The engine's LLM calls are not part of this: Tokyo serves `/v1/llm` itself
 and has no second route (`settings.CLOUD_LLM_BASE_URL`).

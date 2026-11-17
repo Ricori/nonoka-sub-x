@@ -1,45 +1,31 @@
-"""Make sure one Hugging Face model is on disk before the stage that needs it.
+"""Check that one Hugging Face model is on disk before the stage that needs it.
 
-The desktop has had mirror routing with a per-model fallback since the download
-work landed: `desktop_service` runs one prefetch subprocess per model, and
-`model_fetch.fetch_with_fallback` gives it a second attempt against the official
-source when the mirror is what failed. The CLI had none of it. It downloads
-lazily -- whichever library owns the weights fetches them the first time a task
-asks -- so a mirror having a bad afternoon produced a failed run rather than a
-slower one, and the per-class failure counter never learned anything.
-
-This closes that half without moving the download earlier. "Prepared ahead of
-time" and "fetched when the run reaches it" are two moments on one path: call
-`ensure_hf_model` at the entry of the stage that loads the weights, where it
-costs a `stat` when they are already there. That is where
+Call `ensure_hf_model` at the entry of the stage that loads the weights, where
+it costs a `stat` when they are already there. That is where
 `separation.place_separator_files()` already sits for the separator's own
-files; this is the same shape for the two Hugging Face repositories.
+files; this is the same shape for the Hugging Face repositories.
 
-**A subprocess is not fastidiousness.** `huggingface_hub` reads `HF_ENDPOINT`
-when it is imported, so a fallback that only rewrites the environment inside
-this process would re-run the attempt against the host that just failed. One
-process per attempt is what makes the second attempt mean anything -- the same
-reason the desktop spawns one.
+**It no longer downloads anything** (Nonoka X WP-R7, `LOCAL_CHANGES.md` 0012).
+The models come in Nonoka's prebuilt model layer, or on the cloud from a
+priming script; a model that is missing, incomplete or marked as failed is an
+installation problem, and raising `ModelUnavailable` says so where the run
+needs the weights -- with no download subprocess, no mirror routing and no
+network. Upstream (FineSub v0.7.0) fetched the repository here instead: one
+`python -m finesub_bootstrap.model_ensure <id>` child per attempt, mirror
+first, then verified with `verify_and_mark`.
 """
 
 from __future__ import annotations
 
 import os
 from pathlib import Path
-import subprocess
-import sys
-from typing import Callable, Mapping
-from urllib.parse import urlsplit
+from typing import Callable
 
-from . import model_fetch
-from .processes import no_window
 from .hf_verify import (
-    MISMATCH_MARKER,
     VerificationMismatch,
     files_present,
     marker_state,
     pinned_snapshot_present,
-    verify_and_mark,
 )
 from .model_caches import (
     _ENSURABLE_HF_CACHE_DIRS,
@@ -49,8 +35,19 @@ from .model_caches import (
 )
 from .model_manifest import entry_for
 
-#: The one host the user's Hugging Face token is meant for.
-OFFICIAL_HF_HOST = "huggingface.co"
+
+
+class ModelUnavailable(VerificationMismatch):
+    """A model the manifest pins is not on disk as pinned, and nothing here will fetch it.
+
+    A `VerificationMismatch` on purpose: that is the one failure
+    `finesub.speech.runtime.hf_weights.prepare` lets through rather than
+    handing the loader a cache it cannot trust -- and a loader handed a
+    missing pinned snapshot goes to the network for it. So every caller treats
+    a missing model the way it treats a corrupt one: the ASR weights end the
+    run, the referee's and the speaker models' own call sites drop only what
+    those models would have added.
+    """
 
 
 def _hub_dir(models_root: Path | None) -> Path:
@@ -117,30 +114,6 @@ def _expand(value: str) -> Path:
     """`~` and `$VAR` in a cache variable, the way the hub expands them."""
 
     return Path(os.path.expandvars(value)).expanduser().resolve()
-
-
-def verify_downloaded(model_id: str, *, models_root: Path | None = None) -> None:
-    """Hash a repository this process just fetched, and mark it verified.
-
-    Both front ends call this and neither should own a second copy: the
-    desktop's prefetch worker fetches through the libraries, the CLI's stage
-    entry fetches through `ensure_hf_model`, and once the bytes are on disk the
-    question is the same one. Raising is deliberate -- reporting weights ready
-    and letting the first task discover otherwise is the failure this replaces.
-
-    A model the manifest does not describe passes silently; there is nothing to
-    compare it against.
-    """
-
-    entry = entry_for(model_id)
-    cache_dir = _ENSURABLE_HF_CACHE_DIRS.get(model_id)
-    if entry is None or cache_dir is None:
-        return
-    failed = verify_and_mark(_hub_dir(models_root), cache_dir, entry)
-    if failed:
-        raise VerificationMismatch(
-            f"{model_id} 下载后校验失败：{', '.join(failed)}（{MISMATCH_MARKER}）"
-        )
 
 
 def pinned_revision(model_id: str) -> str | None:
@@ -234,29 +207,19 @@ def pinned_snapshot_dir(model_id: str, *, models_root: Path | None = None) -> Pa
     return None
 
 
-def _download(model_id: str, environment: Mapping[str, str]) -> None:
-    """Run one download attempt in its own interpreter."""
+def _missing_reason(hub: Path, cache_dir: str, entry) -> str:
+    """Which of the fast path's facts failed, in the words the error shows."""
 
-    process = subprocess.run(
-        [sys.executable, "-m", __name__, model_id],
-        # Both halves of the pipe are pinned to UTF-8. A piped child picks its
-        # stdio encoding from the locale, so on a cp936 machine the default
-        # would have the child writing cp936 while `text=True` here decodes
-        # with the same code page -- fine until a model id or a hub error
-        # carries a character it cannot represent, and then the failure is a
-        # decode traceback instead of the download error it was reporting.
-        env={**os.environ, **environment, "PYTHONIOENCODING": "utf-8"},
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        creationflags=no_window(),
-    )
-    if process.returncode != 0:
-        raise RuntimeError(
-            f"{model_id} download failed: "
-            f"{(process.stderr or process.stdout).strip()[-500:]}"
-        )
+    from .model_caches import _hf_repo_complete
+
+    state = marker_state(hub, cache_dir, entry)
+    if state == "failed":
+        return "上次校验没有通过"
+    if state == "stale":
+        return "校验标记与模型清单对不上"
+    if not _hf_repo_complete(hub, cache_dir) or not pinned_snapshot_present(hub, cache_dir, entry):
+        return f"没有钉住的版本 {entry.revision or '(未钉)'}"
+    return "清单列的文件不全或大小不对"
 
 
 def ensure_hf_model(
@@ -265,14 +228,16 @@ def ensure_hf_model(
     data_root: Path,
     models_root: Path | None = None,
     log: Callable[[str], None] | None = None,
-    download: Callable[[str, Mapping[str, str]], None] | None = None,
 ) -> None:
-    """Fetch `model_id` if it is not already present, mirror first.
+    """Raise `ModelUnavailable` unless `model_id`'s pinned snapshot is on disk.
 
     A no-op -- one directory check -- when the weights are there, which is the
     common case and the reason this can sit on a hot path. Nothing is raised
     for a model the manifest does not describe: an unlisted model keeps the
-    behaviour it has always had, which is that its own library fetches it.
+    behaviour it has always had, which is that its own library loads it.
+
+    `data_root` and `log` are what the callers have always passed; they served
+    the download this no longer starts (Nonoka X WP-R7).
     """
 
     entry = entry_for(model_id)
@@ -283,16 +248,13 @@ def ensure_hf_model(
     from .model_caches import _hf_repo_complete
 
     # "Present" means the revision the manifest pins, not any revision -- the
-    # loaders are handed that pin and would fetch it lazily, outside the mirror
-    # routing this exists to provide. A marker saying "stale" or "failed" also
+    # loaders are handed that pin. A marker saying "stale" or "failed" also
     # voids the fast path; "absent" does not, because a cache that predates the
     # mechanism is not evidence of damage.
     # ⚠ And every file the manifest lists, at its size. A snapshot interrupted
     # between two files is non-empty with nothing `.incomplete`, which the
-    # checks above call done; a `from_pretrained` loader would quietly fetch the
-    # rest, but a consumer that opens the files by path (the diarization
-    # backends) has no such fallback and would skip itself on every run until
-    # the cache was cleared by hand (Codex review 2026-09-21). Stats only.
+    # checks above call done; a consumer that opens the files by path (the
+    # diarization backends) has no fallback (Codex review 2026-09-21). Stats only.
     if (
         _hf_repo_complete(hub, cache_dir)
         and pinned_snapshot_present(hub, cache_dir, entry)
@@ -300,68 +262,7 @@ def ensure_hf_model(
         and marker_state(hub, cache_dir, entry) in ("absent", "current")
     ):
         return
-    if log is not None:
-        log(f"正在获取模型 {model_id}…")
-    from .download_routes import resolve_region
-
-    fetch = download or _download
-
-    def fetch_and_verify(environment: Mapping[str, str]) -> None:
-        fetch(model_id, environment)
-        # Inside the attempt on purpose: a mirror that answers success with
-        # wrong bytes is only discovered here, and a verification that runs
-        # after the fallback has returned can no longer trigger it. The
-        # official attempt passes through this too -- its bytes get no more
-        # trust than the mirror's.
-        verify_downloaded(model_id, models_root=models_root)
-
-    model_fetch.fetch_with_fallback(
-        fetch_and_verify,
-        base_environment={},
-        data_root=data_root,
-        region=resolve_region(data_root).region,
-        is_retryable=model_fetch.is_mirror_failure,
+    raise ModelUnavailable(
+        f"模型 {model_id} 不可用：{hub / cache_dir}（{_missing_reason(hub, cache_dir, entry)}）。"
+        "引擎不会自己下载模型，请在设置里安装或修复模型层。"
     )
-
-
-def main(argv: list[str] | None = None) -> int:
-    """The subprocess half: fetch exactly one repository, then exit.
-
-    Deliberately thin, and deliberately not importing anything from `finesub`:
-    the repository and revision come from the manifest, which is the same
-    source the verification and the desktop's prefetch read.
-    """
-
-    arguments = list(sys.argv[1:] if argv is None else argv)
-    if len(arguments) != 1:
-        print("usage: python -m finesub_bootstrap.model_ensure <model-id>", file=sys.stderr)
-        return 2
-    entry = entry_for(arguments[0])
-    if entry is None or not entry.repo:
-        print(f"unknown model id: {arguments[0]}", file=sys.stderr)
-        return 2
-    from huggingface_hub import constants, snapshot_download
-
-    snapshot_download(
-        entry.repo,
-        revision=entry.revision or None,
-        allow_patterns=[file.name for file in entry.files] if entry.listed_only else None,
-        token=_token_for(constants.ENDPOINT),
-    )
-    return 0
-
-
-def _token_for(endpoint: str) -> bool | None:
-    """No token for any host but the official one.
-
-    Left to itself the library sends the user's own login (`HF_TOKEN`, or the
-    file `huggingface-cli login` wrote) to whatever `HF_ENDPOINT` names, and
-    the `cn` route names a third party's mirror -- often a token with write
-    access. The manifest's repositories are public, so nothing is lost there.
-    """
-
-    return None if urlsplit(endpoint).hostname == OFFICIAL_HF_HOST else False
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())

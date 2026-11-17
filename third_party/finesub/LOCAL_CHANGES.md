@@ -199,3 +199,25 @@
 - `src/finesub/llm/stages/plan.py`
 - `src/finesub/llm/stages/prepare_task.py`
 - `src/finesub/llm/stages/speaker_judge/roster.py`
+
+## 0012 删掉「缺模型时自己下载」，vendor 只留核心文件
+
+工作包：WP-R7（`docs/transcription-engines-plan.md` 第 6 节，第 1 节第 7 条，4.2 第 16、17 条），2026-11-16；按开工时向用户问的几项的答复（用户 2026-11-16，全部推荐项）。不是原补丁栈里的补丁，只动解锁的 `finesub_bootstrap/` 里的两个文件，上锁文件一个没动
+
+**改了什么、为什么**：模型由 Nonoka 的预制模型层提供（云端由 `nonoka-sub-cloud` 的预热脚本放进 Volume），引擎在模型缺失时自己去下载，就成了绕开层管理器、代理设置和校验的第二条下载路径（实验报告第 3 节第 1 条）。现在缺模型直接报错，不开子进程、不联网。
+
+- **`model_ensure.py`**：`ensure_hf_model` 在钉住的快照不全（仓库目录不在、钉住的 revision 不在、清单列的文件缺或大小不对）或校验标记是 `stale`/`failed` 时，抛新增的 `ModelUnavailable`，消息写明哪个模型、在哪个目录找、哪一项不对，并说明引擎不会自己下载、请在设置里安装或修复模型层；什么都不写、不删。`ModelUnavailable` 是 `VerificationMismatch` 的子类，因为上锁的 `hf_weights.prepare` 只放过这一类异常（其余吞掉、交给加载器，而加载器拿不到本地快照就会按 `HF_ENDPOINT` 联网）。于是上锁的调用方把缺模型当成校验不过来处理：ASR 权重缺则任务以这条错误结束；qwen 裁判缺且 `--qwen-verify auto` 时丢复核证据不丢任务；说话人模型缺时丢标签不丢字幕。删掉只为下载存在的：下载子进程（`main` 与 `__main__`）、`_download`、`_token_for`、`OFFICIAL_HF_HOST`、`verify_downloaded`，以及 `ensure_hf_model` 的 `download` 参数。快照齐全时的快速路径、`pinned_revision`、`pinned_snapshot_loadable`、`pinned_snapshot_dir` 一字不变；`data_root`、`log` 两个参数照收（调用方是上锁文件），不再使用。
+- **`model_fetch.py`**：`fetch_fixed_files`（分离器的检查点、配置、索引）对已在、已对上的文件照旧跳过或补写 `.verified` 戳；缺文件或对不上时抛 `ModelUnavailable`，不下载、不隔离、不改名。删掉 `fetch_with_fallback`（镜像优先、再官方源）和 `_fetch_unverified`（分离器那份没有摘要的索引）。端点规则（`apply_hf_endpoint` 等，安装器 `environment.py` 还在用）、`is_mirror_failure` 与两组失败字样、`.verified` 戳的读写保留。
+- 没有改的另外两条下载路径（计划 4.2 第 16 条）：上锁的 `separation.place_separator_files` 吞掉上面的错误后，audio-separator 会自己从 GitHub 下分离器文件——这一条由就绪检查保证模型层与清单相符（层管理器）来堵；加载器按 `HF_ENDPOINT` 懒下载由 `HF_HUB_OFFLINE=1` 堵，留给 WP-H（上面的子类已经让缺模型走不到加载器）。
+- **vendor 只留核心文件**（第 1 节第 7 条）：删掉 `pyproject.toml`、`VERSION`、`README.md`、`UPSTREAM_README.md`。版本号以 `UPSTREAM.json` 为准。后果：目录里不再同时有 `pyproject.toml` 和 `src/finesub`，引擎不再把 vendor（或桌面 `app-resources` 里的副本、云端的 `/opt/finesub`）当成源码检出（`finesub/paths.py` 的 `_is_checkout_root`）；worker 本来就设了 `FINESUB_CHECKOUT_DATA=0` 并显式给出全部文件变量，只剩 qwen 裁判编译缓存（加速已关）、tokcount 候选（vendor 下本来没有）的位置随之改变（R0 文档 3.2 第 1 条），结果不变。
+
+**测试**：`tests/test_engine_no_self_download.py`（审计钩子记录一切连接、名字解析与子进程：每个模型目录删掉后经 `hf_weights.prepare` 报 `ModelUnavailable`、记录为空、什么都没写；快照齐全时答案不变；分离器文件缺或不对时同样）；`tests/test_vendor_contract.py`（vendor 只剩核心文件、不再是检出）。
+
+**怎么还原**：从 git 历史取回本节之前的 `src/finesub_bootstrap/model_ensure.py`、`model_fetch.py`（两者最后一次改动是同步 FineSub 0.7.0 的 `478596b`），以及 vendor 根目录的 `pyproject.toml`、`VERSION`、`README.md`；`UPSTREAM_README.md` 是旧同步脚本写的上游 README 副本，不需要还原。还原后引擎会重新自己下载模型，Nonoka 这边已没有给它铺代理与下载阶梯的补丁（`nonoka_x.finesub_bridge` 只留 `resolve_region` 钉成 `global` 与 API 的代理策略），要另行处理。
+
+**何时可以去掉**：不会还原；分包（WP-P1）后随转写包走
+
+**文件**：
+- `src/finesub_bootstrap/model_ensure.py`
+- `src/finesub_bootstrap/model_fetch.py`
+- `pyproject.toml`、`VERSION`、`README.md`、`UPSTREAM_README.md`（已删除）
