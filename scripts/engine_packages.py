@@ -1,17 +1,21 @@
-"""Package lists for splitting FineSub into three engine packages (WP-P0).
+"""Package lists of the three FineSub engine packages (WP-P0, split in WP-P1).
 
 `docs/transcription-engines-plan.md` 4.6 items 33-35a split the vendored
 FineSub into `engines/finesub-transcribe/`, `engines/finesub-correct/` and
-`engines/finesub-knowledge/`. This script computes, from the frozen code, which
-files each package needs, and writes the machine-readable lists under
-`docs/engine-packages/`. It reads, never writes, anything under
-`third_party/finesub/`.
+`engines/finesub-knowledge/`. This script computes which FineSub files each
+package needs and writes the machine-readable lists under
+`docs/engine-packages/`. WP-P0 computed them from the vendored tree; WP-P1
+split that tree by these lists, and since then the script reads the packages'
+own `src/` taken together (a file two packages carry is the same bytes in
+both; the transcription package's `finesub_bootstrap` is the original), so a
+rerun shows whether the packages still carry what their code reaches. It
+reads, never writes, anything under `engines/`.
 
 How a file gets into a package
 ------------------------------
 
-1. **Static reachability, at symbol level.** Every module under
-   `third_party/finesub/src/{finesub,finesub_bootstrap}` is parsed. A node is a
+1. **Static reachability, at symbol level.** Every module of
+   `finesub` and `finesub_bootstrap` in the packages' `src/` is parsed. A node is a
    module's import-time code (`<module>`), one top-level function, or one
    top-level class (with all its methods). Each node's edges are the names it
    loads, resolved through that module's imports (and the function's own lazy
@@ -70,14 +74,43 @@ from pathlib import Path
 from typing import Iterable
 
 ROOT = Path(__file__).resolve().parents[1]
-VENDOR = ROOT / "third_party" / "finesub"
-SOURCE = VENDOR / "src"
-LOCK = VENDOR / "QUALITY_LOCK.json"
+ENGINES = ROOT / "engines"
+#: The packages' FineSub sources, in the order a path two of them carry is read
+#: (the same bytes either way). `finesub_bootstrap` only from the transcription
+#: package: the others carry a compatibility package with fewer names.
+SOURCE_ORDER = ("finesub-transcribe", "finesub-correct", "finesub-knowledge")
+#: The lock of the vendored tree the packages were split from.
+LOCK = ROOT / "docs" / "engine-packages" / "vendor-quality-lock.json"
+#: What no package carries, with the reason (written by the split, WP-P1).
+NOT_CARRIED = ROOT / "docs" / "engine-packages" / "not-carried.json"
 SURFACE = ROOT / "tests" / "fixtures" / "quality" / "bootstrap-surface.json"
 OUT = ROOT / "docs" / "engine-packages"
 RECORD_DIR = OUT / "runtime-imports"
 
 PACKAGES = ("transcribe", "correct", "knowledge")
+
+
+def source_files() -> dict[str, Path]:
+    """Every FineSub file the packages carry, by its path below `src/`, read from its first package."""
+
+    found: dict[str, Path] = {}
+    for package in SOURCE_ORDER:
+        source = ENGINES / package / "src"
+        for path in sorted(source.rglob("*")):
+            if not path.is_file() or "__pycache__" in path.parts or path.suffix in {".pyc", ".pyo"}:
+                continue
+            relative = path.relative_to(source).as_posix()
+            if relative.startswith("finesub_bootstrap/") and package != "finesub-transcribe":
+                continue
+            if relative in found:
+                if found[relative].read_bytes() != path.read_bytes():
+                    raise SystemExit(f"{package} carries a different {relative}")
+                continue
+            found[relative] = path
+    return found
+
+
+SOURCES = source_files()
 PACKAGE_DIRS = {
     "transcribe": "engines/finesub-transcribe",
     "correct": "engines/finesub-correct",
@@ -165,8 +198,11 @@ def adapter_uses(package: str) -> tuple[list[tuple[str, str]], list[tuple[str, s
                     node.module.split(".", 1)[0] in ("finesub", "finesub_bootstrap"):
                 for alias in node.names:
                     full = f"{node.module}.{alias.name}"
-                    if (SOURCE / (full.replace(".", "/") + ".py")).is_file() or \
-                            (SOURCE / full.replace(".", "/") / "__init__.py").is_file():
+                    if full == "finesub_bootstrap._launch":
+                        # The compatibility packages' own binding (Nonoka code), not FineSub's.
+                        continue
+                    if full.replace(".", "/") + ".py" in SOURCES or \
+                            full.replace(".", "/") + "/__init__.py" in SOURCES:
                         modules[alias.asname or alias.name] = (full, node in optional)
                         target.add((f"{full}:<module>", f"{where}:{node.lineno}"))
                     else:
@@ -238,9 +274,9 @@ NOT_TAKEN: dict[str, list[tuple[str, str, str]]] = {
     ],
 }
 
-# The FineSub CLI and its batch machinery: no Nonoka path runs it (only
-# `tests/test_split_stage_contract.py:201` imports its parser). Computed so the
-# coverage report can say what it alone would pull in.
+# The FineSub CLI and its batch machinery: no Nonoka path runs it, and since
+# WP-P1 no package carries it. WP-P0 computed what it alone would pull in; that
+# is kept in `not-carried.json`, which a rerun reads instead.
 CLI_ENTRIES = [("finesub.pipeline:<main>", "python -m finesub.pipeline")]
 
 # Non-`.py` files and the modules that read them (with the reading line).
@@ -279,7 +315,7 @@ RECORDS: list[dict] = [
 class Module:
     name: str
     path: Path
-    relative: str  # relative to SOURCE, posix
+    relative: str  # relative to a package's src/, posix
     is_package: bool
     tree: ast.Module
     future_annotations: bool
@@ -290,24 +326,22 @@ class Module:
 
 def discover() -> dict[str, Module]:
     modules: dict[str, Module] = {}
-    for top in ("finesub", "finesub_bootstrap"):
-        for path in sorted((SOURCE / top).rglob("*.py")):
-            if "__pycache__" in path.parts:
-                continue
-            relative = path.relative_to(SOURCE).as_posix()
-            parts = relative[:-3].split("/")
-            is_package = parts[-1] == "__init__"
-            if is_package:
-                parts = parts[:-1]
-            name = ".".join(parts)
-            source = path.read_text(encoding="utf-8")
-            tree = ast.parse(source, filename=str(path))
-            future = any(
-                isinstance(node, ast.ImportFrom) and node.module == "__future__"
-                and any(alias.name == "annotations" for alias in node.names)
-                for node in tree.body
-            )
-            modules[name] = Module(name, path, relative, is_package, tree, future)
+    for relative, path in SOURCES.items():
+        if relative.split("/", 1)[0] not in ("finesub", "finesub_bootstrap") or not relative.endswith(".py"):
+            continue
+        parts = relative[:-3].split("/")
+        is_package = parts[-1] == "__init__"
+        if is_package:
+            parts = parts[:-1]
+        name = ".".join(parts)
+        source = path.read_text(encoding="utf-8")
+        tree = ast.parse(source, filename=str(path))
+        future = any(
+            isinstance(node, ast.ImportFrom) and node.module == "__future__"
+            and any(alias.name == "annotations" for alias in node.names)
+            for node in tree.body
+        )
+        modules[name] = Module(name, path, relative, is_package, tree, future)
     return modules
 
 
@@ -753,7 +787,8 @@ def record(spec: dict) -> dict:
         (scratch_path / "sitecustomize.py").write_text(RECORDER, encoding="utf-8")
         output = scratch_path / "record.json"
         env = dict(os.environ)
-        env["PYTHONPATH"] = os.pathsep.join([str(scratch_path), str(ROOT / "src"), str(SOURCE), str(ROOT)])
+        # The test process sees every package through the test union (`tests/conftest.py`).
+        env["PYTHONPATH"] = os.pathsep.join([str(scratch_path), str(ROOT / "src"), str(ROOT)])
         env["NONOKA_P0_RECORD"] = str(output)
         command = [str(python), "-m", "pytest", "-q", "-p", "no:cacheprovider", *spec["pytest"]]
         completed = subprocess.run(command, cwd=ROOT, env=env, capture_output=True, text=True, encoding="utf-8", errors="replace")
@@ -786,9 +821,9 @@ def module_file(graph: Graph, name: str) -> str:
 
 def data_files() -> list[str]:
     files = []
-    for path in sorted(SOURCE.rglob("*")):
-        if path.is_file() and path.suffix not in {".py", ".pyc", ".pyo"} and "__pycache__" not in path.parts:
-            files.append(path.relative_to(SOURCE).as_posix())
+    for relative in sorted(SOURCES):
+        if not relative.endswith(".py"):
+            files.append(relative)
     return files
 
 
@@ -833,7 +868,10 @@ def build(graph: Graph, records: list[dict]) -> dict:
     points = access_points(graph, outside)
     reached["knowledge"] = graph.reach(starts["knowledge"])
 
-    cli = graph.reach([entry_node(graph, spec) for spec, _ in CLI_ENTRIES])
+    carried_cli = [(spec, where) for spec, where in CLI_ENTRIES if spec.split(":", 1)[0] in graph.modules]
+    cli = graph.reach([entry_node(graph, spec) for spec, _ in carried_cli])
+    not_carried = json.loads(NOT_CARRIED.read_text(encoding="utf-8")) if NOT_CARRIED.is_file() else {"files": []}
+    recorded_orphans = {entry["path"]: entry for entry in not_carried["files"]}
 
     result: dict[str, dict] = {}
     all_data = data_files()
@@ -845,6 +883,12 @@ def build(graph: Graph, records: list[dict]) -> dict:
     for package in PACKAGES:
         static_modules = graph.modules_of(reached[package])
         runtime_modules = {name for name in record_by_package.get(package, set()) if name in graph.modules}
+        if package == "knowledge":
+            # WP-P0's knowledge records ran the client and the server in one test
+            # process; the client side (`CLIENT_SIDE_KNOWLEDGE`, which imports the
+            # protocol's client) is never imported in the knowledge package's own
+            # process, and cannot be: the package has the server, not the client.
+            runtime_modules -= CLIENT_SIDE_KNOWLEDGE
         modules = static_modules | runtime_modules
         if package == "transcribe":
             modules |= {name for name in graph.modules if name.split(".", 1)[0] == "finesub_bootstrap"}
@@ -886,7 +930,7 @@ def build(graph: Graph, records: list[dict]) -> dict:
                 info["sha256"] = locked[relative]
                 info["locked"] = True
             else:
-                info["sha256"] = sha256(SOURCE / relative)
+                info["sha256"] = sha256(SOURCES[relative])
                 info["locked"] = False
         result[package] = {
             "files": dict(sorted(files.items())),
@@ -905,9 +949,14 @@ def build(graph: Graph, records: list[dict]) -> dict:
         for item in records if not item.get("package")
     }
     orphans = sorted(set(locked) - covered)
-    cli_modules = graph.modules_of(cli)
+    cli_modules = graph.modules_of(cli) if carried_cli else set(not_carried.get("cli_only_modules", []))
     orphan_info = []
     for relative in orphans:
+        if relative not in SOURCES and relative in recorded_orphans:
+            # Not carried since WP-P1: what WP-P0 found about it, from the record.
+            entry = recorded_orphans[relative]
+            orphan_info.append({key: entry[key] for key in ("path", "module", "reached_from_cli_only", "importers")})
+            continue
         name = next((m.name for m in graph.modules.values() if m.relative == relative), None)
         orphan_info.append({
             "path": relative,
@@ -947,7 +996,7 @@ def write(graph: Graph, built: dict, check: bool) -> int:
             "schema": 1,
             "package": package,
             "target": PACKAGE_DIRS[package],
-            "source_root": "third_party/finesub/src",
+            "source_root": f"{PACKAGE_DIRS[package]}/src",
             "generated_by": "scripts/engine_packages.py",
             "entries": [{"symbol": spec, "used_at": where} for spec, where in ENTRIES[package]],
             "optional": [
@@ -1042,7 +1091,7 @@ for dist in dists:
         if part.endswith((".dist-info", ".pth")) or part == "..":
             continue
         top.add(part[:-3] if part.endswith(".py") else part)
-allowed = set(sys.stdlib_module_names) | top
+allowed = set(sys.stdlib_module_names) | top | set(spec.get("own", ()))
 blocked = []
 class Gate:
     def find_spec(self, fullname, path=None, target=None):
@@ -1057,6 +1106,14 @@ class Gate:
             raise ModuleNotFoundError(f"not in the launcher environment: {fullname}", name=fullname)
         return None
 sys.meta_path.insert(0, Gate())
+try:
+    # What the package's bridge does first: a compatibility `finesub_bootstrap`
+    # takes its data directory from the launch context.
+    import tempfile
+    from finesub_bootstrap import _launch
+    _launch.bind(tempfile.gettempdir())
+except ImportError:
+    pass
 failures = {}
 for name in sorted(allowed_finesub):
     try:
@@ -1084,10 +1141,22 @@ def import_check() -> dict:
     for package in ("correct", "knowledge"):
         listing = json.loads((OUT / f"{package}.json").read_text(encoding="utf-8"))
         modules = [entry["module"] for entry in listing["files"] if "module" in entry] + listing["compat_modules"]
+        # Since WP-P1 against the package itself: its own `src/` (with its
+        # compatibility `finesub_bootstrap`) is all that is on the path.
+        source = ROOT / PACKAGE_DIRS[package] / "src"
+        adapter = ROOT / PACKAGE_DIRS[package] / "adapter"
+        compat = {path.stem for path in (source / "finesub_bootstrap").glob("*.py") if path.stem != "__init__"}
+        modules = [name for name in modules
+                   if not name.startswith("finesub_bootstrap.") or name.split(".", 1)[1] in compat]
+        # The compatibility package's own binding of the launch context.
+        modules += sorted(f"finesub_bootstrap.{name}" for name in compat if name.startswith("_"))
+        # The package's own code (the knowledge protocol's two ends, its adapter) is on its path too.
+        own = sorted(path.name for path in adapter.iterdir() if (path / "__init__.py").is_file())
         env = {key: value for key, value in os.environ.items() if key.upper() in {"SYSTEMROOT", "WINDIR", "TEMP", "TMP", "PATH"}}
         completed = subprocess.run(
-            [str(PBS_PYTHON), "-I", "-B", "-c", f"import sys; sys.path.insert(0, {str(SOURCE)!r}); exec({IMPORT_CHECK_CHILD!r})",
-             json.dumps({"modules": modules})],
+            [str(PBS_PYTHON), "-I", "-B", "-c",
+             f"import sys; sys.path[:0] = [{str(adapter)!r}, {str(source)!r}]; exec({IMPORT_CHECK_CHILD!r})",
+             json.dumps({"modules": modules, "own": own})],
             capture_output=True, text=True, encoding="utf-8", errors="replace", env=env, cwd=tempfile.gettempdir(),
         )
         if completed.returncode:

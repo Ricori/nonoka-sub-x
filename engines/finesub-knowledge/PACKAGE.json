@@ -4,7 +4,7 @@
   "kind": "knowledge",
   "label": "FineSub 知识库包",
   "entry": "finesub_knowledge_host",
-  "paths": ["adapter", "../../third_party/finesub/src"],
+  "paths": ["adapter", "src"],
   "interpreter": "launcher",
   "secrets": [],
   "upstream": {

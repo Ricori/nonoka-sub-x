@@ -4,7 +4,9 @@ Neutral: what a process is, not how an engine reads it. Each package's bridge
 turns its context into the engine's own variables and files, inside the
 package's process; nothing here names an engine's variable or file.
 
-- every package: `paths.run` (its own run directory, `engines\\<package>\\run\\<process>\\`,
+- every package: `paths.package_data` (`engines\\<package>\\`, its data
+  directory: where a compatibility `finesub_bootstrap` puts what the original
+  puts under `%LOCALAPPDATA%\\FineSub`, D21), `paths.run` (its own run directory, `engines\\<package>\\run\\<process>\\`,
   claimed here and released when the caller closes it), `paths.state_file`,
   `paths.knowledge_root` (both still in the main data directory until the
   migration moves them, WP-M2);
@@ -67,6 +69,7 @@ def package_context(
         "schema": 1,
         "package_id": package.id,
         "paths": {
+            "package_data": str(paths.engine(package.id)),
             "run": str(run),
             "state_file": str(paths.data / "state"),
             "knowledge_root": str(paths.data / "knowledge"),

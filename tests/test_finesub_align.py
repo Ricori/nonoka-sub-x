@@ -19,7 +19,10 @@ from scripts.finesub_align import is_key_path, main
 
 
 ROOT = Path(__file__).resolve().parents[1]
-QUALITY_LOCK = ROOT / "third_party" / "finesub" / "QUALITY_LOCK.json"
+VENDOR_LOCK = ROOT / "docs" / "engine-packages" / "vendor-quality-lock.json"
+NOT_CARRIED = ROOT / "docs" / "engine-packages" / "not-carried.json"
+SOURCES = tuple(ROOT / "engines" / package / "src" / "finesub"
+                for package in ("finesub-transcribe", "finesub-correct", "finesub-knowledge"))
 
 
 def _tree(root: Path, files: dict[str, str]) -> Path:
@@ -58,18 +61,23 @@ class KeyPathTests(unittest.TestCase):
             with self.subTest(path=path):
                 self.assertFalse(is_key_path(path))
 
-    def test_every_named_key_file_exists_in_the_vendor(self) -> None:
-        """A name that matches nothing would silently drop a file from every report."""
+    def test_every_named_key_file_exists_in_a_package_or_is_not_carried(self) -> None:
+        """A name that matches nothing would silently drop a file from every report.
 
-        locked = json.loads(QUALITY_LOCK.read_text(encoding="utf-8"))
-        names = json.dumps(locked)
+        Each was locked in the vendored tree; since WP-P1 it is in an engine
+        package, or not carried (with the reason).
+        """
+
+        names = json.dumps(json.loads(VENDOR_LOCK.read_text(encoding="utf-8")))
+        not_carried = {entry["path"] for entry in json.loads(NOT_CARRIED.read_text(encoding="utf-8"))["files"]}
         for relative in finesub_align.KEY_FILES:
             with self.subTest(path=relative):
-                self.assertTrue((ROOT / "third_party/finesub/src/finesub" / relative).is_file())
                 self.assertIn(f"finesub/{relative}", names)
+                carried = any((source / relative).is_file() for source in SOURCES)
+                self.assertNotEqual(carried, f"finesub/{relative}" in not_carried)
         for relative in finesub_align.KEY_DIRECTORIES:
             with self.subTest(path=relative):
-                self.assertTrue((ROOT / "third_party/finesub/src/finesub" / relative).is_dir())
+                self.assertTrue(any((source / relative).is_dir() for source in SOURCES))
 
 
 class DiffReportTests(unittest.TestCase):
@@ -96,7 +104,7 @@ class DiffReportTests(unittest.TestCase):
                 "diff", "--ref", "v2",
                 "--base-dir", str(self.base),
                 "--upstream-dir", str(self.target),
-                "--vendor-dir", str(self.vendor),
+                "--package-dir", str(self.vendor),
                 *extra,
             ])
         after = {p: p.read_bytes() for p in self.scratch.rglob("*") if p.is_file()}
@@ -130,7 +138,7 @@ class DiffReportTests(unittest.TestCase):
                 "diff", "--ref", "v2",
                 "--base-dir", str(empty),
                 "--upstream-dir", str(self.target),
-                "--vendor-dir", str(self.vendor),
+                "--package-dir", str(self.vendor),
             ])
         self.assertEqual(status, 1)
 

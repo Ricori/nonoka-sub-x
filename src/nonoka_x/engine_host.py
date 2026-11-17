@@ -762,7 +762,9 @@ def ask_once(kind: str, op: str, payload: Mapping[str, Any] | None = None, *, ro
 
     For a question whose answer the package keeps in its code (its packaged
     catalog, how it reads its own products): the process gets a fresh run
-    directory and no key. `PackageUnavailable` when no such package is installed.
+    directory, which is also its data directory for the question (nothing it
+    might write there is kept), and no key. `PackageUnavailable` when no such
+    package is installed.
     """
 
     import tempfile
@@ -772,7 +774,7 @@ def ask_once(kind: str, op: str, payload: Mapping[str, Any] | None = None, *, ro
         raise PackageUnavailable(f"没有安装{kind}引擎包")
     package = found[0]
     with tempfile.TemporaryDirectory(prefix="nonoka-engine-") as run:
-        context = {"schema": 1, "package_id": package.id, "paths": {"run": run}}
+        context = {"schema": 1, "package_id": package.id, "paths": {"package_data": run, "run": run}}
         with PackageProcess(package, context) as process:
             return process.request(op, payload)
 

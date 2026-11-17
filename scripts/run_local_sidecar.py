@@ -9,11 +9,10 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
-sys.path.insert(0, str(ROOT / "third_party/finesub/src"))
 
 from nonoka_x.sidecar import main
 
 
 if __name__ == "__main__":
-    raise SystemExit(main(["--data-dir", str(ROOT / ".local"), "--vendor", str(ROOT / "third_party/finesub"), *sys.argv[1:]]))
+    raise SystemExit(main(["--data-dir", str(ROOT / ".local"), "--engines", str(ROOT / "engines"), *sys.argv[1:]]))
 

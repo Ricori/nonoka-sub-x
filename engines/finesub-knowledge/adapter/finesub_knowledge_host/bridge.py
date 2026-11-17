@@ -67,6 +67,25 @@ def drop_inherited() -> None:
             del os.environ[name]
 
 
+def bind_package_data(context: Mapping[str, Any]) -> None:
+    """Hand a compatibility `finesub_bootstrap` the package's data directory (`paths.package_data`, D21).
+
+    The correction and knowledge packages' `finesub_bootstrap` takes the
+    locations the original derives from `%LOCALAPPDATA%\\FineSub` from here
+    instead, so this runs before anything imports `finesub`. The original
+    (the transcription package's) has nothing to bind: its default
+    locations are the sandbox's (plan 4.5).
+    """
+
+    package_data = (context.get("paths") or {}).get("package_data")
+    try:
+        from finesub_bootstrap import _launch
+    except ImportError:
+        return
+    if package_data:
+        _launch.bind(package_data)
+
+
 def custom_target(provider: str, model: str) -> str:
     """The catalog target id of a route over an HTTP transport: `nonoka-<provider>-<sha256[:12]>`."""
 

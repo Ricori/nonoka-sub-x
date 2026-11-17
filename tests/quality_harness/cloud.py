@@ -834,10 +834,9 @@ def _desktop_reading(run_dir: Path, handed_back: list[str]) -> tuple[dict[str, A
     only, so they run in the gate's interpreter.
     """
 
-    from . import VENDOR_SOURCE
+    from . import union
 
-    if str(VENDOR_SOURCE) not in sys.path:
-        sys.path.insert(0, str(VENDOR_SOURCE))
+    union.install()
     facts: dict[str, Any] = {}
     problems: list[str] = []
     with tempfile.TemporaryDirectory(prefix="nonoka-quality-cloud-read-") as seeded:

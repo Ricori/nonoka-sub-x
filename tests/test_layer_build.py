@@ -31,7 +31,8 @@ from nonoka_x.runtime import manifests  # noqa: E402
 from scripts import build_layers  # noqa: E402
 from tests.quality_harness import layers, pins  # noqa: E402
 
-VENDOR_SOURCE = ROOT / "third_party" / "finesub" / "src"
+#: The transcription package: the original `finesub_bootstrap`, whose markers the build reproduces.
+VENDOR_SOURCE = ROOT / "engines" / "finesub-transcribe" / "src"
 WINDOWS = os.name == "nt"
 
 

@@ -483,7 +483,8 @@ def knowledge_process(root: Path, knowledge_root: Path, *, hook: str | None = No
     run = root / "run"
     run.mkdir(exist_ok=True)
     context = {"schema": 1, "package_id": package.id,
-               "paths": {"run": str(run), "knowledge_root": str(knowledge_root)}}
+               "paths": {"package_data": str(root / "engines" / package.id), "run": str(run),
+                         "knowledge_root": str(knowledge_root)}}
     return engine_host.PackageProcess(package, context)
 
 
@@ -612,6 +613,13 @@ MCP_CALLS: tuple[tuple[str, dict[str, Any]], ...] = (
 
 
 def mcp_main(spec: Mapping[str, Any]) -> int:
+    # The MCP server reaches the base through the task's knowledge process, which the
+    # core starts and names to the correction process (the endpoint the server inherits).
+    process = knowledge_process(Path(spec["runtime_root"]).parent, Path(spec["knowledge_root"]))
+    endpoint = process.request("serve", {"owner": os.getpid()})
+    process.detach()
+    os.environ["FINESUB_KNOWLEDGE_ENDPOINT"] = json.dumps(endpoint)
+
     from finesub.llm.agent.agent_mcp_server import KB_TOOL_NAMES, HarnessToolServer
 
     runtime = _RecordingRuntime(Path(spec["runtime_root"]))

@@ -51,12 +51,19 @@ _APPLY = textwrap.dedent(
     if run.is_dir():
         out["files"] = {path.name: path.read_text(encoding="utf-8") for path in sorted(run.iterdir()) if path.name != "owner.lock"}
     if reads:
-        from finesub import api_keys
-        from finesub.llm import llm_runtime
+        try:
+            from finesub import api_keys
+        except ImportError:
+            # The transcription package reads no key through FineSub's key layer (it
+            # does not carry it): what it has is its environment, which the Hugging
+            # Face libraries read `HF_TOKEN` from.
+            out["keys"] = {name: [[name, os.environ[name]]] if os.environ.get(name) else [] for name in reads}
+        else:
+            from finesub.llm import llm_runtime
 
-        dotenv = api_keys.read_dotenv()
-        out["keys"] = {name: [[entry.name, entry.key] for entry in api_keys.key_entries(name, dotenv)] for name in reads}
-        out["gemini"] = llm_runtime.gemini_api_base(dotenv)
+            dotenv = api_keys.read_dotenv()
+            out["keys"] = {name: [[entry.name, entry.key] for entry in api_keys.key_entries(name, dotenv)] for name in reads}
+            out["gemini"] = llm_runtime.gemini_api_base(dotenv)
     print(json.dumps(out, ensure_ascii=False))
     """
 )

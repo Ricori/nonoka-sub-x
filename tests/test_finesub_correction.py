@@ -303,9 +303,15 @@ _LINES_CHILD = textwrap.dedent(
     import sys
     from pathlib import Path
 
-    from finesub_correct.engine import FineSubCorrection
+    from finesub_correct import bridge
 
     root = Path(sys.argv[1])
+    # What the package's `__main__` does first with its launch context: the
+    # compatibility `finesub_bootstrap` gets the package's data directory.
+    bridge.bind_package_data({"paths": {"package_data": str(root / "package-data")}})
+
+    from finesub_correct.engine import FineSubCorrection
+
     transcript = root / "task" / "transcript.json"
     transcript.parent.mkdir(parents=True)
     transcript.write_text(sys.argv[2], encoding="utf-8")

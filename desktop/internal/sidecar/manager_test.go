@@ -168,10 +168,10 @@ func TestSidecarHelperProcess(t *testing.T) {
 func TestPythonConfigCarriesTheInstallDirectoryOnlyWhenRelocated(t *testing.T) {
 	root := t.TempDir()
 	script := filepath.Join(root, "run_local_sidecar.py")
-	vendor := filepath.Join(root, "finesub")
+	engines := filepath.Join(root, "engines")
 	data := filepath.Join(root, "Nonoka X")
 
-	config, err := PythonConfig("python", script, data, vendor, "")
+	config, err := PythonConfig("python", script, data, engines, "")
 	if err != nil {
 		t.Fatalf("config: %v", err)
 	}
@@ -180,17 +180,32 @@ func TestPythonConfigCarriesTheInstallDirectoryOnlyWhenRelocated(t *testing.T) {
 	}
 
 	install := filepath.Join(t.TempDir(), "Nonoka X", "finesub")
-	config, err = PythonConfig("python", script, data, vendor, install)
+	config, err = PythonConfig("python", script, data, engines, install)
 	if err != nil {
 		t.Fatalf("config: %v", err)
 	}
-	// The sidecar script and vendor directory keep their positions: SidecarConfig
-	// validates them by index.
-	if config.Args[0] != script || config.Args[4] != vendor {
+	// The sidecar script keeps its position: SidecarConfig validates it by index.
+	if config.Args[0] != script {
 		t.Fatalf("argument order changed: %v", config.Args)
+	}
+	if index := slices.Index(config.Args, "--engines"); index < 0 || config.Args[index+1] != engines {
+		t.Fatalf("engines directory missing from %v", config.Args)
 	}
 	index := slices.Index(config.Args, "--install-dir")
 	if index < 0 || config.Args[index+1] != install {
 		t.Fatalf("install directory missing from %v", config.Args)
+	}
+}
+
+func TestPythonConfigLeavesTheEnginesOutWhenThereAreNone(t *testing.T) {
+	root := t.TempDir()
+	config, err := PythonConfig("python", filepath.Join(root, "run_local_sidecar.py"), filepath.Join(root, "Nonoka X"), "", "")
+	if err != nil {
+		t.Fatalf("config: %v", err)
+	}
+	for _, removed := range []string{"--engines", "--vendor"} {
+		if slices.Contains(config.Args, removed) {
+			t.Fatalf("%s passed without engine packages: %v", removed, config.Args)
+		}
 	}
 }

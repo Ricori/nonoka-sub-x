@@ -21,12 +21,29 @@ import os
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-VENDOR = ROOT / "third_party" / "finesub"
-VENDOR_SOURCE = VENDOR / "src"
-#: The engine packages (`nonoka_x.engine_host`); `NONOKA_QUALITY_ENGINES` names another root
-#: (a test that runs a case with a package removed).
-ENGINES = Path(os.environ.get("NONOKA_QUALITY_ENGINES") or ROOT / "engines")
-#: What a gate child puts on its own import path to set a scenario up with FineSub's own code
-#: (a speaker timeline, say). The runs themselves happen in the packages' processes.
-SETUP_SOURCES = (VENDOR_SOURCE,)
+#: The engine packages as committed: what the locks and pins are about.
+PACKAGES_ROOT = ROOT / "engines"
+PACKAGE_IDS = ("finesub-transcribe", "finesub-correct", "finesub-knowledge")
+#: Each package's FineSub sources (`engines/<package>/src`).
+SOURCES = {package: PACKAGES_ROOT / package / "src" for package in PACKAGE_IDS}
+#: The transcription package's: FineSub's transcription half and the original `finesub_bootstrap`.
+TRANSCRIBE_SOURCE = SOURCES["finesub-transcribe"]
+#: The engine packages a gate run uses (`nonoka_x.engine_host`); `NONOKA_QUALITY_ENGINES`
+#: names another root (a test that runs a case with a package removed). A gate child that
+#: sets a scenario up with FineSub's own code (a speaker timeline, say) imports the packages
+#: through `union.install()`; the runs themselves happen in the packages' processes.
+ENGINES = Path(os.environ.get("NONOKA_QUALITY_ENGINES") or PACKAGES_ROOT)
+
+
+def source_file(relative: str) -> Path:
+    """A FineSub file by its path below `src/`: the first package's copy that has it (transcription first).
+
+    The packages' copies of one path are the same bytes (`tests/test_engine_packages.py`).
+    """
+
+    for package in PACKAGE_IDS:
+        candidate = SOURCES[package] / relative
+        if candidate.is_file():
+            return candidate
+    raise FileNotFoundError(f"no engine package has {relative}")
 FIXTURES = ROOT / "tests" / "fixtures" / "quality"

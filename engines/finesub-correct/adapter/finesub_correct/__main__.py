@@ -88,6 +88,7 @@ def apply_context(context: Mapping[str, Any], wire: Wire) -> None:
     """
 
     bridge.drop_inherited()
+    bridge.bind_package_data(context)
     paths = context.get("paths") or {}
     variables: dict[str, str] = {}
     if paths.get("run"):

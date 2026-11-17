@@ -1,12 +1,19 @@
-"""The quality lock: every engine file but the three unlocked places, by hash.
+"""The quality locks: every locked engine file, by hash, in each engine package.
 
-`third_party/finesub/QUALITY_LOCK.json` records the sha256 of each file under
-`third_party/finesub/src/` except the orchestration the refactor is allowed to
-change (plan section 0, rule 2). Bytes are hashed as stored: `.gitattributes`
-marks `third_party/finesub/**` as `-text`, so a checkout on any platform has
-exactly the committed bytes.
+Each engine package's `QUALITY_LOCK.json` (`engines/<package>/QUALITY_LOCK.json`)
+records the sha256 of every file under its `src/` except the orchestration the
+refactor is allowed to change (plan section 0, rule 2): `finesub/stages.py`
+and `finesub_bootstrap/`. Bytes are hashed as stored: `.gitattributes` marks
+`engines/*/src/**` as `-text`, so a checkout on any platform has exactly the
+committed bytes.
 
-Changing the lock is a separate, user-approved engine change; `write` exists
+The packages were split out of one vendored tree in WP-P1; that tree's lock is
+kept as `docs/engine-packages/vendor-quality-lock.json`, and every entry of a
+package's lock must be that lock's entry for the same path: splitting moved
+files, it changed none (`tests/test_engine_packages.py` also accounts for every
+file of the old lock).
+
+Changing a lock is a separate, user-approved engine change; `write` exists
 for that commit and for nothing else.
 """
 
@@ -17,23 +24,30 @@ import json
 from pathlib import Path
 from typing import Any, Iterable
 
-from . import ROOT, VENDOR, VENDOR_SOURCE
+from . import PACKAGE_IDS, PACKAGES_ROOT, ROOT, SOURCES
 
-LOCK_FILE = VENDOR / "QUALITY_LOCK.json"
-#: Unlocked single files, relative to `third_party/finesub/src`.
-UNLOCKED_FILES = ("finesub/pipeline.py", "finesub/stages.py")
+LOCK_NAME = "QUALITY_LOCK.json"
+#: The lock of the vendored tree the packages were split from (WP-P1).
+VENDOR_LOCK = ROOT / "docs" / "engine-packages" / "vendor-quality-lock.json"
+#: Unlocked single files, relative to a package's `src/`.
+UNLOCKED_FILES = ("finesub/stages.py",)
 #: Unlocked directories (everything below them), same base. `finesub_bootstrap/`
 #: was unlocked by the owner on 2026-11-11: Nonoka supplies what the engine
-#: needs from it. Its pinned contents are guarded by content instead, in
-#: `src/nonoka_x/resources/RUNTIME_PINS.json` (`tests/test_runtime_pins.py`).
-UNLOCKED_DIRS = ("finesub/speech/joint/", "finesub_bootstrap/")
+#: needs from it. The transcription package's original is guarded by content
+#: instead, in `src/nonoka_x/resources/RUNTIME_PINS.json` (`tests/test_runtime_pins.py`);
+#: the other two packages' compatibility packages by `tests/test_engine_packages.py`.
+UNLOCKED_DIRS = ("finesub_bootstrap/",)
+
+
+def lock_file(package: str) -> Path:
+    return PACKAGES_ROOT / package / LOCK_NAME
 
 
 def is_unlocked(relative: str) -> bool:
     return relative in UNLOCKED_FILES or any(relative.startswith(prefix) for prefix in UNLOCKED_DIRS)
 
 
-def iter_files(root: Path = VENDOR_SOURCE) -> Iterable[str]:
+def iter_files(root: Path) -> Iterable[str]:
     """Every file below `root` as a POSIX relative path, sorted by that spelling.
 
     Sorted by the string rather than by `Path`, which orders by the platform's
@@ -48,6 +62,17 @@ def iter_files(root: Path = VENDOR_SOURCE) -> Iterable[str]:
     return sorted(selected)
 
 
+def locked_files() -> dict[str, Path]:
+    """Every locked file of every package, relative path -> the first package's copy (transcription first)."""
+
+    found: dict[str, Path] = {}
+    for package in PACKAGE_IDS:
+        for relative in iter_files(SOURCES[package]):
+            if not is_unlocked(relative):
+                found.setdefault(relative, SOURCES[package] / relative)
+    return dict(sorted(found.items()))
+
+
 def sha256_file(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as stream:
@@ -56,21 +81,26 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
-def compute(root: Path = VENDOR_SOURCE) -> dict[str, Any]:
+def compute(package: str) -> dict[str, Any]:
+    root = SOURCES[package]
     files = [
         {"path": relative, "sha256": sha256_file(root / relative), "bytes": (root / relative).stat().st_size}
         for relative in iter_files(root)
         if not is_unlocked(relative)
     ]
+    unlocked = [path for path in (*UNLOCKED_FILES, *UNLOCKED_DIRS)
+                if (root / path).exists()]
     return {
         "schema": 1,
-        "root": "third_party/finesub/src",
+        "root": f"engines/{package}/src",
+        "split_from": VENDOR_LOCK.relative_to(ROOT).as_posix(),
         "rule": (
             "Every file below root except the unlocked paths must match this list byte for byte, "
-            "and no file may be added or removed. Updating this file is a separate engine change "
-            "the owner approves (docs/transcription-engines-plan.md section 0)."
+            "and no file may be added or removed. Each entry is the pre-split vendor lock's entry for the "
+            "same path. Updating this file is a separate engine change the owner approves "
+            "(docs/transcription-engines-plan.md section 0)."
         ),
-        "unlocked": sorted((*UNLOCKED_FILES, *UNLOCKED_DIRS)),
+        "unlocked": sorted(unlocked),
         "files": files,
     }
 
@@ -79,28 +109,43 @@ def render(lock: dict[str, Any]) -> bytes:
     return (json.dumps(lock, ensure_ascii=False, indent=2, sort_keys=True) + "\n").encode("utf-8")
 
 
-def write(path: Path = LOCK_FILE) -> Path:
-    path.write_bytes(render(compute()))
+def write(package: str) -> Path:
+    path = lock_file(package)
+    path.write_bytes(render(compute(package)))
     return path
 
 
-def problems(root: Path = VENDOR_SOURCE, path: Path = LOCK_FILE) -> list[str]:
-    """Every way the tree differs from the lock, one line each; empty when it matches."""
+def recorded(package: str) -> dict[str, Any]:
+    path = lock_file(package)
+    return json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
 
+
+def problems(package: str | None = None) -> list[str]:
+    """Every way a package's tree differs from its lock, one line each; empty when they match.
+
+    Without `package`, every package's, each line prefixed with the package.
+    """
+
+    if package is None:
+        return [f"{name}: {line}" for name in PACKAGE_IDS for line in problems(name)]
+    root = SOURCES[package]
+    path = lock_file(package)
     if not path.is_file():
         return [f"{path.relative_to(ROOT).as_posix()} is missing"]
-    recorded = json.loads(path.read_text(encoding="utf-8"))
-    expected = {entry["path"]: entry for entry in recorded.get("files", [])}
+    lock = json.loads(path.read_text(encoding="utf-8"))
+    expected = {entry["path"]: entry for entry in lock.get("files", [])}
+    vendor = {entry["path"]: entry for entry in json.loads(VENDOR_LOCK.read_text(encoding="utf-8"))["files"]}
     found: list[str] = []
     for relative in sorted(expected):
         if is_unlocked(relative):
             found.append(f"lock lists an unlocked path: {relative}")
+        if vendor.get(relative) != expected[relative]:
+            found.append(f"lock entry differs from the pre-split lock: {relative}")
     actual = {relative for relative in iter_files(root) if not is_unlocked(relative)}
     for relative in sorted(actual - set(expected)):
         found.append(f"added (not in the lock): {relative}")
     for relative in sorted(set(expected) - actual):
-        if not is_unlocked(relative):
-            found.append(f"removed (locked): {relative}")
+        found.append(f"removed (locked): {relative}")
     for relative in sorted(actual & set(expected)):
         entry = expected[relative]
         file = root / relative

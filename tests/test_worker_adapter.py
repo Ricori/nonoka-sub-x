@@ -698,6 +698,8 @@ raise SystemExit(worker.main(sys.argv[1:]))
                 sys.executable, "-c", script,
                 "--task-id", "cont", "--task-dir", str(root / "task"),
                 "--engines", str(ENGINES),
+                # Where the packages keep their own data (`paths.package_data`), as the sidecar always says.
+                "--data-dir", str(root / "data"),
             ],
             input=json.dumps(request, ensure_ascii=False) + "\n",
             capture_output=True, text=True, encoding="utf-8", env=environment, timeout=120,

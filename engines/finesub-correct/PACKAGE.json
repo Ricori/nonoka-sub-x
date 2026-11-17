@@ -4,7 +4,7 @@
   "kind": "correction",
   "label": "FineSub 纠错翻译包",
   "entry": "finesub_correct",
-  "paths": ["adapter", "../../third_party/finesub/src"],
+  "paths": ["adapter", "src"],
   "interpreter": "launcher",
   "secrets": [
     "GEMINI_FREE", "GEMINI_PAID", "EXA_KEYS", "TAVILY_KEYS", "ANTHROPIC_API_KEY", "OPENAI_API_KEY",

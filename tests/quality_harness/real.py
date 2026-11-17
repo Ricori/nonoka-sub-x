@@ -48,7 +48,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from . import ENGINES, ROOT, VENDOR_SOURCE
+from . import ENGINES, ROOT, union
 
 BASELINE_ROOT = ROOT / "test_data" / "quality-baseline" / "real"
 SAMPLES: dict[str, dict[str, Any]] = {
@@ -164,7 +164,8 @@ NATIVE_DIRECTORIES = ("native/finesub-transcribe", "native/finesub-correct")
 def runtime_issues() -> list[str]:
     """Why the real runs cannot happen here; empty when they can."""
 
-    sys.path[:0] = [str(ROOT / "src"), str(VENDOR_SOURCE)]
+    sys.path[:0] = [str(ROOT / "src")]
+    union.install()
     from nonoka_x.model_install import INSTALLABLE_MODEL_IDS, missing_managed_models
 
     data_dir, install_dir = locate_runtime()
@@ -201,7 +202,8 @@ def _worker_launch(run_dir: Path) -> tuple[list[str], dict[str, str], Path, list
     This process's own environment is restored afterwards.
     """
 
-    sys.path[:0] = [str(ROOT / "src"), str(VENDOR_SOURCE)]
+    sys.path[:0] = [str(ROOT / "src")]
+    union.install()
     from nonoka_x import local_provider
     from nonoka_x.settings import FineSubSettings
 
@@ -256,7 +258,8 @@ def acceleration(run_dir: Path) -> dict[str, Any]:
 def run_sample(name: str, run_dir: Path) -> dict[str, Any]:
     """One real worker run of `name` to `TARGET` in `run_dir`; returns what it left."""
 
-    sys.path[:0] = [str(ROOT / "src"), str(VENDOR_SOURCE)]
+    sys.path[:0] = [str(ROOT / "src")]
+    union.install()
     from nonoka_x.local_provider import validate_request
 
     if run_dir.exists():

@@ -29,7 +29,8 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / "src"
-VENDOR_SOURCE = ROOT / "third_party" / "finesub" / "src"
+#: The access points are in the transcription and correction halves; a file both carry is the same bytes.
+SOURCES = (ROOT / "engines" / "finesub-correct" / "src", ROOT / "engines" / "finesub-transcribe" / "src")
 #: The knowledge package's and the transcription and correction packages' copies of the protocol.
 PROTOCOL_COPIES = tuple(
     ROOT / "engines" / package / "adapter" / "finesub_knowledge"
@@ -425,7 +426,7 @@ def test_access_points_take_store_functions_from_the_client():
     wrong = []
     moved = 0
     for relative in ACCESS_POINT_FILES:
-        path = VENDOR_SOURCE / "finesub" / relative
+        path = next(root / "finesub" / relative for root in SOURCES if (root / "finesub" / relative).is_file())
         inside_knowledge = relative.startswith("llm/knowledge/")
         for line, module, name in _knowledge_imports(path):
             if name not in STORE_NAMES:

@@ -1,6 +1,5 @@
 [
   "finesub_bootstrap.agy_records:agy_project_records_dir",
-  "finesub_bootstrap.agy_records:remove_project_records_under",
   "finesub_bootstrap.artifacts:ARTIFACT_DIR_SUFFIX",
   "finesub_bootstrap.artifacts:RESOLVED_SWITCHES_FILENAME",
   "finesub_bootstrap.download_routes:resolve_region",
@@ -19,9 +18,7 @@
   "finesub_bootstrap.locks:AGENT_LOCATOR_KIND_VARIABLE",
   "finesub_bootstrap.locks:LockUnavailable",
   "finesub_bootstrap.locks:holding_activity",
-  "finesub_bootstrap.locks:holding_activity_barrier",
   "finesub_bootstrap.locks:holding_lock",
-  "finesub_bootstrap.locks:try_lock",
   "finesub_bootstrap.logs:log_directory",
   "finesub_bootstrap.logs:prune",
   "finesub_bootstrap.model_caches:SEPARATOR_CHECKPOINT",

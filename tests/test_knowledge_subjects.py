@@ -1,7 +1,7 @@
 """User-picked knowledge subjects, the engine half.
 
 Promises kept by local change 0004 (pinned knowledge subjects) in
-`third_party/finesub/LOCAL_CHANGES.md`: the
+`engines/finesub-correct/LOCAL_CHANGES.md`: the
 subjects a task names resolve by qualified name, ride into every correction
 window as one budgeted block, and are pinned at the head of the knowledge
 update's entry selection so the model can write into them.

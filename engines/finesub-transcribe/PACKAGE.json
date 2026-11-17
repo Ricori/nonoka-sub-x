@@ -4,10 +4,7 @@
   "kind": "transcription",
   "label": "FineSub 转写包",
   "entry": "finesub_transcribe",
-  "paths": [
-    "adapter",
-    "../../third_party/finesub/src"
-  ],
+  "paths": ["adapter", "src"],
   "interpreter": "python-layer",
   "secrets": [
     "HF_TOKEN"

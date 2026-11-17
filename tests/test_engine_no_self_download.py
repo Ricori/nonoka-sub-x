@@ -27,7 +27,7 @@ import sys
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
-for entry in (ROOT / "src", ROOT / "third_party" / "finesub" / "src"):
+for entry in (ROOT / "src", ROOT / "engines" / "finesub-transcribe" / "src"):
     if str(entry) not in sys.path:
         sys.path.insert(0, str(entry))
 

@@ -13,25 +13,49 @@ import (
 func TestSidecarConfigHonoursExplicitPaths(t *testing.T) {
 	root := t.TempDir()
 	script := filepath.Join(root, "run.py")
-	vendor := filepath.Join(root, "vendor")
+	engines := filepath.Join(root, "engines")
 	data := filepath.Join(root, "tasks")
 	if err := os.WriteFile(script, []byte("# fixture\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Mkdir(vendor, 0o700); err != nil {
+	if err := os.Mkdir(engines, 0o700); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv(managedtools.PythonEnvironment, "fixture-python")
 	t.Setenv(scriptEnvironment, script)
-	t.Setenv(vendorEnvironment, vendor)
+	t.Setenv(enginesEnvironment, engines)
 	t.Setenv(dataEnvironment, data)
 
 	config, err := SidecarConfig()
 	if err != nil {
 		t.Fatalf("resolve config: %v", err)
 	}
-	if config.Executable != "fixture-python" || config.Args[0] != script || config.Args[2] != data || config.Args[4] != vendor {
+	if config.Executable != "fixture-python" || config.Args[0] != script || config.Args[2] != data ||
+		config.Args[3] != "--engines" || config.Args[4] != engines {
 		t.Fatalf("unexpected config: %#v", config)
+	}
+}
+
+func TestSidecarConfigStartsWithoutEnginePackages(t *testing.T) {
+	root := t.TempDir()
+	script := filepath.Join(root, "run.py")
+	if err := os.WriteFile(script, []byte("# fixture\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(root)
+	t.Setenv(managedtools.PythonEnvironment, "fixture-python")
+	t.Setenv(scriptEnvironment, script)
+	t.Setenv(enginesEnvironment, "")
+	t.Setenv(dataEnvironment, filepath.Join(root, "tasks"))
+
+	config, err := SidecarConfig()
+	if err != nil {
+		t.Fatalf("a missing engines directory must not stop the sidecar: %v", err)
+	}
+	for _, argument := range config.Args {
+		if argument == "--engines" || argument == "--vendor" {
+			t.Fatalf("passed %s with no engines directory: %v", argument, config.Args)
+		}
 	}
 }
 

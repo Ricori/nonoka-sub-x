@@ -19,7 +19,8 @@ import (
 const (
 	scriptEnvironment = "NONOKA_SIDECAR_SCRIPT"
 	dataEnvironment   = "NONOKA_DATA_DIR"
-	vendorEnvironment = "NONOKA_VENDOR_DIR"
+	// The engine packages directory (plan 4.6 item 33); optional, as the packages are.
+	enginesEnvironment = "NONOKA_ENGINES_DIR"
 	// NONOKA_PYTHON lives in managedtools.PythonEnvironment: the plugin host
 	// needs it too, and managedtools is the one package both can import.
 )
@@ -61,21 +62,25 @@ func SidecarConfig() (sidecar.Config, error) {
 		return sidecar.Config{}, errors.New("未找到可运行本地服务的 Python（需要 3.12 并带 httpx、pydantic）：将改用内置的 Python 3.12 启动环境")
 	}
 	scriptCandidates := []string{"scripts/run_local_sidecar.py", "../scripts/run_local_sidecar.py"}
-	vendorCandidates := []string{"third_party/finesub", "../third_party/finesub"}
+	enginesCandidates := []string{"engines", "../engines"}
 	if resourceRoot != "" {
 		scriptCandidates = append([]string{filepath.Join(resourceRoot, "scripts", "run_local_sidecar.py")}, scriptCandidates...)
-		vendorCandidates = append([]string{filepath.Join(resourceRoot, "third_party", "finesub")}, vendorCandidates...)
+		enginesCandidates = append([]string{filepath.Join(resourceRoot, "engines")}, enginesCandidates...)
 	}
 	script := firstConfiguredPath(scriptEnvironment, workingDirectory, scriptCandidates...)
-	vendor := firstConfiguredPath(vendorEnvironment, workingDirectory, vendorCandidates...)
-	config, err := sidecar.PythonConfig(python, script, data, vendor, storage.RuntimeDirectory(data))
+	// Not required: without the directory the sidecar starts with the core's own
+	// engines only, and says which packages are missing where they are needed.
+	engines := os.Getenv(enginesEnvironment)
+	if engines == "" {
+		engines = firstExistingPath(workingDirectory, enginesCandidates...)
+	}
+	config, err := sidecar.PythonConfig(python, script, data, engines, storage.RuntimeDirectory(data))
 	if err != nil {
 		return sidecar.Config{}, err
 	}
 	return config, errors.Join(
 		resourceErr,
 		requirePath(config.Args[0], "sidecar script"),
-		requirePath(config.Args[4], "FineSub vendor directory"),
 	)
 }
 
@@ -276,6 +281,20 @@ func firstConfiguredPath(environment, workingDirectory string, candidates ...str
 		return candidates[0]
 	}
 	return filepath.Join(workingDirectory, candidates[0])
+}
+
+// firstExistingPath is the first candidate that exists (relative ones under workingDirectory), or "".
+func firstExistingPath(workingDirectory string, candidates ...string) string {
+	for _, candidate := range candidates {
+		resolved := candidate
+		if !filepath.IsAbs(resolved) {
+			resolved = filepath.Join(workingDirectory, resolved)
+		}
+		if _, err := os.Stat(resolved); err == nil {
+			return resolved
+		}
+	}
+	return ""
 }
 
 func requirePath(path, description string) error {

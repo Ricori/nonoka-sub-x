@@ -20,7 +20,6 @@ from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "third_party/finesub/src"))
 
 from finesub.llm import http  # noqa: E402
 from finesub.llm.client import is_retryable_provider_error  # noqa: E402

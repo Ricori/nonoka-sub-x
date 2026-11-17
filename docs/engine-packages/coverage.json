@@ -4,7 +4,7 @@
  "per_package_locked": {
   "transcribe": 115,
   "correct": 463,
-  "knowledge": 345
+  "knowledge": 344
  },
  "in_two_or_more": [
   "finesub/__init__.py",
@@ -21,7 +21,6 @@
   "finesub/llm/injection_budget.py",
   "finesub/llm/knowledge/__init__.py",
   "finesub/llm/knowledge/base.py",
-  "finesub/llm/knowledge/entries.py",
   "finesub/llm/knowledge/feedback.py",
   "finesub/llm/knowledge/node/__init__.py",
   "finesub/llm/knowledge/node/apply.py",

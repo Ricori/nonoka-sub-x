@@ -2,7 +2,7 @@
  "schema": 1,
  "package": "correct",
  "target": "engines/finesub-correct",
- "source_root": "third_party/finesub/src",
+ "source_root": "engines/finesub-correct/src",
  "generated_by": "scripts/engine_packages.py",
  "entries": [
   {
@@ -51,7 +51,7 @@
   },
   {
    "symbol": "finesub.llm.routing.model_catalog:default_model_catalog",
-   "used_at": "engines/finesub-correct/adapter/finesub_correct/__main__.py:46, engines/finesub-correct/adapter/finesub_correct/bridge.py:225"
+   "used_at": "engines/finesub-correct/adapter/finesub_correct/__main__.py:46, engines/finesub-correct/adapter/finesub_correct/bridge.py:244"
   },
   {
    "symbol": "finesub.llm.routing.model_routes:default_model_routes",
@@ -59,7 +59,7 @@
   },
   {
    "symbol": "finesub.llm.routing.model_routes:load_model_routes",
-   "used_at": "engines/finesub-correct/adapter/finesub_correct/__main__.py:47, engines/finesub-correct/adapter/finesub_correct/bridge.py:237"
+   "used_at": "engines/finesub-correct/adapter/finesub_correct/__main__.py:47, engines/finesub-correct/adapter/finesub_correct/bridge.py:256"
   },
   {
    "symbol": "finesub.llm.routing.profiles:resolve_profile",
@@ -71,7 +71,7 @@
   },
   {
    "symbol": "finesub.reporting:quieted_libraries",
-   "used_at": "engines/finesub-correct/adapter/finesub_correct/__main__.py:142, engines/finesub-correct/adapter/finesub_correct/engine.py:305, engines/finesub-correct/adapter/finesub_correct/engine.py:322"
+   "used_at": "engines/finesub-correct/adapter/finesub_correct/__main__.py:143, engines/finesub-correct/adapter/finesub_correct/engine.py:305, engines/finesub-correct/adapter/finesub_correct/engine.py:322"
   },
   {
    "symbol": "finesub.reporting:reporter_delivers",
@@ -79,7 +79,7 @@
   },
   {
    "symbol": "finesub.reporting:reporting_to",
-   "used_at": "engines/finesub-correct/adapter/finesub_correct/__main__.py:142, engines/finesub-correct/adapter/finesub_correct/engine.py:305, engines/finesub-correct/adapter/finesub_correct/engine.py:322"
+   "used_at": "engines/finesub-correct/adapter/finesub_correct/__main__.py:143, engines/finesub-correct/adapter/finesub_correct/engine.py:305, engines/finesub-correct/adapter/finesub_correct/engine.py:322"
   },
   {
    "symbol": "finesub.speech.diarization.evidence:evidence_path",
@@ -121,22 +121,22 @@
  "optional": [
   {
    "symbol": "finesub.api_http:<module>",
-   "used_at": "engines/finesub-correct/adapter/finesub_correct/bridge.py:325",
+   "used_at": "engines/finesub-correct/adapter/finesub_correct/bridge.py:361",
    "present": true
   },
   {
    "symbol": "finesub.api_http:DIRECT",
-   "used_at": "engines/finesub-correct/adapter/finesub_correct/bridge.py:344, engines/finesub-correct/adapter/finesub_correct/bridge.py:345",
+   "used_at": "engines/finesub-correct/adapter/finesub_correct/bridge.py:382, engines/finesub-correct/adapter/finesub_correct/bridge.py:383",
    "present": true
   },
   {
    "symbol": "finesub.api_http:configured_proxy",
-   "used_at": "engines/finesub-correct/adapter/finesub_correct/bridge.py:328, engines/finesub-correct/adapter/finesub_correct/bridge.py:347",
+   "used_at": "engines/finesub-correct/adapter/finesub_correct/bridge.py:364, engines/finesub-correct/adapter/finesub_correct/bridge.py:386",
    "present": true
   },
   {
    "symbol": "finesub.config:clear_config_cache",
-   "used_at": "engines/finesub-correct/adapter/finesub_correct/bridge.py:259",
+   "used_at": "engines/finesub-correct/adapter/finesub_correct/bridge.py:278",
    "present": true
   },
   {
@@ -151,42 +151,42 @@
   },
   {
    "symbol": "finesub.llm.routing.model_routes:install_runtime_preferred",
-   "used_at": "engines/finesub-correct/adapter/finesub_correct/bridge.py:391",
+   "used_at": "engines/finesub-correct/adapter/finesub_correct/bridge.py:430",
    "present": true
   },
   {
    "symbol": "finesub.llm.routing.model_routes:parse_llm_model_args",
-   "used_at": "engines/finesub-correct/adapter/finesub_correct/bridge.py:391",
+   "used_at": "engines/finesub-correct/adapter/finesub_correct/bridge.py:430",
    "present": true
   },
   {
    "symbol": "finesub_bootstrap.download_routes:<module>",
-   "used_at": "engines/finesub-correct/adapter/finesub_correct/bridge.py:359",
+   "used_at": "engines/finesub-correct/adapter/finesub_correct/bridge.py:398",
    "present": false
   },
   {
    "symbol": "finesub_bootstrap.download_routes:RouteDecision",
-   "used_at": "engines/finesub-correct/adapter/finesub_correct/bridge.py:368",
+   "used_at": "engines/finesub-correct/adapter/finesub_correct/bridge.py:407",
    "present": false
   },
   {
    "symbol": "finesub_bootstrap.download_routes:resolve_region",
-   "used_at": "engines/finesub-correct/adapter/finesub_correct/bridge.py:363, engines/finesub-correct/adapter/finesub_correct/bridge.py:372",
+   "used_at": "engines/finesub-correct/adapter/finesub_correct/bridge.py:402, engines/finesub-correct/adapter/finesub_correct/bridge.py:411",
    "present": false
   },
   {
    "symbol": "finesub_bootstrap.http_client:<module>",
-   "used_at": "engines/finesub-correct/adapter/finesub_correct/bridge.py:311",
+   "used_at": "engines/finesub-correct/adapter/finesub_correct/bridge.py:342",
    "present": true
   },
   {
    "symbol": "finesub_bootstrap.http_client:_environment_proxies",
-   "used_at": "engines/finesub-correct/adapter/finesub_correct/bridge.py:314, engines/finesub-correct/adapter/finesub_correct/bridge.py:322",
+   "used_at": "engines/finesub-correct/adapter/finesub_correct/bridge.py:354",
    "present": true
   },
   {
    "symbol": "finesub_bootstrap.http_client:_windows_proxy",
-   "used_at": "engines/finesub-correct/adapter/finesub_correct/bridge.py:321",
+   "used_at": "engines/finesub-correct/adapter/finesub_correct/bridge.py:353",
    "present": true
   }
  ],

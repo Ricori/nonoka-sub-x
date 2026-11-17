@@ -696,7 +696,14 @@ def run_engines(
     # The task's correction engine: the transcription's record directory is
     # its own, and its process may already have applied the task's LLM pin.
     task_corrector = corrector
-    if target in corrections.CORRECTION_TARGETS:
+    core_raw_srt = core_renders_raw_srt(request, packages)
+    if core_raw_srt:
+        corrector = None
+        if in_hand is not None:
+            raise RuntimeError(
+                "没有安装纠错引擎包：云端识别结果要由纠错包转成原始字幕，请安装纠错包后重试"
+            )
+    elif target in corrections.CORRECTION_TARGETS:
         corrector = corrections.registry.get(corrections.requested_engine(request))
         task_corrector = corrector
     else:
@@ -734,8 +741,33 @@ def run_engines(
             # reading it was before the correction moved into its package.
             result.read_transcript()
         corrected = corrector.run(dataclasses.replace(pending, transcription=result), report)
+    candidates = manifest_candidates(result, corrected)
+    if core_raw_srt:
+        from .transcription.srt import RAW_SRT_FILENAME, write_raw_srt
+
+        reporter.stage_started("raw-srt")
+        candidates["raw_srt"] = write_raw_srt(result.transcript_json, task_dir / RAW_SRT_FILENAME)
     emit_completion()
-    return manifest_candidates(result, corrected)
+    return candidates
+
+
+def core_renders_raw_srt(request: Mapping[str, Any], packages: Mapping[str, Any]) -> bool:
+    """Whether the core renders this task's raw SRT itself (WP-P1, question 10).
+
+    Only for a `raw-srt` task with no correction package installed: then a
+    transcription engine still delivers subtitles, rendered from its
+    `transcript.json` (`nonoka_x.transcription.srt`). With a correction
+    package installed its engine writes the raw SRT, whichever engine
+    transcribed, as before the packages.
+    """
+
+    from . import correction as corrections
+
+    return (
+        request.get("target") == "raw-srt"
+        and engine_host.correction_package(packages) is None
+        and corrections.requested_engine(request) == corrections.DEFAULT_ENGINE
+    )
 
 
 def _engine_commit(packages: Mapping[str, Any], *engines: Any) -> str:

@@ -34,7 +34,6 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "third_party/finesub/src"))
 
 from finesub.llm.agent.agent_mcp_server import (  # noqa: E402
     HarnessToolServer,

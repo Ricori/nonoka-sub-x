@@ -1,0 +1,399 @@
+# Hand-written targets: the Gemini API rows and the attached conversational
+# agent. Every local agent (Codex, Claude Code, agy, dsh, CodeBuddy) and every
+# user-declared HTTP endpoint gets one target per catalog model, named after the
+# model (`model_routes._wire_unclaimed_catalog_target`). Whether a target may
+# search is the model's `supports_native_search` with its tier's tool
+# (`model_catalog.NATIVE_SEARCH_TOOLS`); the tool goes out only on a
+# `retrieval=native` call.
+
+[targets.gemini-free-3_6-flash]
+backend = "gemini_rest"
+fact = "gemini-free-3_6-flash"
+enabled_by = "GEMINI_FREE"
+
+[targets.gemini-free-3_8-flash]
+backend = "gemini_rest"
+fact = "gemini-free-3_8-flash"
+enabled_by = "GEMINI_FREE"
+
+# Retired ids AI Studio still answers under another model's quota buy
+# nothing, so they are not listed: 3.5 Flash bills to 3.6, and 3.7 Flash,
+# answered by 3.8 since 2026-10-11, bills to 3.8 since about 2026-10-23.
+
+[targets.gemini-free-3_5-flash-lite]
+backend = "gemini_rest"
+fact = "gemini-free-3_5-flash-lite"
+enabled_by = "GEMINI_FREE"
+
+[targets.gemini-free-3_1-flash-lite]
+backend = "gemini_rest"
+fact = "gemini-free-3_1-flash-lite"
+enabled_by = "GEMINI_FREE"
+
+[targets.gemini-free-2_5-flash]
+backend = "gemini_rest"
+fact = "gemini-free-2_5-flash"
+enabled_by = "GEMINI_FREE"
+
+[targets.gemini-free-gemma-4-31b]
+backend = "gemini_rest"
+fact = "gemini-free-gemma-4-31b"
+enabled_by = "GEMINI_FREE"
+
+# Paid roster is 3.8 Flash + 3.5 Flash Lite; paid-tier grounding is available.
+[targets.gemini-paid-3_8-flash]
+backend = "gemini_rest"
+fact = "gemini-paid-3_8-flash"
+enabled_by = "GEMINI_PAID"
+
+[targets.gemini-paid-3_5-flash-lite]
+backend = "gemini_rest"
+fact = "gemini-paid-3_5-flash-lite"
+enabled_by = "GEMINI_PAID"
+
+# --- v2 declarative layer (docs/manual/model-routing.md) --------------------
+# model_groups: ordered target lists a preset cell can bind. variant_overrides
+# is the per-entry variant escape hatch (D3) -- the default preset never uses
+# it; it exists for prompt iteration and user-defined groups.
+# task_groups: what each job needs (min_capability vs capability is advisory,
+# never routing) plus the per-difficulty prompt variant. The floor's reference
+# model is derived, not declared: it is the first member of the group the
+# default preset binds to that cell.
+# presets: (task_group, difficulty) -> model_group. difficulty is named for
+# what you get, not for how hard the input is: quality / intermediate /
+# efficiency. The default preset must bind every task group's *quality* cell
+# (lower cells fall back upward, see below) and must not trigger its own floor
+# warnings (§5.4).
+
+# 3.8 reasons roughly 1.5x as much as the 3.7 Flash it replaced for the same
+# nominal effort, so its thinking mapping is downshifted one notch in the
+# catalog (`medium,medium,low`).
+[model_groups.correction-capable]
+targets = ["gemini-free-3_8-flash", "gemini-free-3_6-flash", "gemini-paid-3_8-flash"]
+
+[model_groups.correction-basic]
+targets = ["gemini-free-3_5-flash-lite", "gemini-paid-3_5-flash-lite"]
+
+# Owner acceptance edits (2026-08-13): research/knowledge lead with free 3.6,
+# then free 3.8, then the paid tail.
+# Floor-quality work has no lite fallback; the correction-basic cell keeps one
+# free lite + paid lite.
+[model_groups.research-default]
+targets = ["gemini-free-3_6-flash", "gemini-free-3_8-flash", "gemini-paid-3_8-flash"]
+
+[model_groups.knowledge-capable]
+targets = ["gemini-free-3_6-flash", "gemini-free-3_8-flash", "gemini-paid-3_8-flash"]
+
+# The `agy-hybrid` preset's two groups; with the `agy-only-*` pair below they
+# are the only packaged groups that name an agent.
+# A free Gemini API model leads because it costs nothing; agy's own models
+# follow, so the free allowance is spent before the subscription is.
+#
+# Sonnet is text-only, and sitting ahead of the media target is the point: text
+# windows prefer it, media windows fail its capability filter and land on the
+# Gemini agy fronts. One group expresses both without a second binding.
+#
+# On `--retrieval native` each agy call runs in a second agy project that
+# entitles `search_web` + `read_url_content` (docs/llm_local_agent_agy.md §4).
+# Note agy reports the *query* but no source URLs, so native provenance on this
+# backend is thinner than the Codex/Claude paths.
+[model_groups.agy-capable]
+targets = [
+    "gemini-free-3_8-flash",
+    "local-agy-sonnet-5_5",
+    "local-agy-gemini-3_8-flash",
+    "local-agy-gemini-4-argon",
+]
+
+# Free 3.6 Flash replaced the deprecated free 3.5 Flash at the head (2026-10-11):
+# it is the research-default lead, so the free allowance is still spent first.
+[model_groups.agy-basic]
+targets = [
+    "gemini-free-3_6-flash",
+    "local-agy-sonnet-5_5",
+    "local-agy-gemini-3_8-flash",
+    "local-agy-gemini-4-argon",
+]
+
+# The `agy-fast` preset's efficiency cells (owner 2026-10-01): agy's 3.8 Flash
+# then Argon only, so a spent subscription stops the run instead of moving it to
+# an API.
+[model_groups.agy-only-fast]
+targets = ["local-agy-gemini-3_8-flash", "local-agy-gemini-4-argon"]
+
+# The same two groups with the API head removed -- the `agy` preset's pair.
+#
+# Why a group and not the `agent-only` policy: the policy is a global backend
+# gate that can only ever FORBID a backend a group names, and it applies to
+# whatever preset is active. "This preset has no API members" is a different
+# statement, and expressing it as membership keeps the policy's one job intact.
+# The two still compose: `agent-only` on top of `agy-hybrid` gets you the same
+# calls, it just says it in the gate instead of in the roster.
+#
+# Ordering carries over unchanged: Sonnet is text-only and leads on purpose, so
+# text windows prefer it and media windows fail its capability filter and land
+# on the Gemini agy fronts. Each 3.8 Flash target is followed by its Argon
+# standby.
+[model_groups.agy-only-capable]
+targets = [
+    "local-agy-sonnet-5_5",
+    "local-agy-gemini-3_8-flash",
+    "local-agy-gemini-4-argon",
+]
+
+[model_groups.agy-only-basic]
+targets = [
+    "local-agy-sonnet-5_5",
+    "local-agy-gemini-3_8-flash",
+    "local-agy-gemini-4-argon",
+]
+
+# dsh serves the tool protocol only: `dsh --profile headless` has no input
+# channel but its command line, so a whole window cannot be sent inline. Bind
+# this group to a per-window cell -- an `api` or `resume` session fails the
+# call with that explanation rather than building an impossible argv. Not
+# bound by default.
+# Groups are the product decision -- Flash leads because it is currently the
+# better cheap line; Pro stays reachable so a later upgrade does not pay the
+# add-it-again tax.
+[model_groups.dsh-capable]
+targets = [
+    "local-dsh-deepseek-v4_1-flash",
+    "local-dsh-deepseek-v4-pro",
+]
+
+[model_groups.dsh-basic]
+targets = [
+    "local-dsh-deepseek-v4_1-flash",
+]
+
+# The remaining free line first on basic; capable is the paid chain
+# (glm, v4.1-flash, then v4-pro as spare). glm leads because it is the row
+# docs/manual/agent.md recommends: its correction tier was tuned until it
+# stopped reasoning past its ceiling, so a group bind and a single bind now
+# start on the same model (owner 2026-09-12). The free line is metered on its
+# own, so exhausting it only moves the chain along by one step.
+[model_groups.codebuddy-capable]
+targets = [
+    "local-codebuddy-glm-5_3-flash",
+    "local-codebuddy-deepseek-v4_1-flash",
+    "local-codebuddy-deepseek-v4-pro",
+]
+
+[model_groups.codebuddy-basic]
+targets = [
+    "local-codebuddy-hy3",
+    "local-codebuddy-glm-5_3-flash",
+    "local-codebuddy-deepseek-v4_1-flash",
+]
+
+# Free-tier entry point for retrieval=native. NOT bound by default: with
+# retrieval=native the *bound* group is filtered by supports_native_search
+# (per-call capability, D4 -- the v1 native-search chain is gone), and the
+# default bindings already carry paid 3.8, which grounds. Free 3.x cannot
+# ground at all, so the only free native model is 2.5 Flash -- and its
+# capability (low) is below the correction/knowledge floor, which is exactly
+# why it is opt-in rather than a silent fallback. Bind this group into a cell
+# to accept that trade.
+[model_groups.gemini-native-search]
+targets = ["gemini-free-2_5-flash", "gemini-paid-3_8-flash"]
+
+# min_capability guards the *quality* cell only (owner decision 2026-08-11): a
+# difficulty is positioning, not a model capability -- intermediate carries the
+# capable prompt (capableC), efficiency the one-row-per-source basic one (basicA) for lower models
+# -- and what a preset binds below quality is its own call. Thinking is a
+# preset-level knob ([presets.<id>.thinking]); cells carry the variant.
+[task_groups.correction-mm]
+min_capability = "medium"
+cells = { quality = { variant = "capableC" }, intermediate = { variant = "capableC" }, efficiency = { variant = "basicA" } }
+
+[task_groups.correction-text]
+min_capability = "medium"
+cells = { quality = { variant = "capableC" }, intermediate = { variant = "capableC" }, efficiency = { variant = "basicA" } }
+
+[task_groups.research]
+min_capability = "low"
+cells = { quality = { variant = "" }, intermediate = { variant = "" }, efficiency = { variant = "" } }
+
+[task_groups.knowledge]
+min_capability = "medium"
+cells = { quality = { variant = "" }, intermediate = { variant = "" }, efficiency = { variant = "" } }
+
+# Unbound intermediate/efficiency cells reuse the next-higher bound cell of
+# the same preset (difficulty fallback, 2026-08-11), so only correction --
+# which deliberately steps down to the lites at efficiency -- binds more than
+# quality. Its intermediate cell would fall back to quality's group anyway; it
+# is written out so the three correction cells read as the positioning they
+# are (owner 2026-10-30: the first two tiers are for capable models).
+[presets.default]
+name = "默认"
+test_target = "gemini-free-3_5-flash-lite"
+
+[presets.default.bindings]
+"correction-mm/quality" = "correction-capable"
+"correction-mm/intermediate" = "correction-capable"
+"correction-mm/efficiency" = "correction-basic"
+"correction-text/quality" = "correction-capable"
+"correction-text/intermediate" = "correction-capable"
+"correction-text/efficiency" = "correction-basic"
+"research/quality" = "research-default"
+"knowledge/quality" = "knowledge-capable"
+
+# Thinking knobs (abstract low/medium/high; difficulty fallback like the
+# bindings, entirely unfilled cells default to medium).
+#
+# Owner tuning 2026-08-12:
+#   - research / knowledge think *high* at difficulty=quality. Both feed
+#     everything downstream -- research writes the context pack every window
+#     reads, knowledge writes the base itself -- so they are the two places
+#     where extra reasoning is worth its tokens.
+#   - every task group thinks *low* at efficiency: that difficulty is the
+#     cheapest shape that still corrects and translates.
+#   - research/knowledge keep thinking high at *intermediate* too, via the
+#     upward fallback -- the model gets cheaper there, the reasoning does not.
+[presets.default.thinking]
+"correction-mm/efficiency" = "low"
+"correction-text/efficiency" = "low"
+"research/quality" = "high"
+"research/efficiency" = "low"
+"knowledge/quality" = "high"
+"knowledge/efficiency" = "low"
+
+# Same cells as the default preset, but every one of them bound to a group that
+# can reach agy. Correction and knowledge take the capable group; research
+# takes the basic one.
+#
+# "hybrid" is the whole point of this one: a free Gemini API model leads every
+# group, so the free allowance is spent before the subscription is. If you want
+# the subscription to answer everything, take the `agy` preset below.
+[presets.agy-hybrid]
+name = "agy 混合（免费 API 打头）"
+# The same lite as the default preset's test target, and deliberately the
+# lite model: a `--test-profile` run pins this target for every call, and the
+# lite tier carries 500 RPD against full Flash's 20.
+test_target = "gemini-free-3_5-flash-lite"
+
+[presets.agy-hybrid.bindings]
+"correction-mm/quality" = "agy-capable"
+"correction-mm/intermediate" = "agy-capable"
+"correction-text/quality" = "agy-capable"
+"correction-text/intermediate" = "agy-capable"
+"knowledge/quality" = "agy-capable"
+"research/quality" = "agy-basic"
+
+# Every cell on agy, no API member anywhere. For a subscription you have already
+# paid for and would rather spend than juggle keys for.
+[presets.agy]
+name = "agy 独占"
+# NOT the default preset's lite Gemini model. `--test-profile` pins the test
+# target for every call in the run, so inheriting it would send a "pure agy"
+# run's whole test pass to a Gemini API -- the one thing this preset exists to
+# avoid. The agy Gemini front is the cheap target here; Sonnet is not.
+test_target = "local-agy-gemini-3_8-flash"
+
+[presets.agy.bindings]
+"correction-mm/quality" = "agy-only-capable"
+"correction-mm/intermediate" = "agy-only-capable"
+"correction-text/quality" = "agy-only-capable"
+"correction-text/intermediate" = "agy-only-capable"
+"knowledge/quality" = "agy-only-capable"
+"research/quality" = "agy-only-basic"
+
+# A subscription user who does not want to manage keys: `local` retrieval
+# needs Exa / Gemini Free / Tavily keys and has no keyless fallback, so search
+# goes through agy's own tool instead (owner 2026-09-30). The command line still wins.
+[presets.agy.defaults]
+retrieval = "native"
+
+# Rough correction of a long input (owner 2026-10-01): no over-thinking, meaning
+# roughly right, so a reader can find the highlights. Text only, no search, low
+# thinking (efficiency), and windows in parallel. Efficiency pins neither media
+# nor retrieval (owner 2026-10-24), so both presets write them out here; the
+# command line still wins. Two copies, so neither user ends up on the other's
+# backend: `agy-fast` never falls to an API when the subscription is spent;
+# `fast` is for users without agy. Select one with `--llm-preset`.
+#
+# `agy-fast` copies `agy`'s bindings (a cell a preset leaves out falls back to
+# `default`, not to `agy`); a test keeps the copies equal. Its retrieval is
+# `none`, not `agy`'s `native`, which also keeps a `--llm-difficulty quality`
+# here off the key-needing `local` default. Only its text efficiency cell is
+# bound to the fast group: `--llm-media audio` here falls back upward to the
+# intermediate cell's `agy-only-capable`.
+[presets.agy-fast]
+name = "agy 快速粗纠"
+test_target = "local-agy-gemini-3_8-flash"
+
+[presets.agy-fast.bindings]
+"correction-mm/quality" = "agy-only-capable"
+"correction-mm/intermediate" = "agy-only-capable"
+"correction-text/quality" = "agy-only-capable"
+"correction-text/intermediate" = "agy-only-capable"
+"knowledge/quality" = "agy-only-capable"
+"research/quality" = "agy-only-basic"
+"correction-text/efficiency" = "agy-only-fast"
+"research/efficiency" = "agy-only-fast"
+
+[presets.agy-fast.defaults]
+difficulty = "efficiency"
+media = "text"
+retrieval = "none"
+continuity = "parallel"
+parallel_windows = 4
+
+# The API twin. Cells it leaves out fall back to `default` by construction; the
+# correction efficiency cell is written out only because a preset must bind at
+# least one -- it is what `default` falls back to there anyway. The
+# preparation task follows `default` too (owner 2026-10-01: not bound apart).
+[presets.fast]
+name = "快速粗纠（API）"
+
+[presets.fast.bindings]
+"correction-text/efficiency" = "correction-basic"
+
+[presets.fast.defaults]
+difficulty = "efficiency"
+media = "text"
+retrieval = "none"
+continuity = "parallel"
+parallel_windows = 4
+
+# Execution policies are a **backend gate and nothing else**.
+#
+# They used to prepend agent groups onto every cell, which put "which models
+# answer" in two places at once: the bound group said one thing and the policy
+# silently prefixed another. Agents now take part by being *members* of a bound
+# group (see the agy preset), and a policy can only ever forbid a backend that
+# a group names -- never add one it does not.
+#
+# What that leaves is the one thing group membership cannot express: a
+# guarantee that holds whatever the bound group happens to list.
+
+# No local CLI, whatever a group names. User-declared API backends ride along
+# under every policy that allows APIs at all.
+[policies.api-only]
+allowed_backends = ["gemini_rest", "openai_compat", "anthropic"]
+
+# The default (owner decision 2026-08-15). Everything a bound group names may
+# answer; a group with no agent members behaves exactly as it always did.
+[policies.agent-text-preferred]
+allowed_backends = ["local_agent", "conversational_agent", "gemini_rest", "openai_compat", "anthropic"]
+
+# Not one token of API quota, whatever a group lists.
+[policies.agent-only]
+allowed_backends = ["local_agent", "conversational_agent"]
+
+# Bound by nothing out of the box. A conversational worker is an agent a
+# person is already running: it claims tasks rather than being called, so it
+# can never be a step in a fallback chain -- the loader refuses to let it share
+# a model group or be prepended by a policy, and `provider_enabled` always says
+# no for it. A cell bound to this group queues its text calls for the person's
+# agent (`finesub agent-join`, docs/llm_local_agent.md §12.1.4); the agent
+# policies allow the backend so such a binding is honoured. The capabilities
+# below are a conservative placeholder.
+[targets.conversational-agent]
+backend = "conversational_agent"
+fact = "local-conversational-agent"
+enabled_by = "LOCAL_CONVERSATIONAL"
+
+[model_groups.conversational-agent]
+targets = ["conversational-agent"]

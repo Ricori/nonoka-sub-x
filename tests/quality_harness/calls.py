@@ -32,7 +32,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
-from . import ENGINES, FIXTURES, ROOT, SETUP_SOURCES
+from . import ENGINES, FIXTURES, ROOT
 
 BASELINE_DIR = FIXTURES / "calls"
 STABLE_FIXTURE = ROOT / "tests" / "fixtures" / "finesub" / "sample-stable.json"
@@ -404,7 +404,9 @@ def package_hook(spec: Mapping[str, Any], entry: str, context: Mapping[str, Any]
 def child_main(spec_path: Path) -> int:
     spec = json.loads(spec_path.read_text(encoding="utf-8"))
     root = Path(spec["root"])
-    from . import stubs
+    from . import stubs, union
+
+    union.install()
     from .package_child import read_shared, use_in_worker
 
     sys.meta_path.insert(0, stubs.RefuseHeavyImports())
@@ -478,10 +480,11 @@ def hermetic_environment(root: Path) -> dict[str, str]:
 
     environment, _removed = isolated_environment(root)
     environment.update({
-        # Only so the child can import the code (and set up what a scenario
-        # needs with FineSub's own code); `child_main` then runs the worker
-        # under the environment the provider builds.
-        "PYTHONPATH": os.pathsep.join([str(ROOT / "src"), *map(str, SETUP_SOURCES)]),
+        # Only so the child can import the core; it sets up what a scenario
+        # needs with FineSub's own code through `union.install()` (on its own
+        # `sys.path`, which no package process inherits), and `child_main` then
+        # runs the worker under the environment the provider builds.
+        "PYTHONPATH": str(ROOT / "src"),
         "PYTHONIOENCODING": "utf-8",
         "PYTHONDONTWRITEBYTECODE": "1",
         # Any key file in plaintext: DPAPI output differs on every write.

@@ -28,6 +28,7 @@ def apply_context(context: Mapping[str, Any], wire: Wire) -> None:
     """
 
     bridge.drop_inherited()
+    bridge.bind_package_data(context)
     paths = context.get("paths") or {}
     if paths.get("run"):
         bridge.bind_llm_files(context)

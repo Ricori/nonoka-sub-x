@@ -97,10 +97,14 @@ def check_lock(_args: argparse.Namespace) -> Result:
 
     result = Result("quality lock")
     problems = lock.problems()
-    recorded = json.loads(lock.LOCK_FILE.read_text(encoding="utf-8")) if lock.LOCK_FILE.is_file() else {}
     if problems:
-        return result.fail(f"{len(problems)} problem(s) in third_party/finesub/src", problems)
-    result.summary = f"{len(recorded.get('files', []))} locked files match QUALITY_LOCK.json"
+        return result.fail(f"{len(problems)} problem(s) in the engine packages' src/", problems)
+    counts = {package: len(lock.recorded(package).get("files", [])) for package in lock.PACKAGE_IDS}
+    distinct = len(lock.locked_files())
+    result.summary = (
+        f"{distinct} locked files match the packages' QUALITY_LOCK.json ("
+        + ", ".join(f"{package} {count}" for package, count in counts.items()) + ")"
+    )
     return result
 
 

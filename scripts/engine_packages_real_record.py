@@ -12,7 +12,12 @@ Usage (take the GPU lock first, see WP-Q in docs/transcription-engines-plan.md):
     D:\\Envir\\Python312\\python scripts/engine_packages_real_record.py
 
 `NONOKA_P0_MAIN` names the main checkout (default D:\\Development\\nonoka-sub-x):
-`test_data/` and `.tmp/pbs-3.12.1` live only there.
+`test_data/` lives only there.
+
+WP-P0's one-off. Since WP-P1 the worker imports no FineSub: the packages'
+processes do, and they inherit the recorder on their `PYTHONPATH`, so each
+writes the record when it exits and the last one wins. Rerunning this needs a
+record per process first.
 """
 from __future__ import annotations
 
@@ -26,8 +31,7 @@ from pathlib import Path
 
 WORKTREE = Path(__file__).resolve().parents[1]
 MAIN = Path(os.environ.get("NONOKA_P0_MAIN", r"D:\Development\nonoka-sub-x"))
-sys.path[:0] = [str(WORKTREE), str(WORKTREE / "src"), str(WORKTREE / "third_party" / "finesub" / "src")]
-os.environ.setdefault("NONOKA_QUALITY_PYTHON", str(MAIN / ".tmp" / "pbs-3.12.1" / "python" / "python.exe"))
+sys.path[:0] = [str(WORKTREE), str(WORKTREE / "src")]
 
 from tests.quality_harness import real  # noqa: E402
 from nonoka_x.local_provider import validate_request  # noqa: E402
