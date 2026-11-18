@@ -142,6 +142,9 @@ class SandboxTest(unittest.TestCase):
         self.assertEqual(Path(environment["HOME"]), home)
         self.assertEqual(Path(environment["APPDATA"]), home / "AppData" / "Roaming")
         self.assertEqual(Path(environment["LOCALAPPDATA"]), home / "AppData" / "Local")
+        if os.name == "nt":
+            # Owner H8: the home's drive and path are the sandbox's too.
+            self.assertEqual(Path(environment["HOMEDRIVE"] + environment["HOMEPATH"]), home)
         self.assertEqual(Path(environment["TEMP"]), temp)
         self.assertEqual(Path(environment["TMP"]), temp)
         self.assertEqual(Path(probe["temp"]), temp)
@@ -154,7 +157,7 @@ class SandboxTest(unittest.TestCase):
     def test_the_correction_keeps_the_real_profile(self) -> None:
         with self.start(self.correct) as process:
             probe = process.request("probe")
-        for name in ("USERPROFILE", "APPDATA", "LOCALAPPDATA", "TEMP", "TMP"):
+        for name in ("USERPROFILE", "APPDATA", "LOCALAPPDATA", "TEMP", "TMP", "HOMEDRIVE", "HOMEPATH"):
             self.assertEqual(probe["environment"].get(name), os.environ.get(name), name)
         self.assertFalse(self.sandbox().exists())
 

@@ -383,7 +383,8 @@ def check_real(args: argparse.Namespace) -> Result:
         # The sandbox write check (WP-H): what the runs left outside the sandbox.
         args.sandbox_outcome = {
             "changes": sandbox.compare(before, sandbox.snapshot(where)),
-            "sandbox": sandbox.sandbox_state(data_dir),
+            # Each run's own data directory (`run_dir/config`, `real._worker_launch`).
+            "sandbox": sandbox.sandbox_state(path / "config" for path in scratch.iterdir() if path.is_dir()),
             "acceleration": {name: (sample.get("run") or {}).get("acceleration") for name, sample in outcome.items()},
             "strict": {name: str(path) for name, path in where.strict.items()},
         }
@@ -457,10 +458,12 @@ def check_sandbox(args: argparse.Namespace) -> Result:
     lines.append(f"  sandbox: exists={state['exists']}, home files {state['home_files']} {state['home_top']}, "
                  f"leftover TEMP directories {state['leftover_temps']}")
     result.details = lines
-    if changes["strict"] or not_eager or state["leftover_temps"]:
+    unsandboxed = not state["exists"] or not all(state["exists"])
+    if changes["strict"] or not_eager or state["leftover_temps"] or unsandboxed:
         result.status = FAIL
         result.summary = (f"{len(changes['strict'])} strict location(s) changed, {len(not_eager)} run(s) not eager, "
-                          f"{len(state['leftover_temps'])} sandbox TEMP(s) left")
+                          f"{len(state['leftover_temps'])} sandbox TEMP(s) left"
+                          + (", a run had no sandbox" if unsandboxed else ""))
     elif changes["observed"]:
         result.status = UNDECIDED
         result.summary = (f"no strict location changed, every run eager; {len(changes['observed'])} observed "

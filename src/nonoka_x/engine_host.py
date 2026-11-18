@@ -378,9 +378,9 @@ CLASSIFICATION: tuple[Variable, ...] = (
            "the account: DPAPI needs the loaded profile, not a variable, but torch inductor names a directory "
            "after USERNAME and child processes expect the pair",
            "USERNAME", "USERDOMAIN", platforms=("win32",)),
-    *_rows("system", ALL_PROCESSES,
-           "the user's home drive and path: only read where USERPROFILE is missing (Python, Node); "
-           "whether the transcription's are redirected too is the owner's to decide (appendix C item 2)",
+    *_rows("system", LAUNCHER_PROCESSES,
+           "the user's home drive and path: only read where USERPROFILE is missing (Python's expanduser); "
+           "the real ones outside the sandbox",
            "HOMEDRIVE", "HOMEPATH", platforms=("win32",)),
     *_rows("system", LAUNCHER_PROCESSES,
            "the real profile directories: the correction and the knowledge process run outside the sandbox "
@@ -420,6 +420,10 @@ CLASSIFICATION: tuple[Variable, ...] = (
            "the sandbox's home (shared between runs: the CUDA and torch kernel caches stay warm, plan 4.5 item 28)",
            "USERPROFILE", "HOME", "APPDATA", "LOCALAPPDATA"),
     *_rows("nonoka", frozenset((TRANSCRIPTION,)),
+           "the sandbox's home split into drive and path, like USERPROFILE (owner 2026-11-18, appendix C item 2, "
+           "WP-H question H8: measured to change nothing, kept consistent with the rest of the profile)",
+           "HOMEDRIVE", "HOMEPATH", platforms=("win32",)),
+    *_rows("nonoka", frozenset((TRANSCRIPTION,)),
            "the sandbox's temporary directory of this one process, with its anchor held open (item 28)",
            "TEMP", "TMP"),
     *_rows("nonoka", frozenset((TRANSCRIPTION,)), "the sandbox's temporary directory of this one process",
@@ -451,6 +455,12 @@ CLASSIFICATION: tuple[Variable, ...] = (
     *_rows("absent", ALL_PROCESSES, "an XDG directory: the engine's fall-backs are named explicitly",
            "XDG_STATE_HOME", "XDG_CACHE_HOME", "XDG_CONFIG_HOME", "XDG_DATA_HOME"),
     *_rows("absent", ALL_PROCESSES, "editors, for an interactive command no task runs", "EDITOR", "VISUAL"),
+    *_rows("absent", ALL_PROCESSES,
+           "a terminal's, an IDE's or a build system's, read by libraries to size output, name a user or pin "
+           "timestamps (found by the read audit of the real pipeline): their defaults",
+           "COLUMNS", "LINES", "LOGNAME", "LNAME", "PYCHARM_HOSTED", "TEST_TMPDIR", "SOURCE_DATE_EPOCH",
+           "PYTHONDOCS", "ANDROID_DATA", "PROCESSOR_ARCHITEW6432", "WIN_PD_OVERRIDE_LOCAL_APPDATA"),
+    *_rows("absent", ALL_PROCESSES, "the POSIX user name: Windows has USERNAME", "USER", platforms=("win32",)),
     *_rows("absent", ALL_PROCESSES,
            "would make a program lookup skip the working directory; Windows' default (unset) is kept",
            "NoDefaultCurrentDirectoryInExePath", platforms=("win32",)),
@@ -683,6 +693,10 @@ class SandboxTemp:
 
     def variables(self) -> dict[str, str]:
         variables = {name: str(path) for name, path in self._home_directories().items()}
+        if os.name == "nt":
+            # The home again, as a drive and a path (owner H8).
+            drive, rest = os.path.splitdrive(str(self.home))
+            variables.update({"HOMEDRIVE": drive, "HOMEPATH": rest or "\\"})
         temp = str(self.temp)
         if os.name == "nt":
             variables.update({"TEMP": temp, "TMP": temp})

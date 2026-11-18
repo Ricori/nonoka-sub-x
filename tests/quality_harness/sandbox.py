@@ -183,17 +183,19 @@ def compare(before: dict[str, Any], after: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def sandbox_state(data_dir: Path) -> dict[str, Any]:
-    """What the sandbox itself holds after the runs: its home's top entries, and leftover temporary directories."""
+def sandbox_state(data_dirs: Iterable[Path]) -> dict[str, Any]:
+    """What the transcription sandboxes of the runs hold: their homes' files, and leftover temporary directories."""
 
-    root = data_dir / "engines" / "finesub-transcribe" / "sandbox"
-    temps = sorted(path.name for path in (root / "temp").iterdir()) if (root / "temp").is_dir() else []
-    home_files = _files(root / "home")
+    roots = [Path(data_dir) / "engines" / "finesub-transcribe" / "sandbox" for data_dir in data_dirs]
+    temps = sorted(
+        str(path) for root in roots if (root / "temp").is_dir() for path in (root / "temp").iterdir()
+    )
+    home_files = {f"{root}/{path}": size for root in roots for path, size in _files(root / "home").items()}
     return {
-        "exists": root.is_dir(),
+        "exists": [root.is_dir() for root in roots],
         "leftover_temps": temps,
         "home_files": len(home_files),
-        "home_top": sorted({"/".join(path.split("/")[:3]) for path in home_files})[:20],
+        "home_top": sorted({"/".join(path.split("/")[-4:-1]) for path in home_files})[:20],
     }
 
 

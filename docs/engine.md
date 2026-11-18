@@ -60,7 +60,7 @@ engines/
 
 - **环境从零构建，不继承**。分类表分两半：中性的一半在 `engine_host.CLASSIFICATION`（系统变量、`PATH`、`PYTHON*`、代理、沙箱目录），引擎自己读的一半在各包 `bridge.py` 的 `CLASSIFICATION`（`FINESUB_*`、模型库的变量、密钥）。每个名字归三类之一：「系统必需」按名从父进程原样带；「Nonoka 设定」由核心或桥接无条件写；其余一律不存在。`PATH` 只有工具层里 ffmpeg / ffprobe / tokcount 的目录、纠错进程另加本机探测到的本地 Agent CLI 目录（npm 装的 CLI 再加 node 的目录），再加由 `SystemRoot` 推出的系统目录；就绪检查也只认工具层。代理总是显式写：有代理写 `HTTP(S)_PROXY`，没有写 `NO_PROXY=*`。
 - **解释器隔离启动**：`python -I`（转写进程另加 `-B`）`-c <引导>`，引导代码先把 `sys.path` 设成包自己的两个根（`adapter`、`src`）加解释器自己的库、把三个标准流改成 UTF-8，再以 `__main__` 运行入口模块。`PYTHONPATH`（同样只有包的两个根）与 `PYTHONNOUSERSITE=1` 只为引擎自己拉起的孙进程（MCP 服务）而设。
-- **转写进程在沙箱里**：`USERPROFILE`、`HOME`、`APPDATA`、`LOCALAPPDATA` 指向 `<数据目录>\engines\finesub-transcribe\sandbox\home\`（跨运行共用），`TEMP`、`TMP` 指向 `sandbox\temp\<进程>\`（每个进程一份，里面的锚点文件 `!!nonoka-temp-anchor` 由启动方加锁开着，进程结束后整个删掉；启动时清掉没有活进程的残留）。当前目录是任务目录；纠错和知识库进程的当前目录是它自己的 run 目录。纠错、知识库进程不进沙箱，用真实的用户目录；本地 Agent CLI 的配置与证书变量只带给纠错进程（D16）。
+- **转写进程在沙箱里**：`USERPROFILE`、`HOME`、`APPDATA`、`LOCALAPPDATA` 指向 `<数据目录>\engines\finesub-transcribe\sandbox\home\`（跨运行共用；`HOMEDRIVE`、`HOMEPATH` 也拆成这个目录的驱动器与路径，用户 2026-11-18 定），`TEMP`、`TMP` 指向 `sandbox\temp\<进程>\`（每个进程一份，里面的锚点文件 `!!nonoka-temp-anchor` 由启动方加锁开着，进程结束后整个删掉；启动时清掉没有活进程的残留）。当前目录是任务目录；纠错和知识库进程的当前目录是它自己的 run 目录。纠错、知识库进程不进沙箱，用真实的用户目录；本地 Agent CLI 的配置与证书变量只带给纠错进程（D16）。
 - `CUDA_VISIBLE_DEVICES`：请求是 `cuda:N` 时由转写适配器在调 `run_transcription` 之前无条件设成 `N`，其余情况不存在；父进程的值从不带进来。
 
 证明在 `tests/test_engine_hermetic.py`（覆盖扫描、投毒、读取审计）、`tests/test_engine_sandbox.py`（沙箱、锚点、残留、两进程并发、`-I -B`），以及 `scripts/quality_gate.py --real` 的 `sandbox` 一项（运行前后对沙箱外的受保护位置做快照比对）。

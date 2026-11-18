@@ -243,6 +243,10 @@ def _worker_launch(run_dir: Path) -> tuple[list[str], dict[str, str], Path, list
     environment["NO_PROXY"] = environment["no_proxy"] = ""
     environment["HF_HUB_OFFLINE"] = "1"
     environment["TRANSFORMERS_OFFLINE"] = "1"
+    # The worker is the core, on the launcher: in a source checkout it would
+    # write the core's own bytecode into `src/`, which the sandbox write check
+    # watches for the engine's sake (WP-H). No package process inherits it.
+    environment["PYTHONDONTWRITEBYTECODE"] = "1"
     return command, environment, task_dir, removed
 
 
