@@ -1,6 +1,6 @@
 # 转写引擎重构计划
 
-> 状态（2026-11-18）：已完成并合进 main 的工作包见第 6 节开头的「已完成」列表，它们的交付摘要与原始说明在 `docs/transcription-engines-plan-done.md`（本文只留标题）。在做：第九批 WP-H、WP-L（附录 B 第 83 问）。之后：WP-CL（第十批，等 WP-L 合并）、WP-M2（等 WP-L）、WP-UI（等 WP-H、WP-L）、WP7（WP-H 之后、WP8 之前，第 75 问）、WP8；WP-M1 的最后一条完成标准先不做（第 70 问）。用户做过的决定都在第 4 节和附录 B，按问题编号查。本文档是交给子代理执行的工作说明，每个工作包可以单独领走。
+> 状态（2026-11-18）：已完成并合进 main 的工作包见第 6 节开头的「已完成」列表，它们的交付摘要与原始说明在 `docs/transcription-engines-plan-done.md`（本文只留标题）。第九批 WP-H、WP-L 已于 2026-11-18 合进两个仓库的 main。现在前提已满足的：WP-CL（等 WP-L，第 83 问定为第十批）、WP-M2、WP-UI、WP7（WP-P1、WP-H 之后、WP8 之前，第 75 问）；之后 WP8。WP-M1 的最后一条完成标准先不做（第 70 问）。用户做过的决定都在第 4 节和附录 B，按问题编号查。本文档是交给子代理执行的工作说明，每个工作包可以单独领走。
 > 写于 2026-11-10，基于 `main@1f14db3`、FineSub `v0.7.0@7123055`。
 > **2026-11-11 整理成干净版本**（用户决定，附录 B 第 1 问）：现行决定直接写在正文里，不再有「以后者为准」的追加条款。每个决定的来历、被推翻的旧说法，以及旧条款编号到新编号的对照，见附录 A；向用户问过的问题和答复见附录 B；还没定的事见附录 C。整理前的版本在 git 历史里（`main` 上的 `docs/transcription-engines-plan.md`）。
 > 相关文档：`docs/runtime-and-config.md`（WP-R0 的调查与设计答复 D1–D23，下称「R0 文档」；其中被本计划取代的答复已在那边标注，对照见附录 A.3）；`docs/engine-sandbox-experiment.md`（预制环境包与进程级沙箱两个前提的实验报告，下称「实验报告」）。本文档与 R0 文档冲突时以本文档为准。
@@ -493,7 +493,7 @@ FineSub 转写引擎也要写 `transcript.json`（从它的 stable 投影出来�
 ## 6. 工作包
 
 ```text
-已完成：WP-Q、WP-A、WP0、WP-R0、WP-R2、WP-B、WP-R1、WP1、WP4a、WP4b、WP4c、WP3a/b/c、WP-C、WP-P0、WP-M1（最后一条完成标准还没做，WP-E3 已完成、可以做了）、WP-R4、WP-K、WP-E1、WP-CL0、WP5、WP-E2、WP-E3、WP-R5、WP-R6、WP6、WP-R7、WP-P1
+已完成：WP-Q、WP-A、WP0、WP-R0、WP-R2、WP-B、WP-R1、WP1、WP4a、WP4b、WP4c、WP3a/b/c、WP-C、WP-P0、WP-M1（最后一条完成标准还没做，WP-E3 已完成、可以做了）、WP-R4、WP-K、WP-E1、WP-CL0、WP5、WP-E2、WP-E3、WP-R5、WP-R6、WP6、WP-R7、WP-P1、WP-H、WP-L
 
 引擎线：
 WP-B ──┬─► WP1 ──► WP3a / WP3b / WP3c ───────────────┐
@@ -707,27 +707,9 @@ D:\Envir\Python312\python scripts/quality_gate.py --cloud  # 云端（WP-C；基
 
 已完成。交付摘要与原始说明移到 `docs/transcription-engines-plan-done.md` 的同名一节。
 
-### WP-H 密闭运行与沙箱（重写）
+### WP-H 密闭运行与沙箱（已完成 2026-11-18）
 
-等 WP-P1、WP5 都做完再开工：它要封的是分包之后的最终形态（两个包各自的进程）。中性的那部分环境（系统必需变量、`PATH`、解释器隔离启动、沙箱目录与锚点）由核心的 `engine_host.py` 构建，`FINESUB_*` 由包内桥接从启动上下文生成。
-
-- 文件：`src/nonoka_x/engine_host.py`（环境与沙箱）、两个包的桥接、`local_provider.py` 里拉起进程的地方、`tests/test_engine_hermetic.py`、`tests/test_engine_sandbox.py`、`scripts/quality_gate.py`（加沙箱写入检查）。
-- 内容：
-  - 按 4.5 实现：两个进程的环境从零构建、无条件写入、`-I` 启动（转写进程另加 `-B`）、入口设 `sys.path` 与标准输出编码；分类表以 R0 文档 1.7.3 为初稿，按 4.5 第 27 条调整（删掉 MSVC 一行；转写进程的用户目录与临时目录变量改为「Nonoka 设定」；加 `HF_HUB_OFFLINE=1`），1.7.2 里未逐项核实的库变量由读取审计补全。分类表放在 `engine_host.py`（中性部分）和包内桥接（`FINESUB_*`）里，是唯一的事实来源；每一项写明归类理由。
-  - 转写进程的沙箱按 4.5 第 28 条：共用的 `sandbox\home\`、每进程的 `sandbox\temp\<进程>\` 与锚点、结束删、启动清残留。实测 `HOMEDRIVE`/`HOMEPATH` 改不改向的效果，结论交用户定（附录 C）。
-  - 纠错进程按 4.5 第 29 条：不进沙箱，本地 Agent CLI 的变量按 D16 逐个列名带。
-  - 2.5 列的每个漏点逐条关掉，包括 `setdefault`、`CUDA_VISIBLE_DEVICES` 的条件设置、sidecar 把 `FINESUB_*` 写进自己环境的做法；删掉 `_prepare_msvc_environment`（2.8）。
-- 证明密闭的测试，两个进程都做：
-  1. **覆盖扫描**：扫两个包里所有读环境变量的地方（含转写包的 `finesub_bootstrap` 原件和纠错兼容包），每个名字都必须在分类表里。
-  2. **投毒测试**：把父进程环境里所有已知变量设成垃圾值，在当前目录、真实用户目录（测试里用假的）里放伪造的配置文件和密钥文件，然后构建进程环境、派生配置、跑调用等价测试。结果必须与干净父进程下的完全相同。
-  3. **读取审计**：给进程装一个记录环境变量读取的钩子，跑一遍打桩的完整管线，引擎读过的每个名字都必须在分类表里，且读到的值都来自 Nonoka。
-  4. **沙箱写入检查**（转写进程）：`--real` 时运行前后对沙箱外的受保护位置做快照比对，新增、删除、修改都是 0；层目录和引擎源码目录同样是 0（没有 `.pyc`、没有 `probe.json`）。
-- 完成标准：
-  - 四种测试通过；闸门全部通过；`quality_gate.py --real` 在密闭环境与沙箱下通过。
-  - 加速状态：真实样本运行元数据里是 eager，没有因为任何原因打开。
-  - **确认 token 计数来源和繁简折叠没有变**：在纠错进程下各跑一次改动前后的纠错，任务产物里记录的 `token_counter_source` 相同（仍是 `tokcount`，没有因为 `PATH` 重建找不到它而退回估算），`opencc` 可 import。回放基线不含这两条路径（WP-Q 的说明），只能在这里查。
-  - 密钥读取、模型加载、ffmpeg 调用、本地 Agent CLI 路由（如果本机装了）各验证一次；没条件验证的如实标记。
-  - 报告里列出最终的分类表，以及 4.5 第 31 条那些边界各自的现状。
+已完成。交付摘要与原始说明移到 `docs/transcription-engines-plan-done.md` 的同名一节。
 
 ### WP-CL0 云端模型预热脚本（已完成 2026-11-13）
 
@@ -750,26 +732,9 @@ D:\Envir\Python312\python scripts/quality_gate.py --cloud  # 云端（WP-C；基
   - 删掉桌面上两个 FineSub 包，同一个云端任务能出到原始字幕。
   - 一个改动前存下的旧结果，经 4.7 第 36 条的一次性转换后仍能在桌面上接着跑。
 
-### WP-L 媒体库同步改用 Nonoka 的格式
+### WP-L 媒体库同步改用 Nonoka 的格式（已完成 2026-11-18）
 
-等 WP-P1 做完再开工；WP-M2 等它（本地旧任务的转换用同一份转换代码）。规则见 4.8 第 38 条。和 WP-CL 都要改云端仓库，两者不同时写同一个文件：WP-CL 管 `src/jobs/`，本包管 `src/library/`。
-
-- 文件：
-  - 本仓库：`src/nonoka_x/projector.py`、`local_provider.py` 的投影入口与产物清单、`desktop/internal/cloud/service.go`（同步与取回）、`relay.go`、`desktop/internal/plugins/engine.go` 的产物顺序、`desktop/frontend/src/providers/types.ts`、两个引擎包适配器里的转换代码、`docs/provider-spec.md`、`docs/architecture.md` 第 5 节。
-  - 云端仓库：`src/library/**` 及其测试、需要时的 `migrations/`、一次性转换脚本（放 `modal_compute/nonoka_x_compute/operations/`，在装了两个包的环境里跑）。
-- 内容：
-  1. 定 `correction.json` 的格式：列出现在投影从 `annotated.csv`、`final.srt`、`correction_mode_json` 里读的每一项，一项不漏。
-  2. 纠错包适配器产出 `correction.json`；投影改成只吃 `transcript.json` 加 `correction.json`。
-  3. 桌面同步与取回、Worker 的媒体库白名单换成新名字，不留旧名字。Worker 对旧格式的同步请求返回明确的升级提示。
-  4. 写一次性转换脚本：读云端每个媒体库条目和任务结果的旧产物，转成新格式，原件挪到备份前缀；可重跑，转过的跳过；出一份逐条目的结果报告。
-  5. 写切换手册（4.8 第 38 条的顺序），含每一步的校验和回退办法。
-- 完成标准：
-  - **投影等价**：对 WP-Q 回放基线里每个用例的产物，旧投影和新投影得到的字幕文档内容相同；说话人、只纠错不翻译、日文轴各有用例。
-  - 云 API 引擎只出原始字幕的任务能同步、能在另一个数据目录里取回并打开。
-  - 转换脚本在一份云端数据的副本上跑完：条目数不变，每个条目都能投影，抽样与转换前的投影结果相同；重跑不产生变化。
-  - `src/library/` 和桌面的同步代码里搜不到 `stable_json`、`annotated_csv`。
-  - `go test ./...`、前端测试、Worker 测试全过；闸门通过。
-- 不在本包自动执行：对线上数据的转换和切换。那是发版时由用户按手册执行或明确批准后执行的操作。
+已完成。交付摘要与原始说明移到 `docs/transcription-engines-plan-done.md` 的同名一节。
 
 ### WP-UI 引擎配置页
 
@@ -962,6 +927,9 @@ D:\Envir\Python312\python scripts/quality_gate.py --cloud  # 云端（WP-C；基
 | 82 | WP-P1 阶段二两问：兼容包「名字不多不少」怎么落实；依赖面基线少了 3 个名字 | `__all__` 恰为名单，辅助名字保留原名并逐个写明原因（`COMPAT_HELPERS`）；只从 `bootstrap-surface.json` 删掉 `try_lock`、`holding_activity_barrier`、`remove_project_records_under`（使用者 `batch_state.py`、`agent_cleanup.py` 不进任何包），其余不动（均为推荐项，2026-11-17） |
 | 83 | 第九批开什么（WP-P1 之后 WP-H、WP-L、WP-CL 都能开；WP-L 与 WP-CL 都改 `desktop/internal/cloud/` 和结果、同步的格式） | WP-H 与 WP-L 并行，`local_provider.py` 按函数分工、主会话合并；WP-CL 等 WP-L 合并后作为第十批（推荐项，2026-11-18） |
 | 84 | WP-L 的转换脚本要在线上云端数据的副本上验证 | 开工后由 WP-L 查清要读的数据、副本的做法与存放、用完怎么删，再交用户批准；批准前不碰线上数据（推荐项，2026-11-18） |
+| 85 | WP-H 九问：纠错进程的 PATH；知识库进程的环境；各进程的当前目录；沙箱写入检查的范围；计划外的 4 处文件；显卡变量；工具目录；`HOMEDRIVE` / `HOMEPATH`；环境基线 | 纠错 PATH 由 Nonoka 显式拼出；知识库同纠错、去掉 Agent 部分；转写的当前目录是任务目录、其余是 run 目录；严格区加观察区；4 处都允许；适配器 `cuda:N` 时无条件设显卡变量；**工具只用工具层**（非推荐项）；`HOMEDRIVE` / `HOMEPATH` 改向沙箱；环境基线当时**先不重录**（非推荐项，合并时再定，见第 87 问）；其余都是推荐项（2026-11-18） |
+| 86 | WP-L 八问：`correction.json` 的形状；词级时间；说话人放哪；调用等价的产物清单；转换范围；转换入口；线上只读副本；同步细节 | 存对好的字幕行；词对象原样放；说话人只放 `correction.json`；比清单时跳过两项、基线不动；只转媒体库，任务结果留给 WP-CL；两个包各加一个协议操作（批准改转写包的 `__main__.py`），本机命令行脚本、不上 Modal；批准用 wrangler 只读复制 D1 `library` 表与它指到的 R2 对象，超过 2 GB 或 2000 条再问，用完删；白名单、426、产物顺序、`relay.go` 作业部分留给 WP-CL 都按推荐（全部推荐项，2026-11-18） |
+| 87 | 合并 WP-H、WP-L 时：环境基线 `tests/fixtures/quality/environment.json` 比对部分多两行 `HF_HUB_OFFLINE=1`，重录吗 | 批准重录，单独提交（`fcea2b2`；不比对的启动器部分随密闭一起变）（推荐项，2026-11-18） |
 
 更早的问答：WP-R0 的 D1–D23 见 R0 文档第 0 节；WP0 的细节见附录 A.1（已移到 `docs/transcription-engines-plan-done.md`）；沙箱实验中的决定见实验报告。
 
@@ -972,7 +940,7 @@ D:\Envir\Python312\python scripts/quality_gate.py --cloud  # 云端（WP-C；基
 | # | 事项 | 什么时候问 | 现有线索 |
 |---|---|---|---|
 | 1 | ~~云 API 引擎的可选增强跑在哪~~ | 已答复 | 见附录 B 第 42 问：第一版不做增强，后续阶段再定 |
-| 2 | 转写进程的 `HOMEDRIVE`、`HOMEPATH` 是否一并改向 | WP-H 实测后 | 实验报告 1.6：没观察到需要，但没单独验证 |
+| 2 | ~~转写进程的 `HOMEDRIVE`、`HOMEPATH` 是否一并改向~~ | 已答复 | 见附录 B 第 85 问：实测后改向沙箱 |
 | 3 | 云端统计标准的具体阈值 | WP-C 实测后 | 附录 B 第 11 问 |
 | 4 | ~~VC++ 运行库~~ | 已答复 | 见附录 B 第 30 问 |
 | 5 | ~~cn 锁不复制进 Nonoka 的清单~~ | 已答复 | 见附录 B 第 23 问 |

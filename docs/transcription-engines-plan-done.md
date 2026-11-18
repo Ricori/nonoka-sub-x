@@ -361,6 +361,55 @@ harness 已在 main（`tests/quality_harness/cloud.py`、`quality_gate.py --clou
 - 内容：按 4.7 第 37 条写一个不经引擎的预热脚本：读本仓库的模型清单（钉住的 revision 与文件哈希），把云端要的模型放进 `/models` Volume 并逐文件校验；已经在的、校验通过的跳过。`prime_diarization_models` 改用它。不改云端的调度、镜像的其余部分和加速选择。
 - 完成标准：在当前 Volume 上跑一遍，结果是「全部已在、校验通过」，没有改动任何文件；在一个空的临时 Volume 上跑一遍，放齐后引擎（还带着自下载）跑 `--cloud` 不再触发任何下载（看日志）；云端测试全过。交付说明里写明花费。
 
+### WP-H 密闭运行与沙箱（已完成 2026-11-18）
+
+> 交付（2026-11-18，问题与答复见附录 B 第 85、87 问）：三个包的进程都从零构建环境、`-I` 启动，转写进程 `-I -B` 并在沙箱里跑。分类表一分为二：中性的一半在 `src/nonoka_x/engine_host.py` 的 `CLASSIFICATION`（系统必需按名带、Nonoka 设定、不存在三类，按进程与平台分，每行有理由），包内的一半在三份逐字相同的 `engines/*/adapter/*/bridge.py`（`FINESUB_*`、模型库变量、密钥，含真实管线读取审计补进的 353 个库变量）。`package_environment` 从空字典开始，PATH 只有工具层与系统目录（纠错另加本地 Agent CLI 的目录与 node），代理总是显式写、不在桌面策略下按直连；`HF_HUB_OFFLINE=1` 由转写包桥接设；`cuda:N` 时适配器无条件设 `CUDA_VISIBLE_DEVICES`。沙箱：`<数据目录>\engines\finesub-transcribe\sandbox\home\` 给 USERPROFILE、HOME、APPDATA、LOCALAPPDATA、HOMEDRIVE+HOMEPATH（附录 C 第 2 项定为改向），每进程 `sandbox\temp\<pid>-<随机>\` 给 TEMP/TMP 并锁住锚点，进程结束删、启动时清残留。就绪的工具只认工具层（非推荐项，用户选的）。闸门加 `sandbox` 一项（`--real` 时：严格区零写入、eager、有沙箱且无残留；只有观察区变化记「未判定」）。新测试 `tests/test_engine_hermetic.py`（覆盖扫描、投毒、读取审计）与 `tests/test_engine_sandbox.py`；`docs/engine.md` 加 2.1a。桌面在用户机器上装的启动器是 uv 解析出的 3.12.13（3.12.9 只是测速样本的版本）。`token_counter_source` 改动前后都是 `tokcount-local`，opencc 可 import。环境基线按用户批准重录（`fcea2b2`，比对部分只多两行 `HF_HUB_OFFLINE`，其余是不比对的启动器部分）。没条件验证：本地 Agent CLI 的真实调用、macOS、注册表与 Known Folder 写入、桌面 exe 实跑。交回：WP-UI——包引擎就绪只认工具层而核心 media 档仍认用户 PATH 上的 ffmpeg，口径要不要统一由用户定；沙箱 home（NVIDIA ComputeCache）要不要进「清理」；macOS 没有工具层前纠错报缺 FFmpeg；WP7——`CHANGELOG.md` 写明外部环境变量（代理、HF 镜像、显卡、线程数）不再影响引擎、工具只用工具层、本地 Agent CLI 只看得到自己的目录；WP8——有条件时真实调用一次本地 Agent CLI，在干净 Windows 上看没有系统 ffmpeg 时的就绪。
+
+
+等 WP-P1、WP5 都做完再开工：它要封的是分包之后的最终形态（两个包各自的进程）。中性的那部分环境（系统必需变量、`PATH`、解释器隔离启动、沙箱目录与锚点）由核心的 `engine_host.py` 构建，`FINESUB_*` 由包内桥接从启动上下文生成。
+
+- 文件：`src/nonoka_x/engine_host.py`（环境与沙箱）、两个包的桥接、`local_provider.py` 里拉起进程的地方、`tests/test_engine_hermetic.py`、`tests/test_engine_sandbox.py`、`scripts/quality_gate.py`（加沙箱写入检查）。
+- 内容：
+  - 按 4.5 实现：两个进程的环境从零构建、无条件写入、`-I` 启动（转写进程另加 `-B`）、入口设 `sys.path` 与标准输出编码；分类表以 R0 文档 1.7.3 为初稿，按 4.5 第 27 条调整（删掉 MSVC 一行；转写进程的用户目录与临时目录变量改为「Nonoka 设定」；加 `HF_HUB_OFFLINE=1`），1.7.2 里未逐项核实的库变量由读取审计补全。分类表放在 `engine_host.py`（中性部分）和包内桥接（`FINESUB_*`）里，是唯一的事实来源；每一项写明归类理由。
+  - 转写进程的沙箱按 4.5 第 28 条：共用的 `sandbox\home\`、每进程的 `sandbox\temp\<进程>\` 与锚点、结束删、启动清残留。实测 `HOMEDRIVE`/`HOMEPATH` 改不改向的效果，结论交用户定（附录 C）。
+  - 纠错进程按 4.5 第 29 条：不进沙箱，本地 Agent CLI 的变量按 D16 逐个列名带。
+  - 2.5 列的每个漏点逐条关掉，包括 `setdefault`、`CUDA_VISIBLE_DEVICES` 的条件设置、sidecar 把 `FINESUB_*` 写进自己环境的做法；删掉 `_prepare_msvc_environment`（2.8）。
+- 证明密闭的测试，两个进程都做：
+  1. **覆盖扫描**：扫两个包里所有读环境变量的地方（含转写包的 `finesub_bootstrap` 原件和纠错兼容包），每个名字都必须在分类表里。
+  2. **投毒测试**：把父进程环境里所有已知变量设成垃圾值，在当前目录、真实用户目录（测试里用假的）里放伪造的配置文件和密钥文件，然后构建进程环境、派生配置、跑调用等价测试。结果必须与干净父进程下的完全相同。
+  3. **读取审计**：给进程装一个记录环境变量读取的钩子，跑一遍打桩的完整管线，引擎读过的每个名字都必须在分类表里，且读到的值都来自 Nonoka。
+  4. **沙箱写入检查**（转写进程）：`--real` 时运行前后对沙箱外的受保护位置做快照比对，新增、删除、修改都是 0；层目录和引擎源码目录同样是 0（没有 `.pyc`、没有 `probe.json`）。
+- 完成标准：
+  - 四种测试通过；闸门全部通过；`quality_gate.py --real` 在密闭环境与沙箱下通过。
+  - 加速状态：真实样本运行元数据里是 eager，没有因为任何原因打开。
+  - **确认 token 计数来源和繁简折叠没有变**：在纠错进程下各跑一次改动前后的纠错，任务产物里记录的 `token_counter_source` 相同（仍是 `tokcount`，没有因为 `PATH` 重建找不到它而退回估算），`opencc` 可 import。回放基线不含这两条路径（WP-Q 的说明），只能在这里查。
+  - 密钥读取、模型加载、ffmpeg 调用、本地 Agent CLI 路由（如果本机装了）各验证一次；没条件验证的如实标记。
+  - 报告里列出最终的分类表，以及 4.5 第 31 条那些边界各自的现状。
+
+### WP-L 媒体库同步改用 Nonoka 的格式（已完成 2026-11-18）
+
+> 交付（2026-11-18，问题与答复见附录 B 第 84、86 问）：`correction.json`（schema 1）存对好的字幕行——`mode`（stable / final）、`correct_only`、每行 start/end/source/translation/speaker/low_confidence/words，词对象原样保留；原投影的对齐逻辑整段搬进纠错包适配器（`engines/finesub-correct/adapter/finesub_correct/document.py`），核心投影（`src/nonoka_x/correction/document.py`、`projector.py`）只吃 `transcript.json` 加 `correction.json` 逐行照抄，轴对齐、分轨、隐藏轨仍在核心。说话人只放 `correction.json`（纠错包每个目标都写），`transcript.json` 不动；没装纠错包时也能从 `transcript.json` 投影和同步。产物清单加 `transcript_json`、`correction_json`（排在 `stable_json` 之后、`raw_srt` 之前），调用等价比清单时跳过这两项、基线不动。同步白名单换成 `transcript_json`、`correction_json`、`raw_srt`、`final_srt`；Worker 收到旧名字回 426 并提示更新；只有 SRT 的旧本地任务同步时提示先迁移。两个包的适配器各加一个转换协议操作；一次性转换脚本 `modal_compute/nonoka_x_compute/operations/library_convert.py` 是本机命令行（survey / copy / convert，可重跑、原件进备份前缀），云端仓库还加了媒体库只读开关（转换期间用）。线上只读副本（按批准的做法）：137 条、526 个对象、约 177 MiB；转换 136 条、1 条本来没有产物打不开；新旧投影 136 条全部相同，抽 20 条复核相同，重跑无变化；副本与含 id 的报告已删。切换手册在交付里（见云端仓库与 `docs/`）。新测试 `tests/test_projection_equivalence.py`、`tests/test_library_roundtrip.py`。主会话复核（与 WP-H 一起）：两个仓库在 main 上试合并无冲突，pytest 964 通过 1 跳过（唯一失败是待重录的环境基线，重录后通过），`go test ./...`、前端 160 个、Worker 77 个、`modal_compute` 161 个测试通过；默认闸门与 `--real`（7 个逐字节、8 个按认可标准；sandbox 严格区零写入，观察区只有别的程序在 `%TEMP%` 的 `.tmp`）通过。交回：WP-CL——`relay.go` 里从云端作业取 stable 的两处、任务结果的新格式与转换脚本里任务结果那一步；WP-M2——本地旧任务的转换调同一个协议操作；发版——对线上数据的转换和切换按手册由用户执行或明确批准后执行。
+
+
+等 WP-P1 做完再开工；WP-M2 等它（本地旧任务的转换用同一份转换代码）。规则见 4.8 第 38 条。和 WP-CL 都要改云端仓库，两者不同时写同一个文件：WP-CL 管 `src/jobs/`，本包管 `src/library/`。
+
+- 文件：
+  - 本仓库：`src/nonoka_x/projector.py`、`local_provider.py` 的投影入口与产物清单、`desktop/internal/cloud/service.go`（同步与取回）、`relay.go`、`desktop/internal/plugins/engine.go` 的产物顺序、`desktop/frontend/src/providers/types.ts`、两个引擎包适配器里的转换代码、`docs/provider-spec.md`、`docs/architecture.md` 第 5 节。
+  - 云端仓库：`src/library/**` 及其测试、需要时的 `migrations/`、一次性转换脚本（放 `modal_compute/nonoka_x_compute/operations/`，在装了两个包的环境里跑）。
+- 内容：
+  1. 定 `correction.json` 的格式：列出现在投影从 `annotated.csv`、`final.srt`、`correction_mode_json` 里读的每一项，一项不漏。
+  2. 纠错包适配器产出 `correction.json`；投影改成只吃 `transcript.json` 加 `correction.json`。
+  3. 桌面同步与取回、Worker 的媒体库白名单换成新名字，不留旧名字。Worker 对旧格式的同步请求返回明确的升级提示。
+  4. 写一次性转换脚本：读云端每个媒体库条目和任务结果的旧产物，转成新格式，原件挪到备份前缀；可重跑，转过的跳过；出一份逐条目的结果报告。
+  5. 写切换手册（4.8 第 38 条的顺序），含每一步的校验和回退办法。
+- 完成标准：
+  - **投影等价**：对 WP-Q 回放基线里每个用例的产物，旧投影和新投影得到的字幕文档内容相同；说话人、只纠错不翻译、日文轴各有用例。
+  - 云 API 引擎只出原始字幕的任务能同步、能在另一个数据目录里取回并打开。
+  - 转换脚本在一份云端数据的副本上跑完：条目数不变，每个条目都能投影，抽样与转换前的投影结果相同；重跑不产生变化。
+  - `src/library/` 和桌面的同步代码里搜不到 `stable_json`、`annotated_csv`。
+  - `go test ./...`、前端测试、Worker 测试全过；闸门通过。
+- 不在本包自动执行：对线上数据的转换和切换。那是发版时由用户按手册执行或明确批准后执行的操作。
+
 ## 附录 A 决定的来历
 
 ### A.1 时间线
