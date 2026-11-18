@@ -58,7 +58,7 @@ from pathlib import Path
 from typing import Any, Callable, Mapping
 
 from . import ENGINES, FIXTURES, ROOT
-from .calls import Normalizer, manifest_record, render
+from .calls import Normalizer, knowledge_base, manifest_record, render
 from .calls import hermetic_environment as _calls_environment
 from .replay import GateResponder
 
@@ -355,7 +355,7 @@ def run_replay_case(name: str, scratch: Path) -> dict[str, Any]:
     media = write_silence(root / "media" / "节目.wav", seconds=float(case.get("seconds", 6.0)))
     shutil.copyfile(case.get("stable", STABLE_FIXTURE), root / "cloud" / "cloud.stable.json")
     judge = (case["request"].get("diarization") or {}).get("level", "").startswith("judge")
-    knowledge_root = root / "data" / "knowledge"
+    knowledge_root = knowledge_base(root / "data")
     fixture_base(root, knowledge_root, diar=root / "cloud" / "cloud.diar.json" if judge else None)
     spec = {
         "request": case["request"], "root": str(root), "out": str(root / "record.json"),
@@ -427,7 +427,7 @@ def run_asr_context_case(name: str, scratch: Path) -> dict[str, Any]:
     for directory in ("media", "cloud", "data", "tmp"):
         (root / directory).mkdir(parents=True)
     (root / "media" / "节目.m4a").write_bytes(b"quality-gate audio placeholder")
-    fixture_base(root, root / "data" / "knowledge")
+    fixture_base(root, knowledge_base(root / "data"))
     spec = {"request": K4_REQUEST, "settings": "compat", "setup": [], "root": str(root), "out": str(root / "record.json")}
     (root / "spec.json").write_text(json.dumps(spec, ensure_ascii=False), encoding="utf-8")
     completed = subprocess.run(

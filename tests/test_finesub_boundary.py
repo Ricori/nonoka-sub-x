@@ -45,6 +45,8 @@ EXEMPT: dict[tuple[str, str], str] = {
     ("migration/legacy.py", "env:FINESUB_"): "WP-R4",
     ("migration/legacy.py", "package:finesub-knowledge"): "WP-M1",
     ("migration/legacy.py", "package:finesub-correct"): "WP-M1",
+    # And where an old task's transcription outputs go: its package's directory in the task (4.6 item 34, WP-M2).
+    ("migration/legacy.py", "package:finesub-transcribe"): "WP-M2",
     # The model layer carries the engine's own verification markers, written at build time so the
     # engine accepts the models as they are (owner 2026-11-12, appendix B question 53, WP-E1).
     ("runtime/layer_manifest.py", "file:finesub"): "WP-E1",

@@ -12,6 +12,7 @@ from unittest.mock import patch
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
+from nonoka_x.config import migrate  # noqa: E402
 from finesub_correct.bridge import custom_target
 from finesub_correct.engine import correction_proofread as _package_proofread
 
@@ -384,6 +385,8 @@ class FineSubSettingsTests(unittest.TestCase):
                 encoding="utf-8",
             )
             settings = FineSubSettings(temporary)
+            # Start-up runs the migration's settings step before it opens anything (WP-M2).
+            migrate.migrate_settings(temporary)
             settings.bind_environment()
             settings.set_cloud_account("https://cloud.example", "cloud-secret")
             routing = settings.snapshot()["modelRouting"]
@@ -838,6 +841,8 @@ class FineSubSettingsTests(unittest.TestCase):
                 encoding="utf-8",
             )
             settings = FineSubSettings(temporary)
+            # Start-up runs the migration's settings step before it opens anything (WP-M2).
+            migrate.migrate_settings(temporary)
             settings.bind_environment()
             # Read before startup has written anything: already the new meaning.
             routing = settings.snapshot()["modelRouting"]

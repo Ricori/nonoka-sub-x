@@ -92,9 +92,10 @@ class LayerDownloadHook:
         if problem:
             raise RuntimeError(problem)
         manager = self._manager(context)
+        progress = getattr(context, "progress", None)
         for layer in self.layers:
             context.log(f"layer-download: {layer}")
-            state = manager.install(layer)
+            state = manager.install(layer, **({"progress": progress} if progress is not None else {}))
             context.log(f"layer-download: {layer} {state.state} ({state.wanted})")
 
 

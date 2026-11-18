@@ -304,8 +304,12 @@ def test_the_engine_reads_the_same_known_settings_after_the_migration(tmp_path, 
     before_gemini = llm_runtime.gemini_api_base(finesub_secrets.read_env_file(data / old.OLD_ENV))
     before_models = tomllib.loads((data / old.OLD_TOML).read_text(encoding="utf-8"))["nonoka_models"]
 
+    from nonoka_x.config.migrate import migrate_settings
+
+    # Start-up runs the migration's settings step before it opens anything (WP-M2).
+    migrate_settings(data)
     settings = FineSubSettings(data)
-    settings.bind_environment()  # migrates the old files into the new stores
+    settings.bind_environment()
     settings.refresh_model_routes()
     provider = LocalProvider(data / "tasks", ROOT / "engines", issues=[], settings=settings)
     try:

@@ -95,7 +95,10 @@ class ModelCompletionHook:
         return None
 
     def run(self, context: Any) -> None:
-        report = self._manager(context).complete_models(context.migrated_models, log=context.log)
+        progress = getattr(context, "progress", None)
+        report = self._manager(context).complete_models(
+            context.migrated_models, log=context.log, **({"progress": progress} if progress is not None else {})
+        )
         context.log(
             f"model-completion: version {report.version}, kept {report.kept}, fetched {len(report.fetched)}"
             f" ({report.source or 'nothing downloaded'}), rebuilt {len(report.rebuilt)} marker(s),"
