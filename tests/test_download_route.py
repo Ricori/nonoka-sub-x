@@ -305,9 +305,12 @@ def test_the_engine_policy_is_installed_once(engine_policy):
     assert http_client._environment_proxies is patched
 
 
-def test_without_the_app_policy_finesub_is_left_alone(engine_policy):
-    original = http_client._windows_proxy
-    bridge.install_proxy_policy({"policy": False, "url": None})
-    bridge.install_proxy_policy(None)
+def test_without_the_app_policy_finesub_goes_direct(engine_policy):
+    # WP-H (D17, plan 4.5 item 30): outside the desktop's policy the route is
+    # direct, spelled out -- never the Windows system proxy FineSub would find.
+    api_http, _state = engine_policy
+    bridge.install_proxy_policy({"policy": False, "url": PROXY})
 
-    assert http_client._windows_proxy is original
+    assert http_client._windows_proxy() is None
+    assert http_client._environment_proxies() == []
+    assert api_http.configured_proxy() == api_http.DIRECT

@@ -413,7 +413,9 @@ def child_main(spec_path: Path) -> int:
     settings = bind_settings(root / "data", spec["settings"])
     adopt_worker_environment(root / "data", settings)
     record_file = root / "calls.jsonl"
-    use_in_worker({"hook": "tests.quality_harness.calls:package_hook", "record": str(record_file)},
+    use_in_worker({"hook": "tests.quality_harness.calls:package_hook", "record": str(record_file),
+                   # WP-H's read audit, when a test asks for one.
+                   "audit": spec.get("audit")},
                   root / "package-child.json")
 
     replacements = {
@@ -509,6 +511,7 @@ def adopt_worker_environment(data_dir: Path, settings: Any) -> dict[str, str]:
     from nonoka_x import local_provider
     from nonoka_x.provision import RuntimeProvisioner
 
+    machine_tools_as_tool_layer()
     provisioner = RuntimeProvisioner(data_dir, ENGINES, None)
     provider = local_provider.LocalProvider(
         data_dir / "tasks", ENGINES, settings=settings, provisioner=provisioner, issues=[]
@@ -519,14 +522,55 @@ def adopt_worker_environment(data_dir: Path, settings: Any) -> dict[str, str]:
     return environment
 
 
+def machine_tools_as_tool_layer() -> None:
+    """Without a tool layer, the tools this machine's PATH has stand in for it (WP-H).
+
+    The gate runs no managed runtime here. Since WP-H a package's process gets
+    no inherited PATH: it finds ffmpeg, ffprobe and tokcount only in the tool
+    layer's directories its launch context names. So the provisioner of this
+    run answers, for a tool its layer does not have, the one this machine's
+    PATH finds -- what the package processes found on the inherited PATH when
+    the baselines were recorded. Only where the tools are found changes.
+    """
+
+    from nonoka_x import provision
+
+    original = provision.RuntimeProvisioner.tool_path
+    if getattr(original, "_quality_machine_tools", False):
+        return
+
+    def tool_path(self: Any, name: str) -> Path | None:
+        found = original(self, name)
+        if found is None and name in ("ffmpeg", "ffprobe", "tokcount"):
+            located = shutil.which(name)
+            return Path(located) if located else None
+        return found
+
+    tool_path._quality_machine_tools = True  # type: ignore[attr-defined]
+    provision.RuntimeProvisioner.tool_path = tool_path  # type: ignore[method-assign]
+
+
 def worker_arguments(task_dir: Path, data_dir: Path) -> list[str]:
     """The worker's command line as `LocalProvider._default_worker_command` gives it (no runtime installed)."""
 
     return ["--task-id", TASK_ID, "--task-dir", str(task_dir), "--engines", str(ENGINES), "--data-dir", str(data_dir)]
 
 
-def run_scenario(name: str, scratch: Path) -> dict[str, Any]:
-    """Run one scenario in a child and return its normalized record."""
+def run_scenario(
+    name: str,
+    scratch: Path,
+    *,
+    audit: Path | None = None,
+    prepare: Any = None,
+) -> dict[str, Any]:
+    """Run one scenario in a child and return its normalized record.
+
+    For WP-H's tests: `audit` records what each engine package process reads
+    of its environment into that directory (`package_child.EnvironmentAudit`);
+    `prepare(root, environment)` may poison the child's environment and plant
+    files before it starts, and returns the child's working directory (None:
+    the repository root, as always).
+    """
 
     scenario = SCENARIOS[name]
     root = (scratch / name).resolve()
@@ -538,12 +582,16 @@ def run_scenario(name: str, scratch: Path) -> dict[str, Any]:
     (root / "media" / "视频节目.mp4").write_bytes(b"quality-gate video placeholder")
     shutil.copyfile(STABLE_FIXTURE, root / "cloud" / "cloud.stable.json")
     spec = {**scenario, "root": str(root), "out": str(root / "record.json")}
+    if audit is not None:
+        spec["audit"] = str(audit)
     spec_path = root / "spec.json"
     spec_path.write_text(json.dumps(spec, ensure_ascii=False), encoding="utf-8")
+    environment = hermetic_environment(root)
+    cwd = prepare(root, environment) if prepare is not None else None
     completed = subprocess.run(
         [sys.executable, "-m", "tests.quality_harness.calls", "--child", str(spec_path)],
-        cwd=ROOT,
-        env=hermetic_environment(root),
+        cwd=cwd or ROOT,
+        env=environment,
         capture_output=True,
         text=True,
         encoding="utf-8",
@@ -570,12 +618,16 @@ def run_scenario(name: str, scratch: Path) -> dict[str, Any]:
     return record
 
 
-def run_all(names: Iterable[str] | None = None, *, workers: int = 6) -> dict[str, dict[str, Any]]:
+def run_all(
+    names: Iterable[str] | None = None, *, workers: int = 6, audit: Path | None = None, prepare: Any = None,
+) -> dict[str, dict[str, Any]]:
     selected = list(names or SCENARIOS)
     scratch = Path(tempfile.mkdtemp(prefix="nonoka-quality-calls-"))
     try:
         with ThreadPoolExecutor(max_workers=workers) as pool:
-            results = list(pool.map(lambda name: run_scenario(name, scratch), selected))
+            results = list(pool.map(
+                lambda name: run_scenario(name, scratch, audit=audit, prepare=prepare), selected
+            ))
     finally:
         shutil.rmtree(scratch, ignore_errors=True)
     return dict(zip(selected, results))

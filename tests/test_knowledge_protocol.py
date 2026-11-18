@@ -107,9 +107,19 @@ def test_the_halves_open_nothing_of_the_base(tmp_path, monkeypatch):
     original = knowledge.hermetic_environment
 
     def audited(root):
+        from tests.quality_harness.package_child import PRELOAD_ENVIRONMENT, PRELOAD_VARIABLES
+
         environment = original(root)
         environment["PYTHONPATH"] = os.pathsep.join([str(hook), environment["PYTHONPATH"]])
         environment["KNOWLEDGE_AUDIT_DIR"] = str(audit)
+        # The engine packages' processes are isolated (WP-H): the hook reaches
+        # them through the gate's preload, not through PYTHONPATH.
+        environment[PRELOAD_ENVIRONMENT] = os.pathsep.join(
+            part for part in (environment.get(PRELOAD_ENVIRONMENT, ""), str(hook / "sitecustomize.py")) if part
+        )
+        variables = json.loads(environment.get(PRELOAD_VARIABLES) or "{}")
+        variables["KNOWLEDGE_AUDIT_DIR"] = str(audit)
+        environment[PRELOAD_VARIABLES] = json.dumps(variables)
         return environment
 
     monkeypatch.setattr(knowledge, "hermetic_environment", audited)

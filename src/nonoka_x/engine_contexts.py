@@ -17,7 +17,13 @@ package's process; nothing here names an engine's variable or file.
 - a correction package: the keys it names, the LLM routes, endpoints and pins
   (with the provider id of Nonoka Cloud and the route -> task-group table the
   engine's pins use), the proxy;
-- the knowledge package: only the paths.
+- the knowledge package: only the paths;
+- every package: `runtime.tools`, the tool layer's directories its process
+  finds ffmpeg, ffprobe and tokcount in; a correction package also
+  `agent_cli.path`, the directories of the local agent CLIs Nonoka detects
+  and of the node a script CLI runs on. The core's engine host builds the
+  process's `PATH` from these and the system directories only (plan 4.5 item
+  27; owner 2026-11-18, WP-H question H1).
 """
 
 from __future__ import annotations
@@ -36,6 +42,57 @@ def proxy_context() -> dict[str, Any]:
 
     policy = fetch.app_policy_installed()
     return {"policy": policy, "url": fetch.live_proxy() if policy else None}
+
+
+#: The tools a package's process finds by name on `PATH`.
+PATH_TOOLS = ("ffmpeg", "ffprobe", "tokcount")
+#: What a script-shim CLI (an npm install's `.cmd`) runs on, found where the user's PATH finds it.
+SCRIPT_RUNTIME = "node"
+
+
+def tool_directories(provisioner: Any) -> list[str]:
+    """The tool layer's directories holding `PATH_TOOLS`, in that order; empty without a tool layer."""
+
+    tool_path = getattr(provisioner, "tool_path", None)
+    if tool_path is None:
+        return []
+    directories: list[str] = []
+    for name in PATH_TOOLS:
+        executable = tool_path(name)
+        if executable is not None and str(Path(executable).parent) not in directories:
+            directories.append(str(Path(executable).parent))
+    return directories
+
+
+def agent_cli_directories() -> list[str]:
+    """Where the local agent CLIs Nonoka detects are, and the node a script CLI needs (owner H1).
+
+    Every detected CLI's directory, on the user's PATH or not: the process's
+    PATH is built from nothing, so one the engine finds by name has to be
+    named. A CLI that is not a native executable (an npm `.cmd` shim) runs on
+    node, which the engine also looks up by name (`shutil.which("node.exe")`),
+    so node's directory -- the one the user's own PATH finds -- is added too.
+    """
+
+    import shutil
+
+    from .settings import LOCAL_AGENT_PROVIDERS, local_agent_executable
+
+    directories: list[str] = []
+    needs_script_runtime = False
+    for provider in LOCAL_AGENT_PROVIDERS:
+        executable = local_agent_executable(provider)
+        if executable is None:
+            continue
+        if str(executable.parent) not in directories:
+            directories.append(str(executable.parent))
+        if executable.suffix.lower() != ".exe":
+            needs_script_runtime = True
+    if needs_script_runtime:
+        node = shutil.which(SCRIPT_RUNTIME)
+        if node is not None and str(Path(node).parent) not in directories:
+            directories.append(str(Path(node).parent))
+    return directories
 
 
 def _call(settings: Any, name: str, default: Any, *args: Any) -> Any:
@@ -75,7 +132,9 @@ def package_context(
             "knowledge_root": str(paths.data / "knowledge"),
         },
     }
+    tools = tool_directories(provisioner)
     if package.kind == "knowledge":
+        context["runtime"] = {"tools": tools}
         return context
     context["secrets"] = dict(_call(settings, "engine_secrets", {}, package.secrets))
     context["llm"] = _llm(settings)
@@ -88,8 +147,12 @@ def package_context(
         context["runtime"] = {
             "models": str(models),
             "cache": str(paths.cache / package.id),
+            "tools": tools,
             **({"python": str(python)} if python else {}),
         }
+    else:
+        context["runtime"] = {"tools": tools}
+        context["agent_cli"] = {"path": agent_cli_directories()}
     return context
 
 

@@ -26,6 +26,10 @@ Checks (docs/transcription-engines-plan.md, section 0 and WP-Q):
                     tests/fixtures/quality/knowledge/cases/
 5. real samples     (--real) the samples rerun to raw-srt on this machine's
                     managed runtime, against test_data/quality-baseline/real/
+5b. sandbox writes  (--real) around those runs, nothing added, removed or
+                    changed outside the transcription process's sandbox in the
+                    protected locations, the layers and the engine sources;
+                    every run eager (tests/quality_harness/sandbox.py, WP-H)
 6. cloud samples    (--cloud) the samples rerun to stable by the unchanged
                     Modal compute legs (nonoka-sub-cloud/modal_compute, one L4
                     per GPU leg), against test_data/quality-baseline/cloud/ by
@@ -366,8 +370,23 @@ def check_real(args: argparse.Namespace) -> Result:
     scratch = Path(tempfile.mkdtemp(prefix="nonoka-quality-real-"))
     failures, undecided, lines = [], [], []
     by_bytes = by_standard = 0
+    from tests.quality_harness import sandbox
+
+    data_dir, install_dir = real.locate_runtime()
+    where = sandbox.locations(
+        real.provisioner_for(data_dir, install_dir), real.launcher_python(),
+        excluded=[path for path in (data_dir, install_dir, scratch) if path is not None],
+    )
+    before = sandbox.snapshot(where)
     try:
         outcome = real.check(scratch)
+        # The sandbox write check (WP-H): what the runs left outside the sandbox.
+        args.sandbox_outcome = {
+            "changes": sandbox.compare(before, sandbox.snapshot(where)),
+            "sandbox": sandbox.sandbox_state(data_dir),
+            "acceleration": {name: (sample.get("run") or {}).get("acceleration") for name, sample in outcome.items()},
+            "strict": {name: str(path) for name, path in where.strict.items()},
+        }
         for name, sample in outcome.items():
             if "error" in sample:
                 failures.append(name)
@@ -396,6 +415,59 @@ def check_real(args: argparse.Namespace) -> Result:
     else:
         result.summary = (f"every artifact matches: {by_bytes} byte for byte, {by_standard} by the accepted "
                           "standards (plan section 0, rule 3)")
+    return result
+
+
+# --- 5b. the sandbox's writes (WP-H) ---------------------------------------------------
+
+
+def check_sandbox(args: argparse.Namespace) -> Result:
+    """What the `--real` runs wrote outside the transcription process's sandbox, and that they ran eager.
+
+    Strict locations: any change fails. Observed ones: a change leaves the
+    check undecided, for a person to look at (other programs write there too;
+    owner 2026-11-18). Also fails when a sample's run metadata names anything
+    but eager for its acceleration, or a sandbox TEMP is left behind.
+    """
+
+    result = Result("sandbox writes and acceleration (--real)")
+    outcome = getattr(args, "sandbox_outcome", None)
+    if not args.real:
+        result.status, result.summary = SKIP, "not requested (pass --real)"
+        return result
+    if outcome is None:
+        result.status, result.summary = SKIP, "the real samples did not run"
+        return result
+    changes, lines = outcome["changes"], []
+    not_eager = {
+        name: record for name, record in (outcome["acceleration"] or {}).items()
+        if not record or any(
+            value != "eager" for entry in record.values() for key, value in entry.items() if "accel" in key
+        )
+    }
+    for name, change in changes["strict"].items():
+        for kind, paths in change.items():
+            lines.append(f"  STRICT    {name} ({outcome['strict'][name]}): {kind} {len(paths)}: {paths[:10]}")
+    for name, change in changes["observed"].items():
+        for kind, paths in change.items():
+            lines.append(f"  OBSERVED  {name}: {kind} {len(paths)}: {paths[:20]}")
+    for name, record in not_eager.items():
+        lines.append(f"  ACCEL     {name}: {record}")
+    state = outcome["sandbox"]
+    lines.append(f"  sandbox: exists={state['exists']}, home files {state['home_files']} {state['home_top']}, "
+                 f"leftover TEMP directories {state['leftover_temps']}")
+    result.details = lines
+    if changes["strict"] or not_eager or state["leftover_temps"]:
+        result.status = FAIL
+        result.summary = (f"{len(changes['strict'])} strict location(s) changed, {len(not_eager)} run(s) not eager, "
+                          f"{len(state['leftover_temps'])} sandbox TEMP(s) left")
+    elif changes["observed"]:
+        result.status = UNDECIDED
+        result.summary = (f"no strict location changed, every run eager; {len(changes['observed'])} observed "
+                          "location(s) changed -- other programs write there too: look at the list")
+    else:
+        result.summary = (f"0 added, 0 removed, 0 modified in {len(outcome['strict'])} strict and the observed "
+                          "locations; every run eager; no sandbox TEMP left")
     return result
 
 
@@ -513,6 +585,7 @@ CHECKS: dict[str, Callable[[argparse.Namespace], Result]] = {
     "replay": check_replay,
     "knowledge": check_knowledge,
     "real": check_real,
+    "sandbox": check_sandbox,
     "cloud": check_cloud,
     "layers": check_layers,
 }
