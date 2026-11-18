@@ -195,7 +195,7 @@ T = 转写包里的上锁文件 import 它（转写包带原件），C = 纠错�
 | `annotated_csv` | FineSub | 纠错包私有附件；纠错包转出 `correction.json`（WP-L，计划 4.8 第 38 条） |
 | `correction_mode_json`（`llm-artifacts/correction-mode.json`） | FineSub | 纠错包私有附件；投影要的「译文还是润色」进 `correction.json` |
 | `llm-artifacts/**`（交换日志、`task-artifacts.jsonl`、研究上下文、`resolved-switches.json`、任务报告） | FineSub | 纠错包私有附件，不进清单 |
-| 云端的 `stable_json`、`diar_json`（`source.kind=cloud_stable`） | FineSub | 不透明附件，键 `finesub.stable_json`/`finesub.diar_json`，交纠错包原样使用（计划 4.7 第 36 条） |
+| 云端作业的 `finesub.stable_json`、`finesub.diar_json`（`source.kind=cloud_transcript` 的 `native`） | FineSub | 转写包的私有附件，复制进 `native\finesub-transcribe\`，键名即文件名，交纠错包原样使用；云端的 `transcript.json` 成为任务的 `transcript.json`（计划 4.7 第 36 条，WP-CL） |
 | `request.json`、事件、`telemetry-run.json` | Nonoka | 核心 |
 
 ## 8. 第 7 问：续跑与重试怎么保持

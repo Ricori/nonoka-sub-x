@@ -224,6 +224,13 @@ Path(spec["out"]).write_text(
 """
 
 
+#: A cloud continuation's source as the desktop sends it, on the orchestration child's files.
+CLOUD_TRANSCRIPT_SOURCE = {
+    "kind": "cloud_transcript", "path": "$MEDIA", "title": "节目", "transcript_json": "$CLOUD_TRANSCRIPT",
+    "native": {"finesub.stable_json": "$CLOUD_STABLE"}, "native_package": "finesub-transcribe",
+}
+
+
 def run_orchestration_child(root: Path, request: dict, *, without: tuple[str, ...] = (), **spec) -> dict:  # noqa: ANN003
     """`_ORCHESTRATION_CHILD` on `request` under `root` (the media and cloud files made here).
 
@@ -239,8 +246,10 @@ def run_orchestration_child(root: Path, request: dict, *, without: tuple[str, ..
     media = root / "media" / "节目.m4a"
     media.write_bytes(b"orchestration audio placeholder")
     (root / "cloud" / "cloud.stable.json").write_bytes(calls.STABLE_FIXTURE.read_bytes())
+    calls.write_cloud_transcript(root / "cloud" / "cloud.stable.json", root / "cloud" / "cloud.transcript.json")
     request = json.loads(json.dumps(request).replace("$MEDIA", media.as_posix()).replace(
-        "$CLOUD_STABLE", (root / "cloud" / "cloud.stable.json").as_posix()))
+        "$CLOUD_STABLE", (root / "cloud" / "cloud.stable.json").as_posix()).replace(
+        "$CLOUD_TRANSCRIPT", (root / "cloud" / "cloud.transcript.json").as_posix()))
     spec_path = root / "spec.json"
     out = root / "record.json"
     spec_path.write_text(
@@ -552,20 +561,27 @@ class WorkerAdapterTests(unittest.TestCase):
             self.assertEqual(len(manifest["artifacts"]["stable_json"]["sha256"]), 64)
             self.assertEqual(events[-2]["payload"].get("message"), "字幕已完成")
 
-    def test_a_cloud_stable_is_handed_to_the_correction_as_it_is(self) -> None:
-        """A continuation is a transcription in hand: the cloud's files as attachments, no engine run.
+    def test_the_cloud_result_is_registered_as_the_packages_private_attachments(self) -> None:
+        """A continuation is a transcription in hand: the cloud's transcript, and its files as attachments, no engine run.
 
-        Where they go and that a retry keeps the first copy is the
-        correction's business (`place_native`, tests/test_finesub_correction.py).
+        Both are copied into the task -- the transcript as the task's, each
+        attachment under its key in the directory of the package it is of --
+        and handed to the correction unread. Where the correction puts them,
+        and that a retry keeps its first copy, is its own business
+        (`place_native`, tests/test_finesub_correction.py).
         """
 
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             task_dir = root / "task"
-            cloud = root / "cloud.stable.json"
+            cloud = root / "download" / "native" / "finesub.stable_json"
+            cloud.parent.mkdir(parents=True)
             cloud.write_text('{"segments": []}', encoding="utf-8")
-            timeline = root / "cloud.diar.json"
+            timeline = cloud.with_name("finesub.diar_json")
             timeline.write_text("{}", encoding="utf-8")
+            transcript = root / "download" / "transcript.json"
+            transcript.write_text('{"schema": 1, "engine": "finesub", "language": "ja", "duration": 0, "lines": []}\n',
+                                  encoding="utf-8")
             media = root / "media.m4a"
             captured: dict = {}
 
@@ -573,23 +589,42 @@ class WorkerAdapterTests(unittest.TestCase):
                 captured["job"] = job
                 return CorrectionResult()
 
-            for source, native in (
-                ({"stable_json": str(cloud)}, {"finesub.stable_json": cloud}),
-                ({"stable_json": str(cloud), "diar_json": str(timeline)},
-                 {"finesub.stable_json": cloud, "finesub.diar_json": timeline}),
+            private = task_dir / "native" / "finesub-transcribe"
+            for native in (
+                {"finesub.stable_json": cloud},
+                {"finesub.stable_json": cloud, "finesub.diar_json": timeline},
             ):
                 request = {**BASE, "target": "raw-srt",
-                           "source": {"kind": "cloud_stable", "path": str(media), "title": "片子", **source}}
+                           "source": {"kind": "cloud_transcript", "path": str(media), "title": "片子",
+                                      "transcript_json": str(transcript), "native_package": "finesub-transcribe",
+                                      "native": {key: str(path) for key, path in native.items()}}}
                 with registered(RecordingCorrection(correct)):
                     code, events = run_worker(request, task_dir)
                 self.assertEqual(code, 0, events)
                 transcription = captured["job"].transcription
-                self.assertEqual(dict(transcription.native), native)
+                self.assertEqual(dict(transcription.native), {key: private / key for key in native})
+                for key, path in native.items():
+                    self.assertEqual((private / key).read_bytes(), path.read_bytes())
                 self.assertEqual(transcription.transcript_json, task_dir / "transcript.json")
-                self.assertFalse(transcription.transcript_json.exists())
+                self.assertEqual(transcription.transcript_json.read_bytes(), transcript.read_bytes())
                 self.assertIn("从云端识别结果续跑：跳过人声分离与识别",
                               [event["payload"].get("message") for event in events if event["type"] == "log"])
                 self.assertEqual(reused_stages(events), ["vocal", "aligned", "stable"])
+
+    def test_a_stored_request_with_a_retired_source_is_refused_not_transcribed(self) -> None:
+        """A retry runs `request.json` as stored: a source the provider no longer accepts fails, it is never media."""
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            media = root / "media.m4a"
+            media.write_bytes(b"media")
+            request = {**BASE, "target": "raw-srt",
+                       "source": {"kind": "cloud_stable", "path": str(media), "stable_json": str(media)}}
+            with registered(RecordingCorrection(lambda job, report: CorrectionResult())):
+                code, events = run_worker(request, root / "task")
+            self.assertNotEqual(code, 0)
+            failed = [event["payload"]["message"] for event in events if event["type"] == "failed"]
+            self.assertTrue(failed and "cloud_stable" in failed[0] and "重新提交" in failed[0], events)
 
     def test_a_continuation_runs_without_any_module_of_the_asr_stack(self) -> None:
         """The reason the launcher can continue a cloud task at all.
@@ -605,7 +640,7 @@ class WorkerAdapterTests(unittest.TestCase):
             completed = next(event for event in events if event["type"] == "completed")
             self.assertEqual(
                 set(completed["payload"]["artifacts"]["artifacts"]),
-                {"stable_json", "raw_srt", "metadata_json", "correction_json"},
+                {"stable_json", "raw_srt", "metadata_json", "correction_json", "transcript_json"},
             )
             reused = {
                 event["payload"]["stage"]
@@ -637,7 +672,7 @@ class WorkerAdapterTests(unittest.TestCase):
             stable = json.loads((ROOT / "tests/fixtures/finesub/sample-stable.json").read_text(encoding="utf-8"))
             stable.setdefault("metadata", {})["speaker"] = json.loads(timeline.read_text(encoding="utf-8"))["metadata"]
             events = self.continue_without_the_asr_stack(
-                root, {"diar_json": str(timeline)}, {"diarization": {"level": "acoustics", "max_speakers": None}},
+                root, {"finesub.diar_json": str(timeline)}, {"diarization": {"level": "acoustics", "max_speakers": None}},
                 stable=stable,
             )
             completed = next(event for event in events if event["type"] == "completed")
@@ -650,7 +685,7 @@ class WorkerAdapterTests(unittest.TestCase):
             self.assertTrue(any(row.get("speaker") for row in rows))
 
     def continue_without_the_asr_stack(
-        self, root: Path, source: dict, request: dict, *, stable: dict | None = None
+        self, root: Path, native: dict, request: dict, *, stable: dict | None = None
     ) -> list[dict]:
         # In every process of the run -- the worker's and the correction package's --
         # the import system refuses the ASR stack (a `sitecustomize` on the path).
@@ -678,10 +713,16 @@ raise SystemExit(worker.main(sys.argv[1:]))
             cloud.write_text(json.dumps(stable, ensure_ascii=False), encoding="utf-8")
         media = root / "media.mp4"
         media.write_bytes(b"media")
+        from tests.quality_harness import calls
+
+        transcript = root / "cloud.transcript.json"
+        calls.write_cloud_transcript(cloud, transcript)
         request = {
             "schema": 1,
             "provider": "local",
-            "source": {"kind": "cloud_stable", "path": str(media), "stable_json": str(cloud), "title": "片子", **source},
+            "source": {"kind": "cloud_transcript", "path": str(media), "transcript_json": str(transcript),
+                       "native": {"finesub.stable_json": str(cloud), **native},
+                       "native_package": "finesub-transcribe", "title": "片子"},
             "target": "raw-srt",
             "language": "ja",
             "device": "cpu",
@@ -902,8 +943,7 @@ class OrchestrationTests(unittest.TestCase):
             root = Path(temp)
             record = run_orchestration_child(
                 root,
-                {**BASE, "target": "raw-srt", "source": {"kind": "cloud_stable", "path": "$MEDIA",
-                                                         "title": "节目", "stable_json": "$CLOUD_STABLE"}},
+                {**BASE, "target": "raw-srt", "source": CLOUD_TRANSCRIPT_SOURCE},
                 transcription_engines=[],
                 without=("finesub-transcribe",),
             )

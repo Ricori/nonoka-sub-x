@@ -122,6 +122,20 @@ def test_speakers_follow_the_input() -> None:
     assert engine.speakers_for({"mai2.raw_responses": "r"}) == ("line-labels", "source")
 
 
+def test_a_stable_without_its_timeline_runs_no_diarization() -> None:
+    """The cloud's stable from a job that did not diarize renders the labels it carries (WP-CL)."""
+
+    def job(native: dict, level: str = "judge-audio") -> dict:
+        return {"diarization_level": level, "transcription": {"native": native}}
+
+    assert engine.diarization_level(job({engine.NATIVE_STABLE: "s.json"})) == "off"
+    assert engine.diarization_level(job({engine.NATIVE_STABLE: "s.json", engine.NATIVE_DIAR: "d.json"})) == "judge-audio"
+    # A transcription that is not FineSub's (or none yet, before it ran) keeps the request's level.
+    assert engine.diarization_level(job({})) == "judge-audio"
+    assert engine.diarization_level({"diarization_level": "acoustics"}) == "acoustics"
+    assert engine.diarization_level(job({engine.NATIVE_STABLE: "s.json"}, "off")) == "off"
+
+
 def test_native_files_are_placed_byte_for_byte_and_once(tmp_path: Path) -> None:
     """Everything FineSub's transcription left beside its stable, into this package's directory."""
 

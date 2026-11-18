@@ -37,13 +37,13 @@ Provider 只负责**「把一个媒体源变成一组字幕产物」**，其余�
 
 ### 2.3 内置 Cloud Provider：两段式 relay
 
-内置的 Cloud Provider 是形态 A，但它的一个任务跨两段执行：云端只把媒体识别到 `stable.json`，桌面端取回后交给本地 Provider，用本机配置的模型完成纠错与翻译。前端看到的仍是一个任务——`provider: "cloud"`、一个 `rly_` 开头的 id、一条连续的事件流；两段的拼接全在 Go 侧（`desktop/internal/cloud/relay.go`）。
+内置的 Cloud Provider 是形态 A，但它的一个任务跨两段执行：云端只把媒体识别到 stable，交出与本机转写引擎同形的结果（`transcript.json` 加转写包的不透明附件），桌面端取回后交给本地 Provider，用本机配置的模型完成纠错与翻译。前端看到的仍是一个任务——`provider: "cloud"`、一个 `rly_` 开头的 id、一条连续的事件流；两段的拼接全在 Go 侧（`desktop/internal/cloud/relay.go`）。
 
 | 阶段 | 做什么 | 失败后「重试」做什么 |
 | :--- | :--- | :--- |
 | 云端（`cloud`） | 上传音频、提交 `target=stable` 的作业，轮询状态并复制事件 | 作业还在就 `/retry` / `/resume`；作业已被清扫（404）就重新上传并提交，同一素材由票据免扣次 |
-| 取回（`fetch`） | 下载 `stable.json`，按云端公布的 sha256 校验，落盘后才 `DELETE` 云端作业 | 重新下载；校验不过不会删除云端作业 |
-| 本地（`local`） | 以 `source.kind=cloud_stable` 启动本地任务（见 4.2.1），复制其事件 | 本地任务已存在就 retry / resume（用引擎自己的断点）；本地拒绝启动（如未配置模型）就重新启动 |
+| 取回（`fetch`） | 先下载附件（清单里 `<引擎>.<名字>` 形式的项，存为 `cloud-relays/<id>/native/<键>`），最后下载 `transcript.json`；每个都按云端公布的 sha256 校验，落盘后才 `DELETE` 云端作业。云端回 426（旧格式名）时失败并提示更新 | 重新下载；校验不过不会删除云端作业 |
+| 本地（`local`） | 以 `source.kind=cloud_transcript` 启动本地任务（见 4.2.1），复制其事件。旧版本桌面取回、只有 `stable.json` 的中继不续跑：失败并退回云端段，重试会重新上传识别（票据免扣次） | 本地任务已存在就 retry / resume（用引擎自己的断点）；本地拒绝启动（如未配置模型）就重新启动 |
 
 - **事件**：relay 把两段的事件重新编号成一条连续的游标序列，存在本机 `cloud-relays/<id>/events.jsonl`；云端作业删除后日志仍可读。云端自己的 `completed` 与本地任务的 `started`、以及本地对 vocal / aligned / stable 的「已有结果，跳过」不进入日志，交接处由 relay 写两条 `handoff`。
 - **快照**：`stage` 在云端段跟随作业；取回与等待本地启动期间为 `handoff`；本地段只在 `raw-srt` / `translated-srt` / `final-srt` 时跟随本地任务，进度条不会倒退。`requested_capabilities.target` 始终是用户要的最终目标。
@@ -139,7 +139,7 @@ interface ExecutionProvider {
 
 > **`runtime.ready` 的语义**：宿主在 `start()` 之前会读取 `capabilities()`，`runtime.ready === false` 时直接以 `issues[0].message` 报错并阻止提交。Provider 若不提供 `runtime`，前端将视为未就绪。
 
-> **分档互不继承**：`raw-srt` 是识别档（平台、ASR 运行时、模型）；`harness` 是从 stable.json 往后所需的一切（FFmpeg 与 FineSub `[harness]` 依赖，不含 torch）；`final-srt` 是 `harness` 加上已配置的模型。本地 Provider 从媒体跑 LLM 目标时要同时过 `raw-srt` 与 `final-srt`，从 `cloud_stable` 续跑时只看 `harness`（`raw-srt` 目标）或 `final-srt`。
+> **分档互不继承**：`raw-srt` 是识别档（平台、ASR 运行时、模型）；`harness` 是从 stable.json 往后所需的一切（FFmpeg 与 FineSub `[harness]` 依赖，不含 torch）；`final-srt` 是 `harness` 加上已配置的模型。本地 Provider 从媒体跑 LLM 目标时要同时过 `raw-srt` 与 `final-srt`，从 `cloud_transcript` 续跑时只看 `harness`（`raw-srt` 目标）或 `final-srt`；没装纠错包的 `raw-srt` 续跑由核心渲染，一档都不看。
 
 #### 4.1.1 转写引擎与纠错引擎（`transcription_engines`、`correction_engines`）
 
@@ -231,7 +231,7 @@ interface ExecutionProvider {
 | `knowledge_subjects` | `[{id?, kind, subject, aliases, description}]` | `knowledge=update` 的新任务至少一项 | 用户手动选择的知识主体，最多 8 个，读取与写回共用。每项的 `kind` 为 `streamer`、`work` 或 `topic`，`subject` 是必填的官方/源语言名称，`aliases` 与 `description` 用于消歧。带 `id` 的是知识库里已有的主体；不带 `id` 的是新建主体，仅 `knowledge=update` 允许，Local Provider 会在任务开始前幂等建好词条。所选主体的词条常驻每个纠错窗口（引擎补丁 `0006`），`update` 时也固定为知识更新的写回目标。`read` 可不选，此时由模型按内容挑选条目；`none` 时忽略。旧版请求的单个 `knowledge_context` 在 `update` 下按一项列表处理，两个字段都没有的已排队请求仍可重试 |
 | `llm_model` | `string` \| `{任务组: string}` | — | 本次运行的模型覆盖，等价于引擎的 `--llm-model`。字符串钉住所有任务组，对象只钉它点名的那些。值是模型组或路由 target；名字由引擎的路由加载器校验。⚠ 钉住即**替换整条链**——钉住的模型做不了的调用会直接失败，后面不再挂任何兜底 |
 | `diarization` | `{level, max_speakers?}` | — | 说话人分离，需 `features.diarization=true`；缺省或 `level=off` 即不分离。`level` 为 `acoustics`（按声音区分）、`judge-text` / `judge-audio`（再由 LLM 在纠错阶段按窗口复核，实验）。裁判只在 `final-srt` 下运行，其余目标降为 `acoustics`；云端的纠错只读文本，`judge-audio` 降为 `judge-text`。有日文轴时拒绝（不跑识别）。`max_speakers` 为 1–32，上游建议不设。结果写在 `correction.json` 各行的 `speaker` 里（7.3），只决定每行放进哪条说话人轨，不改变字幕文本与时间；`-diar.json`（说话人时间线）留作复用，删掉才会重算 |
-| `transcription` | `{engine, options?}` | — | 转写引擎选择。`engine` 是 `Capabilities.transcription_engines` 里的 ID，缺省（或整个字段缺省）视为 `finesub`；`options` 是交给该引擎的选项对象，缺省为 `{}`。旧请求和已落盘的任务不用迁移。引擎记在请求里，重试与续跑沿用原引擎。不在注册表里的引擎以 `unsupported_engine` 拒绝。`kind` 不是 `local-gpu` 的引擎只接受 `raw-srt` / `translated-srt` / `final-srt`（`unsupported_target`），不能与 `cloud_stable` 或 `axis` 同用（`invalid_request`）；引擎用不上的字段被丢掉——不用 GPU 的引擎丢 `device`、`gpu_tier`、`gpu_budget_gb`，不做人声分离的引擎丢 `separate`、`vocal_profile`——并在任务日志里写一条 `log` 事件（`payload.fields = {engine, dropped}`）；`diarization.level` 或 `language` 超出引擎声明的以 `invalid_request` 拒绝。`engine=finesub` 时规范化结果与不带此字段时完全相同，块原样保留。桌面端：本机 FineSub 发 `{"engine":"finesub","options":{}}`；云端任务的请求记 `finesub-cloud`，但桌面不把它转发给云端，云端识别后的本机续跑请求（`cloud_stable`）也不带此字段 |
+| `transcription` | `{engine, options?}` | — | 转写引擎选择。`engine` 是 `Capabilities.transcription_engines` 里的 ID，缺省（或整个字段缺省）视为 `finesub`；`options` 是交给该引擎的选项对象，缺省为 `{}`。旧请求和已落盘的任务不用迁移。引擎记在请求里，重试与续跑沿用原引擎。不在注册表里的引擎以 `unsupported_engine` 拒绝。`kind` 不是 `local-gpu` 的引擎只接受 `raw-srt` / `translated-srt` / `final-srt`（`unsupported_target`），不能与 `cloud_transcript` 或 `axis` 同用（`invalid_request`）；引擎用不上的字段被丢掉——不用 GPU 的引擎丢 `device`、`gpu_tier`、`gpu_budget_gb`，不做人声分离的引擎丢 `separate`、`vocal_profile`——并在任务日志里写一条 `log` 事件（`payload.fields = {engine, dropped}`）；`diarization.level` 或 `language` 超出引擎声明的以 `invalid_request` 拒绝。`engine=finesub` 时规范化结果与不带此字段时完全相同，块原样保留。桌面端：本机 FineSub 发 `{"engine":"finesub","options":{}}`；云端任务的请求记 `finesub-cloud`，但桌面不把它转发给云端，云端识别后的本机续跑请求（`cloud_transcript`）也不带此字段 |
 | `correction.engine` | 纠错引擎 ID | — | 缺省为 `finesub`；界面不提供选择 |
 | `cleanup_intermediate` | `boolean` | — | 完成后是否清理中间产物 |
 | `axis` | `Axis` | — | 用户导入的已有产物；见 4.2.2。只在 `kind="ja"` 时出现，其余轴型不进任务请求 |
@@ -277,11 +277,13 @@ interface LocalSource {
   duration?: number;     // 秒
 }
 
-// 云端识别结果：本地 Provider 从云端交付的 stable.json 续跑，不再分离、不再识别
-interface CloudStableSource {
-  kind: "cloud_stable";
-  path: string;          // 媒体本身，绝对路径且真实存在：纠错要从中切音视频片段，编辑器要画波形
-  stable_json: string;   // 云端 stable.json 的本地副本，绝对路径；须为带 segments 数组的 JSON 对象
+// 云端识别结果：与本机转写引擎交出的结果同形（transcript.json + 不透明附件），本地 Provider 从它续跑，不再分离、不再识别
+interface CloudTranscriptSource {
+  kind: "cloud_transcript";
+  path: string;            // 媒体本身，绝对路径且真实存在：纠错要从中切音视频片段，编辑器要画波形
+  transcript_json: string; // 云端 transcript.json 的本地副本，绝对路径；须能被核心按 5.2 读入
+  native?: Record<string, string>; // 附件：键 `<引擎>.<名字>`（如 finesub.stable_json），值为绝对路径；核心只核对文件存在，不解析
+  native_package?: string; // 附件属于哪个引擎包（如 finesub-transcribe）；有附件时必填
   title: string;
   fingerprint?: string;
   video_id?: string;
@@ -298,7 +300,7 @@ interface UploadedAudioSource {
 }
 ```
 
-`cloud_stable` 只接受 `raw-srt` / `translated-srt` / `final-srt` 三个目标，其余以 `unsupported_target` 拒绝；不能与 `axis` 同用（`invalid_axis`）。云端那一程的字段在这里没有意义：`vocal_profile` 与 `diarization` 被丢弃——说话人标签已由云端写在 stable.json 上，原样渲染；云端不交付说话人时间轴，judge 级别无从复核。
+`cloud_transcript` 只接受 `raw-srt` / `translated-srt` / `final-srt` 三个目标，其余以 `unsupported_target` 拒绝；不能与 `axis` 同用（`invalid_axis`）。云端那一程的 `vocal_profile` 在这里没有意义，被丢弃。worker 把 `transcript.json` 复制成任务的 `transcript.json`，把每个附件按键名复制进 `tasks/<id>/native/<native_package>/`，作为那个包的私有附件交给纠错（WP-CL，计划 4.7 第 36 条）；核心不认附件名。`diarization` 照请求保留：FineSub 纠错包拿到不带说话人时间轴（`finesub.diar_json`）的 FineSub stable 时，自己把说话人分离关掉、原样渲染 stable 上的标签；桌面端也只在云端交付了时间轴时才发 `diarization`。没装纠错包时，`raw-srt` 目标由核心从 `transcript.json` 渲染，不要求任何 FineSub 包。旧的 `cloud_stable` 不再接受；按旧请求落盘的本地任务重试时由 worker 明确报错，不会当作媒体重新识别。
 
 自定义 Provider 可新增 `kind`，但必须在自身文档中声明，并保证宿主构造请求时可提供所需字段。
 

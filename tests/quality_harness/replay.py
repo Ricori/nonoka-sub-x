@@ -17,7 +17,7 @@ Sockets are refused in the child, so a call that bypassed the replacement
 would fail the run instead of reaching the network.
 
 The run enters at Nonoka's outermost door: `nonoka_x.worker.main` with a
-`cloud_stable` request, which is exactly "the LLM half from a stable that is
+`cloud_transcript` request, which is exactly "the LLM half from a stable that is
 already in hand". Run as `python -m tests.quality_harness.replay --child <spec>`.
 """
 
@@ -403,11 +403,15 @@ def child_main(spec_path: Path) -> int:
         "schema": 1,
         "provider": "local",
         "source": {
-            "kind": "cloud_stable",
+            "kind": "cloud_transcript",
             "path": spec["media_file"],
             "title": "节目",
-            "stable_json": str(root / "cloud" / "cloud.stable.json"),
-            **({"diar_json": str(root / "cloud" / "cloud.diar.json")} if spec.get("diar") else {}),
+            "transcript_json": str(root / "cloud" / "cloud.transcript.json"),
+            "native": {
+                "finesub.stable_json": str(root / "cloud" / "cloud.stable.json"),
+                **({"finesub.diar_json": str(root / "cloud" / "cloud.diar.json")} if spec.get("diar") else {}),
+            },
+            "native_package": "finesub-transcribe",
         },
         **spec["request"],
     })
@@ -485,6 +489,9 @@ def run_case(name: str, scratch: Path, *, responder: str | None = None) -> dict[
     else:
         media = write_silence(root / "media" / "节目.wav", seconds=float(case.get("seconds", 6.0)))
     shutil.copyfile(ROOT / case["stable"], root / "cloud" / "cloud.stable.json")
+    from .calls import write_cloud_transcript
+
+    write_cloud_transcript(root / "cloud" / "cloud.stable.json", root / "cloud" / "cloud.transcript.json")
     if case.get("diar"):
         shutil.copyfile(ROOT / case["diar"], root / "cloud" / "cloud.diar.json")
     spec = {

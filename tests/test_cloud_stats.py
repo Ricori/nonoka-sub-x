@@ -164,7 +164,7 @@ def test_a_missing_or_extra_artifact_fails_whatever_the_thresholds(tmp_path: Pat
     assert missing["failures"] == ["artifact missing: subtitle-vad-energy.npz"]
     extra = cloud.judge(_compare(baseline, _write(tmp_path / "c", segments, speakers=[1])), ALL_THRESHOLDS)
     assert "artifact not in the baseline: subtitle-diar.json" in extra["failures"]
-    assert "handed back, not in the baseline: diar_json" in extra["failures"]
+    assert "handed back, not in the baseline: finesub.diar_json" in extra["failures"]
 
 
 @pytest.mark.parametrize(("name", "data", "expected"), [
@@ -197,7 +197,86 @@ def test_a_handed_back_result_missing_fails(tmp_path: Path) -> None:
     baseline = _write(tmp_path / "a", segments, speakers=[1, 2])
     run = _write(tmp_path / "b", segments, speakers=[1, 2])
     (run / "summary.json").write_text(json.dumps({"ok": True, "handed_back": ["stable_json"]}), encoding="utf-8")
-    assert cloud.judge(_compare(baseline, run), ALL_THRESHOLDS)["failures"] == ["not handed back: diar_json"]
+    assert cloud.judge(_compare(baseline, run), ALL_THRESHOLDS)["failures"] == ["not handed back: finesub.diar_json"]
+
+
+# --- the result contract (WP-CL): transcript.json plus attachments ------------------
+
+
+def _hand_back(run_dir: Path, *, transcript: str | None = None, stable: bytes | None = None,
+               drop: tuple[str, ...] = ()) -> Path:
+    """Make a `_write` run one from WP-CL on: the new names, and the payload `run.json` keeps."""
+
+    from tests.quality_harness import calls
+
+    folder = run_dir / "artifacts"
+    payload = {"finesub.stable_json": (stable or (folder / "subtitle-stable.json").read_bytes()).decode("utf-8")}
+    if (folder / "subtitle-diar.json").is_file():
+        payload["finesub.diar_json"] = (folder / "subtitle-diar.json").read_text(encoding="utf-8")
+    if transcript is None:
+        calls.write_cloud_transcript(folder / "subtitle-stable.json", run_dir / "transcript.json")
+        transcript = (run_dir / "transcript.json").read_text(encoding="utf-8")
+        (run_dir / "transcript.json").unlink()
+    payload["transcript_json"] = transcript
+    for key in drop:
+        payload.pop(key)
+    (run_dir / "summary.json").write_text(json.dumps({"ok": True, "handed_back": sorted(payload)}), encoding="utf-8")
+    (run_dir / "run.json").write_text(json.dumps({"raw": {"completed": {"artifacts": payload}}}), encoding="utf-8")
+    return run_dir
+
+
+def test_a_new_result_passes_against_a_baseline_recorded_under_the_old_names(tmp_path: Path) -> None:
+    segments = _lines("こんにちは", "さようなら")
+    baseline = _write(tmp_path / "a", segments, speakers=[1, 2])
+    run = _hand_back(_write(tmp_path / "b", segments, speakers=[1, 2]))
+    statistics = cloud.run_statistics(run)
+    assert statistics["handed_back"] == ["finesub.diar_json", "finesub.stable_json", "transcript_json"]
+    assert statistics["reading"]["transcript_lines"] == 2
+    assert cloud.run_statistics(baseline)["handed_back"] == statistics["handed_back"]
+    verdict = cloud.judge(_compare(baseline, run), ALL_THRESHOLDS)
+    assert verdict["failures"] == []
+
+
+def test_a_result_without_its_transcript_fails(tmp_path: Path) -> None:
+    segments = _lines("あいうえお")
+    baseline = _write(tmp_path / "a", segments)
+    run = _hand_back(_write(tmp_path / "b", segments))
+    summary = json.loads((run / "summary.json").read_text(encoding="utf-8"))
+    summary["handed_back"].remove("transcript_json")
+    (run / "summary.json").write_text(json.dumps(summary), encoding="utf-8")
+    (run / "run.json").unlink()
+    failures = cloud.judge(_compare(baseline, run), ALL_THRESHOLDS)["failures"]
+    assert failures == ["not handed back: transcript_json"]
+
+
+def test_a_transcript_not_projected_from_the_handed_back_stable_fails(tmp_path: Path) -> None:
+    segments = _lines("あいうえお", "かきくけこ")
+    baseline = _write(tmp_path / "a", segments)
+    other = tmp_path / "other"
+    _hand_back(_write(other, _lines("さしすせそ")))
+    transcript = json.loads((other / "run.json").read_text(encoding="utf-8"))["raw"]["completed"]["artifacts"]["transcript_json"]
+    run = _hand_back(_write(tmp_path / "b", segments), transcript=transcript)
+    failures = cloud.judge(_compare(baseline, run), ALL_THRESHOLDS)["failures"]
+    assert "malformed: the transcript does not record the handed-back stable's sha256" in failures
+    assert "malformed: the transcript has 1 lines for 2 stable segments" in failures
+
+
+def test_an_attachment_that_is_not_the_engines_file_fails(tmp_path: Path) -> None:
+    segments = _lines("あいうえお")
+    baseline = _write(tmp_path / "a", segments)
+    run = _write(tmp_path / "b", segments)
+    altered = (run / "artifacts" / "subtitle-stable.json").read_bytes() + b"\n"
+    _hand_back(run, stable=altered)
+    failures = cloud.judge(_compare(baseline, run), ALL_THRESHOLDS)["failures"]
+    assert any("is not subtitle-stable.json byte for byte" in failure for failure in failures), failures
+
+
+def test_an_unreadable_transcript_fails(tmp_path: Path) -> None:
+    segments = _lines("あいうえお")
+    baseline = _write(tmp_path / "a", segments)
+    run = _hand_back(_write(tmp_path / "b", segments), transcript='{"schema": 1}')
+    failures = cloud.judge(_compare(baseline, run), ALL_THRESHOLDS)["failures"]
+    assert any("the core cannot read the transcript" in failure for failure in failures), failures
 
 
 # --- thresholds --------------------------------------------------------------------

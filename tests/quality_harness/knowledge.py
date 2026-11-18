@@ -354,6 +354,9 @@ def run_replay_case(name: str, scratch: Path) -> dict[str, Any]:
         (root / directory).mkdir(parents=True)
     media = write_silence(root / "media" / "节目.wav", seconds=float(case.get("seconds", 6.0)))
     shutil.copyfile(case.get("stable", STABLE_FIXTURE), root / "cloud" / "cloud.stable.json")
+    from .calls import write_cloud_transcript
+
+    write_cloud_transcript(root / "cloud" / "cloud.stable.json", root / "cloud" / "cloud.transcript.json")
     judge = (case["request"].get("diarization") or {}).get("level", "").startswith("judge")
     knowledge_root = root / "data" / "knowledge"
     fixture_base(root, knowledge_root, diar=root / "cloud" / "cloud.diar.json" if judge else None)

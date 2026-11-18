@@ -318,7 +318,7 @@ func New(dataDirectory string, provider providerCaller, resolvers ...mediaResolv
 }
 
 // Capabilities are the relay's, not the backend's. The backend declares what
-// it runs -- recognition, and nothing past stable.json -- and the relay hands
+// it runs -- recognition, and nothing past stable -- and the relay hands
 // the rest to the local provider, so correction, translation, the knowledge
 // base and video correction are all things a cloud task does. Whether this
 // machine can actually run them is the local provider's runtime report.
@@ -335,6 +335,10 @@ func (s *Service) Capabilities() (map[string]any, error) {
 		features[name] = true
 	}
 	result["features"] = features
+	// The relay's artifacts are the local leg's manifest, in the Provider
+	// spec's format. The backend's own `artifact_schema` is the format of a
+	// job's result, which only the relay reads (checkResultFormat).
+	result["artifact_schema"] = providerArtifactSchema
 	return result, nil
 }
 
@@ -352,7 +356,7 @@ func SetTelemetry(s *Service, t *telemetry.Service) {
 	})
 }
 
-// StartTask starts a relay: the cloud recognises the media up to stable.json,
+// StartTask starts a relay: the cloud recognises the media up to stable,
 // and this desktop continues from it with the user's own models once the file
 // is collected (relay.go). Returns the relay's snapshot, which is what the
 // renderer tracks; the cloud job behind it is an implementation detail that is
@@ -429,6 +433,21 @@ func (s *Service) StartTask(localID string, options map[string]any) (result map[
 	return record.clone().snapshot(), nil
 }
 
+// checkResultFormat refuses a backend that publishes job results in another
+// format than this desktop reads (`artifact_schema`, cloudArtifactSchema).
+func (s *Service) checkResultFormat() error {
+	var capabilities struct {
+		ArtifactSchema int `json:"artifact_schema"`
+	}
+	if err := s.authenticatedDo(context.Background(), http.MethodGet, "/v1/capabilities", nil, &capabilities); err != nil {
+		return err
+	}
+	if capabilities.ArtifactSchema != cloudArtifactSchema {
+		return fmt.Errorf("云端识别结果的格式（%d）与本机版本（%d）不一致，请把 Nonoka X 与云端更新到同一版本后再提交", capabilities.ArtifactSchema, cloudArtifactSchema)
+	}
+	return nil
+}
+
 func (s *Service) submitCloudJob(localID string, options map[string]any) (string, error) {
 	submitted := false
 	return s.submitCloudJobTracked(localID, options, &submitted)
@@ -447,6 +466,11 @@ func (s *Service) submitCloudJobTracked(localID string, options map[string]any, 
 	}
 	if duration <= 0 || duration > 2*time.Hour.Seconds() {
 		return "", errors.New("cloud audio duration must be between 0 and 2 hours")
+	}
+	// Before anything is extracted or uploaded: a backend whose results this
+	// desktop cannot read would only take the audio and the ticket.
+	if err := s.checkResultFormat(); err != nil {
+		return "", err
 	}
 	uploadRoot := filepath.Join(s.root, "cloud-uploads")
 	if err := os.MkdirAll(uploadRoot, 0o700); err != nil {
@@ -480,7 +504,7 @@ func (s *Service) submitCloudJobTracked(localID string, options map[string]any, 
 		s.abortUpload(initialized.ObjectID)
 		return "", err
 	}
-	// Recognition only: the cloud stops at stable.json, and correction,
+	// Recognition only: the cloud stops at stable, and correction,
 	// translation and the knowledge base belong to the local leg. No cover
 	// goes up beside the audio any more -- a job is not a library entry, and
 	// the sync after the relay completes carries the cover with the subtitles.

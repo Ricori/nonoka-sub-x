@@ -824,6 +824,8 @@ func TestStartTaskKeepsUploadUnlessBackendRefusedTask(t *testing.T) {
 					writer.WriteHeader(http.StatusNoContent)
 				case request.URL.Path == "/v1/session":
 					_, _ = writer.Write([]byte(`{"authenticated":true,"remaining":2,"running":0}`))
+				case request.URL.Path == "/v1/capabilities":
+					_, _ = writer.Write([]byte(`{"provider":"cloud","artifact_schema":2,"features":{}}`))
 				case request.URL.Path == "/v1/uploads/init":
 					_, _ = writer.Write([]byte(`{"objectId":"` + uploadID + `","uploadUrl":"` + server.URL + `/upload","contentType":"audio/mp4","thumbUploadUrl":"` + server.URL + `/upload-thumb"}`))
 				case request.Method == http.MethodPost && request.URL.Path == "/v1/tasks":
@@ -889,6 +891,8 @@ func TestStartTaskSendsTheSeparationSwitch(t *testing.T) {
 					writer.WriteHeader(http.StatusNoContent)
 				case request.URL.Path == "/v1/session":
 					_, _ = writer.Write([]byte(`{"authenticated":true,"remaining":2,"running":0}`))
+				case request.URL.Path == "/v1/capabilities":
+					_, _ = writer.Write([]byte(`{"provider":"cloud","artifact_schema":2,"features":{}}`))
 				case request.URL.Path == "/v1/uploads/init":
 					_, _ = writer.Write([]byte(`{"objectId":"` + uploadID + `","uploadUrl":"` + server.URL + `/upload","contentType":"audio/mp4"}`))
 				case request.Method == http.MethodPost && request.URL.Path == "/v1/tasks":

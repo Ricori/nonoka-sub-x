@@ -364,7 +364,7 @@ import json, sys
 from tests.quality_harness import calls
 names = [name for name, scenario in calls.SCENARIOS.items()
          if scenario["request"].get("target") in ("vocal", "aligned", "stable")
-         and scenario["request"].get("source", {}).get("kind") != "cloud_stable"]
+         and scenario["request"].get("source", {}).get("kind") != "cloud_transcript"]
 records = calls.run_all(names)
 print(json.dumps({"names": names, "differences": calls.differences(records)}, ensure_ascii=False))
 """
@@ -440,6 +440,34 @@ class DeletabilityTests(unittest.TestCase):
             self.assertTrue(raw.startswith("1\n"), raw)
             self.assertIn(" --> ", raw)
             self.assertFalse((task_dir / "native").exists())
+
+    def test_without_either_finesub_package_a_cloud_task_reaches_the_raw_srt(self) -> None:
+        """The cloud's FineSub result needs no FineSub package here: the core renders its transcript (WP-CL)."""
+
+        from tests.test_worker_adapter import BASE, CLOUD_TRANSCRIPT_SOURCE, file_of, run_orchestration_child
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            record = run_orchestration_child(
+                root, {**BASE, "target": "raw-srt", "source": CLOUD_TRANSCRIPT_SOURCE},
+                transcription_engines=[], without=("finesub-transcribe", "finesub-correct"),
+            )
+            (run,) = record["runs"]
+            self.assertEqual(run["exit"], 0, run["events"])
+            self.assertEqual(record["calls"], [])
+            artifacts = next(e for e in run["events"] if e["type"] == "completed")["payload"]["artifacts"]["artifacts"]
+            task_dir = root / "data" / "tasks" / "orchestration"
+            raw = file_of(artifacts["raw_srt"]["uri"])
+            from nonoka_x.transcription.model import read_transcript
+            from nonoka_x.transcription.srt import render_srt
+
+            self.assertEqual(raw, task_dir / "raw.srt")
+            self.assertEqual(raw.read_text(encoding="utf-8"), render_srt(read_transcript(task_dir / "transcript.json")))
+            self.assertTrue(raw.read_text(encoding="utf-8").startswith("1\n00:00:"))
+            # The cloud's stable is still there, a private attachment nothing read.
+            attachment = task_dir / "native" / "finesub-transcribe" / "finesub.stable_json"
+            self.assertEqual(attachment.read_bytes(), (root / "cloud" / "cloud.stable.json").read_bytes())
+            self.assert_finesub_files_are_private(task_dir)
 
     def test_with_both_finesub_packages_their_files_of_a_task_stay_private(self) -> None:
         from tests.test_worker_adapter import BASE, run_orchestration_child
