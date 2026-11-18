@@ -1,6 +1,6 @@
 # 转写引擎重构计划
 
-> 状态（2026-11-18）：已完成并合进 main 的工作包见第 6 节开头的「已完成」列表，它们的交付摘要与原始说明在 `docs/transcription-engines-plan-done.md`（本文只留标题）。第九批 WP-H、WP-L 已于 2026-11-18 合进两个仓库的 main。现在前提已满足的：WP-CL（等 WP-L，第 83 问定为第十批）、WP-M2、WP-UI、WP7（WP-P1、WP-H 之后、WP8 之前，第 75 问）；之后 WP8。WP-M1 的最后一条完成标准先不做（第 70 问）。用户做过的决定都在第 4 节和附录 B，按问题编号查。本文档是交给子代理执行的工作说明，每个工作包可以单独领走。
+> 状态（2026-11-18）：已完成并合进 main 的工作包见第 6 节开头的「已完成」列表，它们的交付摘要与原始说明在 `docs/transcription-engines-plan-done.md`（本文只留标题）。第九批 WP-H、WP-L 已于 2026-11-18 合进两个仓库的 main。第十批 WP-CL、WP-M2 进行中（第 88 问），WP-M2 阶段 1 已于 2026-11-18 合进 main。前提已满足、还没开的：WP-UI、WP7（WP-P1、WP-H 之后、WP8 之前，第 75 问）；之后 WP8。WP-M1 的最后一条完成标准先不做（第 70 问）。用户做过的决定都在第 4 节和附录 B，按问题编号查。本文档是交给子代理执行的工作说明，每个工作包可以单独领走。
 > 写于 2026-11-10，基于 `main@1f14db3`、FineSub `v0.7.0@7123055`。
 > **2026-11-11 整理成干净版本**（用户决定，附录 B 第 1 问）：现行决定直接写在正文里，不再有「以后者为准」的追加条款。每个决定的来历、被推翻的旧说法，以及旧条款编号到新编号的对照，见附录 A；向用户问过的问题和答复见附录 B；还没定的事见附录 C。整理前的版本在 git 历史里（`main` 上的 `docs/transcription-engines-plan.md`）。
 > 相关文档：`docs/runtime-and-config.md`（WP-R0 的调查与设计答复 D1–D23，下称「R0 文档」；其中被本计划取代的答复已在那边标注，对照见附录 A.3）；`docs/engine-sandbox-experiment.md`（预制环境包与进程级沙箱两个前提的实验报告，下称「实验报告」）。本文档与 R0 文档冲突时以本文档为准。
@@ -681,6 +681,8 @@ D:\Envir\Python312\python scripts/quality_gate.py --cloud  # 云端（WP-C；基
 
 ### WP-M2 迁移的启动集成、续跑与回滚
 
+> 阶段 1（Python 核心）已于 2026-11-18 合进 main（`6cf0129`）：sidecar 启动时迁移，未完成时除 `GET /v1/migration`、`POST /v1/migration/retry` 外一律 503 `migrating`；知识库进 `engines\finesub-knowledge\knowledge\`、限流状态进 `engines\finesub-correct\state`；旧任务归位并转换；回滚、续跑、只迁一次；去掉 `bind_environment` 的自动迁移。用户决定见附录 B 第 89 问。阶段 2 还剩：桌面的迁移进度与结果显示、迁移完成后删掉没用的旧文件（第 89 问）、真实形态旧数据副本上的验收与 `--real`、前端测试。
+
 等 WP-E3、WP-R4、WP-R5、WP-R7、WP-P1、WP-L 把新布局定型再开工。必须和改布局的那几个包进同一个版本（发版约束）。知识库从主数据目录搬进纠错包的数据目录、旧任务目录里的 FineSub 产物归进私有附件目录，也在这里做（4.6 第 34 条）。
 
 - 文件：`src/nonoka_x/migration/**`（在 WP-M1 的基础上）、`tests/test_migration.py`，sidecar 启动段里调用它的地方，桌面上显示迁移进度和结果的地方。
@@ -930,6 +932,8 @@ D:\Envir\Python312\python scripts/quality_gate.py --cloud  # 云端（WP-C；基
 | 85 | WP-H 九问：纠错进程的 PATH；知识库进程的环境；各进程的当前目录；沙箱写入检查的范围；计划外的 4 处文件；显卡变量；工具目录；`HOMEDRIVE` / `HOMEPATH`；环境基线 | 纠错 PATH 由 Nonoka 显式拼出；知识库同纠错、去掉 Agent 部分；转写的当前目录是任务目录、其余是 run 目录；严格区加观察区；4 处都允许；适配器 `cuda:N` 时无条件设显卡变量；**工具只用工具层**（非推荐项）；`HOMEDRIVE` / `HOMEPATH` 改向沙箱；环境基线当时**先不重录**（非推荐项，合并时再定，见第 87 问）；其余都是推荐项（2026-11-18） |
 | 86 | WP-L 八问：`correction.json` 的形状；词级时间；说话人放哪；调用等价的产物清单；转换范围；转换入口；线上只读副本；同步细节 | 存对好的字幕行；词对象原样放；说话人只放 `correction.json`；比清单时跳过两项、基线不动；只转媒体库，任务结果留给 WP-CL；两个包各加一个协议操作（批准改转写包的 `__main__.py`），本机命令行脚本、不上 Modal；批准用 wrangler 只读复制 D1 `library` 表与它指到的 R2 对象，超过 2 GB 或 2000 条再问，用完删；白名单、426、产物顺序、`relay.go` 作业部分留给 WP-CL 都按推荐（全部推荐项，2026-11-18） |
 | 87 | 合并 WP-H、WP-L 时：环境基线 `tests/fixtures/quality/environment.json` 比对部分多两行 `HF_HUB_OFFLINE=1`，重录吗 | 批准重录，单独提交（`fcea2b2`；不比对的启动器部分随密闭一起变）（推荐项，2026-11-18） |
+| 88 | 第十批开什么（WP-CL、WP-M2、WP-UI、WP7 前提都已满足）；WP-CL 的 Modal 花费上限 | 开 WP-CL 与 WP-M2，WP-UI、WP7 后开；`--cloud` 合计上限 $1（约 3 次）（2026-11-18） |
+| 89 | 合并 WP-M2 阶段 1 时：合并后新代码的 sidecar 会自动迁移它打开的旧数据目录；迁移未完成时的门控；主数据目录里的 `*.pre-migration` 备份与留下的 `finesub-data\`；边界测试新豁免 `("migration/legacy.py", "package:finesub-transcribe")` | 直接合并，用户自己注意别让新代码指向开发机的真实安装；保持门控（推荐项）；没用的文件全部删除（用户自定）；同意豁免（2026-11-18） |
 
 更早的问答：WP-R0 的 D1–D23 见 R0 文档第 0 节；WP0 的细节见附录 A.1（已移到 `docs/transcription-engines-plan-done.md`）；沙箱实验中的决定见实验报告。
 
