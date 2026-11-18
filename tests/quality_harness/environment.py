@@ -125,10 +125,11 @@ def engine_processes(provider: Any, worker_environment: dict[str, str], out: Pat
             for package in engine_host.of_kind(packages, kind):
                 if package.entry == KNOWLEDGE_ENTRY:
                     continue
-                with engine_host.PackageProcess(package, built.contexts[package.id], environment=worker_environment):
-                    pass
+                with engine_host.PackageProcess(
+                    package, built.contexts[package.id], environment=worker_environment
+                ) as process:
+                    spawned = dict(process.environment)
                 item = json.loads(Path(f"{out}.{package.entry}.json").read_text(encoding="utf-8"))
-                spawned = engine_host.package_environment(package, worker_environment)
                 item["environment"] = _as_handed(spawned, item["environment"])
                 seen[kind] = item
     return seen
@@ -224,7 +225,9 @@ def child_main(spec_path: Path) -> int:
     return 0
 
 
-def run_profile(profile: str, scratch: Path) -> dict[str, Any]:
+def run_profile(profile: str, scratch: Path, *, prepare: Any = None) -> dict[str, Any]:
+    """One settings profile's record. `prepare(root, environment)`: WP-H's poisoning (see `calls.run_scenario`)."""
+
     root = (scratch / profile).resolve()
     if root.exists():
         shutil.rmtree(root)
@@ -234,9 +237,10 @@ def run_profile(profile: str, scratch: Path) -> dict[str, Any]:
     (root / "spec.json").write_text(json.dumps(spec), encoding="utf-8")
     environment = hermetic_environment(root)
     environment["NONOKA_DOWNLOAD_DIRECT"] = "1"
+    cwd = prepare(root, environment) if prepare is not None else None
     completed = subprocess.run(
         [sys.executable, "-m", "tests.quality_harness.environment", "--child", str(root / "spec.json")],
-        cwd=ROOT, env=environment, capture_output=True, text=True, encoding="utf-8", errors="replace",
+        cwd=cwd or ROOT, env=environment, capture_output=True, text=True, encoding="utf-8", errors="replace",
         timeout=300,
     )
     out = root / "record.json"

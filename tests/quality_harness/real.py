@@ -10,6 +10,10 @@ variable points at a closed local port and Hugging Face is offline. A stage
 that would download fails instead. Since WP-P1 the worker starts the engine
 packages' processes itself: the transcription on the Python environment
 layer's interpreter, the correction on the launcher's (plan 4.6 item 33).
+Since WP-H those processes are hermetic: they inherit nothing of the worker's
+environment, so the two differences reach the worker only; the transcription
+process is offline because Nonoka itself says so (`HF_HUB_OFFLINE=1`, its
+bridge), and its proxy is the one the core resolves (none here: direct).
 
 Settings, knowledge base and engine state come from a fresh directory beside
 the run, so the user's own configuration does not leak in.
@@ -239,6 +243,10 @@ def _worker_launch(run_dir: Path) -> tuple[list[str], dict[str, str], Path, list
     environment["NO_PROXY"] = environment["no_proxy"] = ""
     environment["HF_HUB_OFFLINE"] = "1"
     environment["TRANSFORMERS_OFFLINE"] = "1"
+    # The worker is the core, on the launcher: in a source checkout it would
+    # write the core's own bytecode into `src/`, which the sandbox write check
+    # watches for the engine's sake (WP-H). No package process inherits it.
+    environment["PYTHONDONTWRITEBYTECODE"] = "1"
     return command, environment, task_dir, removed
 
 

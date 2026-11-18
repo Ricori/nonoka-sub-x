@@ -140,7 +140,7 @@ class ReadinessTests(unittest.TestCase):
 
         with (
             mock.patch.object(engine_host.sys, "platform", platform),
-            mock.patch.object(engine_host.shutil, "which", return_value="x" if which else None),
+            mock.patch("shutil.which", return_value="x" if which else None),
             mock.patch("importlib.util.find_spec", side_effect=find_spec),
         ):
             readiness = engine_host.runtime_engine_readiness(PACKAGE, runtime)
@@ -162,12 +162,13 @@ class ReadinessTests(unittest.TestCase):
         issues = self.readiness(FakeRuntime(state="missing"), missing_modules={"torch", "audio_separator"})
         self.assertEqual(issues, [{"code": "missing_runtime", "message": "AI 运行时缺失：torch、audio_separator"}])
 
-    def test_media_tools_from_the_runtime_or_path(self) -> None:
-        self.assertEqual(self.readiness(FakeRuntime(tools=False), which=True), [])
-        self.assertEqual(
-            self.readiness(FakeRuntime(tools=False)),
-            [{"code": "missing_ffmpeg", "message": "缺少项目必备依赖 FFmpeg 或 FFprobe"}],
-        )
+    def test_media_tools_from_the_tool_layer_only(self) -> None:
+        # WP-H (owner H7): the package's process finds its tools in the tool
+        # layer only, so a copy on the user's PATH no longer makes it ready.
+        missing = [{"code": "missing_ffmpeg", "message": "缺少项目必备依赖 FFmpeg 或 FFprobe"}]
+        self.assertEqual(self.readiness(FakeRuntime(tools=False), which=True), missing)
+        self.assertEqual(self.readiness(FakeRuntime(tools=False)), missing)
+        self.assertEqual(self.readiness(FakeRuntime(), which=False), [])
 
     def test_only_windows_runs_the_local_gpu_stack(self) -> None:
         issues = self.readiness(FakeRuntime(), platform="darwin")

@@ -25,8 +25,13 @@ files:
 
 Two patches keep FineSub's network use the app's: its region answer is pinned
 to `global` without asking the network (the separator stage asks before it
-checks its files), and, when the app's proxy policy is on, its route discovery
-and its API calls take the route the core resolved.
+checks its files), and its route discovery and its API calls take the route
+the core resolved -- direct when there is none, never the system proxy (D17).
+
+What a package's process has in its environment is classified twice over:
+the neutral half (`nonoka_x.engine_host.CLASSIFICATION`), which the core
+builds the process from, and this module's `CLASSIFICATION`, what the bridge
+writes on top from the launch context (plan 4.5 item 27).
 """
 
 from __future__ import annotations
@@ -57,6 +62,294 @@ LOCAL_HOSTS = "localhost,127.0.0.1,::1"
 
 _INSTALLED_ATTRIBUTE = "_nonoka_proxy_route_policy"
 _APP_POLICY_ATTRIBUTE = "_nonoka_app_proxy_policy"
+
+
+# --- the classification table: the package's half (plan 4.5 item 27) -------------------------------------------
+#
+# What FineSub and the libraries its packages load read of the environment,
+# each name in one of three categories, with the processes it concerns
+# (`transcription`, `correction`, `knowledge`). The neutral half (the system's
+# variables, PATH, the Python and proxy variables, the sandbox's directories)
+# is the core's (`nonoka_x.engine_host.CLASSIFICATION`); the process is built
+# from nothing there, and this half is what the bridge writes into it from the
+# launch context. `nonoka` here: written by this module from the launch
+# context; `absent`: read by something in the process, never written, so it
+# does not exist. Nothing is `system` on this side.
+
+_T, _C, _K = "transcription", "correction", "knowledge"
+_ALL = frozenset((_T, _C, _K))
+
+
+Row = tuple  # (name, category, processes, reason)
+
+
+def _rows(category: str, processes: frozenset, reason: str, *names: str) -> tuple[Row, ...]:
+    return tuple((name, category, processes, reason) for name in names)
+
+
+#: The keys each package asks for in its `PACKAGE.json` (`secrets`); a key is
+#: handed only when the user saved one (`secret_variables`).
+TRANSCRIPTION_SECRETS = ("HF_TOKEN",)
+CORRECTION_SECRETS = (
+    "GEMINI_FREE", "GEMINI_PAID", "EXA_KEYS", "TAVILY_KEYS", "ANTHROPIC_API_KEY", "OPENAI_API_KEY",
+    "DEEPSEEK_API_KEY", "KIMI_API_KEY", "DASHSCOPE_API_KEY", "OPENAI_COMPAT_API_KEY",
+    "ANTHROPIC_COMPAT_API_KEY", "NONOKA_CLOUD_KEY",
+)
+
+CLASSIFICATION: tuple[Row, ...] = (
+    # -- written here --------------------------------------------------------------------------------------------
+    *_rows("nonoka", _ALL,
+            "the three files FineSub looks for, named in this process's run directory whether written or not; "
+            "checkout data off; the engine never rewrites them (D6, D22; `file_variables`)",
+            "FINESUB_CHECKOUT_DATA", "FINESUB_CONFIG_FILE", "FINESUB_MODEL_CATALOG", "FINESUB_ENV_FILE",
+            "FINESUB_ENV_PROTECT"),
+    *_rows("nonoka", _ALL, "the rate-limit state file (`paths.state_file`)", "FINESUB_STATE_FILE"),
+    *_rows("nonoka", _ALL, "the knowledge base, reached only through the task's knowledge process (WP-K)",
+            "FINESUB_KNOWLEDGE_ROOT"),
+    *_rows("nonoka", frozenset((_T, _C)), "where the task's knowledge process listens (`knowledge_variables`)",
+            KNOWLEDGE_ENDPOINT_VARIABLE),
+    *_rows("nonoka", frozenset((_T,)),
+            "the model layer: the separator's directory, the Hugging Face and torch caches (`model_variables`)",
+            "FINESUB_MODEL_DIR", "HF_HOME", "TORCH_HOME"),
+    *_rows("nonoka", frozenset((_T,)),
+            "compiled acceleration off (owner 2026-11-11, `85ae2b9`)", *ACCELERATION_OFF),
+    *_rows("nonoka", frozenset((_T,)),
+            "numba's cache, outside the read-only Python layer (WP-R5)", "NUMBA_CACHE_DIR"),
+    *_rows("nonoka", frozenset((_T,)),
+            "1: a loader that would fetch a missing file lazily fails instead (plan 4.2 item 16)",
+            "HF_HUB_OFFLINE"),
+    *_rows("nonoka", frozenset((_T,)), "the user's Hugging Face token, only when saved (D3)",
+            *TRANSCRIPTION_SECRETS),
+    *_rows("nonoka", frozenset((_C,)), "the LLM and search keys and the Nonoka Cloud key, only when saved (D3)",
+            *CORRECTION_SECRETS),
+    # -- FineSub's own, never written ------------------------------------------------------------------------
+    *_rows("absent", _ALL, "a checkout the engine would treat as its own (R0 1.8)", "FINESUB_ROOT"),
+    *_rows("absent", frozenset((_C, _K)), "the model layer: only the transcription loads models",
+           "FINESUB_MODEL_DIR", "HF_HOME", "TORCH_HOME", "NUMBA_CACHE_DIR", "HF_HUB_OFFLINE", *ACCELERATION_OFF),
+    *_rows("absent", _ALL,
+            "behaviour switches of the engine: what Nonoka wants of them is the engine's default",
+            "FINESUB_CT2_FLASH_ATTENTION", "FINESUB_DIARIZATION_ARTIFACTS", "FINESUB_OVERLAP_CANDIDATES",
+            "FINESUB_SPEAKER_JUDGE_MARKS", "FINESUB_TASK_STRATEGY", "FINESUB_KB_SLIM", "FINESUB_KNOWLEDGE_WRITE",
+            "FINESUB_LOG_LEVEL", "FINESUB_AGENT_TRANSPORT", "FINESUB_CODEX_FORK_ROLLOUT",
+            "FINESUB_CODEX_PROVIDER_TOKEN", "FINESUB_TOOL_SESSION_OPENING", "FINESUB_SHARE_MAINTAINER_TOKEN"),
+    *_rows("absent", _ALL,
+            "what the engine sets for its own MCP server child, never handed in",
+            "FINESUB_MCP_ROOT", "FINESUB_MCP_ASSIGNMENT", "FINESUB_MCP_WORKER", "FINESUB_MCP_SESSION",
+            "FINESUB_MCP_LOG", "FINESUB_MCP_KNOWLEDGE_ROOT", "FINESUB_MCP_TOOLS", "FINESUB_MCP_WAIT_SECONDS",
+            "FINESUB_MCP_CHANNEL", "FINESUB_MCP_REPLY_LIMIT", "FINESUB_MCP_HOLD_ACCEPTED_SECONDS",
+            "FINESUB_MCP_PREDELIVERED"),
+    *_rows("absent", _ALL,
+            "the agent capsule and task activity locations: the managed layout's, from the package data directory",
+            "FINESUB_AGENT_CAPSULE_ROOT", "FINESUB_AGENT_ACTIVITY_ROOT", "FINESUB_AGENT_IDENTITY_ANCHOR",
+            "FINESUB_AGENT_LOCATOR_KIND", "FINESUB_TASK_ACTIVITY_ROOT"),
+    *_rows("absent", _ALL,
+            "the installer's manifests, sources and download routes: the engine downloads nothing (WP-R7)",
+            "FINESUB_MODEL_MANIFEST", "FINESUB_DOWNLOAD_SOURCES", "FINESUB_DOWNLOAD_REGION", "FINESUB_PYPI_INDEX",
+            "FINESUB_HF_ENDPOINT", "FINESUB_GITHUB_FILE_PROXY"),
+    *_rows("absent", _ALL,
+            "FineSub's own launcher and installer, not on the engine's path",
+            "FINESUB_HOME", "FINESUB_BIG_DATA_DIR", "FINESUB_EXTRA_PYTHONPATH", "FINESUB_NO_UPDATE_CHECK", "CI"),
+    *_rows("absent", _ALL, "tokcount is found on PATH, in the tool layer", "GEMINI_TOKEN_COUNTER_EXE"),
+    *_rows("absent", _ALL,
+            "read from the derived `.env` only (`derive_llm_files`); a variable would not be read anyway",
+            "GEMINI_BASE_URL"),
+    *_rows("absent", _ALL, "an AMD card's selection and override: no ROCm build is shipped",
+            "HSA_OVERRIDE_GFX_VERSION", "HIP_VISIBLE_DEVICES", "ROCR_VISIBLE_DEVICES", "GPU_DEVICE_ORDINAL"),
+    *_rows("absent", _ALL, "the recognition stall watchdog's debugging switches",
+            "ASR_STALL_WATCHDOG_SEC", "ASR_STALL_WATCHDOG_LOG"),
+    *_rows("absent", _ALL,
+            "the core's debugging switch: a package's process prints its own tracebacks (`failures`)",
+            "NONOKA_DEBUG"),
+    *_rows("absent", frozenset((_K,)), "the keys: the knowledge process reads none", *CORRECTION_SECRETS,
+            *TRANSCRIPTION_SECRETS),
+    *_rows("absent", frozenset((_T,)), "the correction's keys: the transcription asks for HF_TOKEN only",
+            *CORRECTION_SECRETS),
+    *_rows("absent", frozenset((_C,)), "the transcription's key", *TRANSCRIPTION_SECRETS),
+    *_rows("absent", _ALL,
+            "keys of the cloud ASR back ends that moved to Nonoka's own engines (WP1, WP3)",
+            "MOSS_PRO", "OPENROUTER_API_KEY", "FINESUB_KEY_AZURE_SPEECH", "FINESUB_KEY_OPENROUTER_STT",
+            "FINESUB_AZURE_SPEECH_ENDPOINT"),
+    # -- the model libraries' own, never written ---------------------------------------------------------------
+    *_rows("absent", _ALL,
+            "Hugging Face: everything but HF_HOME, the token and offline is the libraries' default; "
+            "an endpoint or another cache would move what is loaded",
+            "HF_ENDPOINT", "HF_HUB_CACHE", "HUGGINGFACE_HUB_CACHE", "HUGGINGFACE_HUB_VERBOSITY",
+            "HUGGING_FACE_HUB_TOKEN", "HF_TOKEN_PATH", "HF_STORED_TOKENS_PATH", "HF_ASSETS_CACHE",
+            "HF_HUB_DISABLE_PROGRESS_BARS", "HF_HUB_DISABLE_SYMLINKS_WARNING", "HF_HUB_DISABLE_TELEMETRY",
+            "HF_HUB_DISABLE_IMPLICIT_TOKEN", "HF_HUB_DISABLE_EXPERIMENTAL_WARNING", "HF_HUB_DISABLE_XET",
+            "HF_HUB_ENABLE_HF_TRANSFER", "HF_HUB_DOWNLOAD_TIMEOUT", "HF_HUB_ETAG_TIMEOUT", "HF_XET_CACHE",
+            "HF_XET_HIGH_PERFORMANCE", "HF_DEBUG", "HF_HUB_VERBOSITY", "HF_HUB_USER_AGENT_ORIGIN",
+            "TRANSFORMERS_CACHE", "TRANSFORMERS_OFFLINE", "TRANSFORMERS_VERBOSITY",
+            "TRANSFORMERS_NO_ADVISORY_WARNINGS", "PYTORCH_TRANSFORMERS_CACHE", "PYTORCH_PRETRAINED_BERT_CACHE",
+            "HF_MODULES_CACHE", "HF_DATASETS_OFFLINE", "HF_DATASETS_CACHE", "TOKENIZERS_PARALLELISM",
+            "USE_TORCH", "USE_TF", "USE_JAX", "USE_FLAX"),
+    *_rows("absent", _ALL,
+            "torch and CUDA: a compile cache would be read across runs, the rest tune the run",
+            "TORCHINDUCTOR_CACHE_DIR", "TORCH_LOGS", "TORCH_SHOW_CPP_STACKTRACES", "TORCH_CUDA_ARCH_LIST",
+            "PYTORCH_CUDA_ALLOC_CONF", "PYTORCH_NVML_BASED_CUDA_CHECK", "PYTORCH_NO_CUDA_MEMORY_CACHING",
+            "CUDA_LAUNCH_BLOCKING", "CUDA_MODULE_LOADING", "CUDA_DEVICE_ORDER", "TORCH_EXTENSIONS_DIR",
+            "TORCH_FORCE_WEIGHTS_ONLY_LOAD", "TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD", "TORCHDYNAMO_DISABLE",
+            "TRITON_CACHE_DIR"),
+    *_rows("absent", _ALL,
+            "thread pools and numerical libraries: their own defaults, from the processor count",
+            "CT2_VERBOSE", "CT2_CUDA_ALLOCATOR", "CT2_FORCE_CPU_ISA", "CT2_USE_EXPERIMENTAL_PACKED_GEMM",
+            "OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS", "NUMEXPR_NUM_THREADS",
+            "NUMEXPR_MAX_THREADS", "VECLIB_MAXIMUM_THREADS", "KMP_DUPLICATE_LIB_OK", "NUMBA_NUM_THREADS",
+            "NUMBA_DISABLE_JIT", "NUMBA_DEBUG_CACHE"),
+    *_rows("absent", _ALL, "uv: only the layer build uses it", "UV_CACHE_DIR", "UV_INDEX_URL", "UV_PYTHON"),
+    # -- found by the read audit of the real pipeline (WP-H, 2026-11-18), all absent when read --
+    *_rows("absent", _ALL,
+            "torch's compiler, profiler, tracing and back ends (inductor, dynamo, AOT, FX, Triton, CUTLASS, XLA, "
+            "ROCm): compiled acceleration is off and every one of these is left at torch's default",
+            "AOTINDUCTOR_RAISE_ERROR_ON_IGNORED_OPTIMIZATION", "AOTINDUCTOR_REPRO_LEVEL",
+            "AOT_INDUCTOR_COMPILE_WRAPPER_OPT_LEVEL", "AOT_INDUCTOR_DEBUG_COMPILE",
+            "AOT_INDUCTOR_DEBUG_INTERMEDIATE_VALUE_PRINTER", "AOT_INDUCTOR_DEBUG_SYMBOLS",
+            "AOT_INDUCTOR_ENABLE_LTO", "AOT_INDUCTOR_FILTERED_KERNELS_TO_PRINT",
+            "AOT_INDUCTOR_WEIGHT_USE_CACHING_ALLOCATOR", "AOT_PARTITIONER_DEBUG",
+            "COMPILE_STROBELIGHT_FRAME_FILTER", "COMPILE_STROBELIGHT_MAX_PROFILE_TIME",
+            "COMPILE_STROBELIGHT_MAX_STACK_LENGTH", "COMPILE_STROBELIGHT_SAMPLE_RATE", "CUTEDSL_ENABLE_AUTOTUNING",
+            "CUTLASS_EPILOGUE_FUSION", "CXX", "DUMP_AOTI_MINIFIER", "EAGER_IMPORT", "ENABLE_PERSISTENT_TMA_MATMUL",
+            "ENABLE_TEMPLATE_TMA_STORE", "FAKE_ALLOW_META", "FX_NET_ACC_SPLITTER_TRACKER_DUMP_PATH",
+            "FX_NET_ACC_SPLITTER_TRACKER_MODE", "FX_PATCH_GETITEM", "HIP_PATH",
+            "INDUCTOR_CK_BACKEND_GENERATE_TEST_RUNNER_CODE", "INDUCTOR_CUDA_BACKEND_GENERATE_TEST_RUNNER_CODE",
+            "INDUCTOR_DOT_GRAPH_SHAPE_SVG", "INDUCTOR_LOG_URL_FOR_GRAPH_XFORM", "INDUCTOR_ORIG_FX_SVG",
+            "INDUCTOR_POST_FUSION_SVG", "INDUCTOR_PROVENANCE", "KINETO_USE_DAEMON", "LOG_AUTOTUNE_RESULTS",
+            "LOG_TLPARSE", "NPU_FA2_SPARSE_MODE", "PARTITIONER_MEMORY_BUDGET_PARETO",
+            "PARTITIONER_MEMORY_BUDGET_PARETO_DIR", "PT2_COMPILE_ID_PREFIX", "PYTORCH_JIT", "PYTORCH_JIT_DISABLE",
+            "PYTORCH_JIT_STATS", "PYTORCH_JIT_TIME", "PYTORCH_MATCHER_LOGLEVEL", "ROCM_HOME", "ROCM_PATH",
+            "TORCHDYNAMO_AUTO_FUNCTIONALIZED_V2", "TORCHDYNAMO_CAPTURE_DYNAMIC_OUTPUT_SHAPE_OPS",
+            "TORCHDYNAMO_CAPTURE_SCALAR_OUTPUTS", "TORCHDYNAMO_EXTENDED_DEBUG_CPP",
+            "TORCHDYNAMO_EXTENDED_DEBUG_CREATE_SYMBOL", "TORCHDYNAMO_EXTENDED_DEBUG_GUARD_ADDED",
+            "TORCHDYNAMO_NO_DATA_DEPENDENT_GRAPH_BREAK", "TORCHDYNAMO_PREPARE_FREEZING", "TORCHDYNAMO_REPRO_AFTER",
+            "TORCHDYNAMO_REPRO_FORWARD_ONLY", "TORCHDYNAMO_REPRO_IGNORE_NON_FP", "TORCHDYNAMO_REPRO_LEVEL",
+            "TORCHDYNAMO_SUPPRESS_ERRORS", "TORCHDYNAMO_TRANSLATION_NO_BISECT",
+            "TORCHDYNAMO_TRANSLATION_VALIDATION", "TORCHDYNAMO_TRANSLATION_VALIDATION_TIMEOUT",
+            "TORCHDYNAMO_VERBOSE", "TORCHEXPORT_EXTENDED_DEBUG_CURRENT_LOC", "TORCHINDUCTOR_ALIGNMENT_ASSERTS",
+            "TORCHINDUCTOR_ANNOTATE_TRAINING", "TORCHINDUCTOR_APPLY_GUMBEL_MAX_TRICK",
+            "TORCHINDUCTOR_ASSUME_UNALIGNED_FALLBACK_OUTPUT", "TORCHINDUCTOR_AUTOGRAD_CACHE",
+            "TORCHINDUCTOR_AUTOGRAD_CACHE_ALLOW_CUSTOM_AUTOGRAD", "TORCHINDUCTOR_AUTOGRAD_REMOTE_CACHE",
+            "TORCHINDUCTOR_AUTOHEURISTIC_COLLECT", "TORCHINDUCTOR_AUTOHEURISTIC_LOG_PATH",
+            "TORCHINDUCTOR_AUTOHEURISTIC_USE", "TORCHINDUCTOR_AUTOTUNE_CHOICE_DESC_REGEX",
+            "TORCHINDUCTOR_AUTOTUNE_CHOICE_NAME_REGEX", "TORCHINDUCTOR_AUTOTUNE_IN_SUBPROC",
+            "TORCHINDUCTOR_AUTOTUNE_MULTI_DEVICE", "TORCHINDUCTOR_AUTOTUNE_NUM_CHOICES_DISPLAYED",
+            "TORCHINDUCTOR_AUTOTUNE_REMOTE_CACHE", "TORCHINDUCTOR_AUTO_CHUNKER",
+            "TORCHINDUCTOR_BENCHMARK_EPILOGUE_FUSION", "TORCHINDUCTOR_BENCHMARK_FUSION",
+            "TORCHINDUCTOR_BENCHMARK_KERNEL", "TORCHINDUCTOR_BUNDLED_AUTOTUNE_REMOTE_CACHE",
+            "TORCHINDUCTOR_BUNDLE_TRITON_INTO_FX_GRAPH_CACHE", "TORCHINDUCTOR_CHUNKER_NUM_CHUNKS",
+            "TORCHINDUCTOR_CK_DIR", "TORCHINDUCTOR_COALESCE_TILING_ANALYSIS",
+            "TORCHINDUCTOR_COLLECTIVE_BENCHMARK_NRUNS", "TORCHINDUCTOR_COLLECTIVE_BENCHMARK_TIMEOUT",
+            "TORCHINDUCTOR_COMPILE_THREADS", "TORCHINDUCTOR_COMPREHENSIVE_PADDING",
+            "TORCHINDUCTOR_COOPERATIVE_REDUCTIONS", "TORCHINDUCTOR_COORDINATE_DESCENT_CHECK_ALL_DIRECTIONS",
+            "TORCHINDUCTOR_COORDINATE_DESCENT_RADIUS", "TORCHINDUCTOR_COORDINATE_DESCENT_TUNING",
+            "TORCHINDUCTOR_CPP_DYNAMIC_THREADS", "TORCHINDUCTOR_CPP_ENABLE_FLOATING_POINT_CONTRACT_FLAG",
+            "TORCHINDUCTOR_CPP_ENABLE_KERNEL_PROFILE", "TORCHINDUCTOR_CPP_ENABLE_TILING_HEURISTIC",
+            "TORCHINDUCTOR_CPP_ENABLE_UNSAFE_MATH_OPT_FLAG", "TORCHINDUCTOR_CPP_FALLBACK_SCATTER_REDUCE_SUM",
+            "TORCHINDUCTOR_CPP_FORCE_INLINE_KERNEL", "TORCHINDUCTOR_CPP_GEMM_CACHE_BLOCKING",
+            "TORCHINDUCTOR_CPP_GEMM_MAX_K_SLICES", "TORCHINDUCTOR_CPP_GEMM_THREAD_FACTORS",
+            "TORCHINDUCTOR_CPP_MAX_HORIZONTAL_FUSION_SIZE", "TORCHINDUCTOR_CPP_MIN_CHUNK_SIZE",
+            "TORCHINDUCTOR_CPP_NO_REDUNDANT_LOOPS", "TORCHINDUCTOR_CPP_USE_CONSTEXPR_FOR_INT_ARRAY",
+            "TORCHINDUCTOR_CPP_USE_DECOMPOSE_TANH", "TORCHINDUCTOR_CPP_WEIGHT_PREPACK",
+            "TORCHINDUCTOR_CPP_WRAPPER", "TORCHINDUCTOR_CPP_WRAPPER_BUILD_SEPARATE", "TORCHINDUCTOR_CUDAGRAPHS",
+            "TORCHINDUCTOR_CUDAGRAPH_OR_ERROR", "TORCHINDUCTOR_CUTLASS_ALLOWLIST",
+            "TORCHINDUCTOR_CUTLASS_DENYLIST", "TORCHINDUCTOR_CUTLASS_DIR",
+            "TORCHINDUCTOR_CUTLASS_DYNAMIC_CLUSTER_FALLBACK", "TORCHINDUCTOR_CUTLASS_DYNAMIC_CLUSTER_SHAPE",
+            "TORCHINDUCTOR_CUTLASS_ENABLED_OPS", "TORCHINDUCTOR_CUTLASS_HASH_WITH_COMPILE_CMD",
+            "TORCHINDUCTOR_CUTLASS_INSTANTIATION_LEVEL", "TORCHINDUCTOR_CUTLASS_PRESCREENING",
+            "TORCHINDUCTOR_DEBUG_FUSION", "TORCHINDUCTOR_DECOMPOSE_K_THRESHOLD",
+            "TORCHINDUCTOR_DEFAULT_AUTOTUNE_REP", "TORCHINDUCTOR_DEFAULT_AUTOTUNE_WARMUP",
+            "TORCHINDUCTOR_DETERMINISTIC", "TORCHINDUCTOR_DISABLED_PASSES",
+            "TORCHINDUCTOR_DISTORT_BENCHMARKING_RESULT", "TORCHINDUCTOR_DISTRIBUTED_MAX_AUTOTUNE_GEMM",
+            "TORCHINDUCTOR_DIVISIBLE_BY_16", "TORCHINDUCTOR_DYNAMIC_SCALE_RBLOCK",
+            "TORCHINDUCTOR_EMULATE_DIVISION_ROUNDING", "TORCHINDUCTOR_EMULATE_PRECISION_CASTS",
+            "TORCHINDUCTOR_ENABLED_METRIC_TABLES", "TORCHINDUCTOR_ENABLE_LINEAR_BINARY_FOLDING",
+            "TORCHINDUCTOR_ENABLE_PDL", "TORCHINDUCTOR_ENABLE_TLX_TEMPLATES", "TORCHINDUCTOR_FILE_LOCK_TIMEOUT",
+            "TORCHINDUCTOR_FORCE_DISABLE_CACHES", "TORCHINDUCTOR_FORCE_FILTER_REDUCTION_CONFIGS",
+            "TORCHINDUCTOR_FORCE_LAYOUT_OPT", "TORCHINDUCTOR_FORCE_SAME_PRECISION", "TORCHINDUCTOR_FREEZING",
+            "TORCHINDUCTOR_FX_GRAPH_CACHE", "TORCHINDUCTOR_FX_GRAPH_CACHE_DEFAULT",
+            "TORCHINDUCTOR_FX_GRAPH_REMOTE_CACHE", "TORCHINDUCTOR_FX_WRAPPER", "TORCHINDUCTOR_GRAPH_PARTITION",
+            "TORCHINDUCTOR_INPLACE_PADDING", "TORCHINDUCTOR_KEEP_OUTPUT_STRIDE",
+            "TORCHINDUCTOR_LAYOUT_OPTIMIZATION", "TORCHINDUCTOR_LOOP_ORDERING_AFTER_FUSION",
+            "TORCHINDUCTOR_MAX_AUTOTUNE", "TORCHINDUCTOR_MAX_AUTOTUNE_CONV_BACKENDS",
+            "TORCHINDUCTOR_MAX_AUTOTUNE_FLEX_SEARCH_SPACE", "TORCHINDUCTOR_MAX_AUTOTUNE_GEMM",
+            "TORCHINDUCTOR_MAX_AUTOTUNE_GEMM_BACKENDS", "TORCHINDUCTOR_MAX_AUTOTUNE_GEMM_SEARCH_SPACE",
+            "TORCHINDUCTOR_MAX_AUTOTUNE_POINTWISE", "TORCHINDUCTOR_MAX_AUTOTUNE_PRUNE_CHOICES_BASED_ON_SHARED_MEM",
+            "TORCHINDUCTOR_MAX_AUTOTUNE_REPORT_CHOICES_STATS", "TORCHINDUCTOR_MEMORY_PLANNING",
+            "TORCHINDUCTOR_MEMORY_POOL", "TORCHINDUCTOR_MIN_NUM_SPLIT", "TORCHINDUCTOR_MIX_ORDER_REDUCTION",
+            "TORCHINDUCTOR_MIX_ORDER_REDUCTION_ALLOW_MULTI_STAGES",
+            "TORCHINDUCTOR_MIX_ORDER_REDUCTION_AUTOTUNE_SPLIT_SIZE", "TORCHINDUCTOR_MULTI_KERNEL",
+            "TORCHINDUCTOR_NAN_ASSERTS", "TORCHINDUCTOR_NATIVE_MATMUL",
+            "TORCHINDUCTOR_NON_BLOCKING_REMOTE_CACHE_WRITE", "TORCHINDUCTOR_NUM_DECOMPOSE_K_SPLITS",
+            "TORCHINDUCTOR_NVGEMM_MAX_PROFILING_CONFIGS", "TORCHINDUCTOR_ONLINE_SOFTMAX",
+            "TORCHINDUCTOR_OPTIMIZE_SCATTER_UPON_CONST_TENSOR", "TORCHINDUCTOR_PARTITIONED_SCATTER_ENABLED",
+            "TORCHINDUCTOR_PERMUTE_FUSION", "TORCHINDUCTOR_PERSISTENT_REDUCTIONS",
+            "TORCHINDUCTOR_PIPELINE_GEMM_AUTOTUNING", "TORCHINDUCTOR_PRECOMPILATION_TIMEOUT_SECONDS",
+            "TORCHINDUCTOR_PROFILE", "TORCHINDUCTOR_PROFILE_OUTPUT",
+            "TORCHINDUCTOR_PROFILE_WITH_DO_BENCH_USING_PROFILING", "TORCHINDUCTOR_PROLOGUE_FUSION",
+            "TORCHINDUCTOR_QUIESCE_ASYNC_COMPILE_POOL", "TORCHINDUCTOR_RUNTIME_TRITON_NAN_ASSERTS",
+            "TORCHINDUCTOR_RUN_JIT_POST_COMPILE_HOOK", "TORCHINDUCTOR_SAVE_ARGS", "TORCHINDUCTOR_SCALAR_ASSERTS",
+            "TORCHINDUCTOR_SHAPE_PADDING", "TORCHINDUCTOR_SIZE_ASSERTS", "TORCHINDUCTOR_SKIP_L1",
+            "TORCHINDUCTOR_SPLIT_REDUCTIONS", "TORCHINDUCTOR_STATIC_LAUNCH_USER_DEFINED_TRITON_KERNELS",
+            "TORCHINDUCTOR_STRICT_STATIC_CUDA_LAUNCHER", "TORCHINDUCTOR_TRITON_DISABLE_DEVICE_DETECTION",
+            "TORCHINDUCTOR_TRITON_PROTON_GROUP_BY_SM", "TORCHINDUCTOR_TRITON_PROTON_OUTPUT_DIR",
+            "TORCHINDUCTOR_TRITON_PROTON_PER_CTA_OCCUPANCY", "TORCHINDUCTOR_TRITON_PROTON_PROFILING",
+            "TORCHINDUCTOR_TRITON_PROTON_SPLIT_INVOCATIONS", "TORCHINDUCTOR_UNIQUE_KERNEL_NAMES",
+            "TORCHINDUCTOR_UNIQUE_USER_KERNEL_NAMES", "TORCHINDUCTOR_USE_EXPERIMENTAL_BENCHMARKER",
+            "TORCHINDUCTOR_USE_FAST_MATH", "TORCHINDUCTOR_USE_STATIC_CUDA_LAUNCHER", "TORCHINDUCTOR_VEC_ISA_OK",
+            "TORCHINDUCTOR_WARN_MIX_LAYOUT", "TORCHINDUCTOR_WORKER_LOGPATH", "TORCHINDUCTOR_WORKER_START",
+            "TORCHINDUCTOR_WORKER_SUPPRESS_LOGGING", "TORCHINDUCTOR_WRITE_ARE_DETERMINISTIC_ALGORITHMS_ENABLED",
+            "TORCHINDUCTOR_WRITE_MISSING_OPS", "TORCH_CACHING_PRECOMPILE", "TORCH_COMPILER_COLLECTIVES",
+            "TORCH_COMPILE_CACHE_KEY_TAG", "TORCH_COMPILE_CPROFILE", "TORCH_COMPILE_DEBUG",
+            "TORCH_COMPILE_DEBUG_DIR", "TORCH_COMPILE_DEBUG_SAVE_REAL", "TORCH_COMPILE_DISABLE",
+            "TORCH_COMPILE_DYNAMIC_SOURCES", "TORCH_COMPILE_DYNAMO_PROFILER", "TORCH_COMPILE_FORCE_DISABLE_CACHES",
+            "TORCH_COMPILE_GRAPH_FORMAT", "TORCH_COMPILE_JOB_ID", "TORCH_COMPILE_OVERRIDE_BACKENDS",
+            "TORCH_COMPILE_OVERRIDE_INDUCTOR_CONFIGS", "TORCH_COMPILE_REPLAY_RECORD",
+            "TORCH_COMPILE_STICKY_PGO_KEY", "TORCH_COMPILE_STICKY_PGO_READ", "TORCH_COMPILE_STICKY_PGO_WRITE",
+            "TORCH_COMPILE_STROBELIGHT", "TORCH_COMPILE_UNBACKED_SOURCES", "TORCH_COMPILE_USE_LAZY_GRAPH_MODULE",
+            "TORCH_CUDAGRAPH_GC", "TORCH_CUDA_SANITIZER", "TORCH_DEVICE_BACKEND_AUTOLOAD",
+            "TORCH_DISTRIBUTED_COMPILE_ON_ONE_RANK", "TORCH_DISTRIBUTED_USE_TORCHCOMMS", "TORCH_DTRACE",
+            "TORCH_DYNAMO_AUTOMATIC_DYNAMIC_LOCAL_PGO", "TORCH_DYNAMO_AUTOMATIC_DYNAMIC_REMOTE_PGO",
+            "TORCH_DYNAMO_AUTOMATIC_DYNAMIC_SHAPES", "TORCH_DYNAMO_DO_NOT_EMIT_RUNTIME_ASSERTS",
+            "TORCH_DYNAMO_RUN_GC_AFTER_COMPILE", "TORCH_ENRICH_RPOFILER_STACK_TRACE", "TORCH_FAKE_TENSOR_DEBUG",
+            "TORCH_FAKE_TENSOR_DISPATCH_CACHE", "TORCH_FAKE_TENSOR_DISPATCH_CACHE_CROSSCHECK", "TORCH_LOGS_FORMAT",
+            "TORCH_LOGS_OUT", "TORCH_LOGS_TRACE_ID_FILTER", "TORCH_SERIALIZATION_DEBUG", "TORCH_STRICT_PRECOMPILE",
+            "TORCH_TRACE", "TORCH_USE_RTLD_GLOBAL", "TRITON_BACKENDS_IN_TREE", "UNSAFE_SKIP_FSDP_MODULE_GUARDS",
+            "USE_TORCH_XLA", "VS_PROFILER", "XLA_DOWNCAST_BF16", "XLA_USE_BF16",),
+    *_rows("absent", _ALL,
+            "Hugging Face and transformers beyond the cache, the token and offline: endpoints, sign-in, "
+            "telemetry, kernels from the hub -- their defaults (and offline)",
+            "DISABLE_TELEMETRY", "DO_NOT_TRACK", "HF_DEACTIVATE_ASYNC_LOAD", "HF_DEVICE_CODE_OAUTH_CLIENT_ID",
+            "HF_HUB_DISABLE_SYMLINKS", "HF_HUB_DISABLE_UPDATE_CHECK", "HF_INFERENCE_ENDPOINT", "HF_OIDC_RESOURCE",
+            "HUGGINGFACE_ASSETS_CACHE", "HUGGINGFACE_CO_STAGING", "OAUTH_CLIENT_ID", "OAUTH_CLIENT_SECRET",
+            "OAUTH_SCOPES", "OPENID_PROVIDER_URL", "SAGEMAKER_JOB_NAME", "SM_HP_MP_PARAMETERS",
+            "TRANSFORMERS_DISABLE_TORCH_CHECK", "TRANSFORMERS_IS_CI", "USE_HUB_KERNELS",),
+    *_rows("absent", _ALL,
+            "the numerical and audio libraries' own switches (sympy, mpmath, scipy, scikit-learn, numpy, numba, "
+            "llvmlite, joblib, loky, librosa, OpenBLAS, OpenMP, Pillow, msgpack, pypinyin, beartype, wrapt): "
+            "their defaults",
+            "BEARTYPE_IS_COLOR", "JOBLIB_MULTIPROCESSING", "JOBLIB_START_METHOD", "KMP_INIT_AT_FORK",
+            "LIBROSA_CACHE_COMPRESS", "LIBROSA_CACHE_DIR", "LIBROSA_CACHE_LEVEL", "LIBROSA_CACHE_MMAP",
+            "LIBROSA_CACHE_VERBOSE", "LIBROSA_DATA_DIR", "LLVMLITE_ENABLE_IR_LAYER_TYPED_POINTERS",
+            "LOKY_MAX_DEPTH", "LOKY_PICKLER", "MPMATH_NOGMPY", "MPMATH_NOSAGE", "MPMATH_SAGE", "MPMATH_STRICT",
+            "MSGPACK_PUREPYTHON", "NPY_PROMOTION_STATE", "NUMBA_DISABLE_ERROR_MESSAGE_HIGHLIGHTING",
+            "NUMBA_DYLD_WORKAROUND", "NUMPY_MADVISE_HUGEPAGE", "OPENBLAS_MAIN_FREE", "PILLOW_ALIGNMENT",
+            "PILLOW_BLOCKS_MAX", "PILLOW_BLOCK_SIZE", "PYPINYIN_NO_DICT_COPY", "PYPINYIN_NO_PHRASES", "SAGE_ROOT",
+            "SCIPY_ARRAY_API", "SCIPY_DEVICE", "SKLEARN_ASSUME_FINITE", "SKLEARN_PAIRWISE_DIST_CHUNK_SIZE",
+            "SKLEARN_WORKING_MEMORY", "SYMPY_CACHE_SIZE", "SYMPY_DEBUG", "SYMPY_EEZ_MODULUS_STEP",
+            "SYMPY_EEZ_NUMBER_OF_CONFIGS", "SYMPY_EEZ_NUMBER_OF_TRIES", "SYMPY_EEZ_RESTART_IF_NEEDED",
+            "SYMPY_GF_FACTOR_METHOD", "SYMPY_GF_IRRED_METHOD", "SYMPY_GROEBNER", "SYMPY_GROUND_TYPES",
+            "SYMPY_TIMINGS", "SYMPY_USE_CACHE", "SYMPY_USE_COLLINS_RESULTANT", "SYMPY_USE_CYCLOTOMIC_FACTOR",
+            "SYMPY_USE_HEU_GCD", "SYMPY_USE_IRREDUCIBLE_IN_FACTOR", "SYMPY_USE_SIMPLIFY_GCD",
+            "WRAPT_DISABLE_EXTENSIONS",),
+    *_rows("absent", _ALL,
+            "audio-separator's model directory: the engine names the separator's files itself (FINESUB_MODEL_DIR)",
+            "AUDIO_SEPARATOR_MODEL_DIR",),
+)
+
+
+def classification_for(process: str) -> dict[str, tuple[str, str]]:
+    """The package's half of the table for one process (`transcription`, ...): name -> (category, reason)."""
+
+    return {name: (category, reason) for name, category, processes, reason in CLASSIFICATION if process in processes}
 
 
 def drop_inherited() -> None:
@@ -121,6 +414,9 @@ def model_variables(context: Mapping[str, Any]) -> dict[str, str]:
         "HF_HOME": str(models / HF_HOME_DIRECTORY),
         "TORCH_HOME": str(models / "torch"),
         **ACCELERATION_OFF,
+        # The engine no longer downloads (WP-R7); a loader that would fetch a
+        # missing file on its own fails instead of reaching the network.
+        "HF_HUB_OFFLINE": "1",
     }
     cache = runtime.get("cache")
     if cache:
@@ -313,18 +609,17 @@ def sync_proxy_environment(proxy: str | None) -> None:
 
 
 def install_proxy_policy(proxy: Mapping[str, Any] | None) -> None:
-    """When the app's proxy policy is on, FineSub's route discovery and API calls take the core's route.
+    """FineSub's route discovery and API calls take the core's route, always (D17; plan 4.5 item 30).
 
     `proxy`: `{"policy": bool, "url": str | None}` -- whether the desktop's
-    policy applies at all (it does not outside the desktop), and the route the
-    core resolved for this process (None: direct). An explicit `[api] proxy`
-    in FineSub's config still wins. A SOCKS route goes direct with a warning:
-    the engine refuses SOCKS.
+    policy applies (it does not outside the desktop), and the route the core
+    resolved for this process. Without the policy, or without a route, the
+    route is direct: never the Windows system proxy, which only the core may
+    turn into a setting. An explicit `[api] proxy` in FineSub's config still
+    wins. A SOCKS route goes direct with a warning: the engine refuses SOCKS.
     """
 
-    if not proxy or not proxy.get("policy"):
-        return
-    url = proxy.get("url") or None
+    url = (proxy.get("url") or None) if proxy and proxy.get("policy") else None
     sync_proxy_environment(url)
     _pin_route_discovery(url)
     _pin_api_proxy(url)

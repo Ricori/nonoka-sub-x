@@ -119,7 +119,7 @@ class RunPlan:
 
     input_path: str
     keywords: Mapping[str, Any]
-    #: Set for the run when the request named a card and nothing set it before.
+    #: The card the request named, if it named one: this process's `CUDA_VISIBLE_DEVICES`.
     cuda_visible_devices: str | None
 
     @property
@@ -332,7 +332,10 @@ def transcribe(job: Mapping[str, Any], reporter: Any) -> dict[str, Any]:
     """Run the job under `reporter` (FineSub's protocol); the core's `TranscriptionResult` as JSON."""
 
     plan = run_plan(job)
-    if plan.cuda_visible_devices is not None and "CUDA_VISIBLE_DEVICES" not in os.environ:
+    # The card the request named is this process's `CUDA_VISIBLE_DEVICES`,
+    # set here, before anything loads CUDA, and unconditionally: the process
+    # was started with nothing inherited (plan 4.5 item 27; WP-H question H6).
+    if plan.cuda_visible_devices is not None:
         os.environ["CUDA_VISIBLE_DEVICES"] = plan.cuda_visible_devices
     Path(plan.keywords["output_path"]).parent.mkdir(parents=True, exist_ok=True)
     mute_separator_onnx_warning()

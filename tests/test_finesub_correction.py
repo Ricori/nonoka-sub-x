@@ -251,7 +251,7 @@ def _codes(store, runtime, target: str, *, missing=frozenset(), platform: str = 
 
     with (
         mock.patch("importlib.util.find_spec", side_effect=find_spec),
-        mock.patch.object(engine_host.shutil, "which", return_value=None),
+        mock.patch("shutil.which", return_value=None),
         mock.patch.object(engine_host.sys, "platform", platform),
     ):
         return [issue.code for issue in engine_host.launcher_engine_readiness(PACKAGE, runtime, store, target).issues]
@@ -269,8 +269,10 @@ def test_readiness_is_the_sidecars_llm_tiers() -> None:
     assert _codes(_Store(True), _Runtime(state="missing"), "raw-srt", missing={"opencc"}) == ["missing_harness"]
     assert _codes(_Store(True), _Runtime(state="missing"), "raw-srt", missing={"tzdata"}, platform="darwin") == []
     assert _codes(_Store(True), _Runtime(), "raw-srt", missing={"opencc"}) == []
-    # The media tools: the runtime's or PATH's.
+    # The media tools: the tool layer's only (WP-H, owner H7: the process's PATH has no other).
     assert _codes(_Store(True), _Runtime(tools=False), "raw-srt") == ["missing_ffmpeg"]
+    with mock.patch("shutil.which", return_value="x"):
+        assert engine_host._tool_ready(_Runtime(tools=False), "ffmpeg") is False
 
 
 def test_the_harness_message_is_the_one_wp5_had() -> None:
@@ -278,7 +280,7 @@ def test_the_harness_message_is_the_one_wp5_had() -> None:
         return None if name == "opencc" else object()
 
     with mock.patch("importlib.util.find_spec", side_effect=find_spec), \
-            mock.patch.object(engine_host.shutil, "which", return_value="x"):
+            mock.patch("shutil.which", return_value="x"):
         issues = engine_host.launcher_engine_readiness(PACKAGE, _Runtime(state="missing"), _Store(True), "raw-srt").issues
     assert [issue.message for issue in issues] == [
         "本地续跑依赖缺失：opencc-python-reimplemented；请在「运行环境」页重建 Python 启动环境，或安装完整运行环境"

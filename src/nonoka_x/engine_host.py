@@ -33,7 +33,6 @@ from __future__ import annotations
 import json
 import os
 import secrets
-import shutil
 import subprocess
 import sys
 import threading
@@ -295,42 +294,452 @@ def sweep_runs(package_dirs: Iterable[Path]) -> list[Path]:
     return removed
 
 
-# --- starting a package's process ------------------------------------------------------------------------
+# --- the environment a package's process starts in (plan 4.5 items 27-29) -------------------------------------
+#
+# Built from nothing, never inherited (owner decision, plan appendix B question
+# 6): every variable a package's process has is in the table below, in one of
+# three categories --
+#
+# - `system`: copied by name, as it is, from the process that starts the
+#   package (what Windows, Python, torch, DPAPI and child processes need to
+#   exist at all); never a wildcard;
+# - `nonoka`: written here unconditionally from Nonoka's own configuration,
+#   the launch context, the task request and the data layout;
+# - `absent`: known to be read by something in a package's process, and kept
+#   out on purpose.
+#
+# Anything not in the table does not exist in the process either. This is the
+# neutral half of the table; what an engine reads of its own (`FINESUB_*`,
+# its model libraries' variables) is in each package's bridge, which writes it
+# from the launch context inside the process (`CLASSIFICATION` in
+# `engines/*/adapter/*/bridge.py`). Together the two are the one source the
+# coverage scan, the poisoning test and the read audit check against
+# (`tests/test_engine_hermetic.py`).
+#
+# Which process gets what is said per entry: `transcription` (sandboxed,
+# plan 4.5 item 28), `correction` (not sandboxed, the local agent CLIs'
+# variables, item 29), `knowledge` (as the correction, without the agent
+# CLIs': owner 2026-11-18, WP-H question H2).
 
-def _core_roots() -> set[str]:
-    """The import roots that hold the core itself: a package's process must not see them."""
+#: Process kinds, as a package's `kind`.
+TRANSCRIPTION, CORRECTION, KNOWLEDGE = "transcription", "correction", "knowledge"
+ALL_PROCESSES = frozenset(KINDS)
+LAUNCHER_PROCESSES = frozenset((CORRECTION, KNOWLEDGE))
 
-    here = Path(__file__).resolve().parent.parent
-    return {os.path.normcase(str(here))}
+
+@dataclass(frozen=True)
+class Variable:
+    """One row of the classification table."""
+
+    name: str
+    category: str  # "system" | "nonoka" | "absent"
+    processes: frozenset[str]
+    reason: str
+    #: The platforms the row applies to ("win32", "darwin"); empty for both.
+    platforms: tuple[str, ...] = ()
+
+    def applies(self, kind: str, platform: str | None = None) -> bool:
+        current = platform or sys.platform
+        return kind in self.processes and (not self.platforms or current in self.platforms)
 
 
-def package_environment(package: Package, base: Mapping[str, str] | None = None) -> dict[str, str]:
-    """The environment a package's process starts in: this one's, with its import path its own.
+def _rows(category: str, processes: frozenset[str], reason: str, *names: str, platforms: tuple[str, ...] = ()) -> tuple[Variable, ...]:
+    return tuple(Variable(name, category, processes, reason, platforms) for name in names)
 
-    `PYTHONPATH` is the package's roots, then whatever else this process was
-    handed (the video tool's module directory, say) except the core's own
-    source, so a package can never import the core. What an engine reads of its
-    own is not the core's to know: the package's bridge drops whatever of it
-    was inherited and writes it from the launch context.
+
+#: The user's own profile directories: the real ones for a process outside the
+#: sandbox, the sandbox's for the transcription (item 28; `_sandbox_variables`).
+PROFILE_NAMES = ("USERPROFILE", "APPDATA", "LOCALAPPDATA", "TEMP", "TMP")
+#: Spelled out for a child: the proxy, or "direct" (D17).
+PROXY_NAMES = ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy")
+NO_PROXY_NAMES = ("NO_PROXY", "no_proxy")
+LOCAL_HOSTS = "localhost,127.0.0.1,::1"
+#: The agent CLIs' own configuration and certificates (D16), for the correction only.
+AGENT_CLI_NAMES = (
+    "CLAUDE_CONFIG_DIR", "CODEBUDDY_CONFIG_DIR", "CODEBUDDY_INTERNET_ENVIRONMENT",
+    "CODEBUDDY_INTERNET_ENVIROMENT", "CODEX_HOME", "DSH_HOME", "CODEX_CA_CERTIFICATE",
+    "NODE_EXTRA_CA_CERTS", "SSL_CERT_FILE", "SSL_CERT_DIR",
+)
+
+CLASSIFICATION: tuple[Variable, ...] = (
+    # -- system: what a Windows process needs to run at all -------------------------------------------------
+    *_rows("system", ALL_PROCESSES,
+           "Windows itself: where the system is, which Python, torch's DLL loading and every child process need",
+           "SystemRoot", "windir", "SystemDrive", "ComSpec", "PATHEXT", "OS", platforms=("win32",)),
+    *_rows("system", ALL_PROCESSES,
+           "where programs and shared data live: native libraries and the CUDA driver look there",
+           "ProgramData", "ProgramFiles", "ProgramFiles(x86)", "ProgramW6432",
+           "CommonProgramFiles", "CommonProgramFiles(x86)", "CommonProgramW6432", platforms=("win32",)),
+    *_rows("system", ALL_PROCESSES,
+           "the machine: thread pools (OpenMP, MKL, torch) size themselves from the processor count",
+           "NUMBER_OF_PROCESSORS", "PROCESSOR_ARCHITECTURE", "PROCESSOR_IDENTIFIER", "COMPUTERNAME",
+           platforms=("win32",)),
+    *_rows("system", ALL_PROCESSES,
+           "the account: DPAPI needs the loaded profile, not a variable, but torch inductor names a directory "
+           "after USERNAME and child processes expect the pair",
+           "USERNAME", "USERDOMAIN", platforms=("win32",)),
+    *_rows("system", LAUNCHER_PROCESSES,
+           "the user's home drive and path: only read where USERPROFILE is missing (Python's expanduser); "
+           "the real ones outside the sandbox",
+           "HOMEDRIVE", "HOMEPATH", platforms=("win32",)),
+    *_rows("system", LAUNCHER_PROCESSES,
+           "the real profile directories: the correction and the knowledge process run outside the sandbox "
+           "(plan 4.5 item 29) and the local agent CLIs keep their login there",
+           *PROFILE_NAMES, platforms=("win32",)),
+    *_rows("system", ALL_PROCESSES, "the POSIX basics", "USER", "LANG", platforms=("darwin",)),
+    *_rows("system", LAUNCHER_PROCESSES, "the POSIX home and temporary directory, outside the sandbox",
+           "HOME", "TMPDIR", platforms=("darwin",)),
+    *_rows("system", frozenset((CORRECTION,)),
+           "the local agent CLIs' own configuration directories and certificates (D16); the CLI's login is "
+           "a boundary of the hermetic run (plan 4.5 item 31)",
+           *AGENT_CLI_NAMES),
+    # -- nonoka: written here ---------------------------------------------------------------------------------
+    Variable("PATH", "nonoka", ALL_PROCESSES,
+             "the tool layer's ffmpeg / ffprobe / tokcount directories, for the correction the local agent CLIs' "
+             "directories and the node a script CLI runs on (owner H1), then the system directories derived "
+             "from SystemRoot; never the parent's PATH"),
+    Variable("PYTHONPATH", "nonoka", ALL_PROCESSES,
+             "the package's own roots, for the children the engine starts without -I (its MCP server; D9)"),
+    Variable("PYTHONNOUSERSITE", "nonoka", ALL_PROCESSES,
+             "1: no user site-packages in those children either (D9)"),
+    Variable("PYTHONIOENCODING", "nonoka", ALL_PROCESSES,
+             "utf-8 for the children's standard streams (the process itself is -I and reconfigures its own)"),
+    Variable("PYTHONUTF8", "nonoka", ALL_PROCESSES,
+             "0: locale decoding of native tools' output stays on the ANSI code page (R0 1.10)"),
+    *_rows("nonoka", ALL_PROCESSES, "the proxy the core resolved for this process, or none (D17)", *PROXY_NAMES),
+    *_rows("nonoka", ALL_PROCESSES,
+           "`*` for a direct route, else the local hosts: written either way, so neither Python nor a library "
+           "falls back to the Windows system proxy (D17)", *NO_PROXY_NAMES),
+    Variable("CUDA_VISIBLE_DEVICES", "nonoka", frozenset((TRANSCRIPTION,)),
+             "the card a `cuda:N` request names, set unconditionally by the transcription package's adapter "
+             "before anything loads CUDA (owner H6: where it always was, so no baseline moves); no restriction "
+             "(absent) for `cuda` and `cpu`. Never handed in from here"),
+    *_rows("absent", LAUNCHER_PROCESSES, "no card: the correction and the knowledge process load no CUDA",
+           "CUDA_VISIBLE_DEVICES"),
+    *_rows("nonoka", frozenset((TRANSCRIPTION,)),
+           "the sandbox's home (shared between runs: the CUDA and torch kernel caches stay warm, plan 4.5 item 28)",
+           "USERPROFILE", "HOME", "APPDATA", "LOCALAPPDATA"),
+    *_rows("nonoka", frozenset((TRANSCRIPTION,)),
+           "the sandbox's home split into drive and path, like USERPROFILE (owner 2026-11-18, appendix C item 2, "
+           "WP-H question H8: measured to change nothing, kept consistent with the rest of the profile)",
+           "HOMEDRIVE", "HOMEPATH", platforms=("win32",)),
+    *_rows("nonoka", frozenset((TRANSCRIPTION,)),
+           "the sandbox's temporary directory of this one process, with its anchor held open (item 28)",
+           "TEMP", "TMP"),
+    *_rows("nonoka", frozenset((TRANSCRIPTION,)), "the sandbox's temporary directory of this one process",
+           "TMPDIR", platforms=("darwin",)),
+    # -- absent: read by something in a package's process, kept out -------------------------------------------
+    *_rows("absent", ALL_PROCESSES,
+           "the interpreter's own switches: the process starts with -I, and its children must not inherit them",
+           "PYTHONHOME", "PYTHONSTARTUP", "PYTHONDONTWRITEBYTECODE", "PYTHONPYCACHEPREFIX", "PYTHONSAFEPATH",
+           "PYTHONWARNINGS", "PYTHONINSPECT", "PYTHONVERBOSE", "PYTHONOPTIMIZE", "PYTHONDEBUG",
+           "PYTHONCASEOK", "PYTHONHASHSEED", "PYTHONEXECUTABLE", "PYTHONLEGACYWINDOWSSTDIO",
+           "PYTHONPLATLIBDIR", "PYTHONUSERBASE", "PYTHONBREAKPOINT", "PYTHONFAULTHANDLER",
+           "PYTHONTRACEMALLOC", "PYTHONMALLOC", "PYTHONDEVMODE", "PYTHONINTMAXSTRDIGITS",
+           "PYTHONWARNDEFAULTENCODING", "VIRTUAL_ENV", "CONDA_PREFIX", "SETUPTOOLS_USE_DISTUTILS"),
+    *_rows("absent", ALL_PROCESSES,
+           "the standard library's own look-ups (zoneinfo's time zone path, sysconfig's build directory): "
+           "their defaults are the interpreter's own",
+           "PYTHONTZPATH", "_PYTHON_PROJECT_BASE", "_PYTHON_HOST_PLATFORM", "_PYTHON_SYSCONFIGDATA_NAME"),
+    *_rows("absent", ALL_PROCESSES,
+           "the compiler toolchain: compiled acceleration is off and MSVC is no dependency (plan 2.8)",
+           "INCLUDE", "LIB", "LIBPATH", "VSINSTALLDIR", "VCINSTALLDIR", "VCToolsInstallDir", "WindowsSdkDir",
+           "DevEnvDir"),
+    *_rows("absent", ALL_PROCESSES,
+           "a CUDA toolkit on the machine: the wheels carry their own runtime, and removing these was checked "
+           "to change nothing (plan 2.6)",
+           "CUDA_PATH", "CUDA_HOME", "NVTOOLSEXT_PATH", "CUDNN_PATH"),
+    *_rows("absent", ALL_PROCESSES,
+           "the user's certificate bundles for Python clients: only the agent CLIs' are handed on (D16)",
+           "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE"),
+    *_rows("absent", ALL_PROCESSES, "an XDG directory: the engine's fall-backs are named explicitly",
+           "XDG_STATE_HOME", "XDG_CACHE_HOME", "XDG_CONFIG_HOME", "XDG_DATA_HOME"),
+    *_rows("absent", ALL_PROCESSES, "editors, for an interactive command no task runs", "EDITOR", "VISUAL"),
+    *_rows("absent", ALL_PROCESSES,
+           "a terminal's, an IDE's or a build system's, read by libraries to size output, name a user or pin "
+           "timestamps (found by the read audit of the real pipeline): their defaults",
+           "COLUMNS", "LINES", "LOGNAME", "LNAME", "PYCHARM_HOSTED", "TEST_TMPDIR", "SOURCE_DATE_EPOCH",
+           "PYTHONDOCS", "ANDROID_DATA", "PROCESSOR_ARCHITEW6432", "WIN_PD_OVERRIDE_LOCAL_APPDATA"),
+    *_rows("absent", ALL_PROCESSES, "the POSIX user name: Windows has USERNAME", "USER", platforms=("win32",)),
+    *_rows("absent", ALL_PROCESSES,
+           "would make a program lookup skip the working directory; Windows' default (unset) is kept",
+           "NoDefaultCurrentDirectoryInExePath", platforms=("win32",)),
+    *_rows("absent", frozenset((TRANSCRIPTION, KNOWLEDGE)),
+           "the local agent CLIs' variables: only the correction runs an agent CLI (D16)", *AGENT_CLI_NAMES),
+    *_rows("absent", ALL_PROCESSES,
+           "Python's `tempfile` reads TMPDIR before TEMP on every platform: on Windows it would bypass the "
+           "process's TEMP (the sandbox's, for the transcription)", "TMPDIR", platforms=("win32",)),
+)
+
+
+def classification_for(kind: str, platform: str | None = None) -> dict[str, Variable]:
+    """The neutral table's rows for one process kind on `platform` (this one), by name."""
+
+    return {row.name: row for row in CLASSIFICATION if row.applies(kind, platform)}
+
+
+def system_names(kind: str, platform: str | None = None) -> tuple[str, ...]:
+    return tuple(row.name for row in CLASSIFICATION if row.category == "system" and row.applies(kind, platform))
+
+
+def _process_kind(package: Package) -> str:
+    return package.kind if package.kind in KINDS else CORRECTION
+
+
+def sandboxed(package: Package) -> bool:
+    """Whether a package's process runs in the process-level sandbox: the transcription's (plan 4.5 item 28)."""
+
+    return package.kind == TRANSCRIPTION
+
+
+def _system_directories(parent: Mapping[str, str]) -> list[str]:
+    """The system's own program directories, derived from `SystemRoot` (or the POSIX defaults)."""
+
+    if os.name != "nt":
+        return ["/usr/bin", "/bin", "/usr/sbin", "/sbin"]
+    root = _lookup(parent, "SystemRoot") or _lookup(parent, "windir") or r"C:\Windows"
+    system32 = str(Path(root) / "System32")
+    return [system32, root, str(Path(system32) / "Wbem"), str(Path(system32) / "WindowsPowerShell" / "v1.0"),
+            str(Path(system32) / "OpenSSH")]
+
+
+def _lookup(environment: Mapping[str, str], name: str) -> str | None:
+    """`environment[name]`, case-insensitively on Windows (as the process itself would read it)."""
+
+    if name in environment:
+        return environment[name]
+    if os.name == "nt":
+        upper = name.upper()
+        for key, value in environment.items():
+            if key.upper() == upper:
+                return value
+    return None
+
+
+def package_path(context: Mapping[str, Any] | None, parent: Mapping[str, str], kind: str) -> str:
+    """`PATH` for a package's process: the tool layer, the agent CLIs (correction), the system directories."""
+
+    context = context or {}
+    entries: list[str] = []
+    if kind == CORRECTION:
+        entries += [str(entry) for entry in (context.get("agent_cli") or {}).get("path") or ()]
+    entries += [str(entry) for entry in (context.get("runtime") or {}).get("tools") or ()]
+    entries += _system_directories(parent)
+    seen: set[str] = set()
+    unique = []
+    for entry in entries:
+        key = os.path.normcase(entry)
+        if entry and key not in seen:
+            seen.add(key)
+            unique.append(entry)
+    return os.pathsep.join(unique)
+
+
+def proxy_variables(context: Mapping[str, Any] | None) -> dict[str, str]:
+    """The proxy variables for the route the core resolved (D17): always spelled out, both cases."""
+
+    proxy = (context or {}).get("proxy") or {}
+    url = proxy.get("url") if proxy.get("policy") else None
+    variables = {name: str(url) for name in PROXY_NAMES} if url else {}
+    for name in NO_PROXY_NAMES:
+        variables[name] = LOCAL_HOSTS if url else "*"
+    return variables
+
+
+def package_environment(
+    package: Package,
+    context: Mapping[str, Any] | None = None,
+    parent: Mapping[str, str] | None = None,
+    *,
+    sandbox: "SandboxTemp | None" = None,
+) -> dict[str, str]:
+    """The environment a package's process starts in, built from nothing (plan 4.5 item 27).
+
+    `parent` (this process's environment) only supplies the `system` rows, by
+    name. Everything else is written from the launch context: `PATH`, the
+    import path for the engine's own children, the proxy, and, for a
+    sandboxed package, the sandbox's home and this process's temporary
+    directory (`sandbox`). The card a request names is not here: the
+    transcription package's adapter sets it from the job (owner H6).
     """
 
-    environment = dict(os.environ if base is None else base)
-    core = _core_roots()
-    inherited = [
-        part for part in environment.get("PYTHONPATH", "").split(os.pathsep)
-        if part and os.path.normcase(str(Path(part).resolve())) not in core
-    ]
-    roots = [str(path) for path in package.paths]
-    environment["PYTHONPATH"] = os.pathsep.join([*roots, *(part for part in inherited if part not in roots)])
+    parent = os.environ if parent is None else parent
+    kind = _process_kind(package)
+    environment: dict[str, str] = {}
+    for name in system_names(kind):
+        value = _lookup(parent, name)
+        if value is not None:
+            environment[name] = value
+    environment["PATH"] = package_path(context, parent, kind)
+    environment["PYTHONPATH"] = os.pathsep.join(str(path) for path in package.paths)
+    environment["PYTHONNOUSERSITE"] = "1"
     environment["PYTHONIOENCODING"] = "utf-8"
-    environment.setdefault("PYTHONUTF8", "0")
+    environment["PYTHONUTF8"] = "0"
+    environment.update(proxy_variables(context))
+    if sandboxed(package):
+        if sandbox is None:
+            raise PackageUnavailable(f"引擎包 {package.id} 只在沙箱里运行，但没有为它准备沙箱")
+        environment.update(sandbox.variables())
     return environment
 
 
-def package_command(package: Package, python: str | Path, *arguments: str) -> list[str]:
-    """How a package's process is started: its entry module on `python`."""
+#: Run before anything else in a package's process: its import path is its
+#: own roots (and the interpreter's own library), its standard streams UTF-8,
+#: then the entry module runs as `python -m` would run it.
+_BOOTSTRAP = (
+    "import sys\n"
+    "sys.path[0:0] = {roots!r}\n"
+    "for _s, _e in ((sys.stdin, 'strict'), (sys.stdout, 'strict'), (sys.stderr, 'backslashreplace')):\n"
+    "    _s.reconfigure(encoding='utf-8', errors=_e)\n"
+    "import runpy\n"
+    "runpy.run_module({module!r}, run_name='__main__', alter_sys=True)\n"
+)
 
-    return [str(python), "-m", package.entry, *arguments]
+
+def interpreter_flags(package: Package) -> list[str]:
+    """`-I` for every package (no `PYTHON*`, no user site, no script directory); `-B` too when sandboxed."""
+
+    return ["-I", "-B"] if sandboxed(package) else ["-I"]
+
+
+def package_command(
+    package: Package,
+    python: str | Path,
+    *arguments: str,
+    module: str | None = None,
+    roots: Iterable[str | Path] | None = None,
+) -> list[str]:
+    """How a package's process is started: isolated, its entry module run after its import path is set.
+
+    `module` and `roots` default to the package's entry and its own roots
+    (the quality gate's stand-ins run another module, with one more root).
+    """
+
+    import_roots = [str(root) for root in (roots if roots is not None else package.paths)]
+    code = _BOOTSTRAP.format(roots=import_roots, module=module or package.entry)
+    return [str(python), *interpreter_flags(package), "-c", code, *arguments]
+
+
+def package_cwd(package: Package, context: Mapping[str, Any] | None, task_dir: str | Path | None = None) -> str | None:
+    """The process's working directory: the task's for the transcription, its own run directory otherwise (H3)."""
+
+    if sandboxed(package) and task_dir is not None:
+        return str(task_dir)
+    run = ((context or {}).get("paths") or {}).get("run")
+    if not run:
+        return None
+    # The bridge derives its files into it; it is there unless a caller holds
+    # on to a context whose run was already released (it is made again, as
+    # the bridge always made it).
+    Path(run).mkdir(parents=True, exist_ok=True)
+    return str(run)
+
+
+# --- the transcription's sandbox (plan 4.5 item 28) ---------------------------------------------------------------
+
+SANDBOX_DIRECTORY = "sandbox"
+SANDBOX_HOME = "home"
+SANDBOX_TEMP = "temp"
+#: Sorts before anything a library puts in TEMP; held open while the process runs,
+#: so a library that empties its TEMP (torch's AOTI loader did) stops at it.
+TEMP_ANCHOR = "!!nonoka-temp-anchor"
+
+
+def sandbox_root(context: Mapping[str, Any] | None) -> Path:
+    """`engines\\<package>\\sandbox\\` of the package's data directory (`paths.package_data`)."""
+
+    package_data = ((context or {}).get("paths") or {}).get("package_data")
+    if not package_data:
+        raise PackageUnavailable("沙箱需要引擎包的数据目录（启动上下文里没有 paths.package_data）")
+    return Path(package_data) / SANDBOX_DIRECTORY
+
+
+class SandboxTemp:
+    """The sandbox of one transcription process: the shared home, and a temporary directory of its own.
+
+    The home is shared between runs (the CUDA ComputeCache and torch's kernel
+    cache stay warm; owner, appendix B question 18). The temporary directory
+    is `sandbox\\temp\\<process>\\`, made before the process starts, with
+    `TEMP_ANCHOR` in it held (an advisory lock on an open file, which Windows
+    also refuses to delete) until the process has ended; `close` then
+    deletes the directory. `sweep_sandbox` deletes the ones whose holder is
+    gone.
+    """
+
+    def __init__(self, root: Path) -> None:
+        self.root = root
+        self.home = root / SANDBOX_HOME
+        for directory in self._home_directories().values():
+            directory.mkdir(parents=True, exist_ok=True)
+        self.temp = root / SANDBOX_TEMP / f"{os.getpid()}-{secrets.token_hex(6)}"
+        self.temp.mkdir(parents=True)
+        self._stack = ExitStack()
+        try:
+            self._stack.enter_context(fsops.holding_lock(self.temp / TEMP_ANCHOR, timeout=0))
+        except BaseException:
+            self._stack.close()
+            fsops.remove_tree(self.temp)
+            raise
+
+    def _home_directories(self) -> dict[str, Path]:
+        if os.name != "nt":
+            return {"HOME": self.home}
+        return {
+            "USERPROFILE": self.home,
+            "HOME": self.home,
+            "APPDATA": self.home / "AppData" / "Roaming",
+            "LOCALAPPDATA": self.home / "AppData" / "Local",
+        }
+
+    def variables(self) -> dict[str, str]:
+        variables = {name: str(path) for name, path in self._home_directories().items()}
+        if os.name == "nt":
+            # The home again, as a drive and a path (owner H8).
+            drive, rest = os.path.splitdrive(str(self.home))
+            variables.update({"HOMEDRIVE": drive, "HOMEPATH": rest or "\\"})
+        temp = str(self.temp)
+        if os.name == "nt":
+            variables.update({"TEMP": temp, "TMP": temp})
+        else:
+            variables["TMPDIR"] = temp
+        return variables
+
+    def close(self) -> None:
+        self._stack.close()
+        try:
+            fsops.remove_tree(self.temp)
+        except OSError:
+            # A file a dying child still holds: the next sweep takes it.
+            pass
+
+    def __enter__(self) -> "SandboxTemp":
+        return self
+
+    def __exit__(self, *_exc: object) -> None:
+        self.close()
+
+
+def sweep_sandbox(package_dirs: Iterable[Path]) -> list[Path]:
+    """Delete the sandbox temporary directories of processes that are gone; returns what was removed."""
+
+    removed: list[Path] = []
+    for package_dir in package_dirs:
+        root = package_dir / SANDBOX_DIRECTORY / SANDBOX_TEMP
+        try:
+            entries = sorted(root.iterdir())
+        except OSError:
+            continue
+        for entry in entries:
+            if not entry.is_dir() or fsops.is_directory_link(entry):
+                continue
+            if not fsops.try_lock(entry / TEMP_ANCHOR):
+                continue
+            try:
+                fsops.remove_tree(entry)
+            except OSError:
+                continue
+            removed.append(entry)
+    return removed
 
 
 def interpreter_for(package: Package, context: Mapping[str, Any] | None) -> str:
@@ -363,15 +772,30 @@ class PackageProcess:
         environment: Mapping[str, str] | None = None,
         python: str | Path | None = None,
         arguments: Iterable[str] = (),
+        task_dir: str | Path | None = None,
     ) -> None:
+        """Start the package's process, hermetic (plan 4.5).
+
+        `environment` is the parent environment the `system` variables are
+        taken from (this process's when None); `task_dir` the transcription's
+        working directory.
+        """
+
         self.package = package
         self._on_message = on_message or (lambda _message: None)
         self._lock = threading.Lock()
+        self.sandbox: SandboxTemp | None = None
         command = package_command(package, python or interpreter_for(package, context), *arguments)
         kwargs: dict[str, Any] = {}
         if os.name == "nt":
             kwargs["creationflags"] = fsops.no_window()
         try:
+            if sandboxed(package):
+                root = sandbox_root(context)
+                sweep_sandbox([root.parent])
+                self.sandbox = SandboxTemp(root)
+            #: What the process was handed, exactly (the quality gate's environment record reads it).
+            self.environment = package_environment(package, context, environment, sandbox=self.sandbox)
             self.process = subprocess.Popen(
                 command,
                 stdin=subprocess.PIPE,
@@ -379,12 +803,22 @@ class PackageProcess:
                 text=True,
                 encoding="utf-8",
                 errors="replace",
-                env=package_environment(package, environment),
+                env=self.environment,
+                cwd=package_cwd(package, context, task_dir),
                 **kwargs,
             )
         except OSError as error:
+            self._release_sandbox()
             raise PackageUnavailable(f"无法启动引擎包 {package.id}：{error}") from error
+        except BaseException:
+            self._release_sandbox()
+            raise
         self._send({"context": dict(context or {})})
+
+    def _release_sandbox(self) -> None:
+        sandbox, self.sandbox = self.sandbox, None
+        if sandbox is not None:
+            sandbox.close()
 
     @property
     def alive(self) -> bool:
@@ -441,6 +875,9 @@ class PackageProcess:
             code = self.process.poll()
         if self.process.stdout is not None and not self.process.stdout.closed:
             self.process.stdout.close()
+        if code is not None:
+            # Only once the process is gone: its TEMP goes with the anchor.
+            self._release_sandbox()
         return code
 
     def terminate(self) -> None:
@@ -474,8 +911,8 @@ def _issue(code: str, message: str) -> Any:
 
 
 def _tool_ready(runtime: Any, name: str) -> bool:
-    if shutil.which(name):
-        return True
+    """Whether the tool layer has `name`: a package's process finds its tools there only (owner H7)."""
+
     return runtime is not None and runtime.tool_path(name) is not None
 
 
@@ -618,8 +1055,10 @@ class TaskSession:
         if line is not None:
             print(line, file=sys.stderr, flush=True)
 
-    def start(self, package: Package, *, arguments: Iterable[str] = ()) -> PackageProcess:
-        process = PackageProcess(package, self.context_for(package), on_message=self.relay, arguments=arguments)
+    def start(self, package: Package, *, arguments: Iterable[str] = (), task_dir: Any = None) -> PackageProcess:
+        process = PackageProcess(
+            package, self.context_for(package), on_message=self.relay, arguments=arguments, task_dir=task_dir,
+        )
         self.processes.append(process)
         return process
 
@@ -651,7 +1090,8 @@ class PackageTranscriptionEngine:
         if report.cancelled():
             raise PackageError({"message": "task cancelled before transcription started",
                                 "formatted": "EngineCancelled: task cancelled before transcription started"})
-        process = self._session.start(self.package)
+        # The task's directory is the process's working directory (plan 4.5 item 28).
+        process = self._session.start(self.package, task_dir=job.task_dir)
         try:
             payload = process.request("transcribe", {"job": job.to_dict()})
         finally:
@@ -780,8 +1220,17 @@ def ask_once(kind: str, op: str, payload: Mapping[str, Any] | None = None, *, ro
 
 
 __all__ = [
+    "CLASSIFICATION",
     "ENGINES_ENVIRONMENT",
+    "SandboxTemp",
+    "Variable",
     "ask_once",
+    "classification_for",
+    "package_cwd",
+    "package_path",
+    "proxy_variables",
+    "sandboxed",
+    "sweep_sandbox",
     "EngineRun",
     "Package",
     "PackageCorrectionEngine",

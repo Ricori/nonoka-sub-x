@@ -102,9 +102,15 @@ TODAY_HOOK = Path(__file__).resolve().parent / "knowledge_today"
 def hermetic_environment(root: Path) -> dict[str, str]:
     """`calls.hermetic_environment`, with the knowledge base's date fixed for the run."""
 
+    from .package_child import PRELOAD_ENVIRONMENT, PRELOAD_VARIABLES
+
     environment = _calls_environment(root)
     environment["PYTHONPATH"] = os.pathsep.join([str(TODAY_HOOK), environment["PYTHONPATH"]])
     environment["NONOKA_QUALITY_KNOWLEDGE_TODAY"] = GATE_TODAY
+    # The engine packages' processes are isolated (WP-H): the same hook and
+    # date reach them through `package_child` instead of the environment.
+    environment[PRELOAD_ENVIRONMENT] = str(TODAY_HOOK / "sitecustomize.py")
+    environment[PRELOAD_VARIABLES] = json.dumps({"NONOKA_QUALITY_KNOWLEDGE_TODAY": GATE_TODAY})
     return environment
 
 
@@ -477,8 +483,8 @@ def knowledge_process(root: Path, knowledge_root: Path, *, hook: str | None = No
 
     from .package_child import use_in_worker
 
-    if hook is not None:
-        use_in_worker({"hook": hook}, root / "package-child.json")
+    # Always through `package_child`: the fixed date reaches the process only so (WP-H).
+    use_in_worker({"hook": hook or "tests.quality_harness.package_child:no_stand_ins"}, root / "package-child.json")
     package = engine_host.knowledge_package(engine_host.discover(ENGINES))
     run = root / "run"
     run.mkdir(exist_ok=True)

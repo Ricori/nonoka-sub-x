@@ -211,15 +211,20 @@ class LocalProviderTests(ProviderFixture):
         self.provider()
         self.assertFalse(left.exists())
 
-    def test_worker_environment_sets_cuda_visible_devices(self) -> None:
-        provider = self.provider()
-        req = self.request("encoding-environment")
-        req["device"] = "cuda:0"
-        task = provider.start(req)
-        wait_state(provider, task["task_id"], {"completed"})
-        logs = [event for event in provider.events(task["task_id"])["events"] if event["type"] == "log"]
-        self.assertEqual(logs[0]["payload"]["cuda_visible_devices"], "0")
-        provider.shutdown()
+    def test_the_card_is_left_to_the_transcription_process(self) -> None:
+        # WP-H: a `cuda:N` request's card is the transcription process's own
+        # `CUDA_VISIBLE_DEVICES`, written by the engine host when it starts
+        # that process (tests/test_engine_sandbox.py); the worker gets none.
+        with patch.dict(os.environ):
+            os.environ.pop("CUDA_VISIBLE_DEVICES", None)
+            provider = self.provider()
+            req = self.request("encoding-environment")
+            req["device"] = "cuda:0"
+            task = provider.start(req)
+            wait_state(provider, task["task_id"], {"completed"})
+            logs = [event for event in provider.events(task["task_id"])["events"] if event["type"] == "log"]
+            self.assertIsNone(logs[0]["payload"]["cuda_visible_devices"])
+            provider.shutdown()
 
     def test_local_provider_validates_device_format(self) -> None:
         provider = self.provider()

@@ -1031,7 +1031,11 @@ class LocalProvider:
 
         try:
             paths = self._paths()
-            engine_host.sweep_runs(paths.engine(package) for package in self.packages())
+            package_dirs = [paths.engine(package) for package in self.packages()]
+            engine_host.sweep_runs(package_dirs)
+            # And the sandbox temporary directories of transcription processes
+            # that are gone (plan 4.5 item 28).
+            engine_host.sweep_sandbox(package_dirs)
         except Exception as exc:  # noqa: BLE001 - leftovers only cost disk space
             print(f"engine run sweep skipped: {exc}", file=sys.stderr, flush=True)
 
@@ -1707,9 +1711,14 @@ class LocalProvider:
             )
             context = self._llm_run.contexts.get(package.id) if package is not None else {}
             environment = self._worker_environment()
+            cwd = None
             if package is not None:
-                environment = engine_host.package_environment(package, environment)
+                # Hermetic (plan 4.5 item 29): built from nothing, the parent
+                # only supplying the system variables; its own run directory
+                # as its working directory (owner H3).
+                environment = engine_host.package_environment(package, context, environment)
                 command = engine_host.package_command(package, engine_host.interpreter_for(package, context))
+                cwd = engine_host.package_cwd(package, context)
             if self._llm_worker_command is not None:
                 command = self._llm_worker_command()
         except OSError as exc:
@@ -1722,6 +1731,7 @@ class LocalProvider:
             "encoding": "utf-8",
             "errors": "replace",
             "env": environment,
+            "cwd": cwd,
         }
         if os.name == "nt":
             kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
@@ -1843,12 +1853,10 @@ class LocalProvider:
         command = self._worker_command(task_id, task_dir)
         process: subprocess.Popen[str] | None = None
         try:
+            # The card a `cuda:N` request names is the transcription process's
+            # own `CUDA_VISIBLE_DEVICES`, written by the engine host when it
+            # starts that process (plan 4.5 item 27); the worker uses no card.
             environment = self._worker_environment()
-            request_device = str(request.get("device") or "").strip().lower()
-            if request_device.startswith("cuda:"):
-                gpu_index = request_device.split(":", 1)[1].strip()
-                if gpu_index.isdigit():
-                    environment["CUDA_VISIBLE_DEVICES"] = gpu_index
             kwargs: dict[str, Any] = {"stdin": subprocess.PIPE, "stdout": subprocess.PIPE, "stderr": subprocess.STDOUT, "text": True, "encoding": "utf-8", "errors": "replace", "env": environment}
             if os.name == "nt":
                 kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
