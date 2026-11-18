@@ -935,6 +935,7 @@ D:\Envir\Python312\python scripts/quality_gate.py --cloud  # 云端（WP-C；基
 | 88 | 第十批开什么（WP-CL、WP-M2、WP-UI、WP7 前提都已满足）；WP-CL 的 Modal 花费上限 | 开 WP-CL 与 WP-M2，WP-UI、WP7 后开；`--cloud` 合计上限 $1（约 3 次）（2026-11-18） |
 | 89 | 合并 WP-M2 阶段 1 时：合并后新代码的 sidecar 会自动迁移它打开的旧数据目录；迁移未完成时的门控；主数据目录里的 `*.pre-migration` 备份与留下的 `finesub-data\`；边界测试新豁免 `("migration/legacy.py", "package:finesub-transcribe")` | 直接合并，用户自己注意别让新代码指向开发机的真实安装；保持门控（推荐项）；没用的文件全部删除（用户自定）；同意豁免（2026-11-18） |
 | 90 | WP-M2 阶段 2：删 `*.pre-migration` 与 `finesub-data\` 的时机；有本机打不开的旧密钥时删不删 `finesub.env.pre-migration` | 本地步骤过了回滚点（旧环境开删）就删，不等下载；照删，报告里写明随备份删掉的密钥名，「除 `engines\` 外无 FineSub 文件」没有例外（推荐的是下载后再删、这种情况保留）（2026-11-18） |
+| 91 | 附录 C 第 9 问：迁移「先删后下」期间，界面要不要提示改用云端 FineSub 或云 API 引擎 | 不提示，只说明下载完成之前 FineSub 转写不可用（2026-11-18） |
 
 更早的问答：WP-R0 的 D1–D23 见 R0 文档第 0 节；WP0 的细节见附录 A.1（已移到 `docs/transcription-engines-plan-done.md`）；沙箱实验中的决定见实验报告。
 
@@ -952,4 +953,4 @@ D:\Envir\Python312\python scripts/quality_gate.py --cloud  # 云端（WP-C；基
 | 6 | ~~模型层包含哪些模型~~ | 已答复 | 见附录 B 第 53 问：只放默认路径的 5 个 |
 | 7 | ~~macOS 的工具层在哪里构建~~ | 已答复 | 见附录 B 第 31 问；macOS 工具层另定 |
 | 8 | ~~R2 上旧层版本的保留期限，以及桶名、域名~~ | 已答复 | 见附录 B 第 59、60 问 |
-| 9 | 迁移「先删后下」期间，界面要不要提示改用云端 FineSub 或云 API 引擎 | WP-M2 开工前 | 工具层装好后云 API 引擎即可用 |
+| 9 | ~~迁移「先删后下」期间，界面要不要提示改用云端 FineSub 或云 API 引擎~~ | 已答复 | 见附录 B 第 91 问：不提示 |
