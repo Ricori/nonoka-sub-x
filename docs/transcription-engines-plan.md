@@ -934,6 +934,7 @@ D:\Envir\Python312\python scripts/quality_gate.py --cloud  # 云端（WP-C；基
 | 87 | 合并 WP-H、WP-L 时：环境基线 `tests/fixtures/quality/environment.json` 比对部分多两行 `HF_HUB_OFFLINE=1`，重录吗 | 批准重录，单独提交（`fcea2b2`；不比对的启动器部分随密闭一起变）（推荐项，2026-11-18） |
 | 88 | 第十批开什么（WP-CL、WP-M2、WP-UI、WP7 前提都已满足）；WP-CL 的 Modal 花费上限 | 开 WP-CL 与 WP-M2，WP-UI、WP7 后开；`--cloud` 合计上限 $1（约 3 次）（2026-11-18） |
 | 89 | 合并 WP-M2 阶段 1 时：合并后新代码的 sidecar 会自动迁移它打开的旧数据目录；迁移未完成时的门控；主数据目录里的 `*.pre-migration` 备份与留下的 `finesub-data\`；边界测试新豁免 `("migration/legacy.py", "package:finesub-transcribe")` | 直接合并，用户自己注意别让新代码指向开发机的真实安装；保持门控（推荐项）；没用的文件全部删除（用户自定）；同意豁免（2026-11-18） |
+| 90 | WP-M2 阶段 2：删 `*.pre-migration` 与 `finesub-data\` 的时机；有本机打不开的旧密钥时删不删 `finesub.env.pre-migration` | 本地步骤过了回滚点（旧环境开删）就删，不等下载；照删，报告里写明随备份删掉的密钥名，「除 `engines\` 外无 FineSub 文件」没有例外（推荐的是下载后再删、这种情况保留）（2026-11-18） |
 
 更早的问答：WP-R0 的 D1–D23 见 R0 文档第 0 节；WP0 的细节见附录 A.1（已移到 `docs/transcription-engines-plan-done.md`）；沙箱实验中的决定见实验报告。
 
