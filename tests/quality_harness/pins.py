@@ -34,10 +34,11 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 from urllib.parse import urlparse
 
-from . import ROOT, VENDOR_SOURCE
+from . import ROOT, TRANSCRIBE_SOURCE
 
 PINS_FILE = ROOT / "src" / "nonoka_x" / "resources" / "RUNTIME_PINS.json"
-BOOTSTRAP = VENDOR_SOURCE / "finesub_bootstrap"
+#: The original, which the transcription package carries (plan 4.2 item 16).
+BOOTSTRAP = TRANSCRIBE_SOURCE / "finesub_bootstrap"
 LOCKS = {"global": "pylock.win-py312.toml", "cn": "pylock.win-py312.cn.toml"}
 MEASURED_FILE = ROOT / "test_data" / "quality-baseline" / "runtime-measured.json"
 
@@ -184,8 +185,9 @@ def engine_constants() -> dict[str, Any]:
     import importlib
     import sys
 
-    if str(VENDOR_SOURCE) not in sys.path:
-        sys.path.insert(0, str(VENDOR_SOURCE))
+    from . import union
+
+    union.install()
     found: dict[str, Any] = {}
     for module_name in CONSTANT_MODULES:
         module = importlib.import_module(module_name)
@@ -276,13 +278,13 @@ def bootstrap_surface() -> list[str]:
 
     import ast
 
-    from .lock import is_unlocked, iter_files
+    from .lock import locked_files
 
     surface: set[str] = set()
-    for relative in iter_files():
-        if is_unlocked(relative) or not relative.endswith(".py"):
+    for relative, path in locked_files().items():
+        if not relative.endswith(".py"):
             continue
-        tree = ast.parse((VENDOR_SOURCE / relative).read_text(encoding="utf-8"))
+        tree = ast.parse(path.read_text(encoding="utf-8"))
         bound: dict[str, str] = {}
         for node in ast.walk(tree):
             if isinstance(node, ast.ImportFrom) and node.level == 0 and node.module and \
@@ -329,9 +331,10 @@ def unresolvable(surface: list[str]) -> list[str]:
         "        missing.append(f'{entry} ({type(error).__name__}: {error})')\n"
         "print(json.dumps(missing))\n"
     )
-    # Nonoka's own source first: once finesub_bootstrap/ is deleted, the
-    # compatibility package that replaces it lives there (plan 4.16).
-    search = os.pathsep.join([str(ROOT / "src"), str(VENDOR_SOURCE)])
+    # Against the original (the transcription package's): the surface is every
+    # locked file's, and the compatibility packages each supply only their
+    # package's share of it (`tests/test_engine_packages.py`).
+    search = os.pathsep.join([str(ROOT / "src"), str(TRANSCRIBE_SOURCE)])
     completed = subprocess.run(
         [sys.executable, "-c", script], input=json.dumps(surface), capture_output=True, text=True,
         encoding="utf-8", env={**os.environ, "PYTHONPATH": search}, timeout=120,
@@ -453,18 +456,22 @@ def measure(python: Path, models_dir: Path, runtime_dir: Path, pins: dict[str, A
 def measure_installed() -> dict[str, Any]:
     """`measure` on the runtime `real.locate_runtime` finds; written to test_data/.
 
-    The packages are those of `NONOKA_QUALITY_PYTHON` when it is set
-    (`real.python_override`); models and tools are always the located runtime's.
+    The packages are those of the located runtime's Python layer, the
+    interpreter the transcription package runs on (since WP-P1 the only one
+    `--real` runs it on); models and tools are the same runtime's.
     """
 
-    from .real import locate_runtime, provisioner_for, python_override
+    from .real import locate_runtime, provisioner_for
 
     import sys
 
-    sys.path[:0] = [str(ROOT / "src"), str(VENDOR_SOURCE)]
+    from . import union
+
+    sys.path[:0] = [str(ROOT / "src")]
+    union.install()
     data_dir, install_dir = locate_runtime()
     provisioner = provisioner_for(data_dir, install_dir)
-    python = python_override() or provisioner.worker_python()
+    python = provisioner.worker_python()
     if python is None:
         return {"skipped": f"no ready managed runtime under {provisioner.install_root}"}
     layers = provisioner.layers

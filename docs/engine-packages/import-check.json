@@ -3,7 +3,7 @@
  "python": "pbs-3.12.1 -I -B",
  "results": {
   "correct": {
-   "modules": 193,
+   "modules": 192,
    "distributions": [
     "annotated-types",
     "anyio",
@@ -27,10 +27,10 @@
     "zstandard"
    ],
    "heavy_imported": [],
-   "imported": 193
+   "imported": 192
   },
   "knowledge": {
-   "modules": 66,
+   "modules": 68,
    "distributions": [
     "annotated-types",
     "anyio",
@@ -54,7 +54,7 @@
     "zstandard"
    ],
    "heavy_imported": [],
-   "imported": 66
+   "imported": 68
   }
  }
 }

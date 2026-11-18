@@ -1,0 +1,38 @@
+{
+  "schema": 1,
+  "id": "finesub-correct",
+  "kind": "correction",
+  "label": "FineSub 纠错翻译包",
+  "entry": "finesub_correct",
+  "paths": ["adapter", "src"],
+  "interpreter": "launcher",
+  "secrets": [
+    "GEMINI_FREE", "GEMINI_PAID", "EXA_KEYS", "TAVILY_KEYS", "ANTHROPIC_API_KEY", "OPENAI_API_KEY",
+    "DEEPSEEK_API_KEY", "KIMI_API_KEY", "DASHSCOPE_API_KEY", "OPENAI_COMPAT_API_KEY",
+    "ANTHROPIC_COMPAT_API_KEY", "NONOKA_CLOUD_KEY"
+  ],
+  "upstream": {
+    "commit": "7123055da0cd6e037d8e37feb53b82f9e428c5cb",
+    "engine_bundle_id": "finesub-0.7.0+7123055da0cd",
+    "engine_version": "0.7.0",
+    "ref": "v0.7.0",
+    "repository": "https://github.com/caca2331/finesub"
+  },
+  "engine": {
+    "id": "finesub",
+    "label": "finesub correction",
+    "environment": {
+      "components": [],
+      "models": [],
+      "optional_components": [],
+      "optional_models": [],
+      "gpu": "none"
+    }
+  },
+  "readiness": {
+    "profile": "launcher",
+    "modules": [["httpx", "httpx"], ["opencc-python-reimplemented", "opencc"]],
+    "windows_modules": [["tzdata", "tzdata"]],
+    "llm_targets": ["translated-srt", "final-srt"]
+  }
+}

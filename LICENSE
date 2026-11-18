@@ -11,5 +11,5 @@ Canonical license text: https://www.gnu.org/licenses/gpl-3.0.txt
 
 Vendored components retain their own notices. In particular, FineSub engine
 code is MIT licensed and its prompt templates are CC BY-SA 4.0; see
-third_party/finesub/LICENSES.json.
+engines/<package>/LICENSES.json.
 

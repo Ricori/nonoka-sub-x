@@ -25,7 +25,7 @@ from nonoka_x.runtime.fetch import NetworkRoute  # noqa: E402
 
 from tests import layer_fakes as fakes  # noqa: E402
 
-VENDOR = ROOT / "third_party" / "finesub"
+VENDOR = ROOT / "engines"
 WINDOWS = pytest.mark.skipif(os.name != "nt", reason="layers are Windows-only")
 
 

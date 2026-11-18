@@ -212,10 +212,36 @@ def storage_record_path(data: Path) -> Path:
     return data / STORAGE_RECORD_NAME
 
 
+#: Where the old main data directory's knowledge base and rate-limit state go: the private
+#: directories of the packages that use them (plan 4.4 item 25, `engines\\<package>\\`).
+KNOWLEDGE_PACKAGE = "finesub-knowledge"
+CORRECTION_PACKAGE = "finesub-correct"
+
+#: Where WP-R4 derived FineSub's files until WP-R5 (owner 2026-11-12): a sealed copy of the keys,
+#: under the main data directory's `engines\`. Removed at start-up.
+TRANSITIONAL_ENGINE_DIRECTORY = "finesub-shared"
+
+
+def remove_transitional_engine_files(data: Path | str) -> None:
+    """Remove what WP-R4's transitional derivation left in the main data directory, if anything."""
+
+    from nonoka_x.runtime import fsops
+    from nonoka_x.runtime.paths import ENGINES_DIRECTORY_NAME
+
+    transitional = Path(data) / ENGINES_DIRECTORY_NAME / TRANSITIONAL_ENGINE_DIRECTORY
+    if os.path.lexists(transitional):
+        try:
+            fsops.remove_tree(transitional)
+        except OSError as error:
+            print(f"could not remove {transitional}: {error}", file=sys.stderr, flush=True)
+
+
 __all__ = [
     "LegacyLayout",
+    "TRANSITIONAL_ENGINE_DIRECTORY",
     "default_data_dir",
     "detect",
+    "remove_transitional_engine_files",
     "running_tasks",
     "staged_vendor_caches",
 ]

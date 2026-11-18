@@ -77,10 +77,10 @@ tasks:
       - npm run dev -- --port {{.VITE_PORT}} --strictPort
 
   stage:resources:
-    summary: Stages Python and FineSub resources for embedding in the Go binary
+    summary: Stages the Python sidecar and the engine packages for embedding in the Go binary
     run: once
     vars:
-      # Precompiles the engine code (unchecked-hash); must be the Python the environment layer pins.
+      # Precompiles the engine packages (unchecked-hash); must be the Python the environment layer pins.
       STAGE_PYTHON: '{{.STAGE_PYTHON | default "python"}}'
     sources:
       - ../scripts/run_local_sidecar.py
@@ -88,16 +88,16 @@ tasks:
       - ../src/nonoka_x/**/*
       - exclude: ../src/nonoka_x/**/__pycache__/**/*
       - exclude: ../src/nonoka_x/**/*.pyc
-      - ../src/finesub_knowledge/**/*
-      - exclude: ../src/finesub_knowledge/**/__pycache__/**/*
-      - exclude: ../src/finesub_knowledge/**/*.pyc
-      - ../third_party/finesub/src/**/*
-      - exclude: ../third_party/finesub/src/**/__pycache__/**/*
-      - exclude: ../third_party/finesub/src/**/*.pyc
-      - ../third_party/finesub/LICENSE
-      - ../third_party/finesub/LICENSES.json
-      - ../third_party/finesub/PROMPT_LICENSE.md
-      - ../third_party/finesub/UPSTREAM.json
+      # The engine packages (plan 4.6 item 33): each one's manifest, code and FineSub sources.
+      - ../engines/*/PACKAGE.json
+      - ../engines/*/adapter/**/*
+      - ../engines/*/src/**/*
+      - exclude: ../engines/**/__pycache__/**/*
+      - exclude: ../engines/**/*.pyc
+      - ../engines/*/LICENSE
+      - ../engines/*/LICENSES.json
+      - ../engines/*/PROMPT_LICENSE.md
+      - ../engines/*/UPSTREAM.json
       - build/tools/stage/main.go
     generates:
       - internal/app/bundled/nonoka_x/STAGED.json

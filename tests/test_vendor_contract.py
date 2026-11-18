@@ -9,8 +9,15 @@ import subprocess
 import unittest
 from pathlib import Path
 
+#: Since WP-P1 the vendored FineSub is three engine packages (`engines/<package>/`):
+#: each carries its half's FineSub sources under `src/`, its own code under
+#: `adapter/`, and the files that vouch for the sources. The test process sees
+#: all three through the test union (`tests/quality_harness/union.py`).
 ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_VENDOR = ROOT / "third_party" / "finesub"
+ENGINES = ROOT / "engines"
+PACKAGES = ("finesub-transcribe", "finesub-correct", "finesub-knowledge")
+TRANSCRIBE = ENGINES / "finesub-transcribe"
+CORRECT = ENGINES / "finesub-correct"
 sys.path.insert(0, str(ROOT / "src"))
 
 
@@ -38,8 +45,8 @@ def _enum_members(path: Path, name: str) -> set[str]:
     raise AssertionError(f"{name} is not defined in {path}")
 
 
-def _vendored_top_level() -> set[str]:
-    """The names directly under the vendor that the repository tracks.
+def _tracked_top_level(directory: Path) -> set[str]:
+    """The names directly under `directory` that the repository tracks.
 
     Asked of git, so a cache a local run left there (ignored, never committed)
     does not count; the directory itself outside a git checkout.
@@ -47,21 +54,25 @@ def _vendored_top_level() -> set[str]:
 
     try:
         listed = subprocess.run(
-            ["git", "ls-files", "--", "."], cwd=DEFAULT_VENDOR, capture_output=True, text=True, check=True
+            ["git", "ls-files", "--", "."], cwd=directory, capture_output=True, text=True, check=True
         ).stdout.splitlines()
     except (OSError, subprocess.CalledProcessError):
-        return {entry.name for entry in DEFAULT_VENDOR.iterdir()}
+        return {entry.name for entry in directory.iterdir()}
     return {line.split("/", 1)[0] for line in listed if line}
 
 
 class VendorContractTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
-        cls.upstream = json.loads((DEFAULT_VENDOR / "UPSTREAM.json").read_text(encoding="utf-8"))
+        cls.upstream = json.loads((TRANSCRIBE / "UPSTREAM.json").read_text(encoding="utf-8"))
 
     def test_upstream_record_names_the_version_and_nothing_else(self) -> None:
-        """Which upstream the vendor is based on; integrity is the quality lock's job."""
+        """Which upstream the packages' FineSub is based on, the same in each; integrity is the locks' job."""
 
+        for package in PACKAGES:
+            self.assertEqual(json.loads((ENGINES / package / "UPSTREAM.json").read_text(encoding="utf-8")), self.upstream)
+            manifest = json.loads((ENGINES / package / "PACKAGE.json").read_text(encoding="utf-8"))
+            self.assertEqual(manifest["upstream"]["commit"], self.upstream["commit"])
         self.assertEqual(
             set(self.upstream),
             {"repository", "ref", "commit", "engine_version", "engine_bundle_id"},
@@ -72,39 +83,32 @@ class VendorContractTests(unittest.TestCase):
         )
 
     def test_engine_packages_import_without_loading_models(self) -> None:
-        source = DEFAULT_VENDOR / "src"
-        sys.path.insert(0, str(source))
-        previous = sys.dont_write_bytecode
-        sys.dont_write_bytecode = True
-        try:
-            self.assertIsNotNone(importlib.import_module("finesub"))
-            self.assertIsNotNone(importlib.import_module("finesub_bootstrap"))
-        finally:
-            sys.dont_write_bytecode = previous
-            sys.path.remove(str(source))
-            sys.modules.pop("finesub", None)
-            sys.modules.pop("finesub_bootstrap", None)
+        self.assertIsNotNone(importlib.import_module("finesub"))
+        self.assertIsNotNone(importlib.import_module("finesub_bootstrap"))
 
-    def test_the_vendor_keeps_only_its_core_files(self) -> None:
-        """Plan section 1 item 7 (WP-R7): the engine source and the files that vouch for it.
+    def test_each_package_keeps_only_its_core_files(self) -> None:
+        """Plan section 1 item 7 (WP-R7), per package since WP-P1: the sources and what vouches for them.
 
-        No `pyproject.toml`, `VERSION` or README: the engine is not installed from
-        here, its version is `UPSTREAM.json`'s, and without `pyproject.toml` beside
-        `src/finesub` the engine no longer takes this directory for a source
-        checkout (`finesub.paths._is_checkout_root`).
+        No `pyproject.toml`, `VERSION` or README: an engine package is not
+        installed from here, its version is `UPSTREAM.json`'s, and without
+        `pyproject.toml` beside `src/finesub` the engine never takes the package
+        directory for a source checkout (`finesub.paths._is_checkout_root`). The
+        prompt templates' licence goes where the templates are.
         """
 
-        self.assertEqual(
-            _vendored_top_level(),
-            {"src", "LICENSE", "LICENSES.json", "PROMPT_LICENSE.md", "UPSTREAM.json",
-             "QUALITY_LOCK.json", "LOCAL_CHANGES.md"},
-        )
-        sys.path.insert(0, str(DEFAULT_VENDOR / "src"))
-        try:
-            from finesub.paths import _is_checkout_root
-        finally:
-            sys.path.remove(str(DEFAULT_VENDOR / "src"))
-        self.assertFalse(_is_checkout_root(DEFAULT_VENDOR))
+        from finesub.paths import _is_checkout_root
+
+        core = {"PACKAGE.json", "adapter", "src", "LICENSE", "LICENSES.json", "UPSTREAM.json",
+                "QUALITY_LOCK.json", "LOCAL_CHANGES.md"}
+        for package in PACKAGES:
+            with self.subTest(package=package):
+                directory = ENGINES / package
+                templates = (directory / "src/finesub/llm/prompt_templates").is_dir()
+                self.assertEqual(_tracked_top_level(directory), core | ({"PROMPT_LICENSE.md"} if templates else set()))
+                licences = json.loads((directory / "LICENSES.json").read_text(encoding="utf-8"))
+                listed = {component["path"] for component in licences["components"]}
+                self.assertEqual(listed, {"LICENSE"} | ({"src/finesub/llm/prompt_templates"} if templates else set()))
+                self.assertFalse(_is_checkout_root(directory))
 
     def test_runtime_metadata_is_package_data(self) -> None:
         """The installer's two assets are package data under `src/finesub_bootstrap/`.
@@ -113,7 +117,7 @@ class VendorContractTests(unittest.TestCase):
         makes those the only copies that are ever read.
         """
 
-        bootstrap = DEFAULT_VENDOR / "src/finesub_bootstrap"
+        bootstrap = TRANSCRIBE / "src/finesub_bootstrap"
         runtime = json.loads(
             (bootstrap / "runtime-manifest.json").read_text(encoding="utf-8")
         )
@@ -135,14 +139,14 @@ class VendorContractTests(unittest.TestCase):
         """
 
         from nonoka_x.local_provider import LLM_ROLES, PIPELINE_TARGETS
-        from nonoka_x.llm_worker import ENGINE_ROLES, ROLES
+        from finesub_correct.llm import ENGINE_ROLES, ROLES
 
-        stages = _assignment(DEFAULT_VENDOR / "src/finesub/stages.py", "PIPELINE_STAGE_ORDER")
+        stages = _assignment(CORRECT / "src/finesub/stages.py", "PIPELINE_STAGE_ORDER")
         self.assertEqual(
             set(PIPELINE_TARGETS),
             {key.value for key in stages.keys},
         )
-        roles = _enum_members(DEFAULT_VENDOR / "src/finesub/llm/routing/config.py", "LLMRole")
+        roles = _enum_members(CORRECT / "src/finesub/llm/routing/config.py", "LLMRole")
         engine_roles = set(ENGINE_ROLES.values())
         self.assertTrue(engine_roles <= roles, f"{engine_roles - roles} are not engine roles")
         self.assertEqual(set(ROLES), set(LLM_ROLES))
@@ -151,13 +155,12 @@ class VendorContractTests(unittest.TestCase):
     def test_a_disabled_limiter_neither_honours_nor_starts_a_cooldown(self) -> None:
         """What the LLM worker relies on for a settings-page model check."""
 
-        sys.path.insert(0, str(DEFAULT_VENDOR / "src"))
         from finesub.llm.rate_limit import ComboCooldownPhase, ModelRateLimiter
         from finesub.llm.routing.config import ModelEndpoint
 
         self.assertIn(
             "rate_limiter: ModelRateLimiter | None = None",
-            (DEFAULT_VENDOR / "src/finesub/llm/client.py").read_text(encoding="utf-8"),
+            (CORRECT / "src/finesub/llm/client.py").read_text(encoding="utf-8"),
         )
         endpoint = ModelEndpoint("TIER", "model")
         with tempfile.TemporaryDirectory() as temporary:
@@ -180,7 +183,7 @@ class VendorContractTests(unittest.TestCase):
 
         from nonoka_x.local_provider import DIARIZE_LEVELS, KNOWLEDGE_MODES
 
-        engine = DEFAULT_VENDOR / "src/finesub"
+        engine = CORRECT / "src/finesub"
         self.assertEqual(
             KNOWLEDGE_MODES,
             ast.literal_eval(_assignment(engine / "llm/routing/profiles.py", "KNOWLEDGE_MODES")),
@@ -196,13 +199,14 @@ class VendorContractTests(unittest.TestCase):
         self.assertTrue((resources / "runtime-manifest.macos-amd64.json").is_file())
 
     def test_required_package_data_is_vendored(self) -> None:
-        prompt_root = DEFAULT_VENDOR / "src/finesub/llm/prompt_templates"
+        prompt_root = CORRECT / "src/finesub/llm/prompt_templates"
         self.assertTrue(any(prompt_root.glob("*.md")))
         self.assertTrue((prompt_root / "LICENSE.md").is_file())
-        routing = DEFAULT_VENDOR / "src/finesub/llm/routing"
-        self.assertTrue((routing / "model_catalog.toml").is_file())
-        self.assertTrue((routing / "model_routes.toml").is_file())
-        bootstrap = DEFAULT_VENDOR / "src/finesub_bootstrap"
+        for package in PACKAGES:
+            routing = ENGINES / package / "src/finesub/llm/routing"
+            self.assertTrue((routing / "model_catalog.toml").is_file(), package)
+            self.assertTrue((routing / "model_routes.toml").is_file(), package)
+        bootstrap = TRANSCRIBE / "src/finesub_bootstrap"
         self.assertTrue((bootstrap / "model-manifest.json").is_file())
         self.assertTrue((bootstrap / "download-sources.json").is_file())
 

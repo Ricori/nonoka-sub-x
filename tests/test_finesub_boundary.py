@@ -1,22 +1,23 @@
-"""FineSub stays behind its boundary (`docs/transcription-engines-plan.md` 1.5).
+"""FineSub stays behind its boundary: the core refers to no engine package (plan 4.6 item 33, WP-P1).
 
-Inside `src/nonoka_x/`, only three files may touch FineSub before WP-P1:
-`transcription/engines/finesub.py`, `correction/finesub.py` and
-`finesub_bridge.py` (the fourth, the compatibility package
-`src/finesub_bootstrap/`, lives outside this tree). Touching means, judged
-from the code (AST) and not from comments or docstrings:
+Since WP-P1 FineSub lives in its engine packages (`engines/`), which the core
+finds by their `PACKAGE.json` and starts as processes of their own
+(`nonoka_x.engine_host`). Inside `src/nonoka_x/`, judged from the code (AST)
+and not from comments or docstrings (owner 2026-11-17, WP-P1 question 2):
 
-- `import:finesub` -- importing `finesub` (also lazily, inside a function);
-- `import:finesub_bootstrap` -- importing `finesub_bootstrap`;
-- `env:FINESUB_` -- a string literal naming a `FINESUB_*` variable;
-- `file:finesub` -- a string literal naming `finesub.toml`, `finesub.env` or
-  `model_catalog.toml`.
+- `import:<package>` -- importing `finesub`, `finesub_bootstrap`, the knowledge
+  protocol (`finesub_knowledge`) or a package's own code (`finesub_transcribe`,
+  `finesub_correct`, `finesub_knowledge_host`), also lazily;
+- `env:FINESUB_` -- a string naming a `FINESUB_*` variable;
+- `file:finesub` -- a string naming one of FineSub's own files (`finesub.toml`,
+  `finesub.env`, `model_catalog.toml`, the model caches' `.finesub-verified.json`);
+- `package:<id>` -- a string naming an engine package's directory
+  (`finesub-transcribe`, `finesub-correct`, `finesub-knowledge`).
 
-Everything that crosses the line today is listed in `TRANSITIONAL`, each
-entry with the work package that removes it. The list may only get shorter:
-a new crossing fails `test_no_new_crossings`, and an entry whose crossing is
-gone fails `test_transitional_list_only_shrinks` until it is deleted here.
-After WP-P1 the list is empty and so is `ALLOWED` (plan 4.27).
+There is no allow-list of files that may. What does not count: comments and
+docstrings, the pinned data under `resources/` (red line rule 5), Nonoka's own
+engine ids (`finesub`, `finesub-cloud`, the request protocol's), and words in
+messages. The exemptions below are the only ones, each with why.
 """
 
 from __future__ import annotations
@@ -27,34 +28,27 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 PACKAGE = ROOT / "src" / "nonoka_x"
 
-ALLOWED = frozenset({
-    "transcription/engines/finesub.py",
-    "correction/finesub.py",
-    "finesub_bridge.py",
+#: What the code of an engine package is imported as.
+PACKAGE_MODULES = frozenset({
+    "finesub", "finesub_bootstrap", "finesub_knowledge",
+    "finesub_transcribe", "finesub_correct", "finesub_knowledge_host",
 })
+_FILE_NAMES = ("finesub.toml", "finesub.env", "model_catalog.toml", ".finesub-verified.json")
+_PACKAGE_IDS = ("finesub-transcribe", "finesub-correct", "finesub-knowledge")
 
-#: (file, kind) -> the work package that removes the crossing.
-TRANSITIONAL: dict[tuple[str, str], str] = {
-    ("worker.py", "import:finesub"): "WP-P1",  # WP4c removes finesub.stages first
-    ("worker.py", "env:FINESUB_"): "WP-P1",
-    ("settings.py", "import:finesub"): "WP-P1",
-    ("projector.py", "import:finesub"): "WP-P1",
-    ("gpu_tier.py", "import:finesub"): "WP-P1",
-    ("llm_worker.py", "import:finesub"): "WP-P1",
-}
-
-#: Crossings that are not transitional: the migration tool has to recognise
-#: the old layout it replaces, so its one inventory module may name FineSub's
-#: old files (user 2026-11-12, WP-M1) and the old key file's variable names
-#: (its keyring line, three old key names; WP-R4). Only those kinds, only that file.
-LEGACY_LAYOUT: dict[tuple[str, str], str] = {
+#: (file, kind) -> why it may. Not transitional: none of these goes away with a work package.
+EXEMPT: dict[tuple[str, str], str] = {
+    # The migration has to recognise the old layout it replaces: the one inventory module may name
+    # FineSub's old files and the old key file's variable names (owner 2026-11-12, WP-M1; WP-R4),
+    # and where their contents go -- the private directories of the packages that use them (4.4 item 25).
     ("migration/legacy.py", "file:finesub"): "WP-M1",
     ("migration/legacy.py", "env:FINESUB_"): "WP-R4",
+    ("migration/legacy.py", "package:finesub-knowledge"): "WP-M1",
+    ("migration/legacy.py", "package:finesub-correct"): "WP-M1",
+    # The model layer carries the engine's own verification markers, written at build time so the
+    # engine accepts the models as they are (owner 2026-11-12, appendix B question 53, WP-E1).
+    ("runtime/layer_manifest.py", "file:finesub"): "WP-E1",
 }
-
-WORK_PACKAGES = frozenset({"WP-R2", "WP-R3", "WP-R4", "WP-R5", "WP4b", "WP4c", "WP-P1"})
-KINDS = frozenset({"import:finesub", "import:finesub_bootstrap", "env:FINESUB_", "file:finesub"})
-_FILE_NAMES = ("finesub.toml", "finesub.env", "model_catalog.toml")
 
 
 def _docstring_ids(tree: ast.AST) -> set[int]:
@@ -93,13 +87,16 @@ def crossings(source: str) -> set[str]:
         ):
             roots = [_module_root(node.args[0].value)]
         for root in roots:
-            if root in {"finesub", "finesub_bootstrap"}:
+            if root in PACKAGE_MODULES:
                 found.add(f"import:{root}")
         if isinstance(node, ast.Constant) and isinstance(node.value, str) and id(node) not in skipped:
             if "FINESUB_" in node.value:
                 found.add("env:FINESUB_")
             if any(name in node.value for name in _FILE_NAMES):
                 found.add("file:finesub")
+            for package in _PACKAGE_IDS:
+                if package in node.value:
+                    found.add(f"package:{package}")
     return found
 
 
@@ -121,62 +118,37 @@ def f():
     """FINESUB_X"""
     from finesub.stages import run_pipeline
     import finesub_bootstrap.paths
+    from finesub_knowledge.client import prepare_subjects
     os.environ["FINESUB_CONFIG_FILE"] = "x"
-    return f"{os.sep}model_catalog.toml", importlib.import_module("finesub.llm")
+    return f"{os.sep}model_catalog.toml", importlib.import_module("finesub_correct.engine"), "engines/finesub-correct"
 '''
     assert crossings(source) == {
-        "import:finesub", "import:finesub_bootstrap", "env:FINESUB_", "file:finesub",
+        "import:finesub", "import:finesub_bootstrap", "import:finesub_knowledge", "import:finesub_correct",
+        "env:FINESUB_", "file:finesub", "package:finesub-correct",
     }
     assert crossings('"""FINESUB_ finesub.env"""\n# from finesub import x\nimport os\n') == set()
     # A relative import of a sibling module named like FineSub is not FineSub.
     assert crossings("from .finesub import engine\n") == set()
+    # Nonoka's own engine ids are not crossings.
+    assert crossings('DEFAULT_ENGINE = "finesub"\nCLOUD_ENGINE = "finesub-cloud"\n') == set()
 
 
-def test_no_new_crossings() -> None:
-    unexpected = sorted(
-        f"{file}: {kind}"
-        for file, kind in scan()
-        if file not in ALLOWED and (file, kind) not in TRANSITIONAL and (file, kind) not in LEGACY_LAYOUT
-    )
+def test_the_core_refers_to_no_engine_package() -> None:
+    unexpected = sorted(f"{file}: {kind}" for file, kind in scan() if (file, kind) not in EXEMPT)
     assert not unexpected, (
-        "FineSub crosses its boundary outside the allowed files "
-        "(plan 1.5; only transcription/engines/finesub.py, correction/finesub.py, "
-        "finesub_bridge.py may):\n  " + "\n  ".join(unexpected)
+        "the core refers to an engine package (plan 4.6 item 33: no import of its code, no `FINESUB_*`, "
+        "none of FineSub's files, no package's directory):\n  " + "\n  ".join(unexpected)
     )
 
 
-def test_transitional_list_only_shrinks() -> None:
+def test_every_exemption_is_used() -> None:
     found = scan()
-    stale = sorted(f"{file}: {kind} ({owner})" for (file, kind), owner in TRANSITIONAL.items() if (file, kind) not in found)
-    assert not stale, (
-        "these crossings are gone; delete them from TRANSITIONAL so they cannot come back:\n  "
-        + "\n  ".join(stale)
-    )
+    stale = sorted(f"{file}: {kind}" for file, kind in EXEMPT if (file, kind) not in found)
+    assert not stale, "these no longer cross; delete them from EXEMPT so they cannot come back:\n  " + "\n  ".join(stale)
 
 
-def test_the_legacy_layout_exemption_is_used_and_narrow() -> None:
-    found = scan()
-    for (file, kind) in LEGACY_LAYOUT:
-        assert (file, kind) in found, f"{file}: {kind} no longer crosses; delete it from LEGACY_LAYOUT"
-        assert kind in {"file:finesub", "env:FINESUB_"}, (file, kind)
-        assert file == "migration/legacy.py", (file, kind)
-        assert file not in ALLOWED, file
-
-
-def test_transitional_entries_are_well_formed() -> None:
-    for (file, kind), owner in TRANSITIONAL.items():
-        assert (PACKAGE / file).is_file(), file
-        assert file not in ALLOWED, file
-        assert kind in KINDS, (file, kind)
-        assert owner in WORK_PACKAGES, (file, kind, owner)
-
-
-def test_new_layers_do_not_cross() -> None:
-    """The contract packages and facades WP0 added start clean and stay so."""
-
-    for relative in ("transcription", "correction", "runtime", "config"):
-        for path in sorted((PACKAGE / relative).rglob("*.py")):
-            name = path.relative_to(PACKAGE).as_posix()
-            if name in ALLOWED:
-                continue
-            assert not crossings(path.read_text(encoding="utf-8")), name
+def test_the_vendored_engine_and_the_bridge_are_gone_from_the_core() -> None:
+    for gone in ("finesub_bridge.py", "transcription/engines/finesub.py", "correction/finesub.py",
+                 "llm_worker.py", "knowledge_worker.py", "cloud_route.py"):
+        assert not (PACKAGE / gone).exists(), gone
+    assert not (ROOT / "src" / "finesub_knowledge").exists()

@@ -1,20 +1,25 @@
+"""The knowledge page's list, read and save (`finesub_knowledge.manage.handle`, the knowledge package's).
+
+In this process, then through the desktop's door: `LocalProvider.knowledge`,
+which starts the knowledge package's own process on the data directory's base.
+"""
+
 import pytest
-import os
-from types import SimpleNamespace
 from pathlib import Path
 
-from nonoka_x.knowledge_worker import handle
+from finesub_knowledge.manage import handle
 from finesub.llm.knowledge.node.repo import KnowledgeRepo
 
 
 @pytest.fixture
 def knowledge(tmp_path, monkeypatch):
-    monkeypatch.setenv("FINESUB_KNOWLEDGE_ROOT", str(tmp_path))
-    repo = KnowledgeRepo.open(tmp_path)
+    root = tmp_path / "data" / "knowledge"
+    monkeypatch.setenv("FINESUB_KNOWLEDGE_ROOT", str(root))
+    repo = KnowledgeRepo.open(root)
     with repo.store.begin("user") as txn:
         subject = txn.create_node("test-subject", "subject", {"surface": "テスト", "intro": "原始简介", "category": "common"})
     yield subject.local_id, repo
-    KnowledgeRepo.forget(tmp_path)
+    KnowledgeRepo.forget(root)
 
 
 def test_read_edit_and_stale_save(knowledge):
@@ -55,10 +60,8 @@ def test_provider_worker_roundtrip(knowledge, tmp_path, monkeypatch):
 
     ident, _ = knowledge
     project = Path(__file__).resolve().parents[1]
-    provider = LocalProvider(tmp_path / "tasks", project / "third_party/finesub", issues=[])
-    environment = dict(os.environ, PYTHONPATH=os.pathsep.join([str(project / "src"), str(project / "third_party/finesub/src")]), PYTHONIOENCODING="utf-8")
-    # The fixture's own knowledge base (its `FINESUB_KNOWLEDGE_ROOT`), not the one the bridge would name.
-    monkeypatch.setattr(provider, "_engine_launch", lambda purpose: (environment, SimpleNamespace(close=lambda: None)))
+    # The data directory's base (`<data>\knowledge`), the one the knowledge package's context names.
+    provider = LocalProvider(tmp_path / "data" / "tasks", project / "engines", issues=[])
     assert provider.knowledge({"action": "list"})["entries"][0]["id"] == ident
     before = provider.knowledge({"action": "read", "id": ident})
     saved = provider.knowledge({"action": "save", "id": ident, "version": before["version"],

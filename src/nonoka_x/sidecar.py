@@ -14,6 +14,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
+from . import engine_host, projector
+from . import settings as settings_module
 from .download_route import PREFERENCES_ENVIRONMENT, install_app_proxy_policy
 from .local_provider import LocalProvider, ProviderError
 from .provision import RuntimeProvisioner
@@ -169,7 +171,10 @@ class SidecarHandler(BaseHTTPRequestHandler):
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--data-dir", type=Path, required=True)
-    parser.add_argument("--vendor", type=Path, required=True)
+    # Where the engine packages are (`engine_host.default_engines_root()` when not given).
+    parser.add_argument("--engines", type=Path, default=None)
+    # Accepted and ignored: a desktop from before the engine packages still names the vendored engine.
+    parser.add_argument("--vendor", type=Path, default=None, help=argparse.SUPPRESS)
     # Where the multi-gigabyte install root lives. Optional so an older or
     # hand-written launch line keeps the historical layout under --data-dir.
     parser.add_argument("--install-dir", type=Path, default=None)
@@ -188,12 +193,19 @@ def main(argv: list[str] | None = None) -> int:
         settings.refresh_model_routes()
     except Exception as exc:  # noqa: BLE001 - a stale route is not fatal
         print(f"model route refresh skipped: {exc}", file=sys.stderr, flush=True)
-    provisioner = RuntimeProvisioner(args.data_dir, args.vendor, args.install_dir)
+    engines = args.engines if args.engines is not None else engine_host.default_engines_root()
+    provisioner = RuntimeProvisioner(args.data_dir, engines, args.install_dir)
     try:
         provisioner.ensure_required_tools()
     except Exception as exc:  # noqa: BLE001 - the engine works without it
         print(f"required tool install skipped: {exc}", file=sys.stderr, flush=True)
-    provider = LocalProvider(args.data_dir / "tasks", args.vendor, settings=settings, provisioner=provisioner)
+    provider = LocalProvider(args.data_dir / "tasks", engines, settings=settings, provisioner=provisioner)
+    # The settings page's packaged model catalog and the projection's speaker
+    # rows are the correction package's to read: asked of its resident process.
+    settings_module.set_catalog_source(lambda: provider._service_call("catalog"))
+    projector.set_product_reader(
+        lambda path: provider._service_call("product_rows", {"stable_json": str(path)})
+    )
     server = SidecarServer(("127.0.0.1", 0), provider, token)
     print(json.dumps({"schema": 1, "host": "127.0.0.1", "port": server.server_port, "token": token}, separators=(",", ":")), flush=True)
 

@@ -17,7 +17,6 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
-sys.path.insert(0, str(ROOT / "third_party/finesub/src"))
 
 from finesub_bootstrap import secrets as finesub_secrets  # noqa: E402  (the engine's own reader, for compatibility)
 
@@ -238,26 +237,32 @@ def test_what_fineSub_is_handed_after_migration(tmp_path, monkeypatch):
     settings.refresh_model_routes()
     assert (data / "settings.json").is_file() and not (data / OLD_ENV).exists()
 
-    provider = LocalProvider(data / "tasks", ROOT / "third_party/finesub", issues=[], settings=settings)
+    from tests.test_finesub_bridge import CORRECT, TRANSCRIBE, apply
+
+    provider = LocalProvider(data / "tasks", ROOT / "engines", issues=[], settings=settings)
     try:
-        environment, run = provider._engine_launch("task")
-        try:
+        with provider.launch_contexts({CORRECT.id: CORRECT, TRANSCRIBE.id: TRANSCRIBE}) as built:
+            run = Path(built.contexts[CORRECT.id]["paths"]["run"])
+            seen = apply(CORRECT, built.contexts[CORRECT.id])
+            environment, files = seen["environment"], seen["files"]
+            transcription = apply(TRANSCRIBE, built.contexts[TRANSCRIBE.id])["environment"]
             handed = {name: environment[name] for name in FAKE_ENV if name in environment}
             assert handed == {name: FAKE_ENV[name] for name in (
                 "GEMINI_FREE", "GEMINI_PAID", "EXA_KEYS", "OPENAI_COMPAT_API_KEY", "NONOKA_CLOUD_KEY",
             )}
+            # The transcription half has no key of the correction's.
+            assert {name for name in FAKE_ENV if name in transcription} == set()
             # The engines' own keys are Nonoka's: not handed to FineSub (plan WP5).
-            assert set(environment).isdisjoint({"MOSS_PRO", "OPENROUTER_STT_KEY", "AZURE_SPEECH_KEY", "AZURE_SPEECH_ENDPOINT", *migrate.LEGACY_RENAMES})
+            for handed_to in (environment, transcription):
+                assert set(handed_to).isdisjoint({"MOSS_PRO", "OPENROUTER_STT_KEY", "AZURE_SPEECH_KEY", "AZURE_SPEECH_ENDPOINT", *migrate.LEGACY_RENAMES})
             # No key on disk (D3): the key file holds the one setting FineSub reads only from there.
-            env_file = Path(environment["FINESUB_ENV_FILE"])
-            assert env_file.read_text(encoding="utf-8") == "GEMINI_BASE_URL=https://gemini.example.test/v1beta\n"
-            for path in run.directory.iterdir():
-                if path.name == "owner.lock":  # held by this process
-                    continue
-                _assert_no_values(path.read_text(encoding="utf-8", errors="replace"))
+            assert Path(environment["FINESUB_ENV_FILE"]).name == ".env"
+            assert files[".env"] == "GEMINI_BASE_URL=https://gemini.example.test/v1beta\n"
+            for text in files.values():
+                _assert_no_values(text)
 
             config_file = Path(environment["FINESUB_CONFIG_FILE"])
-            config_text = config_file.read_text(encoding="utf-8")
+            config_text = files[config_file.name]
             assert config_text.startswith(
                 "[nonoka_models]\n"
                 'default_provider = "local-codex"\n'
@@ -270,11 +275,9 @@ def test_what_fineSub_is_handed_after_migration(tmp_path, monkeypatch):
             )
             for gone in ("segmentation", "pools", "finoka", "planning", "mystery", "custom-group", "model_groups", "temperature"):
                 assert gone not in config_text
-            assert config_file.parent == run.directory
-            assert run.directory.parent == data.resolve() / "engines" / "finesub-correct" / "run"
-        finally:
-            run.close()
-        assert not run.directory.exists()
+            assert config_file.parent == run
+            assert run.parent == data.resolve() / "engines" / "finesub-correct" / "run"
+        assert not run.exists()
     finally:
         provider.shutdown()
 

@@ -7,9 +7,9 @@ and lets the user overrule that call. They take three different routes:
              (there is no such parameter anywhere in `run_pipeline`), so
              recognition runs normally and `conform_to_axis` re-seats the
              finished projection onto these lines afterwards.
-  ja      -- source text present, translation missing. `stable_from_axis` turns
-             the rows into the one artifact the LLM stage consumes, so the
-             worker skips separation, VAD and ASR entirely.
+  ja      -- source text present, translation missing. The worker hands the
+             rows straight to the correction engine's axis run, which skips
+             separation, VAD and ASR entirely.
   zh, bi  -- nothing left to compute. `axis_projection` turns the rows straight
              into an EditDocument; no task runs at all.
 
@@ -22,11 +22,8 @@ the speakers do the engine's diarization labels decide (`split_diarized_tracks`)
 from __future__ import annotations
 
 from bisect import bisect_left
-from dataclasses import dataclass
-from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping, Sequence
 
-from .fast_mode import resolve_request_fast
 
 AXIS_KINDS = ("empty", "ja", "zh", "bi")
 
@@ -109,86 +106,6 @@ def axis_speakers(rows: Sequence[Mapping[str, Any]]) -> list[str]:
             airtime[speaker] = airtime.get(speaker, 0.0) + (float(row["t1"]) - float(row["t0"]))
     ordered = sorted(airtime.items(), key=lambda item: (-item[1], item[0]))
     return [] if len(ordered) < 2 or len(ordered) > MAX_SPEAKERS else [name for name, _ in ordered]
-
-
-def stable_from_axis(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
-    """The stable-JSON view of a source-text axis, for the LLM stage alone.
-
-    Built by finesub correction (`stable_from_source_rows`), whose input format
-    it is. Rows with no source text are dropped there; their timings survive in
-    `axis.json` and are re-applied by `conform_to_axis` after projection.
-    """
-
-    from .correction.finesub import NoSourceText, stable_from_source_rows
-
-    try:
-        return stable_from_source_rows(rows)
-    except NoSourceText as error:
-        raise AxisError(str(error)) from None
-
-
-@dataclass(frozen=True)
-class AxisTranslation:
-    """Where a source-text axis run left its artifacts."""
-
-    stable_json: Path
-    final_srt: Path
-    annotated_csv: Path
-
-
-def translate_axis(
-    rows: Sequence[Mapping[str, Any]],
-    *,
-    output_path: str | Path,
-    task_id: str,
-    task_artifact_dir: str | Path,
-    task_summary: str = "",
-    correction: Mapping[str, Any],
-    knowledge: str = "none",
-    source_path: str | Path | None = None,
-    knowledge_root: str | Path | None = None,
-    knowledge_subjects: Sequence[str] | None = None,
-    on_notice: Callable[[str], None] | None = None,
-) -> AxisTranslation:
-    """Run only the LLM stage, over subtitles the user already wrote.
-
-    A source-text axis has everything separation, VAD and ASR would produce, so
-    the whole speech half of the pipeline is skipped -- no GPU, no models, no
-    audio decode. The run itself is finesub correction's
-    (`correction.finesub.run_source_text`); what is decided here is what
-    Nonoka decides for any task: the fast-mode switch and whether to proofread.
-
-    Shared by both execution modes: the desktop worker passes the media file so
-    an audio or video correction reference stays available, the cloud passes
-    `source_path=None` because it never receives the media at all and pins the
-    reference to text either way.
-    """
-
-    from .correction.finesub import NoSourceText, run_source_text
-    from .settings import correction_proofread
-
-    options = {
-        **correction,
-        "fast": resolve_request_fast(correction, warn=on_notice),
-        "proofread": correction_proofread(correction),
-    }
-    try:
-        run = run_source_text(
-            rows,
-            output_path=output_path,
-            task_id=task_id,
-            task_artifact_dir=task_artifact_dir,
-            task_summary=task_summary,
-            options=options,
-            knowledge=knowledge,
-            source_path=source_path,
-            knowledge_root=knowledge_root,
-            knowledge_subjects=knowledge_subjects,
-            on_notice=on_notice,
-        )
-    except NoSourceText as error:
-        raise AxisError(str(error)) from None
-    return AxisTranslation(stable_json=run.stable_json, final_srt=run.final_srt, annotated_csv=run.annotated_csv)
 
 
 def _track_meta(name: str) -> dict[str, Any]:

@@ -50,14 +50,19 @@ type Config struct {
 
 // PythonConfig constructs the development/managed-runtime command expected by
 // nonoka_x.sidecar. All paths are resolved before the child starts so a later
-// working-directory change cannot redirect its data or engine.
+// working-directory change cannot redirect its data or engines.
+//
+// enginesDir is the directory of engine packages (`engines/`, one directory
+// with a PACKAGE.json per package). Empty leaves it out: the sidecar then looks
+// beside its own sources, and with no package installed it still starts -- the
+// core's own engines need none (plan 4.6 item 33).
 //
 // installDir is the big-file root `runtime` (storage.RuntimeDirectory), which
 // the sidecar's layer manager installs the prebuilt layers into. It is passed
 // separately from dataDir because it is the one that holds gigabytes -- the
 // Python, model and tool layers and the download cache -- and the settings page
 // can move it to another drive while the small state files stay put.
-func PythonConfig(python, script, dataDir, vendorDir, installDir string) (Config, error) {
+func PythonConfig(python, script, dataDir, enginesDir, installDir string) (Config, error) {
 	if strings.TrimSpace(python) == "" {
 		return Config{}, errors.New("python executable is required")
 	}
@@ -69,14 +74,16 @@ func PythonConfig(python, script, dataDir, vendorDir, installDir string) (Config
 	if err != nil {
 		return Config{}, fmt.Errorf("resolve sidecar data directory: %w", err)
 	}
-	resolvedVendor, err := filepath.Abs(vendorDir)
-	if err != nil {
-		return Config{}, fmt.Errorf("resolve FineSub vendor directory: %w", err)
-	}
 	arguments := []string{
 		resolvedScript,
 		"--data-dir", resolvedData,
-		"--vendor", resolvedVendor,
+	}
+	if strings.TrimSpace(enginesDir) != "" {
+		resolvedEngines, enginesErr := filepath.Abs(enginesDir)
+		if enginesErr != nil {
+			return Config{}, fmt.Errorf("resolve the engine packages directory: %w", enginesErr)
+		}
+		arguments = append(arguments, "--engines", resolvedEngines)
 	}
 	// Omitted rather than defaulted here: the sidecar derives the same default
 	// from --data-dir, so a relocated install is the only thing that has to be

@@ -1,0 +1,1 @@
+`<entry_details>` 之外的知识库条目你看不到全文，需要的由 harness 代为取得。$native_search_note

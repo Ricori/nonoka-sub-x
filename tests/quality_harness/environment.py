@@ -7,11 +7,15 @@ refresh the saved routes, build the `RuntimeProvisioner` and the
 records:
 
 - compared: every variable FineSub reads (`finesub_facing`) in the
-  environment `LocalProvider._engine_environment()` hands the worker, with
-  paths recorded by role so the data directories can move -- since WP-R5 that
-  includes the keys, which are handed as variables (D3); and the content of
-  the files `FINESUB_CONFIG_FILE`, `FINESUB_MODEL_CATALOG` and
-  `FINESUB_ENV_FILE` point at;
+  environment its engine processes run in, with paths recorded by role so
+  the data directories can move -- since WP-R5 that includes the keys, which
+  are handed as variables (D3); and the content of the files
+  `FINESUB_CONFIG_FILE`, `FINESUB_MODEL_CATALOG` and `FINESUB_ENV_FILE` point
+  at. Since WP-P1 the two halves run in two processes (the transcription and
+  the correction package's), each environment made by its package's bridge
+  from the launch context the worker builds; what is compared is the two put
+  together the way one process ran both halves before (the transcription's,
+  then the correction's over it), and each one is recorded beside it;
 - recorded but not compared: the launcher's part (Python variables, PATH,
   the interpreter), which the hermetic launcher (WP-H) rebuilds.
 
@@ -33,8 +37,8 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-from . import FIXTURES, ROOT, VENDOR
-from .calls import SETTINGS_PROFILES, Normalizer, bind_settings, hermetic_environment, render
+from . import ENGINES, FIXTURES, ROOT
+from .calls import KNOWLEDGE_ENTRY, SETTINGS_PROFILES, Normalizer, bind_settings, hermetic_environment, render
 
 BASELINE = FIXTURES / "environment.json"
 #: The generated files, by the variable that points the engine at each.
@@ -94,6 +98,58 @@ def _read_if_file(value: str | None) -> str | None:
     return Path(value).read_text(encoding="utf-8")
 
 
+def dump_hook(spec: dict[str, Any], entry: str, context: dict[str, Any]) -> None:
+    """In an engine package's process, once its bridge ran: what it now has, as `<out>.<entry>.json`."""
+
+    environment = dict(os.environ)
+    record = {
+        "environment": environment,
+        "files": {variable: _read_if_file(environment.get(variable)) for variable in GENERATED_FILE_VARIABLES},
+        "roles": {name: _role_of(value, environment) for name, value in environment.items() if finesub_facing(name)},
+    }
+    Path(f"{spec['out']}.{entry}.json").write_text(json.dumps(record, ensure_ascii=False), encoding="utf-8")
+
+
+def engine_processes(provider: Any, worker_environment: dict[str, str], out: Path) -> dict[str, Any]:
+    """Start the transcription and the correction package as a task's worker would, and read what each has."""
+
+    from nonoka_x import engine_host
+
+    from .package_child import use_in_worker
+
+    use_in_worker({"hook": "tests.quality_harness.environment:dump_hook", "out": str(out)}, out.with_suffix(".child.json"))
+    packages = provider.packages()
+    seen: dict[str, Any] = {}
+    with provider.launch_contexts(packages) as built:
+        for kind in ("transcription", "correction"):
+            for package in engine_host.of_kind(packages, kind):
+                if package.entry == KNOWLEDGE_ENTRY:
+                    continue
+                with engine_host.PackageProcess(package, built.contexts[package.id], environment=worker_environment):
+                    pass
+                item = json.loads(Path(f"{out}.{package.entry}.json").read_text(encoding="utf-8"))
+                spawned = engine_host.package_environment(package, worker_environment)
+                item["environment"] = _as_handed(spawned, item["environment"])
+                seen[kind] = item
+    return seen
+
+
+def _as_handed(spawned: dict[str, str], inside: dict[str, str]) -> dict[str, str]:
+    """The environment a process was handed (`spawned`), with what its bridge changed in it (`inside`).
+
+    The view the baseline was recorded in: the mapping handed to the engine's
+    process, spelled as it was handed. Inside a Windows process names are
+    case-insensitive (`NO_PROXY` and `no_proxy` are one variable), so a name
+    handed in two spellings is kept in both, with the value the process has.
+    """
+
+    inside_upper = {name.upper(): value for name, value in inside.items()}
+    view = {name: inside_upper[name.upper()] for name in spawned if name.upper() in inside_upper}
+    spelled = {name.upper() for name in view}
+    view.update({name: value for name, value in inside.items() if name.upper() not in spelled})
+    return view
+
+
 def child_main(spec_path: Path) -> int:
     spec = json.loads(spec_path.read_text(encoding="utf-8"))
     root = Path(spec["root"])
@@ -115,12 +171,17 @@ def child_main(spec_path: Path) -> int:
     from nonoka_x import local_provider
     from nonoka_x.provision import RuntimeProvisioner
 
-    provisioner = RuntimeProvisioner(data_dir, VENDOR, None)
+    provisioner = RuntimeProvisioner(data_dir, ENGINES, None)
     provider = local_provider.LocalProvider(
-        data_dir / "tasks", VENDOR, settings=settings, provisioner=provisioner, issues=[]
+        data_dir / "tasks", ENGINES, settings=settings, provisioner=provisioner, issues=[]
     )
     agent_dirs = local_provider.local_agent_path_entries()
-    environment = provider._engine_environment()
+    worker_environment = provider._worker_environment()
+    processes = engine_processes(provider, worker_environment, Path(spec["out"]).with_suffix(".engine"))
+    # The two halves together, as one process ran them before: the
+    # transcription's, then the correction's over it.
+    environment = dict(processes["transcription"]["environment"])
+    environment.update(processes["correction"]["environment"])
 
     starting_path = starting.get("PATH", "")
     path = environment.get("PATH", "")
@@ -132,9 +193,12 @@ def child_main(spec_path: Path) -> int:
         if name != "PATH" and starting.get(name) != value
     }
     removed = sorted(name for name in starting if name not in environment)
+    # By role as each process saw it (its run directory is gone by now).
+    roles = {name.upper(): role for name, role in processes["transcription"]["roles"].items()}
+    roles.update({name.upper(): role for name, role in processes["correction"]["roles"].items()})
     facing = {
-        name: _role_of(value, environment)
-        for name, value in sorted(environment.items())
+        name: roles[name.upper()]
+        for name in sorted(environment)
         if finesub_facing(name) and name not in HARNESS_SETTINGS
     }
     result = {
@@ -148,14 +212,13 @@ def child_main(spec_path: Path) -> int:
             "path_prepended": path_entries,
             "path_keeps_the_rest": path.endswith(starting_path),
             "worker_python": str(provisioner.worker_python()),
+            # What each engine process reads of its own, by role.
+            "per_process": {kind: item["roles"] for kind, item in processes.items()},
         },
         # Read through the variables the worker gets, not from where the
         # settings happen to write today: what is compared is what the engine
         # is pointed at, wherever a later bridge puts it.
-        "files": {
-            variable: _read_if_file(environment.get(variable))
-            for variable in GENERATED_FILE_VARIABLES
-        },
+        "files": dict(processes["correction"]["files"]),
     }
     Path(spec["out"]).write_text(json.dumps(result, ensure_ascii=False), encoding="utf-8")
     return 0

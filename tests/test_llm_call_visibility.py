@@ -36,7 +36,6 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
-sys.path.insert(0, str(ROOT / "third_party/finesub/src"))
 
 from nonoka_x.worker import _API_CALL_MESSAGE, NonokaXReporter  # noqa: E402
 
@@ -155,7 +154,7 @@ class UpstreamContractTests(unittest.TestCase):
 
     def test_the_engine_still_logs_api_calls_under_that_name(self) -> None:
         source = (
-            ROOT / "third_party/finesub/src/finesub/llm/llm_runtime.py"
+            ROOT / "engines/finesub-correct/src/finesub/llm/llm_runtime.py"
         ).read_text(encoding="utf-8")
         self.assertIn(f'current_reporter().debug("{_API_CALL_MESSAGE}"', source)
 
@@ -167,7 +166,7 @@ class UpstreamContractTests(unittest.TestCase):
         """
 
         source = (
-            ROOT / "third_party/finesub/src/finesub/llm/llm_runtime.py"
+            ROOT / "engines/finesub-correct/src/finesub/llm/llm_runtime.py"
         ).read_text(encoding="utf-8")
         self.assertIn('fields["why"]', source)
 
@@ -175,7 +174,7 @@ class UpstreamContractTests(unittest.TestCase):
         """`sec` is what lets a slow success through."""
 
         source = (
-            ROOT / "third_party/finesub/src/finesub/llm/llm_runtime.py"
+            ROOT / "engines/finesub-correct/src/finesub/llm/llm_runtime.py"
         ).read_text(encoding="utf-8")
         self.assertIn('"sec": f"{elapsed:.3f}"', source)
 

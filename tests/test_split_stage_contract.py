@@ -35,11 +35,14 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-VENDOR = ROOT / "third_party" / "finesub"
-STAGE_PATH = VENDOR / "src/finesub/speech/recognition/vad_asr_stage.py"
-REFEREE_PATH = VENDOR / "src/finesub/speech/verification/qwen_referee.py"
-STAGES_PATH = VENDOR / "src/finesub/stages.py"
-PIPELINE_PATH = VENDOR / "src/finesub/pipeline.py"
+#: Since WP-P1 the engine's FineSub is in its packages; each half's files are in its own.
+ENGINES = ROOT / "engines"
+SOURCES = tuple(ENGINES / package / "src" for package in ("finesub-transcribe", "finesub-correct", "finesub-knowledge"))
+TRANSCRIBE = ENGINES / "finesub-transcribe" / "src"
+STAGE_PATH = TRANSCRIBE / "finesub/speech/recognition/vad_asr_stage.py"
+REFEREE_PATH = TRANSCRIBE / "finesub/speech/verification/qwen_referee.py"
+#: `stages.py` holds both halves; the transcription and correction packages carry the same bytes.
+STAGES_PATHS = (TRANSCRIBE / "finesub/stages.py", ENGINES / "finesub-correct" / "src" / "finesub/stages.py")
 
 
 def _module(path: Path) -> ast.Module:
@@ -138,13 +141,15 @@ class RetiredMechanismTests(unittest.TestCase):
         context variable.
         """
 
-        self.assertFalse((VENDOR / "src/finesub/execution.py").exists())
-        self.assertFalse((VENDOR / "src/finesub/execution_policy.py").exists())
-        offenders = [
-            path.relative_to(VENDOR).as_posix()
-            for path in (VENDOR / "src").rglob("*.py")
-            if "cloud_execution_enabled" in path.read_text(encoding="utf-8")
-        ]
+        offenders = []
+        for source in SOURCES:
+            self.assertFalse((source / "finesub/execution.py").exists())
+            self.assertFalse((source / "finesub/execution_policy.py").exists())
+            offenders += [
+                path.relative_to(ENGINES).as_posix()
+                for path in source.rglob("*.py")
+                if "cloud_execution_enabled" in path.read_text(encoding="utf-8")
+            ]
         self.assertEqual(offenders, [])
 
 
@@ -183,9 +188,12 @@ def _imported_modules(path: Path) -> set[str]:
 class JointBranchRemovedTests(unittest.TestCase):
     """The joint-ASR backend leaves FineSub (WP1); its branch in the orchestration went first (WP-B)."""
 
-    def test_neither_front_file_imports_the_joint_backend(self) -> None:
-        for path in (STAGES_PATH, PIPELINE_PATH):
-            with self.subTest(path=path.name):
+    def test_the_stages_import_no_joint_backend(self) -> None:
+        """`stages.py` in either package; `pipeline.py`, the other front file, is in no package (WP-P1)."""
+
+        self.assertEqual(STAGES_PATHS[0].read_bytes(), STAGES_PATHS[1].read_bytes())
+        for path in STAGES_PATHS:
+            with self.subTest(path=path.relative_to(ENGINES).as_posix()):
                 offenders = sorted(name for name in _imported_modules(path) if "joint" in name.split("."))
                 self.assertEqual(offenders, [])
 
@@ -197,25 +205,24 @@ class JointBranchRemovedTests(unittest.TestCase):
             with self.subTest(name=name):
                 self.assertNotIn(name, parameters)
 
-    def test_the_command_line_has_no_backend_options(self) -> None:
-        from finesub.pipeline import build_parser
+    def test_the_command_line_is_in_no_package(self) -> None:
+        """FineSub's batch command line (`pipeline.py`) and what only it reaches are not carried (WP-P1).
 
-        flags = {flag for action in build_parser()._actions for flag in action.option_strings}  # noqa: SLF001
-        for flag in ("--asr", "--asr-aligner", "--asr-repair"):
-            with self.subTest(flag=flag):
-                self.assertNotIn(flag, flags)
-        # The recognition options that only share the prefix stay.
-        self.assertTrue({"--asr-context", "--asr-decode-batch", "--asr-stabilize-profile"} <= flags)
+        WP-B handed back its cross-process batch lock for the correction
+        package's compatibility package; carried, it would have pulled the
+        transcription half and the model machinery into that package
+        (docs/engine-packages.md section 13 item 2), so it went with the rest of
+        what Nonoka never runs, each file listed with the reason.
+        """
 
-    def test_the_command_line_needs_only_the_batch_lock_beyond_the_dependency_surface(self) -> None:
-        """`logs.prune`/`open_log` are copied in; the cross-process lock is handed back (WP-P1)."""
-
-        bootstrap = sorted(name for name in _imported_modules(PIPELINE_PATH) if name.startswith("finesub_bootstrap"))
-        self.assertEqual(
-            bootstrap,
-            ["finesub_bootstrap.locks", "finesub_bootstrap.locks.LockUnavailable",
-             "finesub_bootstrap.locks.holding_lock"],
-        )
+        for source in SOURCES:
+            self.assertFalse((source / "finesub/pipeline.py").exists())
+        not_carried = json.loads((ROOT / "docs/engine-packages/not-carried.json").read_text(encoding="utf-8"))
+        listed = {entry["path"]: entry for entry in not_carried["files"]}
+        for path in ("finesub/pipeline.py", "finesub/batch_state.py", "finesub/scheduler.py"):
+            with self.subTest(path=path):
+                self.assertIn(path, listed)
+                self.assertTrue(listed[path]["reason"])
 
 
 class EntryPointTests(unittest.TestCase):
@@ -301,6 +308,10 @@ _CHILD = textwrap.dedent(
     import json
     import sys
     from pathlib import Path
+
+    from tests.quality_harness import union
+
+    union.install()
 
     from finesub import stages
     from finesub.reporting import NullReporter, reporting_to
@@ -390,7 +401,8 @@ class SplitRunTests(unittest.TestCase):
         root = Path(cls._scratch.name)
         environment, _removed = isolated_environment(root)
         environment.update({
-            "PYTHONPATH": str(VENDOR / "src"),
+            # The whole run takes both halves: the packages side by side (the test union).
+            "PYTHONPATH": str(ROOT),
             "PYTHONIOENCODING": "utf-8",
             "PYTHONDONTWRITEBYTECODE": "1",
             "TEMP": str(root / "tmp"),

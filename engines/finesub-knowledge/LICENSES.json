@@ -1,0 +1,16 @@
+{
+  "components": [
+    {
+      "component": "FineSub Python engine",
+      "license": "GPL-3.0-or-later",
+      "path": "LICENSE"
+    },
+    {
+      "component": "FineSub prompt templates",
+      "license": "CC-BY-SA-4.0",
+      "notice": "PROMPT_LICENSE.md",
+      "path": "src/finesub/llm/prompt_templates"
+    }
+  ],
+  "schema": 1
+}

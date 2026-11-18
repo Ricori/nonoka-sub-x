@@ -1,6 +1,6 @@
 # Auto detect text files and perform LF normalization
 * text=auto
 
-# The FineSub vendor is hashed byte-for-byte by the quality lock. Keep Git
-# from rewriting line endings on Windows runners.
-third_party/finesub/** -text
+# The engine packages' FineSub sources are hashed byte-for-byte by their
+# quality locks. Keep Git from rewriting line endings on Windows runners.
+engines/*/src/** -text

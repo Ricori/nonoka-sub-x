@@ -79,14 +79,21 @@ DONE_MESSAGES = {
 CANCELLED_MESSAGE = "已取消；已下载的部分会保留，下次继续时不必重头再来"
 
 #: The children of the big-file root's `cache\\` that "clear the cache" empties: archives being
-#: fetched, and the engines' compile caches (`_cache_entry_names`; rebuilt by the next run).
+#: fetched, and the engine packages' compile caches (`_cache_entry_names`; rebuilt by the next run).
 RUNTIME_CACHE_ENTRIES = ("downloads",)
 
 
 def _cache_entry_names() -> tuple[str, ...]:
-    from nonoka_x import finesub_bridge
+    """`downloads`, and each installed package's `cache\\<package>\\<name>` its `PACKAGE.json` lists (`caches`)."""
 
-    return (*RUNTIME_CACHE_ENTRIES, *finesub_bridge.COMPILE_CACHES)
+    from nonoka_x import engine_host
+
+    compile_caches = [
+        f"{package.id}/{name}"
+        for package in engine_host.discover().values()
+        for name in package.manifest.get("caches") or ()
+    ]
+    return (*RUNTIME_CACHE_ENTRIES, *compile_caches)
 
 LAYER_DETAILS = {
     "missing": "尚未安装{label}（下载约 {size}）",
@@ -455,7 +462,7 @@ class RuntimeProvisioner:
         """The parent's environment plus the tool layer and the proxy.
 
         What an engine reads of its own (the model layer, its keys and files)
-        is added by its bridge from the launch context (`nonoka_x.finesub_bridge`).
+        is added by its package's bridge from the launch context (`nonoka_x.engine_contexts`).
         """
 
         environment = os.environ.copy()

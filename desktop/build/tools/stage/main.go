@@ -22,25 +22,53 @@ type stagedFile struct {
 	Size   int64  `json:"size"`
 }
 
-// entries are what the sidecar resources consist of, relative to the repository root.
-var entries = []string{
+// enginePackages are the engine packages shipped with the sidecar (plan 4.6 item 33), under `engines/`.
+var enginePackages = []string{"finesub-transcribe", "finesub-correct", "finesub-knowledge"}
+
+// packageFiles are what an engine package ships: its manifest, its code and the files that
+// vouch for its FineSub sources. Its quality lock and change log are the repository's.
+var packageFiles = []string{"PACKAGE.json", "adapter", "src", "LICENSE", "LICENSES.json", "UPSTREAM.json", "PROMPT_LICENSE.md"}
+
+// optionalPackageFiles may be missing from a package: only one carrying the prompt templates has their licence.
+var optionalPackageFiles = map[string]bool{"PROMPT_LICENSE.md": true}
+
+// coreEntries are the rest of the sidecar resources, relative to the repository root.
+var coreEntries = []string{
 	"bootstrap-requirements.py312.txt",
 	"scripts/run_local_sidecar.py",
 	"src/nonoka_x",
-	// The knowledge package's protocol (WP-K): the engine files import its
-	// client, and the knowledge process runs its server.
-	"src/finesub_knowledge",
-	"third_party/finesub/src",
-	"third_party/finesub/LICENSE",
-	"third_party/finesub/LICENSES.json",
-	"third_party/finesub/PROMPT_LICENSE.md",
-	"third_party/finesub/UPSTREAM.json",
 }
 
-// engineSource is the engine code precompiled while staging (plan 4.2 item 17).
-const engineSource = "third_party/finesub/src"
+// engineSources are the engine packages' code, precompiled while staging (plan 4.2 item 17):
+// each package's own code and its FineSub sources.
+func engineSources() []string {
+	var sources []string
+	for _, name := range enginePackages {
+		sources = append(sources, "engines/"+name+"/adapter", "engines/"+name+"/src")
+	}
+	return sources
+}
 
-// interpreterManifest pins the interpreter of the Python environment layer, which runs the engine.
+// entries are what the sidecar resources consist of, relative to the repository root.
+func entries(repo string) []string {
+	staged := append([]string{}, coreEntries...)
+	for _, name := range enginePackages {
+		for _, file := range packageFiles {
+			entry := "engines/" + name + "/" + file
+			if optionalPackageFiles[file] {
+				if _, err := os.Stat(filepath.Join(repo, filepath.FromSlash(entry))); err != nil {
+					continue
+				}
+			}
+			staged = append(staged, entry)
+		}
+	}
+	return staged
+}
+
+// interpreterManifest pins the interpreter of the Python environment layer. Its bytecode is what
+// every engine process reads: the transcription package runs on that interpreter, and the
+// launcher that runs the other two is the same minor version (bytecode is per minor version).
 const interpreterManifest = "src/nonoka_x/resources/runtime-manifest.windows-x64.json"
 
 func main() {
@@ -64,8 +92,8 @@ func stage(repo, destination, python string) error {
 		return err
 	}
 	var copied []stagedFile
-	for _, entry := range entries {
-		if err := copyEntry(filepath.Join(repo, entry), filepath.Join(destination, entry), destination, &copied); err != nil {
+	for _, entry := range entries(repo) {
+		if err := copyEntry(filepath.Join(repo, filepath.FromSlash(entry)), filepath.Join(destination, filepath.FromSlash(entry)), destination, &copied); err != nil {
 			return err
 		}
 	}
@@ -105,7 +133,7 @@ func pinnedInterpreterVersion(repo string) (string, error) {
 	return manifest.Interpreter.Version, nil
 }
 
-// precompile writes the engine code's bytecode in unchecked-hash mode, so it stays valid
+// precompile writes the engine packages' bytecode in unchecked-hash mode, so it stays valid
 // wherever the resources are extracted and whatever their modification times; the
 // engine process then never writes bytecode of its own. Only the pinned interpreter
 // version is accepted: its bytecode is exactly what the layer's interpreter would write.
@@ -123,27 +151,32 @@ func precompile(repo, destination, python string) ([]stagedFile, error) {
 	if version != pinned {
 		return nil, fmt.Errorf("precompile the engine: %s is Python %s, the environment layer pins %s", python, version, pinned)
 	}
-	source := filepath.Join(destination, filepath.FromSlash(engineSource))
-	if _, err := run(python, "-I", "-m", "compileall", "-q", "--invalidation-mode", "unchecked-hash",
-		"-d", engineSource, source); err != nil {
-		return nil, fmt.Errorf("precompile the engine: %w", err)
-	}
 	var compiled []stagedFile
-	err = filepath.WalkDir(source, func(path string, entry fs.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
+	for _, relative := range engineSources() {
+		source := filepath.Join(destination, filepath.FromSlash(relative))
+		if _, err := run(python, "-I", "-m", "compileall", "-q", "--invalidation-mode", "unchecked-hash",
+			"-d", relative, source); err != nil {
+			return nil, fmt.Errorf("precompile the engine: %w", err)
 		}
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".pyc") {
+		err = filepath.WalkDir(source, func(path string, entry fs.DirEntry, walkErr error) error {
+			if walkErr != nil {
+				return walkErr
+			}
+			if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".pyc") {
+				return nil
+			}
+			record, err := describe(path, destination)
+			if err != nil {
+				return err
+			}
+			compiled = append(compiled, record)
 			return nil
-		}
-		record, err := describe(path, destination)
+		})
 		if err != nil {
-			return err
+			return nil, err
 		}
-		compiled = append(compiled, record)
-		return nil
-	})
-	return compiled, err
+	}
+	return compiled, nil
 }
 
 func run(name string, arguments ...string) (string, error) {

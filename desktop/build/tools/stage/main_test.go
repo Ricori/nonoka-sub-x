@@ -39,7 +39,7 @@ func repositoryRoot(t *testing.T) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(filepath.Join(repo, filepath.FromSlash(engineSource))); err != nil {
+	if _, err := os.Stat(filepath.Join(repo, "engines", "finesub-transcribe", "PACKAGE.json")); err != nil {
 		t.Fatalf("not the repository root: %s", repo)
 	}
 	return repo
@@ -78,7 +78,17 @@ func TestStagingTwiceGivesTheSameFiles(t *testing.T) {
 	}
 }
 
-func TestTheEngineIsStagedPrecompiledAndNothingElse(t *testing.T) {
+// underEngineSource is the engine source `path` is in, if any.
+func underEngineSource(path string) string {
+	for _, source := range engineSources() {
+		if strings.HasPrefix(path, source+"/") {
+			return source
+		}
+	}
+	return ""
+}
+
+func TestTheEnginePackagesAreStagedPrecompiledAndNothingElse(t *testing.T) {
 	repo := repositoryRoot(t)
 	python := stagingInterpreter(t, repo)
 	destination := t.TempDir()
@@ -91,24 +101,36 @@ func TestTheEngineIsStagedPrecompiledAndNothingElse(t *testing.T) {
 	for _, file := range staged.Files {
 		switch {
 		case strings.HasSuffix(file.Path, ".pyc"):
-			if !strings.HasPrefix(file.Path, engineSource+"/") {
+			if underEngineSource(file.Path) == "" {
 				t.Errorf("bytecode outside the engine code: %s", file.Path)
 			}
 			compiled[file.Path] = true
-		case strings.HasPrefix(file.Path, engineSource+"/") && strings.HasSuffix(file.Path, ".py"):
+		case underEngineSource(file.Path) != "" && strings.HasSuffix(file.Path, ".py"):
 			sources[file.Path] = true
 		}
-		if strings.HasPrefix(file.Path, "third_party/finesub/") && !strings.HasPrefix(file.Path, engineSource+"/") {
-			switch file.Path {
-			case "third_party/finesub/LICENSE", "third_party/finesub/LICENSES.json",
-				"third_party/finesub/PROMPT_LICENSE.md", "third_party/finesub/UPSTREAM.json":
+		if strings.HasPrefix(file.Path, "engines/") && underEngineSource(file.Path) == "" {
+			parts := strings.SplitN(file.Path, "/", 3)
+			switch parts[2] {
+			case "PACKAGE.json", "LICENSE", "LICENSES.json", "PROMPT_LICENSE.md", "UPSTREAM.json":
 			default:
-				t.Errorf("not a core file of the engine: %s", file.Path)
+				t.Errorf("not a file an engine package ships: %s", file.Path)
 			}
 		}
+		if strings.HasPrefix(file.Path, "third_party/") {
+			t.Errorf("the vendored tree is gone: %s", file.Path)
+		}
 	}
-	if len(sources) == 0 {
-		t.Fatal("no engine source staged")
+	for _, source := range engineSources() {
+		found := false
+		for path := range sources {
+			if strings.HasPrefix(path, source+"/") {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("no source staged under %s", source)
+		}
 	}
 	tag := "cpython-312"
 	for source := range sources {

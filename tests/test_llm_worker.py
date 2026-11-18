@@ -1,3 +1,11 @@
+"""The editor's and plugins' single LLM calls (`finesub_correct.llm`, formerly `nonoka_x.llm_worker`).
+
+The resident correction process answers each `llm.complete` with what
+`Session.complete` returns, or `failure(exc)` (`finesub_correct.__main__`);
+`run` below is that loop. The process itself is driven in
+`tests/test_local_provider.py` (`LLMCallTests`).
+"""
+
 from __future__ import annotations
 
 import contextlib
@@ -10,9 +18,8 @@ from enum import Enum
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "src"))
 
-from nonoka_x import llm_worker
+from finesub_correct import llm as llm_worker
 
 
 class Role(str, Enum):
@@ -92,16 +99,22 @@ def engine():
 
 
 def run(requests: list[dict]) -> list[dict]:
-    output = io.StringIO()
-    old_stdin, old_stderr = sys.stdin, sys.stderr
+    """The resident process's `llm.complete` loop: one answer per request, a failure being one too."""
+
+    session = llm_worker.Session()
+    answers = []
+    old_stderr = sys.stderr
     try:
-        sys.stdin = io.StringIO("".join(json.dumps(item) + "\n" for item in requests))
         sys.stderr = io.StringIO()
-        with contextlib.redirect_stdout(output):
-            llm_worker.main()
+        for request in requests:
+            try:
+                answers.append(session.complete(json.loads(json.dumps(request))))
+            except Exception as exc:  # noqa: BLE001 - as the process answers it
+                answers.append(llm_worker.failure(exc))
     finally:
-        sys.stdin, sys.stderr = old_stdin, old_stderr
-    return [json.loads(line) for line in output.getvalue().splitlines()]
+        sys.stderr = old_stderr
+        session.close()
+    return answers
 
 
 def call(prompt: str, role: str = "lightweight") -> dict:

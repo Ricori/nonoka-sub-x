@@ -8,8 +8,8 @@
 
 **FineSub 原先的转写、纠错、翻译质量必须保住。** 编排可以拆、可以重组，但结果不能变。
 
-1. **算法文件上锁。** `third_party/finesub/src/` 下除第 2 条的四处外，每个文件的 sha256 都记在 `third_party/finesub/QUALITY_LOCK.json`，由 `tests/test_finesub_quality_lock.py` 检查：哈希相同，文件不多不少。运行时锁、运行时清单和模型清单按内容钉在 `src/nonoka_x/resources/RUNTIME_PINS.json`，由 `tests/test_runtime_pins.py` 看住。
-2. **只解锁四处**，它们是编排、入口和安装设施，不是算法：`finesub/stages.py`、`finesub/pipeline.py`、`finesub/speech/joint/`、`finesub_bootstrap/`。
+1. **算法文件上锁。** FineSub 分在三个引擎包里（WP-P1，见 2.1）。每个包 `src/` 下除第 2 条的两处外，每个文件的 sha256 都记在该包的 `QUALITY_LOCK.json`，由 `tests/test_finesub_quality_lock.py` 检查：哈希相同，文件不多不少，而且每一条都等于分包前 vendor 那份锁（`docs/engine-packages/vendor-quality-lock.json`）里同一路径的那一条——分包只搬文件、不改文件。分包前的 550 个上锁文件，每个要么在某个包里，要么列在 `docs/engine-packages/not-carried.json` 并写明为什么不带（`tests/test_engine_packages.py`）。运行时锁、运行时清单和模型清单按内容钉在 `src/nonoka_x/resources/RUNTIME_PINS.json`，由 `tests/test_runtime_pins.py` 看住。
+2. **只解锁两处**，它们是编排和安装设施，不是算法：`finesub/stages.py`、`finesub_bootstrap/`。（分包前还有 `finesub/pipeline.py` 与 `finesub/speech/joint/`：前者是 FineSub 的批处理命令行，不进任何包；后者 WP1 已迁出。）
 3. **解锁的地方改完，FineSub 路径的结果必须和改之前一致**，由回归闸门 `scripts/quality_gate.py` 证明。比对标准（哪些产物逐字节、哪些按内容比）见计划第 0 节第 3 条。
 4. **Nonoka 传给 FineSub 的参数和环境、装出来的运行环境内容，都与基线等价。**
 5. **闸门不过就停下来报告**，不许为了过闸门去调参数、改算法文件或放宽比对标准。
@@ -17,27 +17,40 @@
 
 业务逻辑、任务状态与数据模型放在 Nonoka 侧的适配层与 Projector 里实现，不进引擎。
 
-`.gitattributes` 把 `third_party/finesub/**` 标为 `-text`，任何平台检出的都是提交时的字节，哈希才可比。
+`.gitattributes` 把 `engines/*/src/**` 标为 `-text`，任何平台检出的都是提交时的字节，哈希才可比。
 
 ---
 
 ## 2. 目录与元数据
 
 ### 2.1 目录结构
+
+WP-P1 把原先的 `third_party/finesub/` 按 `docs/engine-packages/` 的清单分进三个引擎包（计划 4.6 第 33–35a 条），每个包各在自己的进程里跑：
+
 ```text
-third_party/finesub/
-├── UPSTREAM.json           # 对应的上游仓库、tag、commit、版本与 engine_bundle_id
-├── QUALITY_LOCK.json       # 上锁文件的 sha256
-├── LOCAL_CHANGES.md        # 相对上游改过什么、为什么、何时可以去掉
-├── LICENSE                 # 上游 GPL-3.0-or-later 开源协议（0.5.0 起，此前为 MIT）
-├── LICENSES.json
-├── PROMPT_LICENSE.md       # Prompt 模板的 CC BY-SA 4.0 协议
-└── src/
-    ├── finesub/            # 核心转写流水线
-    └── finesub_bootstrap/  # 运行时设施；缺模型时报错、不再自己下载（WP-R7）
+engines/
+├── finesub-transcribe/       # FineSub 转写引擎（Python 层解释器）
+│   ├── PACKAGE.json          # 标识、种类、入口、就绪声明、要的密钥名、GPU 档位
+│   ├── adapter/              # 包自己的代码：finesub_transcribe/（入口、桥接、协议）、finesub_knowledge/（知识库协议的客户端）
+│   ├── src/
+│   │   ├── finesub/          # 转写那一半的 FineSub 文件
+│   │   └── finesub_bootstrap/ # 原件；缺模型时报错、不再自己下载（WP-R7）
+│   ├── UPSTREAM.json         # 对应的上游仓库、tag、commit、版本与 engine_bundle_id
+│   ├── QUALITY_LOCK.json     # 本包上锁文件的 sha256
+│   ├── LOCAL_CHANGES.md      # 相对上游改过什么、为什么、何时可以去掉
+│   ├── LICENSE               # 上游 GPL-3.0-or-later 开源协议（0.5.0 起，此前为 MIT）
+│   └── LICENSES.json
+├── finesub-correct/          # finesub correction（启动器解释器）
+│   ├── …                     # 同上，另有 PROMPT_LICENSE.md（Prompt 模板的 CC BY-SA 4.0 协议）
+│   ├── adapter/              # finesub_correct/、finesub_knowledge/（客户端）
+│   └── src/finesub_bootstrap/ # 兼容包：只有纠错那一半 import 的名字，位置取自启动上下文（D21）
+└── finesub-knowledge/        # 知识库包（启动器解释器）
+    ├── …                     # 同上，另有 PROMPT_LICENSE.md
+    ├── adapter/              # finesub_knowledge_host/、finesub_knowledge/（服务端与管理）
+    └── src/finesub_bootstrap/ # 兼容包：知识库代码 import 的名字
 ```
 
-只留这些核心文件（计划第 1 节第 7 条）：没有 `pyproject.toml`、`VERSION`、README，版本号以 `UPSTREAM.json` 为准；目录里不同时有 `pyproject.toml` 和 `src/finesub`，引擎也就不会把它当成源码检出。
+两个包都带的 FineSub 文件逐字节相同，三个包各带一份的 `bridge.py`、`wire.py`、`failures.py` 也逐字相同（`tests/test_engine_packages.py`）。每个包只留这些核心文件（计划第 1 节第 7 条）：没有 `pyproject.toml`、`VERSION`、README，版本号以 `UPSTREAM.json` 为准；包目录里不同时有 `pyproject.toml` 和 `src/finesub`，引擎也就不会把它当成源码检出。哪个包带哪些文件、为什么，见 `docs/engine-packages.md` 与 `scripts/engine_packages.py`。
 
 不要把机器上安装的 `site-packages/finesub` 复制到这里。
 
@@ -51,14 +64,14 @@ third_party/finesub/
   "repository": "https://github.com/caca2331/finesub"
 }
 ```
-只有这五个字段。`commit`、`engine_version`、`engine_bundle_id` 被 worker、local_provider、桌面暂存工具和离线包脚本读取；它说明 vendor 基于哪个上游版本，不再承载任何校验哈希（「没被动过」由质量锁证明）。
+只有这五个字段，三个包里的相同。它说明包里的 FineSub 基于哪个上游版本，不再承载任何校验哈希（「没被动过」由质量锁证明）；核心读的是 `PACKAGE.json` 的 `upstream`（与它一致）。
 
 ---
 
 ## 3. 本地改动与上游对齐
 
 ### 3.1 本地改动
-vendor 相对 `UPSTREAM.json` 记录的上游版本改过的地方，全部记在 [`third_party/finesub/LOCAL_CHANGES.md`](../third_party/finesub/LOCAL_CHANGES.md)：改了什么、为什么、何时可以去掉、动到哪些文件。之后对解锁文件的改动也记在那里。
+包里的 FineSub 相对 `UPSTREAM.json` 记录的上游版本改过的地方，全部记在每个包的 `LOCAL_CHANGES.md`（三份相同，例如 [`engines/finesub-correct/LOCAL_CHANGES.md`](../engines/finesub-correct/LOCAL_CHANGES.md)）：改了什么、为什么、何时可以去掉、动到哪些文件。之后对解锁文件的改动也记在那里。
 
 ### 3.2 以后升级上游时跟什么
 
@@ -66,7 +79,7 @@ vendor 相对 `UPSTREAM.json` 记录的上游版本改过的地方，全部记�
 |---|---|---|
 | **关键算法** | 转写引擎：`speech/` 下除 `joint/` 外的全部，加 `media/`、`subtitles/`、`text.py`。纠错层与翻译层：`llm/stages/`、`llm/prompt_templates/`，以及 `llm/` 里决定提示词、分窗、回答解析、后处理的文件（逐文件清单见 `scripts/finesub_align.py` 的 `KEY_FILES`） | 跟上游。每次升级过回归闸门并由用户看过质量对比 |
 | **其余** | 编排、CLI、配置、`llm/agent/`、`llm/routing/`、LLM 调用设施、`llm/knowledge/`（渲染进纠错窗口的几个文件除外，见 `KEY_FILES`） | 默认不跟。要跟也可以，同样受质量红线约束 |
-| **不再存在** | `finesub_bootstrap/`（WP-R7 之后） | 不跟。上游若改了引擎对它的用法，由 `tests/test_runtime_pins.py` 的依赖面测试发现，在兼容包里补上 |
+| **安装设施** | `finesub_bootstrap/`：转写包带原件（WP-R7 删了自下载），纠错包与知识库包带兼容包 | 不跟。上游若改了引擎对它的用法，由 `tests/test_runtime_pins.py` 的依赖面测试与 `tests/test_engine_packages.py` 的名单测试发现，在原件或兼容包里补上 |
 
 `scripts/finesub_align.py diff --ref <tag>` 取上游 `<tag>` 和 `UPSTREAM.json` 记录的 commit，只在关键算法路径上报告三类文件：上游在两个版本之间改了的；本地相对记录版本改过的；两边都改了、升级时要手工合的。它只出报告，不改任何文件。两份上游源码默认从 GitHub 下载源码包；`--base-dir`、`--upstream-dir` 可以指向已解压的上游仓库根目录（含 `src/finesub`），离线也能跑。
 

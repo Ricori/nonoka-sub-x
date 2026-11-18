@@ -34,7 +34,7 @@ import types
 from pathlib import Path, PurePath
 from typing import Any, Callable, Mapping
 
-from . import VENDOR_SOURCE
+from . import source_file
 
 #: What a child must never import: the managed runtime's heavy stack.
 BLOCKED_TOP_LEVEL = frozenset({
@@ -95,7 +95,7 @@ def encode(value: Any) -> Any:
 def signature_from_source(relative: str, function: str) -> inspect.Signature:
     """`function`'s signature as written in the locked file `relative`, without importing it."""
 
-    source = (VENDOR_SOURCE / relative).read_text(encoding="utf-8")
+    source = source_file(relative).read_text(encoding="utf-8")
     tree = ast.parse(source)
     node = next(
         item for item in tree.body
@@ -197,7 +197,26 @@ def _module(name: str, functions: Mapping[str, Callable[..., Any]], **constants:
     return module
 
 
+def carried(name: str) -> bool:
+    """Whether this process's engine package has the FineSub module `name` (since WP-P1 each has only its half).
+
+    A stand-in or wrapper goes only where the module is: put into a package
+    that lacks it, a stand-in would hide that the package lacks it, and a run
+    that needs a module its package does not carry fails on that import, as
+    it would on a user's machine.
+    """
+
+    import importlib.util
+
+    try:
+        return importlib.util.find_spec(name) is not None
+    except ModuleNotFoundError:
+        return False
+
+
 def _install_module(name: str, module: types.ModuleType) -> None:
+    if not carried(name):
+        return
     sys.modules[name] = module
     parent_name, _, child = name.rpartition(".")
     parent = importlib.import_module(parent_name)
@@ -300,6 +319,8 @@ def _device() -> types.ModuleType:
 
 
 def _wrap(module_name: str, function: str, entry: str, replacement: Callable[[dict[str, Any], Callable[..., Any], tuple, dict], Any] | None = None) -> None:
+    if not carried(module_name):
+        return
     module = importlib.import_module(module_name)
     original = getattr(module, function)
     signature = inspect.signature(original)

@@ -2,12 +2,14 @@
 
 Needs the managed FineSub runtime and its models on this machine; nothing here
 installs or downloads anything. The worker is launched the way
-`LocalProvider._run_worker` launches it -- the managed interpreter, the
-provider's `_engine_environment()`, `-m nonoka_x.worker --task-id --task-dir
---vendor`, the validated request on stdin -- with two differences, both to
-keep the run from reaching the network: every proxy variable points at a
-closed local port and Hugging Face is offline. A stage that would download
-fails instead.
+`LocalProvider._run_worker` launches it -- the launcher's interpreter, the
+provider's `_worker_environment()`, `-m nonoka_x.worker --task-id --task-dir
+--engines --data-dir --install-dir`, the validated request on stdin -- with
+two differences, both to keep the run from reaching the network: every proxy
+variable points at a closed local port and Hugging Face is offline. A stage
+that would download fails instead. Since WP-P1 the worker starts the engine
+packages' processes itself: the transcription on the Python environment
+layer's interpreter, the correction on the launcher's (plan 4.6 item 33).
 
 Settings, knowledge base and engine state come from a fresh directory beside
 the run, so the user's own configuration does not leak in.
@@ -16,12 +18,14 @@ The managed runtime is the prebuilt layers (WP-E3): the worker runs on the
 Python environment layer's interpreter, with the model layer as its model
 directory and the tool layer's executables, all of the big-file root
 `locate_runtime` finds (`NONOKA_QUALITY_INSTALL_DIR`, e.g. a root the layer
-manager installed into). `NONOKA_QUALITY_PYTHON` names another interpreter to
-run the worker with in place of the Python layer's (`worker_python`), for an
-environment built outside the root -- a python-build-standalone with the lock
-installed straight into it (plan 4.2 item 14, WP-R1); models and tools still
-come from the located root. The Python layer's own readiness is then not
-asked for.
+manager installed into). `NONOKA_QUALITY_LAUNCHER_PYTHON` names the
+launcher's interpreter -- the worker's and the correction's -- in place of the
+one running the gate: one set up the way the desktop sets its launcher up (a
+python-build-standalone 3.12.9 with `bootstrap-requirements.py312.txt`), so the
+correction runs on what it runs on for a user (owner 2026-11-17). Since WP-P1
+the transcription's interpreter is always the Python layer's: the worker picks
+it, so `NONOKA_QUALITY_PYTHON` is no longer honoured (a run asking for it is
+refused rather than run on something else).
 
 Layout under `test_data/quality-baseline/real/` (never committed: `test_data/`
 is ignored):
@@ -44,7 +48,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from . import ROOT, VENDOR, VENDOR_SOURCE
+from . import ENGINES, ROOT, union
 
 BASELINE_ROOT = ROOT / "test_data" / "quality-baseline" / "real"
 SAMPLES: dict[str, dict[str, Any]] = {
@@ -142,20 +146,26 @@ def layers_index() -> Path | None:
 def provisioner_for(data_dir: Path, install_dir: Path | None, index: Path | None = None):
     from nonoka_x.provision import RuntimeProvisioner
 
-    return RuntimeProvisioner(data_dir, VENDOR, install_dir, index_path=index if index is not None else layers_index())
+    return RuntimeProvisioner(data_dir, ENGINES, install_dir, index_path=index if index is not None else layers_index())
 
 
-def python_override() -> Path | None:
-    """The interpreter `NONOKA_QUALITY_PYTHON` names, or None for the managed runtime's."""
+def launcher_python() -> Path | None:
+    """The launcher interpreter `NONOKA_QUALITY_LAUNCHER_PYTHON` names, or None for the one running the gate."""
 
-    named = os.environ.get("NONOKA_QUALITY_PYTHON")
+    named = os.environ.get("NONOKA_QUALITY_LAUNCHER_PYTHON")
     return Path(named) if named else None
+
+
+#: Where each engine package keeps a task's files (plan 4.6 item 34), in the order their copies are read:
+#: the correction's copy of a transcription product is the one the task's subtitles were made from.
+NATIVE_DIRECTORIES = ("native/finesub-transcribe", "native/finesub-correct")
 
 
 def runtime_issues() -> list[str]:
     """Why the real runs cannot happen here; empty when they can."""
 
-    sys.path[:0] = [str(ROOT / "src"), str(VENDOR_SOURCE)]
+    sys.path[:0] = [str(ROOT / "src")]
+    union.install()
     from nonoka_x.model_install import INSTALLABLE_MODEL_IDS, missing_managed_models
 
     data_dir, install_dir = locate_runtime()
@@ -163,11 +173,13 @@ def runtime_issues() -> list[str]:
     issues = []
     if provisioner._bootstrap_error:
         issues.append(f"bootstrap: {provisioner._bootstrap_error}")
-    override = python_override()
-    if override is not None:
-        if not override.is_file():
-            issues.append(f"NONOKA_QUALITY_PYTHON is not a file: {override}")
-    elif provisioner.worker_python() is None:
+    if os.environ.get("NONOKA_QUALITY_PYTHON"):
+        issues.append("NONOKA_QUALITY_PYTHON is no longer honoured (WP-P1): the worker runs the transcription "
+                      "on the Python layer's interpreter itself; unset it")
+    launcher = launcher_python()
+    if launcher is not None and not launcher.is_file():
+        issues.append(f"NONOKA_QUALITY_LAUNCHER_PYTHON is not a file: {launcher}")
+    if provisioner.worker_python() is None:
         python = provisioner.layers.state("python") if provisioner.layers is not None else None
         issues.append(f"no ready Python environment layer under {provisioner.install_root}"
                       + (f" ({python.state}: {'; '.join(python.problems[:3])})" if python is not None else ""))
@@ -190,7 +202,8 @@ def _worker_launch(run_dir: Path) -> tuple[list[str], dict[str, str], Path, list
     This process's own environment is restored afterwards.
     """
 
-    sys.path[:0] = [str(ROOT / "src"), str(VENDOR_SOURCE)]
+    sys.path[:0] = [str(ROOT / "src")]
+    union.install()
     from nonoka_x import local_provider
     from nonoka_x.settings import FineSubSettings
 
@@ -199,7 +212,7 @@ def _worker_launch(run_dir: Path) -> tuple[list[str], dict[str, str], Path, list
     # Read before the scrub, which removes NONOKA_QUALITY_* along with the rest: the
     # interpreter and the runtime location (`NONOKA_QUALITY_DATA_DIR`/`_INSTALL_DIR`,
     # e.g. the WP-E1 layers staged as an install root) both have to survive it.
-    override = python_override()
+    override = launcher_python()
     data_dir, install_dir = locate_runtime()
     index = layers_index()
     saved = dict(os.environ)
@@ -211,11 +224,9 @@ def _worker_launch(run_dir: Path) -> tuple[list[str], dict[str, str], Path, list
         settings.bind_environment()
         provisioner = provisioner_for(data_dir, install_dir, index)
         provider = local_provider.LocalProvider(
-            run_dir / "tasks", VENDOR, settings=settings, provisioner=provisioner, issues=[]
+            run_dir / "tasks", ENGINES, settings=settings, provisioner=provisioner, issues=[]
         )
-        # The legacy probe sweep edits the shared model directory; not ours to do.
-        provider._separator_probe_checked = True
-        environment = provider._engine_environment()
+        environment = provider._worker_environment()
         task_dir = run_dir / "tasks" / "gate-real"
         command = provider._default_worker_command("gate-real", task_dir)
         if override is not None:
@@ -235,7 +246,8 @@ def acceleration(run_dir: Path) -> dict[str, Any]:
     """What the run metadata says each worker ran with (device, accel), for comparing runs."""
 
     found: dict[str, Any] = {}
-    for metadata in (run_dir / "tasks" / "gate-real" / "workspace").glob("*-metadata.json"):
+    task = run_dir / "tasks" / "gate-real"
+    for metadata in (path for directory in NATIVE_DIRECTORIES for path in (task / directory).glob("*-metadata.json")):
         workers = json.loads(metadata.read_text(encoding="utf-8")).get("workers") or {}
         for name, record in workers.items():
             if isinstance(record, dict):
@@ -246,7 +258,8 @@ def acceleration(run_dir: Path) -> dict[str, Any]:
 def run_sample(name: str, run_dir: Path) -> dict[str, Any]:
     """One real worker run of `name` to `TARGET` in `run_dir`; returns what it left."""
 
-    sys.path[:0] = [str(ROOT / "src"), str(VENDOR_SOURCE)]
+    sys.path[:0] = [str(ROOT / "src")]
+    union.install()
     from nonoka_x.local_provider import validate_request
 
     if run_dir.exists():
@@ -290,13 +303,16 @@ def run_sample(name: str, run_dir: Path) -> dict[str, Any]:
 
 
 def artifacts(run_dir: Path) -> dict[str, Path]:
-    workspace = run_dir / "tasks" / "gate-real" / "workspace"
+    """The compared artifacts of a run, by suffix: a baseline's in `workspace`, a run's since WP-P1 in its packages' directories."""
+
+    task = run_dir / "tasks" / "gate-real"
     found = {}
-    for suffix in COMPARED_SUFFIXES:
-        for path in workspace.glob(f"*{suffix}"):
-            if path.name.startswith("."):
-                continue
-            found[suffix.lstrip("-")] = path
+    for directory in ("workspace", *NATIVE_DIRECTORIES):
+        for suffix in COMPARED_SUFFIXES:
+            for path in (task / directory).glob(f"*{suffix}"):
+                if path.name.startswith("."):
+                    continue
+                found[suffix.lstrip("-")] = path
     return found
 
 
@@ -366,6 +382,12 @@ def _decoded_pcm_sha256(path: Path) -> str | None:
 def _without_run_paths(text: str, run_dir: Path) -> str:
     for spelling in {str(run_dir), run_dir.as_posix(), str(run_dir).replace("\\", "\\\\")}:
         text = text.replace(spelling, "$RUN")
+    # A run's files since WP-P1 are in its packages' directories of the task
+    # (plan 4.6 item 34); the baselines name `workspace`.
+    for directory in NATIVE_DIRECTORIES:
+        for separator in ("/", "\\", "\\\\"):
+            text = text.replace(f"$RUN{separator}tasks{separator}gate-real{separator}{directory.replace('/', separator)}",
+                                f"$RUN{separator}tasks{separator}gate-real{separator}workspace")
     return text
 
 

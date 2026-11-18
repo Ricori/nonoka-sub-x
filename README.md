@@ -214,7 +214,7 @@ nonoka-x/
 │   ├── internal/app/         # Wails 核心服务、本地流媒体网关、缓存与更新
 │   └── frontend/             # React 19 前端工程（媒体库、JASSUB 编辑器、轨道视图）
 ├── src/nonoka_x/             # Python 适配层、Artifact Projector 与 DocumentStore
-├── third_party/finesub/      # FineSub 算法引擎（算法文件由质量锁看住，本地改动见 LOCAL_CHANGES.md）
+├── engines/                  # 引擎包：FineSub 转写、finesub correction、知识库（算法文件由各包的质量锁看住）
 ├── scripts/                  # 质量闸门、上游对齐报告、构建与运维脚本
 └── docs/                     # 架构与核心规范文档
 ```

@@ -262,7 +262,7 @@ def test_no_publishing_replace_in_the_install_path_stayed_bare():
         # Moving a bad download aside on a digest mismatch: a failure path.
         ("downloader.py", "os.replace(part_path, quarantine)"),
     }
-    root = Path(__file__).resolve().parents[1] / "third_party/finesub/src/finesub_bootstrap"
+    root = Path(__file__).resolve().parents[1] / "engines/finesub-transcribe/src/finesub_bootstrap"
     found = {
         (module.name, line.strip())
         for module in (root / "fsops.py", root / "resources.py", root / "downloader.py")

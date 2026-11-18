@@ -21,7 +21,6 @@ from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "third_party/finesub/src"))
 
 from finesub.llm import http, research  # noqa: E402
 from finesub.llm.client import LLMCallResult  # noqa: E402

@@ -32,7 +32,7 @@ import os
 from pathlib import Path
 from typing import Mapping
 
-from . import ROOT, VENDOR
+from . import PACKAGES_ROOT, PACKAGE_IDS, ROOT
 
 INFLUENCE_PREFIXES = (
     "FINESUB_", "NONOKA_", "MOSS_",
@@ -95,7 +95,8 @@ def default_locations() -> list[Path]:
         home / ".cache" / "huggingface",        # HF_HOME's default
         home / ".cache" / "torch",              # TORCH_HOME's default
         roaming / "Python",                     # user site-packages
-        VENDOR / ".env", VENDOR / "config.toml", VENDOR / "model_catalog.toml",  # checkout data
+        *[PACKAGES_ROOT / package / name for package in PACKAGE_IDS  # checkout data, were a package one
+          for name in (".env", "config.toml", "model_catalog.toml")],
         ROOT / ".env", ROOT / "config.toml", ROOT / "finesub.toml",              # the working directory
     ]
 

@@ -440,11 +440,11 @@ def _settings(context: MigrationContext, blockers: list[str]) -> list[Action]:
 
 
 def _knowledge(context: MigrationContext, blockers: list[str]) -> list[Action]:
-    return _main_entries(context, legacy.KNOWLEDGE_ENTRIES, target=context.paths.engine("finesub-knowledge"), note="content unchanged")
+    return _main_entries(context, legacy.KNOWLEDGE_ENTRIES, target=context.paths.engine(legacy.KNOWLEDGE_PACKAGE), note="content unchanged")
 
 
 def _limit_state(context: MigrationContext, blockers: list[str]) -> list[Action]:
-    return _main_entries(context, legacy.LIMIT_STATE_ENTRIES, target=context.paths.engine("finesub-correct"), note="content unchanged")
+    return _main_entries(context, legacy.LIMIT_STATE_ENTRIES, target=context.paths.engine(legacy.CORRECTION_PACKAGE), note="content unchanged")
 
 
 def _task_products(context: MigrationContext, blockers: list[str]) -> list[Action]:

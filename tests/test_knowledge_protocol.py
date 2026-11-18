@@ -29,9 +29,17 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / "src"
-VENDOR_SOURCE = ROOT / "third_party" / "finesub" / "src"
-PYTHONPATH = os.pathsep.join([str(SOURCE), str(VENDOR_SOURCE)])
+#: The access points are in the transcription and correction halves; a file both carry is the same bytes.
+SOURCES = (ROOT / "engines" / "finesub-correct" / "src", ROOT / "engines" / "finesub-transcribe" / "src")
+#: The knowledge package's and the transcription and correction packages' copies of the protocol.
+PROTOCOL_COPIES = tuple(
+    ROOT / "engines" / package / "adapter" / "finesub_knowledge"
+    for package in ("finesub-knowledge", "finesub-correct", "finesub-transcribe")
+)
+PYTHONPATH = os.pathsep.join([str(ROOT), str(SOURCE)])
 CHILD_ENVIRONMENT = {**os.environ, "PYTHONPATH": PYTHONPATH, "PYTHONIOENCODING": "utf-8"}
+#: A child that drives a client and its server from one process: the packages' code side by side.
+UNION = "from tests.quality_harness import union; union.install()\n"
 
 AUDIT_HOOK = textwrap.dedent(
     '''
@@ -39,7 +47,7 @@ AUDIT_HOOK = textwrap.dedent(
     _directory = os.environ.get("KNOWLEDGE_AUDIT_DIR")
     if _directory:
         _argv = " ".join(getattr(sys, "orig_argv", sys.argv))
-        if "finesub_knowledge.server" in _argv:
+        if "finesub_knowledge.server" in _argv or "finesub_knowledge_host" in _argv:
             _role = "server"
         elif any(flag in _argv for flag in ("--build", "--hold-lock", "--ui-door")):
             _role = "harness"
@@ -142,17 +150,28 @@ BLOCK_SERVER = textwrap.dedent(
 )
 
 
+def engines_without(tmp_path: Path, removed: str) -> Path:
+    """An engines root with every package but `removed`, each one the real package (a directory junction)."""
+
+    import _winapi
+
+    root = tmp_path / "engines"
+    root.mkdir()
+    for package in (ROOT / "engines").iterdir():
+        if package.is_dir() and package.name != removed:
+            _winapi.CreateJunction(str(package), str(root / package.name))
+    return root
+
+
 def test_a_request_using_the_base_is_refused_without_the_package(tmp_path, monkeypatch):
     from tests.quality_harness import calls
 
-    hook = tmp_path / "hook"
-    hook.mkdir()
-    (hook / "sitecustomize.py").write_text(BLOCK_SERVER, encoding="utf-8")
+    engines = engines_without(tmp_path, "finesub-knowledge")
     original = calls.hermetic_environment
 
     def without_package(root):
         environment = original(root)
-        environment["PYTHONPATH"] = os.pathsep.join([str(hook), environment["PYTHONPATH"]])
+        environment["NONOKA_QUALITY_ENGINES"] = str(engines)
         return environment
 
     monkeypatch.setattr(calls, "hermetic_environment", without_package)
@@ -179,7 +198,7 @@ def test_package_problem_names_what_is_missing():
 
     assert client.package_problem() is None
     blocked = subprocess.run(
-        [sys.executable, "-c", BLOCK_SERVER + "\nfrom finesub_knowledge import client\nprint(client.package_problem())"],
+        [sys.executable, "-c", UNION + BLOCK_SERVER + "\nfrom finesub_knowledge import client\nprint(client.package_problem())"],
         env=CHILD_ENVIRONMENT, capture_output=True, text=True, encoding="utf-8", errors="replace", check=True,
     )
     assert "finesub_knowledge.server" in blocked.stdout
@@ -268,7 +287,7 @@ CLIENT_SCRIPT = textwrap.dedent(
 
 def _client(base: Path, *mode: str, **kwargs):
     return subprocess.run(
-        [sys.executable, "-c", CLIENT_SCRIPT, str(base), *mode],
+        [sys.executable, "-c", UNION + CLIENT_SCRIPT, str(base), *mode],
         cwd=ROOT, env=CHILD_ENVIRONMENT, capture_output=True, text=True,
         encoding="utf-8", errors="replace", timeout=120, **kwargs,
     )
@@ -295,7 +314,7 @@ def test_values_handles_callbacks_pins_and_reporter_cross(base):
 
 def test_a_client_that_dies_inside_the_write_lock_does_not_leave_it_taken(base):
     holder = subprocess.Popen(
-        [sys.executable, "-c", CLIENT_SCRIPT, str(base), "die-holding-lock"],
+        [sys.executable, "-c", UNION + CLIENT_SCRIPT, str(base), "die-holding-lock"],
         cwd=ROOT, env=CHILD_ENVIRONMENT, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
         text=True, encoding="utf-8",
     )
@@ -407,7 +426,7 @@ def test_access_points_take_store_functions_from_the_client():
     wrong = []
     moved = 0
     for relative in ACCESS_POINT_FILES:
-        path = VENDOR_SOURCE / "finesub" / relative
+        path = next(root / "finesub" / relative for root in SOURCES if (root / "finesub" / relative).is_file())
         inside_knowledge = relative.startswith("llm/knowledge/")
         for line, module, name in _knowledge_imports(path):
             if name not in STORE_NAMES:
@@ -421,7 +440,9 @@ def test_access_points_take_store_functions_from_the_client():
 
 
 def test_the_package_does_not_import_the_core():
-    for path in (SOURCE / "finesub_knowledge").glob("*.py"):
+    paths = [path for copy in PROTOCOL_COPIES for path in copy.glob("*.py")]
+    assert paths
+    for path in paths:
         for _line, module, _name in _knowledge_imports(path):
             assert not module.startswith("nonoka_x"), path
         tree = ast.parse(path.read_text(encoding="utf-8"))

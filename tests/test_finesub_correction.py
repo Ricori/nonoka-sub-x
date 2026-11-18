@@ -1,48 +1,49 @@
-"""WP4b: finesub correction (`nonoka_x.correction.finesub`).
+"""finesub correction: the correction package's adapter (`finesub_correct.engine`).
 
-Three things are proven here (`docs/transcription-engines-plan.md` WP4b):
+Moved from the core (`nonoka_x.correction.finesub`, WP4b) into the correction
+package (WP-P1). That a native stable gives the model the same requests is
+the quality gate's LLM replay and call equivalence, which since WP-P1 run the
+worker and the package's own process (`tests/test_finesub_call_equivalence.py`).
+Here:
 
-- **A native stable gives the model the same requests.** The quality gate's
-  LLM replay (10 cases) and its cloud-continuation call scenarios are run with
-  the worker's `run_pipeline` replaced by `FineSubCorrection.run` on a
-  `CorrectionJob` built from the very arguments the worker passed -- the job
-  crosses JSON on the way, as it will into an engine package -- and compared
-  with the gate's own baselines, which are not touched.
-- **A `transcript.json` with nothing but lines reaches `raw-srt`** in a clean
-  child interpreter that never imports torch or numpy, and the speakers of its
-  lines are written as `-diar-rows.json`.
-- **The module stays movable**: it imports the two contracts and nothing else
-  of Nonoka's, never a transcription engine, and FineSub only lazily.
+- the adapter's own pieces: `transcript.json` -> stable, placing a
+  transcription's files, the speakers of each input, the job's JSON;
+- **a `transcript.json` with nothing but lines reaches `raw-srt`** in a clean
+  child interpreter that has only the correction package on its path and never
+  imports torch or numpy, and the speakers of its lines are written as
+  `-diar-rows.json`;
+- the core's reading of what the package declares (its spec, its readiness).
 """
 
 from __future__ import annotations
 
-import ast
 import json
 import os
 import subprocess
 import sys
 import textwrap
 from pathlib import Path
-from types import SimpleNamespace
 from unittest import mock
 
 import pytest
 
-from nonoka_x import correction
-from nonoka_x.correction import finesub as engine
+from finesub_correct import engine
+
+from nonoka_x import correction, engine_host
 from nonoka_x.transcription import TranscriptDocument, TranscriptionResult
 
 ROOT = Path(__file__).resolve().parents[1]
-VENDOR_SOURCE = ROOT / "third_party" / "finesub" / "src"
-MODULE = ROOT / "src" / "nonoka_x" / "correction" / "finesub.py"
+PACKAGE = engine_host.discover(ROOT / "engines")["finesub-correct"]
 
 
-def _document(lines: list[dict], **fields) -> TranscriptDocument:
-    return TranscriptDocument.from_dict(
+def _document(lines: list[dict], **fields) -> dict:
+    """A `transcript.json` as the core writes and the adapter reads it."""
+
+    document = TranscriptDocument.from_dict(
         {"schema": 1, "engine": "mai2", "model": "mai-transcribe-2", "language": "ja", "duration": 9.0,
          "lines": lines, **fields}
     )
+    return json.loads(json.dumps(document.to_dict(), ensure_ascii=False))
 
 
 # --- transcript.json -> stable -------------------------------------------------------
@@ -71,6 +72,20 @@ def test_lines_become_segments_in_finesubs_order() -> None:
     }
 
 
+def test_numbers_are_read_as_the_core_reads_them(tmp_path: Path) -> None:
+    """Whole seconds in a `transcript.json` are floats to the core; so to the stable."""
+
+    path = tmp_path / "transcript.json"
+    path.write_text(json.dumps({"schema": 1, "engine": "mai2", "language": "ja", "duration": 2,
+                                "lines": [{"id": "1", "start": 0, "end": 1, "text": "a",
+                                           "words": [{"text": "a", "start": 0, "end": 1}]}]}), encoding="utf-8")
+    stable = engine.stable_from_transcript(engine.read_transcript(path))
+    assert json.dumps(stable["segments"]) == json.dumps(
+        [{"start": 0.0, "end": 1.0, "text": "a", "words": [{"word": "a", "start": 0.0, "end": 1.0}], "lang": "ja"}]
+    )
+    assert stable["metadata"]["asr_align"]["audio_duration"] == 2.0
+
+
 def test_the_source_language_reaches_the_correction_mode(tmp_path: Path) -> None:
     """A Chinese transcription only corrects: FineSub reads the language from the stable."""
 
@@ -83,8 +98,8 @@ def test_the_source_language_reaches_the_correction_mode(tmp_path: Path) -> None
 
 
 def test_a_document_without_a_model_is_named_by_its_engine() -> None:
-    stable = engine.stable_from_transcript(TranscriptDocument.from_dict(
-        {"schema": 1, "engine": "gemini-transcribe", "language": "ja", "duration": 1.0, "lines": []}))
+    stable = engine.stable_from_transcript(
+        {"schema": 1, "engine": "gemini-transcribe", "language": "ja", "duration": 1.0, "lines": []})
     assert stable["segments"] == []
     assert stable["metadata"]["joint_asr"] == {"backend": "gemini-transcribe", "model": "gemini-transcribe"}
 
@@ -108,20 +123,29 @@ def test_speakers_follow_the_input() -> None:
 
 
 def test_native_files_are_placed_byte_for_byte_and_once(tmp_path: Path) -> None:
+    """Everything FineSub's transcription left beside its stable, into this package's directory."""
+
     from finesub.stages import default_pipeline_paths
 
-    origin = tmp_path / "native"
+    origin = tmp_path / "native-transcribe"
     origin.mkdir()
     files = {
         engine.NATIVE_STABLE: origin / "a-stable.json",
         engine.NATIVE_DIAR: origin / "a-diar.json",
         engine.NATIVE_DIAR_EVIDENCE: origin / "a-diar-evidence.npz",
         engine.NATIVE_DIAR_ROWS: origin / "a-diar-rows.json",
+        "finesub.vocal_audio": origin / "a-vocal.ogg",
+        "finesub.vad_json": origin / "a-vad.json",
+        "finesub.vad_energy_npz": origin / "a-vad-energy.npz",
+        "finesub.aligned_json": origin / "a-aligned.json",
+        "finesub.metadata_json": origin / "a-metadata.json",
     }
     for key, path in files.items():
         path.write_bytes(f"{key}\r\n\x00 first".encode())
     media = tmp_path / "media.m4a"
-    output = engine.output_path(tmp_path / "task", "节目")
+    job = {"source": str(media), "task_dir": str(tmp_path / "task"), "title": "节目", "options": {}}
+    output = engine.output_path(job)
+    assert output == tmp_path / "task" / "native" / "finesub-correct" / "节目.srt"
     output.parent.mkdir(parents=True)
 
     paths = engine.place_native(media, output, files)
@@ -132,6 +156,11 @@ def test_native_files_are_placed_byte_for_byte_and_once(tmp_path: Path) -> None:
         engine.NATIVE_DIAR: Path(expected.diar_json),
         engine.NATIVE_DIAR_EVIDENCE: output.with_name("节目-diar-evidence.npz"),
         engine.NATIVE_DIAR_ROWS: Path(expected.diar_rows_json),
+        "finesub.vocal_audio": Path(expected.vocal_audio),
+        "finesub.vad_json": Path(expected.vad_json),
+        "finesub.vad_energy_npz": Path(expected.vad_energy_npz),
+        "finesub.aligned_json": Path(expected.aligned_json),
+        "finesub.metadata_json": Path(expected.metadata_json),
     }
     for key, path in placed.items():
         assert path.read_bytes() == files[key].read_bytes(), key
@@ -143,8 +172,18 @@ def test_native_files_are_placed_byte_for_byte_and_once(tmp_path: Path) -> None:
     assert all(b"first" in path.read_bytes() for path in placed.values())
 
 
+def test_a_lossless_vocal_track_keeps_its_container(tmp_path: Path) -> None:
+    origin = tmp_path / "a-vocal.flac"
+    origin.write_bytes(b"fLaC")
+    stable = tmp_path / "a-stable.json"
+    stable.write_text("{}", encoding="utf-8")
+    output = tmp_path / "c" / "节目.srt"
+    paths = engine.place_native(tmp_path / "m.wav", output, {engine.NATIVE_STABLE: stable, "finesub.vocal_audio": origin})
+    assert paths.resolve_vocal_audio().read_bytes() == b"fLaC"
+
+
 def test_a_native_stable_already_in_place_is_left_alone(tmp_path: Path) -> None:
-    output = engine.output_path(tmp_path, "t")
+    output = tmp_path / "w" / "t.srt"
     output.parent.mkdir(parents=True)
     stable = output.with_name("t-stable.json")
     stable.write_text("{}", encoding="utf-8")
@@ -161,7 +200,7 @@ def test_the_job_carries_the_task_fields_through_json(tmp_path: Path) -> None:
         transcription=TranscriptionResult(transcript_json=tmp_path / "transcript.json",
                                           native={engine.NATIVE_STABLE: tmp_path / "a-stable.json"}),
         source=tmp_path / "v.mp4", target="final-srt", task_dir=tmp_path,
-        options={"media": None, "fast": "auto", "proofread": "off"},
+        options={"media": None, "fast": "auto", "native_dir": str(tmp_path / "native" / "finesub-correct")},
         knowledge={"knowledge": "read", "knowledge_subjects": ["streamer/某人"]},
         diarization_level="judge-text", title="节目", task_id="t1", task_summary="字幕任务：节目",
     )
@@ -174,11 +213,15 @@ def test_the_job_carries_the_task_fields_through_json(tmp_path: Path) -> None:
                                  task_dir=tmp_path, task_id=7)
 
 
-def test_the_engine_meets_the_protocol() -> None:
-    instance = engine.FineSubCorrection()
+def test_the_package_engine_meets_the_protocol() -> None:
+    instance = engine_host.PackageCorrectionEngine(PACKAGE)
     assert isinstance(instance, correction.CorrectionEngine)
     assert instance.spec.id == correction.DEFAULT_ENGINE
+    assert instance.spec.label == "finesub correction"
     assert instance.spec.environment.components == () and instance.spec.environment.gpu == "none"
+
+
+# --- readiness, from what the package declares ------------------------------------
 
 
 class _Store:
@@ -200,80 +243,46 @@ class _Runtime:
         return Path(f"{name}.exe") if self.tools else None
 
 
-def _codes(instance, target: str, *, missing=frozenset(), platform: str = "win32") -> list[str]:  # noqa: ANN001
+def _codes(store, runtime, target: str, *, missing=frozenset(), platform: str = "win32") -> list[str]:  # noqa: ANN001
     """The issue codes for `target`, with only `missing` absent from the launcher."""
-
-    from nonoka_x.transcription import ReadinessContext
 
     def find_spec(name, *_args, **_kwargs):  # noqa: ANN001, ANN202
         return None if name in missing else object()
 
     with (
-        mock.patch.object(engine.importlib.util, "find_spec", side_effect=find_spec),
-        mock.patch.object(engine.shutil, "which", return_value=None),
-        mock.patch.object(engine.sys, "platform", platform),
+        mock.patch("importlib.util.find_spec", side_effect=find_spec),
+        mock.patch.object(engine_host.shutil, "which", return_value=None),
+        mock.patch.object(engine_host.sys, "platform", platform),
     ):
-        return [issue.code for issue in instance.readiness(ReadinessContext(target=target), {}).issues]
+        return [issue.code for issue in engine_host.launcher_engine_readiness(PACKAGE, runtime, store, target).issues]
 
 
 def test_readiness_is_the_sidecars_llm_tiers() -> None:
-    """WP5 moved the `harness` and LLM tiers here as they were (codes and words unchanged)."""
+    """WP5's `harness` and LLM tiers, now read from `PACKAGE.json` (codes and words unchanged)."""
 
-    ready = engine.FineSubCorrection(_Store(True), _Runtime())
-    assert _codes(ready, "raw-srt") == [] and _codes(ready, "final-srt") == []
+    assert _codes(_Store(True), _Runtime(), "raw-srt") == [] and _codes(_Store(True), _Runtime(), "final-srt") == []
     # No LLM configured: only a translating target needs one.
-    unconfigured = engine.FineSubCorrection(_Store(False), _Runtime())
-    assert _codes(unconfigured, "raw-srt") == []
-    assert _codes(unconfigured, "translated-srt") == ["missing_llm_key"]
-    assert _codes(engine.FineSubCorrection(None, _Runtime()), "final-srt") == ["missing_llm_key"]
+    assert _codes(_Store(False), _Runtime(), "raw-srt") == []
+    assert _codes(_Store(False), _Runtime(), "translated-srt") == ["missing_llm_key"]
+    assert _codes(None, _Runtime(), "final-srt") == ["missing_llm_key"]
     # The launcher's harness is asked only until the managed runtime is ready.
-    launcher = engine.FineSubCorrection(_Store(True), _Runtime(state="missing"))
-    assert _codes(launcher, "raw-srt", missing={"opencc"}) == ["missing_harness"]
-    assert _codes(launcher, "raw-srt", missing={"tzdata"}, platform="darwin") == []
-    assert _codes(ready, "raw-srt", missing={"opencc"}) == []
+    assert _codes(_Store(True), _Runtime(state="missing"), "raw-srt", missing={"opencc"}) == ["missing_harness"]
+    assert _codes(_Store(True), _Runtime(state="missing"), "raw-srt", missing={"tzdata"}, platform="darwin") == []
+    assert _codes(_Store(True), _Runtime(), "raw-srt", missing={"opencc"}) == []
     # The media tools: the runtime's or PATH's.
-    assert _codes(engine.FineSubCorrection(_Store(True), _Runtime(tools=False)), "raw-srt") == ["missing_ffmpeg"]
+    assert _codes(_Store(True), _Runtime(tools=False), "raw-srt") == ["missing_ffmpeg"]
 
 
-# --- the module stays movable ------------------------------------------------------
+def test_the_harness_message_is_the_one_wp5_had() -> None:
+    def find_spec(name, *_args, **_kwargs):  # noqa: ANN001, ANN202
+        return None if name == "opencc" else object()
 
-
-def _imports(path: Path) -> set[str]:
-    names: set[str] = set()
-    for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
-        if isinstance(node, ast.Import):
-            names.update(alias.name for alias in node.names)
-        elif isinstance(node, ast.ImportFrom):
-            assert node.level == 0, "relative imports would not survive the move into a package"
-            names.add(node.module or "")
-    return names
-
-
-def test_only_the_contracts_of_nonoka_are_imported() -> None:
-    nonoka = {name for name in _imports(MODULE) if name.split(".")[0] == "nonoka_x"}
-    assert nonoka == {"nonoka_x.correction", "nonoka_x.transcription"}
-    assert not any(name.startswith("nonoka_x.transcription.engines") for name in _imports(MODULE))
-
-
-def test_importing_it_loads_neither_finesub_nor_the_asr_stack() -> None:
-    code = (
-        "import sys\n"
-        "import nonoka_x.correction.finesub\n"
-        "heavy = sorted(m for m in sys.modules if m.split('.')[0] in {'torch', 'numpy', 'finesub', 'finesub_bootstrap'})\n"
-        "print(','.join(heavy))\n"
-    )
-    completed = subprocess.run(
-        [sys.executable, "-c", code], capture_output=True, text=True, cwd=ROOT, check=True,
-        env={**os.environ, "PYTHONPATH": str(ROOT / "src")},
-    )
-    assert completed.stdout.strip() == ""
-
-
-def test_the_axis_keeps_its_own_error() -> None:
-    from nonoka_x.axis import AxisError, stable_from_axis
-
-    with pytest.raises(AxisError, match="no source text"):
-        stable_from_axis([{"t0": 0.0, "t1": 1.0, "ja": " "}])
+    with mock.patch("importlib.util.find_spec", side_effect=find_spec), \
+            mock.patch.object(engine_host.shutil, "which", return_value="x"):
+        issues = engine_host.launcher_engine_readiness(PACKAGE, _Runtime(state="missing"), _Store(True), "raw-srt").issues
+    assert [issue.message for issue in issues] == [
+        "本地续跑依赖缺失：opencc-python-reimplemented；请在「运行环境」页重建 Python 启动环境，或安装完整运行环境"
+    ]
 
 
 # --- a transcript.json with only lines, to raw-srt ---------------------------------
@@ -287,22 +296,25 @@ _LINES = [
     {"id": "l4", "start": 5.5, "end": 6.0, "text": "うん"},
 ]
 
+#: Run with nothing on the path but the correction package's own roots: no core, no other package.
 _LINES_CHILD = textwrap.dedent(
     """
     import json
     import sys
     from pathlib import Path
 
-    from nonoka_x.correction import CorrectionJob
-    from nonoka_x.correction.finesub import FineSubCorrection
-    from nonoka_x.transcription import TranscriptDocument, TranscriptionResult, write_transcript
+    from finesub_correct import bridge
 
     root = Path(sys.argv[1])
-    lines = json.loads(sys.argv[2])
-    transcript = write_transcript(TranscriptDocument.from_dict({
-        "schema": 1, "engine": "mai2", "model": "mai-transcribe-2", "language": "ja", "duration": 6.5,
-        "lines": lines,
-    }), root / "task" / "transcription" / "transcript.json")
+    # What the package's `__main__` does first with its launch context: the
+    # compatibility `finesub_bootstrap` gets the package's data directory.
+    bridge.bind_package_data({"paths": {"package_data": str(root / "package-data")}})
+
+    from finesub_correct.engine import FineSubCorrection
+
+    transcript = root / "task" / "transcript.json"
+    transcript.parent.mkdir(parents=True)
+    transcript.write_text(sys.argv[2], encoding="utf-8")
     source = root / "media" / "节目.wav"
     source.parent.mkdir()
     source.write_bytes(b"")
@@ -312,36 +324,30 @@ _LINES_CHILD = textwrap.dedent(
         def __init__(self):
             self.events = []
 
-        def stage(self, stage, message=""):
-            self.events.append(["stage", stage])
-
-        def progress(self, stage, *, completed, total=None, unit="", message=""):
-            pass
-
-        def log(self, message, fields=None):
-            self.events.append(["log", message])
-
-        def warning(self, code, message):
-            self.events.append(["warning", code])
-
-        def cancelled(self):
-            return False
+        def __getattr__(self, method):
+            def record(*args, **kwargs):
+                if method == "stage_started":
+                    self.events.append(["stage", args[0]])
+            return record
 
 
     recorder = Recorder()
-    job = CorrectionJob(
-        transcription=TranscriptionResult(transcript_json=transcript),
-        source=source, target="raw-srt", task_dir=root / "task", title="节目", task_id="t1",
-    )
-    result = FineSubCorrection().run(CorrectionJob.from_dict(json.loads(json.dumps(job.to_dict()))), recorder)
-    workspace = root / "task" / "workspace"
+    logs = []
+    job = {
+        "transcription": {"transcript_json": str(transcript), "native": {}, "metadata": {}},
+        "source": str(source), "target": "raw-srt", "task_dir": str(root / "task"), "options": {},
+        "knowledge": {}, "diarization_level": "off", "title": "节目", "task_id": "t1", "task_summary": "",
+    }
+    result = FineSubCorrection(recorder, log=logs.append).run(job)
+    native = root / "task" / "native" / "finesub-correct"
     print(json.dumps({
-        "modules": sorted(name for name in ("torch", "numpy") if name in sys.modules),
-        "artifacts": {name: path.name for name, path in result.artifacts.items()},
-        "metadata": dict(result.metadata),
-        "files": {path.name: path.read_text(encoding="utf-8") for path in sorted(workspace.iterdir())
+        "modules": sorted(name for name in ("torch", "numpy", "nonoka_x") if name in sys.modules),
+        "artifacts": {name: Path(path).name for name, path in result["artifacts"].items()},
+        "metadata": result["metadata"],
+        "files": {path.name: path.read_text(encoding="utf-8") for path in sorted(native.iterdir())
                   if path.is_file() and not path.name.endswith("-metadata.json")},
         "events": recorder.events,
+        "logs": logs,
     }, ensure_ascii=False))
     """
 )
@@ -354,7 +360,7 @@ def lines_run(tmp_path_factory: pytest.TempPathFactory) -> dict:
     root = tmp_path_factory.mktemp("lines")
     environment, _removed = isolated_environment(root)
     environment.update({
-        "PYTHONPATH": os.pathsep.join([str(ROOT / "src"), str(VENDOR_SOURCE)]),
+        "PYTHONPATH": os.pathsep.join(str(path) for path in PACKAGE.paths),
         "PYTHONIOENCODING": "utf-8",
         "PYTHONDONTWRITEBYTECODE": "1",
         "TEMP": str(root / "tmp"),
@@ -362,8 +368,13 @@ def lines_run(tmp_path_factory: pytest.TempPathFactory) -> dict:
     })
     (root / "tmp").mkdir()
     (root / "runs").mkdir()
+    transcript = TranscriptDocument.from_dict({
+        "schema": 1, "engine": "mai2", "model": "mai-transcribe-2", "language": "ja", "duration": 6.5, "lines": _LINES,
+    })
+    from nonoka_x.transcription.model import dumps_transcript
+
     completed = subprocess.run(
-        [sys.executable, "-c", _LINES_CHILD, str(root / "runs"), json.dumps(_LINES, ensure_ascii=False)],
+        [sys.executable, "-c", _LINES_CHILD, str(root / "runs"), dumps_transcript(transcript)],
         cwd=root, env=environment, capture_output=True, text=True, encoding="utf-8", timeout=300,
     )
     if completed.returncode != 0:
@@ -399,141 +410,20 @@ def test_the_converted_stable_is_the_documented_one(lines_run: dict) -> None:
 
 
 def test_the_run_reports_which_input_it_used(lines_run: dict) -> None:
-    events = lines_run["events"]
-    assert ["log", "纠错输入：由 transcript.json 转成的 stable，说话人来自各行标签"] in events
-    stages = [stage for kind, stage in events if kind == "stage"]
+    assert lines_run["logs"] == ["纠错输入：由 transcript.json 转成的 stable，说话人来自各行标签"]
+    stages = [stage for kind, stage in lines_run["events"] if kind == "stage"]
     assert stages == ["diarize", "raw-srt"]
 
 
-# --- the quality gate, through the engine ------------------------------------------
-
-#: Run inside the gate's own children (`calls.child_main`, `replay.child_main`), once the
-#: worker environment is in place: the worker's `run_pipeline` becomes a `CorrectionJob`
-#: for `FineSubCorrection.run`, built from exactly the arguments the worker passed.
-_GATE_CHILD = textwrap.dedent(
-    """
-    import json
-    import sys
-    from pathlib import Path
-
-    mode, spec_path = sys.argv[1], Path(sys.argv[2])
-    root = Path(json.loads(spec_path.read_text(encoding="utf-8"))["root"])
-
-    from tests.quality_harness import calls, replay
-
-    #: Every keyword the worker hands `run_pipeline`; any other one would be lost here.
-    KNOWN = {
-        "output_path", "stage", "language", "device", "gpu_tier", "separate", "llm_media", "llm_retrieval",
-        "llm_difficulty", "llm_proofread", "llm_fast", "extra_info", "extra_style", "knowledge",
-        "task_summary", "task_id", "task_artifact_dir", "resume", "speaker_tracks", "diarize",
-        "diarize_max_speakers", "knowledge_subjects",
-    }
+# --- a source-text axis -----------------------------------------------------------
 
 
-    def install():
-        import finesub.stages as stages
-
-        from nonoka_x.correction import CorrectionJob
-        from nonoka_x.correction import finesub as engine
-        from nonoka_x.transcription import EventReporter, TranscriptionResult
-
-        def run_pipeline(input_path, **given):
-            unknown = sorted(set(given) - KNOWN)
-            if unknown:
-                raise TypeError(f"the worker passed keywords the job cannot carry: {unknown}")
-            output = Path(given["output_path"])
-            task_dir = output.parent.parent
-            paths = stages.default_pipeline_paths(input_path, output)
-            if not Path(paths.stable_json).exists():
-                raise AssertionError("only a continuation from a stable runs through the engine here")
-            assert output == engine.output_path(task_dir, output.stem)
-            assert Path(given["task_artifact_dir"]) == engine.artifact_dir(task_dir)
-            assert given["resume"] is True and given["speaker_tracks"] == "off"
-            native = {engine.NATIVE_STABLE: root / "cloud" / "cloud.stable.json"}
-            if (root / "cloud" / "cloud.diar.json").exists():
-                native[engine.NATIVE_DIAR] = root / "cloud" / "cloud.diar.json"
-            job = CorrectionJob(
-                transcription=TranscriptionResult(transcript_json=task_dir / "transcript.json", native=native),
-                source=Path(input_path),
-                target=given["stage"],
-                task_dir=task_dir,
-                options={
-                    "media": given["llm_media"], "retrieval": given["llm_retrieval"],
-                    "difficulty": given["llm_difficulty"], "proofread": given["llm_proofread"],
-                    "fast": given["llm_fast"], "extra_info": given["extra_info"],
-                    "extra_style": given["extra_style"],
-                },
-                knowledge={"knowledge": given["knowledge"],
-                           "knowledge_subjects": list(given.get("knowledge_subjects") or ())},
-                diarization_level=given["diarize"],
-                title=output.stem,
-                task_id=given["task_id"],
-                task_summary=given["task_summary"],
-            )
-            job = CorrectionJob.from_dict(json.loads(json.dumps(job.to_dict(), ensure_ascii=False)))
-            result = engine.FineSubCorrection().run(job, EventReporter(lambda kind, payload: None))
-            assert result.metadata["input"] == engine.INPUT_NATIVE
-            return paths
-
-        stages.run_pipeline = run_pipeline
-
-
-    adopt = calls.adopt_worker_environment
-
-
-    def adopt_then_install(data_dir, settings):
-        environment = adopt(data_dir, settings)
-        install()
-        return environment
-
-
-    calls.adopt_worker_environment = adopt_then_install
-    replay.adopt_worker_environment = adopt_then_install
-    raise SystemExit((calls if mode == "calls" else replay).child_main(spec_path))
-    """
-)
-
-
-def _through_the_engine(harness, mode: str):
-    """`harness`'s own children, entered through `_GATE_CHILD` instead of its `--child`."""
-
-    def run(command, **kwargs):
-        assert command[1:3] == ["-m", f"tests.quality_harness.{mode}"], command
-        return subprocess.run([command[0], "-c", _GATE_CHILD, mode, str(command[-1])], **kwargs)
-
-    return mock.patch.object(harness, "subprocess", SimpleNamespace(run=run))
-
-
-#: The call scenarios that continue from a stable already in hand.
-CONTINUATIONS = (
-    "cloud-raw-srt-no-timeline",
-    "cloud-raw-srt-timeline-acoustics",
-    "cloud-final-srt-timeline-judge-audio",
-    "cloud-translated-srt-zh-update",
-)
-
-
-def test_continuations_hand_the_algorithms_what_the_baseline_records() -> None:
-    from tests.quality_harness import calls
-
-    assert set(CONTINUATIONS) == {
-        name for name, scenario in calls.SCENARIOS.items()
-        if scenario["request"]["source"].get("kind") == "cloud_stable"
-    }
-    with _through_the_engine(calls, "calls"):
-        records = calls.run_all(CONTINUATIONS, workers=4)
-    assert calls.differences(records) == {}
-
-
-def test_the_model_is_sent_the_baselines_requests() -> None:
-    from tests.quality_harness import replay
-
-    cases = [name for name in replay.CASES if replay.available(name)]
-    with _through_the_engine(replay, "replay"):
-        records = replay.run_all(cases)
-    assert set(records) == set(cases)
-    assert replay.differences(records) == {}
-    missing = sorted(set(replay.CASES) - set(cases))
-    if missing:
-        pytest.skip(f"compared {len(cases)} replay cases; not on this machine: {', '.join(missing)}")
-
+def test_blank_axis_rows_are_dropped_but_ids_stay_positional() -> None:
+    rows = [{"t0": 1.0, "t1": 2.0, "ja": "おはよう"}, {"t0": 2.0, "t1": 3.0, "ja": " "},
+            {"t0": 3.0, "t1": 4.0, "ja": "またね"}]
+    assert engine.stable_from_source_rows(rows)["segments"] == [
+        {"id": "1", "start": 1.0, "end": 2.0, "text": "おはよう"},
+        {"id": "3", "start": 3.0, "end": 4.0, "text": "またね"},
+    ]
+    with pytest.raises(engine.NoSourceText, match="no source text"):
+        engine.stable_from_source_rows([{"t0": 0.0, "t1": 1.0, "ja": " "}])

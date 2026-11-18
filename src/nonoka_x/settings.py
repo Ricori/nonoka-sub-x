@@ -6,8 +6,8 @@ WP-R4); the files FineSub reads are derived from them (`FineSubSettings`).
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from functools import lru_cache
-import json
 import os
 from pathlib import Path
 import re
@@ -352,51 +352,94 @@ def _secrets_module():
     return secrets
 
 
-def correction_proofread(correction: Mapping[str, Any]) -> str:
-    """The engine's `proofread` setting for this task's correction.
+#: Where the packaged model catalog comes from (`engine_catalog`): set by the sidecar to ask its
+#: resident correction process; when unset, a short-lived correction process is asked once.
+_CATALOG_SOURCE: list[Any] = []
+_CATALOG: list[dict[str, Any]] = []
 
-    `auto` is upstream's: proofread at the `quality` difficulty. A correction
-    bound to Nonoka Cloud stays at one pass, because every model that provider
-    offers is free to the user and a second pass over each window is load on
-    the shared relay rather than a cost the user chose.
+
+def set_catalog_source(source: Any) -> None:
+    """Answer `engine_catalog()` with `source()` from now on (and forget what was read before)."""
+
+    _CATALOG_SOURCE[:] = [source] if source is not None else []
+    _CATALOG.clear()
+    _local_agent_targets.cache_clear()
+
+
+def _ask_correction_package() -> dict[str, Any]:
+    """The correction package's packaged catalog, from a process of its own (`catalog`)."""
+
+    from . import engine_host
+
+    try:
+        return dict(engine_host.ask_once("correction", "catalog") or {})
+    except engine_host.PackageUnavailable:
+        return {}
+
+
+def engine_catalog() -> dict[str, Any]:
+    """The correction engine's packaged model catalog: `gemini` entries and the `local_agent` roster by tier.
+
+    Read once per process (the packaged declaration does not change while
+    the package is installed); empty when no correction package is installed,
+    so the settings page offers none of its models.
     """
 
-    from finesub.llm.routing.model_routes import default_model_routes
+    if not _CATALOG:
+        source = _CATALOG_SOURCE[0] if _CATALOG_SOURCE else _ask_correction_package
+        try:
+            _CATALOG.append(dict(source() or {}))
+        except Exception as error:  # noqa: BLE001 - no catalog is an answer the page can show
+            print(f"engine catalog unavailable: {error}", file=sys.stderr, flush=True)
+            return {}
+    return _CATALOG[0]
 
-    routes = default_model_routes()
-    difficulty = str(correction.get("difficulty") or "quality")
-    cloud_targets = f"nonoka-{CLOUD_PROVIDER_ID}-"
-    for group_id in ("correction-mm", "correction-text"):
-        group, _cell = routes.resolve_binding(routes.active_preset_id, group_id, difficulty)
-        if any(target_id.startswith(cloud_targets) for target_id in group.target_ids):
-            return "off"
-    return "auto"
+
+@dataclass(frozen=True)
+class CatalogModel:
+    """One packaged model of the correction engine's catalog, as the settings page reads it."""
+
+    api_model_id: str
+    display_name: str
+    supports_audio: bool
+    supports_video: bool
+    supports_native_search: bool
 
 
 @lru_cache(maxsize=4)
 def _local_agent_targets(provider: str) -> tuple[tuple[Any, str], ...]:
-    """(fact, target id) for the models a local-agent provider offers, in the
+    """(model, target id) for the models a local-agent provider offers, in the
     order its roster lists them. Since FineSub 0.7.0 a model has one target,
-    used with or without search.
+    used with or without search. Empty when the correction engine is not
+    installed.
     """
-
-    from .finesub_bridge import local_agent_targets
 
     spec = LOCAL_AGENT_PROVIDERS[provider]
     # No user overlay: the packaged declaration is the only source of these
     # targets, and reading it this way keeps a broken user route out of the
     # settings snapshot.
-    by_model = {fact.api_model_id: (fact, target_id) for fact, target_id in local_agent_targets(spec["tier"])}
+    roster = (engine_catalog().get("local_agent") or {}).get(spec["tier"])
+    if roster is None:
+        return ()
+    by_model = {
+        item["api_model_id"]: (
+            CatalogModel(
+                api_model_id=item["api_model_id"],
+                display_name=item["display_name"],
+                supports_audio=bool(item["supports_audio"]),
+                supports_video=bool(item["supports_video"]),
+                supports_native_search=bool(item["supports_native_search"]),
+            ),
+            item["target_id"],
+        )
+        for item in roster
+    }
     missing = [model for model in spec["models"] if model not in by_model]
     if missing:
         raise ValueError(
             f"{provider} offers models the engine catalog does not declare: {missing}"
         )
     return tuple(by_model[model] for model in spec["models"])
-
-
-def _local_agent_model_map(provider: str) -> dict[str, str]:
-    return {fact.api_model_id: target_id for fact, target_id in _local_agent_targets(provider)}
 
 
 def local_agent_executable(provider: str) -> Path | None:
@@ -464,21 +507,19 @@ def _local_agent_detected(provider: str) -> bool:
 
 
 def _builtin_model_options() -> dict[str, list[dict[str, Any]]]:
-    from finesub.llm.routing.model_catalog import default_model_catalog
-
     tiers = {"GEMINI_FREE": "gemini-free", "GEMINI_PAID": "gemini-paid"}
     result: dict[str, list[dict[str, Any]]] = {provider: [] for provider in MODEL_PROVIDERS}
-    for entry in default_model_catalog():
-        provider = tiers.get(entry.provider_tier)
-        if provider is None or entry.self_reported:
+    for entry in engine_catalog().get("gemini") or ():
+        provider = tiers.get(entry["provider_tier"])
+        if provider is None or entry["self_reported"]:
             continue
         result[provider].append(
             {
-                "id": entry.api_model_id,
-                "label": entry.display_name,
-                "supportsAudio": entry.supports_audio,
-                "supportsVideo": entry.supports_video,
-                "supportsNativeSearch": entry.supports_native_search,
+                "id": entry["api_model_id"],
+                "label": entry["display_name"],
+                "supportsAudio": entry["supports_audio"],
+                "supportsVideo": entry["supports_video"],
+                "supportsNativeSearch": entry["supports_native_search"],
             }
         )
     result[CLOUD_PROVIDER_ID] = [
@@ -607,7 +648,7 @@ class FineSubSettings:
     saved: each engine process gets its keys by name (`engine_secrets`) and its
     LLM routes and endpoints (`llm_context`) in its launch context, from which
     the bridge derives FineSub's files into that process's own run directory
-    (`nonoka_x.finesub_bridge`, WP-R5).
+    (each engine package's bridge; `nonoka_x.engine_contexts`).
     """
 
     def __init__(self, root: str | Path) -> None:
@@ -621,13 +662,12 @@ class FineSubSettings:
         self.legacy_model_catalog_file = self.root / "model_catalog.psv"
 
     def bind_environment(self) -> None:
-        """Start-up: carry an old install's settings over, and pin the sidecar's own FineSub imports."""
+        """Start-up: carry an old install's settings over, and remove what older builds left behind."""
 
-        from nonoka_x import finesub_bridge
-        from nonoka_x.runtime.paths import ENGINES_DIRECTORY_NAME
+        from nonoka_x.migration.legacy import remove_transitional_engine_files
 
         self._migrate_legacy_files()
-        finesub_bridge.bind_host_process(self.root / ENGINES_DIRECTORY_NAME)
+        remove_transitional_engine_files(self.root)
         # Generated by versions before engine 0.7.0, which refuses that format.
         self.legacy_model_catalog_file.unlink(missing_ok=True)
 
@@ -996,7 +1036,7 @@ class FineSubSettings:
         return {"changed": True}
 
     def llm_context(self) -> dict[str, Any]:
-        """The `llm` part of the correction half's launch context (R0 document 1.15; `finesub_bridge.derive_llm_files`).
+        """The `llm` part of the correction half's launch context (R0 document 1.15; the packages' `bridge.derive_llm_files`).
 
         - `endpoints`: one catalog row per route over an HTTP transport, with
           the model's own declared limits (`nonoka_x.model_specs`), sorted by

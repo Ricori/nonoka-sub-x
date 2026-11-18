@@ -76,7 +76,7 @@ class ProviderFixture(unittest.TestCase):
     def provider(self) -> LocalProvider:
         instance = LocalProvider(
             self.root / "tasks",
-            ROOT / "third_party/finesub",
+            ROOT / "engines",
             worker_command=self.command,
             issues=[],
         )
@@ -183,20 +183,26 @@ class LocalProviderTests(ProviderFixture):
         self.assertEqual(logs[0]["payload"]["python_io_encoding"], "utf-8")
         provider.shutdown()
 
-    def test_each_worker_gets_its_own_run_directory_and_nothing_inherited(self) -> None:
-        """WP-R5: FineSub's files are derived for this process alone and gone with it; no outside `FINESUB_*` gets in."""
+    def test_each_engine_process_gets_its_own_run_directory(self) -> None:
+        """WP-R5, WP-P1: a run directory per package process, gone with it; the contexts are neutral.
 
-        with patch.dict(os.environ, {"FINESUB_TASK_STRATEGY": "from-outside"}):
-            provider = self.provider()
-            task = provider.start(self.request("encoding-environment"))
-            wait_state(provider, task["task_id"], {"completed"})
-        payload = next(event for event in provider.events(task["task_id"])["events"] if event["type"] == "log")["payload"]
-        self.assertIsNone(payload["finesub_task_strategy"])
-        run = Path(payload["finesub_config_file"]).parent
-        self.assertEqual(run.parent, self.root.resolve() / "engines" / "finesub-correct" / "run")
+        What an engine reads of its own is derived in the package's process
+        (`tests/test_finesub_bridge.py`, which also shows an outside `FINESUB_*`
+        never reaches the engine).
+        """
+
+        provider = self.provider()
+        with provider.launch_contexts() as built:
+            runs = {package: Path(context["paths"]["run"]) for package, context in built.contexts.items()}
+            self.assertEqual(set(runs), {"finesub-transcribe", "finesub-correct", "finesub-knowledge"})
+            for package, run in runs.items():
+                self.assertEqual(run.parent, self.root.resolve() / "engines" / package / "run")
+                self.assertTrue(run.is_dir())
+            self.assertNotIn("FINESUB_", json.dumps(built.contexts, ensure_ascii=False))
+        for run in runs.values():
+            self.assertFalse(run.exists())
+            self.assertEqual(list(run.parent.iterdir()), [])
         provider.shutdown()
-        self.assertFalse(run.exists())
-        self.assertEqual(list(run.parent.iterdir()), [])
 
     def test_a_run_directory_left_by_a_crash_is_swept_at_start_up(self) -> None:
         left = self.root / "engines" / "finesub-correct" / "run" / "999-deadbeef0000"
@@ -674,7 +680,7 @@ class LLMCallTests(ProviderFixture):
     def llm_provider(self) -> LocalProvider:
         instance = LocalProvider(
             self.root / "tasks",
-            ROOT / "third_party/finesub",
+            ROOT / "engines",
             worker_command=self.command,
             llm_worker_command=lambda: [sys.executable, str(ROOT / "tests/fake_llm_worker.py")],
             issues=[],
@@ -1014,7 +1020,7 @@ class CloudStableContinuationTests(ProviderFixture):
 
     def test_a_continuation_starts_where_the_asr_runtime_is_missing(self) -> None:
         provider = LocalProvider(
-            self.root / "tasks", ROOT / "third_party/finesub", worker_command=self.command
+            self.root / "tasks", ROOT / "engines", worker_command=self.command
         )
         self.providers.append(provider)
         blocked = {"code": "missing_runtime", "message": "AI 运行时缺失：torch"}
@@ -1213,7 +1219,7 @@ class EngineSelectionTests(ProviderFixture):
     def tools_only_provider(self, secrets: dict[str, str] | None = None) -> LocalProvider:
         provider = LocalProvider(
             self.root / "tasks",
-            ROOT / "third_party/finesub",
+            ROOT / "engines",
             worker_command=self.command,
             settings=KeySettings(self.root, secrets),
             provisioner=ToolsOnly(self.source),
@@ -1226,12 +1232,18 @@ class EngineSelectionTests(ProviderFixture):
 
         from contextlib import ExitStack
 
-        from nonoka_x.correction import finesub as correction_finesub
+        from nonoka_x import engine_host
+
+        def readiness(package):  # noqa: ANN001, ANN202
+            declared = dict(package.manifest.get("readiness") or {})
+            if package.kind == "correction":
+                declared.pop("modules", None)
+                declared.pop("windows_modules", None)
+            return declared
 
         stack = ExitStack()
         stack.enter_context(patch("shutil.which", return_value=None))
-        stack.enter_context(patch.object(correction_finesub, "HARNESS_MODULES", ()))
-        stack.enter_context(patch.object(correction_finesub, "HARNESS_WINDOWS_MODULES", ()))
+        stack.enter_context(patch.object(engine_host.Package, "readiness", property(readiness)))
         stack.enter_context(patch("nonoka_x.local_provider.local_agent_executable", return_value=None))
         return stack
 
@@ -1309,17 +1321,26 @@ class EngineSelectionTests(ProviderFixture):
         self.assertEqual(listed[plain["task_id"]]["transcription_engine"], "finesub")
 
     def test_a_task_on_the_knowledge_base_needs_the_knowledge_package(self) -> None:
-        from finesub_knowledge import client
+        from tests.test_worker_adapter import engines_without
 
         provider = self.tools_only_provider({"OPENROUTER_STT_KEY": SECRET})
-        with self.no_gpu_no_harness_probe(), patch.object(client, "package_problem", return_value="知识库包未安装"):
+        provider.engines = engines_without(self.root, "finesub-knowledge")
+        with self.no_gpu_no_harness_probe():
             with self.assertRaises(ProviderError) as caught:
                 provider.start(self.mai2("final-srt", knowledge="read"))
             self.assertEqual(caught.exception.code, "missing_knowledge_package")
             self.assertIn("knowledge=read", str(caught.exception))
+            self.assertIn("知识库包未安装", str(caught.exception))
             # Off is off: nothing to refuse.
             task = provider.start(self.mai2("final-srt", knowledge="none"))
-        wait_state(provider, task["task_id"], {"completed"})
+            wait_state(provider, task["task_id"], {"completed"})
+            # A new Chinese-source task only corrects, so it reads no base either
+            # (the correction engine says so: `task_mode`), and is not refused --
+            # what the worker would run is what is judged (WP5's hand-back).
+            chinese = provider.start(self.mai2("final-srt", knowledge="update", language="zh"))
+        wait_state(provider, chinese["task_id"], {"completed"})
+        # Asked of the resident correction process, which the provider keeps.
+        self.assertIsNotNone(provider._llm_process)
 
     # capabilities
 
@@ -1350,7 +1371,7 @@ class EngineSelectionTests(ProviderFixture):
         from nonoka_x.settings import KEY_SPECS, FineSubSettings
 
         settings = FineSubSettings(self.root / "data")
-        provider = LocalProvider(self.root / "data" / "tasks", ROOT / "third_party/finesub",
+        provider = LocalProvider(self.root / "data" / "tasks", ROOT / "engines",
                                  worker_command=self.command, issues=[], settings=settings)
         self.providers.append(provider)
         self.assertLessEqual(
@@ -1375,23 +1396,17 @@ class EngineSelectionTests(ProviderFixture):
         self.assertEqual(engine_keys["OPENROUTER_STT_KEY"]["count"], 1)
         self.assertFalse(engine_keys["AZURE_SPEECH_KEY"]["configured"])
         self.assertEqual(provider.get_settings()["engineKeys"], snapshot["engineKeys"])
-        # Nonoka's engines only: nothing is handed to FineSub, neither as a variable nor in a file.
-        environment, run = provider._engine_launch("task")
-        try:
-            for name in ("OPENROUTER_STT_KEY", "AZURE_SPEECH_KEY", "AZURE_SPEECH_ENDPOINT"):
-                self.assertNotIn(name, environment)
-            self.assertNotIn(SECRET, json.dumps(environment, ensure_ascii=False))
-            for path in run.directory.iterdir():
-                if path.name == "owner.lock":  # held by this process
-                    continue
-                self.assertNotIn(SECRET, path.read_text(encoding="utf-8", errors="replace"))
-        finally:
-            run.close()
+        # Nonoka's engines only: nothing is handed to an engine package, in no launch context.
+        with provider.launch_contexts() as built:
+            handed = json.dumps(built.contexts, ensure_ascii=False)
+        for name in ("OPENROUTER_STT_KEY", "AZURE_SPEECH_KEY", "AZURE_SPEECH_ENDPOINT"):
+            self.assertNotIn(name, handed)
+        self.assertNotIn(SECRET, handed)
 
     # the worker's side
 
     def test_the_worker_is_told_where_the_keys_and_the_runtime_are(self) -> None:
-        provider = LocalProvider(self.root / "tasks", ROOT / "third_party/finesub", issues=[],
+        provider = LocalProvider(self.root / "tasks", ROOT / "engines", issues=[],
                                  settings=KeySettings(self.root), provisioner=SimpleNamespace(
                                      install_root=self.root / "runtime", worker_python=lambda: None))
         self.providers.append(provider)
@@ -1413,7 +1428,7 @@ class EngineSelectionTests(ProviderFixture):
             return Store()
 
         with patch("nonoka_x.config.ConfigStore.open", side_effect=open_store):
-            context = worker.engine_context(self.root, None, ROOT / "third_party/finesub")
+            context = worker.engine_context(self.root, None, ROOT / "engines")
             transcription_engines, correction_engines = worker.build_engines(**context)
             self.assertEqual([engine.spec.id for engine in transcription_engines],
                              ["finesub", "mai2", "gemini-transcribe", "moss-pro"])

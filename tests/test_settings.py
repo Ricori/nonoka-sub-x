@@ -11,10 +11,25 @@ from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
-sys.path.insert(0, str(ROOT / "third_party/finesub/src"))
 
-from nonoka_x.finesub_bridge import custom_target
-from nonoka_x.settings import FineSubSettings, LOCAL_AGENT_PROVIDERS, correction_proofread
+from finesub_correct.bridge import custom_target
+from finesub_correct.engine import correction_proofread as _package_proofread
+
+from nonoka_x.settings import CLOUD_PROVIDER_ID, TASK_GROUPS_BY_ROUTE, FineSubSettings, LOCAL_AGENT_PROVIDERS
+
+
+def correction_proofread(correction: dict) -> str:
+    """The correction package's `proofread` for a task's correction block, as its process resolves it."""
+
+    return _package_proofread(correction, CLOUD_PROVIDER_ID)
+
+
+def install_llm_model_override(request: dict) -> None:
+    """The correction package's `begin` for a request: its `llm_model` pin, with the core's route -> group table."""
+
+    from finesub_correct.bridge import install_llm_model_override as install
+
+    install(request.get("llm_model"), TASK_GROUPS_BY_ROUTE)
 
 
 def _reset_engine_caches() -> None:
@@ -30,28 +45,25 @@ def _reset_engine_caches() -> None:
 def _derive(data_dir: str | Path) -> dict[str, str]:
     """Derive what a correction worker would be handed now, and make this process read it.
 
-    The way `LocalProvider._engine_launch` does (`finesub_bridge.correction_environment`
-    over the settings' launch context), into one fixed run directory; the
-    variables go into `os.environ` so the engine imported here reads what the
-    worker would. `FineSubSettingsTests.setUp` restores the environment.
+    The way the correction package's process does (its `apply_context`, over
+    the launch context the worker builds from these settings), into one fixed
+    run directory, in this process: the engine imported here reads what the
+    correction's process would. `FineSubSettingsTests.setUp` restores the
+    environment.
     """
 
-    from nonoka_x import finesub_bridge
-    from nonoka_x.settings import CORRECTION_SECRET_NAMES
+    from finesub_correct.__main__ import apply_context
+
+    from nonoka_x.engine_contexts import package_context
+    from nonoka_x.engine_host import discover
+    from nonoka_x.runtime.paths import NonokaPaths
 
     data = Path(data_dir).resolve()
     settings = FineSubSettings(data)
-    environment = finesub_bridge.correction_environment({
-        "paths": {
-            "run": str(data / "engines" / "finesub-correct" / "run" / "test"),
-            "state_file": str(data / "state"),
-            "knowledge_root": str(data / "knowledge"),
-        },
-        "secrets": settings.engine_secrets(CORRECTION_SECRET_NAMES),
-        "llm": settings.llm_context(),
-    })
-    os.environ.update(environment)
-    return environment
+    package = discover(ROOT / "engines")["finesub-correct"]
+    run = data / "engines" / package.id / "run" / "test"
+    apply_context(package_context(package, paths=NonokaPaths.for_roots(data), run=run, settings=settings), None)
+    return dict(os.environ)
 
 
 def _derived(data_dir: str | Path, name: str) -> Path:
@@ -610,7 +622,6 @@ class FineSubSettingsTests(unittest.TestCase):
         from finesub.llm.routing.model_routes import default_model_routes, install_runtime_preferred
         from finesub.llm.routing.config import role_config_for
         from finesub.llm.routing.model_router import ModelRouter
-        from nonoka_x.worker import install_llm_model_override
 
         self.addCleanup(install_runtime_preferred, {})
         for provider, model in (
@@ -1140,15 +1151,7 @@ class FineSubSettingsTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             legacy = Path(temporary) / "model_catalog.psv"
             legacy.write_text("fact_id|provider_tier\n", encoding="utf-8")
-            with patch.dict(os.environ, {}, clear=False):
-                FineSubSettings(temporary).bind_environment()
-                # The sidecar's own FineSub reads nothing but its packaged defaults.
-                host = Path(temporary).resolve() / "engines" / "finesub-correct" / "run" / "host"
-                for name, file in (("FINESUB_MODEL_CATALOG", "model_catalog.toml"), ("FINESUB_CONFIG_FILE", "finesub.toml"),
-                                   ("FINESUB_ENV_FILE", ".env")):
-                    self.assertEqual(os.environ[name], str(host / file))
-                self.assertEqual(os.environ["FINESUB_CHECKOUT_DATA"], "0")
-                self.assertFalse(host.exists())
+            FineSubSettings(temporary).bind_environment()
             self.assertFalse(legacy.exists())
 
     def test_a_correction_on_nonoka_cloud_is_not_proofread(self) -> None:

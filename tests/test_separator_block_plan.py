@@ -18,7 +18,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-VENDOR_SOURCE = ROOT / "third_party" / "finesub" / "src"
+VENDOR_SOURCE = ROOT / "engines" / "finesub-transcribe" / "src"
 UPSTREAM_STAGE = VENDOR_SOURCE / "finesub/speech/preprocessing/separator/separation.py"
 NONOKA_X_COPY = ROOT / "src" / "nonoka_x" / "vocal_blocks.py"
 

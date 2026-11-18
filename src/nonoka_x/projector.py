@@ -6,7 +6,7 @@ import json
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterable, Mapping
+from typing import Any, Callable, Iterable, Mapping
 
 
 class ProjectionError(ValueError):
@@ -209,6 +209,30 @@ def parse_annotated(text: str) -> list[dict[str, Any]]:
     return rows
 
 
+#: How the rows of a FineSub stable are read (`product_rows`): set by the sidecar to ask its
+#: resident correction process; when unset, a short-lived correction process is asked.
+_PRODUCT_READER: list[Callable[[Path], list[dict[str, Any]]]] = []
+
+
+def set_product_reader(reader: Callable[[Path], list[dict[str, Any]]] | None) -> None:
+    _PRODUCT_READER[:] = [reader] if reader is not None else []
+
+
+def product_rows(path: Path) -> list[dict[str, Any]]:
+    """The lines of a task's FineSub stable with their speakers, as the correction package reads them."""
+
+    if _PRODUCT_READER:
+        return list(_PRODUCT_READER[0](path))
+    from . import engine_host
+
+    try:
+        return list(engine_host.ask_once("correction", "product_rows", {"stable_json": str(path)}))
+    except engine_host.PackageError as error:
+        raise ValueError(error.formatted) from None
+    except engine_host.PackageUnavailable as error:
+        raise ValueError(f"纠错包未安装，无法读取说话人信息：{error}") from None
+
+
 def _load_stable(path: Path) -> tuple[list[dict[str, Any]], dict[str, dict[str, Any]]]:
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
@@ -221,10 +245,10 @@ def _load_stable(path: Path) -> tuple[list[dict[str, Any]], dict[str, dict[str, 
         # The engine's own reader: `-stable.json` with its `-diar-rows.json`
         # (labels, acoustic row splits) and what a speaker judge changed. These
         # are the lines the ids in annotated.csv count, `<id>b` and `<id>i` too.
-        from finesub.speech.diarization.product import read_product
-
+        # Asked of the correction package, which reads its own products (WP-L
+        # replaces this with Nonoka's own format).
         try:
-            segments = read_product(path).rows()
+            segments = product_rows(path)
         except (OSError, ValueError) as exc:
             raise ProjectionError(f"cannot read stable JSON: {exc}") from exc
     normalized: list[dict[str, Any]] = []

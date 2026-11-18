@@ -45,7 +45,7 @@ def test_the_models_come_from_the_offline_package_through_the_job(tmp_path, setu
     from nonoka_x import runtime_install
 
     monkeypatch.setattr(runtime_install, "msvc_runtime_problem", lambda **_: None)
-    page = RuntimeProvisioner(tmp_path / "data", ROOT / "third_party" / "finesub", index_path=index,
+    page = RuntimeProvisioner(tmp_path / "data", ROOT / "engines", index_path=index,
                               layer_options={"routes": lambda: [NetworkRoute("直连", None)], "in_use": lambda: False})
     page.start("all")
     deadline = time.monotonic() + 60

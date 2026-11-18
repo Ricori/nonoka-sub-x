@@ -4,15 +4,18 @@
 ``diff --ref <tag>`` compares three trees, all restricted to the key algorithm
 paths of plan section 3.2 (``KEY_DIRECTORIES`` and ``KEY_FILES`` below):
 
-* the *base*: upstream at the commit ``third_party/finesub/UPSTREAM.json``
+* the *base*: upstream at the commit the engine packages' ``UPSTREAM.json``
   records;
 * the *target*: upstream at ``<tag>``;
-* the *local* vendor under ``third_party/finesub``.
+* the *local* engine: the FineSub files of the three engine packages
+  (``engines/finesub-{transcribe,correct,knowledge}/src``) taken together --
+  each carries its half's files, a file two carry is the same bytes in both.
 
 It reports what upstream changed between base and target, what the local
-vendor changed relative to the base (the entries of
-``third_party/finesub/LOCAL_CHANGES.md``), and the files both touched, which an
-upgrade has to merge by hand. It only reports: no file is written, and the
+engine changed relative to the base (the entries of each package's
+``LOCAL_CHANGES.md``; a key file no package carries shows as removed, and
+``docs/engine-packages/not-carried.json`` says why), and the files both
+touched, which an upgrade has to merge by hand. It only reports: no file is written, and the
 exit status is non-zero only when the comparison itself could not run.
 
 The two upstream trees are fetched as GitHub source archives unless
@@ -38,7 +41,10 @@ from typing import Iterable
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_VENDOR = REPO_ROOT / "third_party" / "finesub"
+#: The engine packages whose FineSub files make up the local engine (WP-P1).
+DEFAULT_PACKAGES = tuple(
+    REPO_ROOT / "engines" / package for package in ("finesub-transcribe", "finesub-correct", "finesub-knowledge")
+)
 ENGINE = "src/finesub"
 ARCHIVE_TIMEOUT_SECONDS = 120
 
@@ -137,6 +143,17 @@ def key_files(root: Path) -> dict[str, str]:
     return files
 
 
+def local_key_files(roots: Iterable[Path]) -> dict[str, str]:
+    """`key_files` of several package roots taken together; a path two of them carry must be the same bytes."""
+
+    merged: dict[str, str] = {}
+    for root in roots:
+        for relative, digest in key_files(root).items():
+            if merged.setdefault(relative, digest) != digest:
+                raise AlignError(f"the engine packages carry different copies of {relative}")
+    return merged
+
+
 @dataclass(frozen=True)
 class Changes:
     added: tuple[str, ...]
@@ -190,10 +207,10 @@ def fetch_tree(repository: str, ref: str, destination: Path) -> Path:
     return roots[0]
 
 
-def build_report(base: Path, target: Path, vendor: Path) -> dict[str, object]:
+def build_report(base: Path, target: Path, local_roots: Iterable[Path]) -> dict[str, object]:
     base_files = key_files(base)
     upstream = compare(base_files, key_files(target))
-    local = compare(base_files, key_files(vendor))
+    local = compare(base_files, local_key_files(local_roots))
     return {
         "upstream": upstream.as_dict(),
         "local": local.as_dict(),
@@ -215,7 +232,7 @@ def render_text(report: dict[str, object]) -> str:
         "",
         *_section("Changed upstream", report["upstream"]),  # type: ignore[arg-type]
         "",
-        *_section("Changed locally (see third_party/finesub/LOCAL_CHANGES.md)", report["local"]),  # type: ignore[arg-type]
+        *_section("Changed locally (see engines/<package>/LOCAL_CHANGES.md)", report["local"]),  # type: ignore[arg-type]
         "",
         f"Changed on both sides, to merge by hand: {len(report['both'])} file(s)",  # type: ignore[arg-type]
         *(f"  {path}" for path in report["both"]),  # type: ignore[union-attr]
@@ -224,12 +241,15 @@ def render_text(report: dict[str, object]) -> str:
 
 
 def run_diff(args: argparse.Namespace) -> dict[str, object]:
-    vendor: Path = args.vendor_dir
+    local_roots: list[Path] = list(args.package_dir or DEFAULT_PACKAGES)
     try:
-        upstream = json.loads((vendor / "UPSTREAM.json").read_text(encoding="utf-8"))
+        records = [json.loads((root / "UPSTREAM.json").read_text(encoding="utf-8")) for root in local_roots]
+        upstream = records[0]
         repository, commit = upstream["repository"], upstream["commit"]
-    except (OSError, json.JSONDecodeError, KeyError, TypeError) as exc:
-        raise AlignError(f"cannot read {vendor / 'UPSTREAM.json'}: {exc}") from exc
+    except (OSError, json.JSONDecodeError, KeyError, TypeError, IndexError) as exc:
+        raise AlignError(f"cannot read the engine packages' UPSTREAM.json: {exc}") from exc
+    if any(record != upstream for record in records):
+        raise AlignError("the engine packages record different upstream versions in UPSTREAM.json")
     with tempfile.TemporaryDirectory(prefix="finesub-align-") as scratch:
         def tree(given: Path | None, ref: str, name: str) -> Path:
             if given is not None:
@@ -240,7 +260,7 @@ def run_diff(args: argparse.Namespace) -> dict[str, object]:
 
         base = tree(args.base_dir, commit, "base")
         target = tree(args.upstream_dir, args.ref, "target")
-        report = build_report(base, target, vendor)
+        report = build_report(base, target, local_roots)
     return {
         "base_ref": upstream.get("ref"),
         "base_commit": commit,
@@ -252,11 +272,11 @@ def run_diff(args: argparse.Namespace) -> dict[str, object]:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Report-only comparison of FineSub's key algorithm paths.")
     commands = parser.add_subparsers(dest="command", required=True)
-    diff = commands.add_parser("diff", help="compare an upstream release with the recorded one and the vendor")
+    diff = commands.add_parser("diff", help="compare an upstream release with the recorded one and the engine packages")
     diff.add_argument("--ref", required=True, help="upstream tag (or commit) to compare against")
     diff.add_argument("--upstream-dir", type=Path, help="extracted upstream root at --ref instead of downloading it")
     diff.add_argument("--base-dir", type=Path, help="extracted upstream root at the recorded commit instead of downloading it")
-    diff.add_argument("--vendor-dir", type=Path, default=DEFAULT_VENDOR, help=argparse.SUPPRESS)
+    diff.add_argument("--package-dir", type=Path, action="append", help=argparse.SUPPRESS)
     diff.add_argument("--json", action="store_true", help="print the report as JSON")
     return parser
 

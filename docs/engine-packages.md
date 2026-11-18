@@ -1,4 +1,15 @@
-# FineSub 分包清单（WP-P0）
+# FineSub 分包清单（WP-P0；WP-P1 已按它分包）
+
+## WP-P1 之后
+
+WP-P1 按这份清单把 `third_party/finesub/` 分进了 `engines/finesub-transcribe/`、`engines/finesub-correct/`、`engines/finesub-knowledge/`，vendor 已删除。下面第 0–15 节是 WP-P0 的原始调查，按当时的代码写，留作记录；现在的事实以这一节和 `docs/engine-packages/*.json` 为准。
+
+- **清单怎么来的**：`scripts/engine_packages.py` 的入口不再手写，而是从三个包自己的代码（`engines/<包>/adapter/`）读出来：每个 `import finesub…`、经它读到的属性、知识库服务端的 `ALLOWED`。写在 `try:` 里、失败了也接着跑的 import 记为「可选」，只有别处也用到才进包（JSON 的 `optional`）。分包后脚本读三个包 `src/` 的并集（同一路径的文件两个包里逐字节相同，`finesub_bootstrap` 只取转写包的原件），重跑得到的清单与分包时一致，`--check` 守着；`--import-check` 改成在每个包**自己的** `src/` 与 `adapter/` 上跑，兼容包绑定好启动上下文后全部 import 成功（纠错 192 个模块、知识库 68 个，链上没有 torch、numpy）。
+- **文件数**：转写包 158 个（115 个上锁 + `stages.py` + `finesub_bootstrap` 原件 42 个），纠错包 464 个（463 个上锁 + `stages.py`），知识库包 344 个（全部上锁）。和 WP-P0 比：转写包少 13 个（`speech/diarization/product.py`、`judgments.py` 等只剩纠错包读，`model_ensure` 的下载子进程 WP-R7 已删）；知识库包多 4 个——静态可达的 +5，减去 `llm/knowledge/entries.py`（它是客户端代码、import 协议的客户端，知识库包里没有客户端也 import 不了；WP-P0 只因为测试进程里客户端与服务端同处一个进程才把它记进运行时记录）。
+- **不带的文件**：40 个上锁文件加 `pipeline.py`，共 41 个，逐个写明原因记在 `docs/engine-packages/not-carried.json`（带 sha256）；分包前的锁存为 `docs/engine-packages/vendor-quality-lock.json`，三个包的锁每一条都等于它的对应条目。
+- **兼容包**：纠错包 10 个模块（加包文件与 `_launch`），恰好第 5 节那 32 个名字；知识库包 6 个模块，恰好 14 个名字——第 5 节说的 `fsops`（「`locks` 内部要」）实际是原 `paths` 要，兼容包的 `paths` 改成从启动上下文取位置后不再需要，于是没有这个模块。每个模块的 `__all__` 恰为名单；复制来的代码还要用的公开名字（异常类 `SecretUnreadable` 等，改名会改变失败消息里的类型名）保留原名，逐个列在 `tests/test_engine_packages.py` 的 `COMPAT_HELPERS`（用户 2026-11-17）。`paths.default_data_root`、`load_app_paths` 取启动上下文的 `paths.package_data`（`engines\<包>\`，D21），没给就报错，不回落到 `%LOCALAPPDATA%\FineSub`。
+- **依赖面**：上锁文件用到的 `finesub_bootstrap` 名字从 48 个变成 45 个：`try_lock`、`holding_activity_barrier`、`remove_project_records_under` 只有不带的 `batch_state.py`、`agent_cleanup.py` 用（`tests/fixtures/quality/bootstrap-surface.json` 已按用户 2026-11-17 的答复删掉这三个）。
+- **访问点**：`knowledge-access.json` 现在是 0 个——WP-K 之后两半都经 `finesub_knowledge.client` 访问知识库，静态图里不再有直达存储的调用；76 个访问点的原始清单见第 11 节。
 
 > 基于 `main@98a38f7`（FineSub 代码冻结点：WP-B、WP1 之后）。只读调查：没有改任何代码、测试、基线或上锁文件。
 > 权威计划：`docs/transcription-engines-plan.md`（下称「计划」）。本文回答计划第 6 节 WP-P0 的十个问题，以及 WP-K、WP-P1 开工要用的清单。
