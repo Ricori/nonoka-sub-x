@@ -253,9 +253,12 @@ export interface ArtifactEntry {
   bytes: number;
 }
 
-/** 一次运行落盘的产物名。本地 worker 报告 PipelinePaths 上所有存在的文件，所以
- *  跑到哪一步就只有到那一步的产物；云端只回投影需要的那四个。 */
+/** 一次运行落盘的产物名。本地 worker 报告所有存在的文件，所以跑到哪一步就只有到那一步的产物。
+ *  `transcript_json`、`correction_json` 是 Nonoka 自己的格式（投影只读它们）；其余是引擎的私有附件，
+ *  核心不解析。云端媒体库只存 Nonoka 的格式和字幕：transcript_json、correction_json、raw_srt、final_srt。 */
 export type ArtifactName =
+  | "transcript_json"
+  | "correction_json"
   | "vocal_audio"
   | "vad_json"
   | "vad_energy_npz"

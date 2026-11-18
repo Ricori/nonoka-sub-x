@@ -727,8 +727,8 @@ func sortArtifacts(artifacts []EngineArtifact) {
 	// engine adds later fall to the end in name order rather than vanishing.
 	rank := map[string]int{
 		"vocal_audio": 0, "vad_json": 1, "vad_energy_npz": 2, "aligned_json": 3,
-		"stable_json": 4, "raw_srt": 5, "translated_srt": 6, "annotated_csv": 7,
-		"final_srt": 8, "metadata_json": 9,
+		"stable_json": 4, "transcript_json": 5, "raw_srt": 6, "translated_srt": 7,
+		"annotated_csv": 8, "final_srt": 9, "correction_json": 10, "metadata_json": 11,
 	}
 	order := func(name string) int {
 		if position, known := rank[name]; known {

@@ -198,7 +198,8 @@ func TestLoginLibraryAndArtifactSync(t *testing.T) {
 		Artifacts: map[string]struct {
 			URI string `json:"uri"`
 		}{
-			"final_srt": {URI: localFileURI(artifactPath)},
+			"final_srt":       {URI: localFileURI(artifactPath)},
+			"correction_json": {URI: localFileURI(artifactPath)},
 		},
 	}}
 	service, err := New(root, provider)
@@ -302,7 +303,7 @@ func TestDeleteLibraryEntry(t *testing.T) {
 		TaskID: taskID,
 		Artifacts: map[string]struct {
 			URI string `json:"uri"`
-		}{"final_srt": {URI: localFileURI(artifactPath)}},
+		}{"final_srt": {URI: localFileURI(artifactPath)}, "correction_json": {URI: localFileURI(artifactPath)}},
 	}}
 	deleted := false
 	syncCalls := 0
@@ -380,7 +381,7 @@ func TestLoginMergesExistingLocalDocumentsAndSkipsRemoteFingerprints(t *testing.
 		TaskID: taskID, EngineCommit: "commit",
 		Artifacts: map[string]struct {
 			URI string `json:"uri"`
-		}{"final_srt": {URI: localFileURI(artifactPath)}},
+		}{"final_srt": {URI: localFileURI(artifactPath)}, "correction_json": {URI: localFileURI(artifactPath)}},
 	}
 	documentRoot := filepath.Join(root, "documents", localID)
 	if err := os.MkdirAll(documentRoot, 0o755); err != nil {
@@ -477,7 +478,7 @@ func TestRefreshDoesNotUndoADeletionMadeElsewhere(t *testing.T) {
 		TaskID: taskID, EngineCommit: "commit",
 		Artifacts: map[string]struct {
 			URI string `json:"uri"`
-		}{"final_srt": {URI: localFileURI(artifactPath)}},
+		}{"final_srt": {URI: localFileURI(artifactPath)}, "correction_json": {URI: localFileURI(artifactPath)}},
 	}
 	documentRoot := filepath.Join(root, "documents", localID)
 	if err := os.MkdirAll(documentRoot, 0o755); err != nil {
@@ -578,7 +579,7 @@ func TestSyncSwitchHoldsSubtitlesBackUntilSwitchedOn(t *testing.T) {
 		TaskID: taskID, EngineCommit: "commit",
 		Artifacts: map[string]struct {
 			URI string `json:"uri"`
-		}{"final_srt": {URI: localFileURI(artifactPath)}},
+		}{"final_srt": {URI: localFileURI(artifactPath)}, "correction_json": {URI: localFileURI(artifactPath)}},
 	}
 	documentRoot := filepath.Join(root, "documents", localID)
 	if err := os.MkdirAll(documentRoot, 0o755); err != nil {
@@ -688,7 +689,7 @@ func TestRealModalLoginMergesAnIsolatedLocalLibrary(t *testing.T) {
 		TaskID: taskID, EngineCommit: "modal-integration",
 		Artifacts: map[string]struct {
 			URI string `json:"uri"`
-		}{"final_srt": {URI: localFileURI(artifactPath)}},
+		}{"final_srt": {URI: localFileURI(artifactPath)}, "correction_json": {URI: localFileURI(artifactPath)}},
 	}
 	documentRoot := filepath.Join(root, "documents", localID)
 	if err := os.MkdirAll(documentRoot, 0o755); err != nil {
@@ -943,14 +944,14 @@ func TestAdoptLibraryEntryProjectsSubtitlesTranscribedElsewhere(t *testing.T) {
 			_, _ = writer.Write([]byte(`{"authenticated":true,"remaining":2,"running":0}`))
 		case request.URL.Path == "/v1/library":
 			_, _ = writer.Write([]byte(`{"videos":[` +
-				`{"id":"` + taskID + `","title":"demo","fingerprint":"fingerprint","duration":60,"status":"completed","source":"cloud_audio","thumbnailAvailable":true,"artifactNames":["stable_json"]},` +
-				`{"id":"` + foreignID + `","title":"other","fingerprint":"other","duration":60,"status":"completed","source":"local_sync","artifactNames":["stable_json"]}]}`))
+				`{"id":"` + taskID + `","title":"demo","fingerprint":"fingerprint","duration":60,"status":"completed","source":"cloud_audio","thumbnailAvailable":true,"artifactNames":["correction_json"]},` +
+				`{"id":"` + foreignID + `","title":"other","fingerprint":"other","duration":60,"status":"completed","source":"local_sync","artifactNames":["correction_json"]}]}`))
 		case request.URL.Path == "/v1/library/"+taskID+"/thumbnail":
 			writer.Header().Set("Content-Type", "image/jpeg")
 			_, _ = writer.Write([]byte(cover))
 		case request.URL.Path == "/v1/library/"+taskID+"/artifacts":
-			_, _ = writer.Write([]byte(`{"schema":1,"task_id":"` + taskID + `","engine_commit":"commit","artifacts":{"stable_json":{"uri":"/v1/library/` + taskID + `/artifacts/stable_json","sha256":"97bfe45dfecd80477bc6cafdd457b5f23045d8715fbdc98f6da175f6f2ec6b4f","bytes":58}}}`))
-		case request.URL.Path == "/v1/library/"+taskID+"/artifacts/stable_json":
+			_, _ = writer.Write([]byte(`{"schema":1,"task_id":"` + taskID + `","engine_commit":"commit","artifacts":{"correction_json":{"uri":"/v1/library/` + taskID + `/artifacts/correction_json","sha256":"97bfe45dfecd80477bc6cafdd457b5f23045d8715fbdc98f6da175f6f2ec6b4f","bytes":58}}}`))
+		case request.URL.Path == "/v1/library/"+taskID+"/artifacts/correction_json":
 			_, _ = writer.Write([]byte(subtitles))
 		default:
 			http.NotFound(writer, request)
@@ -980,10 +981,10 @@ func TestAdoptLibraryEntryProjectsSubtitlesTranscribedElsewhere(t *testing.T) {
 	if projector.projected == nil || projector.projected["video_id"] != "loc_0123456789ab" {
 		t.Fatalf("projection = %#v", projector.projected)
 	}
-	if projector.projected["relaxed_srt"] != true {
-		t.Fatalf("cloud adoption must bypass SRT validation: %#v", projector.projected)
+	if _, relaxed := projector.projected["relaxed_srt"]; relaxed {
+		t.Fatalf("a correction.json needs no relaxed SRT reading: %#v", projector.projected)
 	}
-	if artifacts, ok := projector.projected["artifacts"].(map[string]string); !ok || artifacts["stable_json"] != subtitles {
+	if artifacts, ok := projector.projected["artifacts"].(map[string]string); !ok || artifacts["correction_json"] != subtitles {
 		t.Fatalf("projected artifacts = %#v", projector.projected["artifacts"])
 	}
 
@@ -1111,11 +1112,11 @@ func TestAdoptLibraryEntryServesSubtitlesWhileANewAttemptIsUnfinished(t *testing
 			_, _ = writer.Write([]byte(`{"authenticated":true,"remaining":2,"running":0}`))
 		case request.URL.Path == "/v1/library":
 			_, _ = writer.Write([]byte(`{"videos":[` +
-				`{"id":"` + taskID + `","title":"demo","fingerprint":"fingerprint","duration":60,"status":"failed","source":"cloud_audio","artifactNames":["stable_json"]},` +
+				`{"id":"` + taskID + `","title":"demo","fingerprint":"fingerprint","duration":60,"status":"failed","source":"cloud_audio","artifactNames":["correction_json"]},` +
 				`{"id":"` + emptyID + `","title":"never ran","fingerprint":"fingerprint","duration":60,"status":"failed","source":"cloud_audio"}]}`))
 		case request.URL.Path == "/v1/library/"+taskID+"/artifacts":
-			_, _ = writer.Write([]byte(`{"schema":1,"task_id":"` + taskID + `","engine_commit":"commit","artifacts":{"stable_json":{"uri":"/v1/library/` + taskID + `/artifacts/stable_json","sha256":"97bfe45dfecd80477bc6cafdd457b5f23045d8715fbdc98f6da175f6f2ec6b4f","bytes":58}}}`))
-		case request.URL.Path == "/v1/library/"+taskID+"/artifacts/stable_json":
+			_, _ = writer.Write([]byte(`{"schema":1,"task_id":"` + taskID + `","engine_commit":"commit","artifacts":{"correction_json":{"uri":"/v1/library/` + taskID + `/artifacts/correction_json","sha256":"97bfe45dfecd80477bc6cafdd457b5f23045d8715fbdc98f6da175f6f2ec6b4f","bytes":58}}}`))
+		case request.URL.Path == "/v1/library/"+taskID+"/artifacts/correction_json":
 			_, _ = writer.Write([]byte(subtitles))
 		default:
 			http.NotFound(writer, request)
@@ -1134,7 +1135,7 @@ func TestAdoptLibraryEntryServesSubtitlesWhileANewAttemptIsUnfinished(t *testing
 	if err := service.AdoptLibraryEntry(taskID, "loc_0123456789ab"); err != nil {
 		t.Fatalf("adopting an entry whose newest attempt failed: %v", err)
 	}
-	if artifacts, ok := projector.projected["artifacts"].(map[string]string); !ok || artifacts["stable_json"] != subtitles {
+	if artifacts, ok := projector.projected["artifacts"].(map[string]string); !ok || artifacts["correction_json"] != subtitles {
 		t.Fatalf("projected artifacts = %#v", projector.projected["artifacts"])
 	}
 

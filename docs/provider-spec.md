@@ -230,7 +230,7 @@ interface ExecutionProvider {
 | `knowledge` | `none` \| `read` \| `update` | — | 需 `features.knowledge=true`。FineSub 0.6.0 把只读档 `collect` 改名为 `read`（只读取知识库，不再收集反馈）；仍带 `collect` 的旧请求由 Provider 映射为 `read` 并在任务日志里说明 |
 | `knowledge_subjects` | `[{id?, kind, subject, aliases, description}]` | `knowledge=update` 的新任务至少一项 | 用户手动选择的知识主体，最多 8 个，读取与写回共用。每项的 `kind` 为 `streamer`、`work` 或 `topic`，`subject` 是必填的官方/源语言名称，`aliases` 与 `description` 用于消歧。带 `id` 的是知识库里已有的主体；不带 `id` 的是新建主体，仅 `knowledge=update` 允许，Local Provider 会在任务开始前幂等建好词条。所选主体的词条常驻每个纠错窗口（引擎补丁 `0006`），`update` 时也固定为知识更新的写回目标。`read` 可不选，此时由模型按内容挑选条目；`none` 时忽略。旧版请求的单个 `knowledge_context` 在 `update` 下按一项列表处理，两个字段都没有的已排队请求仍可重试 |
 | `llm_model` | `string` \| `{任务组: string}` | — | 本次运行的模型覆盖，等价于引擎的 `--llm-model`。字符串钉住所有任务组，对象只钉它点名的那些。值是模型组或路由 target；名字由引擎的路由加载器校验。⚠ 钉住即**替换整条链**——钉住的模型做不了的调用会直接失败，后面不再挂任何兜底 |
-| `diarization` | `{level, max_speakers?}` | — | 说话人分离，需 `features.diarization=true`；缺省或 `level=off` 即不分离。`level` 为 `acoustics`（按声音区分）、`judge-text` / `judge-audio`（再由 LLM 在纠错阶段按窗口复核，实验）。裁判只在 `final-srt` 下运行，其余目标降为 `acoustics`；云端的纠错只读文本，`judge-audio` 降为 `judge-text`。有日文轴时拒绝（不跑识别）。`max_speakers` 为 1–32，上游建议不设。结果写在 `stable_json` 的 `speaker` 与 `annotated_csv` 的 `spk` 列里，只决定每行放进哪条说话人轨，不改变字幕文本与时间；`-diar.json`（说话人时间线）留作复用，删掉才会重算 |
+| `diarization` | `{level, max_speakers?}` | — | 说话人分离，需 `features.diarization=true`；缺省或 `level=off` 即不分离。`level` 为 `acoustics`（按声音区分）、`judge-text` / `judge-audio`（再由 LLM 在纠错阶段按窗口复核，实验）。裁判只在 `final-srt` 下运行，其余目标降为 `acoustics`；云端的纠错只读文本，`judge-audio` 降为 `judge-text`。有日文轴时拒绝（不跑识别）。`max_speakers` 为 1–32，上游建议不设。结果写在 `correction.json` 各行的 `speaker` 里（7.3），只决定每行放进哪条说话人轨，不改变字幕文本与时间；`-diar.json`（说话人时间线）留作复用，删掉才会重算 |
 | `transcription` | `{engine, options?}` | — | 转写引擎选择。`engine` 是 `Capabilities.transcription_engines` 里的 ID，缺省（或整个字段缺省）视为 `finesub`；`options` 是交给该引擎的选项对象，缺省为 `{}`。旧请求和已落盘的任务不用迁移。引擎记在请求里，重试与续跑沿用原引擎。不在注册表里的引擎以 `unsupported_engine` 拒绝。`kind` 不是 `local-gpu` 的引擎只接受 `raw-srt` / `translated-srt` / `final-srt`（`unsupported_target`），不能与 `cloud_stable` 或 `axis` 同用（`invalid_request`）；引擎用不上的字段被丢掉——不用 GPU 的引擎丢 `device`、`gpu_tier`、`gpu_budget_gb`，不做人声分离的引擎丢 `separate`、`vocal_profile`——并在任务日志里写一条 `log` 事件（`payload.fields = {engine, dropped}`）；`diarization.level` 或 `language` 超出引擎声明的以 `invalid_request` 拒绝。`engine=finesub` 时规范化结果与不带此字段时完全相同，块原样保留。桌面端：本机 FineSub 发 `{"engine":"finesub","options":{}}`；云端任务的请求记 `finesub-cloud`，但桌面不把它转发给云端，云端识别后的本机续跑请求（`cloud_stable`）也不带此字段 |
 | `correction.engine` | 纠错引擎 ID | — | 缺省为 `finesub`；界面不提供选择 |
 | `cleanup_intermediate` | `boolean` | — | 完成后是否清理中间产物 |
@@ -414,15 +414,18 @@ interface UploadedAudioSource {
   "task_id": "0f3c9a...",
   "engine_commit": "b9b2f10c80abd58ddff739b60461624f51c0789c",
   "artifacts": {
-    "stable_json":   { "uri": "file:///.../video-stable.json",   "sha256": "...", "bytes": 12345 },
-    "raw_srt":       { "uri": "file:///.../video-raw.srt",       "sha256": "...", "bytes": 8192  },
-    "annotated_csv": { "uri": "file:///.../video-annotated.csv", "sha256": "...", "bytes": 23456 },
-    "final_srt":     { "uri": "file:///.../video.srt",           "sha256": "...", "bytes": 10240 }
+    "transcript_json": { "uri": "file:///.../transcript.json",      "sha256": "...", "bytes": 12345 },
+    "correction_json": { "uri": "file:///.../correction.json",      "sha256": "...", "bytes": 34567 },
+    "raw_srt":         { "uri": "file:///.../video-raw.srt",        "sha256": "...", "bytes": 8192  },
+    "final_srt":       { "uri": "file:///.../video.srt",            "sha256": "...", "bytes": 10240 },
+    "stable_json":     { "uri": "file:///.../native/.../video-stable.json", "sha256": "...", "bytes": 12345 }
   }
 }
 ```
 
-- 四个键均为**可选**，但组合受第 7 节约束；`stable_json` 事实上必需。
+- `transcript_json`、`correction_json` 是 Nonoka 自己的格式（第 7 节），Projector 与云端媒体库只读它们和两份字幕；其余键（`stable_json`、`annotated_csv`、`vocal_audio`……）是引擎的私有附件，宿主不解析，只列出、给插件读。
+- 所有键都可选，但能投影的清单至少要有 `correction_json` 或 `transcript_json`（7.1）。
+- 顶层可有 `projection_error`（字符串）：纠错的产物对不齐、写不出 `correction.json` 时由 worker 写入，投影以它失败（7.1、7.4）。
 - `uri` 为 `file://` 时必须是本机绝对路径且**位于宿主任务目录之内**（宿主会做白名单校验，越界一律拒绝投影）。
 - `sha256` 与 `bytes` 用于完整性校验与云端同步限额统计，必须真实。
 - `engine_commit` 用于产物与引擎版本的可追溯绑定。
@@ -497,65 +500,87 @@ interface UploadedAudioSource {
 
 ## 7. 产物契约（Projector 输入要求）
 
-宿主的 **Artifact Projector** 会把产物投影成 EditDocument。Projector 的对齐规则是**零猜测**的：任何不一致都会判定失败并保留原始产物，因此产物格式必须严格达标。
+宿主的 **Artifact Projector** 把一次任务的结果投影成 EditDocument。自 WP-L 起它**只读 Nonoka 的格式**：`correction.json`（纠错引擎的结果），没有时读 `transcript.json`（转写引擎的结果）。引擎自己的产物（FineSub 的 stable、annotated 表等）是引擎的私有附件，Projector 不解析，也不同步到云端媒体库。
 
 ### 7.1 组合规则
 
-| 提供的产物 | 投影模式 | 结果 |
+| 清单里有 | 投影模式 | 结果 |
 | :--- | :--- | :--- |
-| 仅 `stable_json` | `stable` | 仅原文轨，`zh` 为空 |
-| `stable_json` + `annotated_csv` + `final_srt` | `final` | 原文 + 译文 + 词级时间 + 低置信度标记 |
-| `annotated_csv` 与 `final_srt` 只给其一 | — | **投影失败**，二者必须成对出现 |
+| `correction_json` | 它的 `mode`（`stable` / `final`） | 逐行照抄 `correction.json` 的 `lines`（见 7.3） |
+| 只有 `transcript_json` | `stable` | 每行一句，`ja` 为行文字，`zh` 为空；有 `speaker` 时带上；零时长的行补到 0.04 秒（不越过下一行的起点） |
+| 两者都没有 | — | **投影失败** |
+| 清单顶层有 `projection_error` | — | **投影失败**，消息即它的值：纠错跑完了，但它的产物对不齐，写不出 `correction.json`（见 7.4）。这时不回落到 `transcript.json`，否则会悄悄丢掉纠错做的一切 |
 
-### 7.2 `stable_json`
+目标只到 `stable`（或更早）的任务不跑纠错。投影时宿主问已安装的纠错引擎能否描述这次转写（sidecar 的常驻纠错进程，操作 `describe`，参数是任务的产物清单）：finesub correction 对 FineSub 自己的 stable 写出 `stable` 模式的 `correction.json`（它的说话人行只有纠错包读得了），写进任务目录并补进任务的 `artifacts.json`；别的转写结果它不回答，投影用 `transcript.json`。没装纠错包时直接用 `transcript.json`。
+
+导入的轴（4.2.2）、说话人分轨、只纠错时隐藏源语言轨，都在投影之后由宿主对文档做，与产物格式无关。
+
+### 7.2 `transcript.json`
+
+转写层交给纠错层的唯一必备产物，格式与规则见 `docs/transcription-engines-plan.md` 5.2（`schema`、`engine`、`language`、`duration`、`lines` 必填；行有 `id`、`start`、`end`、`text`，可选 `speaker`、`words`）。FineSub 转写引擎按 2026-11-11 的规则从 stable 投出：一段一行、**不带说话人**（它的说话人只经纠错包进 `correction.json`，WP-L 第 3 问）。
+
+### 7.3 `correction.json`
+
+纠错引擎写在任务目录根（`tasks\<id>\correction.json`，与 `transcript.json` 并排），清单名 `correction_json`。每个目标都写，包括 `raw-srt`（这时是 `stable` 模式）。
 
 ```jsonc
 {
-  "segments": [
+  "schema": 1,
+  "engine": "finesub",          // 写它的纠错引擎
+  "mode": "final",              // "stable"：没到 LLM，行就是转写的行；"final"：纠错翻译之后
+  "correct_only": true,         // 可选；只在任务记录说「只纠错不翻译」时写，且只在 final 模式下生效
+  "lines": [
     {
-      "id": "1",                 // 段落唯一 ID，同一文件内不得重复
-      "start": 12.34,            // 秒；必须 end > start
-      "end": 15.67,
-      "text": "原文文本",
-      "words": [ /* 词级时间戳，原样透传给编辑器 */ ],
-      "low_conf": false,         // 亦接受 low_confidence / confidence_label="low"
-      "speaker": { "track": 1, "block": 0, "labels": [] } // 可选，说话人分离的结果
+      "start": 0.77, "end": 5.075,          // 秒，0 ≤ start ≤ end（引擎已把零时长修到 0.04 秒）
+      "source": "纠错后的原文",              // stable 模式下是识别文字
+      "translation": "译文",                 // 可选；stable 模式没有
+      "speaker": "s1",                       // 可选；这一行归哪个说话人（主说话人一个）
+      "low_confidence": true,                // 可选；只在为真时写
+      "words": [ { "word": "…", "start": 0.77, "end": 0.93, "confidence": 0.56 } ]
+                                             // 可选；引擎自己的词对象，原样进文档（WP-L 第 2 问）：
+                                             // 必有 start、end 与 word 或 text，其余字段原样保留
     }
   ]
 }
 ```
-顶层也可直接是 segments 数组。列表**不得为空**，任一段落时长非正即判定失败。
 
-`speaker` 缺失表示「没有标注」，不是「换了人」。Projector 取它的主说话人：有人写的
-`labels[].name` 优先，其次 `tracks[0]` / `track`，再次 `mark.tier="filled"` 时的 `mark.track`，
-记为 `s<编号>`；没有任何一项时视为未标注。
+未知字段保留、忽略。宿主读入时校验以上规则，不合规即投影失败并指出第一处问题（`nonoka_x.correction.document`）。
 
-### 7.3 `annotated_csv`
+**投影对照**（EditDocument 的每句）：`t0` ← `start`，`t1` ← `end`，`ja` ← `source`，`zh` ← `translation`（没有为空串），`words` ← `words`（有且非空时），`low_conf` ← `low_confidence`，`spk` ← `speaker`；文档的 `projection` 为 `{"schema": 1, "mode": <mode>}`，`final` 模式且 `correct_only` 为真时加 `"correct_only": true`。
 
-以 `|` 分隔的文本，`#` 开头为注释行。FineSub 0.6.0 在首行写表头并多出 `spk` 一列（排在 `note`
-之前，因为只有 `note` 允许包含 `|`）；没有表头的旧文件按 9 列解析：
+### 7.4 finesub correction 怎么写出 `correction.json`
 
-```text
-# type|position|duration|gap|corrected|translation|conf|char_count|spk|note   ← 0.6.0，10 列
-kind|position|duration|gap|corrected|translation|conf|chars|note               ← 旧版，9 列
-```
+由纠错包的适配器（`engines/finesub-correct/adapter/finesub_correct/document.py`）从 FineSub 的产物算出，规则就是 WP-L 之前宿主 Projector 的规则，原样搬过去（红线：同一个 FineSub 任务新旧投影出的文档相同，`tests/test_projection_equivalence.py`）：
 
-| 列 | 说明 |
+| `correction.json` 的项 | 从哪来（WP-L 之前 Projector 读的） |
 | :--- | :--- |
-| `kind` | `sub`（默认）或 `insert`（新增句，无源段） |
-| `position` | 逗号分隔的 stable `id` 列表；`kind != insert` 时不得为空，且必须能在 `stable_json` 中找到 |
-| `duration` | 必须可解析为浮点数 |
-| `corrected` | 纠错后的原文，`\n` 表示换行 |
-| `translation` | 译文 |
-| `conf` | `high` / `median` / `low`（兼容 1–9 整数：≥7 → high，≥4 → median，其余 low） |
-| `spk` | 这一行的说话人。`s3`、`s3?`（没把握）、`s3?(s5)`（附备选轨）、`s4*`（补上的漏检）、`s0+s1`（两人）、`s7<s3`（裁判把它从 s3 挪到 s7）或人写的名字；Projector 只取主说话人（`+` 前第一个、`<` 左边，去掉 `?` `*` 与括号），有它时优先于 `stable_json` 的 `speaker` |
-| `gap` / `chars` / `note` | 保留列，Projector 不使用但必须占位 |
+| `mode` | `-annotated.csv` 与 final SRT 都在 → `final`；否则 `stable`。只给其一时报错 |
+| `correct_only` | `llm-artifacts\correction-mode.json` 的 `correct_only is true`（缺失或读不了算翻译）；只在 `final` 模式 |
+| stable 模式的每行 | stable 的**产品层**（`-stable.json` + `-diar-rows.json` 的声学切分 + 说话人裁判的改动，FineSub 的 `read_product`），一行一句 |
+| final 模式的每行 | `-annotated.csv` 的一行（`sub` / `insert`），按表头解析（0.6.0 的 10 列；无表头按旧的 9 列） |
+| `start` / `end` | stable 模式：产品层行的起止，零时长补到 0.04 秒且不越过下一行；final 模式：这一行对应的 final SRT cue 的起止（cue 也做同样的修补）。cue 与行的对应：条数相同就逐条；只差「译文为空的行」时这些行没有 cue；对不上就报错（`relaxed` 时按位置取、缺的补）。没有 cue 的行取源行（`position` 里的 id）的首起点与末终点；`insert` 行没有源行时接在上一行之后，时长取 `duration`（至少 0.04 秒） |
+| `source` | stable 模式：行文字（去首尾空白）；final 模式：annotated 的 `corrected` 列（`\n` 解码为换行，连续换行合并） |
+| `translation` | final 模式：对应 cue 的文字，cue 为空或没有 cue 时取 annotated 的 `translation` 列 |
+| `speaker` | final 模式：annotated 的 `spk` 列的主说话人（`+` 前第一个、`<` 左边，去掉 `?` `*` 与括号），没有时取源行中第一个有说话人的；stable 模式：产品层行的 `speaker` 对象（人写的 `labels[].name` 优先，其次 `tracks[0]` / `track`，再次 `mark.tier="filled"` 的 `mark.track`，记为 `s<编号>`） |
+| `low_confidence` | stable 模式：行的 `low_conf` / `low_confidence` / `confidence_label=="low"`；final 模式：annotated 的 `conf` 为 `low`（兼容 1–9：≥7 high、≥4 median、其余 low），或任一源行低置信 |
+| `words` | 源行（`position` 里的 id，按顺序）的 `words` 拼起来，原样；stable 模式为该行自己的 `words` |
 
-### 7.4 `final_srt`
+产物对不齐时（上表里的「报错」），纠错包不写 `correction.json`，在结果的 `metadata.correction_error` 里给出原因；worker 把它写进清单顶层的 `projection_error`，宿主投影时以它失败（7.1）。这与 WP-L 之前「投影时失败」的时机和消息相同；不要求文档的任务（`projection: none`）不受影响。
 
-标准 SRT。每条 cue 必须有文本且 `end > start`。
+一次性转换（云端媒体库的旧条目、WP-M2 的本地旧任务）调纠错包的 `correction_json` 操作（与上面同一份代码；云端条目用 `relaxed`，因为桌面取回云端条目时一直是放宽对齐的），转写包的 `transcript_json` 操作从旧 stable 写 `transcript.json`。
 
-> **对齐断言（不可协商）**：`annotated_csv` 的有效行数与 `final_srt` 的 cue 数**必须完全相等**。不相等时 Projector 直接失败，不会截断或模糊匹配。这是保证字幕与时间轴不错位的最后一道防线。
+### 7.5 云端媒体库同步
+
+桌面同步与取回、Worker 的白名单只认这四个名字（不同步任何引擎自己的格式，私有附件不上云）：
+
+| 名字 | R2 对象 | 说明 |
+| :--- | :--- | :--- |
+| `transcript_json` | `library/<owner>/<id>/transcript_json.transcript.json` | |
+| `correction_json` | `…/correction_json.correction.json` | |
+| `raw_srt` | `…/raw_srt.raw.srt` | |
+| `final_srt` | `…/final_srt.srt` | |
+
+一次同步必须带 `transcript_json` 或 `correction_json`。两者都不带的同步请求（WP-L 之前的桌面版）Worker 回 `426`，`detail` 为「云端媒体库已升级，请把 Nonoka X 更新到最新版本后再同步」，什么都不存；带了未知名字回 `400`。桌面上只有引擎旧产物、没有这两个文件的旧任务同步时报「这个任务是旧版本生成的，需要先迁移到新的数据格式才能同步」（WP-M2 的本地转换解决）。取回时桌面把下载到的文本交给 sidecar 的 `POST /v1/documents/project`（`artifacts` 只收这四个名字，至少要有一个文档格式），不再有放宽对齐的 `relaxed_srt`。切换步骤见 `docs/library-cutover.md`。
 
 ---
 
@@ -689,10 +714,9 @@ kind|position|duration|gap|corrected|translation|conf|chars|note               �
 
 **产物**
 - [ ] `completed` 时 `artifacts()` 立即可用，否则返回 409 `artifacts_not_ready`
-- [ ] `stable_json` 段落 ID 唯一、时长为正、列表非空
-- [ ] `annotated_csv` 列数与表头一致（无表头时 9 列），`position` 引用的 ID 均存在于 `stable_json`
-- [ ] `annotated_csv` 行数与 `final_srt` cue 数完全相等
-- [ ] `annotated_csv` 与 `final_srt` 成对出现，`sha256` / `bytes` 真实
+- [ ] 清单至少有 `correction_json` 或 `transcript_json`，两者都按第 7 节的规则合法
+- [ ] 跑过纠错的任务都有 `correction_json`，或在清单顶层给出 `projection_error`
+- [ ] `sha256` / `bytes` 真实
 
 **安全**
 - [ ] Sidecar 只绑 `127.0.0.1`，令牌随机且常量时间比较

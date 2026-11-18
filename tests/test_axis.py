@@ -264,13 +264,14 @@ class ProviderAxisTests(unittest.TestCase):
         self.assertIsNone(self.provider.document_axis("loc_1")["axis"])
 
     def test_projection_lands_on_a_recorded_axis(self) -> None:
-        stable = self.root / "tasks" / "fixture-stable.json"
-        stable.write_text(
-            '{"segments":[{"id":"1","start":0.1,"end":1.8,"text":"認識結果","words":[]}]}',
+        transcript = self.root / "tasks" / "transcript.json"
+        transcript.write_text(
+            '{"schema":1,"engine":"mai2","language":"ja","duration":2.0,'
+            '"lines":[{"id":"1","start":0.1,"end":1.8,"text":"認識結果"}]}',
             encoding="utf-8",
         )
         self.provider.set_document_axis("loc_1", {"axis": {"kind": "empty", "rows": [row(0, 1), row(1, 2)]}})
-        manifest = {"schema": 1, "artifacts": {"stable_json": {"uri": stable.resolve().as_uri()}}}
+        manifest = {"schema": 1, "artifacts": {"transcript_json": {"uri": transcript.resolve().as_uri()}}}
         document = self.provider._project_manifest("loc_1", {"title": "片子"}, manifest)
         self.assertEqual([(item["t0"], item["t1"]) for item in document["subtitles"]], [(0.0, 1.0), (1.0, 2.0)])
         self.assertEqual(document["subtitles"][0]["ja"], "認識結果")

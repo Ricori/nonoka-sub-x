@@ -377,6 +377,17 @@ CLOUD_NATIVE = (("stable_json", "finesub.stable_json"), ("diar_json", "finesub.d
 
 #: Where an engine package keeps its files of one task (plan 4.6 item 34).
 NATIVE_DIRECTORY = "native"
+#: Nonoka's own formats in a task's manifest (WP-L): what the projection reads
+#: and the cloud library syncs, beside the subtitles.
+TRANSCRIPT_ARTIFACT = "transcript_json"
+CORRECTION_ARTIFACT = "correction_json"
+#: The correction's file in the task directory, beside `transcript.json`.
+CORRECTION_FILENAME = "correction.json"
+#: The manifest field that says why a finished run has nothing to project: the
+#: correction's products could not be lined up into its `correction.json`. The
+#: provider fails the projection with it, as it failed lining them up itself
+#: before WP-L; a run asked for no document is unaffected.
+PROJECTION_PROBLEM = "projection_error"
 
 
 def _construct(factory: Any, context: Mapping[str, Any]) -> Any:
@@ -643,10 +654,13 @@ def manifest_candidates(transcription: Any, correction: Any | None) -> dict[str,
 
     An attachment `<engine>.<name>` is listed as `<name>`; where the
     correction names the same artifact, its file is the one the task's
-    subtitles were made from (its own copy of a FineSub stable).
+    subtitles were made from (its own copy of a FineSub stable). Nonoka's own
+    formats are listed under their names too: `transcript_json` (when the
+    transcription wrote one) and the correction's `correction_json` (WP-L).
     """
 
     candidates = {key.split(".", 1)[1]: Path(path) for key, path in transcription.native.items()}
+    candidates[TRANSCRIPT_ARTIFACT] = Path(transcription.transcript_json)
     if correction is not None:
         candidates.update(correction.artifacts)
     return candidates
@@ -669,8 +683,13 @@ def run_engines(
     session: Any,
     packages: Mapping[str, Any],
     corrector: Any | None,
+    problems: dict[str, str] | None = None,
 ) -> dict[str, Path]:
-    """Transcribe (or take the transcription in hand), then correct up to the target."""
+    """Transcribe (or take the transcription in hand), then correct up to the target.
+
+    `problems` receives `PROJECTION_PROBLEM` when the correction ran but could
+    not write its `correction.json`.
+    """
 
     from . import correction as corrections
     from . import transcription as transcriptions
@@ -741,6 +760,10 @@ def run_engines(
             # reading it was before the correction moved into its package.
             result.read_transcript()
         corrected = corrector.run(dataclasses.replace(pending, transcription=result), report)
+        if problems is not None and CORRECTION_ARTIFACT not in corrected.artifacts:
+            error = corrected.metadata.get("correction_error")
+            if error:
+                problems[PROJECTION_PROBLEM] = str(error)
     candidates = manifest_candidates(result, corrected)
     if core_raw_srt:
         from .transcription.srt import RAW_SRT_FILENAME, write_raw_srt
@@ -830,6 +853,7 @@ def main(argv: list[str] | None = None) -> int:
         title = str(source.get("title") or Path(source["path"]).stem)
 
         axis = request.get("axis") if isinstance(request.get("axis"), dict) else None
+        problems: dict[str, str] = {}
         problem = knowledge_package_problem(request, packages)
         if problem:
             raise RuntimeError(problem)
@@ -866,17 +890,22 @@ def main(argv: list[str] | None = None) -> int:
                 "knowledge": request.get("knowledge", "none"),
                 "source_path": str(source["path"]),
                 "knowledge_subjects": subjects["names"] or None,
+                "correction_json": str(args.task_dir / CORRECTION_FILENAME),
             })
             candidates = {
                 "stable_json": Path(translated["stable_json"]),
                 "annotated_csv": Path(translated["annotated_csv"]),
                 "final_srt": Path(translated["final_srt"]),
             }
+            if translated.get("correction_json"):
+                candidates[CORRECTION_ARTIFACT] = Path(translated["correction_json"])
+            elif translated.get("correction_error"):
+                problems[PROJECTION_PROBLEM] = str(translated["correction_error"])
             ran: tuple[Any, ...] = (corrector,)
         else:
             candidates = run_engines(
                 request, args.task_dir, args.task_id, title=title, subject_names=subjects["names"],
-                session=session, packages=packages, corrector=corrector,
+                session=session, packages=packages, corrector=corrector, problems=problems,
             )
             requested = transcriptions.requested_engine(request)
             transcriber_engine = transcriptions.registry.get(requested) if requested in transcriptions.registry else None
@@ -886,6 +915,7 @@ def main(argv: list[str] | None = None) -> int:
             "task_id": args.task_id,
             "engine_commit": _engine_commit(packages, *ran),
             "artifacts": {name: artifact(path) for name, path in candidates.items() if path.is_file()},
+            **problems,
         }
         emit("completed", {"artifacts": manifest})
         return 0

@@ -364,11 +364,13 @@ ASS 样式表**跟着视频走**，整段 `[V4+ Styles]` 原文存在 `document.
 - **云端永远不存储客户端本地绝对路径**。
 
 ### 5.3 本地任务自动同步流程
-本地任务完成后，Go 后端自动触发同步：
+媒体库只存 Nonoka 的格式和字幕（WP-L，`docs/provider-spec.md` 7.5）：`transcript_json`、`correction_json`、`raw_srt`、`final_srt`。引擎自己的产物（FineSub 的 stable、annotated 表等）是任务目录里的私有附件，不上云。本地任务完成后，Go 后端自动触发同步：
 1. 校验产物路径必须位于 Nonoka X `tasks/` 白名单内。
-2. 提取 `stable_json`、`raw_srt`、`annotated_csv`、`final_srt`（总计限制 $\le 32\text{ MB}$）。
-3. 调用 `POST /v1/library/sync` 上传字幕文本、引擎 commit 与媒体指纹。
+2. 提取上面四个（总计限制 $\le 32\text{ MB}$）；必须有 `transcript_json` 或 `correction_json`，否则是 WP-L 之前的旧任务，提示先迁移。
+3. 调用 `POST /v1/library/sync` 上传这些文本、引擎 commit 与媒体指纹。两种文档格式都不带的请求（旧桌面版）服务端回 `426` 并提示升级。
 4. 服务端按指纹更新对应记录，不上传音视频，不扣减配额。
+
+取回（adopt）时桌面下载同样四个名字，交给 sidecar 的 `POST /v1/documents/project`：有 `correction.json` 就逐行照抄它，否则从 `transcript.json` 投影（`provider-spec.md` 7.1）。云端已有的旧条目由一次性转换脚本（云端仓库 `modal_compute/nonoka_x_compute/operations/library_convert.py`）转成新格式，步骤见 `docs/library-cutover.md`。
 
 ### 5.4 无损音频提取与上传
 云端任务只需纯音频：

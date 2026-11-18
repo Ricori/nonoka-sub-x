@@ -185,6 +185,25 @@ type storedSession struct {
 	Key     string `json:"key"`
 }
 
+// libraryArtifacts are what the cloud library holds of one task, by manifest
+// name, with the file name a local copy keeps each under: Nonoka's formats --
+// what a document is projected from -- and the subtitles (WP-L). Nothing in an
+// engine's own format leaves this machine.
+var libraryArtifacts = []struct{ Name, Suffix string }{
+	{"transcript_json", ".transcript.json"},
+	{"correction_json", ".correction.json"},
+	{"raw_srt", ".raw.srt"},
+	{"final_srt", ".srt"},
+}
+
+// projectable reports whether a set of library artifacts holds something a
+// document can be projected from.
+func projectable[V any](artifacts map[string]V) bool {
+	_, transcript := artifacts["transcript_json"]
+	_, correction := artifacts["correction_json"]
+	return transcript || correction
+}
+
 type artifactManifest struct {
 	TaskID       string `json:"task_id"`
 	EngineCommit string `json:"engine_commit"`
@@ -760,8 +779,9 @@ func (s *Service) finishedLibraryEntry(videoID string) (Entry, error) {
 
 // projectRemoteArtifacts downloads one cloud library entry's subtitles, keeps
 // a local copy under the task root and hands the set to the local provider as a
-// document for the target. Retrieval deliberately does not reject old cloud
-// artifacts for digest or SRT-format differences.
+// document for the target, projected from its correction.json (or, for a task
+// no correction engine took further, its transcript.json). Retrieval
+// deliberately does not reject an artifact whose digest differs.
 func (s *Service) projectRemoteArtifacts(taskID string, target mediaTarget) (map[string]any, error) {
 	var remote remoteArtifactManifest
 	if err := s.fetchJSON(context.Background(), "/v1/library/"+taskID+"/artifacts", &remote); err != nil {
@@ -774,7 +794,8 @@ func (s *Service) projectRemoteArtifacts(taskID string, target mediaTarget) (map
 	contents := map[string]string{}
 	local := map[string]any{}
 	total := int64(0)
-	for _, name := range []string{"stable_json", "raw_srt", "annotated_csv", "final_srt"} {
+	for _, artifact := range libraryArtifacts {
+		name := artifact.Name
 		item, ok := remote.Artifacts[name]
 		if !ok {
 			continue
@@ -790,8 +811,7 @@ func (s *Service) projectRemoteArtifacts(taskID string, target mediaTarget) (map
 			return nil, errors.New("cloud artifacts exceed the 32 MB limit")
 		}
 		contents[name] = string(content)
-		suffixes := map[string]string{"stable_json": ".stable.json", "raw_srt": ".raw.srt", "annotated_csv": ".annotated.csv", "final_srt": ".srt"}
-		artifactPath := filepath.Join(directory, name+suffixes[name])
+		artifactPath := filepath.Join(directory, name+artifact.Suffix)
 		temporary, err := os.CreateTemp(directory, "."+name+"-*.part")
 		if err != nil {
 			return nil, err
@@ -813,10 +833,10 @@ func (s *Service) projectRemoteArtifacts(taskID string, target mediaTarget) (map
 		}
 		local[name] = map[string]any{"uri": localFileURI(artifactPath), "sha256": actualSHA, "bytes": len(content)}
 	}
-	if len(contents) == 0 {
-		return nil, errors.New("cloud task returned no subtitle artifacts")
+	if !projectable(contents) {
+		return nil, errors.New("cloud entry has no transcript.json or correction.json to open")
 	}
-	projection := map[string]any{"video_id": target.localID, "task_id": taskID, "engine_commit": remote.EngineCommit, "title": target.title, "fingerprint": target.fingerprint, "duration": target.duration, "source_path": target.path, "artifacts": contents, "relaxed_srt": true}
+	projection := map[string]any{"video_id": target.localID, "task_id": taskID, "engine_commit": remote.EngineCommit, "title": target.title, "fingerprint": target.fingerprint, "duration": target.duration, "source_path": target.path, "artifacts": contents}
 	var document map[string]any
 	if err := s.provider.DoJSON(context.Background(), http.MethodPost, "/v1/documents/project", projection, &document); err != nil {
 		return nil, err
@@ -1117,7 +1137,8 @@ func (s *Service) syncArtifactManifest(manifest artifactManifest, localID, finge
 	// read of every deleted entry's artifacts.
 	paths := map[string]string{}
 	newestArtifact := int64(0)
-	for _, name := range []string{"stable_json", "raw_srt", "annotated_csv", "final_srt"} {
+	for _, artifact := range libraryArtifacts {
+		name := artifact.Name
 		item, ok := manifest.Artifacts[name]
 		if !ok {
 			continue
@@ -1137,6 +1158,11 @@ func (s *Service) syncArtifactManifest(manifest artifactManifest, localID, finge
 	}
 	if len(paths) == 0 {
 		return Entry{}, errors.New("local task has no syncable artifacts")
+	}
+	if !projectable(paths) {
+		// A task finished before this version keeps only its engine's own
+		// products; it is converted when the data directory is migrated.
+		return Entry{}, errors.New("这个任务是旧版本生成的，需要先迁移到新的数据格式才能同步")
 	}
 	s.mu.Lock()
 	suppressedAt := s.syncSuppressions[fingerprint]

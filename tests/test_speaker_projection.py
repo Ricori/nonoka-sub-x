@@ -19,7 +19,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from nonoka_x.axis import GENERATED_TRACK_PREFIXES, conform_to_axis, split_diarized_tracks
 from nonoka_x.document_store import DocumentStore
-from nonoka_x.projector import parse_annotated, project_edit_document, speaker_id
+from finesub_correct.document import parse_annotated, speaker_id
+
+from tests.test_projector import project_edit_document
 
 HEADER_060 = "# type|position|duration|gap|corrected|translation|conf|char_count|spk|note"
 
