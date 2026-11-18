@@ -352,13 +352,23 @@ class FineSubCorrection:
                 stage=job["target"],
                 **_post_stable_keywords(job, options, output),
             )
+        artifacts = {name: path for name, path in _artifacts(paths, job).items() if path.is_file()}
+        metadata = {
+            "input": INPUT_NATIVE if speaker_source == "acoustic" else INPUT_TRANSCRIPT,
+            "speaker_source": speaker_source,
+            "judge_audio": judge_audio,
+        }
+        from .document import ProjectionError
+
+        try:
+            artifacts["correction_json"] = correction_result(job, artifacts)
+        except ProjectionError as error:
+            # Products that cannot be lined up fail the task's projection, as
+            # they did when the core lined them up; the run itself is done.
+            metadata["correction_error"] = f"ProjectionError: {error}"
         return {
-            "artifacts": {name: str(path) for name, path in _artifacts(paths, job).items() if path.is_file()},
-            "metadata": {
-                "input": INPUT_NATIVE if speaker_source == "acoustic" else INPUT_TRANSCRIPT,
-                "speaker_source": speaker_source,
-                "judge_audio": judge_audio,
-            },
+            "artifacts": {name: str(path) for name, path in artifacts.items()},
+            "metadata": metadata,
         }
 
 
@@ -444,18 +454,26 @@ def _artifacts(paths: Any, job: Mapping[str, Any]) -> dict[str, Path]:
 # --- what the projection reads ------------------------------------------------------
 
 
+def correction_result(job: Mapping[str, Any], artifacts: Mapping[str, Path]) -> Path:
+    """`correction.json` for this run's products, in the task directory beside `transcript.json` (WP-L)."""
+
+    from .document import FILENAME, write_correction
+
+    return write_correction(
+        Path(job["task_dir"]) / FILENAME,
+        artifacts["stable_json"],
+        annotated_csv=artifacts.get("annotated_csv"),
+        final_srt=artifacts.get("final_srt"),
+        correction_mode=artifacts.get("correction_mode_json"),
+    )
+
+
 def product_rows(stable_json: str | Path) -> list[dict[str, Any]]:
-    """A task's stable lines with their speakers, as FineSub reads its own products.
+    """A task's stable lines with their speakers, as FineSub reads its own products (`document.product_rows`)."""
 
-    `-stable.json` with its `-diar-rows.json` (labels, acoustic row splits)
-    and what a speaker judge changed: the lines the ids in `annotated.csv`
-    count, `<id>b` and `<id>i` too. The core's projection asks for them
-    (`product_rows`) until it reads Nonoka's own format (WP-L).
-    """
+    from .document import product_rows as rows
 
-    from finesub.speech.diarization.product import read_product
-
-    return [dict(row) for row in read_product(Path(stable_json)).rows()]
+    return rows(stable_json)
 
 
 # --- a source-text axis -----------------------------------------------------------

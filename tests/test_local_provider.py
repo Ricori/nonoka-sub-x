@@ -107,7 +107,7 @@ class LocalProviderTests(ProviderFixture):
         cursors = [event["cursor"] for event in page["events"]]
         self.assertEqual(cursors, list(range(1, len(cursors) + 1)))
         self.assertEqual(completed["stage"], "stable")
-        self.assertIn("stable_json", provider.artifacts(task["task_id"])["artifacts"])
+        self.assertIn("correction_json", provider.artifacts(task["task_id"])["artifacts"])
         provider.shutdown()
 
     def test_completed_task_cleans_in_progress_progress_message(self) -> None:
@@ -663,7 +663,7 @@ class PipelineTargetTests(ProviderFixture):
         request["projection"] = "none"
         task = provider.start(request)
         wait_state(provider, task["task_id"], {"completed"})
-        self.assertIn("stable_json", provider.artifacts(task["task_id"])["artifacts"])
+        self.assertIn("correction_json", provider.artifacts(task["task_id"])["artifacts"])
         with self.assertRaises(ProviderError):
             provider.document("loc_0123456789ab")
         provider.shutdown()

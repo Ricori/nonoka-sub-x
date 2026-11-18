@@ -14,7 +14,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
-from . import engine_host, projector
+from . import engine_host
 from . import settings as settings_module
 from .download_route import PREFERENCES_ENVIRONMENT, install_app_proxy_policy
 from .local_provider import LocalProvider, ProviderError
@@ -200,12 +200,9 @@ def main(argv: list[str] | None = None) -> int:
     except Exception as exc:  # noqa: BLE001 - the engine works without it
         print(f"required tool install skipped: {exc}", file=sys.stderr, flush=True)
     provider = LocalProvider(args.data_dir / "tasks", engines, settings=settings, provisioner=provisioner)
-    # The settings page's packaged model catalog and the projection's speaker
-    # rows are the correction package's to read: asked of its resident process.
+    # The settings page's packaged model catalog is the correction package's
+    # to read: asked of its resident process.
     settings_module.set_catalog_source(lambda: provider._service_call("catalog"))
-    projector.set_product_reader(
-        lambda path: provider._service_call("product_rows", {"stable_json": str(path)})
-    )
     server = SidecarServer(("127.0.0.1", 0), provider, token)
     print(json.dumps({"schema": 1, "host": "127.0.0.1", "port": server.server_port, "token": token}, separators=(",", ":")), flush=True)
 

@@ -548,7 +548,7 @@ class WorkerAdapterTests(unittest.TestCase):
                 engine_host.discover(ENGINES)["finesub-correct"].engine_commit,
             )
             # An attachment `<engine>.<name>` is listed as `<name>`; only files that exist.
-            self.assertEqual(set(manifest["artifacts"]), {"vocal_audio", "stable_json", "raw_srt"})
+            self.assertEqual(set(manifest["artifacts"]), {"vocal_audio", "stable_json", "raw_srt", "transcript_json"})
             self.assertEqual(len(manifest["artifacts"]["stable_json"]["sha256"]), 64)
             self.assertEqual(events[-2]["payload"].get("message"), "字幕已完成")
 
@@ -605,7 +605,7 @@ class WorkerAdapterTests(unittest.TestCase):
             completed = next(event for event in events if event["type"] == "completed")
             self.assertEqual(
                 set(completed["payload"]["artifacts"]["artifacts"]),
-                {"stable_json", "raw_srt", "metadata_json"},
+                {"stable_json", "raw_srt", "metadata_json", "correction_json"},
             )
             reused = {
                 event["payload"]["stage"]

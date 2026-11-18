@@ -1,3 +1,11 @@
+"""The projection: FineSub's products -> `correction.json` (the correction package) -> EditDocument (the core).
+
+Until WP-L the core lined FineSub's products up itself; that moved into the
+correction package's adapter (`finesub_correct.document`), and the core copies
+`correction.json` line by line. These tests drive both halves, as a task does:
+`project_edit_document` below is the old signature over the two steps.
+"""
+
 from __future__ import annotations
 
 import json
@@ -11,24 +19,30 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from finesub.speech.diarization.judgments import Inserted, Judgments
 from finesub.subtitles.stable_rows import lines_hash
-from nonoka_x.document_store import DocumentError, DocumentStore, RevisionConflict
+from finesub_correct.document import ProjectionError, parse_srt, write_correction
 from nonoka_x import projector
-from nonoka_x.projector import ProjectionError, hide_source_lanes, parse_srt, project_edit_document
+from nonoka_x.document_store import DocumentStore, RevisionConflict
+from nonoka_x.projector import hide_source_lanes
 
 
-def setUpModule() -> None:
-    """The speaker rows read in this process, as the correction package's process reads them (`product_rows`).
+def project_edit_document(
+    stable: Path,
+    *,
+    annotated_csv: Path | None = None,
+    final_srt: Path | None = None,
+    correction_mode: Path | None = None,
+    relaxed_srt: bool = False,
+    video_id: str,
+    title: str,
+) -> dict:
+    """FineSub's products through `correction.json` into a document, as a task's two halves do."""
 
-    The process itself is asked in `ProductRowsThroughThePackageTests`.
-    """
-
-    from finesub_correct.engine import product_rows
-
-    projector.set_product_reader(product_rows)
-
-
-def tearDownModule() -> None:
-    projector.set_product_reader(None)
+    with tempfile.TemporaryDirectory() as temp:
+        correction = write_correction(
+            Path(temp) / "correction.json", stable, annotated_csv=annotated_csv, final_srt=final_srt,
+            correction_mode=correction_mode, relaxed=relaxed_srt,
+        )
+        return projector.project_edit_document(correction_json=correction, video_id=video_id, title=title)
 
 
 FIXTURES = Path(__file__).parent / "fixtures" / "finesub"
@@ -425,26 +439,123 @@ class DocumentStoreTests(unittest.TestCase):
         self.assertFalse(replaced["track_meta"]["ja"]["hidden"])
 
 
-class ProductRowsThroughThePackageTests(unittest.TestCase):
-    """The speaker rows asked of a correction package's own process, as the sidecar asks its resident one."""
+class NonokaFormatProjectionTests(unittest.TestCase):
+    """What the core reads (WP-L): `correction.json`, else `transcript.json`."""
 
-    def setUp(self) -> None:
-        projector.set_product_reader(None)
-        self.addCleanup(setUpModule)
+    def write(self, directory: Path, name: str, document: dict) -> Path:
+        path = directory / name
+        path.write_text(json.dumps(document, ensure_ascii=False), encoding="utf-8")
+        return path
 
-    def test_the_package_process_reads_what_this_process_reads(self) -> None:
-        from finesub_correct.engine import product_rows
+    def test_correction_lines_are_copied_line_by_line(self) -> None:
+        words = [{"word": "A", "start": 0.0, "end": 0.5, "confidence": 0.9, "space_before": False}]
+        with tempfile.TemporaryDirectory() as temp:
+            correction = self.write(Path(temp), "correction.json", {
+                "schema": 1, "engine": "finesub", "mode": "final", "correct_only": True, "future": 1,
+                "lines": [
+                    {"start": 0.0, "end": 1.0, "source": "A", "translation": "甲", "speaker": "s1",
+                     "low_confidence": True, "words": words},
+                    {"start": 1.0, "end": 2.0, "source": "B"},
+                ],
+            })
+            document = projector.project_edit_document(correction_json=correction, video_id="v", title="t")
+        self.assertEqual(document["subtitles"], [
+            {"t0": 0.0, "t1": 1.0, "ja": "A", "zh": "甲", "words": words, "low_conf": True, "spk": "s1"},
+            {"t0": 1.0, "t1": 2.0, "ja": "B", "zh": ""},
+        ])
+        self.assertEqual(document["projection"], {"schema": 1, "mode": "final", "correct_only": True})
 
-        stable = FIXTURES / "sample-stable.json"
-        self.assertEqual(projector.product_rows(stable), json.loads(json.dumps(product_rows(stable))))
-        document = project_edit_document(
-            stable,
-            annotated_csv=FIXTURES / "sample-annotated.csv",
-            final_srt=FIXTURES / "sample-final.srt",
-            video_id="video-1",
-            title="Sample",
-        )
-        self.assertTrue(document["subtitles"])
+    def test_a_stable_mode_correction_is_never_correct_only(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            correction = self.write(Path(temp), "correction.json", {
+                "schema": 1, "engine": "finesub", "mode": "stable", "correct_only": True, "lines": [],
+            })
+            document = projector.project_edit_document(correction_json=correction, video_id="v", title="t")
+        self.assertEqual(document["projection"], {"schema": 1, "mode": "stable"})
+
+    def test_a_transcript_alone_projects_its_lines(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            transcript = self.write(Path(temp), "transcript.json", {
+                "schema": 1, "engine": "mai2", "language": "ja", "duration": 10.0,
+                "lines": [
+                    {"id": "1", "start": 1.0, "end": 1.0, "text": " はい ", "speaker": "S1",
+                     "words": [{"text": "はい", "start": 1.0, "end": 1.0}]},
+                    {"id": "2", "start": 1.02, "end": 2.0, "text": "うん"},
+                ],
+            })
+            document = projector.project_edit_document(transcript_json=transcript, video_id="v", title="t")
+        self.assertEqual(document["subtitles"], [
+            {"t0": 1.0, "t1": 1.02, "ja": "はい", "zh": "",
+             "words": [{"text": "はい", "start": 1.0, "end": 1.0}], "spk": "S1"},
+            {"t0": 1.02, "t1": 2.0, "ja": "うん", "zh": ""},
+        ])
+        self.assertEqual(document["projection"], {"schema": 1, "mode": "stable"})
+
+    def test_the_correction_outranks_the_transcript(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            transcript = self.write(root, "transcript.json", {
+                "schema": 1, "engine": "mai2", "language": "ja", "duration": 1.0,
+                "lines": [{"id": "1", "start": 0.0, "end": 1.0, "text": "raw"}],
+            })
+            correction = self.write(root, "correction.json", {
+                "schema": 1, "engine": "finesub", "mode": "final",
+                "lines": [{"start": 0.0, "end": 1.0, "source": "fixed", "translation": "改"}],
+            })
+            document = projector.project_edit_document(
+                transcript_json=transcript, correction_json=correction, video_id="v", title="t")
+        self.assertEqual(document["subtitles"][0]["ja"], "fixed")
+
+    def test_a_malformed_correction_is_refused_with_its_problem(self) -> None:
+        cases = [
+            ({"schema": 2, "engine": "x", "mode": "final", "lines": []}, "schema"),
+            ({"schema": 1, "engine": "x", "mode": "raw", "lines": []}, "mode"),
+            ({"schema": 1, "engine": "x", "mode": "final", "lines": [{"start": 2, "end": 1, "source": ""}]}, "start"),
+            ({"schema": 1, "engine": "x", "mode": "final", "lines": [{"start": 0, "end": 1}]}, "source"),
+            ({"schema": 1, "engine": "x", "mode": "final",
+              "lines": [{"start": 0, "end": 1, "source": "", "speaker": ""}]}, "speaker"),
+            ({"schema": 1, "engine": "x", "mode": "final",
+              "lines": [{"start": 0, "end": 1, "source": "", "words": [1]}]}, "words"),
+        ]
+        with tempfile.TemporaryDirectory() as temp:
+            for document, problem in cases:
+                with self.subTest(problem=problem):
+                    path = self.write(Path(temp), "correction.json", document)
+                    with self.assertRaisesRegex(projector.ProjectionError, problem):
+                        projector.project_edit_document(correction_json=path, video_id="v", title="t")
+
+    def test_nothing_to_project_from_is_an_error(self) -> None:
+        with self.assertRaisesRegex(projector.ProjectionError, "neither"):
+            projector.project_edit_document(video_id="v", title="t")
+
+
+class CorrectionThroughThePackageTests(unittest.TestCase):
+    """`correction.json` made by a correction package's own process (the conversions' way in) equals this process's."""
+
+    def test_the_package_process_writes_what_this_process_writes(self) -> None:
+        from nonoka_x import engine_host
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            here = write_correction(
+                root / "here.json", FIXTURES / "sample-stable.json",
+                annotated_csv=FIXTURES / "sample-annotated.csv", final_srt=FIXTURES / "sample-final.srt",
+            )
+            answer = engine_host.ask_once("correction", "correction_json", {
+                "output": str(root / "there.json"),
+                "stable_json": str(FIXTURES / "sample-stable.json"),
+                "annotated_csv": str(FIXTURES / "sample-annotated.csv"),
+                "final_srt": str(FIXTURES / "sample-final.srt"),
+            })
+            self.assertEqual(Path(answer["correction_json"]).read_bytes(), here.read_bytes())
+            refused = engine_host.ask_once("correction", "correction_json", {
+                "output": str(root / "bad.json"),
+                "stable_json": str(FIXTURES / "sample-stable.json"),
+                "annotated_csv": str(FIXTURES / "sample-annotated.csv"),
+                "final_srt": str(FIXTURES / "sample-stable.json"),
+            })
+            self.assertIn("no timing lines", refused["error"])
+            self.assertFalse((root / "bad.json").exists())
 
 
 if __name__ == "__main__":

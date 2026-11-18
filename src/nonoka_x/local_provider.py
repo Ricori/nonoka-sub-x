@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import shutil
@@ -45,7 +46,15 @@ from .settings import (
 
 STATES = {"queued", "running", "completed", "failed", "cancelled", "interrupted"}
 TERMINAL = {"completed", "failed", "cancelled"}
-ARTIFACT_NAMES = {"stable_json", "raw_srt", "annotated_csv", "final_srt"}
+#: What a document is projected from and the cloud library syncs (WP-L): Nonoka's
+#: formats and the subtitles, with the file names a projection keeps them under.
+ARTIFACT_SUFFIXES = {
+    "transcript_json": ".transcript.json",
+    "correction_json": ".correction.json",
+    "raw_srt": ".raw.srt",
+    "final_srt": ".srt",
+}
+ARTIFACT_NAMES = frozenset(ARTIFACT_SUFFIXES)
 
 # 每个视频自带一份 [V4+ Styles] 原文（字幕长什么样跟着视频走）。上限与本机默认模板
 # 那份保持一致：样式表就是一行 Format 加几十行 Style，超出这个量级的多半是误粘。
@@ -1556,19 +1565,16 @@ class LocalProvider:
         directory = self.root / "cloud" / task_id
         directory.mkdir(parents=True, exist_ok=True)
         manifest = {"schema": 1, "task_id": task_id, "engine_commit": str(value.get("engine_commit") or ""), "artifacts": {}}
-        suffixes = {"stable_json": ".stable.json", "raw_srt": ".raw.srt", "annotated_csv": ".annotated.csv", "final_srt": ".srt"}
         for name, content in artifacts.items():
             if name not in ARTIFACT_NAMES or not isinstance(content, str):
                 raise ProviderError("invalid_artifacts", f"Invalid artifact {name!r}")
-            path = directory / (name + suffixes[name])
+        if not {"transcript_json", "correction_json"} & set(artifacts):
+            raise ProviderError("invalid_artifacts", "Projection needs transcript_json or correction_json")
+        for name, content in artifacts.items():
+            path = directory / (name + ARTIFACT_SUFFIXES[name])
             path.write_text(content, encoding="utf-8")
             manifest["artifacts"][name] = {"uri": path.resolve().as_uri(), "bytes": path.stat().st_size}
-        document = self._project_manifest(
-            video_id,
-            value,
-            manifest,
-            relaxed_srt=bool(value.get("relaxed_srt")),
-        )
+        document = self._project_manifest(video_id, value, manifest)
         self._write_optional_peaks(video_id, str(value.get("source_path") or ""), float(value.get("duration") or 0))
         return document
 
@@ -1938,14 +1944,21 @@ class LocalProvider:
         video_id: str,
         metadata: Mapping[str, Any],
         manifest: Mapping[str, Any],
-        *,
-        relaxed_srt: bool = False,
     ) -> dict[str, Any]:
         if not _safe_component(video_id):
             raise ProviderError("invalid_document", "Invalid document id")
+        if manifest.get("projection_error"):
+            # The correction ran, but its products could not be lined up into
+            # its correction.json: projecting the transcript instead would
+            # quietly drop everything the correction did.
+            raise ProjectionError(str(manifest["projection_error"]).removeprefix("ProjectionError: "))
         entries = manifest.get("artifacts")
-        if not isinstance(entries, Mapping) or "stable_json" not in entries:
-            raise ProjectionError("FineSub manifest has no stable_json artifact")
+        if not isinstance(entries, Mapping) or not {"transcript_json", "correction_json"} & set(entries):
+            raise ProjectionError("the task's manifest has neither correction_json nor transcript_json")
+
+        if "correction_json" not in entries and set(entries) - ARTIFACT_NAMES:
+            manifest = self._described(manifest)
+            entries = manifest["artifacts"]
 
         def artifact_path(name: str) -> Path | None:
             item = entries.get(name)
@@ -1960,19 +1973,13 @@ class LocalProvider:
                 raise ProjectionError(f"{name} has an invalid artifact path")
             return path
 
-        stable = artifact_path("stable_json")
-        annotated = artifact_path("annotated_csv")
-        final = artifact_path("final_srt")
         projection = project_edit_document(
-            stable,
-            annotated_csv=annotated if annotated is not None and final is not None else None,
-            final_srt=final if annotated is not None and final is not None else None,
-            correction_mode=artifact_path("correction_mode_json"),
+            transcript_json=artifact_path("transcript_json"),
+            correction_json=artifact_path("correction_json"),
             video_id=video_id,
             title=str(metadata.get("title") or video_id),
             source=str(metadata.get("path") or metadata.get("source_path") or ""),
             fingerprint=str(metadata.get("fingerprint") or "") or None,
-            relaxed_srt=relaxed_srt,
         )
         # An imported axis outranks the engine's own segmentation: every line
         # the user timed comes back with its exact timing, whether the run was
@@ -1996,6 +2003,52 @@ class LocalProvider:
             replace_default=True,
             generated_track_prefixes=GENERATED_TRACK_PREFIXES,
         )
+
+    def _described(self, manifest: Mapping[str, Any]) -> Mapping[str, Any]:
+        """The manifest of a task no correction took further, with the correction engine's `correction.json` added.
+
+        A target up to `stable` runs no correction, but its document was always
+        the correction package's reading of the transcription's own files
+        (FineSub's speaker rows, which only that package reads): asked here,
+        when the task is projected, as the projection asked for those rows
+        before WP-L. The file joins the task's `artifacts.json`, so a sync
+        finds it. No correction package, or nothing more to say than the
+        transcript: the manifest as it was, and the transcript is projected.
+        """
+
+        task_id = str(manifest.get("task_id") or "")
+        if not task_id or not all(char in "0123456789abcdef" for char in task_id):
+            return manifest
+        from . import engine_host
+
+        if engine_host.correction_package(self.packages()) is None:
+            return manifest
+        task_dir = self._task_dir(task_id)
+        artifacts = {
+            name: url2pathname(unquote(urlparse(str(item.get("uri") or "")).path))
+            for name, item in (manifest.get("artifacts") or {}).items() if isinstance(item, Mapping)
+        }
+        try:
+            answer = self._service_call("describe", {"artifacts": artifacts, "output": str(task_dir / "correction.json")})
+        except ProviderError as exc:
+            raise ProjectionError(f"cannot read the task's speaker rows: {exc}") from exc
+        answer = answer if isinstance(answer, Mapping) else {}
+        if answer.get("correction_error"):
+            raise ProjectionError(str(answer["correction_error"]).removeprefix("ProjectionError: "))
+        if not answer.get("correction_json"):
+            return manifest
+        path = Path(str(answer["correction_json"])).resolve()
+        described = {
+            **manifest,
+            "artifacts": {
+                **manifest["artifacts"],
+                "correction_json": {"uri": path.as_uri(), "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+                                    "bytes": path.stat().st_size},
+            },
+        }
+        if (task_dir / "artifacts.json").is_file():
+            _atomic_json(task_dir / "artifacts.json", described)
+        return described
 
     def _write_optional_peaks(self, video_id: str, source: str, duration: float) -> None:
         if not source or not Path(source).is_file():

@@ -318,6 +318,11 @@ class Normalizer:
 #: Manifest entries whose bytes describe the run rather than its result
 #: (timings, which ffmpeg ran): recorded as present, never hashed.
 UNHASHED_ARTIFACTS = frozenset({"metadata_json"})
+#: Nonoka's own formats in the manifest (WP-L): derived from FineSub's
+#: products, not FineSub's, so not part of what the baseline pins (owner
+#: 2026-11-18, WP-L question 4). `tests/test_projection_equivalence.py` and
+#: `tests/test_correction_document.py` check them.
+NONOKA_ARTIFACTS = frozenset({"transcript_json", "correction_json"})
 
 
 def manifest_record(manifest: Mapping[str, Any], normalizer: Normalizer) -> dict[str, Any]:
@@ -326,6 +331,8 @@ def manifest_record(manifest: Mapping[str, Any], normalizer: Normalizer) -> dict
 
     artifacts = {}
     for name, entry in sorted(manifest.get("artifacts", {}).items()):
+        if name in NONOKA_ARTIFACTS:
+            continue
         path = Path(url2pathname(urlparse(entry["uri"]).path))
         record: dict[str, Any] = {"file": normalizer.text(str(path))}
         if name not in UNHASHED_ARTIFACTS:

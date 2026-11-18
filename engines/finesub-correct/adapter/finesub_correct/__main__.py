@@ -162,11 +162,22 @@ def main(argv: list[str] | None = None, *, after_context: Any = None) -> int:
                 )
             except NoSourceText as error:
                 raise AxisError(str(error)) from None
-        return {
+        products = {
             "stable_json": str(result.stable_json),
             "final_srt": str(result.final_srt),
             "annotated_csv": str(result.annotated_csv),
         }
+        if request.get("correction_json"):
+            from .document import ProjectionError, write_correction
+
+            try:
+                products["correction_json"] = str(write_correction(
+                    request["correction_json"], result.stable_json,
+                    annotated_csv=result.annotated_csv, final_srt=result.final_srt,
+                ))
+            except ProjectionError as error:
+                products["correction_error"] = f"ProjectionError: {error}"
+        return products
 
     session = Session()
 
@@ -185,6 +196,39 @@ def main(argv: list[str] | None = None, *, after_context: Any = None) -> int:
 
         return rows(request["stable_json"])
 
+    def correction_json(request: Mapping[str, Any]) -> Any:
+        """Stored FineSub products -> `correction.json` (the one-time conversions, WP-L and WP-M2)."""
+
+        from .document import ProjectionError, write_correction
+
+        try:
+            path = write_correction(
+                request["output"], request["stable_json"],
+                annotated_csv=request.get("annotated_csv"), final_srt=request.get("final_srt"),
+                correction_mode=request.get("correction_mode"), relaxed=bool(request.get("relaxed")),
+            )
+        except ProjectionError as error:
+            return {"error": str(error)}
+        return {"correction_json": str(path)}
+
+    def describe(request: Mapping[str, Any]) -> Any:
+        """`correction.json` for a task this engine did not take further (a target up to `stable`).
+
+        `artifacts` are the task's files by manifest name. Only FineSub's own
+        stable has more to say than the task's `transcript.json` -- its speaker
+        rows, which only this package reads -- so anything else gets no answer.
+        """
+
+        from .document import ProjectionError, write_correction
+
+        stable = (request.get("artifacts") or {}).get("stable_json")
+        if not stable:
+            return {}
+        try:
+            return {"correction_json": str(write_correction(request["output"], stable))}
+        except ProjectionError as error:
+            return {"correction_error": f"ProjectionError: {error}"}
+
     def remember(context: Mapping[str, Any]) -> None:
         state["llm"] = dict(context.get("llm") or {})
         if after_context is not None:
@@ -202,6 +246,8 @@ def main(argv: list[str] | None = None, *, after_context: Any = None) -> int:
                 "llm.complete": complete,
                 "catalog": catalog,
                 "product_rows": product_rows,
+                "correction_json": correction_json,
+                "describe": describe,
             },
             on_context=apply_context,
             describe_error=describe_failure,

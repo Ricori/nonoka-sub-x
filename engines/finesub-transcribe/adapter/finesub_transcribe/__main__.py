@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import os
 import sys
+from pathlib import Path
 from typing import Any, Mapping
 
 from . import bridge, engine
@@ -63,7 +64,19 @@ def main(argv: list[str] | None = None, *, after_context: Any = None) -> int:
         os.environ.update(bridge.knowledge_variables({"knowledge_endpoint": request["endpoint"]}))
         return {}
 
-    return serve({"transcribe": transcribe, "knowledge": knowledge}, on_context=apply_context, describe_error=describe_failure,
+    def transcript_json(request: Mapping[str, Any]) -> Any:
+        """A stored FineSub stable -> `transcript.json` (the one-time conversions, WP-L and WP-M2)."""
+
+        try:
+            document = engine.project_transcript(
+                Path(request["stable_json"]), stage="stable", language=str(request.get("language") or "auto"),
+                vad_json=Path(request["vad_json"]) if request.get("vad_json") else None,
+            )
+        except (engine.TranscriptError, ValueError) as error:
+            return {"error": str(error)}
+        return {"transcript_json": str(engine.write_transcript(document, Path(request["output"])))}
+
+    return serve({"transcribe": transcribe, "knowledge": knowledge, "transcript_json": transcript_json}, on_context=apply_context, describe_error=describe_failure,
                  after_context=after_context, wire=wire)
 
 

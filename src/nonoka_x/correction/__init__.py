@@ -145,8 +145,11 @@ class CorrectionJob:
 class CorrectionResult:
     """The artifacts a run produced, by name.
 
-    Until WP-P1 the names are today's `ArtifactManifest` names (`raw_srt`,
-    `final_srt`, `annotated_csv`, ...); WP-L moves them to Nonoka's formats.
+    `correction_json` is the result in Nonoka's format (`docs/provider-spec.md`,
+    "correction.json"): what the projection reads and the cloud library syncs
+    (WP-L). The subtitles keep their `ArtifactManifest` names (`raw_srt`,
+    `final_srt`, ...); anything else an engine lists is its own attachment,
+    which the core does not parse.
     """
 
     artifacts: Mapping[str, Path] = field(default_factory=dict)

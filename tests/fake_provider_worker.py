@@ -52,9 +52,9 @@ def main() -> int:
         )
     if should_pause:
         time.sleep(30)
-    artifact_path = args.task_dir / "fixture-stable.json"
+    artifact_path = args.task_dir / "correction.json"
     artifact_path.write_text(
-        '{"segments":[{"id":1,"start":0.0,"end":1.0,"text":"fixture","words":[]}]}\n',
+        '{"schema":1,"engine":"fixture","mode":"stable","lines":[{"start":0.0,"end":1.0,"source":"fixture"}]}\n',
         encoding="utf-8",
     )
     manifest = {
@@ -62,7 +62,7 @@ def main() -> int:
         "task_id": args.task_dir.name,
         "engine_commit": "fixture",
         "artifacts": {
-            "stable_json": {
+            "correction_json": {
                 "uri": artifact_path.resolve().as_uri(),
                 "sha256": "fixture",
                 "bytes": artifact_path.stat().st_size,
