@@ -27,7 +27,7 @@ import os
 from pathlib import Path
 import sys
 
-from nonoka_x.runtime.paths import RUNTIME_DIRECTORY_NAME, STORAGE_RECORD_NAME, TASKS_DIRECTORY_NAME, recorded_runtime_dir
+from nonoka_x.runtime.paths import RUNTIME_DIRECTORY_NAME, STORAGE_RECORD_NAME, TASKS_DIRECTORY_NAME, NonokaPaths, recorded_runtime_dir
 
 #: The big-file root's old name (the desktop's `runtimeName` before WP-R6).
 OLD_RUNTIME_NAME = "finesub"
@@ -216,6 +216,57 @@ def storage_record_path(data: Path) -> Path:
 #: directories of the packages that use them (plan 4.4 item 25, `engines\\<package>\\`).
 KNOWLEDGE_PACKAGE = "finesub-knowledge"
 CORRECTION_PACKAGE = "finesub-correct"
+#: Where a task's transcription outputs go (`tasks\\<id>\\native\\<package>\\`, plan 4.6 item 34).
+TRANSCRIPTION_PACKAGE = "finesub-transcribe"
+
+#: The knowledge base's directory and its siblings: the write lock (`<root>.lock`) and the
+#: knowledge processes' endpoint registrations (`<root>.run`, only while one runs).
+KNOWLEDGE_DIRECTORY = "knowledge"
+KNOWLEDGE_SIBLINGS = (".lock",)
+KNOWLEDGE_REGISTRATIONS = ".run"
+#: FineSub's rate-limit state is one JSON file (`finesub.state`), its lock beside it. A
+#: `state` *directory* in the main data directory is Nonoka's own (`ConfigStore.state_file`).
+LIMIT_STATE_FILE = "state"
+LIMIT_STATE_LOCK = "state.lock"
+
+
+def knowledge_root(paths: NonokaPaths) -> Path:
+    """The knowledge base from now on: `engines\\finesub-knowledge\\knowledge\\` (plan 4.4 item 25, 4.6 item 35a).
+
+    Every package process is pointed here (`engine_contexts`); the migration's
+    `knowledge` step is what moves an old one here.
+    """
+
+    return paths.engine(KNOWLEDGE_PACKAGE) / KNOWLEDGE_DIRECTORY
+
+
+def limit_state_file(paths: NonokaPaths) -> Path:
+    """The cross-process rate-limit state from now on: `engines\\finesub-correct\\state`."""
+
+    return paths.engine_state(CORRECTION_PACKAGE)
+
+
+# -- a task's outputs (WP-M2) ----------------------------------------------------------------------------------
+
+#: An old task kept both halves' outputs in `tasks\\<id>\\workspace\\`, named after the
+#: task's title (`<title>-stable.json`, ...; FineSub's `default_pipeline_paths`). The
+#: transcription's go to its package's directory -- the stable and the speaker files too,
+#: which the correction copies into its own on its first run ("copied once", WP-P0 question
+#: 7, item 5) -- the metadata to both (each half keeps its own from now on), the rest to the
+#: correction's. `docs/engine-packages.md` sections 7 and 8.
+WORKSPACE_DIRECTORY = "workspace"
+TRANSCRIPTION_SUFFIXES = (
+    "-vocal.ogg",
+    "-vocal.flac",
+    "-vad.json",
+    "-vad-energy.npz",
+    "-aligned.json",
+    "-stable.json",
+    "-diar.json",
+    "-diar-rows.json",
+    "-diar-evidence.npz",
+)
+BOTH_SUFFIXES = ("-metadata.json",)
 
 #: Where WP-R4 derived FineSub's files until WP-R5 (owner 2026-11-12): a sealed copy of the keys,
 #: under the main data directory's `engines\`. Removed at start-up.
@@ -238,6 +289,8 @@ def remove_transitional_engine_files(data: Path | str) -> None:
 
 __all__ = [
     "LegacyLayout",
+    "knowledge_root",
+    "limit_state_file",
     "TRANSITIONAL_ENGINE_DIRECTORY",
     "default_data_dir",
     "detect",

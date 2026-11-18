@@ -1,4 +1,11 @@
-"""Loopback-only, session-token protected HTTP adapter for LocalProvider."""
+"""Loopback-only, session-token protected HTTP adapter for LocalProvider.
+
+Start-up migrates an installation in the old data layout before any data is
+opened (`nonoka_x.migration.startup`, WP-M2). While the migration's local
+steps run, or cannot, the server is already up -- the desktop's handshake
+does not wait for a migration -- but answers every route except
+`GET /v1/migration` and `POST /v1/migration/retry` with `migrating` (503).
+"""
 
 from __future__ import annotations
 
@@ -18,6 +25,7 @@ from . import engine_host
 from . import settings as settings_module
 from .download_route import PREFERENCES_ENVIRONMENT, install_app_proxy_policy
 from .local_provider import LocalProvider, ProviderError
+from .migration.startup import READY, StartupMigration
 from .provision import RuntimeProvisioner
 from .settings import FineSubSettings
 
@@ -29,10 +37,20 @@ def session_authorized(authorization: str, token: str) -> bool:
 class SidecarServer(ThreadingHTTPServer):
     daemon_threads = True
 
-    def __init__(self, address, provider: LocalProvider, token: str) -> None:
+    def __init__(
+        self,
+        address,
+        provider: LocalProvider | None,
+        token: str,
+        migration: StartupMigration | None = None,
+        open_data=None,
+    ) -> None:
         super().__init__(address, SidecarHandler)
+        #: None until the migration's local steps are done (`open_data` sets it).
         self.provider = provider
         self.token = token
+        self.migration = migration
+        self.open_data = open_data
 
 
 class SidecarHandler(BaseHTTPRequestHandler):
@@ -69,7 +87,18 @@ class SidecarHandler(BaseHTTPRequestHandler):
             return
         parsed = urlsplit(self.path)
         parts = [part for part in parsed.path.split("/") if part]
+        migration = self.server.migration
+        if parts == ["v1", "migration"] and self.command == "GET":
+            self._json(200, migration.status() if migration is not None else {"schema": 1, "state": "not-needed", "dataOpen": True})
+            return
+        if parts == ["v1", "migration", "retry"] and self.command == "POST":
+            if migration is None:
+                raise ProviderError("not_found", "Route not found", http_status=404)
+            self._json(202, migration.retry(self.server.open_data or (lambda: None)))
+            return
         provider = self.server.provider
+        if provider is None:
+            raise ProviderError("migrating", "正在迁移旧版数据，完成之前其他功能不可用", http_status=503)
         if self.command == "GET" and parts == ["v1", "telemetry"]:
             self._json(200, {"events": provider.telemetry.pending()})
         elif self.command == "POST" and parts == ["v1", "telemetry", "ack"]:
@@ -184,26 +213,21 @@ def main(argv: list[str] | None = None) -> int:
     # hands it to every worker and installer spawned from this environment.
     os.environ.setdefault(PREFERENCES_ENVIRONMENT, str(args.data_dir / "preferences.json"))
     install_app_proxy_policy()
-    settings = FineSubSettings(args.data_dir)
-    settings.bind_environment()
-    try:
-        # A build that retires a model moves the saved routes off it before
-        # anything is planned against them (the engines' files are derived per
-        # process from whatever is saved).
-        settings.refresh_model_routes()
-    except Exception as exc:  # noqa: BLE001 - a stale route is not fatal
-        print(f"model route refresh skipped: {exc}", file=sys.stderr, flush=True)
     engines = args.engines if args.engines is not None else engine_host.default_engines_root()
-    provisioner = RuntimeProvisioner(args.data_dir, engines, args.install_dir)
-    try:
-        provisioner.ensure_required_tools()
-    except Exception as exc:  # noqa: BLE001 - the engine works without it
-        print(f"required tool install skipped: {exc}", file=sys.stderr, flush=True)
-    provider = LocalProvider(args.data_dir / "tasks", engines, settings=settings, provisioner=provisioner)
-    # The settings page's packaged model catalog is the correction package's
-    # to read: asked of its resident process.
-    settings_module.set_catalog_source(lambda: provider._service_call("catalog"))
-    server = SidecarServer(("127.0.0.1", 0), provider, token)
+    # Before anything is opened: an installation in the old layout is migrated first (WP-M2).
+    migration = StartupMigration(args.data_dir, install_dir=args.install_dir, engines=engines)
+    ready = migration.begin() == READY
+    server = SidecarServer(("127.0.0.1", 0), None, token, migration)
+
+    def open_data() -> None:
+        server.provider = open_provider(args.data_dir, engines, migration.install_dir())
+
+    server.open_data = open_data
+    if ready:
+        open_data()
+        migration.start_downloads()
+    else:
+        migration.start_local(open_data)
     print(json.dumps({"schema": 1, "host": "127.0.0.1", "port": server.server_port, "token": token}, separators=(",", ":")), flush=True)
 
     def stop(_signum, _frame) -> None:
@@ -213,9 +237,34 @@ def main(argv: list[str] | None = None) -> int:
     try:
         server.serve_forever()
     finally:
-        provider.shutdown()
+        if server.provider is not None:
+            server.provider.shutdown()
         server.server_close()
     return 0
+
+
+def open_provider(data_dir: Path, engines: Path, install_dir: Path | None) -> LocalProvider:
+    """Open the data: the settings, the runtime, the tasks. Only once the migration allows it."""
+
+    settings = FineSubSettings(data_dir)
+    settings.bind_environment()
+    try:
+        # A build that retires a model moves the saved routes off it before
+        # anything is planned against them (the engines' files are derived per
+        # process from whatever is saved).
+        settings.refresh_model_routes()
+    except Exception as exc:  # noqa: BLE001 - a stale route is not fatal
+        print(f"model route refresh skipped: {exc}", file=sys.stderr, flush=True)
+    provisioner = RuntimeProvisioner(data_dir, engines, install_dir)
+    try:
+        provisioner.ensure_required_tools()
+    except Exception as exc:  # noqa: BLE001 - the engine works without it
+        print(f"required tool install skipped: {exc}", file=sys.stderr, flush=True)
+    provider = LocalProvider(data_dir / "tasks", engines, settings=settings, provisioner=provisioner)
+    # The settings page's packaged model catalog is the correction package's
+    # to read: asked of its resident process.
+    settings_module.set_catalog_source(lambda: provider._service_call("catalog"))
+    return provider
 
 
 if __name__ == "__main__":

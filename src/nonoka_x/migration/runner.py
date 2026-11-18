@@ -10,8 +10,25 @@ left. So a migration killed at any point continues from the journal: finished
 steps are passed over, the interrupted one runs again, and the plan is the
 journal's, never a fresh guess about a half-migrated disk.
 
-Nothing here downloads anything: the two steps that will (WP-E3) arrive as
-hooks.
+**Rollback** (WP-M2). The steps up to `task-products` (`plan.REVERSIBLE`)
+change nothing that cannot be put back. When one of them fails -- raises,
+as opposed to the process dying -- every one of them that ran is undone in
+reverse order, the journal says `rolled-back` with the failure, and
+`MigrationRolledBack` is raised: the installation is in its old layout
+again, and the next attempt plans afresh. A rollback killed half way is
+finished first by the next `execute`. Once `old-environment` has begun there
+is no rollback (the old environment is gone): a failure leaves the journal
+`running` and the next attempt continues.
+
+**Only once.** A journal that says `completed` is the mark that the
+installation is migrated: `prepare` reads nothing else of the disk then, so
+nothing reads the old paths again. A step an older journal skipped (its owner
+had not implemented it yet) and that can run now is the one exception: the
+journal is reopened for it (`catch-up`).
+
+Downloads happen only in the two WP-E3 steps, which arrive as hooks;
+`stop_before` lets the sidecar's start-up run the local steps first and the
+downloads after the server is up (`migration.startup`).
 """
 
 from __future__ import annotations
@@ -23,6 +40,7 @@ import os
 from pathlib import Path
 from typing import Any
 
+from nonoka_x.migration import hooks as deferred
 from nonoka_x.migration import legacy
 from nonoka_x.migration import plan as planning
 from nonoka_x.migration.hooks import Hooks, MigrationContext
@@ -42,12 +60,20 @@ JOURNAL_SCHEMA = 1
 JOURNAL_NAME = "migration.json"
 LOCK_NAME = "migration.lock"
 
+# Step statuses.
 RUNNING = "running"
 DONE = "done"
 SKIPPED = "skipped"
 PENDING = "pending"
+FAILED = "failed"
+UNDONE = "undone"
+
+# Journal statuses besides RUNNING and planning.COMPLETED.
+ROLLING_BACK = planning.ROLLING_BACK
+ROLLED_BACK = "rolled-back"
 
 Log = Callable[[str], None]
+Progress = Callable[[Any], None]
 
 
 class MigrationBlocked(RuntimeError):
@@ -55,7 +81,15 @@ class MigrationBlocked(RuntimeError):
 
 
 class MigrationError(RuntimeError):
-    """A step found the disk in a state it cannot safely continue from."""
+    """A step found the disk in a state it cannot safely continue from, or failed past the point of rollback."""
+
+    def __init__(self, message: str, *, step: str | None = None) -> None:
+        super().__init__(message)
+        self.step = step
+
+
+class MigrationRolledBack(MigrationError):
+    """A settings or data step failed; everything the migration had done was undone."""
 
 
 def journal_path(data_dir: Path | str) -> Path:
@@ -78,37 +112,84 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
-def prepare(data_dir: Path | str, *, checkout: Path | str | None = None, hooks: Hooks | None = None) -> MigrationPlan:
+def _runnable(step: Step, hooks: Hooks | None) -> bool:
+    return not step.deferred or bool(hooks and step.id in hooks)
+
+
+def _context(plan: MigrationPlan, log: Log | None = None, progress: Progress | None = None, engines: Path | None = None) -> MigrationContext:
+    layout = plan.layout()
+    return MigrationContext(
+        layout=layout,
+        paths=NonokaPaths.for_roots(layout.data, layout.new_root),
+        log=log or (lambda message: None),
+        progress=progress,
+        engines=Path(engines) if engines is not None else None,
+    )
+
+
+def prepare(
+    data_dir: Path | str,
+    *,
+    checkout: Path | str | None = None,
+    hooks: Hooks | None = None,
+    startup: bool = False,
+) -> MigrationPlan:
     """The plan for the installation at `data_dir`. Reads only.
 
     A journal decides first: an interrupted migration continues with its own
-    plan (only the running-task check is repeated), a finished one is
-    reported as such. Otherwise the disk is inspected afresh.
+    plan (only the running-task check is repeated), an interrupted rollback is
+    to be finished, a finished migration is reported as such -- unless a step
+    it skipped can run now -- and a rolled-back one is planned afresh.
+    Otherwise the disk is inspected afresh. `startup`: see `plan.build_plan`.
     """
 
     journal = read_journal(data_dir)
-    if journal is not None:
-        plan = MigrationPlan.from_dict(journal["plan"])
-        progress = journal.get("steps") or {}
-        for step in plan.steps:
-            step.progress = (progress.get(step.id) or {}).get("status", PENDING)
-            if step.deferred and step.progress != DONE:
-                step.hooked = bool(hooks and step.id in hooks)
-        if journal.get("status") == planning.COMPLETED:
-            plan.state = planning.COMPLETED
-            plan.blockers = []
-        else:
-            plan.state = planning.RESUMING
-            plan.blockers = [
-                f"task {task_id} is {state}: finish or cancel it first"
-                for task_id, state in legacy.running_tasks(Path(plan.data))
-            ]
+    if journal is None or journal.get("status") == ROLLED_BACK:
+        return planning.build_plan(legacy.detect(data_dir, checkout=checkout), hooks, startup=startup)
+    plan = MigrationPlan.from_dict(journal["plan"])
+    progress = journal.get("steps") or {}
+    for step in plan.steps:
+        if step.id in deferred.FORMERLY_DEFERRED:
+            step.owner = None
+        step.progress = (progress.get(step.id) or {}).get("status", PENDING)
+        if step.deferred and step.progress != DONE:
+            step.hooked = bool(hooks and step.id in hooks)
+    plan.blockers = []
+    status = journal.get("status")
+    if status == ROLLING_BACK:
+        plan.state = planning.ROLLING_BACK
         return plan
-    return planning.build_plan(legacy.detect(data_dir, checkout=checkout), hooks)
+    catch_up = [step for step in plan.steps if step.progress == SKIPPED and step.actions and _runnable(step, hooks)]
+    if status == planning.COMPLETED and not catch_up:
+        plan.state = planning.COMPLETED
+        return plan
+    # Skipped by an older build that had nothing to run them with: listed from the disk as it is now.
+    context = _context(plan)
+    for step in catch_up:
+        step.progress = PENDING
+        step.actions = planning.step_actions(step.id, context, plan.blockers)
+    plan.state = planning.RESUMING
+    if not startup:
+        plan.blockers.extend(planning.task_blockers(Path(plan.data)))
+    return plan
 
 
-def execute(plan: MigrationPlan, *, hooks: Hooks | None = None, log: Log | None = None) -> MigrationPlan:
-    """Carry out `plan` (from `prepare`), journaling every step. Returns it with each step's progress."""
+def execute(
+    plan: MigrationPlan,
+    *,
+    hooks: Hooks | None = None,
+    log: Log | None = None,
+    progress: Progress | None = None,
+    engines: Path | str | None = None,
+    stop_before: str | None = None,
+) -> MigrationPlan:
+    """Carry out `plan` (from `prepare`), journaling every step. Returns it with each step's progress.
+
+    `stop_before`: a step id; the steps from it on are left for a later call
+    (the journal stays `running`, and `plan.state` is `resuming`).
+    Raises `MigrationRolledBack` when a reversible step failed and was undone,
+    `MigrationError` when a later one failed (run again to continue).
+    """
 
     log = log or (lambda message: None)
     hooks = hooks or {}
@@ -116,13 +197,12 @@ def execute(plan: MigrationPlan, *, hooks: Hooks | None = None, log: Log | None 
         return plan
     if plan.blockers:
         raise MigrationBlocked("; ".join(plan.blockers))
-    layout = plan.layout()
-    context = MigrationContext(layout=layout, paths=NonokaPaths.for_roots(layout.data, layout.new_root), log=log)
-    journal_file = journal_path(layout.data)
+    context = _context(plan, log, progress, engines)
+    journal_file = journal_path(context.layout.data)
     try:
         with holding_lock(journal_file.with_name(LOCK_NAME), timeout=0):
-            journal = read_journal(layout.data)
-            if journal is None:
+            journal = read_journal(context.layout.data)
+            if journal is None or journal.get("status") == ROLLED_BACK:
                 journal = {
                     "schema": JOURNAL_SCHEMA,
                     "status": RUNNING,
@@ -131,11 +211,30 @@ def execute(plan: MigrationPlan, *, hooks: Hooks | None = None, log: Log | None 
                     "steps": {},
                 }
                 _write(journal_file, journal)
-            elif journal.get("status") == planning.COMPLETED:
-                plan.state = planning.COMPLETED
+            elif journal.get("status") == ROLLING_BACK:
+                _rollback(plan, journal, journal_file, context, hooks)
+                failure = journal.get("error") or {}
+                raise MigrationRolledBack(str(failure.get("message") or "a step failed"), step=failure.get("step"))
+            elif journal.get("status") == planning.COMPLETED and plan.state == planning.COMPLETED:
                 return plan
+            else:
+                # Catch-up: the skipped steps `prepare` reopened run with the actions it listed now.
+                recorded = journal.setdefault("steps", {})
+                reopened = [
+                    step.id for step in plan.steps
+                    if step.progress == PENDING and (recorded.get(step.id) or {}).get("status") == SKIPPED
+                ]
+                if reopened or journal.get("status") == planning.COMPLETED:
+                    for step_id in reopened:
+                        recorded.pop(step_id, None)
+                    journal["status"] = RUNNING
+                    journal["plan"] = plan.to_dict()
+                    _write(journal_file, journal)
             steps = journal.setdefault("steps", {})
             for step in plan.steps:
+                if step.id == stop_before:
+                    plan.state = planning.RESUMING
+                    return plan
                 previous = (steps.get(step.id) or {}).get("status")
                 if previous in (DONE, SKIPPED):
                     step.progress = previous
@@ -151,22 +250,123 @@ def execute(plan: MigrationPlan, *, hooks: Hooks | None = None, log: Log | None 
                 steps[step.id] = {"status": RUNNING, "started_at": _now()}
                 _write(journal_file, journal)
                 step.progress = RUNNING
+                report = None
                 if step.actions:
                     log(f"{step.id}: {step.title}")
-                    if step.deferred:
-                        hooks[step.id].run(context)
-                    else:
-                        _RUNNERS[step.id](step, context)
+                    try:
+                        if step.deferred:
+                            hooks[step.id].run(context)
+                        else:
+                            report = _RUNNERS[step.id](step, context)
+                    except Exception as error:  # noqa: BLE001 - recorded, then rolled back or reported
+                        _failed(plan, step, error, journal, journal_file, context, hooks)
                 steps[step.id] = {**steps[step.id], "status": DONE, "finished_at": _now()}
+                if report:
+                    steps[step.id]["report"] = report
                 _write(journal_file, journal)
                 step.progress = DONE
+            # The backups only serve a rollback, which the deletions have ruled out by now.
+            _forget(context)
             journal["status"] = planning.COMPLETED
             journal["finished_at"] = _now()
+            journal.pop("error", None)
             _write(journal_file, journal)
             plan.state = planning.COMPLETED
     except LockUnavailable as error:
         raise MigrationError("another migration is running for this data directory") from error
     return plan
+
+
+def mark_nothing_to_do(data_dir: Path | str, plan: MigrationPlan) -> None:
+    """Record that the installation has no old layout: start-up never looks for one again ("only once")."""
+
+    journal_file = journal_path(data_dir)
+    try:
+        with holding_lock(journal_file.with_name(LOCK_NAME), timeout=0):
+            if read_journal(data_dir) is not None:
+                return
+            _write(journal_file, {
+                "schema": JOURNAL_SCHEMA,
+                "status": planning.COMPLETED,
+                "started_at": _now(),
+                "finished_at": _now(),
+                "plan": plan.to_dict(),
+                "steps": {},
+            })
+    except LockUnavailable as error:
+        raise MigrationError("another migration is running for this data directory") from error
+
+
+def _failed(
+    plan: MigrationPlan,
+    step: Step,
+    error: Exception,
+    journal: dict[str, Any],
+    journal_file: Path,
+    context: MigrationContext,
+    hooks: Hooks,
+) -> None:
+    message = f"{error.__class__.__name__}: {error}" if not isinstance(error, MigrationError) else str(error)
+    steps = journal["steps"]
+    steps[step.id] = {**steps[step.id], "status": FAILED, "failed_at": _now(), "error": message}
+    journal["error"] = {"step": step.id, "message": message, "at": _now()}
+    irreversible_begun = any(
+        (steps.get(other.id) or {}).get("status") in (RUNNING, DONE, FAILED)
+        for other in plan.steps
+        if other.id not in planning.REVERSIBLE and other.id != step.id
+    )
+    if step.id not in planning.REVERSIBLE or irreversible_begun:
+        _write(journal_file, journal)
+        context.log(f"{step.id}: failed ({message}); run again to continue")
+        raise MigrationError(f"{step.id}: {message}", step=step.id) from error
+    journal["status"] = ROLLING_BACK
+    _write(journal_file, journal)
+    context.log(f"{step.id}: failed ({message}); rolling back")
+    _rollback(plan, journal, journal_file, context, hooks)
+    raise MigrationRolledBack(f"{step.id}: {message}", step=step.id) from error
+
+
+def _rollback(
+    plan: MigrationPlan,
+    journal: dict[str, Any],
+    journal_file: Path,
+    context: MigrationContext,
+    hooks: Hooks,
+) -> None:
+    """Undo every reversible step that ran, last first; repeatable (a killed rollback runs again)."""
+
+    steps = journal.setdefault("steps", {})
+    for step in reversed(plan.steps):
+        if step.id not in planning.REVERSIBLE:
+            continue
+        status = (steps.get(step.id) or {}).get("status")
+        if status not in (RUNNING, DONE, FAILED):
+            continue
+        if step.actions:
+            context.log(f"{step.id}: undo")
+            if step.deferred:
+                undo = getattr(hooks.get(step.id), "undo", None)
+                if undo is None and step.id == deferred.SETTINGS:
+                    from nonoka_x.config.migrate import undo_settings
+
+                    undo_settings(context.layout.data, log=context.log)
+                elif undo is not None:
+                    undo(context)
+            else:
+                _UNDO[step.id](step, context)
+        steps[step.id] = {**steps[step.id], "status": UNDONE, "undone_at": _now()}
+        _write(journal_file, journal)
+    _forget(context)
+    journal["status"] = ROLLED_BACK
+    journal["rolled_back_at"] = _now()
+    _write(journal_file, journal)
+    plan.state = planning.FRESH
+
+
+def _forget(context: MigrationContext) -> None:
+    from nonoka_x.migration import tasks
+
+    tasks.forget_backups(context)
 
 
 def _write(path: Path, journal: dict[str, Any]) -> None:
@@ -207,20 +407,37 @@ def _runtime_root(step: Step, context: MigrationContext) -> None:
     elif not os.path.isdir(new):
         raise MigrationError(f"neither {old} nor {new} exists")
     if layout.recorded:
-        _rewrite_storage_record(layout, context.log)
+        record = legacy.storage_record_path(layout.data)
+        backup = _storage_backup(context)
+        if not backup.is_file() and record.is_file():
+            # The record as it was, byte for byte: what a rollback writes back.
+            _write_bytes(backup, record.read_bytes())
+        _rewrite_storage_record(layout, layout.new_root, context.log)
 
 
-def _rewrite_storage_record(layout: LegacyLayout, log: Log) -> None:
-    """Point `storage.json`'s `runtimeDir` at the new root, keeping every other field as it is."""
+def _write_bytes(path: Path, data: bytes) -> None:
+    from nonoka_x.migration import tasks
+
+    tasks._write_bytes(path, data)
+
+
+def _storage_backup(context: MigrationContext) -> Path:
+    from nonoka_x.migration import tasks
+
+    return tasks.backup_root(context) / legacy.storage_record_path(context.layout.data).name
+
+
+def _rewrite_storage_record(layout: LegacyLayout, root: Path, log: Log) -> None:
+    """Point `storage.json`'s `runtimeDir` at `root`, keeping every other field as it is."""
 
     path = legacy.storage_record_path(layout.data)
     record = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(record, dict):
         raise MigrationError(f"{path} is not a JSON object")
-    if record.get("runtimeDir") == str(layout.new_root):
+    if record.get("runtimeDir") == str(root):
         return
-    record["runtimeDir"] = str(layout.new_root)
-    log(f"  rewrite {path}: runtimeDir -> {layout.new_root}")
+    record["runtimeDir"] = str(root)
+    log(f"  rewrite {path}: runtimeDir -> {root}")
     # The desktop writes it with two-space indentation and a final newline
     # (`desktop/internal/storage/locations.go`, `save`).
     write_atomic(path, json.dumps(record, ensure_ascii=False, indent=2) + "\n")
@@ -239,14 +456,41 @@ def _models(step: Step, context: MigrationContext) -> None:
         replace_path(models, target)
     if not target.is_dir():
         raise MigrationError(f"{target} is missing")
-    for parts in legacy.MODEL_EXTRA_DIRECTORIES:
-        extra = target.joinpath(*parts)
-        if os.path.lexists(extra):
-            context.log(f"  delete {extra}")
-            remove_tree(extra)
-    for lock in planning.lock_files(target):
-        context.log(f"  delete {lock}")
-        lock.unlink(missing_ok=True)
+
+
+def _move_entries(step: Step, context: MigrationContext) -> None:
+    """The knowledge base and the rate-limit state: renamed into the packages' directories."""
+
+    for action in step.actions:
+        source = Path(action.path)
+        if action.kind == planning.RENAME:
+            target = Path(action.target or "")
+            if not os.path.lexists(source):
+                if os.path.lexists(target):
+                    continue
+                raise MigrationError(f"neither {source} nor {target} exists")
+            if os.path.lexists(target):
+                raise MigrationError(f"{target} appeared after the plan was made; not merging {source} into it")
+            target.parent.mkdir(parents=True, exist_ok=True)
+            context.log(f"  rename {source} -> {target}")
+            replace_path(source, target)
+        elif action.kind == planning.DELETE and os.path.lexists(source):
+            context.log(f"  delete {source}")
+            if source.is_dir() and not is_directory_link(source):
+                remove_tree(source)
+            else:
+                source.unlink(missing_ok=True)
+
+
+def _task_products(step: Step, context: MigrationContext) -> dict[str, Any] | None:
+    from nonoka_x.migration import tasks
+
+    try:
+        report = tasks.file_tasks(step.actions, context)
+    except tasks.ConversionUnavailable as error:
+        raise MigrationError(str(error)) from error
+    refused = {task: record["refused"] for task, record in report.items() if record.get("refused")}
+    return {"tasks": len(report), **({"not_converted": refused} if refused else {})}
 
 
 def _delete(step: Step, context: MigrationContext) -> None:
@@ -272,20 +516,90 @@ def _delete(step: Step, context: MigrationContext) -> None:
             path.unlink(missing_ok=True)
 
 
-_RUNNERS: dict[str, Callable[[Step, MigrationContext], None]] = {
+_RUNNERS: dict[str, Callable[[Step, MigrationContext], Any]] = {
     planning.RUNTIME_ROOT: _runtime_root,
     planning.MODELS: _models,
+    deferred.KNOWLEDGE: _move_entries,
+    deferred.LIMIT_STATE: _move_entries,
+    deferred.TASK_PRODUCTS: _task_products,
     planning.OLD_ENVIRONMENT: _delete,
     planning.CACHES: _delete,
     planning.REBUILDABLE: _delete,
+}
+
+
+# -- undoing them --------------------------------------------------------------------------------------------------
+
+
+def _remove_if_empty(*directories: Path) -> None:
+    for directory in directories:
+        try:
+            directory.rmdir()
+        except OSError:
+            pass
+
+
+def _undo_runtime_root(step: Step, context: MigrationContext) -> None:
+    layout = context.layout
+    old, new = layout.old_root, layout.new_root
+    assert old is not None
+    if os.path.lexists(new) and not os.path.lexists(old):
+        context.log(f"  rename {new} -> {old}")
+        replace_path(new, old)
+    record, backup = legacy.storage_record_path(layout.data), _storage_backup(context)
+    if layout.recorded and backup.is_file():
+        context.log(f"  restore {record}")
+        _write_bytes(record, backup.read_bytes())
+        backup.unlink()
+    elif layout.recorded and record.is_file():
+        _rewrite_storage_record(layout, old, context.log)
+
+
+def _undo_models(step: Step, context: MigrationContext) -> None:
+    root = context.layout.new_root if not os.path.lexists(context.layout.old_root or Path()) else context.layout.old_root
+    models = root / legacy.OLD_MODELS_DIRECTORY
+    target = NonokaPaths.for_roots(context.layout.data, root).layer_version(deferred.MODELS_LAYER, deferred.MIGRATED_MODELS_NAME)
+    if os.path.lexists(target) and not os.path.lexists(models):
+        context.log(f"  rename {target} -> {models}")
+        replace_path(target, models)
+    _remove_if_empty(target.parent, target.parent.parent)
+
+
+def _undo_moves(step: Step, context: MigrationContext) -> None:
+    for action in reversed(step.actions):
+        if action.kind != planning.RENAME:
+            continue
+        source, target = Path(action.path), Path(action.target or "")
+        if os.path.lexists(target) and not os.path.lexists(source):
+            context.log(f"  rename {target} -> {source}")
+            replace_path(target, source)
+        _remove_if_empty(target.parent)
+    _remove_if_empty(context.paths.engines)
+
+
+def _undo_task_products(step: Step, context: MigrationContext) -> None:
+    from nonoka_x.migration import tasks
+
+    tasks.undo_tasks(step.actions, context)
+
+
+_UNDO: dict[str, Callable[[Step, MigrationContext], None]] = {
+    planning.RUNTIME_ROOT: _undo_runtime_root,
+    planning.MODELS: _undo_models,
+    deferred.KNOWLEDGE: _undo_moves,
+    deferred.LIMIT_STATE: _undo_moves,
+    deferred.TASK_PRODUCTS: _undo_task_products,
 }
 
 __all__ = [
     "JOURNAL_NAME",
     "MigrationBlocked",
     "MigrationError",
+    "MigrationRolledBack",
+    "ROLLED_BACK",
     "execute",
     "journal_path",
+    "mark_nothing_to_do",
     "prepare",
     "read_journal",
 ]

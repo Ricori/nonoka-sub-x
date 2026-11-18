@@ -232,8 +232,10 @@ def test_what_fineSub_is_handed_after_migration(tmp_path, monkeypatch):
     from nonoka_x.local_provider import LocalProvider
 
     data = _old_install(tmp_path / "Nonoka X")
+    # Start-up runs the migration's settings step before it opens anything (WP-M2).
+    migrate.migrate_settings(data)
     settings = FineSubSettings(data)
-    settings.bind_environment()  # migrates on its own: the old files, no new store
+    settings.bind_environment()
     settings.refresh_model_routes()
     assert (data / "settings.json").is_file() and not (data / OLD_ENV).exists()
 

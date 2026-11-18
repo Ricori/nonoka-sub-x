@@ -7,9 +7,10 @@ package's process; nothing here names an engine's variable or file.
 - every package: `paths.package_data` (`engines\\<package>\\`, its data
   directory: where a compatibility `finesub_bootstrap` puts what the original
   puts under `%LOCALAPPDATA%\\FineSub`, D21), `paths.run` (its own run directory, `engines\\<package>\\run\\<process>\\`,
-  claimed here and released when the caller closes it), `paths.state_file`,
-  `paths.knowledge_root` (both still in the main data directory until the
-  migration moves them, WP-M2);
+  claimed here and released when the caller closes it), `paths.state_file`
+  (the cross-process rate-limit state, in the correction package's directory)
+  and `paths.knowledge_root` (the knowledge base, in the knowledge package's),
+  where the migration moved them (WP-M2, `migration.legacy`);
 - a transcription package: `runtime` (the model layer, this package's cache
   directory under the big-file root, the Python layer's interpreter), the keys
   its `PACKAGE.json` names, the LLM routes (its preparation reads the route
@@ -33,6 +34,7 @@ from pathlib import Path
 from typing import Any
 
 from .engine_host import EngineRun, Package
+from .migration.legacy import knowledge_root, limit_state_file
 
 
 def proxy_context() -> dict[str, Any]:
@@ -128,8 +130,8 @@ def package_context(
         "paths": {
             "package_data": str(paths.engine(package.id)),
             "run": str(run),
-            "state_file": str(paths.data / "state"),
-            "knowledge_root": str(paths.data / "knowledge"),
+            "state_file": str(limit_state_file(paths)),
+            "knowledge_root": str(knowledge_root(paths)),
         },
     }
     tools = tool_directories(provisioner)
@@ -203,4 +205,4 @@ def build(
     return built
 
 
-__all__ = ["LaunchContexts", "build", "package_context", "proxy_context"]
+__all__ = ["LaunchContexts", "build", "knowledge_root", "limit_state_file", "package_context", "proxy_context"]

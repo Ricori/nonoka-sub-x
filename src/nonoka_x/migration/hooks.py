@@ -1,21 +1,20 @@
 """The steps migration leaves to other work packages, and how they plug in.
 
-WP-M1 is the core: detect, plan, rename, delete. Six steps belong to code
-that does not exist yet (`docs/transcription-engines-plan.md` WP-M1, WP-M2):
+WP-M1 is the core: detect, plan, rename, delete; WP-M2 added the knowledge
+base, the rate-limit state and the old tasks (`runner`, `tasks`). Three steps
+belong to code outside the migration package:
 
-| step | owner | what it will do |
+| step | owner | what it does |
 |---|---|---|
 | `settings` | WP-R4 (`config/migrate.py`) | read the old settings and keys into `settings.json` / `secrets.json`, rename the old files as a backup |
-| `knowledge` | WP-M2 | move the knowledge base into `engines\\finesub-knowledge\\`, content unchanged |
-| `limit-state` | WP-M2 | move the rate-limit state into `engines\\finesub-correct\\` |
-| `task-products` | WP-M2 | file FineSub's outputs in each task under `native\\<package>\\` |
 | `model-completion` | WP-E3 | check the moved models against the model layer manifest, fetch only missing or wrong files from R2, then register the layer version |
 | `layer-download` | WP-E3 | download the Python environment and tool layers |
 
-Each is a `StepHook`. Until its owner provides one, the step stays in the
-plan, says what it will touch and who implements it, and is skipped.
-`available_hooks()` is what the owners provide so far; the command line passes
-it, library callers pass their own (or none).
+Each is a `StepHook`. Without one, the step stays in the plan, says what it
+will touch and who implements it, and is skipped; a later run with the hook
+runs a skipped step after all (`runner.prepare`). `available_hooks()` is what
+the owners provide; the command line and the sidecar's start-up pass it,
+library callers pass their own (or none).
 """
 
 from __future__ import annotations
@@ -23,7 +22,7 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 from nonoka_x.migration.legacy import LegacyLayout
 from nonoka_x.runtime.paths import NonokaPaths
@@ -38,12 +37,11 @@ LAYER_DOWNLOAD = "layer-download"
 #: Step id -> the work package that implements it.
 DEFERRED_OWNERS: Mapping[str, str] = {
     SETTINGS: "WP-R4 (config/migrate.py)",
-    KNOWLEDGE: "WP-M2",
-    LIMIT_STATE: "WP-M2",
-    TASK_PRODUCTS: "WP-M2",
     MODEL_COMPLETION: "WP-E3",
     LAYER_DOWNLOAD: "WP-E3",
 }
+#: Steps an older journal (WP-M1, before WP-M2) lists as deferred to WP-M2: the migration's own now.
+FORMERLY_DEFERRED = frozenset({KNOWLEDGE, LIMIT_STATE, TASK_PRODUCTS})
 
 #: Where WP-M1 leaves the moved models: a fixed name, not a layer version
 #: (a version is its manifest's hash, plan 4.2 item 19). No `current.json`
@@ -55,11 +53,18 @@ MODELS_LAYER = "models"
 
 @dataclass(frozen=True)
 class MigrationContext:
-    """What a step works with."""
+    """What a step works with.
+
+    `progress` receives the download steps' progress (`runtime.layers.LayerProgress`);
+    `engines` is where the engine packages are, for converting old tasks (None: the
+    default, `engine_host.default_engines_root()`).
+    """
 
     layout: LegacyLayout
     paths: NonokaPaths
     log: Callable[[str], None] = field(default=lambda message: None)
+    progress: Callable[[Any], None] | None = None
+    engines: Path | None = None
 
     @property
     def migrated_models(self) -> Path:
@@ -102,6 +107,7 @@ def available_hooks() -> dict[str, StepHook]:
 
 __all__ = [
     "DEFERRED_OWNERS",
+    "FORMERLY_DEFERRED",
     "KNOWLEDGE",
     "LAYER_DOWNLOAD",
     "LIMIT_STATE",

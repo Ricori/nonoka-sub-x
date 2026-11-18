@@ -10,8 +10,10 @@ Without `--dry-run` the plan is printed and then carried out only after a
 "y" on a terminal, or with `--yes`; without a terminal and without `--yes`
 nothing is changed.
 
-Exit status: 0 done, nothing to do, or a dry run; 1 a step failed (run again
-to continue from the journal); 2 blocked; 3 not confirmed.
+Exit status: 0 done, nothing to do, or a dry run; 1 a step failed (a settings
+or data step is rolled back first; otherwise run again to continue from the
+journal); 2 blocked; 3 not confirmed. The sidecar runs the same migration at
+start-up (`nonoka_x.migration.startup`).
 """
 
 from __future__ import annotations
@@ -24,7 +26,7 @@ import sys
 from nonoka_x.migration import legacy
 from nonoka_x.migration.hooks import available_hooks
 from nonoka_x.migration import plan as planning
-from nonoka_x.migration.runner import MigrationError, execute, prepare
+from nonoka_x.migration.runner import MigrationError, MigrationRolledBack, execute, prepare
 
 EXIT_OK = 0
 EXIT_FAILED = 1
@@ -96,6 +98,12 @@ def main(argv: list[str] | None = None) -> int:
     log = (lambda message: None) if args.json else _print
     try:
         plan = execute(plan, hooks=hooks, log=log)
+    except MigrationRolledBack as error:
+        _print(
+            f"Migration failed and was rolled back: {error}\n"
+            "The installation is as it was; fix the cause and run the command again."
+        )
+        return EXIT_FAILED
     except MigrationError as error:
         _print(f"Migration stopped: {error}\nRun the same command again to continue from where it stopped.")
         return EXIT_FAILED

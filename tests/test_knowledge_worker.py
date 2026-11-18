@@ -13,7 +13,8 @@ from finesub.llm.knowledge.node.repo import KnowledgeRepo
 
 @pytest.fixture
 def knowledge(tmp_path, monkeypatch):
-    root = tmp_path / "data" / "knowledge"
+    # Where every launch context names it (WP-M2: the knowledge package's directory).
+    root = tmp_path / "data" / "engines" / "finesub-knowledge" / "knowledge"
     monkeypatch.setenv("FINESUB_KNOWLEDGE_ROOT", str(root))
     repo = KnowledgeRepo.open(root)
     with repo.store.begin("user") as txn:
@@ -60,7 +61,7 @@ def test_provider_worker_roundtrip(knowledge, tmp_path, monkeypatch):
 
     ident, _ = knowledge
     project = Path(__file__).resolve().parents[1]
-    # The data directory's base (`<data>\knowledge`), the one the knowledge package's context names.
+    # The data directory's base, the one the knowledge package's context names.
     provider = LocalProvider(tmp_path / "data" / "tasks", project / "engines", issues=[])
     assert provider.knowledge({"action": "list"})["entries"][0]["id"] == ident
     before = provider.knowledge({"action": "read", "id": ident})

@@ -359,7 +359,7 @@ def _substitute(value: Any, replacements: Mapping[str, str]) -> Any:
     return value
 
 
-def _setup_subject(knowledge_root: Path) -> str:
+def _setup_subject(data: Path) -> str:
     """An existing subject the request picks by id, the way the desktop's picker does.
 
     Made by the knowledge package, in a process of its own, as a task's
@@ -371,7 +371,8 @@ def _setup_subject(knowledge_root: Path) -> str:
 
     package = engine_host.knowledge_package(engine_host.discover(ENGINES))
     item = {"kind": "streamer", "subject": "柊優花", "aliases": "柊优花、yuka", "description": "游戏主播"}
-    paths = NonokaPaths.for_roots(knowledge_root.parent)
+    paths = NonokaPaths.for_roots(data)
+    knowledge_root = engine_contexts.knowledge_root(paths)
     with engine_contexts.build({package.id: package}, paths=paths) as built:
         with engine_host.PackageProcess(package, built.contexts[package.id]) as process:
             process.request("prepare_subjects", {"subjects": [item], "knowledge": "update", "task_id": "gate-setup",
@@ -433,7 +434,7 @@ def child_main(spec_path: Path) -> int:
     }
     if "subject" in spec["setup"]:
         # The knowledge base every launch context names (`nonoka_x.engine_contexts`).
-        replacements["$SUBJECT_ID"] = _setup_subject(root / "data" / "knowledge")
+        replacements["$SUBJECT_ID"] = _setup_subject(root / "data")
     if "cloud_diar" in spec["setup"]:
         _setup_cloud_diar(Path(replacements["$CLOUD_DIAR"]))
 
@@ -477,6 +478,17 @@ def child_main(spec_path: Path) -> int:
 # --- the parent ------------------------------------------------------------------
 
 #: Variables that would let the developer's own machine leak into a run.
+def knowledge_base(data: Path) -> Path:
+    """Where the launch contexts put the knowledge base of the data directory `data` (WP-M2: its package's directory)."""
+
+    if str(ROOT / "src") not in sys.path:
+        sys.path.insert(0, str(ROOT / "src"))
+    from nonoka_x.engine_contexts import knowledge_root
+    from nonoka_x.runtime.paths import NonokaPaths
+
+    return knowledge_root(NonokaPaths.for_roots(data))
+
+
 def hermetic_environment(root: Path) -> dict[str, str]:
     """A child environment with nothing of this machine's that could steer FineSub.
 

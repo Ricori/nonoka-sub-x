@@ -11,16 +11,20 @@ downloads -- "delete first, download after", plan appendix B question 2):
 | id | owner | does |
 |---|---|---|
 | `runtime-root` | WP-M1 | rename the old big-file root to its sibling `runtime`; rewrite `storage.json` when it records the root |
-| `models` | WP-M1 | rename `models\\` to `layers\\models\\migrated\\`; delete `accel\\`, `xet\\`, `.locks\\` and `*.lock` inside |
+| `models` | WP-M1 | rename `models\\` to `layers\\models\\migrated\\` |
 | `settings` | WP-R4 | read the old settings and keys into `settings.json` / `secrets.json`, back the old files up (`config.migrate`) |
-| `knowledge` | WP-M2 | deferred |
-| `limit-state` | WP-M2 | deferred |
-| `task-products` | WP-M2 | deferred |
+| `knowledge` | WP-M2 | move the knowledge base into `engines\\finesub-knowledge\\`, content unchanged |
+| `limit-state` | WP-M2 | move the rate-limit state into `engines\\finesub-correct\\`, content unchanged |
+| `task-products` | WP-M2 | file each old task's `workspace\\` under `native\\<package>\\`, convert it to Nonoka's formats (`migration.tasks`) |
 | `old-environment` | WP-M1 | delete the old `runtime\\` (the venv, `python-builds\\`, the tools, whatever else is in it) |
-| `caches` | WP-M1 | delete the old `cache\\` and FineSub's compiled-kernel caches in staged engines and the checkout |
+| `caches` | WP-M1 | delete the old `cache\\`, FineSub's compiled-kernel caches in staged engines and the checkout, and the moved models' `accel\\`, `xet\\`, `.locks\\` and `*.lock` |
 | `rebuildable` | WP-M1 | delete the store marker, the registration script, the model catalog and `finesub-data\\` |
-| `model-completion` | WP-E3 | deferred |
-| `layer-download` | WP-E3 | deferred |
+| `model-completion` | WP-E3 | check the models against the model layer, fetch only what is missing |
+| `layer-download` | WP-E3 | download the Python environment and tool layers |
+
+Everything up to `task-products` can be undone (`runner`; plan WP-M2: a failed
+settings or data step rolls back to the layout before the migration); from
+`old-environment` on nothing can, the old environment being gone.
 """
 
 from __future__ import annotations
@@ -44,6 +48,18 @@ MODELS = "models"
 OLD_ENVIRONMENT = "old-environment"
 CACHES = "caches"
 REBUILDABLE = "rebuildable"
+
+#: The steps that can be undone, in execution order: a failure in one of them rolls back all of them.
+REVERSIBLE = (
+    RUNTIME_ROOT,
+    MODELS,
+    deferred.SETTINGS,
+    deferred.KNOWLEDGE,
+    deferred.LIMIT_STATE,
+    deferred.TASK_PRODUCTS,
+)
+#: The steps that download (run in the background at start-up, after the local ones).
+DOWNLOADS = (deferred.MODEL_COMPLETION, deferred.LAYER_DOWNLOAD)
 
 #: Every step, in execution order.
 STEP_ORDER = (
@@ -82,8 +98,10 @@ NOTHING = "nothing"
 FRESH = "fresh"
 #: A migration that was interrupted: the journal's plan continues.
 RESUMING = "resuming"
-#: Migrated before.
+#: Migrated before (or, at start-up, nothing to migrate: the mark that it ran once).
 COMPLETED = "completed"
+#: A rollback was interrupted: it is finished before anything else.
+ROLLING_BACK = "rolling-back"
 
 # -- action kinds ----------------------------------------------------------------------------------------------
 
@@ -96,6 +114,8 @@ REWRITE = "rewrite"
 KEEP = "keep"
 #: What a deferred step will work on.
 PENDING = "pending"
+#: One old task's `workspace\\` to file under `native\\` and convert (`migration.tasks`).
+FILE_TASK = "file-task"
 
 
 @dataclass
@@ -296,29 +316,22 @@ def _measured(kind: str, path: Path, *, target: Path | None = None, note: str = 
 # -- building ----------------------------------------------------------------------------------------------------
 
 
-def build_plan(layout: LegacyLayout, hooks: Hooks | None = None) -> MigrationPlan:
-    """What migrating `layout` would do. Reads the disk, changes nothing."""
+def build_plan(layout: LegacyLayout, hooks: Hooks | None = None, *, startup: bool = False) -> MigrationPlan:
+    """What migrating `layout` would do. Reads the disk, changes nothing.
+
+    `startup`: called by the sidecar before it opens anything. No task can be
+    running then -- the process that runs them has not started -- so a task
+    snapshot that says otherwise is stale (the sidecar marks it interrupted
+    once it starts) and blocks nothing.
+    """
 
     hooks = hooks or {}
     paths = NonokaPaths.for_roots(layout.data, layout.new_root)
     context = MigrationContext(layout=layout, paths=paths)
     blockers: list[str] = []
-    builders = {
-        RUNTIME_ROOT: _runtime_root,
-        MODELS: _models,
-        deferred.SETTINGS: _settings,
-        deferred.KNOWLEDGE: _knowledge,
-        deferred.LIMIT_STATE: _limit_state,
-        deferred.TASK_PRODUCTS: _task_products,
-        OLD_ENVIRONMENT: _old_environment,
-        CACHES: _caches,
-        REBUILDABLE: _rebuildable,
-        deferred.MODEL_COMPLETION: _model_completion,
-        deferred.LAYER_DOWNLOAD: _layer_download,
-    }
     steps: list[Step] = []
     for step_id in STEP_ORDER:
-        actions = builders[step_id](context, blockers)
+        actions = _BUILDERS[step_id](context, blockers)
         step = Step(id=step_id, title=TITLES[step_id], actions=actions)
         owner = deferred.DEFERRED_OWNERS.get(step_id)
         if owner is not None:
@@ -329,8 +342,8 @@ def build_plan(layout: LegacyLayout, hooks: Hooks | None = None) -> MigrationPla
                 None if step_id in (deferred.MODEL_COMPLETION, deferred.LAYER_DOWNLOAD) else 0
             )
         steps.append(step)
-    for task_id, state in legacy.running_tasks(layout.data):
-        blockers.append(f"task {task_id} is {state}: finish or cancel it first")
+    if not startup:
+        blockers.extend(task_blockers(layout.data))
     plan = MigrationPlan(
         data=str(layout.data),
         new_root=str(layout.new_root),
@@ -344,6 +357,16 @@ def build_plan(layout: LegacyLayout, hooks: Hooks | None = None) -> MigrationPla
         plan.state = NOTHING
         plan.blockers = []
     return plan
+
+
+def task_blockers(data: Path) -> list[str]:
+    return [f"task {task_id} is {state}: finish or cancel it first" for task_id, state in legacy.running_tasks(data)]
+
+
+def step_actions(step_id: str, context: MigrationContext, blockers: list[str]) -> list[Action]:
+    """One step's actions, listed from the disk as it is now."""
+
+    return _BUILDERS[step_id](context, blockers)
 
 
 _OLD_ROOT_KNOWN = frozenset({
@@ -402,13 +425,26 @@ def _models(context: MigrationContext, blockers: list[str]) -> list[Action]:
     clash = context.layout.old_root / context.migrated_models.relative_to(context.paths.runtime)
     if os.path.lexists(clash):
         blockers.append(f"{clash} already exists; migration does not merge into it")
-    actions = [_measured(RENAME, old_models, target=target)]
+    return [_measured(RENAME, old_models, target=target)]
+
+
+def _model_extras(context: MigrationContext) -> list[Action]:
+    """In the moved models: the AOTI builds, the xet cache and the download locks.
+
+    Deleted with the caches, after the reversible steps, so that a rollback
+    puts the models back exactly as they were.
+    """
+
+    old_models = context.layout.under_old_root(legacy.OLD_MODELS_DIRECTORY)
+    if old_models is None or not os.path.lexists(old_models) or is_directory_link(old_models):
+        return []
+    actions = []
     for parts in legacy.MODEL_EXTRA_DIRECTORIES:
         extra = old_models.joinpath(*parts)
         if os.path.lexists(extra):
-            actions.append(_measured(DELETE, extra))
+            actions.append(_measured(DELETE, extra, note="in the moved models: not part of the model layer"))
     for lock in lock_files(old_models):
-        actions.append(_measured(DELETE, lock))
+        actions.append(_measured(DELETE, lock, note="a download lock in the moved models"))
     return actions
 
 
@@ -439,28 +475,58 @@ def _settings(context: MigrationContext, blockers: list[str]) -> list[Action]:
     )
 
 
+def _moves(
+    context: MigrationContext,
+    blockers: list[str],
+    moves: list[tuple[Path, Path, bool]],
+) -> list[Action]:
+    """`(source, target, is a lock)` -> rename actions; an existing target blocks, except for a lock (dropped)."""
+
+    actions = []
+    for source, target, lock in moves:
+        if not os.path.lexists(source):
+            continue
+        if is_directory_link(source):
+            blockers.append(f"{source} is a directory link; migration does not follow links")
+        if os.path.lexists(target):
+            if lock:
+                actions.append(_measured(DELETE, source, note=f"a lock; {target} is already there"))
+                continue
+            blockers.append(f"{target} already exists; migration does not merge {source} into it")
+        actions.append(_measured(RENAME, source, target=target, note="content unchanged"))
+    return actions
+
+
 def _knowledge(context: MigrationContext, blockers: list[str]) -> list[Action]:
-    return _main_entries(context, legacy.KNOWLEDGE_ENTRIES, target=context.paths.engine(legacy.KNOWLEDGE_PACKAGE), note="content unchanged")
+    data, root = context.layout.data, legacy.knowledge_root(context.paths)
+    old = data / legacy.KNOWLEDGE_DIRECTORY
+    moves = [(old, root, False)]
+    moves += [
+        (old.with_name(old.name + suffix), root.with_name(root.name + suffix), True)
+        for suffix in legacy.KNOWLEDGE_SIBLINGS
+    ]
+    actions = _moves(context, blockers, moves)
+    registrations = old.with_name(old.name + legacy.KNOWLEDGE_REGISTRATIONS)
+    if os.path.lexists(registrations):
+        actions.append(_measured(DELETE, registrations, note="endpoint registrations of knowledge processes that have ended"))
+    return actions
 
 
 def _limit_state(context: MigrationContext, blockers: list[str]) -> list[Action]:
-    return _main_entries(context, legacy.LIMIT_STATE_ENTRIES, target=context.paths.engine(legacy.CORRECTION_PACKAGE), note="content unchanged")
+    data, state = context.layout.data, legacy.limit_state_file(context.paths)
+    old = data / legacy.LIMIT_STATE_FILE
+    moves = []
+    # A `state` directory is Nonoka's own state (`ConfigStore.state_file`), not FineSub's file.
+    if os.path.lexists(old) and not old.is_dir():
+        moves.append((old, state, False))
+    moves.append((data / legacy.LIMIT_STATE_LOCK, state.with_name(state.name + ".lock"), True))
+    return _moves(context, blockers, moves)
 
 
 def _task_products(context: MigrationContext, blockers: list[str]) -> list[Action]:
-    try:
-        tasks = sorted(entry for entry in context.paths.tasks.iterdir() if (entry / "workspace").is_dir())
-    except OSError:
-        return []
-    actions = []
-    for task in tasks:
-        actions.append(_measured(
-            PENDING,
-            task / "workspace",
-            target=task / "native",
-            note="FineSub's outputs go to native\\<package>\\ (which file goes where: WP-P0 question 6)",
-        ))
-    return actions
+    from nonoka_x.migration import tasks
+
+    return tasks.plan_actions(context)
 
 
 _OLD_INSTALL_NOTES = {
@@ -490,7 +556,7 @@ def _old_environment(context: MigrationContext, blockers: list[str]) -> list[Act
 
 def _caches(context: MigrationContext, blockers: list[str]) -> list[Action]:
     layout = context.layout
-    actions = []
+    actions = _model_extras(context)
     old_cache = layout.under_old_root(legacy.OLD_CACHE_DIRECTORY)
     if old_cache is not None and os.path.lexists(old_cache):
         actions.append(_measured(DELETE, old_cache, note="the old installer's caches (uv and others)"))
@@ -554,6 +620,21 @@ def _layer_download(context: MigrationContext, blockers: list[str]) -> list[Acti
     )]
 
 
+_BUILDERS = {
+    RUNTIME_ROOT: _runtime_root,
+    MODELS: _models,
+    deferred.SETTINGS: _settings,
+    deferred.KNOWLEDGE: _knowledge,
+    deferred.LIMIT_STATE: _limit_state,
+    deferred.TASK_PRODUCTS: _task_products,
+    OLD_ENVIRONMENT: _old_environment,
+    CACHES: _caches,
+    REBUILDABLE: _rebuildable,
+    deferred.MODEL_COMPLETION: _model_completion,
+    deferred.LAYER_DOWNLOAD: _layer_download,
+}
+
+
 # -- showing -----------------------------------------------------------------------------------------------------
 
 
@@ -579,7 +660,12 @@ def render(plan: MigrationPlan) -> str:
     lines.append(f"  new big-file root:   {plan.new_root}")
     if plan.checkout:
         lines.append(f"  development checkout: {plan.checkout}")
-    state = {FRESH: "not migrated yet", RESUMING: "interrupted: continuing the journal's plan", COMPLETED: "migrated"}[plan.state]
+    state = {
+        FRESH: "not migrated yet",
+        RESUMING: "interrupted: continuing the journal's plan",
+        ROLLING_BACK: "a failed migration is being rolled back",
+        COMPLETED: "migrated",
+    }[plan.state]
     lines.append(f"  state: {state}")
     totals = plan.totals()
     lines.append(
@@ -613,6 +699,9 @@ def render(plan: MigrationPlan) -> str:
 
 __all__ = [
     "COMPLETED",
+    "DOWNLOADS",
+    "REVERSIBLE",
+    "ROLLING_BACK",
     "FRESH",
     "NOTHING",
     "RESUMING",

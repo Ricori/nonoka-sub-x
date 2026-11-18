@@ -33,9 +33,9 @@ interrupted run continue: `started` (the stores may be half written: they are
 written again from the old files), `stores-written` (only the renames are
 left), `completed`.
 
-Called by the migration command's `settings` step (`SettingsHook`) and, until
-WP-M2 wires the whole migration into start-up, by `settings.bind_environment`
-for a data directory that has the old files and no new store yet.
+Called by the migration's `settings` step (`SettingsHook`), from the command
+line or the sidecar's start-up (`nonoka_x.migration.startup`); a failed
+migration undoes it with `undo_settings`.
 """
 
 from __future__ import annotations
@@ -358,6 +358,10 @@ def migrate_settings(data_dir: Path | str, *, log: Log | None = None) -> dict[st
             "status": STARTED,
             "startedAt": (report or {}).get("startedAt") or _now(),
             "backups": {source.name: _backup_name(source).name for source in sources},
+            # The old files' lock sidecars, removed with the renames: a rollback puts them back.
+            "locks": sorted({*(report or {}).get("locks", ()), *(
+                f"{source.name}.lock" for source in sources if (data / f"{source.name}.lock").exists()
+            )}),
             **carried.report,
         }
         _write_report(data, report)
@@ -386,6 +390,38 @@ def migrate_settings(data_dir: Path | str, *, log: Log | None = None) -> dict[st
     return report
 
 
+def undo_settings(data_dir: Path | str, *, log: Log | None = None) -> bool:
+    """Put the old files back and remove what `migrate_settings` wrote (the migration's rollback, WP-M2).
+
+    Only a migration this module recorded is undone: its report says which
+    backups it made, and the stores it wrote did not exist before it (an
+    existing store blocks it, `blocker`). Repeatable: a rollback killed half
+    way runs again to the same end. Returns whether there was anything to undo.
+    """
+
+    log = log or (lambda message: None)
+    data = Path(os.path.abspath(Path(data_dir).expanduser()))
+    report = read_report(data)
+    if report is None:
+        return False
+    for original, backup in (report.get("backups") or {}).items():
+        source, target = data / backup, data / original
+        if source.is_file() and not os.path.lexists(target):
+            replace_path(source, target, budget=RECORD_REPLACE)
+            log(f"settings: restored {original}")
+    for name in report.get("locks") or ():
+        lock = data / name
+        if not lock.exists():
+            lock.write_bytes(b"")
+    for store in (SettingsStore.in_dir(data), SecretStore.in_dir(data)):
+        if store.path.exists():
+            store.path.unlink()
+            log(f"settings: removed {store.path.name}")
+        store.path.with_name(store.path.name + ".lock").unlink(missing_ok=True)
+    report_path(data).unlink(missing_ok=True)
+    return True
+
+
 class SettingsHook:
     """The migration command's `settings` step (`nonoka_x.migration.hooks.StepHook`)."""
 
@@ -394,6 +430,9 @@ class SettingsHook:
 
     def run(self, context: Any) -> None:
         migrate_settings(context.layout.data, log=context.log)
+
+    def undo(self, context: Any) -> None:
+        undo_settings(context.layout.data, log=context.log)
 
 
 __all__ = [
@@ -411,4 +450,5 @@ __all__ = [
     "read_legacy",
     "read_report",
     "report_path",
+    "undo_settings",
 ]
