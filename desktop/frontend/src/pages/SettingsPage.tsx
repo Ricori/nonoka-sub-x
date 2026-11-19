@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { Dispatch, ReactNode, SetStateAction } from "react";
 import type { FineSubSettingsState } from "../bridge/settings.ts";
+import type { RuntimeInstallTarget } from "../bridge/runtime.ts";
 import type { CacheStatus } from "../bridge/library.ts";
 import type { RelocationProgress, StorageDestination, StorageStatus, StorageTarget } from "../bridge/storage.ts";
 import { StorageLocationsCard } from "../components/StorageLocationsCard.tsx";
@@ -54,7 +55,7 @@ interface SettingsPageProps {
   onSelectEngine: (engine: string) => void;
   onOpenAccount: () => void;
   /** 「运行环境」一段，原样是从前的运行环境页。 */
-  runtime: Omit<Parameters<typeof RuntimeSection>[0], "capabilities" | "storage" | "storageProgress" | "storageBusy" | "onChooseStorage" | "onRelocateStorage" | "onCancelStorage">;
+  runtime: Omit<Parameters<typeof RuntimeSection>[0], "capabilities" | "storage" | "storageProgress" | "storageBusy" | "onChooseStorage" | "onRelocateStorage" | "onCancelStorage" | "requestedInstall">;
   /** 打开页面时要滚到的一段；`seq` 变了就再滚一次（同一段可以连续跳两次）。 */
   anchor: { target: SettingsAnchor; seq: number } | null;
 }
@@ -124,6 +125,10 @@ export function SettingsPage(props: SettingsPageProps) {
   const noticeFor = (source: "engine" | "model" | "advanced") =>
     settings && messageSource === source ? <Notice className="keys-message" message={message} tone={tone} onDismiss={onDismissMessage} /> : null;
 
+  // 引擎列表里的「下载所缺的层」交给「运行环境」一段去装：同一套位置确认、进度与重试。
+  const [requestedInstall, setRequestedInstall] = useState<{ target: RuntimeInstallTarget; seq: number } | null>(null);
+  const scrollToRuntime = () => document.getElementById(settingsAnchorId("runtime"))?.scrollIntoView({ block: "start", behavior: "smooth" });
+
   useEffect(() => {
     if (!anchor) return;
     document.getElementById(settingsAnchorId(anchor.target))?.scrollIntoView({ block: "start", behavior: "smooth" });
@@ -144,9 +149,14 @@ export function SettingsPage(props: SettingsPageProps) {
           busy={busy}
           setDrafts={setDrafts}
           onSaveKey={saveFrom("engine")}
+          provision={runtime.provision}
           onSelect={onSelectEngine}
           onOpenAccount={onOpenAccount}
-          onOpenRuntime={() => document.getElementById(settingsAnchorId("runtime"))?.scrollIntoView({ block: "start", behavior: "smooth" })}
+          onOpenRuntime={scrollToRuntime}
+          onInstallLayers={(target) => {
+            setRequestedInstall((current) => ({ target, seq: (current?.seq ?? 0) + 1 }));
+            scrollToRuntime();
+          }}
         />
         {noticeFor("engine")}
       </Group>
@@ -154,6 +164,7 @@ export function SettingsPage(props: SettingsPageProps) {
       <Group anchor="runtime" title="运行环境" note="本机转写用的 Python 环境、模型与工具；云 API 引擎只要工具层">
         <RuntimeSection
           {...runtime}
+          requestedInstall={requestedInstall}
           capabilities={capabilities}
           storage={storage}
           storageProgress={storageProgress}

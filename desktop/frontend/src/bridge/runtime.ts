@@ -37,6 +37,29 @@ export interface RuntimeUnusedLayer {
   bytes: number;
 }
 
+/** 「清理未使用的」要删的一项：当前引擎和纠错包都用不到的层（`unneeded`，整层删），或没人用的旧版本。 */
+export interface RuntimeCleanupItem extends RuntimeUnusedLayer {
+  reason: "old-version" | "unneeded";
+  /** 非空时这一项不删，写着原因（有未结束的任务用到它）。 */
+  blocked: string;
+}
+
+/** 「清理未使用的」现在会删什么（`GET /v1/runtime/provision/unused?engine=`，WP-UI）。 */
+export interface RuntimeCleanupPlan {
+  schema: 1;
+  engine: string | null;
+  /** 当前引擎在这台 sidecar 上是否存在；不存在时只列旧版本，不整层删。 */
+  engine_available: boolean;
+  /** 为当前引擎、纠错包与媒体探测留下的层；为 null 时一层都不整层删。 */
+  needed: string[] | null;
+  /** 有未结束任务可能用到的层。 */
+  busy: string[];
+  items: RuntimeCleanupItem[];
+  /** 能腾出的空间（不含被占用而留下的）。 */
+  bytes: number;
+  blocked_bytes: number;
+}
+
 /** 「清理未使用的」的结果：删掉的、因占用或任务未结束而留下的，以及腾出的字节数。 */
 export interface RuntimeUnusedRemoval {
   schema: 1;
@@ -115,7 +138,9 @@ export const fineSubRuntime = {
   install: (target: RuntimeInstallTarget) => ProviderService.InstallRuntime(target) as Promise<unknown> as Promise<RuntimeProvisionState>,
   cancel: () => ProviderService.CancelRuntimeInstall() as Promise<unknown> as Promise<RuntimeProvisionState>,
   removeAll: () => ProviderService.RemoveRuntime() as Promise<unknown> as Promise<RuntimeProvisionState>,
-  removeUnused: () => ProviderService.RemoveUnusedRuntime() as Promise<unknown> as Promise<RuntimeUnusedRemoval>,
+  /** 以当前转写引擎为准；sidecar 不认识的引擎只列旧版本。 */
+  cleanupPlan: (engine: string) => ProviderService.UnusedRuntime(engine) as Promise<unknown> as Promise<RuntimeCleanupPlan>,
+  removeUnused: (engine: string) => ProviderService.RemoveUnusedRuntime(engine) as Promise<unknown> as Promise<RuntimeUnusedRemoval>,
   cacheStatus: () => ProviderService.RuntimeCacheStatus() as Promise<unknown> as Promise<RuntimeCacheStatus>,
   clearCache: () => ProviderService.ClearRuntimeCache() as Promise<unknown> as Promise<RuntimeCacheClearResult>,
 };

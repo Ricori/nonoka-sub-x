@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"regexp"
 	"slices"
 	"strconv"
@@ -24,7 +25,22 @@ var validTaskID = regexp.MustCompile(`^[0-9a-f]{32}$`)
 // message is derived from it rather than written out again, because the two
 // drifted apart once already -- aria2c was added to the Python side and this
 // list still refused it, naming the old tools in the error.
-var runtimeTargets = []string{"media", "runtime", "models", "all", "optional-models", "yt-dlp", "tokcount", "aria2c", "node", "pot-provider", "video-tools"}
+var runtimeTargets = []string{"media", "runtime", "models", "all", "optional-models", "repair", "yt-dlp", "tokcount", "aria2c", "node", "pot-provider", "video-tools"}
+
+// engineID is the registry's id shape (`nonoka_x.transcription.check_id`).
+var engineID = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,63}$`)
+
+// unusedEndpoint is the "clean up unused" route for the current transcription
+// engine; an empty engine keeps every layer, so only old versions are offered.
+func unusedEndpoint(engine string) (string, error) {
+	if engine == "" {
+		return "/v1/runtime/provision/unused", nil
+	}
+	if !engineID.MatchString(engine) {
+		return "", fmt.Errorf("invalid transcription engine id: %q", engine)
+	}
+	return "/v1/runtime/provision/unused?engine=" + url.QueryEscape(engine), nil
+}
 
 type caller interface {
 	DoJSON(context.Context, string, string, any, any) error
@@ -145,12 +161,30 @@ func (s *Service) ClearRuntimeCache() (map[string]any, error) {
 	return result, err
 }
 
-// RemoveUnusedRuntime deletes the runtime layer versions nothing uses any
-// more (neither current nor wanted by this version) and reports what went and
-// what stayed. The sidecar refuses while an install or a local task runs.
-func (s *Service) RemoveUnusedRuntime() (map[string]any, error) {
+// UnusedRuntime lists what "clean up unused" would delete for the current
+// transcription engine: the layers neither it nor the correction package
+// needs, and the layer versions nothing uses, each with its size and, when an
+// unfinished task may use it, why it stays.
+func (s *Service) UnusedRuntime(engine string) (map[string]any, error) {
+	endpoint, err := unusedEndpoint(engine)
+	if err != nil {
+		return nil, err
+	}
 	var result map[string]any
-	err := s.provider.DoJSON(context.Background(), http.MethodDelete, "/v1/runtime/provision/unused", nil, &result)
+	err = s.provider.DoJSON(context.Background(), http.MethodGet, endpoint, nil, &result)
+	return result, err
+}
+
+// RemoveUnusedRuntime deletes what UnusedRuntime(engine) lists, worked out
+// again by the sidecar at that moment, and reports what went and what stayed.
+// The sidecar refuses while an install runs.
+func (s *Service) RemoveUnusedRuntime(engine string) (map[string]any, error) {
+	endpoint, err := unusedEndpoint(engine)
+	if err != nil {
+		return nil, err
+	}
+	var result map[string]any
+	err = s.provider.DoJSON(context.Background(), http.MethodDelete, endpoint, nil, &result)
 	return result, err
 }
 

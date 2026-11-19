@@ -26,7 +26,7 @@ TaskRequest
 - **另外两个入口**不调转写引擎：
   - `source.kind = cloud_transcript`：云端识别好的结果（`transcript.json` 加附件）直接当作 `TranscriptionResult`，附件复制进 `tasks/<id>/native/<包>/`（[provider-spec.md](provider-spec.md) 4.2.1）。
   - 日文轴（`axis.kind = "ja"`）：轴的行直接交给纠错引擎的轴入口，只跑翻译。
-- **没装纠错包时**，`raw-srt` 由核心自己从 `transcript.json` 渲染（`nonoka_x.transcription.srt`，`worker.core_renders_raw_srt`）；纠错、翻译、知识库各档报 `missing_engine`。现状：本机 FineSub 与云端识别的续跑能这样出原始字幕；云 API 引擎从媒体起跑时，启动检查仍要求 `harness` 档（`local_provider._start` 的 `CONTINUATION_READINESS`），所以没装纠错包时会被 `missing_engine` 拦下（WP-CL 交给 WP-UI 的已知问题）。
+- **没装纠错包时**，`raw-srt` 由核心自己从 `transcript.json` 渲染（`nonoka_x.transcription.srt`，`worker.core_renders_raw_srt`）；纠错、翻译、知识库各档报 `missing_engine`。本机 FineSub、云 API 引擎与云端识别的续跑都能这样出原始字幕：这时启动检查不看 `harness` 档（`local_provider._start`）。
 - 两层之间唯一的必备产物是 Nonoka 的 `transcript.json`。引擎自己的产物是私有附件：键为 `<引擎>.<名字>`（如 `finesub.stable_json`），核心只登记、存放、转交，从不解析。
 
 两层互相独立：纠错层只依赖转写层的**契约**（`nonoka_x.transcription` 与 `model.py`），不依赖任何转写引擎的实现；转写层不 import 纠错层（`tests/test_transcription_contract.py` 看住两个方向）。
@@ -142,9 +142,9 @@ TaskRequest
 | 删掉 | 结果 |
 | :--- | :--- |
 | 转写包 | 本机 FineSub 转写不出现；云 API 引擎、云端 FineSub 与 FineSub 纠错照常 |
-| 纠错包 | 转写照常，原始字幕由核心渲染；纠错翻译各档报 `missing_engine`。现状例外：云 API 引擎的 `raw-srt` 任务启动时仍被 `harness` 档拦下（见第 1 节） |
-| 知识库包 | 读写知识库或要用知识库做 ASR 上下文的请求被就绪检查拦下（`missing_knowledge_package`），不静默当作关闭；其余照常 |
-| 转写与纠错两个包 | 核心照常启动；云端 FineSub 的任务能出到原始字幕。云 API 引擎在测试里（打桩）能跑到 `raw-srt`，实际启动受上一行的例外所限 |
+| 纠错包 | 转写照常，原始字幕由核心渲染；纠错翻译各档报 `missing_engine` |
+| 知识库包 | 读写知识库或要用知识库做 ASR 上下文的请求被就绪检查拦下（`missing_knowledge_package`），不静默当作关闭；纠错与翻译也被拦下，因为纠错要从知识库读取风格目录（`--style auto`，知识库关着也一样，附录 B 第 94 问）；只到原始字幕的任务照常 |
+| 转写与纠错两个包 | 核心照常启动；云端 FineSub 与云 API 引擎的任务能出到原始字幕 |
 
 界面不提供卸载；删除指代码层面可分离、打包时可以不带。
 
@@ -184,7 +184,7 @@ TaskRequest
 | `models` | 模型清单里钉住 revision 的全部模型（不含编译加速产物） | FineSub 转写 |
 | `tools` | ffmpeg、ffprobe、tokcount、yt-dlp、aria2c、node、pot-provider | 所有引擎；桌面自己的导出与下载器 |
 
-引擎在 `EngineEnvironment` 里用组件 ID 声明要什么（`nonoka_x.runtime`）：`asr-runtime` = Python 环境层；`media` = 工具层的 ffmpeg 加 ffprobe；单个工具按它自己的 ID；层按 `python` / `models` / `tools`；模型按模型清单里的 ID（`separator`、`whisper`、`qwen-referee`，可选的 `nemotron3`、`speaker-embedding`）。就绪 = 要的组件在、当前版本与清单相符；**工具只认工具层**，用户 PATH 上的 ffmpeg 不算（核心自己的 `media` 档除外，见计划 WP-H 交回）。
+引擎在 `EngineEnvironment` 里用组件 ID 声明要什么（`nonoka_x.runtime`）：`asr-runtime` = Python 环境层；`media` = 工具层的 ffmpeg 加 ffprobe；单个工具按它自己的 ID；层按 `python` / `models` / `tools`；模型按模型清单里的 ID（`separator`、`whisper`、`qwen-referee`，可选的 `nemotron3`、`speaker-embedding`）。就绪 = 要的组件在、当前版本与清单相符；**工具只认工具层**，用户 PATH 上的 ffmpeg 不算，核心自己的 `media` 档也一样（附录 B 第 94 问）。这些组件对应到哪几层由 `nonoka_x.runtime_cleanup.environment_layers` 推出，设置页据此列出各引擎缺的层与占用，「清理未使用的」据此判断哪些层当前引擎和纠错包都用不到。
 
 FineSub 引擎的代码不进层，随桌面安装包下发，与核心同步升级。
 

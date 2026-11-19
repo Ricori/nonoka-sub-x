@@ -139,7 +139,7 @@ interface ExecutionProvider {
 
 > **`runtime.ready` 的语义**：宿主在 `start()` 之前会读取 `capabilities()`，`runtime.ready === false` 时直接以 `issues[0].message` 报错并阻止提交。Provider 若不提供 `runtime`，前端将视为未就绪。
 
-> **分档互不继承**：`raw-srt` 是识别档，由所选转写引擎回答（FineSub：平台、Python 环境层、模型层与工具层；云 API 引擎：工具层与它的密钥）；`harness` 是从转写结果往后所需的一切，由纠错引擎回答（FineSub 纠错包：它在 `PACKAGE.json` 里声明的启动器模块与工具层的 FFmpeg，不含 torch）；`final-srt` 是 `harness` 加上已配置的模型。纠错包没装时，`harness` 及其后各档都报 `missing_engine`。本地 Provider 从媒体跑 LLM 目标时要同时过 `raw-srt` 与 `final-srt`，从 `cloud_transcript` 续跑时只看 `harness`（`raw-srt` 目标）或 `final-srt`；没装纠错包的 `raw-srt` 续跑由核心渲染，一档都不看。
+> **分档互不继承**：`raw-srt` 是识别档，由所选转写引擎回答（FineSub：平台、Python 环境层、模型层与工具层；云 API 引擎：工具层与它的密钥）；`harness` 是从转写结果往后所需的一切，由纠错引擎回答（FineSub 纠错包：它在 `PACKAGE.json` 里声明的启动器模块与工具层的 FFmpeg，不含 torch）；`final-srt` 是 `harness` 加上已配置的模型。纠错包没装时，`harness` 及其后各档都报 `missing_engine`；知识库包没装时，`final-srt`、`knowledge`、`video-multimodal` 三档另报 `missing_knowledge_package`（纠错要从知识库读取风格目录，知识库关着也一样；`harness` 不受影响）。本地 Provider 从媒体跑 LLM 目标时要同时过 `raw-srt` 与 `final-srt`，从 `cloud_transcript` 续跑时只看 `harness`（`raw-srt` 目标）或 `final-srt`；云 API 引擎从媒体跑时先过 `raw-srt`，再过续跑的这几档。没装纠错包的 `raw-srt` 任务由核心渲染原始字幕：续跑一档都不看，云 API 引擎只看 `raw-srt`。
 
 #### 4.1.1 转写引擎与纠错引擎（`transcription_engines`、`correction_engines`）
 
@@ -162,10 +162,11 @@ interface ExecutionProvider {
       "languages": []              // 支持的语言码；空数组表示不限
     },
     "billing": "按音频时长计费，约 $0.10/小时",  // 一句计费说明；不计费时为空字符串
-    "keys": ["OPENROUTER_STT_KEY", "AZURE_SPEECH_KEY", "AZURE_SPEECH_ENDPOINT"]  // 引擎读的 Key 名；宿主的引擎面板按它列输入框
+    "keys": ["OPENROUTER_STT_KEY", "AZURE_SPEECH_KEY", "AZURE_SPEECH_ENDPOINT"],  // 引擎读的 Key 名；宿主的引擎面板按它列输入框
+    "layers": { "required": ["tools"], "optional": [] }  // 引擎要的运行环境层（python、models、tools，按安装顺序）与可选的层
   }
 ],
-"correction_engines": [{ "id": "finesub", "ready": true, "issues": [] }]
+"correction_engines": [{ "id": "finesub", "ready": true, "issues": [], "layers": { "required": [], "optional": [] } }]
 ```
 
 | 字段 | 说明 |
@@ -173,6 +174,7 @@ interface ExecutionProvider {
 | `kind` | `local-gpu`：在本机用托管运行时跑；`cloud-api`：在本机跑、调用第三方 API（音频会离开本机）；`cloud-service`：不在本机跑，任务交给云端 Provider（Nonoka Cloud 的 FineSub，ID 为 `finesub-cloud`） |
 | `provider` | 选中该引擎时任务请求的 `provider`；与 `kind` 矛盾的条目无效 |
 | `ready` / `issues` | 与 `runtime` 同义：`ready=false` 时 `issues` 不得为空，`ready=true` 时必须为空 |
+| `layers` | 由引擎声明的组件与模型推出（`nonoka_x.runtime_cleanup.environment_layers`）：`asr-runtime` → `python`，`media` 与各工具 → `tools`，有模型 → `models`；不认识的组件算作三层都要。宿主据此列出缺哪几层、要下多少、各引擎占多少，并只安装所选引擎缺的层。旧 Provider 没有这个字段 |
 
 `runtime.stages` 里 `raw-srt` 的就绪改为按所选转写引擎判断：云 API 引擎只要 FFmpeg 和它自己的密钥，不要求 ASR 运行时与模型。
 
@@ -475,7 +477,7 @@ interface UploadedAudioSource {
 | `unsupported_engine` | 400 | `transcription.engine` 不在本 Provider 的 `transcription_engines` 里 |
 | `missing_engine` | 503 | 所要的引擎包没装：所选转写引擎的包（同时出现在该引擎的 `issues` 与 `raw-srt` 档里），或纠错包（`harness` 及其后各档） |
 | `missing_key` | 503 | 所选转写引擎缺少它要的密钥（如 MAI-Transcribe-2 没配 OpenRouter STT 或 Azure Speech）；同时出现在该引擎 `transcription_engines[].issues` 与 `runtime.stages` 的 `raw-srt` 档里 |
-| `missing_knowledge_package` | 503 | 任务读写知识库或从知识库取 ASR 上下文，而知识库包不在 |
+| `missing_knowledge_package` | 503 | 知识库包不在，而任务读写知识库、从知识库取 ASR 上下文，或要做纠错与翻译（纠错从知识库读取风格目录，`knowledge` 为 `none` 也一样）；只到原始字幕的任务不受影响 |
 | `migrating` | 503 | 本地 Provider 正在把旧版数据迁移到新布局；迁移的本地步骤完成之前，除 `GET /v1/migration`、`POST /v1/migration/retry` 外的路由都这样回答（见第 9 节） |
 | *运行时就绪 issue code* | 503 | `start()` 时目标阶段未就绪，直接返回该 issue |
 | `internal_error` | 500 | 未归类的内部异常 |
@@ -641,7 +643,7 @@ interface UploadedAudioSource {
 | :--- | :--- | :--- |
 | `GET` / `POST` / `DELETE` | `/v1/runtime/provision` | 查询 / 安装 / 卸载运行时 |
 | `POST` | `/v1/runtime/provision/cancel` | 取消安装 |
-| `DELETE` | `/v1/runtime/provision/unused` | 删掉没有用到的运行环境层版本（既不是当前的、也不是这个版本要的），回报 `{removed, kept, freed}`；有任务或安装在跑时拒绝 |
+| `GET` / `DELETE` | `/v1/runtime/provision/unused?engine=<id>` | 「清理未使用的」：查询 / 执行。`engine` 是宿主当前的转写引擎；会删的是它、纠错包与媒体探测（工具层）都用不到的层（整层，`reason: "unneeded"`），以及没人用的层版本（既不是当前的、也不是这个版本要的，`reason: "old-version"`）。查询回报 `{engine, engine_available, needed, busy, items: [{layer, name, path, bytes, reason, blocked}], bytes, blocked_bytes}`；未结束的任务可能用到的层不删（`blocked` 写明原因，旧版本在有任何未结束任务时都不删）。执行时按当时的状态重新算，回报 `{removed, kept, freed}` 及同样的头部；安装在跑时拒绝。不带 `engine` 或引擎不在本 Provider 上时只列旧版本 |
 | `GET` / `DELETE` | `/v1/runtime/cache` | 统计 / 清空缓存：未装完的层压缩包与转写引擎的编译缓存 |
 | `GET` | `/v1/settings` | 读取配置快照（**不得**回传密钥明文）；`engineKeys` 另列转写引擎自己的 Key（与 `keys` 同形，只有掩码），不交给 FineSub |
 | `PUT` | `/v1/settings/keys` | 写入用户自持 API Key |

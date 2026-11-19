@@ -297,7 +297,8 @@ def test_the_harness_message_is_the_one_wp5_had() -> None:
             mock.patch("shutil.which", return_value="x"):
         issues = engine_host.launcher_engine_readiness(PACKAGE, _Runtime(state="missing"), _Store(True), "raw-srt").issues
     assert [issue.message for issue in issues] == [
-        "本地续跑依赖缺失：opencc-python-reimplemented；请在「运行环境」页重建 Python 启动环境，或安装完整运行环境"
+        # WP-UI: the runtime page is gone; the words send the user to the settings page.
+        "本地续跑依赖缺失：opencc-python-reimplemented；请在「设置 → 运行环境」重建 Python 启动环境，或安装完整运行环境"
     ]
 
 

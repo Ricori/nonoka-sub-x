@@ -60,7 +60,9 @@ func TestServiceMapsFixedProviderEndpoints(t *testing.T) {
 	_, _ = service.InstallRuntime("yt-dlp")
 	_, _ = service.CancelRuntimeInstall()
 	_, _ = service.RemoveRuntime()
-	_, _ = service.RemoveUnusedRuntime()
+	_, _ = service.UnusedRuntime("mai2")
+	_, _ = service.RemoveUnusedRuntime("mai2")
+	_, _ = service.RemoveUnusedRuntime("")
 	_, _ = service.RuntimeCacheStatus()
 	_, _ = service.ClearRuntimeCache()
 	_, _ = service.Settings()
@@ -83,6 +85,8 @@ func TestServiceMapsFixedProviderEndpoints(t *testing.T) {
 		{method: "POST", endpoint: "/v1/runtime/provision", body: map[string]any{"target": "yt-dlp"}},
 		{method: "POST", endpoint: "/v1/runtime/provision/cancel", body: map[string]any{}},
 		{method: "DELETE", endpoint: "/v1/runtime/provision"},
+		{method: "GET", endpoint: "/v1/runtime/provision/unused?engine=mai2"},
+		{method: "DELETE", endpoint: "/v1/runtime/provision/unused?engine=mai2"},
 		{method: "DELETE", endpoint: "/v1/runtime/provision/unused"},
 		{method: "GET", endpoint: "/v1/runtime/cache"},
 		{method: "DELETE", endpoint: "/v1/runtime/cache"},
@@ -117,10 +121,27 @@ func TestServiceRejectsUnknownRuntimeTarget(t *testing.T) {
 	}
 }
 
+func TestServiceRefusesAMalformedEngineForCleanup(t *testing.T) {
+	transport := &fakeCaller{}
+	service, _ := New(transport)
+	for _, engine := range []string{"Not An Id", "mai2&engine=finesub", "../x"} {
+		if _, err := service.UnusedRuntime(engine); err == nil {
+			t.Fatalf("engine %q was accepted", engine)
+		}
+		if _, err := service.RemoveUnusedRuntime(engine); err == nil {
+			t.Fatalf("engine %q was accepted", engine)
+		}
+	}
+	if len(transport.calls) != 0 {
+		t.Fatalf("a malformed engine reached transport: %#v", transport.calls)
+	}
+}
+
 func TestServiceAcceptsOptionalRuntimeTargets(t *testing.T) {
 	transport := &fakeCaller{}
 	service, _ := New(transport)
-	for _, target := range []string{"optional-models", "yt-dlp", "tokcount", "aria2c", "node", "pot-provider", "video-tools"} {
+	// "repair" is the settings page's full check (WP-E3); the list once left it out.
+	for _, target := range []string{"optional-models", "repair", "yt-dlp", "tokcount", "aria2c", "node", "pot-provider", "video-tools"} {
 		if _, err := service.InstallRuntime(target); err != nil {
 			t.Fatalf("optional target %q was rejected: %v", target, err)
 		}

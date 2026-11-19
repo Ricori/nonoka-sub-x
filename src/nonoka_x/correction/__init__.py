@@ -74,7 +74,9 @@ class CorrectionSpec:
 def correction_capability(spec: CorrectionSpec, readiness: Readiness) -> dict[str, Any]:
     """One `Capabilities.correction_engines` item (`docs/provider-spec.md` 4.1)."""
 
-    return {"id": spec.id, **readiness.to_dict()}
+    from ..runtime_cleanup import environment_layers
+
+    return {"id": spec.id, **readiness.to_dict(), "layers": environment_layers(spec.environment)}
 
 
 @dataclass(frozen=True)

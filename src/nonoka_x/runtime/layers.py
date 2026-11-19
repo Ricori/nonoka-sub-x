@@ -1057,6 +1057,51 @@ class LayerManager:
             freed += item.bytes
         return {"removed": removed, "kept": kept, "freed": freed}
 
+    def _version_dirs(self, layer: str) -> list[Path]:
+        """Every version directory of `layer` (current, wanted, old, leftovers); never `migrated` or links."""
+
+        directory = self.paths.layer(layer)
+        if not directory.is_dir():
+            return []
+        return [
+            entry for entry in sorted(directory.iterdir())
+            if not entry.name.startswith(".") and entry.is_dir() and not lm.is_link(entry) and entry.name != MIGRATED_NAME
+        ]
+
+    def versions(self, layer: str) -> list[UnusedVersion]:
+        """What removing `layer` as a whole would delete: each version directory with its size (WP-UI)."""
+
+        return [UnusedVersion(layer, entry.name, entry, self._size_of(entry)) for entry in self._version_dirs(layer)]
+
+    def remove_layer(self, layer: str) -> dict[str, Any]:
+        """Delete every version of `layer` and its pointer: a layer no engine in use needs (WP-UI's "clean up unused").
+
+        Refused (`LayerBusy`) while an install of the layer holds its lock. Each version is renamed aside
+        first, so one whose files are open stays whole and is reported in `kept`; the pointer goes only
+        when every version did.
+        """
+
+        if layer not in lm.LAYERS:
+            raise ValueError(f"no layer {layer!r}")
+        if self._installing(layer):
+            raise LayerBusy(f"{LABELS.get(layer, layer)}层正在安装，等安装结束后再清理")
+        removed, kept, freed = [], [], 0
+        for item in self.versions(layer):
+            try:
+                self._retire(item.path)
+            except (LayerBusy, OSError) as error:
+                kept.append(item.to_dict() | {"reason": str(error)})
+                continue
+            removed.append(item.to_dict())
+            freed += item.bytes
+        if not kept:
+            self.paths.layer_pointer(layer).unlink(missing_ok=True)
+        self.forget(layer)
+        with self._lock:
+            for key in [key for key in self._manifests if key[0] == layer]:
+                del self._manifests[key]
+        return {"removed": removed, "kept": kept, "freed": freed}
+
     def remove_all(self) -> list[str]:
         """Delete every version of every layer and the pointers; what could not go, one line each.
 
@@ -1065,14 +1110,7 @@ class LayerManager:
 
         failures: list[str] = []
         for layer in lm.LAYERS:
-            directory = self.paths.layer(layer)
-            if not directory.is_dir():
-                continue
-            for entry in sorted(directory.iterdir()):
-                if entry.name.startswith(".") or not entry.is_dir() or lm.is_link(entry):
-                    continue
-                if entry.name == MIGRATED_NAME:
-                    continue
+            for entry in self._version_dirs(layer):
                 try:
                     self._retire(entry)
                 except (LayerBusy, OSError) as error:

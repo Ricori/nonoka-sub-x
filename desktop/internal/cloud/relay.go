@@ -808,7 +808,8 @@ func (s *Service) stepRelayLocal(ctx context.Context, record *relayRecord) {
 
 // startRelayLocal hands the downloaded result to the local provider. A
 // refusal -- no model configured, the launcher missing the harness -- fails
-// the relay with the provider's own words; a sidecar that is not up yet is
+// the relay with the provider's own words; a sidecar that is not up yet, or
+// still migrating an older installation's data (503 `migrating`, WP-M2), is
 // waited for, within a bound.
 func (s *Service) startRelayLocal(ctx context.Context, record *relayRecord) {
 	if s.relayHoldsLegacyResult(record.ID) {
@@ -851,15 +852,15 @@ func (s *Service) startRelayLocal(ctx context.Context, record *relayRecord) {
 			return []relayLine{{Leg: "relay", Event: relayEvent{Type: "handoff", Payload: map[string]any{"stage": "handoff", "message": message, "local_task_id": taskID}}}}, nil
 		case err == nil:
 			next.fail("local_start_failed", "本地服务返回了无效的任务 id")
+		case (errors.Is(err, sidecar.ErrNotRunning) || sidecar.IsMigrating(err)) && next.LocalWaits < relayLocalWaits:
+			next.LocalWaits++
+			return nil, nil
 		case errors.As(err, &refused):
 			code := refused.Code
 			if code == "" {
 				code = "local_start_failed"
 			}
 			next.fail(code, refused.Message)
-		case errors.Is(err, sidecar.ErrNotRunning) && next.LocalWaits < relayLocalWaits:
-			next.LocalWaits++
-			return nil, nil
 		default:
 			next.fail("local_start_failed", "无法在本机继续："+err.Error())
 		}

@@ -358,6 +358,8 @@ class EngineSpec:
 def engine_capability(spec: EngineSpec, readiness: Readiness) -> dict[str, Any]:
     """One `Capabilities.transcription_engines` item (`docs/provider-spec.md` 4.1)."""
 
+    from ..runtime_cleanup import environment_layers
+
     return {
         "id": spec.id,
         "label": spec.label,
@@ -368,6 +370,8 @@ def engine_capability(spec: EngineSpec, readiness: Readiness) -> dict[str, Any]:
         "billing": spec.billing,
         # The key names the engine reads, for the desktop's engine panel (WP6).
         "keys": list(spec.keys),
+        # The runtime layers it needs and may use, for the engine list's missing layers and sizes (WP-UI).
+        "layers": environment_layers(spec.environment),
     }
 
 

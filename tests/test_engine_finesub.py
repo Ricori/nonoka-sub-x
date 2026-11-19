@@ -165,10 +165,19 @@ class ReadinessTests(unittest.TestCase):
     def test_media_tools_from_the_tool_layer_only(self) -> None:
         # WP-H (owner H7): the package's process finds its tools in the tool
         # layer only, so a copy on the user's PATH no longer makes it ready.
-        missing = [{"code": "missing_ffmpeg", "message": "缺少项目必备依赖 FFmpeg 或 FFprobe"}]
+        # WP-UI: the words point at the settings page, where the tool layer is installed.
+        missing = [{"code": "missing_ffmpeg", "message": "缺少项目必备依赖 FFmpeg 或 FFprobe：请到「设置 → 运行环境」安装工具层"}]
         self.assertEqual(self.readiness(FakeRuntime(tools=False), which=True), missing)
         self.assertEqual(self.readiness(FakeRuntime(tools=False)), missing)
         self.assertEqual(self.readiness(FakeRuntime(), which=False), [])
+
+    def test_a_platform_without_a_tool_layer_says_so(self) -> None:
+        from nonoka_x.engine_host import missing_ffmpeg_message
+
+        self.assertEqual(missing_ffmpeg_message({"media_supported": False, "platform": "macos-arm64"}),
+                         "缺少项目必备依赖 FFmpeg 或 FFprobe：macos-arm64 上还没有工具层，暂时无法在本机处理媒体")
+        self.assertIn("设置 → 运行环境", missing_ffmpeg_message({"media_supported": True}))
+        self.assertIn("设置 → 运行环境", missing_ffmpeg_message(None))
 
     def test_only_windows_runs_the_local_gpu_stack(self) -> None:
         issues = self.readiness(FakeRuntime(), platform="darwin")

@@ -325,6 +325,86 @@ def test_unused_layers_are_listed_and_removed(tmp_path, index):
     assert removed["freed"] == 10 and not stray.exists()
 
 
+def _install_all(page: RuntimeProvisioner, monkeypatch) -> None:
+    monkeypatch.setattr(runtime_install, "msvc_runtime_problem", lambda **_: None)
+    page.start("all")
+    assert wait(page)["state"] == "completed"
+
+
+@WINDOWS
+def test_cleanup_offers_the_layers_the_current_engine_does_not_need(tmp_path, index, origin, monkeypatch):
+    """WP-UI: switched to a cloud API engine, the Python and model layers are unused; switching back
+    to FineSub before cleaning downloads nothing again."""
+
+    page = provisioner(tmp_path, index)
+    _install_all(page, monkeypatch)
+    downloaded = len(origin.archive_requests())
+    stray = page.paths.layer("tools") / "0123456789abcdef"
+    stray.mkdir(parents=True)
+    (stray / "ffmpeg.exe").write_bytes(b"x" * 10)
+
+    # FineSub (all three layers needed): only the tool layer's old version.
+    plan = page.cleanup_plan({"python", "models", "tools"}, set())
+    assert [(item["layer"], item["reason"]) for item in plan["items"]] == [("tools", "old-version")]
+    assert plan["bytes"] == 10
+    # The engine unknown (`needed` None): the same.
+    assert page.cleanup_plan(None, set())["items"] == plan["items"]
+
+    # A cloud API engine: the tool layer stays, the other two go as a whole.
+    plan = page.cleanup_plan({"tools"}, set())
+    reasons = {(item["layer"], item["reason"]) for item in plan["items"]}
+    assert reasons == {("python", "unneeded"), ("models", "unneeded"), ("tools", "old-version")}
+    assert plan["bytes"] == sum(item["bytes"] for item in plan["items"]) and plan["blocked_bytes"] == 0
+
+    # Switching back and forth before cleaning re-downloads nothing.
+    page.start("all")
+    assert wait(page)["state"] == "completed"
+    assert len(origin.archive_requests()) == downloaded
+
+    result = page.cleanup({"tools"}, set())
+    assert {item["layer"] for item in result["removed"]} == {"python", "models", "tools"}
+    assert result["kept"] == [] and result["freed"] == plan["bytes"]
+    status = page.status()
+    assert status["media_ready"] and status["runtime"]["state"] == "missing"
+    assert not page.paths.layer_pointer("python").exists() and not stray.exists()
+    assert page.cleanup_plan({"tools"}, set())["items"] == []
+
+
+@WINDOWS
+def test_cleanup_never_touches_a_layer_an_unfinished_task_may_use(tmp_path, index, monkeypatch):
+    page = provisioner(tmp_path, index)
+    _install_all(page, monkeypatch)
+    stray = page.paths.layer("tools") / "0123456789abcdef"
+    stray.mkdir(parents=True)
+
+    page.layers._in_use = lambda: True
+    plan = page.cleanup_plan({"tools"}, {"python"})
+    blocked = {(item["layer"], item["blocked"]) for item in plan["items"]}
+    assert blocked == {("python", "有未结束的任务用到这一层"), ("models", ""), ("tools", "有未结束的任务")}
+    assert plan["bytes"] == sum(item["bytes"] for item in plan["items"] if item["layer"] == "models")
+
+    result = page.cleanup({"tools"}, {"python"})
+    assert [item["layer"] for item in result["removed"]] == ["models"]
+    assert {item["layer"] for item in result["kept"]} == {"python", "tools"}
+    assert page.worker_python() is not None and stray.exists()
+    assert page.status()["models"][0]["state"] == "missing"
+
+
+def test_cleanup_refuses_while_an_install_is_running(tmp_path, index):
+    page = provisioner(tmp_path, index)
+    page._job["state"] = "running"
+    with pytest.raises(RuntimeProvisionError, match="安装任务运行中"):
+        page.cleanup({"tools"}, set())
+
+
+@WINDOWS
+def test_an_install_waits_for_a_cleanup_in_progress(tmp_path, index):
+    page = provisioner(tmp_path, index)
+    page._cleaning = True
+    with pytest.raises(RuntimeProvisionError, match="正在清理未使用的"):
+        page.start("media")
+
+
 @WINDOWS
 def test_a_system_tokcount_serves_while_the_tool_layer_is_missing(tmp_path, index, monkeypatch):
     monkeypatch.setattr(provision.shutil, "which", lambda name: r"C:\tools\tokcount.exe" if name == "tokcount" else None)

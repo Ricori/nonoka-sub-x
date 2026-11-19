@@ -721,3 +721,9 @@
 .runtime-unused li { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 10px; color: var(--mut); font-size: 12px; }
 .runtime-unused li code { overflow: hidden; color: var(--faint); text-overflow: ellipsis; white-space: nowrap; }
 .runtime-unused li b { color: var(--text); font-weight: 600; }
+.runtime-unused li small, .runtime-usage li small { overflow: hidden; color: var(--faint); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.runtime-unused li.held { opacity: .7; }
+.runtime-usage { display: grid; gap: 10px; margin-top: 16px; border: 1px solid var(--line-soft); border-radius: 12px; padding: 14px 16px; }
+.runtime-usage ul { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.runtime-usage li { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 10px; color: var(--mut); font-size: 12px; }
+.runtime-usage li b { color: var(--text); font-weight: 600; }
