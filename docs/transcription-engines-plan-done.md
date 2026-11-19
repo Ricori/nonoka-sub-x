@@ -456,6 +456,35 @@ harness 已在 main（`tests/quality_harness/cloud.py`、`quality_gate.py --clou
 - 云端仓库：确认 `modal_compute/nonoka_x_compute/phases.py` 在 WP-B 之后仍调得通（它不传 `asr`，预期不用改）；云端测试全过。需要改时提交在 nonoka-sub-cloud 仓库；`test_source_contract.py` 钉了哈希的文件动了要一起更新。
 - 本仓库文档：`docs/architecture.md`（架构图加引擎层与纠错层，FineSub 画成两个可插拔部件，运行环境画成三层预制包与沙箱）、`docs/provider-spec.md`、新增 `docs/transcription-engines.md`、`CHANGELOG.md`（写明数据目录的新布局、迁移会清空旧环境并重新下载、关闭加速后变慢）。
 
+### WP-UI 引擎配置页（已完成 2026-11-19，界面由用户自验）
+
+> 交付（附录 B 第 94、96–98 问）：子代理做阶段 1，`7d4518d`（合并 `a3cc842`）与补改 `49a10e4`（合并 `71edf0a`）。设置页引擎列表显示就绪、缺哪几层、下载量、占用；选中未装的引擎只装它缺的层（沿用运行环境段的位置确认、进度、取消、重试）；按引擎列占用，共用层只算一次；「清理未使用的」新增 `GET`/`DELETE /v1/runtime/provision/unused?engine=`，默认只删没人用的旧版本，当前引擎用不到的整层要逐层勾选，未结束（含被中断）任务占用的层不可清；当前引擎被删或未就绪时引擎段、首页横幅、新建任务对话框都提示重选，不静默回落；就绪文案改指向「设置 → 运行环境」。交回各条：没装知识库包时翻译、纠错、日文轴在启动前拦下；缺说话人分离模型的请求在新建时拦下（`missing_diarization_model`，重试与续跑不判，第 97 问）；核心 media 档只认工具层的 ffmpeg；日文轴校验不再要求装了转写包；没装纠错包时云 API 引擎照常出原始字幕；中继在迁移期间一直等、迁移失败报 `migration_failed`；顺带修好 Go 拒绝 `repair` 目标（「完整核对」按钮）。主会话精简验收（第 98 问）：在 WP-M2 验收副本的复制上用 sidecar 接口验了四种引擎包变体的就绪、清理计划与拦截，FineSub 请求与 WP6 相同，记录在笔记目录 `wp-ui-delivery.md` 的「阶段 2：精简验收」；界面的逐项点验由用户自己做（装未装的引擎、取消再继续、真删层也在其中）。交回：WP8 / 发版——用户自己的界面验收；PATH 上的 `wails3` 是 alpha2.119，仓库已是 3.1.0，重生成绑定会改动几乎所有文件，只能按需挑文件提交。下面是原始说明。
+
+> 收到的交回（2026-11-19）：归档里 WP-E3、WP-P1、WP-H、WP-CL、WP-M2、WP7 各节「交回」中写给 WP-UI 的条目都归本包，其中 WP-M2 的「中继遇到 503 `migrating` 当成失败」一条在 `desktop/internal/cloud/relay.go`，WP-CL 的「日文轴请求的校验要求装了 finesub 引擎」一条在核心的请求校验，一并并入本包的文件。
+
+重构的其余部分做完之后开工：等 WP-P1、WP-L、WP-H、WP6、WP-E3，排在 WP8 之前，随同一个版本发布。规则见 4.9 第 39 条。
+
+> 2026-11-13 用户改了方向（4.9 第 39 条第一个子条目，附录 B 第 73 问）：没有单独的引擎配置页，「运行环境」页去掉，下面写到引擎配置页的内容都放进设置页；界面主体已由 WP6 第二阶段做完（见 WP6 一节），本包只剩依赖 WP-P1、WP-L、WP-H 的部分和完成标准里的整体验收：删掉转写包后的表现、按包列占用空间、选中未装的引擎时只装它缺的层（现在仍是运行环境段的「一键准备全部」与分组安装）、从 FineSub 换到云 API 引擎再换回来不重下的实测；Python 侧有些就绪文案还写「在『运行环境』页……」（如 `missing_harness`），要改成指向设置页。WP-R6、WP-R5 交来的界面事项（卸载视频工具的死代码、`repair` 的入口、「清理未使用的」、numba 缓存进不进「清理」）已由 WP6 第二阶段处理（附录 B 第 74 问）。
+
+- 文件：`desktop/frontend/src/pages/RuntimePage.tsx`（及 CSS，改成引擎配置页）、`components/TranscriptionDialog.tsx`（去掉引擎选择）、`components/InstallLocationCard.tsx`、`StorageLocationsCard.tsx`、`StorageRelocation.tsx`、`runtimeCache.ts`、`bridge/runtime.ts`、`app/App.tsx`（导航与文案）、`pages/SettingsPage.tsx`（只移走转写引擎的密钥，其余不动）、`home/defaultRequest.ts`、`providers/types.ts`；Go 侧 `desktop/internal/preferences`（当前引擎的设置项）；Python 侧 `nonoka_x.runtime` 门面的层查询（WP-E3 已提供）。
+- 内容：
+  - 引擎列表由 `Capabilities.transcription_engines` 生成，单选；每项显示就绪状态、缺哪几层、下载量、占用空间、计费说明和「音频会离开本机」提示。
+  - 选中未就绪的引擎时走安装流程：只下它缺的层，进度和失败重试沿用现有的安装界面。
+  - 云 API 引擎的面板里放它自己的密钥配置和可选增强的安装开关。
+  - 「清理未使用的」：列出将删除的层和能腾出的空间，确认后执行；被任务占用的层不可清理。
+  - 当前引擎存成一项设置（`settings.json`）；新建任务时由它填入请求的 `transcription.engine`。对话框显示当前引擎和去配置页的入口，引擎不支持的选项（计算设备、显卡档位、人声分离）不显示，说话人选项按引擎的 `features` 给。
+  - 当前引擎被删掉（包被移除）或变得不可用时，页面提示并要求重选，不静默回落到别的引擎。
+- 完成标准：
+  - `npm run typecheck`、`npm test`、`go test ./...` 通过。
+  - 用预览实际走一遍：在各引擎之间切换；选一个未安装的引擎并装完；装到一半取消再继续；清理未使用的层；删掉转写包后页面的表现；当前引擎不可用时新建任务被拦住。
+  - 从 FineSub 换到云 API 引擎再换回来，没有任何重新下载。
+  - 设置页里纠错翻译、LLM、知识库相关的部分与改动前逐项相同。
+  - 选 FineSub 时发出的请求与 WP6 完成时相同。
+
+### WP7 云端仓库与文档（已完成 2026-11-19）
+
+已完成。交付摘要与原始说明移到 `docs/transcription-engines-plan-done.md` 的同名一节。
+
 ## 附录 A 决定的来历
 
 ### A.1 时间线

@@ -1,6 +1,6 @@
 # 转写引擎重构计划
 
-> 状态（2026-11-18）：已完成并合进 main 的工作包见第 6 节开头的「已完成」列表，它们的交付摘要与原始说明在 `docs/transcription-engines-plan-done.md`（本文只留标题）。第九批 WP-H、WP-L 已于 2026-11-18 合进两个仓库的 main。第十批 WP-CL、WP-M2、WP7 已合进 main（WP-CL 也合进云端仓库，2026-11-18 至 19）。按第 92 问的精简方案，`--real`、`--cloud` 与线上实测集中到 WP8 各跑一次。现在开 WP-UI，之后 WP8。WP-M1 的最后一条完成标准先不做（第 70 问）。用户做过的决定都在第 4 节和附录 B，按问题编号查。本文档是交给子代理执行的工作说明，每个工作包可以单独领走。
+> 状态（2026-11-18）：已完成并合进 main 的工作包见第 6 节开头的「已完成」列表，它们的交付摘要与原始说明在 `docs/transcription-engines-plan-done.md`（本文只留标题）。第九批 WP-H、WP-L 已于 2026-11-18 合进两个仓库的 main。第十批 WP-CL、WP-M2、WP7 已合进 main（WP-CL 也合进云端仓库，2026-11-18 至 19）。按第 92 问的精简方案，`--real`、`--cloud` 与线上实测集中到 WP8 各跑一次。WP-UI 已于 2026-11-19 合进 main（界面由用户自验）。只剩 WP8，在主会话里做（第 95 问）。WP-M1 的最后一条完成标准先不做（第 70 问）。用户做过的决定都在第 4 节和附录 B，按问题编号查。本文档是交给子代理执行的工作说明，每个工作包可以单独领走。
 > 写于 2026-11-10，基于 `main@1f14db3`、FineSub `v0.7.0@7123055`。
 > **2026-11-11 整理成干净版本**（用户决定，附录 B 第 1 问）：现行决定直接写在正文里，不再有「以后者为准」的追加条款。每个决定的来历、被推翻的旧说法，以及旧条款编号到新编号的对照，见附录 A；向用户问过的问题和答复见附录 B；还没定的事见附录 C。整理前的版本在 git 历史里（`main` 上的 `docs/transcription-engines-plan.md`）。
 > 相关文档：`docs/runtime-and-config.md`（WP-R0 的调查与设计答复 D1–D23，下称「R0 文档」；其中被本计划取代的答复已在那边标注，对照见附录 A.3）；`docs/engine-sandbox-experiment.md`（预制环境包与进程级沙箱两个前提的实验报告，下称「实验报告」）。本文档与 R0 文档冲突时以本文档为准。
@@ -493,7 +493,7 @@ FineSub 转写引擎也要写 `transcript.json`（从它的 stable 投影出来�
 ## 6. 工作包
 
 ```text
-已完成：WP-Q、WP-A、WP0、WP-R0、WP-R2、WP-B、WP-R1、WP1、WP4a、WP4b、WP4c、WP3a/b/c、WP-C、WP-P0、WP-M1（最后一条完成标准还没做，WP-E3 已完成、可以做了）、WP-R4、WP-K、WP-E1、WP-CL0、WP5、WP-E2、WP-E3、WP-R5、WP-R6、WP6、WP-R7、WP-P1、WP-H、WP-L、WP-CL、WP-M2、WP7
+已完成：WP-Q、WP-A、WP0、WP-R0、WP-R2、WP-B、WP-R1、WP1、WP4a、WP4b、WP4c、WP3a/b/c、WP-C、WP-P0、WP-M1（最后一条完成标准还没做，WP-E3 已完成、可以做了）、WP-R4、WP-K、WP-E1、WP-CL0、WP5、WP-E2、WP-E3、WP-R5、WP-R6、WP6、WP-R7、WP-P1、WP-H、WP-L、WP-CL、WP-M2、WP7、WP-UI
 
 引擎线：
 WP-B ──┬─► WP1 ──► WP3a / WP3b / WP3c ───────────────┐
@@ -711,30 +711,7 @@ D:\Envir\Python312\python scripts/quality_gate.py --cloud  # 云端（WP-C；基
 
 已完成。交付摘要与原始说明移到 `docs/transcription-engines-plan-done.md` 的同名一节。
 
-### WP-UI 引擎配置页
-
-> 收到的交回（2026-11-19）：归档里 WP-E3、WP-P1、WP-H、WP-CL、WP-M2、WP7 各节「交回」中写给 WP-UI 的条目都归本包，其中 WP-M2 的「中继遇到 503 `migrating` 当成失败」一条在 `desktop/internal/cloud/relay.go`，WP-CL 的「日文轴请求的校验要求装了 finesub 引擎」一条在核心的请求校验，一并并入本包的文件。
-
-重构的其余部分做完之后开工：等 WP-P1、WP-L、WP-H、WP6、WP-E3，排在 WP8 之前，随同一个版本发布。规则见 4.9 第 39 条。
-
-> 2026-11-13 用户改了方向（4.9 第 39 条第一个子条目，附录 B 第 73 问）：没有单独的引擎配置页，「运行环境」页去掉，下面写到引擎配置页的内容都放进设置页；界面主体已由 WP6 第二阶段做完（见 WP6 一节），本包只剩依赖 WP-P1、WP-L、WP-H 的部分和完成标准里的整体验收：删掉转写包后的表现、按包列占用空间、选中未装的引擎时只装它缺的层（现在仍是运行环境段的「一键准备全部」与分组安装）、从 FineSub 换到云 API 引擎再换回来不重下的实测；Python 侧有些就绪文案还写「在『运行环境』页……」（如 `missing_harness`），要改成指向设置页。WP-R6、WP-R5 交来的界面事项（卸载视频工具的死代码、`repair` 的入口、「清理未使用的」、numba 缓存进不进「清理」）已由 WP6 第二阶段处理（附录 B 第 74 问）。
-
-- 文件：`desktop/frontend/src/pages/RuntimePage.tsx`（及 CSS，改成引擎配置页）、`components/TranscriptionDialog.tsx`（去掉引擎选择）、`components/InstallLocationCard.tsx`、`StorageLocationsCard.tsx`、`StorageRelocation.tsx`、`runtimeCache.ts`、`bridge/runtime.ts`、`app/App.tsx`（导航与文案）、`pages/SettingsPage.tsx`（只移走转写引擎的密钥，其余不动）、`home/defaultRequest.ts`、`providers/types.ts`；Go 侧 `desktop/internal/preferences`（当前引擎的设置项）；Python 侧 `nonoka_x.runtime` 门面的层查询（WP-E3 已提供）。
-- 内容：
-  - 引擎列表由 `Capabilities.transcription_engines` 生成，单选；每项显示就绪状态、缺哪几层、下载量、占用空间、计费说明和「音频会离开本机」提示。
-  - 选中未就绪的引擎时走安装流程：只下它缺的层，进度和失败重试沿用现有的安装界面。
-  - 云 API 引擎的面板里放它自己的密钥配置和可选增强的安装开关。
-  - 「清理未使用的」：列出将删除的层和能腾出的空间，确认后执行；被任务占用的层不可清理。
-  - 当前引擎存成一项设置（`settings.json`）；新建任务时由它填入请求的 `transcription.engine`。对话框显示当前引擎和去配置页的入口，引擎不支持的选项（计算设备、显卡档位、人声分离）不显示，说话人选项按引擎的 `features` 给。
-  - 当前引擎被删掉（包被移除）或变得不可用时，页面提示并要求重选，不静默回落到别的引擎。
-- 完成标准：
-  - `npm run typecheck`、`npm test`、`go test ./...` 通过。
-  - 用预览实际走一遍：在各引擎之间切换；选一个未安装的引擎并装完；装到一半取消再继续；清理未使用的层；删掉转写包后页面的表现；当前引擎不可用时新建任务被拦住。
-  - 从 FineSub 换到云 API 引擎再换回来，没有任何重新下载。
-  - 设置页里纠错翻译、LLM、知识库相关的部分与改动前逐项相同。
-  - 选 FineSub 时发出的请求与 WP6 完成时相同。
-
-### WP7 云端仓库与文档（已完成 2026-11-19）
+### WP-UI 引擎配置页（已完成 2026-11-19，界面由用户自验）
 
 已完成。交付摘要与原始说明移到 `docs/transcription-engines-plan-done.md` 的同名一节。
 
@@ -918,6 +895,7 @@ D:\Envir\Python312\python scripts/quality_gate.py --cloud  # 云端（WP-C；基
 | 95 | WP-UI 阶段 2 与 WP8 在哪做；WP8 的 `--cloud` 花费上限；真实调用用的密钥；干净 Windows 上的全新安装 | WP-UI 阶段 1 用子代理做，阶段 2 与 WP8 都在主会话里做；`--cloud` 合计上限 $1；线上 LLM 那一程用用户在对话里给的 Nonoka Cloud 账户 key（不写进文档、日志与提交）；三个云引擎的真实调用这次不验证，报告里标为未验证；全新安装这次先不做（2026-11-19） |
 | 96 | 合并 WP-UI 阶段 1（`7d4518d`，合并 `a3cc842`）时：缺说话人分离模型的请求要不要在就绪里拦；中继遇到迁移时的 60 次轮询上限；「清理未使用的」把当前引擎用不到的整层（约 10 GB）列为可删；被中断的任务算不算占用层 | 合并；在就绪里拦；迁移期间不计上限；整层要单独勾选才删，默认只清没人用的旧版本；被中断的任务仍算占用（都是推荐项，2026-11-19） |
 | 97 | 合并 WP-UI 补改（`49a10e4`，合并 `71edf0a`）时：缺说话人分离模型、缺知识库包的检查只在新建任务时判，重试或续跑旧任务时要不要也拦 | 合并；不用（推荐项，2026-11-19） |
+| 98 | WP-UI 阶段 2 的预览验收怎么做（只能起真的桌面应用、用屏幕操作点；整套要从 R2 下几 GB、真删层） | 精简验收：能用接口与自动化测试证明的用接口验；界面由用户自己点一遍（2026-11-19） |
 
 更早的问答：WP-R0 的 D1–D23 见 R0 文档第 0 节；WP0 的细节见附录 A.1（已移到 `docs/transcription-engines-plan-done.md`）；沙箱实验中的决定见实验报告。
 
