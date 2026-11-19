@@ -191,7 +191,10 @@ def test_a_request_using_the_base_is_refused_without_the_package(tmp_path, monke
     # reads the base too); then requests that do not use the base at all: one
     # with `knowledge: none`, and a Chinese source, which only corrects and so
     # runs with the base off (`worker.for_task_mode`).
-    for name in ("final-srt-judge-audio-max2-update-new-subject", "final-srt-ja-defaults"):
+    # `translated-srt-text-efficiency` has the base off, but its correction reads the style catalog
+    # from it all the same (`--style auto`), so it is refused too (appendix B question 94).
+    for name in ("final-srt-judge-audio-max2-update-new-subject", "final-srt-ja-defaults",
+                 "translated-srt-text-efficiency"):
         refused = calls.run_scenario(name, scratch)
         assert refused["exit"] == 1, name
         assert "知识库包未安装" in " ".join(refused["failed"]), name

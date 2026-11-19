@@ -227,17 +227,24 @@ export function TranscriptionDialog(props: TranscriptionDialogProps) {
   const fineSubLocalUnavailable = !localCapabilities
     ? "本地服务尚未启动"
     : localReady ? "" : localIssue || "本地运行环境尚未就绪";
+  // 没装纠错包时续跑档报 missing_engine，但原始字幕由核心自己渲染（4.6 第 33 条）：
+  // 它只挡纠错与翻译（那一格看 final-srt 档），不挡转写到原始字幕。
+  const correctionPackageMissing = localStages.find((item) => item.id === "harness")?.issues
+    .some((issue) => issue.code === "missing_engine") === true;
   // 不报分档的旧版 sidecar：只能拿整体就绪状态兜底。
   const harnessIssue = !localCapabilities
     ? "本地服务尚未启动"
-    : localStages.some((item) => item.id === "harness") ? stageIssue("harness") : fineSubLocalUnavailable;
+    : localStages.some((item) => item.id === "harness") ? correctionPackageMissing ? "" : stageIssue("harness") : fineSubLocalUnavailable;
+  // 列出了引擎、当前引擎却不在其中：它的包被移除了，FineSub 也一样。
+  const localEngineGone = engine === "local" && listedEngines !== undefined && engineInfo === null;
   // FineSub 照旧看整体就绪；其他本机引擎看它自己的就绪，再加上转写之后的续跑档。
   // 引擎不在列表里（包被移除、旧版 sidecar）不静默换成别的：拦下，指回设置页。
-  const localUnavailable = transcriptionEngine === DEFAULT_TRANSCRIPTION_ENGINE ? fineSubLocalUnavailable
-    : !localCapabilities ? "本地服务尚未启动"
-      : !engineInfo ? `转写引擎「${engineLabel}」不可用，请到设置里重新选择`
-        : !engineInfo.ready ? engineInfo.issues[0]?.message || `${engineLabel} 尚未就绪`
-          : harnessIssue;
+  const localUnavailable = localCapabilities && localEngineGone ? `转写引擎「${engineLabel}」不可用（可能已被移除），请到设置里重新选择`
+    : transcriptionEngine === DEFAULT_TRANSCRIPTION_ENGINE ? fineSubLocalUnavailable
+      : !localCapabilities ? "本地服务尚未启动"
+        : !engineInfo ? `转写引擎「${engineLabel}」不可用，请到设置里重新选择`
+          : !engineInfo.ready ? engineInfo.issues[0]?.message || `${engineLabel} 尚未就绪`
+            : harnessIssue;
   const cloudDurationExceeded = !cloudAcceptsDuration(entry.duration);
   const cloudUnavailable = !cloudAuthenticated
     ? "需要先登录云端账户"
@@ -293,7 +300,7 @@ export function TranscriptionDialog(props: TranscriptionDialogProps) {
     ? "本地服务尚未启动"
     : !limits.llm ? LLM_KEY_HINT : stageIssue("final-srt");
   const correctionAvailable = correctionIssue === "";
-  // 缺的是模型配置就去设置页，其余（续跑依赖等）去运行环境页。
+  // 缺的是模型配置就去设置页的模型配置，其余（续跑依赖等）去设置页的运行环境。
   const correctionNeedsKeys = localCapabilities !== null && (!limits.llm
     || localStages.find((item) => item.id === "final-srt")?.issues.some((issue) => issue.code === "missing_llm_key") === true);
 
@@ -306,7 +313,7 @@ export function TranscriptionDialog(props: TranscriptionDialogProps) {
   const languageOffered = (language: string) => !engineInfo || engineInfo.features.languages.length === 0 || engineInfo.features.languages.includes(language);
   // 人声分离：云端 FineSub 与本机 FineSub 都做；其他引擎按声明。
   const separationOffered = engine === "cloud" || (engineInfo?.features.separate ?? localGpuEngine);
-  // 本地模型没下载时不让选：先到运行环境页的「可选模型」下载。云端的模型在云端。
+  // 本地模型没下载时不让选：先到设置页「运行环境」的「AI模型」下载。云端的模型在云端。
   // 没报 optional_models 的旧版 sidecar 无从判断，按已安装处理，不在这里拦。
   const optionalModels = localCapabilities?.runtime?.managed?.optional_models ?? [];
   const diarizationModelsMissing = localGpuEngine && optionalModels.length > 0
@@ -321,7 +328,7 @@ export function TranscriptionDialog(props: TranscriptionDialogProps) {
       : diarizationChoice === "judge-text" && !judgeTextAllowed ? "acoustics"
         : diarizationChoice;
   const diarizationOnCpu = localGpuEngine && (cpuOnly || request.device === "cpu");
-  const diarizationNote = diarizationAvailable && diarizationModelsMissing ? "说话人分离模型尚未安装（约 450MB），需要先在运行环境页的「可选模型」中下载"
+  const diarizationNote = diarizationAvailable && diarizationModelsMissing ? "说话人分离模型尚未安装（约 450MB），需要先在「设置 → 运行环境」的「AI模型」中下载"
     : diarization === "off" ? ""
       : diarizationOnCpu ? "本次在 CPU 上运行，约为音频时长的五分之一" : "";
 

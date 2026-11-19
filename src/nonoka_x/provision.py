@@ -216,6 +216,8 @@ class RuntimeProvisioner:
         # Set while clear_cache() is deleting, so an install cannot start and download into the
         # directories that are being emptied under it.
         self._clearing_cache = False
+        # Set while "clean up unused" is deleting layers, for the same reason.
+        self._cleaning = False
         self._cancel = threading.Event()
         self._job: dict[str, Any] = {
             "state": "idle",
@@ -338,6 +340,8 @@ class RuntimeProvisioner:
                 raise RuntimeProvisionError("FineSub runtime installation is already running")
             if self._clearing_cache:
                 raise RuntimeProvisionError("正在清理下载缓存，请稍后再安装")
+            if self._cleaning:
+                raise RuntimeProvisionError("正在清理未使用的运行环境层，请稍后再安装")
             self._cancel.clear()
             self._job = {
                 "state": "running",
@@ -529,6 +533,40 @@ class RuntimeProvisioner:
             if self._job["state"] == "running":
                 raise RuntimeProvisionError("安装任务运行中，无法清理；请等待安装完成或先取消安装")
         return {"schema": 1, **self.layers.remove_unused()}
+
+    def cleanup_plan(self, needed: set[str] | None, busy: set[str]) -> dict[str, Any]:
+        """What "clean up unused" would delete for the current engine (`runtime_cleanup.plan`)."""
+
+        from nonoka_x import runtime_cleanup
+
+        if self.layers is None:
+            return {"schema": 1, "items": [], "bytes": 0, "blocked_bytes": 0}
+        return {"schema": 1, **runtime_cleanup.plan(
+            self.layers, needed=needed, busy=busy, tasks_running=self.layers._in_use(),
+        )}
+
+    def cleanup(self, needed: set[str] | None, busy: set[str]) -> dict[str, Any]:
+        """Delete what `cleanup_plan` offers unblocked; refused while an install runs."""
+
+        from nonoka_x import runtime_cleanup
+
+        if self.layers is None:
+            raise RuntimeProvisionError(f"运行环境层不可用：{self._bootstrap_error}")
+        with self._lock:
+            if self._job["state"] == "running":
+                raise RuntimeProvisionError("安装任务运行中，无法清理；请等待安装完成或先取消安装")
+            if self._clearing_cache or self._cleaning:
+                raise RuntimeProvisionError("正在清理，请稍后再试")
+            # Held for the whole removal, so an install cannot start into a layer being deleted.
+            self._cleaning = True
+        try:
+            result = runtime_cleanup.execute(
+                self.layers, needed=needed, busy=busy, tasks_running=self.layers._in_use(),
+            )
+        finally:
+            with self._lock:
+                self._cleaning = False
+        return {"schema": 1, **result}
 
     def cache_usage(self) -> dict[str, Any]:
         """Measure the downloads clear_cache() would empty (`reclaimable` leaves out hard-linked files)."""

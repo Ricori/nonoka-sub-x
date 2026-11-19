@@ -101,12 +101,12 @@ export function RemoveRuntime(): $CancellablePromise<{ [_ in string]?: any } | n
 }
 
 /**
- * RemoveUnusedRuntime deletes the runtime layer versions nothing uses any
- * more (neither current nor wanted by this version) and reports what went and
- * what stayed. The sidecar refuses while an install or a local task runs.
+ * RemoveUnusedRuntime deletes what UnusedRuntime(engine) lists, worked out
+ * again by the sidecar at that moment, and reports what went and what stayed.
+ * The sidecar refuses while an install runs.
  */
-export function RemoveUnusedRuntime(): $CancellablePromise<{ [_ in string]?: any } | null> {
-    return $Call.ByID(2086091386);
+export function RemoveUnusedRuntime(engine: string): $CancellablePromise<{ [_ in string]?: any } | null> {
+    return $Call.ByID(2086091386, engine);
 }
 
 /**
@@ -186,4 +186,14 @@ export function TaskEvents(taskID: string, afterCursor: number): $CancellablePro
 
 export function TaskStatus(taskID: string): $CancellablePromise<{ [_ in string]?: any } | null> {
     return $Call.ByID(1915716599, taskID);
+}
+
+/**
+ * UnusedRuntime lists what "clean up unused" would delete for the current
+ * transcription engine: the layers neither it nor the correction package
+ * needs, and the layer versions nothing uses, each with its size and, when an
+ * unfinished task may use it, why it stays.
+ */
+export function UnusedRuntime(engine: string): $CancellablePromise<{ [_ in string]?: any } | null> {
+    return $Call.ByID(1303044354, engine);
 }

@@ -137,7 +137,11 @@ _IGNORED_WORKER_LOG_SUBSTRINGS = (
 
 
 def _media_issues(provisioner: Any | None) -> list[dict[str, str]]:
-    """The `media` tier: the sidecar's own probe (each engine checks the tools it needs itself)."""
+    """The `media` tier: the sidecar's own probe (each engine checks the tools it needs itself).
+
+    FFmpeg and FFprobe count only from the tool layer, as for the engines (appendix B question 94):
+    one on the user's PATH does not make the tier ready.
+    """
 
     managed = provisioner.status() if provisioner is not None else None
     managed_runtime_ready = managed is not None and managed["runtime"].get("state") == "ready"
@@ -146,8 +150,10 @@ def _media_issues(provisioner: Any | None) -> list[dict[str, str]]:
         media_issues.append(_issue("missing_python", "需要 Python 3.12 或更高版本"))
     managed_ffmpeg = provisioner.tool_path("ffmpeg") if provisioner is not None else None
     managed_ffprobe = provisioner.tool_path("ffprobe") if provisioner is not None else None
-    if not (shutil.which("ffmpeg") or managed_ffmpeg) or not (shutil.which("ffprobe") or managed_ffprobe):
-        media_issues.append(_issue("missing_ffmpeg", "缺少项目必备依赖 FFmpeg 或 FFprobe"))
+    if managed_ffmpeg is None or managed_ffprobe is None:
+        from .engine_host import missing_ffmpeg_message
+
+        media_issues.append(_issue("missing_ffmpeg", missing_ffmpeg_message(managed)))
     return media_issues
 
 
@@ -291,6 +297,18 @@ def _report(
         video_issues = _issues_of(corrector.readiness(
             ReadinessContext(target="final-srt"), {"knowledge": "none", "correction": {"media": "video"}}
         ))
+        from . import engine_host
+        from .worker import STYLE_NEEDS_KNOWLEDGE
+
+        found = engine_host.discover() if packages is None else packages
+        if getattr(corrector, "package", None) is not None and engine_host.knowledge_package(found) is None:
+            # The package's correction reads its style catalog from the knowledge base even with the
+            # base switched off, so without the knowledge package none of its LLM tiers can run
+            # (appendix B question 94); `harness` (rendering the raw SRT) is unaffected.
+            style = [_issue("missing_knowledge_package", STYLE_NEEDS_KNOWLEDGE)]
+            llm_issues = [*llm_issues, *style]
+            knowledge_issues = [*knowledge_issues, *style]
+            video_issues = [*video_issues, *style]
 
     def stage(stage_id: str, label: str, issues: list[dict[str, str]]) -> dict[str, Any]:
         return {"id": stage_id, "label": label, "ready": not issues, "issues": issues}
@@ -672,11 +690,13 @@ def _normalize_transcription(request: dict[str, Any], specs: Mapping[str, Any]) 
         options = block.get("options")
         if options is not None and not isinstance(options, dict):
             raise ProviderError("invalid_request", "transcription.options must be an object")
-    if engine_id == DEFAULT_ENGINE and request["source"]["kind"] == "cloud_transcript":
-        # The cloud's FineSub transcribed; nothing transcribes here, so the
-        # engine need not be installed (WP-CL: a cloud task reaches its raw
-        # SRT with no FineSub package). Installed, it would change nothing:
-        # FineSub takes every level and language and drops no field.
+    if engine_id == DEFAULT_ENGINE and (request["source"]["kind"] == "cloud_transcript" or "axis" in request):
+        # The cloud's FineSub transcribed, or a Japanese axis replaces the
+        # recognition; nothing transcribes here, so the engine need not be
+        # installed (WP-CL: a cloud task reaches its raw SRT with no FineSub
+        # package; a Japanese axis only needs the correction). Installed, it
+        # would change nothing: FineSub takes every level and language and
+        # drops no field.
         return
     spec = specs.get(engine_id)
     if spec is None:
@@ -1183,11 +1203,13 @@ class LocalProvider:
         from .worker import knowledge_package_problem
 
         packages = self.packages()
-        if request.get("knowledge", "update") == "none" or engine_host.knowledge_package(packages) is not None:
+        if engine_host.knowledge_package(packages) is not None:
             return None
         effective = dict(request)
         axis = request.get("axis")
-        if request.get("language") == "zh" and not (isinstance(axis, Mapping) and axis.get("kind") == "ja"):
+        # With the base switched off the mode cannot switch it on; only whether the correction runs matters.
+        if (request.get("knowledge", "update") != "none" and request.get("language") == "zh"
+                and not (isinstance(axis, Mapping) and axis.get("kind") == "ja")):
             package = engine_host.correction_package(packages)
             if package is None:
                 effective["knowledge"] = "none"
@@ -1257,16 +1279,75 @@ class LocalProvider:
         except OSError as exc:
             raise ProviderError("runtime_cache_failed", f"清理缓存失败：{exc}", http_status=409) from exc
 
-    def remove_unused_runtime(self) -> dict[str, Any]:
-        """Delete the layer versions nothing uses (the settings page's "clean up unused")."""
+    def _cleanup_scope(self, engine: str | None) -> tuple[set[str] | None, set[str], dict[str, Any]]:
+        """For "clean up unused": (the layers kept for `engine`, the layers unfinished tasks may use, the header).
+
+        `engine` is the desktop's current transcription engine. None (a desktop from before WP-UI) or an
+        engine this sidecar does not have keeps every layer, so only old versions are offered.
+        """
+
+        from . import runtime_cleanup
+        from .migration.legacy import TERMINAL_TASK_STATES
+        from .runtime import LAYERS
+        from .transcription import CLOUD_ENGINE, DEFAULT_ENGINE, ContractError, check_id
+
+        transcription_engines, correction_engines = built_engines(self._settings, self._provisioner, self.packages())
+        specs = {item.spec.id: item.spec for item in transcription_engines}
+        correction: set[str] = set()
+        for item in correction_engines:
+            correction |= runtime_cleanup.spec_layers(item.spec)
+
+        def layers_of(engine_id: str) -> set[str] | None:
+            if engine_id == CLOUD_ENGINE:
+                return set()
+            spec = specs.get(engine_id)
+            return runtime_cleanup.spec_layers(spec) if spec is not None else None
+
+        if engine is not None:
+            try:
+                check_id(engine, "engine")
+            except ContractError as exc:
+                raise ProviderError("invalid_request", str(exc)) from exc
+        engine_layers = layers_of(engine) if engine is not None else None
+        needed = runtime_cleanup.needed_layers(engine_layers, correction)
+        busy: set[str] = set()
+        for snapshot_path in self.root.glob("*/snapshot.json"):
+            try:
+                snapshot = _read_json_when_free(snapshot_path)
+            except (OSError, ValueError):
+                continue
+            if not isinstance(snapshot, Mapping) or snapshot.get("state") in TERMINAL_TASK_STATES:
+                continue
+            task_layers = layers_of(str(snapshot.get("transcription_engine") or DEFAULT_ENGINE))
+            busy |= set(LAYERS) if task_layers is None else {*task_layers, *correction, *runtime_cleanup.CORE_LAYERS}
+        header = {
+            "engine": engine,
+            "engine_available": engine is not None and engine_layers is not None,
+            "needed": runtime_cleanup.ordered(needed) if needed is not None else None,
+            "busy": runtime_cleanup.ordered(busy),
+        }
+        return needed, busy, header
+
+    def runtime_cleanup_plan(self, engine: str | None = None) -> dict[str, Any]:
+        """What "clean up unused" would delete for the current engine `engine`, item by item (WP-UI)."""
 
         if self._provisioner is None:
             raise ProviderError("runtime_unavailable", "FineSub runtime installer is unavailable", http_status=503)
-        with self._lock:
-            if any(process.poll() is None for process in self._processes.values()):
-                raise ProviderError("runtime_in_use", "有本地任务正在运行，请等任务结束后再清理", http_status=409)
+        needed, busy, header = self._cleanup_scope(engine)
+        return {**self._provisioner.cleanup_plan(needed, busy), **header}
+
+    def remove_unused_runtime(self, engine: str | None = None) -> dict[str, Any]:
+        """Delete what `runtime_cleanup_plan(engine)` offers (the settings page's "clean up unused").
+
+        The layers neither `engine` nor the correction package needs, and the layer versions nothing
+        uses; a layer an unfinished task may use stays (reported in `kept`).
+        """
+
+        if self._provisioner is None:
+            raise ProviderError("runtime_unavailable", "FineSub runtime installer is unavailable", http_status=503)
+        needed, busy, header = self._cleanup_scope(engine)
         try:
-            return self._provisioner.remove_unused_layers()
+            return {**self._provisioner.cleanup(needed, busy), **header}
         except RuntimeProvisionError as exc:
             raise ProviderError("runtime_remove_unavailable", str(exc), http_status=409) from exc
         except OSError as exc:
@@ -1341,6 +1422,11 @@ class LocalProvider:
                     readiness = ()
             elif specs[engine_id].kind == "local-gpu":
                 readiness = TARGET_READINESS[validated["target"]]
+            elif _core_renders_raw_srt(validated, self.packages()):
+                # No correction package: the core renders the raw SRT from the
+                # engine's transcript.json, so the harness tier does not apply
+                # (plan 4.6 item 33).
+                readiness = ("raw-srt",)
             else:
                 readiness = ("raw-srt", *CONTINUATION_READINESS[validated["target"]])
             context = ReadinessContext(
@@ -1352,14 +1438,16 @@ class LocalProvider:
             stages = {
                 item["id"]: item
                 for item in runtime_report(
-                    self._settings, self._provisioner, engine=engine_id, context=context
+                    self._settings, self._provisioner, engine=engine_id, context=context, packages=self.packages()
                 )["stages"]
             }
             for stage_id in readiness:
                 if validated.get("knowledge") == "update" and stage_id == "final-srt":
                     stage_id = "knowledge"
-                if not stages[stage_id]["ready"]:
-                    issue = stages[stage_id]["issues"][0]
+                # The knowledge package is judged below, for this request as the worker runs it.
+                issues = [issue for issue in stages[stage_id]["issues"] if issue["code"] != "missing_knowledge_package"]
+                if issues:
+                    issue = issues[0]
                     raise ProviderError(issue["code"], issue["message"], http_status=503)
             # The worker refuses the same request the same way, with the same
             # check (plan 4.6 item 35a): a run that reads or writes the
@@ -1627,8 +1715,11 @@ class LocalProvider:
                 item for item in runtime_report(self._settings, self._provisioner)["stages"]
                 if item["id"] == "final-srt"
             )
-            if not stage["ready"]:
-                issue = stage["issues"][0]
+            # A call with its own prompt reads no style catalog: the knowledge package is the
+            # correction's need, not this entry point's.
+            issues = [issue for issue in stage["issues"] if issue["code"] != "missing_knowledge_package"]
+            if issues:
+                issue = issues[0]
                 raise ProviderError(issue["code"], issue["message"], http_status=503)
         timeout = float(request.get("timeout_seconds", LLM_CALL_TIMEOUT_SEC))
         deadline = time.monotonic() + timeout

@@ -916,6 +916,20 @@ def _tool_ready(runtime: Any, name: str) -> bool:
     return runtime is not None and runtime.tool_path(name) is not None
 
 
+#: Where the readiness messages send the user: the runtime page is gone, its parts are on the settings page
+#: (plan 4.9 item 39, appendix B question 73).
+RUNTIME_SETTINGS = "「设置 → 运行环境」"
+
+
+def missing_ffmpeg_message(managed: Mapping[str, Any] | None) -> str:
+    """Why FFmpeg is missing and where to get it: the tool layer, where this platform has one (WP-H, WP-UI)."""
+
+    if managed is not None and managed.get("media_supported") is False:
+        platform = str(managed.get("platform") or sys.platform)
+        return f"缺少项目必备依赖 FFmpeg 或 FFprobe：{platform} 上还没有工具层，暂时无法在本机处理媒体"
+    return f"缺少项目必备依赖 FFmpeg 或 FFprobe：请到{RUNTIME_SETTINGS}安装工具层"
+
+
 def _media_issues(runtime: Any, managed: Mapping[str, Any] | None) -> list[Any]:
     """The interpreter and the media tools, which every local engine needs."""
 
@@ -924,7 +938,7 @@ def _media_issues(runtime: Any, managed: Mapping[str, Any] | None) -> list[Any]:
     if sys.version_info < (3, 12) and not managed_runtime_ready:
         issues.append(_issue("missing_python", "需要 Python 3.12 或更高版本"))
     if not _tool_ready(runtime, "ffmpeg") or not _tool_ready(runtime, "ffprobe"):
-        issues.append(_issue("missing_ffmpeg", "缺少项目必备依赖 FFmpeg 或 FFprobe"))
+        issues.append(_issue("missing_ffmpeg", missing_ffmpeg_message(managed)))
     return issues
 
 
@@ -963,7 +977,7 @@ def runtime_engine_readiness(package: Package, runtime: Any) -> Any:
         # runtime is gone".
         issues.append(_issue(
             "runtime_outdated",
-            "运行环境需要更新：引擎依赖有变化，请到「运行环境」页点击「更新」（只下载有变化的部分，约几分钟）",
+            f"运行环境需要更新：引擎依赖有变化，请到{RUNTIME_SETTINGS}点击「更新」（只下载有变化的部分，约几分钟）",
         ))
     elif missing_modules and runtime_state != "ready":
         issues.append(_issue("missing_runtime", "AI 运行时缺失：" + "、".join(missing_modules)))
@@ -993,7 +1007,7 @@ def launcher_engine_readiness(package: Package, runtime: Any, store: Any, target
     if sys.version_info < (3, 12) and not managed_runtime_ready:
         issues.append(_issue("missing_python", "需要 Python 3.12 或更高版本"))
     if not _tool_ready(runtime, "ffmpeg") or not _tool_ready(runtime, "ffprobe"):
-        issues.append(_issue("missing_ffmpeg", "缺少项目必备依赖 FFmpeg 或 FFprobe"))
+        issues.append(_issue("missing_ffmpeg", missing_ffmpeg_message(managed)))
     if not managed_runtime_ready:
         wanted = [*(declared.get("modules") or ())]
         if sys.platform == "win32":
@@ -1002,7 +1016,7 @@ def launcher_engine_readiness(package: Package, runtime: Any, store: Any, target
         if missing:
             issues.append(_issue(
                 "missing_harness",
-                "本地续跑依赖缺失：" + "、".join(missing) + "；请在「运行环境」页重建 Python 启动环境，或安装完整运行环境",
+                "本地续跑依赖缺失：" + "、".join(missing) + f"；请在{RUNTIME_SETTINGS}重建 Python 启动环境，或安装完整运行环境",
             ))
     if target in (declared.get("llm_targets") or ()):
         snapshot = store.snapshot() if store is not None else {}

@@ -1,9 +1,10 @@
 import type { Snapshot as SidecarSnapshot } from "../../bindings/github.com/Ricori/nonoka-x/desktop/internal/sidecar/models.js";
-import { useState, type ReactNode } from "react";
-import type { PythonBootstrapState, RuntimeInstallTarget, RuntimeItem, RuntimeProvisionState } from "../bridge/runtime.ts";
+import { useEffect, useState, type ReactNode } from "react";
+import type { PythonBootstrapState, RuntimeCleanupItem, RuntimeCleanupPlan, RuntimeInstallTarget, RuntimeItem, RuntimeProvisionState } from "../bridge/runtime.ts";
 import type { RelocationProgress, StorageDestination, StorageStatus, StorageTarget } from "../bridge/storage.ts";
 import { InstallLocationCard } from "./InstallLocationCard.tsx";
 import { installLocationView } from "./installLocation.ts";
+import { layerLabel, layerUsage, type UsageOwner } from "./engineLayers.ts";
 import { Mark } from "./Mark.tsx";
 import type { Capabilities } from "../providers/types.ts";
 import "./RuntimeSection.css";
@@ -26,8 +27,12 @@ interface RuntimeSectionProps {
   onInstallPython: () => Promise<void>;
   onCancelInstall: () => Promise<void>;
   onRemoveAll: () => Promise<void>;
-  /** 删掉没有用到的层版本（既不是当前的、也不是这个版本要的）。 */
+  /** 「清理未使用的」：删掉当前引擎和纠错包都用不到的层，以及没人用的旧版本。 */
   onRemoveUnused: () => Promise<void>;
+  /** 现在清理会删什么（以当前转写引擎为准）；旧版 sidecar 读不到时为 null，只按旧版本列。 */
+  cleanup: RuntimeCleanupPlan | null;
+  /** 引擎列表里点了「下载所缺的层」：在这里走同一套安装流程（含安装位置确认）；`seq` 变了就再装一次。 */
+  requestedInstall: { target: RuntimeInstallTarget; seq: number } | null;
   storage: StorageStatus | null;
   storageProgress: RelocationProgress | null;
   storageBusy: boolean;
@@ -55,12 +60,6 @@ const assetStateLabels: Record<RuntimeItem["state"], string> = {
 };
 
 const optionalToolIds = new Set(["yt-dlp", "aria2c", "node", "pot-provider"]);
-
-const layerLabels: Record<string, string> = {
-  python: "Python 环境层",
-  models: "模型层",
-  tools: "工具层",
-};
 
 // 这几样单独装没有意义：yt-dlp 下载，aria2c 提速，node 与 pot-provider 一起
 // 提供 YouTube 要的 PO token。所以它们作为一件事呈现，也作为一件事安装。
@@ -284,7 +283,21 @@ function DiarizationAction({ item, installing, blocked, onInstall }: {
   );
 }
 
-export function RuntimeSection({ capabilities, message, provisionMessage, provision, pythonBootstrap, ready, sidecar, onCancelInstall, onDismissProvisionMessage, onInstall, onInstallPython, onRemoveAll, onRemoveUnused, storage, storageProgress, storageBusy, onChooseStorage, onRelocateStorage, onCancelStorage }: RuntimeSectionProps) {
+const cleanupReasons: Record<RuntimeCleanupItem["reason"], string> = {
+  "old-version": "旧版本",
+  unneeded: "当前转写引擎与纠错都用不到",
+};
+
+/** 按引擎列出占用：本机能跑的转写引擎，加纠错引擎（云端 FineSub 不占本机的层）。 */
+function usageOwners(capabilities: Capabilities | null): UsageOwner[] {
+  const engines = (capabilities?.transcription_engines ?? [])
+    .filter((item) => item.kind !== "cloud-service")
+    .map((item) => ({ id: item.id, label: item.label, layers: item.layers }));
+  const correction = capabilities?.correction_engines?.[0];
+  return correction ? [...engines, { id: `correction:${correction.id}`, label: "finesub correction（纠错与翻译）", layers: correction.layers }] : engines;
+}
+
+export function RuntimeSection({ capabilities, message, provisionMessage, provision, pythonBootstrap, ready, sidecar, onCancelInstall, onDismissProvisionMessage, onInstall, onInstallPython, onRemoveAll, onRemoveUnused, cleanup, requestedInstall, storage, storageProgress, storageBusy, onChooseStorage, onRelocateStorage, onCancelStorage }: RuntimeSectionProps) {
   const [confirmRemove, setConfirmRemove] = useState(false);
   const [confirmUnused, setConfirmUnused] = useState(false);
   // 用户点了大安装但还没确认位置时，先停在这里等确认。
@@ -298,6 +311,14 @@ export function RuntimeSection({ capabilities, message, provisionMessage, provis
     }
     await onInstall(target);
   };
+  // 引擎列表发来的安装请求：同一套位置确认与进度。只认新的 seq，重渲染不会重复安装。
+  const [handledInstall, setHandledInstall] = useState(0);
+  useEffect(() => {
+    if (!requestedInstall || requestedInstall.seq === handledInstall) return;
+    setHandledInstall(requestedInstall.seq);
+    void requestInstall(requestedInstall.target);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [requestedInstall]);
   const issues = capabilities?.runtime?.issues ?? [];
   // 不阻断运行、但会改变耗时的情况（现在只有「没 N 卡，走 CPU」）
   const warnings = capabilities?.runtime?.warnings ?? [];
@@ -367,9 +388,19 @@ export function RuntimeSection({ capabilities, message, provisionMessage, provis
   const installedLayers = (provision?.layers ?? []).filter((layer) => layer.current !== null);
   const repairBlocked = connectionBlocked || jobBlocked
     || (provision && provision.layers && installedLayers.length === 0 ? "还没有安装任何运行环境层。" : "");
-  const unusedLayers = provision?.unused_layers ?? [];
-  const unusedBytes = provision?.unused_bytes ?? unusedLayers.reduce((sum, item) => sum + item.bytes, 0);
-  const unusedBlocked = connectionBlocked || jobBlocked;
+  // 读得到清理计划就按它（含当前引擎用不到的整层）；旧版 sidecar 只有旧版本这一种。
+  const cleanupItems: RuntimeCleanupItem[] = cleanup?.items
+    ?? (provision?.unused_layers ?? []).map((item) => ({ ...item, reason: "old-version" as const, blocked: "" }));
+  const removableItems = cleanupItems.filter((item) => !item.blocked);
+  const heldItems = cleanupItems.filter((item) => item.blocked);
+  const cleanupBytes = cleanup?.bytes ?? removableItems.reduce((sum, item) => sum + item.bytes, 0);
+  const unusedBlocked = connectionBlocked || jobBlocked || (removableItems.length === 0 ? "列出的层都有未结束的任务在用，等任务结束后再清理。" : "");
+  const cleanupNote = [
+    `${removableItems.length} 项可删，腾出 ${formatStorageBytes(cleanupBytes)}`,
+    heldItems.length > 0 ? `${heldItems.length} 项有未结束的任务在用，暂不删` : "",
+    cleanup && !cleanup.engine_available ? "当前转写引擎不可用，只清理旧版本" : "",
+  ].filter(Boolean).join("；");
+  const usage = layerUsage(usageOwners(capabilities), provision);
   const pythonBlocked = !pythonBootstrap
     ? ""
     : !pythonBootstrap.supported
@@ -530,11 +561,30 @@ export function RuntimeSection({ capabilities, message, provisionMessage, provis
             onInstall={requestInstall}
           />
         </div>
-        {unusedLayers.length > 0 && <section className="runtime-unused" aria-labelledby="runtime-unused-title">
+        {usage && usage.total > 0 && <section className="runtime-usage" aria-labelledby="runtime-usage-title">
           <div className="runtime-unused-heading">
             <div>
-              <strong id="runtime-unused-title">未使用的旧版本</strong>
-              <small>{`${unusedLayers.length} 项，共 ${formatStorageBytes(unusedBytes)}；当前版本用不到，删掉不影响任何引擎`}</small>
+              <strong id="runtime-usage-title">按引擎占用</strong>
+              <small>{`已装的层共 ${formatStorageBytes(usage.total)}；共用的层只算一次`}</small>
+            </div>
+          </div>
+          <ul>
+            {usage.rows.map((row) => (
+              <li key={row.id}>
+                <span>{row.label}</span>
+                <small>{row.layers.length
+                  ? row.layers.map((layer) => layer.sharedWith.length ? `${layer.label}（与 ${layer.sharedWith.join("、")} 共用）` : layer.label).join("、")
+                  : "不占运行环境层"}</small>
+                <b>{formatStorageBytes(row.bytes)}</b>
+              </li>
+            ))}
+          </ul>
+        </section>}
+        {cleanupItems.length > 0 && <section className="runtime-unused" aria-labelledby="runtime-unused-title">
+          <div className="runtime-unused-heading">
+            <div>
+              <strong id="runtime-unused-title">清理未使用的</strong>
+              <small>{cleanupNote}</small>
             </div>
             <button
               className={confirmUnused ? "runtime-remove-button confirming" : "quiet-button"}
@@ -548,17 +598,17 @@ export function RuntimeSection({ capabilities, message, provisionMessage, provis
                 setConfirmUnused(false);
                 void onRemoveUnused();
               }}
-              title={unusedBlocked || "删除下面列出的层版本；正在使用的层和有任务在跑时都不会删"}
+              title={unusedBlocked || "删除下面列出的层；有未结束任务在用的层不会删。整层删掉的，换回要它的引擎时需要重新下载"}
               type="button"
             >
-              {confirmUnused ? `确认删除，腾出 ${formatStorageBytes(unusedBytes)}` : "清理未使用的"}
+              {confirmUnused ? `确认删除，腾出 ${formatStorageBytes(cleanupBytes)}` : "清理未使用的"}
             </button>
           </div>
           <ul>
-            {unusedLayers.map((item) => (
-              <li key={item.path} title={item.path}>
-                <span>{layerLabels[item.layer] ?? item.layer}</span>
-                <code>{item.name}</code>
+            {cleanupItems.map((item) => (
+              <li key={item.path} title={item.path} className={item.blocked ? "held" : undefined}>
+                <span>{layerLabel(item.layer)}</span>
+                <small>{item.blocked ? `${cleanupReasons[item.reason]} · ${item.blocked}，不删` : item.reason === "old-version" ? `${cleanupReasons[item.reason]} ${item.name}` : cleanupReasons[item.reason]}</small>
                 <b>{formatStorageBytes(item.bytes)}</b>
               </li>
             ))}

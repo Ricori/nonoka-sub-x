@@ -15,7 +15,7 @@ import { dataMigration } from "../bridge/migration.ts";
 import type { MigrationStatus } from "../bridge/migration.ts";
 import { MigrationPanel } from "../components/MigrationPanel.tsx";
 import { isMigratingError, migrationPollIntervalMs, migrationView } from "../components/migration.ts";
-import type { PythonBootstrapState, RuntimeInstallTarget, RuntimeProvisionState } from "../bridge/runtime.ts";
+import type { PythonBootstrapState, RuntimeCleanupPlan, RuntimeInstallTarget, RuntimeProvisionState } from "../bridge/runtime.ts";
 import { desktopPreferences } from "../bridge/preferences.ts";
 import { desktopTaskHistory } from "../bridge/taskHistory.ts";
 import { desktopPlugins, mountedTools } from "../bridge/plugins.ts";
@@ -164,6 +164,8 @@ export default function App() {
   const [taskHistoryMessage, setTaskHistoryMessage] = useState<PageNotice>(noNotice);
   const [settings, setSettings] = useState<FineSubSettingsState | null>(null);
   const [runtimeProvision, setRuntimeProvision] = useState<RuntimeProvisionState | null>(null);
+  // 「清理未使用的」现在会删什么，以当前转写引擎为准（WP-UI）；旧版 sidecar 没有这条路由时为 null。
+  const [cleanupPlan, setCleanupPlan] = useState<RuntimeCleanupPlan | null>(null);
   // Failures of the install/cancel/remove actions used to land in `message`,
   // which the runtime page only renders while capabilities are missing — so a
   // refused removal looked like a page that simply did not react.
@@ -1648,7 +1650,7 @@ export default function App() {
   const removeUnusedRuntime = useCallback(async () => {
     setProvisionMessage("");
     try {
-      const result = await fineSubRuntime.removeUnused();
+      const result = await fineSubRuntime.removeUnused(transcriptionEngine);
       if (result.kept.length > 0) {
         setProvisionMessage(`有 ${result.kept.length} 项未能删除：${result.kept.map((item) => `${item.name}（${item.reason}）`).join("、")}`);
       }
@@ -1658,7 +1660,17 @@ export default function App() {
       setProvisionMessage(value instanceof Error ? value.message : String(value));
       await refresh({ silent: true });
     }
-  }, [refresh]);
+  }, [refresh, transcriptionEngine]);
+
+  // 层状态变了（装完、删掉、换了引擎）就重新问一次清理计划；装的时候不问，装完会再刷新。
+  useEffect(() => {
+    if (!runtimeProvision || runtimeProvision.job.state === "running") return;
+    let current = true;
+    fineSubRuntime.cleanupPlan(transcriptionEngine)
+      .then((plan) => { if (current) setCleanupPlan(plan); })
+      .catch(() => { if (current) setCleanupPlan(null); });
+    return () => { current = false; };
+  }, [runtimeProvision, transcriptionEngine]);
 
   const selectTranscriptionEngine = useCallback((engine: string) => {
     setTranscriptionEngine(engine);
@@ -1771,10 +1783,15 @@ export default function App() {
   // The banner speaks for the engine new tasks run on: FineSub here needs the
   // runtime; a cloud API engine its keys; the cloud's FineSub a signed-in account.
   const currentEngine = engines.find((item) => item.id === transcriptionEngine) ?? null;
-  const currentEngineReady = transcriptionEngine === DEFAULT_TRANSCRIPTION_ENGINE ? runtimeReady : currentEngine?.ready === true;
-  const currentEngineIssue = transcriptionEngine === DEFAULT_TRANSCRIPTION_ENGINE
+  // FineSub's package removed is FineSub gone, not a runtime to finish: the engine list
+  // no longer offers it (`capabilities` loaded and it is not there), so say so and send
+  // the user to pick another, never fall back to one silently.
+  const currentEngineGone = capabilities !== null && currentEngine === null;
+  const fineSubRuntimeBanner = transcriptionEngine === DEFAULT_TRANSCRIPTION_ENGINE && !currentEngineGone;
+  const currentEngineReady = fineSubRuntimeBanner ? runtimeReady : currentEngine?.ready === true;
+  const currentEngineIssue = fineSubRuntimeBanner
     ? message || issues[0]?.message || "正在读取 capabilities…"
-    : currentEngine ? currentEngine.issues[0]?.message ?? "" : "当前转写引擎不可用，请到设置里重新选择";
+    : currentEngine ? currentEngine.issues[0]?.message ?? "" : "当前转写引擎不可用（可能已被移除），请到设置里重新选择";
   const title = section === "knowledge" ? "知识库" : section === "library"
     ? "媒体库"
     : section === "tasks"
@@ -1953,10 +1970,10 @@ export default function App() {
             <div className="runtime-symbol">!</div>
             <div className="runtime-copy">
               <span className="eyebrow">{`转写引擎 · ${currentEngine?.label ?? transcriptionEngine}`}</span>
-              <h2>{transcriptionEngine === DEFAULT_TRANSCRIPTION_ENGINE ? "需要完成运行时配置" : transcriptionEngine === CLOUD_TRANSCRIPTION_ENGINE ? "需要登录云端账户" : "当前转写引擎尚未就绪"}</h2>
+              <h2>{currentEngineGone ? "当前转写引擎不可用" : fineSubRuntimeBanner ? "需要完成运行时配置" : transcriptionEngine === CLOUD_TRANSCRIPTION_ENGINE ? "需要登录云端账户" : "当前转写引擎尚未就绪"}</h2>
               <p>{currentEngineIssue}</p>
             </div>
-            <button onClick={() => openSettings(transcriptionEngine === DEFAULT_TRANSCRIPTION_ENGINE ? "runtime" : "engine")}>查看详情 →</button>
+            <button onClick={() => openSettings(fineSubRuntimeBanner ? "runtime" : "engine")}>查看详情 →</button>
           </section>}
 
           {section === "library" && (
@@ -2089,6 +2106,7 @@ export default function App() {
                 onInstallPython: installPython,
                 onRemoveAll: removeRuntime,
                 onRemoveUnused: removeUnusedRuntime,
+                cleanup: cleanupPlan,
               }}
               anchor={settingsAnchor}
             />

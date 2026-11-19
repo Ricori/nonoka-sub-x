@@ -187,6 +187,7 @@ type relayLocal struct {
 	state      string
 	actions    []string
 	syncRead   bool
+	attempts   int
 }
 
 func (p *relayLocal) DoJSON(_ context.Context, method, endpoint string, body any, result any) error {
@@ -198,6 +199,7 @@ func (p *relayLocal) DoJSON(_ context.Context, method, endpoint string, body any
 	}
 	switch {
 	case method == http.MethodPost && endpoint == "/v1/tasks":
+		p.attempts++
 		if p.refusal != nil {
 			return p.refusal
 		}
@@ -492,6 +494,41 @@ func TestRelayFailsWithTheLocalProvidersRefusalAndRetriesIt(t *testing.T) {
 	}
 	if submitted, _, _, _ := backend.snapshot(); len(submitted) != 1 {
 		t.Fatalf("a local retry went back to the cloud: %d submissions", len(submitted))
+	}
+}
+
+// A sidecar still migrating an older installation's data answers 503
+// `migrating` (WP-M2): the local leg waits for it as for one not yet up, and
+// carries on once the migration is done, instead of failing the relay.
+func TestRelayWaitsForAMigratingSidecar(t *testing.T) {
+	local := &relayLocal{refusal: &sidecar.HTTPError{StatusCode: 503, Code: sidecar.MigratingCode, Message: "正在迁移旧版数据"}}
+	service, _, _ := newRelayService(t, local)
+	snapshot, err := service.StartTask("loc_0123456789ab", map[string]any{"target": "final-srt"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := snapshot["task_id"].(string)
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		local.mu.Lock()
+		attempts := local.attempts
+		local.mu.Unlock()
+		if attempts >= 3 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the local leg was tried %d times", attempts)
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if status, _ := service.TaskStatus(id); status["state"] == "failed" {
+		t.Fatalf("a migrating sidecar failed the relay: %#v", status)
+	}
+	local.mu.Lock()
+	local.refusal = nil
+	local.mu.Unlock()
+	if done := waitRelay(t, service, id, "completed", "failed"); done["state"] != "completed" {
+		t.Fatalf("relay after the migration = %#v", done)
 	}
 }
 

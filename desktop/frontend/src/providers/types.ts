@@ -86,12 +86,21 @@ export interface TranscriptionEngineInfo {
   billing: string;
   /** 引擎读的 Key 名；设置页的引擎面板按它列输入框。旧 sidecar 没有。 */
   keys?: string[];
+  /** 引擎要的运行环境层与可选的层（WP-UI）；旧 sidecar 没有。 */
+  layers?: EngineLayers;
+}
+
+/** 运行环境层：`python`、`models`、`tools`，按安装顺序。 */
+export interface EngineLayers {
+  required: string[];
+  optional: string[];
 }
 
 export interface CorrectionEngineInfo {
   id: string;
   ready: boolean;
   issues: ReadinessIssue[];
+  layers?: EngineLayers;
 }
 
 /** 任务用哪个转写引擎。缺省（或整个字段缺省）为 `finesub`；引擎记在请求里，重试与续跑沿用。 */

@@ -81,6 +81,13 @@ class SidecarHandler(BaseHTTPRequestHandler):
             raise ProviderError("invalid_json", "Request body must be a JSON object")
         return value
 
+    @staticmethod
+    def _engine_query(query: str) -> str | None:
+        """`?engine=<id>`: the desktop's current transcription engine; None when not given."""
+
+        value = parse_qs(query).get("engine", [""])[0].strip()
+        return value or None
+
     def _dispatch(self) -> None:
         if not self._authorized():
             self._json(401, {"error": {"code": "invalid_session", "message": "Invalid sidecar session token"}})
@@ -118,8 +125,10 @@ class SidecarHandler(BaseHTTPRequestHandler):
             self._json(200, provider.runtime_cache_status())
         elif self.command == "DELETE" and parts == ["v1", "runtime", "cache"]:
             self._json(200, provider.clear_runtime_cache())
+        elif self.command == "GET" and parts == ["v1", "runtime", "provision", "unused"]:
+            self._json(200, provider.runtime_cleanup_plan(self._engine_query(parsed.query)))
         elif self.command == "DELETE" and parts == ["v1", "runtime", "provision", "unused"]:
-            self._json(200, provider.remove_unused_runtime())
+            self._json(200, provider.remove_unused_runtime(self._engine_query(parsed.query)))
         elif self.command == "GET" and parts == ["v1", "settings"]:
             self._json(200, provider.get_settings())
         elif self.command == "POST" and parts == ["v1", "knowledge"]:

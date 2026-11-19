@@ -304,9 +304,28 @@ def test_capability_entries_match_provider_spec() -> None:
         },
         "billing": "按音频时长计费",
         "keys": ["OPENROUTER_STT"],
+        "layers": {"required": ["tools"], "optional": ["python"]},
     }
     spec = correction.CorrectionSpec(id="finesub", label="finesub correction")
-    assert correction.correction_capability(spec, Readiness()) == {"id": "finesub", "ready": True, "issues": []}
+    assert correction.correction_capability(spec, Readiness()) == {
+        "id": "finesub", "ready": True, "issues": [], "layers": {"required": [], "optional": []},
+    }
+
+
+def test_capability_layers_come_from_the_environment() -> None:
+    """WP-UI: components and models name the layers an engine needs (`runtime_cleanup.environment_layers`)."""
+
+    from nonoka_x.runtime_cleanup import component_layers, environment_layers
+
+    assert environment_layers(EngineEnvironment(components=("asr-runtime", "media"), models=("whisper",))) == {
+        "required": ["tools", "python", "models"], "optional": [],
+    }
+    assert environment_layers(EngineEnvironment(components=("media",), optional_models=("nemotron3",))) == {
+        "required": ["tools"], "optional": ["models"],
+    }
+    assert environment_layers({"components": ["ffmpeg", "yt-dlp"]}) == {"required": ["tools"], "optional": []}
+    # A component nobody knows keeps every layer: nothing it might need is ever offered for cleaning.
+    assert set(component_layers("something-new")) == {"python", "models", "tools"}
 
 
 def test_native_artifacts_are_namespaced_and_opaque(tmp_path: Path) -> None:

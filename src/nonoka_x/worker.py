@@ -216,13 +216,33 @@ def knowledge_package_problem(request: Mapping[str, Any], packages: Mapping[str,
     run silently without the base (plan 4.6 item 35a, appendix B question 39).
     """
 
-    if request.get("knowledge", "update") == "none":
-        return None
     if engine_host.knowledge_package(packages) is not None:
         return None
-    return (
-        f"知识库包未安装：这个任务用到知识库（knowledge={request.get('knowledge', 'update')}），"
-        "请安装知识库包或关闭知识库后重试"
+    if request.get("knowledge", "update") != "none":
+        return (
+            f"知识库包未安装：这个任务用到知识库（knowledge={request.get('knowledge', 'update')}），"
+            "请安装知识库包或关闭知识库后重试"
+        )
+    if runs_llm_correction(request) and engine_host.correction_package(packages) is not None:
+        # The package's correction reads its style catalog from the base whatever `knowledge` says
+        # (`--style auto`); without the base it would fail halfway (appendix B question 94).
+        return STYLE_NEEDS_KNOWLEDGE
+    return None
+
+
+#: Why a correction cannot run without the knowledge package even with the base switched off.
+STYLE_NEEDS_KNOWLEDGE = (
+    "知识库包未安装：纠错与翻译要从知识库读取风格目录（style auto），没有知识库包无法进行；"
+    "请安装知识库包，或只生成原始字幕"
+)
+
+
+def runs_llm_correction(request: Mapping[str, Any]) -> bool:
+    """Whether the request runs the correction's LLM half: a translated or final SRT, or a Japanese axis."""
+
+    axis = request.get("axis")
+    return request.get("target") in ("translated-srt", "final-srt") or (
+        isinstance(axis, Mapping) and axis.get("kind") == "ja"
     )
 
 
@@ -320,7 +340,7 @@ def emit_request_notices(request: Mapping[str, Any], models_dir: str | Path | No
     block = request.get("diarization")
     if diarization_kwargs(request)["diarize"] != "off" and diarization_models_missing(models_dir):
         emit("log", {
-            "message": "首次使用说话人分离：需要下载约 450MB 模型，将在说话人分离阶段自动下载并校验",
+            "message": DIARIZATION_MODELS_MISSING,
         })
     if isinstance(block, Mapping) and block.get("requested_level"):
         emit("warning", {
@@ -332,13 +352,20 @@ def emit_request_notices(request: Mapping[str, Any], models_dir: str | Path | No
         })
 
 
-def diarization_models_missing(models_dir: str | Path | None) -> bool:
-    """Whether the default diarization backend still has weights to fetch.
+#: Said before a run that asks for diarization without the model layer's diarization models. The
+#: engine no longer fetches anything itself (WP-R7), whatever its own first-use line says.
+DIARIZATION_MODELS_MISSING = (
+    "说话人分离模型尚未安装（约 450MB）：引擎不会自行下载，本次说话人分离可能无法进行；"
+    "请到「设置 → 运行环境」的「AI模型」下载"
+)
 
-    The engine fetches them itself, with its own mirror routing and checks,
-    the first time the stage runs -- but that is a silent wait of several
-    hundred megabytes, so the task log says so before it starts. Unknown
-    counts as present: this only decides whether to warn.
+
+def diarization_models_missing(models_dir: str | Path | None) -> bool:
+    """Whether the default diarization backend lacks its weights in the model layer.
+
+    Nothing downloads them during a run any more (WP-R7), so the task log says
+    so before it starts. Unknown counts as present: this only decides whether
+    to warn.
     """
 
     if not models_dir:

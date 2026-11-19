@@ -58,6 +58,21 @@
 .engine-current { border-color: var(--accent); background: var(--accent); color: var(--panel); }
 .engine-row-note, .engine-row-billing { color: var(--faint); font-size: 12px; line-height: 1.5; }
 .engine-row-billing { color: var(--mut); }
+.engine-row-layers { color: var(--mut); font-size: 12px; line-height: 1.5; }
+
+/* Installing only what the chosen engine lacks: what, how much, where. */
+.engine-install { display: grid; justify-items: start; gap: 8px; }
+.engine-install p { margin: 0; color: var(--mut); font-size: 12px; line-height: 1.6; }
+.engine-install code { overflow-wrap: anywhere; font-size: 11px; }
+.engine-install .inline-link {
+  margin-left: 8px;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--accent);
+  font-size: inherit;
+  cursor: pointer;
+}
 
 .engine-row-detail { display: grid; gap: 12px; padding: 0 14px 14px 42px; }
 .engine-row-detail:empty { display: none; }

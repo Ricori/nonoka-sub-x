@@ -25,6 +25,12 @@ from nonoka_x.local_provider import (
 from nonoka_x.sidecar import SidecarServer, session_authorized
 
 
+def engine_host_discover(root: Path) -> dict:
+    from nonoka_x import engine_host
+
+    return engine_host.discover(root)
+
+
 def wait_state(provider: LocalProvider, task_id: str, expected: set[str], timeout: float = 5) -> dict:
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
@@ -1381,16 +1387,166 @@ class EngineSelectionTests(ProviderFixture):
             self.assertEqual(caught.exception.code, "missing_knowledge_package")
             self.assertIn("knowledge=read", str(caught.exception))
             self.assertIn("知识库包未安装", str(caught.exception))
-            # Off is off: nothing to refuse.
-            task = provider.start(self.mai2("final-srt", knowledge="none"))
-            wait_state(provider, task["task_id"], {"completed"})
-            # A new Chinese-source task only corrects, so it reads no base either
-            # (the correction engine says so: `task_mode`), and is not refused --
-            # what the worker would run is what is judged (WP5's hand-back).
-            chinese = provider.start(self.mai2("final-srt", knowledge="update", language="zh"))
-        wait_state(provider, chinese["task_id"], {"completed"})
-        # Asked of the resident correction process, which the provider keeps.
-        self.assertIsNotNone(provider._llm_process)
+            # With the base off the correction still reads its style catalog from it
+            # (`--style auto`), so it is refused before it runs (appendix B question 94)...
+            with self.assertRaises(ProviderError) as caught:
+                provider.start(self.mai2("final-srt", knowledge="none"))
+            self.assertEqual(caught.exception.code, "missing_knowledge_package")
+            self.assertIn("风格目录", str(caught.exception))
+            # ...and so is a Chinese-source task, which only corrects but corrects all the same.
+            with self.assertRaises(ProviderError) as caught:
+                provider.start(self.mai2("final-srt", knowledge="update", language="zh"))
+            self.assertEqual(caught.exception.code, "missing_knowledge_package")
+            # The raw SRT runs no LLM: nothing to refuse.
+            task = provider.start(self.mai2("raw-srt", knowledge="none"))
+        wait_state(provider, task["task_id"], {"completed"})
+
+    def test_without_the_knowledge_package_the_correction_tiers_say_so(self) -> None:
+        from nonoka_x.local_provider import runtime_report
+        from tests.test_worker_adapter import engines_without
+
+        provider = self.tools_only_provider({"OPENROUTER_STT_KEY": SECRET})
+        packages = engine_host_discover(engines_without(self.root, "finesub-knowledge"))
+        with self.no_gpu_no_harness_probe():
+            stages = {item["id"]: item for item in runtime_report(
+                provider._settings, provider._provisioner, packages=packages)["stages"]}
+            complete = {item["id"]: item for item in runtime_report(
+                provider._settings, provider._provisioner, packages=engine_host_discover(ROOT / "engines"))["stages"]}
+        for stage in ("final-srt", "knowledge", "video-multimodal"):
+            self.assertIn("missing_knowledge_package", [issue["code"] for issue in stages[stage]["issues"]], stage)
+            self.assertNotIn("missing_knowledge_package", [issue["code"] for issue in complete[stage]["issues"]], stage)
+        self.assertTrue(stages["harness"]["ready"])
+        self.assertTrue(complete["final-srt"]["ready"])
+
+    def test_a_cloud_engine_reaches_its_raw_srt_without_the_correction_package(self) -> None:
+        """Plan 4.6 item 33: no correction package, and the core renders the raw SRT (WP-CL, WP7 hand-back)."""
+
+        from tests.test_worker_adapter import engines_without
+
+        provider = self.tools_only_provider({"OPENROUTER_STT_KEY": SECRET})
+        provider.engines = engines_without(self.root, "finesub-correct")
+        with self.no_gpu_no_harness_probe():
+            task = provider.start(self.mai2("raw-srt", knowledge="none"))
+            self.assertEqual(task["transcription_engine"], "mai2")
+            # A translation still needs the correction.
+            with self.assertRaises(ProviderError) as caught:
+                provider.start(self.mai2("final-srt", knowledge="none"))
+            self.assertEqual(caught.exception.code, "missing_engine")
+
+    def test_the_media_tier_counts_only_the_tool_layer(self) -> None:
+        """Appendix B question 94: an ffmpeg on the user's PATH no longer makes the core's media tier ready."""
+
+        from nonoka_x.local_provider import _media_issues
+
+        class NoTools(ToolsOnly):
+            def tool_path(self, name: str) -> None:  # noqa: ARG002
+                return None
+
+        with patch("nonoka_x.local_provider.shutil.which", return_value=r"C:\ffmpeg\bin\ffmpeg.exe"):
+            issues = _media_issues(NoTools(self.source))
+            self.assertEqual(_media_issues(ToolsOnly(self.source)), [])
+        self.assertEqual([issue["code"] for issue in issues], ["missing_ffmpeg"])
+        self.assertIn("设置 → 运行环境", issues[0]["message"])
+
+    # "clean up unused" (WP-UI)
+
+    def cleanup_provider(self):  # noqa: ANN201
+        calls: list[tuple[str, object, object]] = []
+
+        class Provisioner(ToolsOnly):
+            def cleanup_plan(self, needed, busy):  # noqa: ANN001, ANN202
+                calls.append(("plan", needed, busy))
+                return {"schema": 1, "items": [], "bytes": 0, "blocked_bytes": 0}
+
+            def cleanup(self, needed, busy):  # noqa: ANN001, ANN202
+                calls.append(("cleanup", needed, busy))
+                return {"schema": 1, "removed": [], "kept": [], "freed": 0}
+
+        provider = LocalProvider(self.root / "tasks", ROOT / "engines", worker_command=self.command,
+                                 issues=[], provisioner=Provisioner(self.source))
+        self.providers.append(provider)
+        return provider, calls
+
+    def unfinished(self, provider: LocalProvider, engine: str | None, state: str = "running") -> None:
+        import uuid
+
+        directory = provider.root / uuid.uuid4().hex
+        directory.mkdir(parents=True)
+        snapshot = {"schema": 1, "state": state}
+        if engine is not None:
+            snapshot["transcription_engine"] = engine
+        (directory / "snapshot.json").write_text(json.dumps(snapshot), encoding="utf-8")
+
+    def test_cleanup_keeps_what_the_current_engine_and_the_correction_need(self) -> None:
+        provider, calls = self.cleanup_provider()
+        for engine, needed in (("mai2", {"tools"}), ("finesub-cloud", {"tools"}),
+                               ("finesub", {"tools", "python", "models"}), ("no-such-engine", None), (None, None)):
+            with self.subTest(engine=engine):
+                plan = provider.runtime_cleanup_plan(engine)
+                self.assertEqual(calls[-1], ("plan", needed, set()))
+                self.assertEqual(plan["engine_available"], needed is not None)
+                self.assertEqual(plan["needed"], None if needed is None else [
+                    layer for layer in ("tools", "python", "models") if layer in needed])
+        provider.remove_unused_runtime("mai2")
+        self.assertEqual(calls[-1], ("cleanup", {"tools"}, set()))
+        with self.assertRaises(ProviderError) as caught:
+            provider.runtime_cleanup_plan("Not An Id")
+        self.assertEqual(caught.exception.code, "invalid_request")
+
+    def test_cleanup_spares_the_layers_unfinished_tasks_may_use(self) -> None:
+        provider, calls = self.cleanup_provider()
+        self.unfinished(provider, "mai2", "completed")
+        provider.runtime_cleanup_plan("mai2")
+        self.assertEqual(calls[-1][2], set())
+        self.unfinished(provider, "mai2", "interrupted")
+        provider.runtime_cleanup_plan("mai2")
+        self.assertEqual(calls[-1][2], {"tools"})
+        # A task from before the field ran on FineSub; one on an engine gone since may need anything.
+        self.unfinished(provider, None, "queued")
+        provider.runtime_cleanup_plan("mai2")
+        self.assertEqual(calls[-1][2], {"tools", "python", "models"})
+
+    def test_cleanup_routes_carry_the_current_engine(self) -> None:
+        provider, calls = self.cleanup_provider()
+        try:
+            server = SidecarServer(("127.0.0.1", 0), provider, "secret-token")
+        except PermissionError:
+            self.skipTest("sandbox does not permit a loopback listener")
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        base = f"http://127.0.0.1:{server.server_port}/v1/runtime/provision/unused"
+
+        def call(method: str, query: str = "") -> dict:
+            request = urllib.request.Request(base + query, headers={"Authorization": "Bearer secret-token"}, method=method)
+            with urllib.request.urlopen(request, timeout=5) as response:
+                return json.load(response)
+
+        try:
+            self.assertEqual(call("GET", "?engine=mai2")["engine"], "mai2")
+            self.assertEqual(calls[-1], ("plan", {"tools"}, set()))
+            self.assertEqual(call("DELETE", "?engine=finesub")["needed"], ["tools", "python", "models"])
+            self.assertEqual(calls[-1][0], "cleanup")
+            # A desktop from before WP-UI names no engine: old versions only.
+            self.assertIsNone(call("DELETE")["needed"])
+            self.assertEqual(calls[-1], ("cleanup", None, set()))
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=2)
+
+    def test_a_japanese_axis_needs_no_transcription_package(self) -> None:
+        """WP-CL hand-back: the axis replaces recognition, so FineSub need not be installed to validate it."""
+
+        from nonoka_x.local_provider import validate_request
+
+        request = {**self.request(), "target": "final-srt",
+                   "axis": {"kind": "ja", "rows": [{"t0": 0.0, "t1": 1.0, "ja": "テスト"}]}}
+        without = validate_request(request, engines={})
+        installed = validate_request(request)
+        self.assertEqual(json.dumps(without, sort_keys=True), json.dumps(installed, sort_keys=True))
+        # Another engine is still refused, installed or not.
+        with self.assertRaises(ProviderError):
+            validate_request({**request, "transcription": {"engine": "mai2"}}, engines={})
 
     # capabilities
 
@@ -1404,7 +1560,12 @@ class EngineSelectionTests(ProviderFixture):
         self.assertEqual([issue["code"] for issue in engines["mai2"]["issues"]], ["missing_key"])
         self.assertFalse(engines["finesub"]["ready"])
         self.assertEqual(engines["finesub"]["issues"], capabilities["runtime"]["issues"])
-        self.assertEqual(capabilities["correction_engines"], [{"id": "finesub", "ready": True, "issues": []}])
+        self.assertEqual(capabilities["correction_engines"],
+                         [{"id": "finesub", "ready": True, "issues": [], "layers": {"required": [], "optional": []}}])
+        # The layers each engine needs, for the engine list's missing layers and sizes (WP-UI).
+        self.assertEqual(engines["finesub"]["layers"], {"required": ["tools", "python", "models"], "optional": []})
+        for engine in ("mai2", "gemini-transcribe", "moss-pro"):
+            self.assertEqual(engines[engine]["layers"], {"required": ["tools"], "optional": []}, engine)
         # The stages keep their ids, and FineSub's tier is still the one the desktop greys out on.
         self.assertEqual([stage["id"] for stage in capabilities["runtime"]["stages"]],
                          ["media", "raw-srt", "harness", "final-srt", "knowledge", "video-multimodal"])

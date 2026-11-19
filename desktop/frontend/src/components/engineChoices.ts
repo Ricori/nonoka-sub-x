@@ -1,4 +1,4 @@
-import type { Capabilities, ReadinessIssue, TranscriptionEngineInfo } from "../providers/types.ts";
+import type { Capabilities, EngineLayers, ReadinessIssue, TranscriptionEngineInfo } from "../providers/types.ts";
 import { CLOUD_TRANSCRIPTION_ENGINE, DEFAULT_TRANSCRIPTION_ENGINE } from "../providers/types.ts";
 import { transcriptionEngineLabel } from "../app/format.ts";
 
@@ -11,6 +11,8 @@ export interface EngineChoice {
   issues: ReadinessIssue[];
   billing: string;
   keys: string[];
+  /** 要的运行环境层；读不到（旧版 sidecar、服务未连接）时缺省。云端 FineSub 不要本机的层。 */
+  layers?: EngineLayers;
 }
 
 /**
@@ -24,6 +26,7 @@ export function engineChoices(capabilities: Capabilities | null, cloud: { authen
   const local: EngineChoice[] = listed
     ? listed.filter((item) => item.kind !== "cloud-service").map((item) => ({
       id: item.id, label: item.label, kind: item.kind, ready: item.ready, issues: item.issues, billing: item.billing, keys: item.keys ?? [],
+      ...(item.layers ? { layers: item.layers } : {}),
     }))
     : [{
       id: DEFAULT_TRANSCRIPTION_ENGINE,
@@ -42,6 +45,7 @@ export function engineChoices(capabilities: Capabilities | null, cloud: { authen
     issues: cloud.authenticated ? [] : [{ code: "cloud_signed_out", message: "需要先登录云端账户" }],
     billing: cloud.remaining === undefined ? "每个任务扣一次云端额度" : `每个任务扣一次云端额度，剩余 ${cloud.remaining} 次`,
     keys: [],
+    layers: { required: [], optional: [] },
   };
   return [...local, cloudChoice];
 }
