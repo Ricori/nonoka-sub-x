@@ -543,7 +543,12 @@ def _task_products(step: Step, context: MigrationContext) -> dict[str, Any] | No
     except tasks.ConversionUnavailable as error:
         raise MigrationError(str(error)) from error
     refused = {task: record["refused"] for task, record in report.items() if record.get("refused")}
-    return {"tasks": len(report), **({"not_converted": refused} if refused else {})}
+    requests = sum(1 for record in report.values() if record.get("request"))
+    return {
+        "tasks": len(report),
+        **({"requests": requests} if requests else {}),
+        **({"not_converted": refused} if refused else {}),
+    }
 
 
 def _delete(step: Step, context: MigrationContext) -> None:

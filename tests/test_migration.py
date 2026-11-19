@@ -1424,3 +1424,102 @@ def test_the_cleanup_killed_at_any_operation_continues_and_reports_everything(ma
         journal = migration.read_journal(install.data)
         assert journal["status"] == planning.COMPLETED
         assert sorted(journal["steps"][planning.LEFTOVERS]["report"]["removed"]) == expected_removed, kill_at
+
+
+# -- old cloud continuations (WP-CL retired `cloud_stable`) ------------------------------------------------------
+
+_ATTACHMENT_KEY = __import__("re").compile(r"^[a-z0-9_-]{1,40}\.[a-z0-9_]{1,40}$")
+
+
+def _cloud_continuation(install: OldInstall, task_id: str = "c" * 32, *, timeline: bool = True) -> tuple[Path, dict]:
+    """A task an old desktop started to continue the cloud's recognition (`source.kind` = `cloud_stable`)."""
+
+    task = _finished_task(install, task_id, with_document=False)
+    relay = install.data / "cloud-relays" / "rly_0123456789abcdef01234567"
+    _write(relay / "stable.json", (FIXTURES / "sample-stable.json").read_bytes())
+    source = {
+        "kind": "cloud_stable", "path": str(install.base / "media" / TITLE), "title": TITLE,
+        "fingerprint": "f" * 64, "video_id": "loc_0123456789ab", "duration": 12.5,
+        "stable_json": str(relay / "stable.json"),
+    }
+    if timeline:
+        _write(task / "workspace" / f"{TITLE[:-4]}-diar.json", b'{"turns": []}')
+        _write(relay / "diar.json", b'{"turns": []}')
+        source["diar_json"] = str(relay / "diar.json")
+    request = {"schema": 1, "provider": "local", "language": "ja", "target": "final-srt", "source": source}
+    _write(task / "request.json", json.dumps(request, ensure_ascii=False))
+    return task, request
+
+
+def test_an_old_cloud_continuation_request_is_rewritten_to_the_transcript_shape(make_install, monkeypatch):
+    install = make_install()
+    task, before = _cloud_continuation(install)
+    FakeConversions(monkeypatch)
+    _migrate(install)
+
+    request = json.loads((task / "request.json").read_text(encoding="utf-8"))
+    source = request["source"]
+    assert source["kind"] == "cloud_transcript"
+    assert "stable_json" not in source and "diar_json" not in source
+    # Everything else as it was.
+    assert {key: value for key, value in source.items() if key not in ("kind", "transcript_json", "native", "native_package")} == {
+        key: value for key, value in before["source"].items() if key not in ("kind", "stable_json", "diar_json")
+    }
+    assert {key: value for key, value in request.items() if key != "source"} == {key: value for key, value in before.items() if key != "source"}
+
+    # The source lives in its own directory of the task: a retry copies it into the task, never onto itself.
+    cloud_source = task / "migration" / "cloud-source"
+    assert Path(source["transcript_json"]) == cloud_source / "transcript.json"
+    assert (cloud_source / "transcript.json").read_bytes() == (task / "transcript.json").read_bytes()
+    transcribe = task / "native" / "finesub-transcribe"
+    assert source["native_package"] == "finesub-transcribe"
+    assert source["native"] == {
+        "finesub.stable_json": str(cloud_source / "native" / "finesub.stable_json"),
+        "finesub.diar_json": str(cloud_source / "native" / "finesub.diar_json"),
+    }
+    assert all(_ATTACHMENT_KEY.match(key) for key in source["native"])
+    assert Path(source["native"]["finesub.stable_json"]).read_bytes() == (transcribe / f"{TITLE[:-4]}-stable.json").read_bytes()
+    assert Path(source["native"]["finesub.diar_json"]).read_bytes() == (transcribe / f"{TITLE[:-4]}-diar.json").read_bytes()
+    for path in (source["transcript_json"], *source["native"].values()):
+        assert Path(path).parent != task and transcribe not in Path(path).parents
+
+    report = migration.read_journal(install.data)["steps"][deferred.TASK_PRODUCTS]["report"]
+    assert report["requests"] == 1 and "not_converted" not in report
+
+
+def test_a_continuation_without_its_speaker_timeline_carries_only_the_stable(make_install, monkeypatch):
+    install = make_install()
+    task, _ = _cloud_continuation(install, timeline=False)
+    FakeConversions(monkeypatch)
+    _migrate(install)
+    source = json.loads((task / "request.json").read_text(encoding="utf-8"))["source"]
+    assert list(source["native"]) == ["finesub.stable_json"]
+
+
+def test_a_continuation_without_a_transcript_keeps_its_request_and_is_reported(make_install, monkeypatch):
+    install = make_install()
+    task, before = _cloud_continuation(install)
+    FakeConversions(monkeypatch, refuse="transcript_json")
+    _migrate(install)
+    assert json.loads((task / "request.json").read_text(encoding="utf-8")) == before
+    assert not (task / "migration").exists()
+    report = migration.read_journal(install.data)["steps"][deferred.TASK_PRODUCTS]["report"]
+    assert "request_json" in report["not_converted"][task.name]
+    assert "requests" not in report
+
+
+def test_a_rollback_puts_the_old_request_back(make_install, monkeypatch):
+    install = make_install()
+    _cloud_continuation(install)
+    FakeConversions(monkeypatch)
+    before = install.snapshot()
+    original = task_filing.file_tasks
+
+    def then_fail(actions, context):
+        original(actions, context)
+        raise RuntimeError("the step failed after the tasks were filed")
+
+    monkeypatch.setattr(task_filing, "file_tasks", then_fail)
+    with pytest.raises(migration.MigrationRolledBack):
+        migration.execute(migration.prepare(install.data, hooks=_settings_hooks()), hooks=_settings_hooks())
+    assert _without(install.snapshot(), "runtime-state") == _without(before, "runtime-state")

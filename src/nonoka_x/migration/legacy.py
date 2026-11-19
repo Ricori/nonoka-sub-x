@@ -281,6 +281,17 @@ TRANSCRIPTION_SUFFIXES = (
 )
 BOTH_SUFFIXES = ("-metadata.json",)
 
+#: An old cloud continuation's request (`request.json`): the cloud's stable handed over as
+#: `source.stable_json` (and its speaker timeline as `source.diar_json`). That source kind is
+#: retired (WP-CL): a continuation now carries the cloud's `transcript.json` and the
+#: transcription package's files as attachments by `<engine>.<name>` key -- the cloud's two
+#: attachment names, which are also the files' names (`worker.py`, `desktop/internal/cloud/relay.go`).
+OLD_CLOUD_SOURCE_KIND = "cloud_stable"
+CLOUD_SOURCE_KIND = "cloud_transcript"
+OLD_CLOUD_SOURCE_FIELDS = ("stable_json", "diar_json")
+CLOUD_STABLE_ATTACHMENT = ("finesub.stable_json", "-stable.json")
+CLOUD_TIMELINE_ATTACHMENT = ("finesub.diar_json", "-diar.json")
+
 #: Where WP-R4 derived FineSub's files until WP-R5 (owner 2026-11-12): a sealed copy of the keys,
 #: under the main data directory's `engines\`. Removed at start-up.
 TRANSITIONAL_ENGINE_DIRECTORY = "finesub-shared"

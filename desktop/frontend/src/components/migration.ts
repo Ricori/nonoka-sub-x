@@ -86,6 +86,8 @@ export function formatBytes(value: number): string {
 const convertedNames: Record<string, string> = {
   correction_json: "纠错结果",
   transcript_json: "转写结果",
+  // 旧版云端续跑任务的请求（`cloud_stable`）：没转成新格式时，重试会被拒绝。
+  request_json: "续跑请求（重试会被拒绝）",
 };
 
 export function reportSections(report: MigrationReport | undefined, taskTitles: Record<string, string> = {}): MigrationView["sections"] {

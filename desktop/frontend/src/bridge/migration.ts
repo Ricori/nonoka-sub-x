@@ -46,6 +46,8 @@ export interface MigrationSettingsReport {
 /** 旧任务的归位与转换（`task-products` 一步的报告）：归位的任务数，以及按任务 id 列出没转成的文件与原因。 */
 export interface MigrationTaskReport {
   tasks: number;
+  /** 改写成新格式（`cloud_transcript`）的旧云端续跑请求数。 */
+  requests?: number;
   not_converted?: Record<string, Record<string, string>>;
 }
 
