@@ -1979,7 +1979,11 @@ export default function App() {
         <div className="brand">
           <img className="brand-glyph" src="./assets/icon.png" alt="Nonoka Sub X" draggable={false} />
           <span className="brand-name">Nonoka Sub X</span>
-          <button className="sidebar-collapse" aria-label={sidebarCollapsed ? "展开侧边栏" : "折叠侧边栏"} title={sidebarCollapsed ? "展开侧边栏" : "折叠侧边栏"} onClick={() => setSidebarCollapsed((value) => !value)}>{sidebarCollapsed ? "›" : "‹"}</button>
+          <button className="sidebar-collapse" type="button" aria-label={sidebarCollapsed ? "展开侧边栏" : "折叠侧边栏"} title={sidebarCollapsed ? "展开侧边栏" : "折叠侧边栏"} onClick={() => setSidebarCollapsed((value) => !value)}>
+            <svg viewBox="0 0 16 16" aria-hidden="true">
+              {sidebarCollapsed ? <path d="M6.2 3.8 10.4 8l-4.2 4.2" /> : <path d="M9.8 3.8 5.6 8l4.2 4.2" />}
+            </svg>
+          </button>
         </div>
         <span className="nav-label">工作区</span>
         <nav aria-label="主导航">
@@ -2031,16 +2035,25 @@ export default function App() {
         </nav>
         <div className="sidebar-spacer" />
         <section className="sidebar-provider" aria-label="转写引擎状态">
-          {/* 两种转写引擎的状态并排给出；用哪一个在每次转写时选，这里不再切换。 */}
-          <div className="sidebar-provider-status">
+          {/* 两种转写引擎的状态并排给出；用哪一个在每次转写时选，这里仅作状态展示与快捷入口。 */}
+          <button
+            type="button"
+            className="sidebar-provider-status sidebar-provider-action"
+            onClick={() => openSettings("runtime")}
+            title={runtimeReady ? "本机引擎已就绪 · 点击查看运行环境" : "本机引擎需要检查 · 点击前往设置"}
+          >
             <span className={`status-dot ${sidecar?.running ? "local" : ""}`} />
             <div>
               <strong>本机</strong>
               <small>{runtimeReady ? "引擎已就绪" : "需要检查环境"}</small>
             </div>
-          </div>
+            <svg className="sidebar-provider-chevron" viewBox="0 0 16 16" aria-hidden="true">
+              <path d="M6.2 3.8 10.4 8l-4.2 4.2" />
+            </svg>
+          </button>
           {/* The cloud row doubles as the account entry, so the login state is shown once. */}
           <button
+            type="button"
             className="sidebar-provider-status sidebar-provider-action"
             aria-busy={cloudLoading}
             disabled={cloudLoading}
@@ -2052,6 +2065,9 @@ export default function App() {
               <strong>Nonoka Cloud</strong>
               <small>{cloudLoading ? "正在验证账户" : !cloudSession?.authenticated ? "未登录 · 点击登录" : `${cloudSession.name || "未命名 Key"}`}</small>
             </div>
+            <svg className="sidebar-provider-chevron" viewBox="0 0 16 16" aria-hidden="true">
+              <path d="M6.2 3.8 10.4 8l-4.2 4.2" />
+            </svg>
           </button>
         </section>
       </aside>
@@ -2086,13 +2102,61 @@ export default function App() {
             <div>
               <h1>{title}</h1>
             </div>
-            {section === "library" && <label className="library-search"><span>⌕</span><input type="search" placeholder="搜索标题或文件名" value={query} onChange={(event) => setQuery(event.target.value)} /></label>}
+            {section === "library" && (
+              <div className={`library-search${query ? " has-value" : ""}`}>
+                <svg className="library-search-icon" viewBox="0 0 16 16" aria-hidden="true">
+                  <circle cx="7.2" cy="7.2" r="4.6" />
+                  <path d="m10.7 10.7 3.1 3.1" />
+                </svg>
+                <input
+                  type="text"
+                  role="searchbox"
+                  aria-label="搜索标题或文件名"
+                  placeholder="搜索标题或文件名"
+                  value={query}
+                  onChange={(event) => setQuery(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Escape" && query) {
+                      event.preventDefault();
+                      setQuery("");
+                    }
+                  }}
+                />
+                {query && (
+                  <button
+                    type="button"
+                    className="library-search-clear"
+                    aria-label="清除搜索"
+                    title="清除搜索"
+                    onClick={() => setQuery("")}
+                  >
+                    <svg viewBox="0 0 16 16" aria-hidden="true">
+                      <path d="m4.5 4.5 7 7m0-7-7 7" />
+                    </svg>
+                  </button>
+                )}
+              </div>
+            )}
             <div className="topbar-actions">
               <UpdateButton update={selfUpdate} />
               {section === "library" ? (
-                <button className="primary-button" disabled={libraryBusy} onClick={() => void importMedia()}>{libraryBusy ? "正在导入…" : "＋ 添加媒体"}</button>
+                <button className="primary-button" disabled={libraryBusy} onClick={() => void importMedia()}>
+                  {!libraryBusy && (
+                    <svg className="btn-icon" viewBox="0 0 16 16" aria-hidden="true">
+                      <path d="M8 3.2v9.6M3.2 8h9.6" />
+                    </svg>
+                  )}
+                  {libraryBusy ? "正在导入…" : "添加媒体"}
+                </button>
               ) : section === "plugins" ? (
-                <button className="primary-button" disabled={pluginBusy !== ""} onClick={() => void installPlugin()}>{pluginBusy === "install" ? "正在安装…" : "＋ 安装插件"}</button>
+                <button className="primary-button" disabled={pluginBusy !== ""} onClick={() => void installPlugin()}>
+                  {pluginBusy !== "install" && (
+                    <svg className="btn-icon" viewBox="0 0 16 16" aria-hidden="true">
+                      <path d="M8 3.2v9.6M3.2 8h9.6" />
+                    </svg>
+                  )}
+                  {pluginBusy === "install" ? "正在安装…" : "安装插件"}
+                </button>
               ) : section === "keys" ? (
                 <>
                   <button className="quiet-button" onClick={openOnboardingWizard}>配置向导</button>

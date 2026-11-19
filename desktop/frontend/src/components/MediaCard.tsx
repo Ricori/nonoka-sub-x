@@ -156,23 +156,51 @@ function useCardMenu() {
 function localMetaLine(entry: MediaEntry, subtitleOnly: boolean) {
   const parts: string[] = [];
   if (entry.available) {
+    if (entry.audioOnly) parts.push("纯音频");
     if (entry.size > 0) parts.push(formatSize(entry.size));
   } else {
     parts.push(subtitleOnly ? "仅字幕" : "文件丢失");
   }
-  if (entry.duration > 0) {
-    parts.push(formatDuration(entry.duration));
-  } else if (parts.length === 0) {
-    parts.push(formatDate(entry.lastAccess || entry.addedAt));
-  }
-  return parts.join(" | ");
+  const date = formatDate(entry.lastAccess || entry.addedAt);
+  if (date !== "—") parts.push(date);
+  return parts.join(" · ");
 }
 
 function cloudMetaLine(entry: CloudEntry) {
-  const parts: string[] = ["仅云端"];
-  if (entry.duration > 0) parts.push(formatDuration(entry.duration));
-  else if (entry.updatedAt) parts.push(formatDate(entry.updatedAt));
-  return parts.join(" | ");
+  const parts: string[] = ["云端字幕"];
+  const date = entry.updatedAt ? formatDate(entry.updatedAt) : "—";
+  if (date !== "—") parts.push(date);
+  return parts.join(" · ");
+}
+
+function CloudBadgeIcon() {
+  return (
+    <svg className="state-badge-icon" viewBox="0 0 16 16" aria-hidden="true">
+      <path d="M4.6 12.2h6.9a2.7 2.7 0 0 0 .35-5.38A4 4 0 0 0 4.1 6a2.95 2.95 0 0 0 .5 6.2Z" />
+    </svg>
+  );
+}
+
+function MediaPlaceholderIcon({ kind }: { kind: "video" | "audio" | "cloud" }) {
+  if (kind === "cloud") {
+    return (
+      <svg className="media-placeholder-svg" viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M6.8 18.2h10.6a4.1 4.1 0 0 0 .5-8.17A6 6 0 0 0 6.1 9a4.4 4.4 0 0 0 .7 9.2Z" />
+      </svg>
+    );
+  }
+  if (kind === "audio") {
+    return (
+      <svg className="media-placeholder-svg" viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M9 17.5V6.5l10-2v11M9 17.5a2.5 2.5 0 1 1-5 0 2.5 2.5 0 0 1 5 0Zm10-2a2.5 2.5 0 1 1-5 0 2.5 2.5 0 0 1 5 0Z" />
+      </svg>
+    );
+  }
+  return (
+    <svg className="media-placeholder-svg" viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M8.5 6.5 18 12l-9.5 5.5v-11Z" />
+    </svg>
+  );
 }
 
 export function LocalMediaCard(props: LocalMediaCardProps) {
@@ -216,10 +244,12 @@ export function LocalMediaCard(props: LocalMediaCardProps) {
   };
 
   const cornerBadge = running
-    ? { tone: "running", label: "处理中" }
+    ? { tone: "running", label: "处理中", cloud: false }
     : adopting
-      ? { tone: "running", label: "取回字幕中" }
-      : null;
+      ? { tone: "running", label: "取回字幕中", cloud: false }
+      : !entry.available
+        ? { tone: subtitleOnly ? "cloud" : "missing", label: subtitleOnly ? "仅字幕" : "文件丢失", cloud: subtitleOnly }
+        : null;
 
   const menuActions: MenuItem[] = [
     ...(running ? [{ label: cancelling ? "正在取消…" : "取消处理", danger: true, disabled: cancelling, onSelect: () => void cancel() }] : []),
@@ -279,7 +309,7 @@ export function LocalMediaCard(props: LocalMediaCardProps) {
       >
         <div className="media-row-main">
           <div className="media-thumb">
-            {thumbnail ? <img src={thumbnail} alt="" /> : <span className="media-placeholder">{entry.audioOnly ? "♪" : "▶"}</span>}
+            {thumbnail ? <img src={thumbnail} alt="" /> : <MediaPlaceholderIcon kind={entry.audioOnly ? "audio" : "video"} />}
             {unprocessed && <div className="media-unprocessed-mask" aria-hidden="true" />}
             {running && <span className="card-progress" style={{ width: `${runningProgress}%` }} />}
           </div>
@@ -320,13 +350,19 @@ export function LocalMediaCard(props: LocalMediaCardProps) {
       onContextMenu={menu.openAtContext}
     >
       <div className="media-thumb">
-        {thumbnail ? <img src={thumbnail} alt="" /> : <span className="media-placeholder">{entry.audioOnly ? "♪" : "▶"}</span>}
+        {thumbnail ? <img src={thumbnail} alt="" /> : <MediaPlaceholderIcon kind={entry.audioOnly ? "audio" : "video"} />}
         {unprocessed && (
           <div className="media-unprocessed-mask" aria-hidden="true">
             <span className="media-unprocessed-pill">开始任务</span>
           </div>
         )}
-        {cornerBadge && <strong className={`state-badge ${cornerBadge.tone}`}>{cornerBadge.label}</strong>}
+        {cornerBadge && (
+          <strong className={`state-badge ${cornerBadge.tone}`}>
+            {cornerBadge.cloud && <CloudBadgeIcon />}
+            {cornerBadge.label}
+          </strong>
+        )}
+        {entry.duration > 0 && <span className="media-duration">{formatDuration(entry.duration)}</span>}
         {running && <span className="card-progress" style={{ width: `${runningProgress}%` }} />}
         <button
           className="card-menu-trigger"
@@ -387,7 +423,7 @@ export function CloudMediaCard({ entry, view, thumbnail, adopting, onEdit, onAss
       >
         <div className="media-row-main">
           <div className="media-thumb cloud-thumb">
-            {thumbnail ? <img src={thumbnail} alt="" /> : <span>☁</span>}
+            {thumbnail ? <img src={thumbnail} alt="" /> : <MediaPlaceholderIcon kind="cloud" />}
           </div>
           <div className="media-row-title">
             <strong title={entry.title}>{entry.title}</strong>
@@ -426,8 +462,16 @@ export function CloudMediaCard({ entry, view, thumbnail, adopting, onEdit, onAss
       onContextMenu={menu.openAtContext}
     >
       <div className="media-thumb cloud-thumb">
-        {thumbnail ? <img src={thumbnail} alt="" /> : <span>☁</span>}
-        {adopting && <strong className="state-badge running">取回字幕中</strong>}
+        {thumbnail ? <img src={thumbnail} alt="" /> : <MediaPlaceholderIcon kind="cloud" />}
+        {adopting ? (
+          <strong className="state-badge running">取回字幕中</strong>
+        ) : (
+          <span className="state-badge cloud">
+            <CloudBadgeIcon />
+            仅云端
+          </span>
+        )}
+        {entry.duration > 0 && <span className="media-duration">{formatDuration(entry.duration)}</span>}
         <button
           className="card-menu-trigger"
           type="button"

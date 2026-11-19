@@ -70,13 +70,14 @@
 }
 
 .custom-select.compact .custom-select-trigger {
-  min-height: 31px;
-  height: 31px;
+  min-height: 32px;
+  height: 32px;
   border-color: var(--line-soft);
-  padding: 0 8px 0 10px;
+  padding: 0 9px 0 11px;
   background: var(--panel);
   color: var(--mut);
   font-size: 12px;
+  box-shadow: var(--shadow-ctl);
 }
 
 .custom-select-menu {
@@ -206,8 +207,8 @@
 }
 
 body.light .custom-select-menu {
-  background: #fffefa;
-  box-shadow: 0 18px 42px rgba(78, 57, 37, .18), 0 0 0 1px rgba(78, 57, 37, .03);
+  background: #fff;
+  box-shadow: 0 16px 40px rgba(72, 54, 94, .16), 0 0 0 1px rgba(72, 54, 94, .05);
 }
 
 @media (prefers-reduced-motion: reduce) {

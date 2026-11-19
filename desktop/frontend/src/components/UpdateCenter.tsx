@@ -60,7 +60,10 @@ export function UpdateButton({ update }: { update: SelfUpdate }) {
   if (!status?.ready || status.mandatory || status.stage === "installing") return null;
   return (
     <button className="update-button" type="button" title="新版本已下载完成，退出应用后自动安装；点击立即重启安装" onClick={install}>
-      <span aria-hidden="true">⭮</span> 更新到 v{status.version}
+      <svg className="btn-icon" viewBox="0 0 16 16" aria-hidden="true">
+        <path d="M13 8a5 5 0 1 1-1.3-3.35M13 2.8v2.7h-2.7" />
+      </svg>
+      更新到 v{status.version}
     </button>
   );
 }

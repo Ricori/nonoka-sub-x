@@ -1538,7 +1538,7 @@ select {
    sits outside the scroller so the drag surface never scrolls out of reach — that,
    rather than the buttons, is what made the window hard to move. */
 :root {
-  --titlebar-h: 48px;
+  --titlebar-h: 44px;
 }
 
 .workspace-titlebar {
@@ -1573,7 +1573,7 @@ html.wails-fullscreen .workspace-titlebar {
   top: 0;
   right: 0;
   display: flex;
-  height: 48px;
+  height: var(--titlebar-h);
   color: var(--text);
   -webkit-app-region: no-drag;
   --wails-draggable: no-drag;
@@ -1584,7 +1584,7 @@ html.wails-fullscreen .workspace-titlebar {
   display: grid;
   place-items: center;
   width: 46px;
-  height: 48px;
+  height: var(--titlebar-h);
   border: 0;
   border-radius: 0;
   padding: 0;
@@ -1652,7 +1652,7 @@ html.wails-fullscreen #wails-window-controls {
   place-items: center;
   flex: 0 0 auto;
   width: 32px;
-  height: 32px;
+  height: 30px;
   margin-right: 6px;
   border: 0;
   border-radius: 7px;
@@ -1716,7 +1716,7 @@ body.light .titlebar-theme-button:active {
 .sidebar {
   z-index: 5;
   height: 100vh;
-  padding: 18px 14px 15px;
+  padding: 16px 13px 14px;
   border-color: var(--line-soft);
   background:
     radial-gradient(220px 180px at 12% -3%, color-mix(in srgb, var(--accent) 11%, transparent), transparent 72%),
@@ -1725,7 +1725,7 @@ body.light .titlebar-theme-button:active {
 }
 
 .brand {
-  height: 42px;
+  height: 40px;
   gap: 10px;
   padding: 0 7px;
   font-size: 15px;
@@ -1753,16 +1753,27 @@ body.light .titlebar-theme-button:active {
 .sidebar-collapse {
   display: grid;
   place-items: center;
-  width: 28px;
-  height: 28px;
+  width: 26px;
+  height: 26px;
   margin-left: auto;
   border: 0;
-  border-radius: 8px;
+  border-radius: 7px;
   background: transparent;
   color: var(--faint);
   cursor: pointer;
+  transition: background .14s ease, color .14s ease;
   -webkit-app-region: no-drag;
   --wails-draggable: no-drag;
+}
+
+.sidebar-collapse svg {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .sidebar-collapse:hover {
@@ -1771,22 +1782,22 @@ body.light .titlebar-theme-button:active {
 }
 
 .nav-label {
-  margin: 23px 10px 8px;
+  margin: 18px 10px 7px;
   overflow: hidden;
   color: var(--faint);
   font-size: 11px;
   font-weight: 700;
-  letter-spacing: .13em;
+  letter-spacing: .12em;
   text-transform: uppercase;
   white-space: nowrap;
 }
 
 .management-label {
-  margin-top: 20px;
+  margin-top: 18px;
 }
 
 .tools-label {
-  margin-top: 20px;
+  margin-top: 18px;
 }
 
 .plugin-tools-nav {
@@ -1796,15 +1807,16 @@ body.light .titlebar-theme-button:active {
 }
 
 .sidebar nav {
-  gap: 4px;
+  gap: 3px;
 }
 
 .sidebar nav button {
   position: relative;
-  height: 40px;
+  height: 38px;
   gap: 11px;
   padding: 0 11px;
   color: var(--mut);
+  transition: background .14s ease, color .14s ease, box-shadow .14s ease;
 }
 
 .sidebar nav button:hover {
@@ -1818,17 +1830,16 @@ body.light .titlebar-theme-button:active {
   box-shadow: inset 0 0 0 1px var(--accent-line);
 }
 
-/* 选中项左缘的紫→粉竖条：侧栏一屏摆着七八个入口，只换底色不够跳，
-   这一条是整套 UI 里唯一让品牌渐变露脸的固定位置。 */
+/* 选中项左缘的内嵌紫→粉小胶囊：避免压在圆角边线上，亮暗主题都利落。 */
 .sidebar nav button.active::before {
   content: "";
   position: absolute;
   top: 50%;
-  left: -1px;
+  left: 3px;
   width: 3px;
-  height: 17px;
+  height: 16px;
   translate: 0 -50%;
-  border-radius: 0 3px 3px 0;
+  border-radius: 99px;
   background: var(--grad);
 }
 
@@ -1859,23 +1870,28 @@ body.light .titlebar-theme-button:active {
 }
 
 .sidebar-provider {
-  margin: 13px 3px;
+  margin: 12px 2px 2px;
   overflow: hidden;
   border: 1px solid var(--line-soft);
   border-radius: 12px;
-  background: color-mix(in srgb, var(--bg) 76%, transparent);
+  background: color-mix(in srgb, var(--bg) 56%, var(--panel));
+}
+
+body.light .sidebar-provider {
+  background: rgba(255, 255, 255, .76);
+  box-shadow: 0 2px 10px rgba(75, 61, 94, .05);
 }
 
 .sidebar-provider-status {
   display: flex;
   align-items: center;
   gap: 9px;
-  padding: 11px;
+  padding: 10px 11px;
 }
 
 .sidebar-provider-status div {
   display: grid;
-  gap: 3px;
+  gap: 2px;
   min-width: 0;
 }
 
@@ -1907,10 +1923,15 @@ body.light .titlebar-theme-button:active {
   font: inherit;
   text-align: left;
   cursor: pointer;
+  transition: background .14s ease;
 }
 
 .sidebar-provider-action:hover {
   background: color-mix(in srgb, var(--raised) 55%, transparent);
+}
+
+body.light .sidebar-provider-action:hover {
+  background: color-mix(in srgb, var(--accent) 5%, #fff);
 }
 
 .sidebar-provider-action:disabled {
@@ -1919,6 +1940,26 @@ body.light .titlebar-theme-button:active {
 
 .sidebar-provider-action:disabled:hover {
   background: transparent;
+}
+
+.sidebar-provider-chevron {
+  flex: none;
+  width: 13px;
+  height: 13px;
+  margin-left: auto;
+  fill: none;
+  stroke: var(--faint);
+  stroke-width: 1.75;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  opacity: .55;
+  transition: opacity .15s ease, transform .15s ease, stroke .15s ease;
+}
+
+.sidebar-provider-action:hover:not(:disabled) .sidebar-provider-chevron {
+  opacity: 1;
+  stroke: var(--accent);
+  transform: translateX(2px);
 }
 
 .account-spinner {
@@ -1947,13 +1988,14 @@ body.light .titlebar-theme-button:active {
 .sidebar-collapsed .nav-label,
 .sidebar-collapsed .nav-text,
 .sidebar-collapsed .nav-count,
-.sidebar-collapsed .sidebar-provider-status div {
+.sidebar-collapsed .sidebar-provider-status div,
+.sidebar-collapsed .sidebar-provider-chevron {
   display: none;
 }
 
 .sidebar-collapsed .sidebar-collapse {
   position: absolute;
-  top: 58px;
+  top: 56px;
   left: 50%;
   margin: 0;
   translate: -50% 0;
@@ -1999,39 +2041,40 @@ html.wails-fullscreen .workspace {
 .workspace-scroll {
   min-width: 0;
   min-height: 0;
-  padding: 25px clamp(24px, 3.6vw, 52px) 42px;
+  padding: 24px clamp(24px, 3.6vw, 48px) 40px;
   overflow: auto;
 }
 
 html.wails-frameless .workspace-scroll {
-  padding-top: 10px;
+  padding-top: 12px;
 }
 
 .topbar {
   align-items: center;
-  gap: 20px;
-  margin-bottom: 20px;
+  gap: 18px;
+  margin-bottom: 18px;
   -webkit-app-region: drag;
   --wails-draggable: drag;
 }
 
 .topbar button,
 .topbar input,
-.topbar label {
+.topbar label,
+.topbar .library-search {
   -webkit-app-region: no-drag;
   --wails-draggable: no-drag;
 }
 
 .topbar>div:first-child {
-  min-width: 170px;
+  min-width: 148px;
 }
 
 .topbar h1 {
   margin: 0;
   color: var(--text);
   font-family: "Segoe UI Variable Display", "Segoe UI Variable Text", "Segoe UI", -apple-system, BlinkMacSystemFont, "Microsoft YaHei UI", "PingFang SC", sans-serif;
-  font-size: clamp(24px, 2.6vw, 34px);
-  letter-spacing: -.01em;
+  font-size: clamp(22px, 2.1vw, 26px);
+  letter-spacing: -.018em;
 }
 
 .eyebrow {
@@ -2048,31 +2091,101 @@ html.wails-frameless .workspace-scroll {
 .library-search {
   position: relative;
   flex: 1;
-  max-width: 470px;
+  max-width: 440px;
 }
 
-.library-search span {
+.library-search-icon {
   position: absolute;
   left: 12px;
   top: 50%;
   translate: 0 -50%;
-  color: var(--faint);
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: var(--faint);
+  stroke-width: 1.75;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  pointer-events: none;
+  transition: stroke .15s ease;
+}
+
+.library-search:focus-within .library-search-icon {
+  stroke: var(--accent);
 }
 
 .library-search input {
   width: 100%;
-  height: 39px;
+  height: 38px;
   border: 1px solid var(--line-soft);
-  border-radius: 11px;
-  padding: 0 13px 0 35px;
-  background: color-mix(in srgb, var(--panel) 92%, transparent);
+  border-radius: 10px;
+  padding: 0 13px 0 36px;
+  background: color-mix(in srgb, var(--panel) 90%, var(--bg));
+  color: var(--text);
   outline: none;
-  font-size: 12px;
+  font-size: 13px;
+  transition: border-color .15s ease, box-shadow .15s ease, background .15s ease;
+}
+
+.library-search.has-value input {
+  padding-right: 34px;
+}
+
+.library-search input::placeholder {
+  color: var(--faint);
+}
+
+.library-search input:hover:not(:focus) {
+  border-color: var(--line);
 }
 
 .library-search input:focus {
   border-color: var(--accent-border);
+  background: var(--panel);
   box-shadow: 0 0 0 3px var(--accent-dim);
+}
+
+body.light .library-search input {
+  border-color: var(--line);
+  background: var(--panel);
+  box-shadow: var(--shadow-ctl);
+}
+
+body.light .library-search input:hover:not(:focus) {
+  border-color: color-mix(in srgb, var(--accent) 34%, var(--line));
+}
+
+.library-search-clear {
+  position: absolute;
+  right: 7px;
+  top: 50%;
+  translate: 0 -50%;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border: 0;
+  border-radius: 7px;
+  padding: 0;
+  background: transparent;
+  color: var(--faint);
+  cursor: pointer;
+  transition: background .14s ease, color .14s ease;
+}
+
+.library-search-clear svg {
+  width: 13px;
+  height: 13px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.9;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.library-search-clear:hover {
+  background: var(--raised);
+  color: var(--text);
 }
 
 .theme-button {

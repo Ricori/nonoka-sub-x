@@ -87,9 +87,11 @@ function SyncIndicator({ state, onSync }: { state: CloudSyncState; onSync: () =>
   const title = offline
     ? `无法连接云端，显示的是上次同步的内容${state.error ? `：${state.error}` : ""}。点击重试。`
     : "从云端重新同步媒体库";
+  const synced = !syncing && !offline && state.syncedAt > 0;
   return (
     <button
-      className={`library-sync-button${offline ? " offline" : ""}`}
+      type="button"
+      className={`library-sync-button${offline ? " offline" : ""}${synced ? " synced" : ""}`}
       title={title}
       aria-label={`${label}。${title}`}
       aria-busy={syncing}
@@ -100,7 +102,12 @@ function SyncIndicator({ state, onSync }: { state: CloudSyncState; onSync: () =>
       }}
     >
       {syncing ? <span className="library-sync-dot spinning" aria-hidden="true" /> : <span className="library-sync-dot" aria-hidden="true" />}
-      {label}
+      <span>{label}</span>
+      {!syncing && (
+        <svg className="library-sync-refresh" viewBox="0 0 16 16" aria-hidden="true">
+          <path d="M13 8a5 5 0 1 1-1.3-3.35M13 2.8v2.7h-2.7" />
+        </svg>
+      )}
     </button>
   );
 }
@@ -117,9 +124,21 @@ export function LibraryPage(props: LibraryPageProps) {
   return (
     <section className="library-view">
       <div className="library-toolbar">
-        {([["all", "全部"], ["ready", "可编辑"], ["running", "处理中"], ["cloud", "仅云端"], ["missing", "文件丢失"]] as const).map(([value, label]) => (
-          <button className={filter === value ? "active" : ""} key={value} onClick={() => setFilter(value)}>{label} <span>{filterCounts[value]}</span></button>
-        ))}
+        {([["all", "全部"], ["ready", "可编辑"], ["running", "处理中"], ["cloud", "仅云端"], ["missing", "文件丢失"]] as const).map(([value, label]) => {
+          const active = filter === value;
+          const empty = !active && filterCounts[value] === 0;
+          return (
+            <button
+              type="button"
+              className={`${active ? "active" : ""}${empty ? " is-empty" : ""}`.trim()}
+              key={value}
+              onClick={() => setFilter(value)}
+            >
+              {label}
+              <span className="filter-count">{filterCounts[value]}</span>
+            </button>
+          );
+        })}
         <span className="toolbar-spacer" />
         {cloudSync.linked && <SyncIndicator state={cloudSync} onSync={onSync} />}
         <CustomSelect<SortMode>
@@ -129,7 +148,21 @@ export function LibraryPage(props: LibraryPageProps) {
           options={[{ value: "recent", label: "最近使用" }, { value: "name", label: "按标题" }, { value: "duration", label: "按时长" }]}
           onChange={setSort}
         />
-        <div className="view-switch" aria-label="视图切换"><button className={view === "grid" ? "active" : ""} aria-label="网格视图" onClick={() => setView("grid")}>▦</button><button className={view === "list" ? "active" : ""} aria-label="列表视图" onClick={() => setView("list")}>☷</button></div>
+        <div className="view-switch" role="group" aria-label="视图切换">
+          <button type="button" className={view === "grid" ? "active" : ""} aria-label="网格视图" aria-pressed={view === "grid"} title="网格视图" onClick={() => setView("grid")}>
+            <svg viewBox="0 0 16 16" aria-hidden="true">
+              <rect x="2.2" y="2.2" width="4.6" height="4.6" rx="1.2" />
+              <rect x="9.2" y="2.2" width="4.6" height="4.6" rx="1.2" />
+              <rect x="2.2" y="9.2" width="4.6" height="4.6" rx="1.2" />
+              <rect x="9.2" y="9.2" width="4.6" height="4.6" rx="1.2" />
+            </svg>
+          </button>
+          <button type="button" className={view === "list" ? "active" : ""} aria-label="列表视图" aria-pressed={view === "list"} title="列表视图" onClick={() => setView("list")}>
+            <svg viewBox="0 0 16 16" aria-hidden="true">
+              <path d="M2.4 4h1.3M6 4h7.6M2.4 8h1.3M6 8h7.6M2.4 12h1.3M6 12h7.6" />
+            </svg>
+          </button>
+        </div>
       </div>
       <Notice className="library-message" message={message} tone={messageTone} autoDismissMs={messageTone === "warn" ? 0 : undefined} onDismiss={onDismissMessage} />
       {syncing && items.length === 0 ? (
