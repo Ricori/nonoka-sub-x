@@ -111,10 +111,10 @@ func extractBundledResources(source fs.FS, prefix, dataDirectory string) (string
 	// Rename onto an existing directory fails on Windows, so the damaged tree
 	// goes first. A failure between the two leaves nothing to trust and the
 	// next launch extracts again, which is the recoverable side to fail on.
-	if err := os.RemoveAll(root); err != nil {
+	if err := removeAllWithRetry(root); err != nil {
 		return "", fmt.Errorf("replace embedded resources: %w", err)
 	}
-	if err := os.Rename(staging, root); err != nil {
+	if err := renamePathWithRetry(staging, root); err != nil {
 		return "", fmt.Errorf("commit embedded resources: %w", err)
 	}
 	pruneResourceVersions(base, version)

@@ -1,6 +1,8 @@
 package app
 
 import (
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -247,6 +249,88 @@ func TestMigrateDataDirectoryRetriesWhileFileIsLocked(t *testing.T) {
 	destination := filepath.Join(root, "Nonoka X")
 	if _, err := os.Stat(filepath.Join(destination, "library.json")); err != nil {
 		t.Fatalf("migrated marker: %v", err)
+	}
+}
+
+func TestRetryFileOperationRetriesRetryableErrorsAndStopsOnFatal(t *testing.T) {
+	originalAttempts, originalBackoff := fileOpRetryAttempts, fileOpRetryBackoff
+	t.Cleanup(func() {
+		fileOpRetryAttempts = originalAttempts
+		fileOpRetryBackoff = originalBackoff
+	})
+	fileOpRetryAttempts = 4
+	fileOpRetryBackoff = time.Millisecond
+
+	calls := 0
+	if err := retryFileOperation(func() error {
+		calls++
+		if calls < 3 {
+			return &os.PathError{Op: "rename", Path: "launcher.staging", Err: fs.ErrPermission}
+		}
+		return nil
+	}); err != nil {
+		t.Fatalf("expected retryable error to succeed on attempt 3, got %v", err)
+	}
+	if calls != 3 {
+		t.Fatalf("calls = %d, want 3", calls)
+	}
+
+	calls = 0
+	fatal := &os.PathError{Op: "rename", Path: "launcher.staging", Err: os.ErrNotExist}
+	if err := retryFileOperation(func() error {
+		calls++
+		return fatal
+	}); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("expected non-retryable error, got %v", err)
+	}
+	if calls != 1 {
+		t.Fatalf("non-retryable error should not retry: calls = %d", calls)
+	}
+}
+
+func TestRenameAndRemoveAllRetryWhileFileInsideDirectoryIsLocked(t *testing.T) {
+	root := t.TempDir()
+	staging := filepath.Join(root, "launcher.staging")
+	launcher := filepath.Join(root, "launcher")
+	if err := os.MkdirAll(filepath.Join(staging, "Scripts"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	binary := filepath.Join(staging, "Scripts", "python.exe")
+	if err := os.WriteFile(binary, []byte("fixture"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	handle, err := os.OpenFile(binary, os.O_RDWR, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	go func() {
+		time.Sleep(150 * time.Millisecond)
+		_ = handle.Close()
+	}()
+
+	if err := renamePathWithRetry(staging, launcher); err != nil {
+		t.Fatalf("renamePathWithRetry failed: %v", err)
+	}
+	movedBinary := filepath.Join(launcher, "Scripts", "python.exe")
+	if _, err := os.Stat(movedBinary); err != nil {
+		t.Fatalf("expected moved binary: %v", err)
+	}
+
+	handle, err = os.OpenFile(movedBinary, os.O_RDWR, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	go func() {
+		time.Sleep(150 * time.Millisecond)
+		_ = handle.Close()
+	}()
+
+	if err := removeAllWithRetry(launcher); err != nil {
+		t.Fatalf("removeAllWithRetry failed: %v", err)
+	}
+	if _, err := os.Stat(launcher); !os.IsNotExist(err) {
+		t.Fatalf("expected launcher to be removed, err = %v", err)
 	}
 }
 

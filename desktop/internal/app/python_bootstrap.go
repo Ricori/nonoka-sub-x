@@ -325,7 +325,7 @@ func (b *PythonBootstrap) installPython() error {
 		}
 	}
 	b.update("extracting", "正在解压 Python 安装器", nil)
-	if err := os.RemoveAll(tools); err != nil {
+	if err := removeAllWithRetry(tools); err != nil {
 		return err
 	}
 	uvName := "uv"
@@ -336,7 +336,7 @@ func (b *PythonBootstrap) installPython() error {
 	if err := extractNamedArchiveFile(uvArchive, b.uv.Tar, uvName, uv); err != nil {
 		return fmt.Errorf("解压 Python 安装器失败：%w", err)
 	}
-	if err := os.RemoveAll(staging); err != nil {
+	if err := removeAllWithRetry(staging); err != nil {
 		return err
 	}
 	environment := append(os.Environ(),
@@ -351,7 +351,7 @@ func (b *PythonBootstrap) installPython() error {
 		if watched && !attempt.Local && bootstrapRouteTooSlow(bootstrapSpeedSample, attempt) {
 			return nil, errBootstrapTooSlow
 		}
-		_ = os.RemoveAll(staging)
+		_ = removeAllWithRetry(staging)
 		step := slices.Concat(environment, attempt.environment())
 		if attempt.Local {
 			step = append(step, "UV_PYTHON_INSTALL_MIRROR="+fileURI(offlinePython))
@@ -368,10 +368,10 @@ func (b *PythonBootstrap) installPython() error {
 	if output, err := runBootstrapCommand(stagingPython, environment, "-I", "-c", "import httpx, pydantic"); err != nil {
 		return fmt.Errorf("验证 Python 启动环境失败：%w%s", err, commandDetail(output))
 	}
-	if err := os.RemoveAll(launcher); err != nil {
+	if err := removeAllWithRetry(launcher); err != nil {
 		return err
 	}
-	if err := os.Rename(staging, launcher); err != nil {
+	if err := renamePathWithRetry(staging, launcher); err != nil {
 		return fmt.Errorf("启用 Python 启动环境失败：%w", err)
 	}
 	return nil
@@ -588,11 +588,17 @@ func (b *PythonBootstrap) downloadSingle(source bootstrapSource, destination str
 		return errors.New("Python 安装器大小或 SHA-256 校验失败")
 	}
 
-	if err := os.Remove(destination); err != nil && !errors.Is(err, os.ErrNotExist) {
+	if err := retryFileOperation(func() error {
+		err := os.Remove(destination)
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		return err
+	}); err != nil {
 		_ = os.Remove(partial)
 		return err
 	}
-	if err := os.Rename(partial, destination); err != nil {
+	if err := renamePathWithRetry(partial, destination); err != nil {
 		_ = os.Remove(partial)
 		return err
 	}

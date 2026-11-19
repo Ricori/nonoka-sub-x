@@ -192,24 +192,40 @@ type dataDirectoryMigration struct {
 	Destination string
 }
 
-const (
-	dataMigrationRenameAttempts = 8
-	dataMigrationRenameBackoff  = 250 * time.Millisecond
+var (
+	fileOpRetryAttempts = 8
+	fileOpRetryBackoff  = 250 * time.Millisecond
 )
 
-func renameDataDirectoryWithRetry(source, destination string) error {
+// retryFileOperation waits out transient Windows access/sharing violations
+// (such as Defender scanning freshly written or executed binaries) before
+// giving up on a directory rename or removal.
+func retryFileOperation(operation func() error) error {
 	var err error
-	for attempt := range dataMigrationRenameAttempts {
-		err = os.Rename(source, destination)
-		if err == nil {
+	for attempt := range fileOpRetryAttempts {
+		if err = operation(); err == nil {
 			return nil
 		}
 		if !storage.RetryableFileError(err) {
 			return err
 		}
-		time.Sleep(time.Duration(attempt+1) * dataMigrationRenameBackoff)
+		if attempt+1 < fileOpRetryAttempts {
+			time.Sleep(time.Duration(attempt+1) * fileOpRetryBackoff)
+		}
 	}
 	return err
+}
+
+func renamePathWithRetry(source, destination string) error {
+	return retryFileOperation(func() error {
+		return os.Rename(source, destination)
+	})
+}
+
+func removeAllWithRetry(path string) error {
+	return retryFileOperation(func() error {
+		return os.RemoveAll(path)
+	})
 }
 
 // migrateDataDirectory moves the complete data root left by the final Finoka
@@ -246,7 +262,7 @@ func migrateDataDirectory(goos, appData, home string) (*dataDirectoryMigration, 
 	if !info.IsDir() {
 		return nil, fmt.Errorf("previous data path is not a directory: %s", source)
 	}
-	if err := renameDataDirectoryWithRetry(source, destination); err != nil {
+	if err := renamePathWithRetry(source, destination); err != nil {
 		return nil, fmt.Errorf("move previous data directory to Nonoka X: %w", err)
 	}
 	// Clearing legacy plugin registry and system plugins allows default built-in
