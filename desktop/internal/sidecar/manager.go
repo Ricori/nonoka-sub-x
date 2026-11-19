@@ -132,6 +132,18 @@ func (e *HTTPError) Error() string {
 	return fmt.Sprintf("sidecar %s (HTTP %d): %s", e.Code, e.StatusCode, e.Message)
 }
 
+// MigratingCode is the error code the sidecar answers with while its start-up
+// migration keeps the data closed (nonoka_x/sidecar.py, WP-M2).
+const MigratingCode = "migrating"
+
+// IsMigrating reports whether err is the sidecar saying its start-up migration
+// has not opened the data yet. That is not a failure of the sidecar: it is up
+// and will answer once the migration is done, which GET /v1/migration tells.
+func IsMigrating(err error) bool {
+	var httpError *HTTPError
+	return errors.As(err, &httpError) && httpError.StatusCode == http.StatusServiceUnavailable && httpError.Code == MigratingCode
+}
+
 type processState struct {
 	cmd     *exec.Cmd
 	baseURL string

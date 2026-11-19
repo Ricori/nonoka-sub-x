@@ -2211,3 +2211,102 @@ dd {
   font-size: 12px;
   font-weight: 400;
 }
+
+/* 旧版数据迁移（WP-M2）：数据没打开时占住工作区，之后是页顶的一块卡片。 */
+.migration-panel {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 19px;
+  padding: 12px 14px;
+  border: 1px solid var(--accent-line);
+  border-radius: 11px;
+  background: color-mix(in srgb, var(--accent) 7%, var(--panel));
+}
+
+.migration-panel.blocking {
+  margin-top: 6vh;
+  padding: 20px 22px;
+}
+
+.migration-panel.warning,
+.migration-panel.error {
+  border-color: color-mix(in srgb, var(--warn) 42%, transparent);
+  background: color-mix(in srgb, var(--warn) 8%, var(--panel));
+}
+
+.migration-panel.success {
+  border-color: color-mix(in srgb, var(--ok) 34%, transparent);
+  background: color-mix(in srgb, var(--ok) 6%, var(--panel));
+}
+
+.migration-panel header {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: start;
+  gap: 12px;
+}
+
+.migration-symbol {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: var(--accent-dim);
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.migration-panel.warning .migration-symbol,
+.migration-panel.error .migration-symbol {
+  background: color-mix(in srgb, var(--warn) 16%, transparent);
+  color: var(--warn);
+}
+
+.migration-panel.success .migration-symbol {
+  background: color-mix(in srgb, var(--ok) 16%, transparent);
+  color: var(--ok);
+}
+
+.migration-copy h2 {
+  margin: 0 0 3px;
+  font-size: 14px;
+}
+
+.migration-copy p,
+.migration-step,
+.migration-progress {
+  margin: 0;
+  color: var(--mut);
+  font-size: 12px;
+}
+
+.migration-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.migration-panel .progress-track {
+  margin: 0;
+}
+
+.migration-error {
+  margin: 0;
+  color: var(--warn);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.migration-blockers,
+.migration-section ul {
+  margin: 0;
+  padding-left: 20px;
+  color: var(--mut);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.migration-section summary {
+  cursor: pointer;
+  font-size: 12px;
+}

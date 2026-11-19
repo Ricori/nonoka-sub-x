@@ -52,6 +52,8 @@ func TestServiceMapsFixedProviderEndpoints(t *testing.T) {
 		t.Fatal(err)
 	}
 	request := map[string]any{"schema": 1, "provider": "local"}
+	_, _ = service.MigrationStatus()
+	_, _ = service.RetryMigration()
 	_, _ = service.Capabilities()
 	_, _ = service.RuntimeProvisionStatus()
 	_, _ = service.InstallRuntime("media")
@@ -73,6 +75,8 @@ func TestServiceMapsFixedProviderEndpoints(t *testing.T) {
 	_, _ = service.ResumeTask(taskID)
 
 	want := []call{
+		{method: "GET", endpoint: "/v1/migration"},
+		{method: "POST", endpoint: "/v1/migration/retry", body: map[string]any{}},
 		{method: "GET", endpoint: "/v1/capabilities"},
 		{method: "GET", endpoint: "/v1/runtime/provision"},
 		{method: "POST", endpoint: "/v1/runtime/provision", body: map[string]any{"target": "media"}},

@@ -406,7 +406,10 @@ def test_the_migration_command_runs_the_settings_step(tmp_path):
     migration.execute(plan, hooks=hooks)
     journal = migration.read_journal(data)
     assert journal["steps"][deferred.SETTINGS]["status"] == executing.DONE
-    assert (data / "secrets.json").is_file() and (data / (OLD_ENV + ".pre-migration")).is_file()
+    assert (data / "secrets.json").is_file()
+    # Past the point of rollback the backups go (plan appendix B questions 89-90); the report says so.
+    assert not (data / (OLD_ENV + ".pre-migration")).exists() and not (data / (OLD_TOML + ".pre-migration")).exists()
+    assert migrate.read_report(data)["backupsRemoved"] == [OLD_ENV + ".pre-migration", OLD_TOML + ".pre-migration"]
 
 
 def test_the_migration_plan_is_blocked_by_a_foreign_store(tmp_path):

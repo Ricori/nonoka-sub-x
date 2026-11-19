@@ -1128,7 +1128,7 @@ def test_start_up_migrates_before_opening_and_downloads_after(make_install):
     assert run.run_local() is True
     status = run.status()
     assert status["state"] == startup.DOWNLOADING and status["dataOpen"]
-    assert {"settings", "tasks"} >= set(status.get("report", {})) and "settings" in status["report"]
+    assert {"settings", "tasks", "cleanup"} >= set(status.get("report", {})) and "settings" in status["report"]
     assert "segmentation" in status["report"]["settings"]["droppedTables"]
     assert calls == []
     # The desktop of this version still names the old root on its first start.
@@ -1223,3 +1223,204 @@ def test_the_sidecar_answers_only_the_migration_while_the_data_is_closed(make_in
     finally:
         server.shutdown()
         server.server_close()
+
+
+# -- the leftovers, once everything succeeded (plan appendix B question 89) ---------------------------------------
+
+#: What may stay in the main data directory after migration besides `engines\` (plan WP-M2, last criterion).
+_NONOKA_OWN = {"preferences.json", "library.json", "documents", "bootstrap", "app-resources", "tasks", "runtime-state",
+               "settings.json", "settings.json.lock", "secrets.json", "secrets.json.lock", "storage.json", "engines",
+               "runtime"}
+
+
+def _finesub_leftovers(data: Path) -> list[str]:
+    """Anything in the main data directory that is not Nonoka's own (FineSub's lives under `engines\\` only)."""
+
+    return [entry.name for entry in sorted(data.iterdir()) if entry.name not in _NONOKA_OWN]
+
+
+def _with_unknown_finesub_data(install: OldInstall) -> None:
+    _write(install.data / "finesub-data" / "mirror-probe.json", '{"unknown": true}\n')
+    _write(install.data / "finesub-data" / "notes" / "a.txt", "an entry nobody registered\n")
+
+
+def test_the_backups_and_finesub_data_go_once_past_the_point_of_rollback(make_install):
+    from nonoka_x.config.migrate import read_report
+    from nonoka_x.migration import startup
+
+    install = make_install(relocated=True)
+    _with_unknown_finesub_data(install)
+    # A key Nonoka knows, protected under another Windows account: it cannot be opened here.
+    _write(install.data / OLD_SETTINGS[0], "FINESUB_KEYRING=finesub$kek$v1$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\n"
+                                           "GEMINI_PAID=fs$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\n")
+    calls: list[str] = []
+    run = _startup(install, install_dir=install.old_root, hooks={**_settings_hooks(), **_download_hooks(calls)})
+    assert run.begin() == startup.GATED
+
+    # The local steps are done: the old environment is gone, so are the backups -- the downloads are not awaited.
+    assert run.run_local() is True
+    status = run.status()
+    assert status["state"] == startup.DOWNLOADING and calls == []
+    assert _finesub_leftovers(install.data) == []
+    removed = status["report"]["cleanup"]["removed"]
+    assert sorted(removed) == sorted([
+        OLD_SETTINGS[0] + ".pre-migration",
+        OLD_SETTINGS[1] + ".pre-migration",
+        "finesub-data\\",
+        "finesub-data\\mirror-probe.json",
+        "finesub-data\\notes",
+    ])
+    assert read_report(install.data)["backupsRemoved"] == sorted(name + ".pre-migration" for name in OLD_SETTINGS)
+    # The fixture's key file was protected elsewhere: its key could not be carried and went with the backup,
+    # which the report says by name (owner 2026-11-19, plan appendix B question 90).
+    unreadable = read_report(install.data)["env"]["unreadable"]
+    assert unreadable and status["report"]["cleanup"]["unreadableKeysRemoved"] == unreadable
+    assert (install.data / "settings.json").is_file()
+
+    run.run_downloads()
+    assert calls == ["models", "layers"] and run.status()["state"] == startup.COMPLETED
+    assert run.status()["report"]["cleanup"]["removed"] == removed
+
+
+def test_without_downloads_the_cleanup_runs_with_the_local_steps(tmp_path):
+    from nonoka_x.migration import startup
+
+    data = tmp_path / "Nonoka X"
+    # Settings migrated by an older build (WP-R4's automatic migration), nothing else of the old layout.
+    _write(data / (OLD_SETTINGS[0] + ".pre-migration"), "OPENROUTER_API_KEY=x\n")
+    _write(data / "finesub-data" / "download-routes.json", "{}")
+    run = _startup(data, hooks=_settings_hooks())
+    assert run.begin() == startup.GATED
+    assert run.run_local() is True
+    assert run.status()["state"] == startup.COMPLETED
+    assert _finesub_leftovers(data) == []
+    # `finesub-data` held only known files: the `rebuildable` step removed it, the cleanup only the backup.
+    assert run.status()["report"]["cleanup"]["removed"] == [OLD_SETTINGS[0] + ".pre-migration"]
+
+
+def test_a_skipped_settings_step_holds_the_cleanup_back_and_the_downloads_do_not(make_install):
+    # No settings hook (a library caller): the settings step is skipped and would make its backups when it
+    # catches up, so the cleanup waits for it.
+    install = make_install()
+    _with_unknown_finesub_data(install)
+    migration.execute(migration.prepare(install.data))
+    journal = migration.read_journal(install.data)
+    assert journal["steps"][planning.LEFTOVERS]["status"] == executing.SKIPPED
+    assert "waits for settings" in journal["steps"][planning.LEFTOVERS]["note"]
+    assert (install.data / "finesub-data" / "mirror-probe.json").is_file()
+    assert migration.prepare(install.data).state == planning.COMPLETED
+
+    # With the settings hook it catches up, and the cleanup after it -- the downloads still skipped.
+    plan = migration.prepare(install.data, hooks=_settings_hooks())
+    assert plan.state == planning.RESUMING
+    migration.execute(plan, hooks=_settings_hooks())
+    journal = migration.read_journal(install.data)
+    assert journal["steps"][planning.LEFTOVERS]["status"] == executing.DONE
+    assert journal["steps"][deferred.LAYER_DOWNLOAD]["status"] == executing.SKIPPED
+    assert _finesub_leftovers(install.data) == []
+
+    # A failed download does not bring anything back.
+    failed = make_install()
+
+    class Failing:
+        def download_bytes(self, context):
+            return 10
+
+        def run(self, context):
+            raise RuntimeError("R2 unreachable")
+
+    hooks = {**_settings_hooks(), deferred.MODEL_COMPLETION: Failing(), deferred.LAYER_DOWNLOAD: Failing()}
+    with pytest.raises(executing.MigrationError):
+        migration.execute(migration.prepare(failed.data, hooks=hooks), hooks=hooks)
+    assert _finesub_leftovers(failed.data) == []
+
+
+def test_a_rollback_still_has_the_backups(make_install, monkeypatch):
+    install = make_install()
+    _with_unknown_finesub_data(install)
+    _finished_task(install)
+    before = install.snapshot()
+    _failing_conversion(monkeypatch)
+    hooks = {**_settings_hooks(), **_download_hooks([])}
+    with pytest.raises(executing.MigrationRolledBack):
+        migration.execute(migration.prepare(install.data, hooks=hooks), hooks=hooks)
+    assert _without(install.snapshot(), "runtime-state") == _without(before, "runtime-state")
+
+
+def test_a_journal_without_the_cleanup_step_gets_it(make_install):
+    install = make_install()
+    hooks = {**_settings_hooks(), **_download_hooks([])}
+    migration.execute(migration.prepare(install.data, hooks=hooks), hooks=hooks)
+    assert _finesub_leftovers(install.data) == []
+
+    # As stage 1 of WP-M2 left it: completed, no `leftovers` step, the backups and finesub-data still there.
+    journal = migration.read_journal(install.data)
+    journal["plan"]["steps"] = [item for item in journal["plan"]["steps"] if item["id"] != planning.LEFTOVERS]
+    journal["steps"].pop(planning.LEFTOVERS)
+    executing._write(migration.journal_path(install.data), journal)
+    _write(install.data / (OLD_SETTINGS[0] + ".pre-migration"), "OPENROUTER_API_KEY=x\n")
+    _write(install.data / "finesub-data" / "mirror-probe.json", "{}")
+
+    plan = migration.prepare(install.data, hooks=hooks)
+    assert plan.state == planning.RESUMING
+    migration.execute(plan, hooks=hooks)
+    assert _finesub_leftovers(install.data) == []
+    final = migration.read_journal(install.data)
+    assert final["status"] == planning.COMPLETED
+    assert any(item["id"] == planning.LEFTOVERS for item in final["plan"]["steps"])
+    assert migration.prepare(install.data, hooks=hooks).state == planning.COMPLETED
+
+
+def test_the_cleanup_killed_at_any_operation_continues_and_reports_everything(make_install, monkeypatch):
+    from nonoka_x.config import migrate as settings_migration
+
+    def operations(patch, kill_at):
+        seen = _operations(patch, kill_at)
+        for name in ("replace_path", "write_atomic"):
+            original = getattr(settings_migration, name)
+
+            def wrapped(*args, _original=original, _name=f"settings.{name}", **kwargs):
+                seen.append(_name)
+                if kill_at is not None and len(seen) == kill_at:
+                    raise Killed(_name)
+                return _original(*args, **kwargs)
+
+            patch.setattr(settings_migration, name, wrapped)
+        unlink = Path.unlink
+
+        def counted_unlink(self, *args, **kwargs):
+            if self.name.endswith(".pre-migration"):
+                seen.append("settings.unlink")
+                if kill_at is not None and len(seen) == kill_at:
+                    raise Killed("settings.unlink")
+            return unlink(self, *args, **kwargs)
+
+        patch.setattr(Path, "unlink", counted_unlink)
+        return seen
+
+    hooks = {**_settings_hooks(), **_download_hooks([])}
+    reference = make_install()
+    _with_unknown_finesub_data(reference)
+    with monkeypatch.context() as patch:
+        seen = operations(patch, None)
+        migration.execute(migration.prepare(reference.data, hooks=hooks), hooks=hooks)
+    expected = _without(reference.snapshot(), "runtime-state")
+    expected_removed = sorted(migration.read_journal(reference.data)["steps"][planning.LEFTOVERS]["report"]["removed"])
+    # From the journal write that starts the cleanup on: the operations before it are covered above.
+    first_unlink = seen.index("settings.unlink")
+    start = max(index for index in range(first_unlink) if seen[index] == "runner._write")
+    total = len(seen)
+    assert total - start >= 4
+
+    for kill_at in range(start + 1, total + 1):
+        install = make_install()
+        _with_unknown_finesub_data(install)
+        with monkeypatch.context() as patch:
+            operations(patch, kill_at)
+            with pytest.raises(Killed):
+                migration.execute(migration.prepare(install.data, hooks=hooks), hooks=hooks)
+        migration.execute(migration.prepare(install.data, hooks=hooks), hooks=hooks)
+        assert _without(install.snapshot(), "runtime-state") == expected, f"killed at operation {kill_at} ({seen[kill_at - 1]})"
+        journal = migration.read_journal(install.data)
+        assert journal["status"] == planning.COMPLETED
+        assert sorted(journal["steps"][planning.LEFTOVERS]["report"]["removed"]) == expected_removed, kill_at

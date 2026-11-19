@@ -78,6 +78,16 @@ export function ListTasks(): $CancellablePromise<{ [_ in string]?: any } | null>
     return $Call.ByID(2672597986);
 }
 
+/**
+ * MigrationStatus reports the sidecar's start-up migration of an old data
+ * directory: its state, steps, download progress, failure and report. It is one
+ * of the two calls the sidecar answers while the migration keeps its data
+ * closed; every other call then fails with sidecar.IsMigrating.
+ */
+export function MigrationStatus(): $CancellablePromise<{ [_ in string]?: any } | null> {
+    return $Call.ByID(4149642662);
+}
+
 export function PythonBootstrapStatus(): $CancellablePromise<{ [_ in string]?: any } | null> {
     return $Call.ByID(2156410106);
 }
@@ -108,6 +118,15 @@ export function ReportStartFailure(executionProvider: string, code: string): $Ca
 
 export function ResumeTask(taskID: string): $CancellablePromise<{ [_ in string]?: any } | null> {
     return $Call.ByID(2307289594, taskID);
+}
+
+/**
+ * RetryMigration runs the local steps again after a block, a rollback or an
+ * interruption, or the downloads again after they failed, and returns the new
+ * status at once; the work itself runs in the sidecar's background.
+ */
+export function RetryMigration(): $CancellablePromise<{ [_ in string]?: any } | null> {
+    return $Call.ByID(963704122);
 }
 
 export function RetryTask(taskID: string): $CancellablePromise<{ [_ in string]?: any } | null> {

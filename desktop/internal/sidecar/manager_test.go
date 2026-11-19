@@ -92,6 +92,36 @@ func TestDoJSONKeepsTokenInBackendAndPreservesErrors(t *testing.T) {
 	}
 }
 
+// While the start-up migration keeps the data closed the sidecar is up and
+// answers every call but the migration's own with 503 migrating: callers must
+// be able to tell that apart from a sidecar that failed.
+func TestIsMigratingRecognisesOnlyTheMigrationGate(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		response.WriteHeader(http.StatusServiceUnavailable)
+		code := "migrating"
+		if request.URL.Path == "/v1/other" {
+			code = "runtime_unavailable"
+		}
+		_ = json.NewEncoder(response).Encode(map[string]any{
+			"error": map[string]string{"code": code, "message": "busy"},
+		})
+	}))
+	defer server.Close()
+	manager := New(Config{})
+	manager.process = &processState{baseURL: server.URL, token: "token"}
+	gated := manager.DoJSON(context.Background(), http.MethodGet, "/v1/capabilities", nil, nil)
+	if !IsMigrating(gated) {
+		t.Fatalf("IsMigrating(%v) = false", gated)
+	}
+	if IsMigrating(fmt.Errorf("wrapped: %w", gated)) == false {
+		t.Fatal("a wrapped migrating error was not recognised")
+	}
+	other := manager.DoJSON(context.Background(), http.MethodGet, "/v1/other", nil, nil)
+	if IsMigrating(other) || IsMigrating(ErrNotRunning) || IsMigrating(nil) {
+		t.Fatalf("IsMigrating accepted %v", other)
+	}
+}
+
 // A call that legitimately runs for minutes -- an LLM completion -- has to be
 // able to say so. A Timeout on the shared client capped every call at 30s no
 // matter what its context said, which is what an LLM call hit first: the

@@ -127,6 +127,39 @@ def _context(plan: MigrationPlan, log: Log | None = None, progress: Progress | N
     )
 
 
+def _unfinished(plan: MigrationPlan, step: Step) -> list[str]:
+    """For `leftovers`: earlier steps with work that were skipped (the settings step without its hook).
+
+    A skipped settings step makes its backups when it catches up later, so the
+    cleanup waits for it; the downloads, after it, do not hold it back.
+    """
+
+    if step.id != planning.LEFTOVERS:
+        return []
+    earlier = set(planning.STEP_ORDER[: planning.STEP_ORDER.index(planning.LEFTOVERS)])
+    return [other.id for other in plan.steps if other.id in earlier and other.progress == SKIPPED and other.actions]
+
+
+def _add_missing_steps(plan: MigrationPlan, context: MigrationContext) -> bool:
+    """Put the steps a journal's plan lacks into it, in `STEP_ORDER`. Returns whether one has work to do."""
+
+    present = {step.id for step in plan.steps}
+    if all(step_id in present for step_id in planning.STEP_ORDER):
+        return False
+    found = False
+    by_id = {step.id: step for step in plan.steps}
+    ordered: list[Step] = []
+    for step_id in planning.STEP_ORDER:
+        if step_id in by_id:
+            ordered.append(by_id.pop(step_id))
+            continue
+        step = Step(id=step_id, title=planning.TITLES[step_id], actions=planning.step_actions(step_id, context, plan.blockers))
+        found = found or bool(step.actions)
+        ordered.append(step)
+    plan.steps = ordered + list(by_id.values())
+    return found
+
+
 def prepare(
     data_dir: Path | str,
     *,
@@ -159,12 +192,20 @@ def prepare(
     if status == ROLLING_BACK:
         plan.state = planning.ROLLING_BACK
         return plan
+    context = _context(plan)
+    # Steps a journal of an older build does not list (`leftovers`, WP-M2 stage 2): listed from the disk now.
+    added = _add_missing_steps(plan, context)
     catch_up = [step for step in plan.steps if step.progress == SKIPPED and step.actions and _runnable(step, hooks)]
-    if status == planning.COMPLETED and not catch_up:
+    leftovers = next((step for step in plan.steps if step.id == planning.LEFTOVERS), None)
+    if leftovers in catch_up and any(
+        step.id in _unfinished(plan, leftovers) and step not in catch_up for step in plan.steps
+    ):
+        # The backups stay while a skipped step still cannot run: the migration has not succeeded yet.
+        catch_up = [step for step in catch_up if step.id != planning.LEFTOVERS]
+    if status == planning.COMPLETED and not catch_up and not added:
         plan.state = planning.COMPLETED
         return plan
     # Skipped by an older build that had nothing to run them with: listed from the disk as it is now.
-    context = _context(plan)
     for step in catch_up:
         step.progress = PENDING
         step.actions = planning.step_actions(step.id, context, plan.blockers)
@@ -224,7 +265,9 @@ def execute(
                     step.id for step in plan.steps
                     if step.progress == PENDING and (recorded.get(step.id) or {}).get("status") == SKIPPED
                 ]
-                if reopened or journal.get("status") == planning.COMPLETED:
+                listed = {item.get("id") for item in (journal.get("plan") or {}).get("steps", ())}
+                grown = any(step.id not in listed for step in plan.steps)
+                if reopened or grown or journal.get("status") == planning.COMPLETED:
                     for step_id in reopened:
                         recorded.pop(step_id, None)
                     journal["status"] = RUNNING
@@ -239,15 +282,23 @@ def execute(
                 if previous in (DONE, SKIPPED):
                     step.progress = previous
                     continue
-                if step.deferred and step.id not in hooks:
-                    note = f"implemented by {step.owner}" if step.actions else "nothing to do"
+                waiting = _unfinished(plan, step)
+                if (step.deferred and step.id not in hooks) or waiting:
+                    if waiting:
+                        note = "waits for " + ", ".join(waiting)
+                    else:
+                        note = f"implemented by {step.owner}" if step.actions else "nothing to do"
                     steps[step.id] = {"status": SKIPPED, "at": _now(), "note": note}
                     _write(journal_file, journal)
                     step.progress = SKIPPED
                     if step.actions:
                         log(f"{step.id}: skipped ({note})")
                     continue
+                earlier = (steps.get(step.id) or {}).get("removing") or []
                 steps[step.id] = {"status": RUNNING, "started_at": _now()}
+                if step.id == planning.LEFTOVERS:
+                    # Named before anything goes: a run killed half way still reports all of it.
+                    steps[step.id]["removing"] = sorted({*earlier, *leftover_names(context.layout.data)})
                 _write(journal_file, journal)
                 step.progress = RUNNING
                 report = None
@@ -261,6 +312,8 @@ def execute(
                     except Exception as error:  # noqa: BLE001 - recorded, then rolled back or reported
                         _failed(plan, step, error, journal, journal_file, context, hooks)
                 steps[step.id] = {**steps[step.id], "status": DONE, "finished_at": _now()}
+                if step.id == planning.LEFTOVERS and steps[step.id].get("removing"):
+                    report = _leftovers_report(steps[step.id].pop("removing"), context.layout.data)
                 if report:
                     steps[step.id]["report"] = report
                 _write(journal_file, journal)
@@ -516,6 +569,64 @@ def _delete(step: Step, context: MigrationContext) -> None:
             path.unlink(missing_ok=True)
 
 
+def leftover_names(data: Path) -> list[str]:
+    """What the `leftovers` step deletes, relative to the main data directory: the settings backups, `finesub-data\\` and what is in it."""
+
+    names = [backup.name for backup in legacy.settings_backups(data)]
+    finesub_data = data / legacy.FINESUB_DATA_DIRECTORY
+    if os.path.lexists(finesub_data):
+        try:
+            inside = sorted(entry.name for entry in finesub_data.iterdir()) if finesub_data.is_dir() else []
+        except OSError:
+            inside = []
+        names.extend(f"{legacy.FINESUB_DATA_DIRECTORY}\\{name}" for name in inside)
+        names.append(f"{legacy.FINESUB_DATA_DIRECTORY}\\")
+    return names
+
+
+def _leftovers_report(removed: list[str], data: Path) -> dict[str, Any]:
+    """What the `leftovers` step deleted, and the keys that went with the key file's backup.
+
+    A key this machine could not open was not carried (`config.migrate`); its
+    only copy was the backup, deleted all the same (owner 2026-11-19, plan
+    appendix B question 90). The report names those keys -- names only.
+    """
+
+    from nonoka_x.config.migrate import ENV_FILE, SettingsMigrationError, read_report
+
+    report: dict[str, Any] = {"removed": removed}
+    if any(name.startswith(ENV_FILE + legacy.SETTINGS_BACKUP_SUFFIX) for name in removed):
+        try:
+            settings = read_report(data) or {}
+        except SettingsMigrationError:
+            settings = {}
+        lost = list((settings.get("env") or {}).get("unreadable") or [])
+        if lost:
+            report["unreadableKeysRemoved"] = lost
+    return report
+
+
+def _leftovers(step: Step, context: MigrationContext) -> None:
+    """The `leftovers` step: the settings backups and the rest of `finesub-data\\` (plan appendix B question 89).
+
+    Found on the disk as it is now: the backups did not exist yet when the
+    plan was made. What goes is written into the journal before anything is
+    deleted (`execute`), so the report stays whole across an interruption.
+    """
+
+    from nonoka_x.config.migrate import remove_backups
+
+    data = context.layout.data
+    remove_backups(data, log=context.log)
+    finesub_data = data / legacy.FINESUB_DATA_DIRECTORY
+    if os.path.lexists(finesub_data):
+        context.log(f"  delete {finesub_data}")
+        if is_directory_link(finesub_data) or finesub_data.is_dir():
+            remove_tree(finesub_data)
+        else:
+            finesub_data.unlink(missing_ok=True)
+
+
 _RUNNERS: dict[str, Callable[[Step, MigrationContext], Any]] = {
     planning.RUNTIME_ROOT: _runtime_root,
     planning.MODELS: _models,
@@ -525,6 +636,7 @@ _RUNNERS: dict[str, Callable[[Step, MigrationContext], Any]] = {
     planning.OLD_ENVIRONMENT: _delete,
     planning.CACHES: _delete,
     planning.REBUILDABLE: _delete,
+    planning.LEFTOVERS: _leftovers,
 }
 
 

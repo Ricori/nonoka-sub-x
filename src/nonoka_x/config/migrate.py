@@ -24,10 +24,14 @@ and the owner's answers of 2026-11-12 (WP-R4):
 Values are carried as they were written (a pool's ``label:key,label:key``
 spelling included). A value that cannot be opened on this machine -- the old
 file was protected under another Windows account -- cannot be carried; it is
-reported by name and stays in the backup.
+reported by name; it stays in the backup until the migration is past the
+point of rollback, and then goes with it (the migration's report names it).
 
 The old files are renamed to `<name>.pre-migration` (`.1`, `.2` if taken) and
-their `.lock` files deleted. The report is
+their `.lock` files deleted. The backups serve the migration's rollback only:
+once the migration is past the point of rollback its `leftovers` step deletes them
+(`remove_backups`; owner 2026-11-18/19, plan appendix B questions 89-90), and the
+report records what went. The report is
 `<data dir>\\runtime-state\\settings-migration.json`; its `status` also lets an
 interrupted run continue: `started` (the stores may be half written: they are
 written again from the old files), `stores-written` (only the renames are
@@ -56,7 +60,7 @@ from nonoka_x.runtime.paths import NonokaPaths
 
 REPORT_SCHEMA = 1
 REPORT_NAME = "settings-migration.json"
-BACKUP_SUFFIX = ".pre-migration"
+BACKUP_SUFFIX = legacy.SETTINGS_BACKUP_SUFFIX
 
 STARTED = "started"
 STORES_WRITTEN = "stores-written"
@@ -422,6 +426,31 @@ def undo_settings(data_dir: Path | str, *, log: Log | None = None) -> bool:
     return True
 
 
+def remove_backups(data_dir: Path | str, *, log: Log | None = None) -> list[str]:
+    """Delete the old files' backups: the migration has succeeded and will not roll back (WP-M2).
+
+    Called by the migration's `leftovers` step once the deletions have ruled a
+    rollback out, never before: until then `undo_settings` needs them. Repeatable. Returns the names deleted, and
+    records them in the report (`backupsRemoved`).
+    """
+
+    log = log or (lambda message: None)
+    data = Path(os.path.abspath(Path(data_dir).expanduser()))
+    removed: list[str] = []
+    for backup in legacy.settings_backups(data):
+        backup.unlink(missing_ok=True)
+        removed.append(backup.name)
+        log(f"settings: deleted the backup {backup.name}")
+    try:
+        report = read_report(data)
+    except SettingsMigrationError:
+        report = None  # the deletions stand; the migration's own report names them too
+    if report is not None and removed:
+        report["backupsRemoved"] = sorted({*(report.get("backupsRemoved") or ()), *removed})
+        _write_report(data, report)
+    return removed
+
+
 class SettingsHook:
     """The migration command's `settings` step (`nonoka_x.migration.hooks.StepHook`)."""
 
@@ -449,6 +478,7 @@ __all__ = [
     "needed",
     "read_legacy",
     "read_report",
+    "remove_backups",
     "report_path",
     "undo_settings",
 ]

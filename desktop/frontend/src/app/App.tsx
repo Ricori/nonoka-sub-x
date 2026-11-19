@@ -11,6 +11,10 @@ import type { CloudEntry, CloudSession } from "../bridge/cloud.ts";
 import { fineSubSettings } from "../bridge/settings.ts";
 import type { FineSubSettingsState } from "../bridge/settings.ts";
 import { fineSubRuntime } from "../bridge/runtime.ts";
+import { dataMigration } from "../bridge/migration.ts";
+import type { MigrationStatus } from "../bridge/migration.ts";
+import { MigrationPanel } from "../components/MigrationPanel.tsx";
+import { isMigratingError, migrationPollIntervalMs, migrationView } from "../components/migration.ts";
 import type { PythonBootstrapState, RuntimeInstallTarget, RuntimeProvisionState } from "../bridge/runtime.ts";
 import { desktopPreferences } from "../bridge/preferences.ts";
 import { desktopTaskHistory } from "../bridge/taskHistory.ts";
@@ -173,6 +177,12 @@ export default function App() {
     setSettingsAnchor((current) => ({ target, seq: (current?.seq ?? 0) + 1 }));
   }, []);
   const [pythonBootstrap, setPythonBootstrap] = useState<PythonBootstrapState | null>(null);
+  // The sidecar's start-up migration of an old data directory (WP-M2). While
+  // its data is closed every other call answers 503 `migrating`: the sidecar is
+  // busy, not broken, so the workspace shows the migration instead of errors.
+  const [migration, setMigration] = useState<MigrationStatus | null>(null);
+  const [migrationDismissed, setMigrationDismissed] = useState(false);
+  const [migrationRetrying, setMigrationRetrying] = useState(false);
   const [keyDraft, setKeyDraft] = useState<Record<string, string>>({});
   const [keysBusy, setKeysBusy] = useState(false);
   const [keysMessage, setKeysMessage] = useState("");
@@ -346,6 +356,16 @@ export default function App() {
         setLoadState("error");
         return;
       }
+      // A sidecar of an older build has no migration route: treat it as open.
+      const nextMigration = await dataMigration.status().catch(() => null);
+      setMigration(nextMigration);
+      if (nextMigration && nextMigration.dataOpen === false) {
+        setCapabilities(null);
+        setRuntimeProvision(null);
+        setMessage("");
+        setLoadState("loading");
+        return;
+      }
       const [nextCapabilities, nextSettings, nextRuntimeProvision] = await Promise.all([
         localProvider.capabilities(),
         fineSubSettings.read(),
@@ -356,6 +376,12 @@ export default function App() {
       setRuntimeProvision(nextRuntimeProvision);
       setLoadState("ready");
     } catch (value) {
+      if (isMigratingError(value)) {
+        // The migration closed the data between the two reads: show it, not an error.
+        setMigration(await dataMigration.status().catch(() => null));
+        setLoadState("loading");
+        return;
+      }
       setLoadState("error");
       const detail = value instanceof Error ? value.message : String(value ?? "");
       setMessage(detail || "无法连接 Wails 桌面桥接");
@@ -1695,6 +1721,47 @@ export default function App() {
     return () => window.clearInterval(timer);
   }, [pythonBootstrap?.state, refresh]);
 
+  const migrationTaskTitles = useMemo(
+    () => Object.fromEntries(taskHistory.map((item) => [item.taskId, item.title])),
+    [taskHistory],
+  );
+  const migrationPanel = useMemo(
+    () => migrationView(migration, { dismissed: migrationDismissed, taskTitles: migrationTaskTitles }),
+    [migration, migrationDismissed, migrationTaskTitles],
+  );
+  const migrationBlocking = migrationPanel.blocking;
+
+  // Follow the migration while it works. Once it opens the data -- or finishes
+  // the downloads, which makes FineSub's transcription ready -- read everything
+  // again, since nothing else could be read before.
+  const migrationPolling = migrationPanel.polling;
+  useEffect(() => {
+    if (!migrationPolling) return;
+    let previous = migration;
+    const timer = window.setInterval(() => {
+      void dataMigration.status().then((next) => {
+        setMigration(next);
+        const opened = previous?.dataOpen === false && next.dataOpen !== false;
+        const downloaded = previous?.state === "downloading" && next.state !== "downloading";
+        previous = next;
+        if (opened || downloaded) void refresh({ silent: true });
+      }).catch(() => undefined);
+    }, migrationPollIntervalMs);
+    return () => window.clearInterval(timer);
+    // `migration` seeds `previous` only; restarting the timer on every status would be pointless.
+  }, [migrationPolling, refresh]);
+
+  const retryMigration = useCallback(async () => {
+    setMigrationRetrying(true);
+    try {
+      setMigration(await dataMigration.retry());
+    } catch (value) {
+      setMigration((current) => current && { ...current, error: errorText(value) });
+    } finally {
+      setMigrationRetrying(false);
+    }
+  }, []);
+
   const runtimeReady = capabilities?.runtime?.ready === true;
   const issues = capabilities?.runtime?.issues ?? [];
   const engines = useMemo(
@@ -1879,6 +1946,9 @@ export default function App() {
             </div>
           </header>
 
+          <MigrationPanel view={migrationPanel} retrying={migrationRetrying} onRetry={() => void retryMigration()} onDismiss={() => setMigrationDismissed(true)} />
+
+          {!migrationBlocking && <>
           {!currentEngineReady && loadState !== "loading" && (section === "library" || section === "tasks") && <section className={`runtime-banner warning`}>
             <div className="runtime-symbol">!</div>
             <div className="runtime-copy">
@@ -2031,6 +2101,7 @@ export default function App() {
           )}
 
           {section === "about" && <AboutPage update={selfUpdate} />}
+          </>}
         </div>
       </main>
 
