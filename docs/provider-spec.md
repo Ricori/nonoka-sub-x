@@ -4,7 +4,7 @@
 
 内置的 Local Provider（本地 Python sidecar）与 Cloud Provider（Nonoka 云端）是本规范的两个参考实现，二者与自建 Provider 处于完全同等的地位，前端不对任何 Provider 做特判。
 
-- 相关文档：[系统架构与契约规范](architecture.md)、[FineSub 引擎同步与构建规范](engine.md)、[Modal 云端后端](modal-backend.md)
+- 相关文档：[系统架构与契约规范](architecture.md)、[转写引擎与纠错引擎](transcription-engines.md)、[FineSub 引擎集成、质量锁与上游对齐](engine.md)；云端后端见云端仓库 `nonoka-sub-cloud` 的 `docs/cloud-api.md` 与 `modal_compute/docs/compute.md`
 - 规范版本：`adapter_schema = 1`，`artifact_schema = 1`
 
 ---
@@ -103,11 +103,11 @@ interface ExecutionProvider {
   "provider": "my-provider",       // 必填，Provider 唯一 ID
   "adapter_schema": 1,             // 必填，固定为 1
   "artifact_schema": 1,            // 必填，固定为 1
-  "engine": {
+  "engine": {                      // 本地 Provider：已装引擎包所带的 FineSub 版本；一个包都没装时各项为空串
     "name": "finesub",             // 可选，引擎名
-    "version": "0.6.0",            // 必填，引擎版本
-    "commit": "5caf422cbad36f0402c98eb565e4c29aee4ac197", // 必填，引擎 commit
-    "bundle_id": "finesub-0.6.0+5caf422cbad3"             // 可选，引擎包标识
+    "version": "0.7.0",            // 必填，引擎版本
+    "commit": "7123055da0cd6e037d8e37feb53b82f9e428c5cb", // 必填，引擎 commit
+    "bundle_id": "finesub-0.7.0+7123055da0cd"             // 可选，引擎包标识
   },
   "features": {                    // 必填，六个布尔位缺一不可
     "raw_srt": true,               // 支持 target=raw-srt
@@ -124,12 +124,12 @@ interface ExecutionProvider {
     "ready": true,
     "issues": [],                  // [{ code, message }]，ready=false 时不得为空
     "stages": [                    // 分阶段就绪，用于精确到目标的拦截
-      { "id": "media",            "label": "媒体探测与音频准备",     "ready": true, "issues": [] },
-      { "id": "raw-srt",          "label": "VAD、ASR 与原始字幕",     "ready": true, "issues": [] },
-      { "id": "harness",          "label": "云端识别后本地续跑",      "ready": true, "issues": [] },
-      { "id": "final-srt",        "label": "LLM 纠错、翻译与最终字幕", "ready": true, "issues": [] },
-      { "id": "knowledge",        "label": "知识库收集与更新",        "ready": true, "issues": [] },
-      { "id": "video-multimodal", "label": "视频多模态纠错",          "ready": true, "issues": [] }
+      { "id": "media",            "label": "媒体探测",           "ready": true, "issues": [] },
+      { "id": "raw-srt",          "label": "生成原始字幕",       "ready": true, "issues": [] },
+      { "id": "harness",          "label": "云端识别后本地续跑", "ready": true, "issues": [] },
+      { "id": "final-srt",        "label": "纠错与翻译",         "ready": true, "issues": [] },
+      { "id": "knowledge",        "label": "知识库更新",         "ready": true, "issues": [] },
+      { "id": "video-multimodal", "label": "视频多模态纠错",     "ready": true, "issues": [] }
     ],
     "localAgent": "..."            // 可选，本地代理 / 运行时描述
   },
@@ -139,7 +139,7 @@ interface ExecutionProvider {
 
 > **`runtime.ready` 的语义**：宿主在 `start()` 之前会读取 `capabilities()`，`runtime.ready === false` 时直接以 `issues[0].message` 报错并阻止提交。Provider 若不提供 `runtime`，前端将视为未就绪。
 
-> **分档互不继承**：`raw-srt` 是识别档（平台、ASR 运行时、模型）；`harness` 是从 stable.json 往后所需的一切（FFmpeg 与 FineSub `[harness]` 依赖，不含 torch）；`final-srt` 是 `harness` 加上已配置的模型。本地 Provider 从媒体跑 LLM 目标时要同时过 `raw-srt` 与 `final-srt`，从 `cloud_transcript` 续跑时只看 `harness`（`raw-srt` 目标）或 `final-srt`；没装纠错包的 `raw-srt` 续跑由核心渲染，一档都不看。
+> **分档互不继承**：`raw-srt` 是识别档，由所选转写引擎回答（FineSub：平台、Python 环境层、模型层与工具层；云 API 引擎：工具层与它的密钥）；`harness` 是从转写结果往后所需的一切，由纠错引擎回答（FineSub 纠错包：它在 `PACKAGE.json` 里声明的启动器模块与工具层的 FFmpeg，不含 torch）；`final-srt` 是 `harness` 加上已配置的模型。纠错包没装时，`harness` 及其后各档都报 `missing_engine`。本地 Provider 从媒体跑 LLM 目标时要同时过 `raw-srt` 与 `final-srt`，从 `cloud_transcript` 续跑时只看 `harness`（`raw-srt` 目标）或 `final-srt`；没装纠错包的 `raw-srt` 续跑由核心渲染，一档都不看。
 
 #### 4.1.1 转写引擎与纠错引擎（`transcription_engines`、`correction_engines`）
 
@@ -243,7 +243,7 @@ interface ExecutionProvider {
 | 轴型 | 含义 | 走法 |
 | :--- | :--- | :--- |
 | `empty` | 只有时间，没有文字 | 识别照常跑；宿主在投影阶段把结果重排到这条轴上，Provider 不必知道它的存在 |
-| `ja` | 有原文、缺译文 | 以 `axis` 进入 `TaskRequest`：Provider 跳过整条识别链，只跑 LLM 翻译。宿主自带的两个 Provider 都支持——云端连音轨都不上传。不支持时必须以 `invalid_axis` 显式拒绝，**禁止**忽略该字段后照常识别 |
+| `ja` | 有原文、缺译文 | 以 `axis` 进入 `TaskRequest`：Provider 跳过整条识别链，只跑 LLM 翻译。宿主自带的本地 Provider 支持（交给纠错引擎的轴入口，不调任何转写引擎）；云端 Provider 自 WP-CL 起只做识别，不接受日文轴，桌面在上传前就提示改用本机运行。不支持时必须以 `invalid_axis` 显式拒绝，**禁止**忽略该字段后照常识别 |
 | `zh` / `bi` | 译文齐了 | 不启动任何任务，宿主直接落成 EditDocument |
 
 ```ts
@@ -473,9 +473,10 @@ interface UploadedAudioSource {
 | `invalid_state` | 409 | `retry` / `resume` 的状态前置不满足 |
 | `artifacts_not_ready` | 409 | 任务尚未产出产物清单 |
 | `unsupported_engine` | 400 | `transcription.engine` 不在本 Provider 的 `transcription_engines` 里 |
-| `missing_engine` / `invalid_engine` | 503 | 引擎快照缺失或损坏 |
+| `missing_engine` | 503 | 所要的引擎包没装：所选转写引擎的包（同时出现在该引擎的 `issues` 与 `raw-srt` 档里），或纠错包（`harness` 及其后各档） |
 | `missing_key` | 503 | 所选转写引擎缺少它要的密钥（如 MAI-Transcribe-2 没配 OpenRouter STT 或 Azure Speech）；同时出现在该引擎 `transcription_engines[].issues` 与 `runtime.stages` 的 `raw-srt` 档里 |
 | `missing_knowledge_package` | 503 | 任务读写知识库或从知识库取 ASR 上下文，而知识库包不在 |
+| `migrating` | 503 | 本地 Provider 正在把旧版数据迁移到新布局；迁移的本地步骤完成之前，除 `GET /v1/migration`、`POST /v1/migration/retry` 外的路由都这样回答（见第 9 节） |
 | *运行时就绪 issue code* | 503 | `start()` 时目标阶段未就绪，直接返回该 issue |
 | `internal_error` | 500 | 未归类的内部异常 |
 
@@ -599,9 +600,9 @@ interface UploadedAudioSource {
 | `vocal` | 处理音频 | 人声分离 |
 | `aligned` | 语音识别 | ASR / 对齐 |
 | `postprocess-queued` | 等待字幕处理 | 等待 CPU 后处理资源 |
-| `stable` | 整理识别结果 | 稳定化，产出 `stable_json` |
-| `diarize` | 说话人分离 | 产出说话人时间线并写进 `stable_json` |
-| `handoff` | 取回识别结果 | 两段式任务的交接：取回云端 `stable_json`、等待本地续跑启动 |
+| `stable` | 整理识别结果 | 稳定化，产出 `transcript_json`（FineSub 另有私有附件 `stable_json`） |
+| `diarize` | 说话人分离 | FineSub：产出说话人时间线并写进 `stable_json` |
+| `handoff` | 取回识别结果 | 两段式任务的交接：取回云端的 `transcript.json` 与附件、等待本地续跑启动 |
 | `raw-srt` | 生成字幕 | 产出 `raw_srt` |
 | `llm-queued` | 等待纠错与翻译 | 等待 LLM 资源 |
 | `translated-srt` | 纠错与翻译 | 产出 `annotated_csv` |
@@ -644,6 +645,10 @@ interface UploadedAudioSource {
 | `GET` / `DELETE` | `/v1/runtime/cache` | 统计 / 清空缓存：未装完的层压缩包与转写引擎的编译缓存 |
 | `GET` | `/v1/settings` | 读取配置快照（**不得**回传密钥明文）；`engineKeys` 另列转写引擎自己的 Key（与 `keys` 同形，只有掩码），不交给 FineSub |
 | `PUT` | `/v1/settings/keys` | 写入用户自持 API Key |
+| `GET` | `/v1/migration` | 旧版数据迁移的状态（`state`：`checking`、`migrating`、`blocked`、`rolled-back`、`failed`、`downloading`、`download-failed`、`completed` 等，`nonoka_x.migration.startup`）；没有要迁移的数据时为 `{"schema":1,"state":"not-needed","dataOpen":true}` |
+| `POST` | `/v1/migration/retry` | 迁移被阻断、回滚或下载失败后重试（202） |
+
+内置的本地 Provider 启动时先检查旧版数据布局：要迁移时服务照常握手，但迁移的本地步骤完成之前，除上面两条迁移路由外一律回 `503 migrating`；之后的下载（模型补齐、Python 环境层与工具层）在后台进行，期间 FineSub 转写报未就绪。
 
 ### 9.1 隔离 Worker 的 NDJSON 约定（可选实现范式）
 

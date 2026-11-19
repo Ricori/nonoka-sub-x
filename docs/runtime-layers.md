@@ -36,6 +36,8 @@ D:\Envir\Python312\python scripts/quality_gate.py --real
 
 （`tests/quality_harness/real.py` 在 2026-11-12 修过一处：清环境之前先读安装位置，否则后两个变量到不了 worker。）跑完可以用 `--layers <目录>\layers\<层>\<版本>` 原地核对层有没有被写入。
 
+> **现状（2026-11-19 核对，未改代码）**：上面这套做法是 WP-E3 之前写的，与现在的 harness 对不上。WP-P1 起 `NONOKA_QUALITY_PYTHON` 不再生效，设了它 `--real` 会直接拒跑（转写解释器由 worker 从 Python 环境层取，纠错与知识库进程的启动器用 `NONOKA_QUALITY_LAUNCHER_PYTHON` 指定）；`NONOKA_QUALITY_INSTALL_DIR` 现在指的是含 `layers\`（各层旁边要有 `current.json`）的大文件根，而 `stage` 搭的 `install\` 仍是 WP-E3 之前的「`models` 联接 + `runtime\<工具>\<版本>`」形状，层版本还要对得上 `layers.json`（或用 `NONOKA_QUALITY_LAYERS_INDEX` 指定另一份）。`stage` 改好之前，用本机已装好层的数据目录跑 `--real`（`real.locate_runtime` 的找法）。
+
 - 构建目录默认是**主检出**的 `.tmp\layer-build\`（在 worktree 里跑也一样，worktree 会被清理，大文件不放那里），产出默认在主检出的 `dist\layers\<层>\<版本>\`。两者都被 git 忽略。`--build-dir`、`--out-dir` 可以改。
 - 只用本机已有的：系统 Python（跑脚本本身，要 httpx）和 Windows 自带的 `C:\Windows\System32\tar.exe`（bsdtar，带 zstd）。uv 按工具清单下载、校验后只在构建目录里用。
 - 下载走 Nonoka 的网络线路（`nonoka_x.runtime.fetch`：Windows 系统代理、环境代理、直连，依次试）；要用设置页里的自定义代理，先设 `NONOKA_PREFERENCES_FILE` 指向桌面的偏好文件。

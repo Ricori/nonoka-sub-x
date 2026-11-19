@@ -46,7 +46,7 @@ const answer = await rpc<LLMAnswer>("llm.complete", {
 
 链表是**降级顺序**，前一个失败就往后退。
 
-FineSub 内部的用法（`third_party/finesub/src/finesub/llm/routing/config.py`）：`lightweight` 用于搜索循环里的判断题 —— 短输入短输出、量大、用 lite 不影响结果；`general_capable` 用于资料检索轮次和知识库更新，也就是需要真正理解和组织内容的活。
+FineSub 内部的用法（纠错包里的 `engines/finesub-correct/src/finesub/llm/routing/config.py`）：`lightweight` 用于搜索循环里的判断题 —— 短输入短输出、量大、用 lite 不影响结果；`general_capable` 用于资料检索轮次和知识库更新，也就是需要真正理解和组织内容的活。
 
 **本插件两个阶段都用 `general_capable`。** 两阶段都要长文本的理解与重组：阶段一从 800 行字幕里产出结构化双模块，阶段二要信息无损地跨批次合并去重。
 
