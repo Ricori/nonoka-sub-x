@@ -597,3 +597,39 @@ def test_install_from_offline_archive_rejects_wrong_layer_and_corrupt_file(tmp_p
     with pytest.raises(L.LayerMismatch, match="校验失败"):
         mgr.install("tools", archive_path=bad)
     assert not mgr.state("tools").ready
+
+
+def test_unpack_and_read_manifest_pipe_decompressed_tar_to_tar_exe(tmp_path, built):
+    # Prove tar.exe receives plain tar bytes (not raw zstd), so older Windows 10/11 tar.exe
+    # builds without built-in libzstd never try to spawn an external `zstd -d -qq`.
+    script = tmp_path / "no_zstd_tar.py"
+    script.write_text(
+        "import subprocess, sys\n"
+        "data = sys.stdin.buffer.read()\n"
+        "if data.startswith(b'\\x28\\xb5\\x2f\\xfd'):\n"
+        "    sys.stderr.write('tar.exe: unable to run program \"zstd -d -qq\"\\n')\n"
+        "    sys.exit(1)\n"
+        f"proc = subprocess.run([{str(L.SYSTEM_TAR)!r}, *sys.argv[1:]], input=data)\n"
+        "sys.exit(proc.returncode)\n",
+        encoding="utf-8",
+    )
+    wrapper = tmp_path / "no_zstd_tar.cmd"
+    wrapper.write_text(f'@"{sys.executable}" "{script}" %*\n', encoding="utf-8")
+
+    manifest_bytes = L.read_embedded_manifest(built["tools"].archive, tar=wrapper)
+    assert manifest_bytes == built["tools"].data
+
+    destination = tmp_path / "unpacked"
+    L.unpack(built["tools"].archive, destination, tar=wrapper)
+    assert (destination / lm.MANIFEST_NAME).read_bytes() == built["tools"].data
+
+
+def test_unpack_corrupt_zstd_raises_layer_mismatch(tmp_path):
+    bad = tmp_path / "corrupt.tar.zst"
+    bad.write_bytes(b"\x28\xb5\x2f\xfd" + b"\xff" * 64)
+
+    with pytest.raises(L.LayerMismatch, match="zstd"):
+        L.unpack(bad, tmp_path / "out")
+
+    with pytest.raises(L.LayerMismatch, match="zstd"):
+        L.read_embedded_manifest(bad)

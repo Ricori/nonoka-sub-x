@@ -87,3 +87,4 @@
 }
 
 .engine-key-unknown { margin: 0; color: var(--faint); font-size: 12px; }
+.engine-key-link { text-decoration: none; }

@@ -37,9 +37,9 @@ const interpreterProbeScript = "import sys; sys.version_info[:2] == (3, 12) or s
 // External interpreters (bundled or on PATH) are never topped up by
 // TopUpLauncher, so they must already carry the full launcher dependency set
 // (matching pyproject.toml and bootstrap-requirements.py312.txt), including
-// opencc and Windows tzdata (needed by ZoneInfo("America/Los_Angeles") in
-// finesub-correct's LLM client).
-const fullInterpreterProbeScript = "import sys; sys.version_info[:2] == (3, 12) or sys.exit(1); import httpx, pydantic, opencc; sys.platform != 'win32' or __import__('tzdata')"
+// opencc, zstandard, and Windows tzdata (needed by ZoneInfo("America/Los_Angeles")
+// in finesub-correct's LLM client).
+const fullInterpreterProbeScript = "import sys; sys.version_info[:2] == (3, 12) or sys.exit(1); import httpx, pydantic, opencc, zstandard; sys.platform != 'win32' or __import__('tzdata')"
 
 // SidecarConfig resolves development defaults without baking a checkout path
 // into the application. Packaged builds set the same four environment values

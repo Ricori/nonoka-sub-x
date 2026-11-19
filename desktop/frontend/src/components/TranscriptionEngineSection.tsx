@@ -1,3 +1,4 @@
+import { Browser } from "@wailsio/runtime";
 import { useEffect, useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
 import type { RuntimeInstallTarget, RuntimeProvisionState } from "../bridge/runtime.ts";
@@ -21,6 +22,10 @@ const KIND_NOTES: Record<EngineChoice["kind"], string> = {
   "local-gpu": "在本机完成语音识别。需要安装基础环境与 AI 模型。",
   "cloud-api": "在本机调用第三方语音识别接口。需要配置 API Key。",
   "cloud-service": "交给 Nonoka Cloud 识别，纠错与翻译在本机完成。需要登录云端账户。",
+};
+
+const ENGINE_KEY_LINKS: Record<string, { label: string; href: string }> = {
+  "moss-pro": { label: "白嫖点此", href: "https://platform.moss.cn/app/api-keys" },
 };
 
 interface TranscriptionEngineSectionProps {
@@ -107,6 +112,7 @@ export function TranscriptionEngineSection(props: TranscriptionEngineSectionProp
   const [modalEngineId, setModalEngineId] = useState<string | null>(null);
   const chosen = choices.find((item) => item.id === current) ?? null;
   const editingEngine = modalEngineId ? choices.find((item) => item.id === modalEngineId) ?? null : null;
+  const editingEngineKeyLink = editingEngine ? ENGINE_KEY_LINKS[editingEngine.id] ?? null : null;
 
   useEffect(() => {
     if (!modalEngineId) return;
@@ -230,7 +236,30 @@ export function TranscriptionEngineSection(props: TranscriptionEngineSectionProp
             <header className="settings-modal-header">
               <div className="settings-modal-title-block">
                 <h3 id="engine-key-modal-title">{editingEngine.label} · 凭据配置</h3>
-                {editingEngine.billing && <p className="settings-modal-subtitle">{editingEngine.billing}</p>}
+                {(editingEngine.billing || editingEngineKeyLink) && (
+                  <p className="settings-modal-subtitle">
+                    {editingEngine.billing}
+                    {editingEngineKeyLink && (
+                      <>
+                        {editingEngine.billing ? " · " : ""}
+                        <a
+                          className="inline-link engine-key-link"
+                          href={editingEngineKeyLink.href}
+                          target="_blank"
+                          rel="noreferrer"
+                          onClick={(event) => {
+                            event.preventDefault();
+                            void Browser.OpenURL(editingEngineKeyLink.href).catch(() =>
+                              window.open(editingEngineKeyLink.href, "_blank", "noopener,noreferrer"),
+                            );
+                          }}
+                        >
+                          {editingEngineKeyLink.label} ↗
+                        </a>
+                      </>
+                    )}
+                  </p>
+                )}
               </div>
               <button
                 type="button"

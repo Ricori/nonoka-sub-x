@@ -28,7 +28,9 @@ export function AccountPage({ session, media, loginKey, busy, message, onLoginKe
               <div><dt>进行中</dt><dd>{session.running}</dd></div>
               <div><dt>云端视频</dt><dd>{media.length}</dd></div>
             </dl>
-            <button className="danger-button" onClick={() => void onLogout()}>退出登录</button>
+            <div className="account-actions">
+              <button className="danger-button" disabled={busy} onClick={() => void onLogout()}>退出登录</button>
+            </div>
           </>
         ) : (
           <div className="login-form">

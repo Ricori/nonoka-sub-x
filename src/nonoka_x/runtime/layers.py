@@ -55,7 +55,7 @@ import shutil
 import subprocess
 import threading
 import time
-from typing import Any
+from typing import Any, BinaryIO
 from urllib.parse import urljoin, urlparse
 
 from nonoka_x.runtime import layer_manifest as lm
@@ -382,6 +382,64 @@ def check_path_length(layer: str, root: Path, manifest: lm.LayerManifest) -> Non
 
 # --- unpacking ----------------------------------------------------------------------------------------------
 
+_ZSTD_MAGIC = b"\x28\xb5\x2f\xfd"
+_ZSTD_CHUNK = 256 * 1024
+
+
+def _open_zstd_reader(stream: BinaryIO) -> Any | None:
+    """Return a streaming zstd decompressor for `stream`, or `None` if not zstd or unavailable.
+
+    Windows 10 and older Windows 11 builds ship a `bsdtar` (`System32\\tar.exe`) compiled without
+    `libzstd`, which then fails trying to spawn an external `zstd -d -qq`. Decompressing in Python
+    and piping raw tar bytes to `tar.exe` works on every Windows 10/11 build while preserving
+    `bsdtar`'s mtime handling, path-traversal checks, and pure-ASCII argv workaround.
+    """
+
+    head = stream.read(len(_ZSTD_MAGIC))
+    stream.seek(0)
+    if head != _ZSTD_MAGIC:
+        return None
+    try:
+        import zstandard  # type: ignore[import-not-found]
+    except ImportError:
+        return None
+    return zstandard.ZstdDecompressor().stream_reader(stream, closefd=False)
+
+
+def _start_zstd_feeder(
+    zstd_reader: Any,
+    sink: BinaryIO,
+    stop: threading.Event,
+) -> tuple[threading.Thread, list[str]]:
+    errors: list[str] = []
+
+    def feed() -> None:
+        try:
+            while not stop.is_set():
+                chunk = zstd_reader.read(_ZSTD_CHUNK)
+                if not chunk:
+                    break
+                try:
+                    sink.write(chunk)
+                except (BrokenPipeError, OSError):
+                    break
+        except Exception as error:
+            if not stop.is_set():
+                errors.append(f"zstd: {error}")
+        finally:
+            try:
+                zstd_reader.close()
+            except Exception:
+                pass
+            try:
+                sink.close()
+            except OSError:
+                pass
+
+    thread = threading.Thread(target=feed, name="nonoka-layer-zstd", daemon=True)
+    thread.start()
+    return thread, errors
+
 
 def unpack(
     archive: Path,
@@ -413,18 +471,28 @@ def unpack(
         listing.write_text("\n".join(members) + "\n", encoding="utf-8")
         command += ["-T", listing.name]
     archive_stream = archive.open("rb")
+    zstd_reader = _open_zstd_reader(archive_stream)
+    stdin_target: Any = subprocess.PIPE if zstd_reader is not None else archive_stream
     try:
         process = subprocess.Popen(
-            command, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, stdin=archive_stream,
+            command, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, stdin=stdin_target,
             cwd=str(destination), creationflags=no_window(),
         )
     except Exception:
+        if zstd_reader is not None:
+            zstd_reader.close()
         archive_stream.close()
         if listing is not None:
             listing.unlink(missing_ok=True)
         raise
     tail: list[str] = []
     done = 0
+    stop_feed = threading.Event()
+    feeder: threading.Thread | None = None
+    feeder_errors: list[str] = []
+    if zstd_reader is not None:
+        assert process.stdin is not None
+        feeder, feeder_errors = _start_zstd_feeder(zstd_reader, process.stdin, stop_feed)
 
     def read() -> None:
         nonlocal done
@@ -445,36 +513,86 @@ def unpack(
     try:
         while process.poll() is None:
             if should_pause is not None and should_pause():
+                stop_feed.set()
                 process.kill()
                 process.wait()
                 raise DownloadPaused("Unpacking paused")
             time.sleep(0.1)
     finally:
+        stop_feed.set()
         if process.poll() is None:
             process.kill()
             process.wait()
         reader.join(timeout=5)
+        if feeder is not None:
+            feeder.join(timeout=5)
         archive_stream.close()
         if listing is not None:
             listing.unlink(missing_ok=True)
-    if process.returncode != 0:
-        raise LayerMismatch(f"tar could not unpack {archive.name} ({process.returncode}): " + " | ".join(tail[-5:]))
+    if process.returncode != 0 or feeder_errors:
+        details = [*feeder_errors, *tail[-5:]]
+        raise LayerMismatch(f"tar could not unpack {archive.name} ({process.returncode}): " + " | ".join(details))
 
 
 def read_embedded_manifest(archive: Path, *, tar: Path | None = None) -> bytes:
     """Read `.nonoka-layer.json` (the first entry) straight from a layer archive without unpacking it."""
 
+    command = [str(tar or SYSTEM_TAR), "-x", "-q", "-O", "-f", "-", lm.MANIFEST_NAME]
     with archive.open("rb") as archive_stream:
-        completed = subprocess.run(
-            [str(tar or SYSTEM_TAR), "-x", "-q", "-O", "-f", "-", lm.MANIFEST_NAME],
-            capture_output=True,
-            stdin=archive_stream,
-            creationflags=no_window(),
-        )
-    if completed.returncode != 0:
-        detail = completed.stderr.decode("utf-8", errors="replace").strip()[-240:]
-        raise LayerMismatch(f"无法从离线包 {archive.name} 读取清单（{lm.MANIFEST_NAME}）：{detail or completed.returncode}")
-    return completed.stdout
+        zstd_reader = _open_zstd_reader(archive_stream)
+        if zstd_reader is None:
+            completed = subprocess.run(
+                command,
+                capture_output=True,
+                stdin=archive_stream,
+                creationflags=no_window(),
+            )
+            if completed.returncode != 0:
+                detail = completed.stderr.decode("utf-8", errors="replace").strip()[-240:]
+                raise LayerMismatch(
+                    f"无法从离线包 {archive.name} 读取清单（{lm.MANIFEST_NAME}）：{detail or completed.returncode}"
+                )
+            return completed.stdout
+
+        try:
+            process = subprocess.Popen(
+                command,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                stdin=subprocess.PIPE,
+                creationflags=no_window(),
+            )
+        except Exception:
+            zstd_reader.close()
+            raise
+        stop_feed = threading.Event()
+        assert process.stdin is not None and process.stdout is not None and process.stderr is not None
+        feeder, feeder_errors = _start_zstd_feeder(zstd_reader, process.stdin, stop_feed)
+        stderr_chunks: list[bytes] = []
+
+        def drain_stderr() -> None:
+            assert process.stderr is not None
+            stderr_chunks.append(process.stderr.read())
+
+        stderr_reader = threading.Thread(target=drain_stderr, name="nonoka-layer-manifest-err", daemon=True)
+        stderr_reader.start()
+        try:
+            stdout_data = process.stdout.read()
+            process.wait()
+        finally:
+            stop_feed.set()
+            if process.poll() is None:
+                process.kill()
+                process.wait()
+            stderr_reader.join(timeout=5)
+            feeder.join(timeout=5)
+        if process.returncode != 0:
+            stderr_text = b"".join(stderr_chunks).decode("utf-8", errors="replace").strip()
+            detail = " | ".join([*feeder_errors, *([stderr_text] if stderr_text else [])])[-240:]
+            raise LayerMismatch(
+                f"无法从离线包 {archive.name} 读取清单（{lm.MANIFEST_NAME}）：{detail or process.returncode}"
+            )
+        return stdout_data
 
 
 # --- the manager --------------------------------------------------------------------------------------------

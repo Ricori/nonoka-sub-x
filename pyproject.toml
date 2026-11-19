@@ -17,6 +17,9 @@ dependencies = [
   "opencc-python-reimplemented",
   "pydantic>=2,<3",
   "tzdata ; platform_system == 'Windows'",
+  # Windows 10 and older Windows 11 builds ship bsdtar without built-in libzstd,
+  # so layer archives (.tar.zst) are decompressed in Python before piping to tar.exe.
+  "zstandard>=0.23,<1",
 ]
 
 [project.scripts]

@@ -118,7 +118,7 @@ func TestInterpreterProbeScriptPinsTheExactVersion(t *testing.T) {
 func TestFullInterpreterProbeScriptRequiresHarnessPackages(t *testing.T) {
 	for _, fragment := range []string{
 		"sys.version_info[:2] == (3, 12)",
-		"import httpx, pydantic, opencc",
+		"import httpx, pydantic, opencc, zstandard",
 		"tzdata",
 	} {
 		if !strings.Contains(fullInterpreterProbeScript, fragment) {

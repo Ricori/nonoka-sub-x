@@ -406,11 +406,11 @@ func (b *PythonBootstrap) announcer(stage, message string) func(bootstrapAttempt
 	}
 }
 
-// harnessProbeScript imports what the launcher gained so it can continue a
-// cloud task from its stable.json without the managed runtime: FineSub's
-// `[harness]` extra, less `cryptography`. tzdata is Windows-only, as in the
-// requirements' marker.
-const harnessProbeScript = "import sys, httpx, opencc; sys.platform != 'win32' or __import__('tzdata')"
+// harnessProbeScript imports what the launcher gained beyond its initial
+// httpx/pydantic set: FineSub's `[harness]` extra (less `cryptography`, plus
+// Windows-only `tzdata`) and `zstandard` (for unpacking `.tar.zst` layers on
+// Windows 10 / older Windows 11 whose `tar.exe` lacks built-in libzstd).
+const harnessProbeScript = "import sys, httpx, opencc, zstandard; sys.platform != 'win32' or __import__('tzdata')"
 
 // TopUpLauncher installs requirements an existing launcher predates. The
 // install path above only runs on a launcher that is missing or broken, so a
