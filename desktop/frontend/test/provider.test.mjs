@@ -3,7 +3,7 @@ import test from "node:test";
 
 import { defaultTaskRequest, requestForEngine, requestForTranscriptionEngine } from "../src/home/defaultRequest.ts";
 import { cloudAcceptsDuration } from "../src/home/executionAvailability.ts";
-import { PipelineController } from "../src/home/pipelineController.ts";
+import { PipelineController, startProviderTask } from "../src/home/pipelineController.ts";
 import { CloudExecutionProvider } from "../src/providers/cloudProvider.ts";
 import { LocalExecutionProvider } from "../src/providers/localProvider.ts";
 import { ProviderRegistry } from "../src/providers/registry.ts";
@@ -483,4 +483,22 @@ test("the settings page lists the provider's engines, then the cloud's FineSub",
   const offline = engineChoices(null, { authenticated: false });
   assert.equal(offline[0].ready, false);
   assert.equal(offline[0].issues[0].message, "本地服务尚未启动");
+});
+
+test("startProviderTask starts multiple tasks independently and fills started_at", async () => {
+  const started = [];
+  const provider = {
+    async capabilities() { return capabilities(); },
+    async start(body) {
+      started.push(body.source.title);
+      return { ...snapshot("queued"), task_id: `task-${started.length}` };
+    },
+  };
+  const first = await startProviderTask(provider, { ...request(), source: { ...request().source, title: "a" } });
+  const second = await startProviderTask(provider, { ...request(), source: { ...request().source, title: "b" } });
+  assert.deepEqual(started, ["a", "b"]);
+  assert.equal(first.task_id, "task-1");
+  assert.equal(second.task_id, "task-2");
+  assert.ok(first.started_at);
+  assert.ok(second.started_at);
 });

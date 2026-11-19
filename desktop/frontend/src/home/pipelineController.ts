@@ -19,6 +19,34 @@ function asError(value: unknown): Error {
   return value instanceof Error ? value : new Error(String(value));
 }
 
+export async function startProviderTask(
+  provider: ExecutionProvider,
+  request: TaskRequest,
+  reportStartFailure?: (provider: string, code: string) => void,
+): Promise<TaskSnapshot> {
+  const capabilities = await provider.capabilities().catch((error: unknown) => {
+    reportStartFailure?.(request.provider, request.provider === "local" ? "sidecar_unavailable" : "unknown");
+    throw error;
+  });
+  // `runtime.ready` 说的是识别那一档。日文轴不识别，只要纠错那一档；Provider 启动时
+  // 会按目标逐档检查并给出具体原因，这里只拦确定要在本地识别、却连识别档都没就绪的。
+  const recognises = request.source.kind === "local_file" && !request.axis;
+  if (recognises && !capabilities.runtime?.ready) {
+    reportStartFailure?.(request.provider, "runtime_not_ready");
+    const issue = capabilities.runtime?.issues[0];
+    throw new Error(issue?.message ?? "Selected provider runtime is not ready");
+  }
+  if (request.correction.media === "video" && !capabilities.features.video_multimodal) {
+    reportStartFailure?.(request.provider, "invalid_request");
+    throw new Error("Selected provider does not support video multimodal correction");
+  }
+  const rawSnapshot = await provider.start(request);
+  return {
+    ...rawSnapshot,
+    started_at: rawSnapshot.started_at || new Date().toISOString(),
+  };
+}
+
 // No login state, upload state, global task key, or backend URL lives here.
 // All task behavior comes from the selected provider's capabilities/contract.
 export class PipelineController {
@@ -47,27 +75,7 @@ export class PipelineController {
   }
 
   async start(request: TaskRequest): Promise<TaskSnapshot> {
-    const capabilities = await this.provider.capabilities().catch((error: unknown) => {
-      this.reportStartFailure?.(request.provider, request.provider === "local" ? "sidecar_unavailable" : "unknown");
-      throw error;
-    });
-    // `runtime.ready` 说的是识别那一档。日文轴不识别，只要纠错那一档；Provider 启动时
-    // 会按目标逐档检查并给出具体原因，这里只拦确定要在本地识别、却连识别档都没就绪的。
-    const recognises = request.source.kind === "local_file" && !request.axis;
-    if (recognises && !capabilities.runtime?.ready) {
-      this.reportStartFailure?.(request.provider, "runtime_not_ready");
-      const issue = capabilities.runtime?.issues[0];
-      throw new Error(issue?.message ?? "Selected provider runtime is not ready");
-    }
-    if (request.correction.media === "video" && !capabilities.features.video_multimodal) {
-      this.reportStartFailure?.(request.provider, "invalid_request");
-      throw new Error("Selected provider does not support video multimodal correction");
-    }
-    const rawSnapshot = await this.provider.start(request);
-    const snapshot: TaskSnapshot = {
-      ...rawSnapshot,
-      started_at: rawSnapshot.started_at || new Date().toISOString(),
-    };
+    const snapshot = await startProviderTask(this.provider, request, this.reportStartFailure);
     this.generation += 1;
     this.set({ snapshot, events: [], artifacts: null, error: null });
     return snapshot;

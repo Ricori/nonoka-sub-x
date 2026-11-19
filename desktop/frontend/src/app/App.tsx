@@ -22,9 +22,8 @@ import { desktopPlugins, mountedTools } from "../bridge/plugins.ts";
 import type { InstalledPlugin, MountedPluginTool } from "../bridge/plugins.ts";
 import { desktopWindows } from "../bridge/windows.ts";
 import { localProviderBridge, sidecarStatus } from "../bridge/wails.ts";
-import { PipelineController } from "../home/pipelineController.ts";
+import { startProviderTask } from "../home/pipelineController.ts";
 import { CloudExecutionProvider, isRelayTaskId } from "../providers/cloudProvider.ts";
-import type { PipelineState } from "../home/pipelineController.ts";
 import { LocalExecutionProvider } from "../providers/localProvider.ts";
 import type { Capabilities, TaskAxis, TaskRequest, TaskSnapshot } from "../providers/types.ts";
 import { documents } from "../bridge/documents.ts";
@@ -46,7 +45,7 @@ import { LibraryPage } from "../pages/LibraryPage.tsx";
 import { PluginManagerPage } from "../plugins/PluginManagerPage.tsx";
 import { PluginPageHost } from "../plugins/PluginPageHost.tsx";
 import { parseTaskHistory, taskStateLabel } from "./format.ts";
-import { reconcileTaskHistory } from "./taskHistory.ts";
+import { activeTasksByMedia, applyActiveTaskSnapshots, countActiveTasks, reconcileTaskHistory } from "./taskHistory.ts";
 import { applyTheme, initialTheme } from "./theme.ts";
 import type { CloudSyncState, DialogState, ExecutionMode, LibraryFilter, LibraryItem, LoadState, NavigationSection, Section, SortMode, TaskHistoryEntry, Theme, ViewMode } from "./types.ts";
 import { activeStates, recoverableStates, taskHistoryLimit } from "./types.ts";
@@ -122,14 +121,8 @@ function PluginToolIcon() {
 }
 
 export default function App() {
-  // 当前（或最近一次）任务用的转写引擎：活动任务的控制器跟着它走。
-  // 不再有全局的本机 / 云端开关，引擎在每次转写时单独选。
-  const [activeEngine, setActiveEngine] = useState<ExecutionMode>("local");
   const localProvider = useMemo(() => new LocalExecutionProvider(localProviderBridge), []);
   const cloudProvider = useMemo(() => new CloudExecutionProvider(cloudAccount), []);
-  const localController = useMemo(() => new PipelineController(localProvider, reportStartFailure), [localProvider]);
-  const cloudController = useMemo(() => new PipelineController(cloudProvider, reportStartFailure), [cloudProvider]);
-  const controller = activeEngine === "local" ? localController : cloudController;
   const [section, setSection] = useState<Section>("library");
   const [plugins, setPlugins] = useState<InstalledPlugin[]>([]);
   const [activePluginTool, setActivePluginTool] = useState<{ pluginId: string; toolId: string } | null>(null);
@@ -164,9 +157,9 @@ export default function App() {
   // 迁移进度以 storage:progress 事件为准；这两个序号用来丢弃晚到的旧结果。
   const storageEventSeq = useRef(0);
   const storageStatusSeq = useRef(0);
-  const [pipeline, setPipeline] = useState<PipelineState>(controller.current() as PipelineState);
   const [taskHistory, setTaskHistory] = useState<TaskHistoryEntry[]>([]);
   const [taskHistoryMessage, setTaskHistoryMessage] = useState<PageNotice>(noNotice);
+  const activeTaskByMedia = useMemo(() => activeTasksByMedia(taskHistory), [taskHistory]);
   const [settings, setSettings] = useState<FineSubSettingsState | null>(null);
   const [runtimeProvision, setRuntimeProvision] = useState<RuntimeProvisionState | null>(null);
   // 「清理未使用的」现在会删什么，以当前转写引擎为准（WP-UI）；旧版 sidecar 没有这条路由时为 null。
@@ -214,7 +207,6 @@ export default function App() {
   const [loginKey, setLoginKey] = useState("");
   const [accountBusy, setAccountBusy] = useState(false);
   const [accountMessage, setAccountMessage] = useState("");
-  const [activeMedia, setActiveMedia] = useState<MediaEntry | null>(null);
   const [dialog, setDialog] = useState<DialogState | null>(null);
   const [dialogBusy, setDialogBusy] = useState(false);
   const [transcriptionMedia, setTranscriptionMedia] = useState<MediaEntry | null>(null);
@@ -241,13 +233,16 @@ export default function App() {
   const failedSyncTasks = useRef(new Map<string, { retryAt: number; permanent: boolean; attempts: number }>());
   const reconciledLocalTasks = useRef(new Set<string>());
   const reconciledCloudTasks = useRef(new Set<string>());
+  const observedActiveLocalTasks = useRef(new Set<string>());
   const observedActiveCloudTasks = useRef(new Set<string>());
+  const activeTaskPollInFlight = useRef(false);
   const taskHistoryHydrated = useRef(false);
   const preferencesHydrated = useRef(false);
   // History persists to its own file, so it needs a hydration gate of its own:
   // saving before the stored history has loaded would overwrite it with [].
   const taskHistoryStored = useRef(false);
   const taskHistoryRef = useRef(taskHistory);
+  taskHistoryRef.current = taskHistory;
   const pythonBootstrapStarted = useRef(false);
 
   const refreshPlugins = useCallback(async () => {
@@ -500,10 +495,10 @@ export default function App() {
   const pendingAdoptions = useMemo(() => {
     if (!cloudSession?.authenticated) return [];
     return media
-      // The media this app is transcribing right now is excluded: its own
-      // pipeline projects the result the moment the task finishes, and both
+      // Any media this app is transcribing right now is excluded: its own
+      // task projects the result the moment the task finishes, and both
       // paths would otherwise download the same artifacts at once.
-      .filter((entry) => entry.available && !entry.documentAvailable && !entry.documentRemoved && entry.fingerprint && entry.id !== activeMedia?.id)
+      .filter((entry) => entry.available && !entry.documentAvailable && !entry.documentRemoved && entry.fingerprint && !activeTaskByMedia.has(entry.id))
       // Switched off: the cloud copy stays where it is until asked for by hand.
       .filter((entry) => !syncDisabled.has(entry.fingerprint))
       .flatMap((entry) => {
@@ -511,7 +506,7 @@ export default function App() {
         return remote ? [{ key: `${remote.id}:${entry.id}`, localID: entry.id, videoID: remote.id }] : [];
       })
       .filter((pair) => !adoptFailed.has(pair.key));
-  }, [activeMedia?.id, adoptFailed, cloudMedia, cloudSession?.authenticated, media, syncDisabled]);
+  }, [activeTaskByMedia, adoptFailed, cloudMedia, cloudSession?.authenticated, media, syncDisabled]);
   const adoptingMedia = useMemo(() => new Set([
     ...pendingAdoptions.map((pair) => pair.localID),
     ...manualAdoptingMedia,
@@ -854,8 +849,6 @@ export default function App() {
     void loadCloud({ background: true });
   }, [loadCloud, loadLibrary]);
 
-  useEffect(() => controller.subscribe((state) => setPipeline({ ...state })), [controller]);
-
   useEffect(() => {
     if (runtimeProvision?.job.state === "running") {
       setDismissedProvisionJobKey("");
@@ -885,12 +878,6 @@ export default function App() {
     }, 1000);
     return () => window.clearInterval(timer);
   }, [refresh, runtimeProvision?.job.state]);
-
-  useEffect(() => {
-    if (!pipeline.snapshot || !activeStates.has(pipeline.snapshot.state)) return;
-    const timer = window.setInterval(() => void controller.refresh(), taskPollIntervalMs);
-    return () => window.clearInterval(timer);
-  }, [controller, pipeline.snapshot]);
 
   useEffect(() => {
     if (runtimeProvision?.job.state !== "completed") return;
@@ -986,23 +973,30 @@ export default function App() {
   }, [cloudProvider, cloudSession?.authenticated, localProvider]);
 
   const refreshActiveTaskHistory = useCallback(async () => {
+    if (activeTaskPollInFlight.current) return;
     const active = taskHistoryRef.current.filter((item) => activeStates.has(item.snapshot.state));
     if (active.length === 0) return;
-    const updates = await Promise.all(active.map(async (item) => {
-      if (item.provider === "cloud" && !cloudSession?.authenticated) return null;
-      try {
-        const taskProvider = item.provider === "local" ? localProvider : cloudProvider;
-        return await taskProvider.status(item.taskId);
-      } catch {
-        return null;
-      }
-    }));
-    if (!updates.some((snapshot) => snapshot !== null)) return;
-    const byTask = new Map(active.map((item, index) => [item.taskId, updates[index]]));
-    setTaskHistory((current) => current.map((item) => {
-      const snapshot = byTask.get(item.taskId);
-      return snapshot ? { ...item, snapshot: { ...snapshot, started_at: snapshot.started_at || item.snapshot.started_at } } : item;
-    }));
+    activeTaskPollInFlight.current = true;
+    try {
+      const updates = await Promise.all(active.map(async (item) => {
+        if (item.provider === "cloud" && !cloudSession?.authenticated) return null;
+        try {
+          const taskProvider = item.provider === "local" ? localProvider : cloudProvider;
+          return await taskProvider.status(item.taskId);
+        } catch {
+          return null;
+        }
+      }));
+      const byTask = new Map<string, TaskSnapshot>();
+      active.forEach((item, index) => {
+        const snapshot = updates[index];
+        if (snapshot !== null) byTask.set(item.taskId, snapshot);
+      });
+      if (byTask.size === 0) return;
+      setTaskHistory((current) => applyActiveTaskSnapshots(current, byTask));
+    } finally {
+      activeTaskPollInFlight.current = false;
+    }
   }, [cloudProvider, cloudSession?.authenticated, localProvider]);
 
   useEffect(() => {
@@ -1084,9 +1078,12 @@ export default function App() {
       const state = states.get(entry.id);
       return state ? { ...entry, status: state } : entry;
     }));
+    if (settled.some((item) => item.snapshot.state === "completed")) {
+      void Promise.all([loadLibrary(), loadCacheStatus()]);
+    }
     if (!cloudSession?.authenticated) return;
     void loadCloud({ background: true });
-  }, [cloudSession?.authenticated, loadCloud, taskHistory]);
+  }, [cloudSession?.authenticated, loadCacheStatus, loadCloud, loadLibrary, taskHistory]);
 
   // Nonoka Cloud is a model provider only while signed in. The account reaches
   // the sidecar inside the login, logout and session calls, so once the
@@ -1102,7 +1099,6 @@ export default function App() {
     const taskProvider = item.provider === "local" ? localProvider : cloudProvider;
     setTaskHistoryMessage(noNotice);
     try {
-      const isCurrent = pipeline.snapshot?.task_id === item.taskId;
       // "继续" covers three states, and the local provider accepts only one of
       // them through resume: a shutdown leaves a task interrupted, while a
       // cancelled or failed one has to be retried. Both reuse the engine's
@@ -1126,13 +1122,9 @@ export default function App() {
             : record,
         ));
       }
-      const rawSnapshot = isCurrent
-        ? action === "cancel"
-          ? await controller.cancel()
-          : restart === "resume" ? await controller.resume() : await controller.retry()
-        : action === "cancel"
-          ? await taskProvider.cancel(item.taskId)
-          : restart === "resume" ? await taskProvider.resume(item.taskId) : await taskProvider.retry(item.taskId);
+      const rawSnapshot = action === "cancel"
+        ? await taskProvider.cancel(item.taskId)
+        : restart === "resume" ? await taskProvider.resume(item.taskId) : await taskProvider.retry(item.taskId);
       if (!rawSnapshot) return;
       const snapshot: TaskSnapshot = action === "resume"
         ? { ...rawSnapshot, started_at: rawSnapshot.started_at || nowIso }
@@ -1157,24 +1149,31 @@ export default function App() {
         ? `该任务当前已是「${taskStateLabel(fresh.state)}」，无需继续；列表已按最新状态刷新。`
         : detail));
     }
-  }, [cloudProvider, controller, localProvider, pipeline.snapshot?.task_id]);
+  }, [cloudProvider, localProvider]);
 
-  /** The library locks every start button while a task runs, so the card that
-      shows the progress is also where the way out belongs -- reaching the task
-      history page should not be the only way to stop a run. */
-  const cancelActiveTask = useCallback(async () => {
-    const taskId = pipeline.snapshot?.task_id;
-    if (!taskId) return;
+  /** Cancel the running task(s) for a specific media card directly from the library. */
+  const cancelMediaTask = useCallback(async (entry: MediaEntry) => {
+    const running = taskHistoryRef.current.filter(
+      (item) => item.mediaId === entry.id && activeStates.has(item.snapshot.state),
+    );
+    if (running.length === 0) return;
     setLibraryMessage(noNotice);
     try {
-      const snapshot = await controller.cancel();
-      if (!snapshot) return;
-      setTaskHistory((current) => current.map((record) => record.taskId === taskId ? { ...record, snapshot } : record));
-      setLibraryMessage(okNotice("已取消处理。已完成的环节会保留，可在处理历史中继续。"));
+      const results = await Promise.all(running.map(async (item) => {
+        const taskProvider = item.provider === "local" ? localProvider : cloudProvider;
+        const snapshot = await taskProvider.cancel(item.taskId);
+        return [item.taskId, snapshot] as const;
+      }));
+      const updated = new Map(results);
+      setTaskHistory((current) => current.map((record) => {
+        const snapshot = updated.get(record.taskId);
+        return snapshot ? { ...record, snapshot } : record;
+      }));
+      setLibraryMessage(okNotice("已取消处理。已完成的环节会保留，可在处理任务中继续。"));
     } catch (value) {
       setLibraryMessage(warnNotice(value instanceof Error ? value.message : String(value)));
     }
-  }, [controller, pipeline.snapshot?.task_id]);
+  }, [cloudProvider, localProvider]);
 
   // History can contain local and cloud tasks at the same time. Keep both
   // readers available so every log panel follows the provider that owns it.
@@ -1212,10 +1211,11 @@ export default function App() {
   }, [loadLibrary]);
 
   const startMedia = useCallback(async (entry: MediaEntry) => {
+    if (activeTaskByMedia.has(entry.id)) return;
     setLibraryMessage(noNotice);
     setTranscriptionError("");
     setTranscriptionMedia(entry);
-  }, []);
+  }, [activeTaskByMedia]);
 
   // 中文轴 / 双语轴：文字已经齐了，什么都不用算，直接落成可编辑文档。
   const importAxis = useCallback(async (axis: TaskAxis) => {
@@ -1249,6 +1249,7 @@ export default function App() {
 
   const confirmTranscription = useCallback(async (engine: ExecutionMode, request: TaskRequest, axis: TaskAxis | null) => {
     if (!transcriptionMedia) return;
+    const targetMedia = transcriptionMedia;
     setTranscriptionBusy(true);
     setTranscriptionError("");
     try {
@@ -1257,20 +1258,14 @@ export default function App() {
       }
       // 投影是消费这条轴的一方，云端任务的产物也在本机投影，所以两种运行环境都记在
       // 本地文档旁边。没有轴时也要写一次：上一次导入留下的轴不该改变这一次的结果。
-      if (axis) await documents.setAxis(transcriptionMedia.id, axis);
-      else await documents.setAxis(transcriptionMedia.id, null).catch(() => undefined);
-      const taskController = engine === "local" ? localController : cloudController;
-      setActiveEngine(engine);
-      const rawSnapshot = await taskController.start(request);
-      const snapshot: TaskSnapshot = {
-        ...rawSnapshot,
-        started_at: rawSnapshot.started_at || new Date().toISOString(),
-      };
-      setActiveMedia(transcriptionMedia);
-      rememberTask(snapshot, transcriptionMedia);
+      if (axis) await documents.setAxis(targetMedia.id, axis);
+      else await documents.setAxis(targetMedia.id, null).catch(() => undefined);
+      const taskProvider = engine === "local" ? localProvider : cloudProvider;
+      const snapshot = await startProviderTask(taskProvider, request, reportStartFailure);
+      rememberTask(snapshot, targetMedia);
       setTranscriptionMedia(null);
       setSection("tasks");
-      void mediaLibrary.cacheMedia(transcriptionMedia.id).then(() => Promise.all([loadLibrary(), loadCacheStatus()])).catch((value) => {
+      void mediaLibrary.cacheMedia(targetMedia.id).then(() => Promise.all([loadLibrary(), loadCacheStatus()])).catch((value) => {
         setLibraryMessage(warnNotice(`任务已启动，但视频缓存创建失败：${value instanceof Error ? value.message : String(value)}`));
       });
     } catch (value) {
@@ -1278,7 +1273,7 @@ export default function App() {
     } finally {
       setTranscriptionBusy(false);
     }
-  }, [cloudController, cloudSession?.authenticated, loadCacheStatus, loadLibrary, localController, rememberTask, transcriptionMedia]);
+  }, [cloudProvider, cloudSession?.authenticated, loadCacheStatus, loadLibrary, localProvider, rememberTask, transcriptionMedia]);
 
   const saveCacheLimit = useCallback(async (limit: number) => {
     setCacheBusy(true);
@@ -1309,17 +1304,18 @@ export default function App() {
     }
   }, [loadLibrary]);
 
+  // Reconcile every newly completed local task from the durable history so
+  // concurrent runs and tasks discovered after an app restart all flip their
+  // cards to editable and trigger cloud sync uniformly.
   useEffect(() => {
-    if (!pipeline.snapshot || !activeMedia) return;
-    rememberTask(pipeline.snapshot, activeMedia);
-  }, [activeMedia, pipeline.snapshot, rememberTask]);
-
-  // Completion can arrive through the active pipeline or through task-history
-  // polling. The latter is how a local run finishes after an app restart, and
-  // used to update only the history row: the media card stayed at 等待处理 and
-  // the cloud sync never ran. Reconcile every newly completed local task from
-  // the durable history instead of tying these side effects to activeMedia.
-  useEffect(() => {
+    for (const item of taskHistory) {
+      if (item.provider !== "local") continue;
+      if (activeStates.has(item.snapshot.state)) {
+        observedActiveLocalTasks.current.add(item.taskId);
+      } else if (item.snapshot.state !== "completed") {
+        observedActiveLocalTasks.current.delete(item.taskId);
+      }
+    }
     const completed = taskHistory.filter((item) =>
       item.provider === "local"
       && item.snapshot.state === "completed"
@@ -1327,23 +1323,24 @@ export default function App() {
       && !reconciledLocalTasks.current.has(item.taskId));
     if (completed.length === 0) return;
     completed.forEach((item) => reconciledLocalTasks.current.add(item.taskId));
-    const current = completed.find((item) => item.taskId === pipeline.snapshot?.task_id);
-    if (current) {
+    const newlyFinished = completed.filter((item) => observedActiveLocalTasks.current.delete(item.taskId));
+    if (newlyFinished.length > 0) {
       // The local provider writes the document before publishing "completed".
-      // Reflect that fact immediately instead of making the card wait for the
+      // Reflect that fact immediately instead of making the cards wait for the
       // library refresh or the cloud-sync effect that follows it.
-      setMedia((entries) => entries.map((entry) => entry.id === current.mediaId
+      const finishedMediaIds = new Set(newlyFinished.map((item) => item.mediaId));
+      setMedia((entries) => entries.map((entry) => finishedMediaIds.has(entry.id)
         ? { ...entry, documentAvailable: true, documentRemoved: false }
         : entry));
-      setLibraryMessage(okNotice(`"${current.title}" 字幕处理完成，可以直接编辑。`));
+      setLibraryMessage(okNotice(newlyFinished.length === 1
+        ? `"${newlyFinished[0].title}" 字幕处理完成，可以直接编辑。`
+        : `${newlyFinished.length} 个任务的字幕处理已完成，可以直接编辑。`));
     }
     void Promise.all([loadLibrary(), loadCacheStatus()]);
-  }, [loadCacheStatus, loadLibrary, pipeline.snapshot?.task_id, taskHistory]);
+  }, [loadCacheStatus, loadLibrary, taskHistory]);
 
   // Fetch cloud artifacts as a durable completion side effect, independent of
-  // which poller observed "completed". The active pipeline normally projects
-  // them itself, but its first manifest request can race the backend publishing
-  // the files; history polling and app restarts must reach the same outcome.
+  // how many tasks are running or whether the app restarted mid-run.
   useEffect(() => {
     if (!cloudSession?.authenticated) return;
     const latestByMedia = new Map<string, TaskHistoryEntry>();
@@ -1359,10 +1356,7 @@ export default function App() {
     // Only the newest completed run for a media item may write its document;
     // replaying older history afterward would silently replace fresh subtitles.
     const completed = [...latestByMedia.values()].filter((item) =>
-      !reconciledCloudTasks.current.has(item.taskId)
-      // Let the active controller finish its own status/artifact round first,
-      // avoiding two projections writing the same local document concurrently.
-      && !(item.taskId === pipeline.snapshot?.task_id && activeStates.has(pipeline.snapshot.state)));
+      !reconciledCloudTasks.current.has(item.taskId));
     if (completed.length === 0) return;
     completed.forEach((item) => reconciledCloudTasks.current.add(item.taskId));
     // Hold the cards in 取回字幕中 for the whole download, not just for the frame
@@ -1380,24 +1374,21 @@ export default function App() {
       const failed: Array<{ item: TaskHistoryEntry; error: unknown }> = [];
       for (const item of completed) {
         try {
-          const alreadyProjected = item.taskId === pipeline.snapshot?.task_id && pipeline.artifacts !== null;
-          if (!alreadyProjected) {
-            // A completed snapshot can briefly precede artifact availability.
-            // Retry a few times here because active-task polling stops at the
-            // terminal state and would otherwise never attempt the download again.
-            let lastError: unknown;
-            for (let attempt = 0; attempt < 4; attempt += 1) {
-              try {
-                await cloudProvider.artifacts(item.taskId);
-                lastError = undefined;
-                break;
-              } catch (value) {
-                lastError = value;
-                if (attempt < 3) await new Promise<void>((resolve) => window.setTimeout(resolve, 1500));
-              }
+          // A completed snapshot can briefly precede artifact availability.
+          // Retry a few times here because active-task polling stops at the
+          // terminal state and would otherwise never attempt the download again.
+          let lastError: unknown;
+          for (let attempt = 0; attempt < 4; attempt += 1) {
+            try {
+              await cloudProvider.artifacts(item.taskId);
+              lastError = undefined;
+              break;
+            } catch (value) {
+              lastError = value;
+              if (attempt < 3) await new Promise<void>((resolve) => window.setTimeout(resolve, 1500));
             }
-            if (lastError !== undefined) throw lastError;
           }
+          if (lastError !== undefined) throw lastError;
           adopted.add(item.mediaId);
         } catch (error) {
           reconciledCloudTasks.current.delete(item.taskId);
@@ -1419,7 +1410,7 @@ export default function App() {
         setTaskHistoryMessage(warnNotice(`“${first.item.title}”已完成，但自动取回字幕失败：${detail}`));
       }
     })().finally(release);
-  }, [cloudProvider, cloudSession?.authenticated, loadCacheStatus, loadLibrary, media, pipeline.artifacts, pipeline.snapshot, taskHistory]);
+  }, [cloudProvider, cloudSession?.authenticated, loadCacheStatus, loadLibrary, media, taskHistory]);
 
   // Sync from the reconciled media document, not from activeMedia. This also
   // repairs a completed run discovered after restart. A remote local-sync entry
@@ -1943,10 +1934,7 @@ export default function App() {
     const localFingerprints = new Set(media.map((entry) => entry.fingerprint));
     return cloudMedia.filter((entry) => !entry.fingerprint || !localFingerprints.has(entry.fingerprint));
   }, [cloudMedia, media]);
-  const taskActive = activeStates.has(pipeline.snapshot?.state ?? "");
-  const rememberedActiveTaskCount = taskHistory.filter((item) => activeStates.has(item.snapshot.state)).length;
-  const activeTaskCount = Math.max(rememberedActiveTaskCount, taskActive ? 1 : 0, cloudSession?.running ?? 0);
-  const localRunningID = taskActive ? activeMedia?.id : undefined;
+  const activeTaskCount = countActiveTasks(taskHistory, cloudSession?.running ?? 0);
   const libraryItems = useMemo<LibraryItem[]>(() => [
     ...media.map((entry): LibraryItem => ({ kind: "local", entry })),
     ...cloudOnly.map((entry): LibraryItem => ({ kind: "cloud", entry })),
@@ -1962,7 +1950,7 @@ export default function App() {
       if (libraryFilter === "cloud") return item.kind === "cloud";
       if (libraryFilter === "running") {
         return item.kind === "local"
-          ? item.entry.id === localRunningID
+          ? activeTaskByMedia.has(item.entry.id)
           : activeStates.has(item.entry.status);
       }
       if (item.kind === "cloud") return false;
@@ -1975,11 +1963,11 @@ export default function App() {
       const rightTime = right.kind === "local" ? right.entry.lastAccess || right.entry.addedAt : Date.parse(right.entry.updatedAt);
       return rightTime - leftTime;
     });
-  }, [libraryFilter, libraryItems, localRunningID, query, sortMode]);
+  }, [activeTaskByMedia, libraryFilter, libraryItems, query, sortMode]);
   const filterCounts: Record<LibraryFilter, number> = {
     all: libraryItems.length,
     ready: media.filter((entry) => entry.documentAvailable).length,
-    running: media.filter((entry) => entry.id === localRunningID).length + cloudOnly.filter((entry) => activeStates.has(entry.status)).length,
+    running: media.filter((entry) => activeTaskByMedia.has(entry.id)).length + cloudOnly.filter((entry) => activeStates.has(entry.status)).length,
     cloud: cloudOnly.length,
     missing: media.filter((entry) => !entry.available).length,
   };
@@ -2133,9 +2121,7 @@ export default function App() {
               busy={libraryBusy}
               message={libraryMessage.text}
               messageTone={libraryMessage.tone}
-              localRunningID={localRunningID}
-              runningProgress={pipeline.snapshot?.progress?.total ? Math.min(100, pipeline.snapshot.progress.completed / pipeline.snapshot.progress.total * 100) : 8}
-              taskActive={taskActive}
+              runningTasks={activeTaskByMedia}
               syncing={cloudLoading}
               cloudSync={cloudSync}
               onSync={syncLibraryNow}
@@ -2146,7 +2132,7 @@ export default function App() {
               onImport={importMedia}
               onOpen={(entry) => void openEditor(entry)}
               onStart={startMedia}
-              onCancel={cancelActiveTask}
+              onCancel={cancelMediaTask}
               onRename={renameMedia}
               onDeleteSubtitles={deleteSubtitles}
               syncDisabled={syncDisabled}
@@ -2168,7 +2154,6 @@ export default function App() {
               activeCount={activeTaskCount}
               message={taskHistoryMessage.text}
               messageTone={taskHistoryMessage.tone}
-              pipelineError={pipeline.error?.message}
               logSources={taskLogSources}
               onNavigateLibrary={navigateLibrary}
               onOpenEditor={(entry) => void openEditor(entry)}

@@ -25,7 +25,7 @@ interface LocalMediaCardProps {
   syncEnabled: boolean;
   onOpen: (entry: MediaEntry) => void;
   onStart: (entry: MediaEntry) => Promise<void>;
-  onCancel: () => Promise<void>;
+  onCancel: (entry: MediaEntry) => Promise<void>;
   onRename: (entry: MediaEntry) => void;
   /** One entry point for both copies: the dialog asks which one goes. */
   onDeleteSubtitles: (entry: MediaEntry, cloudEntry?: CloudEntry) => void;
@@ -188,7 +188,7 @@ export function LocalMediaCard(props: LocalMediaCardProps) {
   const cancel = async () => {
     setCancelling(true);
     try {
-      await onCancel();
+      await onCancel(entry);
     } finally {
       setCancelling(false);
     }

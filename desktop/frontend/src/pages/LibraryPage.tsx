@@ -5,7 +5,9 @@ import type { MediaEntry } from "../bridge/library.ts";
 import { CloudMediaCard, LocalMediaCard } from "../components/MediaCard.tsx";
 import { CustomSelect } from "../components/CustomSelect.tsx";
 import { Mascot } from "../components/Mascot.tsx";
-import type { CloudSyncState, LibraryFilter, LibraryItem, SortMode, ViewMode } from "../app/types.ts";
+import { taskProgress } from "../app/format.ts";
+import { canStartMediaTask } from "../app/taskHistory.ts";
+import type { CloudSyncState, LibraryFilter, LibraryItem, SortMode, TaskHistoryEntry, ViewMode } from "../app/types.ts";
 import "./LibraryPage.css";
 import { Notice } from "../components/Notice.tsx";
 import type { NoticeTone } from "../components/Notice.tsx";
@@ -23,11 +25,9 @@ interface LibraryPageProps {
   busy: boolean;
   message: string;
   messageTone: NoticeTone;
-  localRunningID?: string;
+  runningTasks: ReadonlyMap<string, TaskHistoryEntry>;
   adoptingMedia: ReadonlySet<string>;
   adoptingCloud: ReadonlySet<string>;
-  runningProgress: number;
-  taskActive: boolean;
   /** The first cloud listing (or a login) is still out: the empty library shows a spinner. */
   syncing: boolean;
   cloudSync: CloudSyncState;
@@ -39,7 +39,7 @@ interface LibraryPageProps {
   onImport: () => Promise<void>;
   onOpen: (entry: MediaEntry) => void;
   onStart: (entry: MediaEntry) => Promise<void>;
-  onCancel: () => Promise<void>;
+  onCancel: (entry: MediaEntry) => Promise<void>;
   onRename: (entry: MediaEntry) => void;
   onDeleteSubtitles: (entry: MediaEntry, cloudEntry?: CloudEntry) => void;
   /** Fingerprints 同步到云端 is switched off for. */
@@ -106,7 +106,7 @@ function SyncIndicator({ state, onSync }: { state: CloudSyncState; onSync: () =>
 }
 
 export function LibraryPage(props: LibraryPageProps) {
-  const { items, visibleItems, thumbnails, cloudThumbnails, remoteByFingerprint, filter, filterCounts, sort, view, busy, message, messageTone, localRunningID, adoptingMedia, adoptingCloud, runningProgress, taskActive, syncing, cloudSync, onSync, setFilter, setSort, setView, onClearQuery, onImport, onOpen, onStart, onCancel, onRename, onDeleteSubtitles, syncDisabled, onToggleSync, onRemove, onAdoptCloud, onEditCloud, onAssociateCloud, onDeleteCloud, onRelink, onDismissMessage } = props;
+  const { items, visibleItems, thumbnails, cloudThumbnails, remoteByFingerprint, filter, filterCounts, sort, view, busy, message, messageTone, runningTasks, adoptingMedia, adoptingCloud, syncing, cloudSync, onSync, setFilter, setSort, setView, onClearQuery, onImport, onOpen, onStart, onCancel, onRename, onDeleteSubtitles, syncDisabled, onToggleSync, onRemove, onAdoptCloud, onEditCloud, onAssociateCloud, onDeleteCloud, onRelink, onDismissMessage } = props;
   // A local card's cover comes from the library's own thumbnail directory, which
   // adoption now fills for media this machine has no file of. Entries adopted
   // before it did -- and media whose frame ffmpeg never produced -- fall back to
@@ -153,9 +153,38 @@ export function LibraryPage(props: LibraryPageProps) {
               <span />
             </div>
           )}
-          {visibleItems.map((item) => item.kind === "local" ? (
-            <LocalMediaCard key={`local:${item.entry.id}`} view={view} entry={item.entry} thumbnail={coverOf(item.entry)} running={item.entry.id === localRunningID} adopting={adoptingMedia.has(item.entry.id)} runningProgress={runningProgress} cloudEntry={remoteByFingerprint.get(item.entry.fingerprint)} canStart={item.entry.available && !taskActive} cloudLinked={cloudSync.linked} syncEnabled={!syncDisabled.has(item.entry.fingerprint)} onOpen={onOpen} onStart={onStart} onCancel={onCancel} onRename={onRename} onDeleteSubtitles={onDeleteSubtitles} onToggleSync={onToggleSync} onRemove={onRemove} onAdoptCloud={onAdoptCloud} onRelink={onRelink} />
-          ) : <CloudMediaCard key={`cloud:${item.entry.id}`} view={view} entry={item.entry} thumbnail={cloudThumbnails[item.entry.id]} adopting={adoptingCloud.has(item.entry.id)} onEdit={onEditCloud} onAssociate={onAssociateCloud} onDelete={onDeleteCloud} />)}
+          {visibleItems.map((item) => {
+            if (item.kind !== "local") {
+              return <CloudMediaCard key={`cloud:${item.entry.id}`} view={view} entry={item.entry} thumbnail={cloudThumbnails[item.entry.id]} adopting={adoptingCloud.has(item.entry.id)} onEdit={onEditCloud} onAssociate={onAssociateCloud} onDelete={onDeleteCloud} />;
+            }
+            const activeTask = runningTasks.get(item.entry.id);
+            const running = activeTask !== undefined;
+            const runningProgress = activeTask ? taskProgress(activeTask.snapshot) : 0;
+            return (
+              <LocalMediaCard
+                key={`local:${item.entry.id}`}
+                view={view}
+                entry={item.entry}
+                thumbnail={coverOf(item.entry)}
+                running={running}
+                adopting={adoptingMedia.has(item.entry.id)}
+                runningProgress={runningProgress}
+                cloudEntry={remoteByFingerprint.get(item.entry.fingerprint)}
+                canStart={canStartMediaTask(item.entry, runningTasks)}
+                cloudLinked={cloudSync.linked}
+                syncEnabled={!syncDisabled.has(item.entry.fingerprint)}
+                onOpen={onOpen}
+                onStart={onStart}
+                onCancel={onCancel}
+                onRename={onRename}
+                onDeleteSubtitles={onDeleteSubtitles}
+                onToggleSync={onToggleSync}
+                onRemove={onRemove}
+                onAdoptCloud={onAdoptCloud}
+                onRelink={onRelink}
+              />
+            );
+          })}
         </div>
       )}
     </section>
