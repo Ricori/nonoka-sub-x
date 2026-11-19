@@ -396,6 +396,46 @@ class HandedEnvironmentTests(unittest.TestCase):
             self.assertEqual(environment["USERNAME"], "u")
             self.assertTrue(environment["PATH"].endswith(r"C:\Windows\System32\OpenSSH"))
 
+    def test_agy_adds_launcher_python_to_agent_cli_path(self) -> None:
+        from unittest import mock
+
+        from nonoka_x import engine_contexts, settings
+
+        agy_dir = self.temp / "agy-bin"
+        agy_dir.mkdir()
+        agy_exe = agy_dir / ("agy.exe" if os.name == "nt" else "agy")
+        agy_exe.write_bytes(b"")
+        launcher_dir = self.temp / "launcher"
+        launcher_dir.mkdir()
+        launcher_python = launcher_dir / ("python.exe" if os.name == "nt" else "python")
+        launcher_python.write_bytes(b"")
+
+        def detect(provider: str) -> Path | None:
+            return agy_exe if provider == "local-agy" else None
+
+        with (
+            mock.patch.object(settings, "local_agent_executable", side_effect=detect),
+            mock.patch.object(sys, "executable", str(launcher_python)),
+        ):
+            dirs = engine_contexts.agent_cli_directories()
+        self.assertIn(str(agy_dir), dirs)
+        self.assertIn(str(launcher_dir), dirs)
+
+        codex_dir = self.temp / "codex-bin"
+        codex_dir.mkdir()
+        codex_exe = codex_dir / "codex.exe"
+        codex_exe.write_bytes(b"")
+
+        def detect_codex_only(provider: str) -> Path | None:
+            return codex_exe if provider == "local-codex" else None
+
+        with (
+            mock.patch.object(settings, "local_agent_executable", side_effect=detect_codex_only),
+            mock.patch.object(sys, "executable", str(launcher_python)),
+        ):
+            dirs_without_agy = engine_contexts.agent_cli_directories()
+        self.assertEqual(dirs_without_agy, [str(codex_dir)])
+
 
 # --- 2. poisoning ----------------------------------------------------------------------------------------------------
 

@@ -256,9 +256,13 @@ func (s *StorageService) ChooseDirectory(target string) (Destination, error) {
 	if app == nil || window == nil {
 		return Destination{}, errors.New("application window is not ready")
 	}
+	dialogOwner := application.Window(window)
+	if current := app.Window.Current(); current != nil {
+		dialogOwner = current
+	}
 	picked, err := app.Dialog.OpenFile().
 		SetTitle(chooseTitle(target)).
-		AttachToWindow(window).
+		AttachToWindow(dialogOwner).
 		CanChooseDirectories(true).
 		CanChooseFiles(false).
 		CanCreateDirectories(true).

@@ -7,4 +7,7 @@ export const desktopWindows = {
   videoExportDraft: WindowService.VideoExportDraft,
   runVideoExport: WindowService.RunVideoExport,
   closeVideoExport: WindowService.CloseVideoExport,
+  openOnboarding: WindowService.OpenOnboarding,
+  completeOnboarding: WindowService.CompleteOnboarding,
+  showHome: WindowService.ShowHome,
 };

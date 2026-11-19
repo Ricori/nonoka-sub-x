@@ -396,8 +396,8 @@ CLASSIFICATION: tuple[Variable, ...] = (
     # -- nonoka: written here ---------------------------------------------------------------------------------
     Variable("PATH", "nonoka", ALL_PROCESSES,
              "the tool layer's ffmpeg / ffprobe / tokcount directories, for the correction the local agent CLIs' "
-             "directories and the node a script CLI runs on (owner H1), then the system directories derived "
-             "from SystemRoot; never the parent's PATH"),
+             "directories, the node a script CLI runs on, and the launcher Python a CLI hook runs on (owner H1), "
+             "then the system directories derived from SystemRoot; never the parent's PATH"),
     Variable("PYTHONPATH", "nonoka", ALL_PROCESSES,
              "the package's own roots, for the children the engine starts without -I (its MCP server; D9)"),
     Variable("PYTHONNOUSERSITE", "nonoka", ALL_PROCESSES,

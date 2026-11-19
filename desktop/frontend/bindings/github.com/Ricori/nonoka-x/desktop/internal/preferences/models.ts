@@ -26,6 +26,12 @@ export interface State {
      * preferences.json too (`nonoka_x.download_route`).
      */
     "proxy": netproxy$0.Custom | null;
+
+    /**
+     * OnboardingCompleted records whether the user has finished (or exited after
+     * base environment readiness) the first-launch setup wizard.
+     */
+    "onboardingCompleted": boolean;
 }
 
 export interface WindowBounds {

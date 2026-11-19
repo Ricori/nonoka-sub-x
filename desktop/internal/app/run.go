@@ -37,6 +37,7 @@ func init() {
 	application.RegisterEvent[string]("editor:request-close")
 	application.RegisterEvent[string]("export:ready")
 	application.RegisterEvent[string]("export:request-close")
+	application.RegisterEvent[bool]("onboarding:ready")
 	application.RegisterEvent[bool]("home:refresh")
 	application.RegisterEvent[selfupdate.Status]("update:status")
 	application.RegisterEvent[map[string]string]("update:ready")
@@ -200,6 +201,10 @@ func Run(assets fs.FS) error {
 		},
 	}))
 	homeOptions, deferredState := deferWindowStart(homeOptions)
+	deferHomeForOnboarding := !preferencesService.Get().OnboardingCompleted
+	if deferHomeForOnboarding {
+		homeOptions.Hidden = true
+	}
 	home := applicationInstance.Window.NewWithOptions(homeOptions)
 	windowService.attach(applicationInstance, home)
 	storageService.attach(applicationInstance, home)
@@ -212,10 +217,18 @@ func Run(assets fs.FS) error {
 	} else {
 		selfupdate.Start(updateService, windowService.editorIsOpen)
 	}
-	if deferredState != application.WindowStateNormal {
-		home.OnWindowEvent(events.Common.WindowRuntimeReady, func(_ *application.WindowEvent) { showDeferredWindow(home, deferredState) })
+	homeTracker := trackWindowState(preferencesService, "home", applicationInstance, home)
+	windowService.configureHomeStart(deferHomeForOnboarding, deferredState, homeTracker.Activate)
+	if deferHomeForOnboarding {
+		home.OnWindowEvent(events.Common.WindowRuntimeReady, func(_ *application.WindowEvent) {
+			time.AfterFunc(3*time.Second, windowService.ensureInitialWindowVisible)
+		})
+	} else {
+		if deferredState != application.WindowStateNormal {
+			home.OnWindowEvent(events.Common.WindowRuntimeReady, func(_ *application.WindowEvent) { showDeferredWindow(home, deferredState) })
+		}
+		homeTracker.Activate()
 	}
-	trackWindowState(preferencesService, "home", applicationInstance, home).Activate()
 	library.Attach(libraryService, applicationInstance, home)
 	home.OnWindowEvent(events.Common.WindowFilesDropped, func(event *application.WindowEvent) {
 		applicationInstance.Event.Emit("files:dropped", event.Context().DroppedFiles())

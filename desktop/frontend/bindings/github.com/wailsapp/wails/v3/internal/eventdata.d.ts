@@ -28,6 +28,7 @@ declare module "@wailsio/runtime" {
             "files:dropped": string[] | null;
             "home:refresh": boolean;
             "library:changed": library$0.Entry[] | null;
+            "onboarding:ready": boolean;
             "plugins:changed": plugins$0.Change;
             "plugins:download-log": plugins$0.DownloadLog;
             "storage:progress": app$0.RelocationProgress;

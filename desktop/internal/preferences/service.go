@@ -27,6 +27,9 @@ type State struct {
 	// or nil to follow the system proxy. The Python sidecar reads this key from
 	// preferences.json too (`nonoka_x.download_route`).
 	Proxy *netproxy.Custom `json:"proxy"`
+	// OnboardingCompleted records whether the user has finished (or exited after
+	// base environment readiness) the first-launch setup wizard.
+	OnboardingCompleted bool `json:"onboardingCompleted"`
 }
 
 // DefaultTranscriptionEngine is FineSub on this machine.
@@ -118,6 +121,13 @@ func (s *Service) Save(patch map[string]any) (State, error) {
 			return s.data, err
 		}
 		next.Proxy = custom
+	}
+	if value, exists := patch["onboardingCompleted"]; exists {
+		completed, ok := value.(bool)
+		if !ok {
+			return s.data, errors.New("onboardingCompleted must be a boolean")
+		}
+		next.OnboardingCompleted = completed
 	}
 	if err := writeAtomic(s.path, next); err != nil {
 		return s.data, err

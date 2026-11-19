@@ -1,5 +1,5 @@
 import type { Snapshot as SidecarSnapshot } from "../../bindings/github.com/Ricori/nonoka-x/desktop/internal/sidecar/models.js";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import type { PythonBootstrapState, RuntimeCleanupItem, RuntimeCleanupPlan, RuntimeInstallTarget, RuntimeItem, RuntimeLayerId, RuntimeLayerOverview, RuntimeProvisionState } from "../bridge/runtime.ts";
 import type { RelocationProgress, StorageDestination, StorageStatus, StorageTarget } from "../bridge/storage.ts";
 import type { RuntimeCacheState } from "./runtimeCache.ts";
@@ -21,6 +21,8 @@ import {
 interface RuntimeSectionProps {
   provisionMessage: string;
   onDismissProvisionMessage: () => void;
+  jobMessageDismissed?: boolean;
+  onDismissJobMessage?: () => void;
   provision: RuntimeProvisionState | null;
   pythonBootstrap: PythonBootstrapState | null;
   sidecar: SidecarSnapshot | null;
@@ -33,7 +35,6 @@ interface RuntimeSectionProps {
   onRemoveModelsMoss?: () => Promise<void>;
   onRemoveUnused: (layers: string[]) => Promise<void>;
   cleanup: RuntimeCleanupPlan | null;
-  requestedInstall: { target: RuntimeInstallTarget; seq: number } | null;
   storage: StorageStatus | null;
   storageProgress: RelocationProgress | null;
   storageBusy: boolean;
@@ -45,6 +46,7 @@ interface RuntimeSectionProps {
   onCancelStorage: () => Promise<void>;
   onOpenStorage?: (target: StorageTarget) => Promise<void>;
   runtimeCache?: RuntimeCacheState;
+  onOpenOnboarding?: () => void;
 }
 
 const installPhases = [
@@ -199,6 +201,8 @@ function mossModelTooltip(mossModels: RuntimeItem[]): string {
 export function RuntimeSection(props: RuntimeSectionProps) {
   const {
     provisionMessage,
+    jobMessageDismissed = false,
+    onDismissJobMessage,
     provision,
     pythonBootstrap,
     sidecar,
@@ -212,7 +216,6 @@ export function RuntimeSection(props: RuntimeSectionProps) {
     onRemoveModelsMoss,
     onRemoveUnused,
     cleanup,
-    requestedInstall,
     storage,
     storageProgress,
     storageBusy,
@@ -224,6 +227,7 @@ export function RuntimeSection(props: RuntimeSectionProps) {
     onCancelStorage,
     onOpenStorage,
     runtimeCache,
+    onOpenOnboarding,
   } = props;
 
   const [confirmRemoveModels, setConfirmRemoveModels] = useState(false);
@@ -234,14 +238,6 @@ export function RuntimeSection(props: RuntimeSectionProps) {
   const runtimeLocation = (storage?.locations ?? []).find((item) => item.target === "runtime") ?? null;
   const relocatingRuntime = storageProgress?.active === true && storageProgress.target === "runtime";
   const storageActive = storageProgress?.active === true;
-
-  const [handledInstall, setHandledInstall] = useState(0);
-  useEffect(() => {
-    if (!requestedInstall || requestedInstall.seq === handledInstall) return;
-    setHandledInstall(requestedInstall.seq);
-    void onInstall(requestedInstall.target);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [requestedInstall]);
 
   const job = provision?.job;
   const jobRunning = job?.state === "running";
@@ -360,25 +356,6 @@ export function RuntimeSection(props: RuntimeSectionProps) {
     return null;
   })();
 
-  const failedLayer: RuntimeLayerId | null = (() => {
-    if (migrationActive || jobRunning || !job || !onInstallOffline) return null;
-    if (job.state !== "failed" && job.state !== "cancelled") return null;
-    if (isRuntimeLayerId(job.resource)) return job.resource;
-    if (job.target.startsWith("offline:")) {
-      const candidate = job.target.slice("offline:".length);
-      if (isRuntimeLayerId(candidate)) return candidate;
-    }
-    if (job.target === "media") return "tools";
-    if (job.target === "models" || job.target === "optional-models") return "models";
-    if (job.target === "models-moss") return "models-moss";
-    if (job.target === "runtime" || job.target === "all") {
-      if (toolsState !== "ready") return "tools";
-      if (pythonState !== "ready") return "python";
-      if (!modelsReady) return "models";
-    }
-    return null;
-  })();
-
   const toolsActionLabel = toolsState === "outdated" ? "更新" : toolsState === "damaged" ? "修复" : "安装";
   const pythonActionLabel = pythonState === "outdated" ? "更新" : pythonState === "damaged" ? "修复" : "安装";
   const modelsActionLabel = modelsNeedsRepair ? "修复模型" : modelsNeedsUpdate ? "更新模型" : "下载模型";
@@ -397,7 +374,7 @@ export function RuntimeSection(props: RuntimeSectionProps) {
   return (
     <section className="runtime-layout">
       <article className="panel runtime-flat-panel">
-        <Notice className="provision-message failed" message={provisionMessage} autoDismissMs={0} onDismiss={onDismissProvisionMessage} />
+        <Notice className="provision-message failed" message={provisionMessage} onDismiss={onDismissProvisionMessage} />
 
         {migrationActive && (
           <p className="provision-blocked" role="status">旧版升级正在后台更新运行环境，请查看页面顶部进度。</p>
@@ -411,74 +388,51 @@ export function RuntimeSection(props: RuntimeSectionProps) {
           <p className={bootstrapBroken ? "provision-blocked failed" : "provision-blocked"} role="status">{connectionBlocked}</p>
         )}
 
-        {/* A1 首次初始化卡片：启动器静默就绪 → 先确认安装目录 → 点击开始安装 */}
+        {/* 精简版环境初始化提示条（完整引导已移至独立配置向导页） */}
         {showOnboardingCard && (
-          <section className={`install-location-card ${tightDisk ? "tight" : ""} awaiting`}>
-            {pythonInstalling && pythonBootstrap ? (
-              <ProvisionProgress
-                job={{
-                  resource: "本地服务",
-                  stage: pythonBootstrap.stage,
-                  message: "正在初始化本地服务，不会修改系统环境",
-                  progress: pythonBootstrap.progress,
-                  proxy: pythonBootstrap.proxy,
-                }}
-                onCancel={async () => undefined}
-                cancellable={false}
-              />
-            ) : (
-              <>
-                <div className="install-location-main">
-                  <div className="install-location-icon" aria-hidden="true">{tightDisk ? "!" : "HD"}</div>
-                  <div className="install-location-copy">
-                    <span>首次初始化 · 基础环境</span>
-                    <h3>{baseInterrupted ? "基础环境安装未完成" : tightDisk ? "当前磁盘空间不足，建议更换安装位置" : "确认基础运行环境的安装位置"}</h3>
-                    <p>
-                      {baseInterrupted && job?.message
-                        ? job.message
-                        : `将安装工具层与 Python 环境层${baseDownloadBytes > 0 ? `（下载约 ${formatStorageBytes(baseDownloadBytes)}）` : ""}，磁盘紧张时建议选非系统盘。`}
-                    </p>
-                  </div>
-                </div>
-                {runtimeLocation ? (
-                  <>
-                    <div className="install-location-path" title={runtimeLocation.directory}>
-                      <span>安装到</span>
-                      <code>{runtimeLocation.directory}</code>
-                    </div>
-                    <p className={tightDisk ? "install-location-free tight" : "install-location-free"}>
-                      {runtimeLocation.volume} 剩余 <b>{formatStorageBytes(runtimeLocation.freeBytes)}</b>
-                      {runtimeLocation.custom && "（已自定义）"}
-                    </p>
-                  </>
-                ) : (
-                  <p className="install-location-free">正在读取默认安装位置…</p>
-                )}
-                {pending && <RelocationConfirm pending={pending} busy={storageBusy} empty={runtimeLocation?.empty ?? true} onConfirm={confirmRelocation} onDismiss={clear} />}
-                <RelocationProgressView progress={relocatingRuntime ? storageProgress : null} onCancel={() => void onCancelStorage()} />
-                <div className="install-location-actions">
-                  {runtimeLocation && (
-                    <button
-                      className="quiet-button"
-                      disabled={storageBusy || relocatingRuntime || choosing !== ""}
-                      onClick={() => void choose("runtime")}
-                      type="button"
-                    >
-                      {choosing === "runtime" ? "正在选择…" : "更改位置…"}
-                    </button>
-                  )}
+          pythonInstalling && pythonBootstrap ? (
+            <ProvisionProgress
+              job={{
+                resource: "本地服务",
+                stage: pythonBootstrap.stage,
+                message: "正在初始化本地服务，不会修改系统环境",
+                progress: pythonBootstrap.progress,
+                proxy: pythonBootstrap.proxy,
+              }}
+              onCancel={async () => undefined}
+              cancellable={false}
+            />
+          ) : (
+            <div className={`runtime-wizard-banner ${tightDisk ? "tight" : ""}`} role="status">
+              <div className="runtime-wizard-copy">
+                <strong>{baseInterrupted ? "基础运行环境安装未完成" : tightDisk ? "安装目录空间紧张，建议换盘后安装" : "基础运行环境尚未完整安装"}</strong>
+                <span>
+                  {baseInterrupted && job?.message
+                    ? job.message
+                    : `工具层与 Python 环境层${baseDownloadBytes > 0 ? `约 ${formatStorageBytes(baseDownloadBytes)}` : ""}，可打开配置向导按使用方式一步步安装。`}
+                </span>
+              </div>
+              <div className="runtime-wizard-actions">
+                {onOpenOnboarding && (
                   <button
-                    className="primary-button"
-                    disabled={!runtimeLocation || storageBusy || relocatingRuntime || (baseTarget === "runtime" ? pythonLayerBlocked : toolsBlocked) !== ""}
-                    onClick={() => void onInstall(baseTarget)}
                     type="button"
+                    className="primary-button runtime-compact-btn"
+                    onClick={onOpenOnboarding}
                   >
-                    {relocatingRuntime ? "正在设置位置…" : baseInterrupted ? "继续安装" : baseDownloadBytes > 0 ? `开始安装（约 ${formatStorageBytes(baseDownloadBytes)}）` : "开始安装"}
+                    打开配置向导
                   </button>
-                </div>
-              </>
-            )}
-          </section>
+                )}
+                <button
+                  type="button"
+                  className="quiet-button runtime-compact-btn"
+                  disabled={!runtimeLocation || storageBusy || relocatingRuntime || (baseTarget === "runtime" ? pythonLayerBlocked : toolsBlocked) !== ""}
+                  onClick={() => void onInstall(baseTarget)}
+                >
+                  {baseInterrupted ? "继续安装" : "安装基础环境"}
+                </button>
+              </div>
+            </div>
+          )
         )}
 
         {showPythonRecoveryCard && (
@@ -513,20 +467,12 @@ export function RuntimeSection(props: RuntimeSectionProps) {
             onSwitchToOffline={activeDownloadLayer && onInstallOffline ? () => void onInstallOffline(activeDownloadLayer) : undefined}
           />
         )}
-        {!migrationActive && !jobRunning && !showOnboardingCard && <Notice className={`provision-message ${job?.state ?? ""}`} message={job?.message ?? ""} />}
-        {!migrationActive && !jobRunning && failedLayer && onInstallOffline && (
-          <div className="runtime-offline-fallback" role="status">
-            <span>在线下载较慢或出错？可直接选择「{layerLabel(failedLayer)}」的本地离线包（.tar.zst）安装。</span>
-            <button
-              type="button"
-              className="quiet-button runtime-compact-btn"
-              disabled={(failedLayer === "tools" ? toolsBlocked : failedLayer === "python" ? pythonLayerBlocked : failedLayer === "models-moss" ? modelsMossOfflineBlocked : modelsOfflineBlocked) !== ""}
-              onClick={() => void onInstallOffline(failedLayer)}
-              title={offlineButtonTitle(layerById.get(failedLayer), "")}
-            >
-              离线安装 {layerLabel(failedLayer)}…
-            </button>
-          </div>
+        {!migrationActive && !jobRunning && !showOnboardingCard && (
+          <Notice
+            className={`provision-message ${job?.state ?? ""}`}
+            message={jobMessageDismissed ? "" : (job?.message ?? "")}
+            onDismiss={onDismissJobMessage}
+          />
         )}
 
         {/* 拍平的核心层列表：工具层、Python 环境层、AI 模型层 */}
@@ -550,7 +496,7 @@ export function RuntimeSection(props: RuntimeSectionProps) {
                   离线安装…
                 </button>
               )}
-              {!showOnboardingCard && !migrationActive && toolsSupported && toolsState !== "ready" && (
+              {!migrationActive && toolsSupported && toolsState !== "ready" && (
                 <button
                   type="button"
                   className="quiet-button runtime-compact-btn"
@@ -587,7 +533,7 @@ export function RuntimeSection(props: RuntimeSectionProps) {
                   离线安装…
                 </button>
               )}
-              {!showOnboardingCard && !migrationActive && pythonSupported && pythonState !== "ready" && (
+              {!migrationActive && pythonSupported && pythonState !== "ready" && (
                 <button
                   type="button"
                   className="quiet-button runtime-compact-btn"
@@ -752,7 +698,7 @@ export function RuntimeSection(props: RuntimeSectionProps) {
         )}
 
         {/* 合并的安装目录区（两行结构：顶栏标题/占用/操作 + 底部全宽路径条与打开） */}
-        {runtimeLocation && !showOnboardingCard && (
+        {runtimeLocation && (
           <div className="runtime-dir-section">
             <div className="dir-header-row">
               <div className="dir-header-left">

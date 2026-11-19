@@ -1,11 +1,11 @@
 import { Browser } from "@wailsio/runtime";
 import { useEffect, useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
-import type { RuntimeInstallTarget, RuntimeProvisionState } from "../bridge/runtime.ts";
+import type { RuntimeProvisionState } from "../bridge/runtime.ts";
 import type { FineSubKeyState, FineSubSettingsState } from "../bridge/settings.ts";
 import { transcriptionEngineLabel } from "../app/format.ts";
 import type { EngineChoice } from "./engineChoices.ts";
-import { engineInstallView, engineLayerStatus } from "./engineLayers.ts";
+import { engineLayerStatus } from "./engineLayers.ts";
 import { InfoTip } from "./InfoTip.tsx";
 import { Mark } from "./Mark.tsx";
 import { Notice, type NoticeTone } from "./Notice.tsx";
@@ -43,8 +43,6 @@ interface TranscriptionEngineSectionProps {
   onSaveKey: (updates: Record<string, string | null>, name: string) => Promise<void>;
   onSelect: (engine: string) => void;
   onOpenAccount: () => void;
-  onOpenRuntime: () => void;
-  onInstallLayers: (target: RuntimeInstallTarget) => void;
 }
 
 /** The key's state from the snapshot: Nonoka's own engine keys first, then the settings' keys. */
@@ -65,7 +63,7 @@ function tooltipFor(item: EngineChoice, provision: RuntimeProvisionState | null,
       const status = engineLayerStatus(item.layers, provision);
       if (status.known && status.missing.length) {
         const missingBase = status.missing.some((layer) => layer !== "models" && layer !== "models-moss");
-        parts.push(missingBase ? "需先在下方完成基础环境初始化。" : `需下载 AI 模型（约 ${formatStorageBytes(status.downloadBytes)}）。`);
+        parts.push(missingBase ? "需先在下方「运行环境」完成基础环境初始化。" : `需在下方「运行环境」下载 AI 模型（约 ${formatStorageBytes(status.downloadBytes)}）。`);
       }
     }
   }
@@ -105,11 +103,13 @@ export function TranscriptionEngineSection(props: TranscriptionEngineSectionProp
     onSaveKey,
     onSelect,
     onOpenAccount,
-    onOpenRuntime,
-    onInstallLayers,
   } = props;
 
   const [modalEngineId, setModalEngineId] = useState<string | null>(null);
+  const closeModal = () => {
+    setModalEngineId(null);
+    if (message) onDismissMessage?.();
+  };
   const chosen = choices.find((item) => item.id === current) ?? null;
   const editingEngine = modalEngineId ? choices.find((item) => item.id === modalEngineId) ?? null : null;
   const editingEngineKeyLink = editingEngine ? ENGINE_KEY_LINKS[editingEngine.id] ?? null : null;
@@ -117,11 +117,11 @@ export function TranscriptionEngineSection(props: TranscriptionEngineSectionProp
   useEffect(() => {
     if (!modalEngineId) return;
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setModalEngineId(null);
+      if (event.key === "Escape") closeModal();
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [modalEngineId]);
+  }, [modalEngineId, message, onDismissMessage]);
 
   const modalKeys = editingEngine ? editingEngine.keys : [];
   const modalUpdates = Object.fromEntries(
@@ -148,8 +148,6 @@ export function TranscriptionEngineSection(props: TranscriptionEngineSectionProp
         {choices.map((item) => {
           const selected = item.id === current;
           const selectable = item.ready;
-          const install = !migrationActive && item.kind === "local-gpu" ? engineInstallView(item, provision) : null;
-          const onlyModelsMissing = install !== null && (install.target === "models" || install.target === "models-moss");
           const tip = tooltipFor(item, provision, migrationActive);
           return (
             <div className={`engine-row ${selected ? "selected" : ""} ${!selectable ? "disabled" : ""}`.trim()} key={item.id}>
@@ -186,27 +184,6 @@ export function TranscriptionEngineSection(props: TranscriptionEngineSectionProp
                       配置 Key
                     </button>
                   )}
-                  {item.kind === "local-gpu" && !migrationActive && install && (
-                    install.running ? (
-                      <button type="button" className="quiet-button engine-action-btn" onClick={onOpenRuntime}>
-                        查看进度
-                      </button>
-                    ) : onlyModelsMissing ? (
-                      <button
-                        type="button"
-                        className="primary-button engine-action-btn"
-                        disabled={install.blocked !== ""}
-                        title={install.blocked || `下载 AI 模型（约 ${formatStorageBytes(install.total)}）`}
-                        onClick={() => onInstallLayers(install.target)}
-                      >
-                        下载模型
-                      </button>
-                    ) : (
-                      <button type="button" className="quiet-button engine-action-btn" onClick={onOpenRuntime}>
-                        去初始化
-                      </button>
-                    )
-                  )}
                   {item.kind === "cloud-service" && !item.ready && (
                     <button type="button" className="quiet-button engine-action-btn" onClick={onOpenAccount}>
                       去登录
@@ -224,7 +201,7 @@ export function TranscriptionEngineSection(props: TranscriptionEngineSectionProp
         <div
           className="settings-modal-backdrop"
           role="presentation"
-          onClick={() => setModalEngineId(null)}
+          onClick={closeModal}
         >
           <div
             className="settings-modal panel"
@@ -265,7 +242,7 @@ export function TranscriptionEngineSection(props: TranscriptionEngineSectionProp
                 type="button"
                 className="settings-modal-close"
                 aria-label="关闭"
-                onClick={() => setModalEngineId(null)}
+                onClick={closeModal}
               >
                 ×
               </button>
@@ -325,7 +302,7 @@ export function TranscriptionEngineSection(props: TranscriptionEngineSectionProp
                 )}
               </div>
               <div className="settings-modal-actions">
-                <button type="button" className="quiet-button" onClick={() => setModalEngineId(null)}>关闭</button>
+                <button type="button" className="quiet-button" onClick={closeModal}>关闭</button>
                 <button
                   type="button"
                   className="primary-button"

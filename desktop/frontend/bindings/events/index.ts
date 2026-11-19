@@ -44,6 +44,11 @@ export const HomeRefresh = "home:refresh";
 export const LibraryChanged = "library:changed";
 
 /**
+ * Name of the custom event "onboarding:ready".
+ */
+export const OnboardingReady = "onboarding:ready";
+
+/**
  * Name of the custom event "plugins:changed".
  */
 export const PluginsChanged = "plugins:changed";

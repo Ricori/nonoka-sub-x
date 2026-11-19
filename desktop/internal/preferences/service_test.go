@@ -189,3 +189,28 @@ func TestTranscriptionEngineDefaultsToFineSubAndPersists(t *testing.T) {
 		t.Fatalf("a refused save changed the engine: %q", reloaded.Get().TranscriptionEngine)
 	}
 }
+
+func TestOnboardingCompletedDefaultsFalseAndPersists(t *testing.T) {
+	root := t.TempDir()
+	service, err := New(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if service.Get().OnboardingCompleted {
+		t.Fatal("fresh install should not have onboardingCompleted set")
+	}
+	updated, err := service.Save(map[string]any{"onboardingCompleted": true})
+	if err != nil || !updated.OnboardingCompleted {
+		t.Fatalf("updated = %#v, %v", updated, err)
+	}
+	reloaded, err := New(root)
+	if err != nil || !reloaded.Get().OnboardingCompleted {
+		t.Fatalf("reloaded = %#v, %v", reloaded.Get(), err)
+	}
+	if _, err := reloaded.Save(map[string]any{"onboardingCompleted": "yes"}); err == nil {
+		t.Fatal("non-boolean onboardingCompleted was accepted")
+	}
+	if !reloaded.Get().OnboardingCompleted {
+		t.Fatal("refused save changed onboardingCompleted")
+	}
+}

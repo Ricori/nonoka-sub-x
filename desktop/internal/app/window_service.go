@@ -36,6 +36,13 @@ type WindowService struct {
 	exportStartState       application.WindowState
 	activateExportTracking func()
 	flushExportWindowState func()
+	onboarding             *application.WebviewWindow
+	onboardingVisible      bool
+	onboardingClosing      bool
+	onboardingReopened     bool
+	homeHiddenAtStart      bool
+	homeStartState         application.WindowState
+	activateHomeTracking   func()
 	readyListenerInstalled bool
 	preferences            *preferences.Service
 	library                *library.Service
@@ -55,6 +62,7 @@ func (s *WindowService) attach(app *application.App, home *application.WebviewWi
 	if installReadyListener {
 		app.Event.On("editor:ready", s.handleEditorReady)
 		app.Event.On("export:ready", s.handleExportReady)
+		app.Event.On("onboarding:ready", s.handleOnboardingReady)
 	}
 }
 

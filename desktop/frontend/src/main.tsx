@@ -7,6 +7,7 @@ import "./styles.css";
 // 设计系统（字号/间距/圆角/语义色 + 按钮、标签）紧跟 base sheet，压过其中的旧规则。
 import "./design-system.css";
 import App from "./app/App.tsx";
+import OnboardingWindowApp from "./app/OnboardingWindowApp.tsx";
 import { installWindowsTitlebar } from "./bridge/window.ts";
 import { installScrollbarHover } from "./app/scrollbars.ts";
 import { installDragGuard } from "./app/dragGuard.ts";
@@ -14,7 +15,12 @@ import { installDragGuard } from "./app/dragGuard.ts";
 const root = document.getElementById("root");
 if (!root) throw new Error("Nonoka X root element is missing");
 
-createRoot(root).render(<App />);
+const isOnboardingWindow = new URLSearchParams(window.location.search).get("window") === "onboarding";
+if (isOnboardingWindow) {
+  document.body.classList.add("onboarding-window");
+}
+
+createRoot(root).render(isOnboardingWindow ? <OnboardingWindowApp /> : <App />);
 
 installScrollbarHover();
 installDragGuard();

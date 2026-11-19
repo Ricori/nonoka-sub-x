@@ -37,6 +37,7 @@ import { AccountPage } from "../pages/AccountPage.tsx";
 import { AboutPage } from "../pages/AboutPage.tsx";
 import { AdminKeysPage } from "../pages/AdminKeysPage.tsx";
 import { SettingsPage, type SettingsAnchor } from "../pages/SettingsPage.tsx";
+import { isMigrationWizardActive, shouldAutoCompleteExistingUser } from "../components/onboarding.ts";
 import { engineChoices } from "../components/engineChoices.ts";
 import { DEFAULT_TRANSCRIPTION_ENGINE } from "../providers/types.ts";
 import { KnowledgePage } from "../pages/KnowledgePage.tsx";
@@ -174,6 +175,13 @@ export default function App() {
   // which the runtime page only renders while capabilities are missing — so a
   // refused removal looked like a page that simply did not react.
   const [provisionMessage, setProvisionMessage] = useState("");
+  const [dismissedProvisionJobKey, setDismissedProvisionJobKey] = useState("");
+  const provisionJobKey = runtimeProvision?.job && runtimeProvision.job.state !== "running" && runtimeProvision.job.message
+    ? `${runtimeProvision.job.state}|${runtimeProvision.job.target}|${runtimeProvision.job.resource}|${runtimeProvision.job.stage}|${runtimeProvision.job.message}`
+    : "";
+  const provisionJobDismissed = Boolean(provisionJobKey && dismissedProvisionJobKey === provisionJobKey);
+  const provisionJobKeyRef = useRef(provisionJobKey);
+  provisionJobKeyRef.current = provisionJobKey;
   // The engine new tasks run on, chosen on the settings page (desktop preferences, WP6).
   const [transcriptionEngine, setTranscriptionEngine] = useState(DEFAULT_TRANSCRIPTION_ENGINE);
   // Where the settings page should scroll when another page sends the user there.
@@ -189,6 +197,11 @@ export default function App() {
   const [migration, setMigration] = useState<MigrationStatus | null>(null);
   const [migrationDismissed, setMigrationDismissed] = useState(false);
   const [migrationRetrying, setMigrationRetrying] = useState(false);
+  const [onboardingCompletedPref, setOnboardingCompletedPref] = useState<boolean | null>(null);
+  const [initialRefreshDone, setInitialRefreshDone] = useState(false);
+  const [initialLibraryDone, setInitialLibraryDone] = useState(false);
+  const onboardingEvaluated = useRef(false);
+  const migrationWindowOpened = useRef(false);
   const [keyDraft, setKeyDraft] = useState<Record<string, string>>({});
   const [keysBusy, setKeysBusy] = useState(false);
   const [keysMessage, setKeysMessage] = useState("");
@@ -236,7 +249,6 @@ export default function App() {
   const taskHistoryStored = useRef(false);
   const taskHistoryRef = useRef(taskHistory);
   const pythonBootstrapStarted = useRef(false);
-  const defaultLayersStarted = useRef(false);
 
   const refreshPlugins = useCallback(async () => {
     setPlugins(await desktopPlugins.list());
@@ -318,7 +330,10 @@ export default function App() {
       setSidebarCollapsed(value.sidebarCollapsed);
       setViewMode(value.libraryView === "list" ? "list" : "grid");
       if (value.transcriptionEngine) setTranscriptionEngine(value.transcriptionEngine);
-    }).catch(() => undefined).finally(() => {
+      setOnboardingCompletedPref(Boolean(value.onboardingCompleted));
+    }).catch(() => {
+      setOnboardingCompletedPref(false);
+    }).finally(() => {
       preferencesHydrated.current = true;
     });
   }, []);
@@ -790,7 +805,9 @@ export default function App() {
   }, [acceptImport, mediaDependencyMissing, openSettings, runtimeProvision]);
 
   useEffect(() => {
-    void Promise.all([refresh(), loadLibrary(), loadCloud(), loadCacheStatus(), loadStorageStatus()]);
+    void refresh().finally(() => setInitialRefreshDone(true));
+    void loadLibrary().finally(() => setInitialLibraryDone(true));
+    void Promise.all([loadCloud(), loadCacheStatus(), loadStorageStatus()]);
   }, [loadCacheStatus, loadCloud, loadLibrary, loadStorageStatus, refresh]);
 
   // Keep the cloud library current the way a streaming app's library does:
@@ -838,6 +855,25 @@ export default function App() {
   }, [loadCloud, loadLibrary]);
 
   useEffect(() => controller.subscribe((state) => setPipeline({ ...state })), [controller]);
+
+  useEffect(() => {
+    if (runtimeProvision?.job.state === "running") {
+      setDismissedProvisionJobKey("");
+    }
+  }, [runtimeProvision?.job.state]);
+
+  const prevSectionRef = useRef<Section>(section);
+  useEffect(() => {
+    const prev = prevSectionRef.current;
+    prevSectionRef.current = section;
+    if (prev === "keys" && section !== "keys") {
+      setKeysMessage("");
+      setCacheMessage("");
+      setStorageMessage("");
+      setProvisionMessage("");
+      if (provisionJobKeyRef.current) setDismissedProvisionJobKey(provisionJobKeyRef.current);
+    }
+  }, [section]);
 
   useEffect(() => {
     if (runtimeProvision?.job.state !== "running") return;
@@ -892,11 +928,17 @@ export default function App() {
   }, [hydrateThumbnails]);
 
   useEffect(() => Events.On("home:refresh", () => {
+    setMigrationDismissed(true);
     void loadLibrary();
+    void refresh({ silent: true });
+    void loadCloud({ background: true });
+    void loadStorageStatus();
     void desktopPreferences.get().then((value) => {
       setTheme(value.homeTheme === "dark" ? "dark" : "light");
+      if (value.transcriptionEngine) setTranscriptionEngine(value.transcriptionEngine);
+      setOnboardingCompletedPref(Boolean(value.onboardingCompleted));
     }).catch(() => undefined);
-  }), [loadLibrary]);
+  }), [loadCloud, loadLibrary, loadStorageStatus, refresh]);
 
   const handleDroppedFiles = useCallback((paths: string[], ignored: number) => {
     setSection("library");
@@ -1576,7 +1618,7 @@ export default function App() {
     }
   }, [loadLibrary]);
 
-  const login = useCallback(async () => {
+  const login = useCallback(async ({ stay = false }: { stay?: boolean } = {}) => {
     setAccountBusy(true);
     setCloudLoading(true);
     setAccountMessage("");
@@ -1596,7 +1638,7 @@ export default function App() {
           ? `登录成功，但自动同步检查失败：${session.syncError}`
           : `登录成功，已合并视频库并补同步 ${session.synced ?? 0} 个本地字幕${session.syncFailed ? `，${session.syncFailed} 个失败` : ""}。`,
       );
-      setSection("library");
+      if (!stay) setSection("library");
     } catch (value) {
       setAccountMessage(value instanceof Error ? value.message : String(value));
     } finally {
@@ -1639,6 +1681,7 @@ export default function App() {
 
   const installRuntime = useCallback(async (target: RuntimeInstallTarget) => {
     setProvisionMessage("");
+    setDismissedProvisionJobKey("");
     try {
       setRuntimeProvision(await fineSubRuntime.install(target));
     } catch (value) {
@@ -1652,6 +1695,7 @@ export default function App() {
     try {
       const picked = await fineSubRuntime.chooseOfflineArchive(layer);
       if (picked.cancelled || !picked.path) return;
+      setDismissedProvisionJobKey("");
       let latest = await fineSubRuntime.status();
       if (latest.job.state === "running") {
         setRuntimeProvision(await fineSubRuntime.cancel());
@@ -1676,6 +1720,7 @@ export default function App() {
 
   const removeModels = useCallback(async () => {
     setProvisionMessage("");
+    setDismissedProvisionJobKey("");
     try {
       setRuntimeProvision(await fineSubRuntime.removeModels());
       await refresh();
@@ -1687,6 +1732,7 @@ export default function App() {
 
   const removeModelsMoss = useCallback(async () => {
     setProvisionMessage("");
+    setDismissedProvisionJobKey("");
     try {
       setRuntimeProvision(await fineSubRuntime.removeModelsMoss());
       await refresh();
@@ -1730,6 +1776,7 @@ export default function App() {
 
   const cancelRuntimeInstall = useCallback(async () => {
     setProvisionMessage("");
+    setDismissedProvisionJobKey("");
     try {
       setRuntimeProvision(await fineSubRuntime.cancel());
     } catch (value) {
@@ -1739,7 +1786,6 @@ export default function App() {
   }, [refresh]);
 
   const installPython = useCallback(async () => {
-    openSettings("runtime");
     setMessage("正在准备 Python，以启用本地服务。");
     try {
       setPythonBootstrap(await fineSubRuntime.installPython());
@@ -1747,28 +1793,61 @@ export default function App() {
       setMessage(value instanceof Error ? value.message : String(value));
       setPythonBootstrap(await fineSubRuntime.pythonStatus().catch(() => null));
     }
-  }, [openSettings]);
+  }, []);
 
   useEffect(() => {
+    if (onboardingCompletedPref !== true) return;
     if (sidecar?.running || pythonBootstrap?.state !== "missing" || !pythonBootstrap.supported || pythonBootstrapStarted.current) return;
     pythonBootstrapStarted.current = true;
     void installPython();
-  }, [installPython, pythonBootstrap, sidecar?.running]);
+  }, [installPython, onboardingCompletedPref, pythonBootstrap, sidecar?.running]);
 
-  // First launch onboarding (A1): when default base layers (tools / python)
-  // are still missing, land on Settings -> Runtime so the user confirms the
-  // install directory before downloading ~2.9 GB.
+  // 首次启动判定：老用户（已有媒体/已登录云端/基础环境已就绪/已标记完成）直接显示主窗口；
+  // 真正的新用户或旧版迁移则拉起独立的原生引导窗口，避免出现双层套娃窗口。
   useEffect(() => {
-    if (defaultLayersStarted.current || !sidecar?.running || !runtimeProvision || runtimeProvision.bootstrap_error) return;
-    if (migration && migration.state !== "not-needed" && migration.state !== "completed") return;
-    if (runtimeProvision.job.state !== "idle") return;
-    const byId = new Map((runtimeProvision.layers ?? []).map((item) => [item.id, item]));
-    const toolsMissing = runtimeProvision.media_supported && byId.get("tools")?.state === "missing";
-    const pythonMissing = runtimeProvision.runtime_supported && byId.get("python")?.state === "missing";
-    if (!toolsMissing && !pythonMissing) return;
-    defaultLayersStarted.current = true;
-    openSettings("runtime");
-  }, [migration, openSettings, runtimeProvision, sidecar?.running]);
+    if (onboardingEvaluated.current || onboardingCompletedPref === null || !initialRefreshDone || !initialLibraryDone) return;
+    onboardingEvaluated.current = true;
+    if (isMigrationWizardActive(migration, migrationDismissed)) {
+      migrationWindowOpened.current = true;
+      void desktopWindows.openOnboarding(false).catch(() => void desktopWindows.showHome().catch(() => undefined));
+      return;
+    }
+    if (onboardingCompletedPref) return;
+    if (shouldAutoCompleteExistingUser({
+      onboardingCompleted: false,
+      mediaCount: media.length,
+      cloudAuthenticated: cloudSession?.authenticated === true,
+      provision: runtimeProvision,
+      migration,
+    })) {
+      setOnboardingCompletedPref(true);
+      void desktopPreferences.save({ onboardingCompleted: true }).catch(() => undefined);
+      void desktopWindows.showHome().catch(() => undefined);
+      return;
+    }
+    void desktopWindows.openOnboarding(false).catch(() => void desktopWindows.showHome().catch(() => undefined));
+  }, [
+    cloudSession?.authenticated,
+    initialLibraryDone,
+    initialRefreshDone,
+    media.length,
+    migration,
+    migrationDismissed,
+    onboardingCompletedPref,
+    runtimeProvision,
+  ]);
+
+  // 老用户版本升级触发迁移时，同样交给独立引导窗口承接。
+  useEffect(() => {
+    if (!onboardingEvaluated.current || migrationWindowOpened.current) return;
+    if (!isMigrationWizardActive(migration, migrationDismissed)) return;
+    migrationWindowOpened.current = true;
+    void desktopWindows.openOnboarding(false).catch(() => undefined);
+  }, [migration, migrationDismissed]);
+
+  const openOnboardingWizard = useCallback(() => {
+    void desktopWindows.openOnboarding(true).catch(() => undefined);
+  }, []);
 
   const runtimeProvisionMissing = runtimeProvision === null;
 
@@ -2027,7 +2106,10 @@ export default function App() {
               ) : section === "plugins" ? (
                 <button className="primary-button" disabled={pluginBusy !== ""} onClick={() => void installPlugin()}>{pluginBusy === "install" ? "正在安装…" : "＋ 安装插件"}</button>
               ) : section === "keys" ? (
-                <button className="quiet-button" onClick={() => void refresh()} disabled={loadState === "loading"}>{loadState === "loading" ? "正在检查…" : "重新检查"}</button>
+                <>
+                  <button className="quiet-button" onClick={openOnboardingWizard}>配置向导</button>
+                  <button className="quiet-button" onClick={() => void refresh()} disabled={loadState === "loading"}>{loadState === "loading" ? "正在检查…" : "重新检查"}</button>
+                </>
               ) : null}
             </div>
           </header>
@@ -2155,6 +2237,8 @@ export default function App() {
               runtime={{
                 provisionMessage,
                 onDismissProvisionMessage: () => setProvisionMessage(""),
+                jobMessageDismissed: provisionJobDismissed,
+                onDismissJobMessage: () => setDismissedProvisionJobKey(provisionJobKey),
                 provision: runtimeProvision,
                 pythonBootstrap,
                 sidecar,
@@ -2167,6 +2251,7 @@ export default function App() {
                 onRemoveModelsMoss: removeModelsMoss,
                 onRemoveUnused: removeUnusedRuntime,
                 cleanup: cleanupPlan,
+                onOpenOnboarding: openOnboardingWizard,
               }}
               anchor={settingsAnchor}
             />
@@ -2175,7 +2260,7 @@ export default function App() {
           {section === "adminKeys" && cloudSession?.admin && <AdminKeysPage />}
 
           {section === "account" && (
-            <AccountPage session={cloudSession} media={cloudMedia} loginKey={loginKey} busy={accountBusy} message={accountMessage} onLoginKeyChange={setLoginKey} onLogin={login} onLogout={logout} onDismissMessage={() => setAccountMessage("")} />
+            <AccountPage session={cloudSession} media={cloudMedia} loginKey={loginKey} busy={accountBusy} message={accountMessage} onLoginKeyChange={setLoginKey} onLogin={() => login()} onLogout={logout} onDismissMessage={() => setAccountMessage("")} />
           )}
 
           {section === "about" && <AboutPage update={selfUpdate} />}

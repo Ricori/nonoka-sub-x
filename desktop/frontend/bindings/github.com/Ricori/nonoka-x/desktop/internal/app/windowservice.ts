@@ -31,8 +31,24 @@ export function CloseVideoExport(): $CancellablePromise<void> {
     return $Call.ByID(530079975);
 }
 
+/**
+ * CompleteOnboarding transitions from the setup window into the main workspace.
+ */
+export function CompleteOnboarding(): $CancellablePromise<void> {
+    return $Call.ByID(3206443560);
+}
+
 export function OpenEditor(id: string): $CancellablePromise<void> {
     return $Call.ByID(2785033743, id);
+}
+
+/**
+ * OpenOnboarding opens the dedicated setup/migration window and hides home
+ * once it is painted. When reopened is true (opened manually from Settings),
+ * closing the window restores home; otherwise closing it exits the app.
+ */
+export function OpenOnboarding(reopened: boolean): $CancellablePromise<void> {
+    return $Call.ByID(3711524795, reopened);
 }
 
 /**
@@ -52,6 +68,14 @@ export function OpenVideoExport(mediaID: string, defaultName: string, ass: strin
  */
 export function RunVideoExport(jobID: string, crf: number, preset: string, scaleH: number, abr: string, container: string, gpu: boolean): $CancellablePromise<$models.VideoExportResult> {
     return $Call.ByID(2182945304, jobID, crf, preset, scaleH, abr, container, gpu);
+}
+
+/**
+ * ShowHome reveals the home window when it started hidden for first-launch
+ * onboarding detection and turned out to belong to an existing user.
+ */
+export function ShowHome(): $CancellablePromise<void> {
+    return $Call.ByID(928486208);
 }
 
 export function VideoExportDraft(jobID: string): $CancellablePromise<$models.VideoExportDraft> {

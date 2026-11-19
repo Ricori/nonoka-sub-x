@@ -427,21 +427,6 @@
   line-height: 1.45;
 }
 
-.runtime-offline-fallback {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  padding: 9px 12px;
-  border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--line-soft));
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--accent) 7%, transparent);
-  color: var(--mut);
-  font-size: 12px;
-  line-height: 1.45;
-}
-
 .cancel-button {
   height: var(--ctl-h-sm);
   min-height: var(--ctl-h-sm);
@@ -868,3 +853,46 @@
 .runtime-unused li small, .runtime-usage li small { overflow: hidden; color: var(--faint); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
 .runtime-unused li.held { opacity: .7; }
 .runtime-storage-merged { padding-top: 14px; border-top: 1px solid var(--line-soft); }
+
+/* 精简版环境引导提示条 */
+.runtime-wizard-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  flex-wrap: wrap;
+  padding: 12px 14px;
+  border: 1px solid var(--accent-line);
+  border-radius: 11px;
+  background: color-mix(in srgb, var(--accent) 5.5%, var(--panel));
+}
+
+.runtime-wizard-banner.tight {
+  border-color: var(--tone-caution-bd);
+  background: color-mix(in srgb, var(--caution) 6%, var(--panel));
+}
+
+.runtime-wizard-copy {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  flex: 1 1 260px;
+}
+
+.runtime-wizard-copy strong {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.runtime-wizard-copy span {
+  font-size: 12px;
+  color: var(--mut);
+  line-height: 1.45;
+}
+
+.runtime-wizard-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+}

@@ -60,7 +60,7 @@ export function RelocationConfirm({ pending, busy, empty = false, onConfirm, onD
         {pending.unavailable ? (
           <p className="storage-warn">{pending.unavailable}</p>
         ) : empty ? (
-          <p>这里还没有安装内容，改位置只是改一个记录，不会复制任何文件。目标磁盘剩余 {formatStorageBytes(pending.freeBytes)}。</p>
+          <p>目标磁盘剩余 {formatStorageBytes(pending.freeBytes)}</p>
         ) : (
           <p>
             {pending.resumable

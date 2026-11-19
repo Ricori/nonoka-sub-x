@@ -21,10 +21,11 @@ package's process; nothing here names an engine's variable or file.
 - the knowledge package: only the paths;
 - every package: `runtime.tools`, the tool layer's directories its process
   finds ffmpeg, ffprobe and tokcount in; a correction package also
-  `agent_cli.path`, the directories of the local agent CLIs Nonoka detects
-  and of the node a script CLI runs on. The core's engine host builds the
-  process's `PATH` from these and the system directories only (plan 4.5 item
-  27; owner 2026-11-18, WP-H question H1).
+  `agent_cli.path`, the directories of the local agent CLIs Nonoka detects,
+  the node a script CLI runs on, and the launcher Python a CLI hook runs on.
+  The core's engine host builds the process's `PATH` from these and the
+  system directories only (plan 4.5 item 27; owner 2026-11-18, WP-H question
+  H1).
 """
 
 from __future__ import annotations
@@ -50,6 +51,30 @@ def proxy_context() -> dict[str, Any]:
 PATH_TOOLS = ("ffmpeg", "ffprobe", "tokcount")
 #: What a script-shim CLI (an npm install's `.cmd`) runs on, found where the user's PATH finds it.
 SCRIPT_RUNTIME = "node"
+#: Local agent providers whose project hooks invoke `python` by name off `PATH`
+#: (Antigravity's PreToolUse guard runs `python scripts/guard_view_file.py`).
+HOOK_PYTHON_PROVIDERS = frozenset({"local-agy"})
+
+
+def _hook_python_directory() -> str | None:
+    """Where `python` lives for an agent CLI hook: Nonoka's own launcher interpreter first, PATH as fallback.
+
+    A desktop install may have no system Python at all, and the launcher's
+    directory always ships `python` (the guard script only imports stdlib).
+    Fall back to `shutil.which("python")` only when the launcher lives beside
+    `python3` without a `python` alias (POSIX).
+    """
+
+    import os
+    import shutil
+    import sys
+
+    name = "python.exe" if os.name == "nt" else "python"
+    parent = Path(sys.executable).parent
+    if (parent / name).is_file():
+        return str(parent)
+    found = shutil.which("python")
+    return str(Path(found).parent) if found is not None else None
 
 
 def tool_directories(provisioner: Any) -> list[str]:
@@ -67,13 +92,16 @@ def tool_directories(provisioner: Any) -> list[str]:
 
 
 def agent_cli_directories() -> list[str]:
-    """Where the local agent CLIs Nonoka detects are, and the node a script CLI needs (owner H1).
+    """Where the local agent CLIs Nonoka detects are, and the runtimes they invoke off PATH (owner H1).
 
     Every detected CLI's directory, on the user's PATH or not: the process's
     PATH is built from nothing, so one the engine finds by name has to be
     named. A CLI that is not a native executable (an npm `.cmd` shim) runs on
     node, which the engine also looks up by name (`shutil.which("node.exe")`),
     so node's directory -- the one the user's own PATH finds -- is added too.
+    A CLI whose project hook invokes `python` by name (`local-agy`) also needs
+    the launcher's Python directory on PATH so the hook runs without a system
+    Python install.
     """
 
     import shutil
@@ -82,6 +110,7 @@ def agent_cli_directories() -> list[str]:
 
     directories: list[str] = []
     needs_script_runtime = False
+    needs_hook_python = False
     for provider in LOCAL_AGENT_PROVIDERS:
         executable = local_agent_executable(provider)
         if executable is None:
@@ -90,10 +119,16 @@ def agent_cli_directories() -> list[str]:
             directories.append(str(executable.parent))
         if executable.suffix.lower() != ".exe":
             needs_script_runtime = True
+        if provider in HOOK_PYTHON_PROVIDERS:
+            needs_hook_python = True
     if needs_script_runtime:
         node = shutil.which(SCRIPT_RUNTIME)
         if node is not None and str(Path(node).parent) not in directories:
             directories.append(str(Path(node).parent))
+    if needs_hook_python:
+        python_dir = _hook_python_directory()
+        if python_dir is not None and python_dir not in directories:
+            directories.append(python_dir)
     return directories
 
 

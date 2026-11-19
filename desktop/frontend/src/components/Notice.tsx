@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import "./Notice.css";
 
 const defaultDismissDelayMs = 6000;
@@ -21,11 +21,14 @@ type NoticeProps = {
 export function Notice({ message, className = "", tone = "warn", autoDismissMs = defaultDismissDelayMs, onDismiss }: NoticeProps) {
   const [dismissed, setDismissed] = useState("");
   const [held, setHeld] = useState(false);
+  const onDismissRef = useRef(onDismiss);
+  onDismissRef.current = onDismiss;
 
   const close = useCallback(() => {
+    setHeld(false);
     setDismissed(message);
-    onDismiss?.();
-  }, [message, onDismiss]);
+    onDismissRef.current?.();
+  }, [message]);
 
   const hidden = !message || dismissed === message;
 
@@ -35,6 +38,12 @@ export function Notice({ message, className = "", tone = "warn", autoDismissMs =
     // shown again when a retry fails with the same message.
     if (!message && dismissed) setDismissed("");
   }, [dismissed, message]);
+
+  useEffect(() => {
+    // Hiding unmounts the <p> before onMouseLeave/onBlur can fire; clear held
+    // so a subsequent notice still auto-dismisses.
+    if (hidden && held) setHeld(false);
+  }, [held, hidden]);
 
   useEffect(() => {
     // Pointer or keyboard focus inside the notice holds the timer: a message the

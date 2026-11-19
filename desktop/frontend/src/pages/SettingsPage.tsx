@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import type { Dispatch, ReactNode, SetStateAction } from "react";
 import type { FineSubSettingsState } from "../bridge/settings.ts";
-import type { RuntimeInstallTarget } from "../bridge/runtime.ts";
 import type { CacheStatus } from "../bridge/library.ts";
 import type { RelocationProgress, StorageDestination, StorageStatus, StorageTarget } from "../bridge/storage.ts";
 import { StorageLocationsCard } from "../components/StorageLocationsCard.tsx";
@@ -53,7 +52,7 @@ interface SettingsPageProps {
   transcriptionEngine: string;
   onSelectEngine: (engine: string) => void;
   onOpenAccount: () => void;
-  runtime: Omit<Parameters<typeof RuntimeSection>[0], "storage" | "storageProgress" | "storageBusy" | "storageMessage" | "onDismissStorageMessage" | "onChooseStorage" | "onRelocateStorage" | "onResetStorage" | "onCancelStorage" | "onOpenStorage" | "runtimeCache" | "requestedInstall">;
+  runtime: Omit<Parameters<typeof RuntimeSection>[0], "storage" | "storageProgress" | "storageBusy" | "storageMessage" | "onDismissStorageMessage" | "onChooseStorage" | "onRelocateStorage" | "onResetStorage" | "onCancelStorage" | "onOpenStorage" | "runtimeCache">;
   anchor: { target: SettingsAnchor; seq: number } | null;
 }
 
@@ -118,9 +117,6 @@ export function SettingsPage(props: SettingsPageProps) {
   };
   const tone = message.endsWith("已保存。") ? "success" : "warn";
 
-  const [requestedInstall, setRequestedInstall] = useState<{ target: RuntimeInstallTarget; seq: number } | null>(null);
-  const scrollToRuntime = () => document.getElementById(settingsAnchorId("runtime"))?.scrollIntoView({ block: "start", behavior: "smooth" });
-
   useEffect(() => {
     if (!anchor) return;
     document.getElementById(settingsAnchorId(anchor.target))?.scrollIntoView({ block: "start", behavior: "smooth" });
@@ -147,18 +143,12 @@ export function SettingsPage(props: SettingsPageProps) {
           migrationActive={runtime.migrationActive}
           onSelect={onSelectEngine}
           onOpenAccount={onOpenAccount}
-          onOpenRuntime={scrollToRuntime}
-          onInstallLayers={(target) => {
-            setRequestedInstall((current) => ({ target, seq: (current?.seq ?? 0) + 1 }));
-            scrollToRuntime();
-          }}
         />
       </Group>
 
       <Group anchor="runtime" title="运行环境">
         <RuntimeSection
           {...runtime}
-          requestedInstall={requestedInstall}
           storage={storage}
           storageProgress={storageProgress}
           storageBusy={storageBusy}

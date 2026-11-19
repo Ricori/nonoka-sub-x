@@ -173,13 +173,17 @@ func (s *Service) ChooseLayerOfflineArchive(layer string) (OfflineArchivePick, e
 	if app == nil || window == nil {
 		return OfflineArchivePick{}, errors.New("application window is not ready")
 	}
+	dialogOwner := application.Window(window)
+	if current := app.Window.Current(); current != nil {
+		dialogOwner = current
+	}
 	label := layerDialogLabels[layer]
 	if label == "" {
 		label = layer
 	}
 	picked, err := app.Dialog.OpenFile().
 		SetTitle("选择 " + label + " 离线包（.tar.zst）").
-		AttachToWindow(window).
+		AttachToWindow(dialogOwner).
 		AddFilter("运行环境层离线包 (*.tar.zst)", "*.tar.zst").
 		AddFilter("所有文件 (*.*)", "*.*").
 		PromptForSingleSelection()
