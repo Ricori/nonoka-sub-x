@@ -1,6 +1,6 @@
 # 转写引擎重构计划
 
-> 状态（2026-11-18）：已完成并合进 main 的工作包见第 6 节开头的「已完成」列表，它们的交付摘要与原始说明在 `docs/transcription-engines-plan-done.md`（本文只留标题）。第九批 WP-H、WP-L 已于 2026-11-18 合进两个仓库的 main。第十批 WP-CL、WP-M2 进行中（第 88 问），WP-M2 阶段 1 已于 2026-11-18 合进 main。前提已满足、还没开的：WP-UI、WP7（WP-P1、WP-H 之后、WP8 之前，第 75 问）；之后 WP8。WP-M1 的最后一条完成标准先不做（第 70 问）。用户做过的决定都在第 4 节和附录 B，按问题编号查。本文档是交给子代理执行的工作说明，每个工作包可以单独领走。
+> 状态（2026-11-18）：已完成并合进 main 的工作包见第 6 节开头的「已完成」列表，它们的交付摘要与原始说明在 `docs/transcription-engines-plan-done.md`（本文只留标题）。第九批 WP-H、WP-L 已于 2026-11-18 合进两个仓库的 main。第十批：WP-CL 已于 2026-11-18 合进两个仓库的 main，WP-M2 阶段 1 已合进 main、阶段 2 进行中（第 88 问）；WP7 随后开工。按第 92 问的精简方案，`--real`、`--cloud` 与线上实测集中到 WP8 各跑一次。还没开的：WP-UI（等 WP-M2 阶段 2 合并）（WP-P1、WP-H 之后、WP8 之前，第 75 问）；之后 WP8。WP-M1 的最后一条完成标准先不做（第 70 问）。用户做过的决定都在第 4 节和附录 B，按问题编号查。本文档是交给子代理执行的工作说明，每个工作包可以单独领走。
 > 写于 2026-11-10，基于 `main@1f14db3`、FineSub `v0.7.0@7123055`。
 > **2026-11-11 整理成干净版本**（用户决定，附录 B 第 1 问）：现行决定直接写在正文里，不再有「以后者为准」的追加条款。每个决定的来历、被推翻的旧说法，以及旧条款编号到新编号的对照，见附录 A；向用户问过的问题和答复见附录 B；还没定的事见附录 C。整理前的版本在 git 历史里（`main` 上的 `docs/transcription-engines-plan.md`）。
 > 相关文档：`docs/runtime-and-config.md`（WP-R0 的调查与设计答复 D1–D23，下称「R0 文档」；其中被本计划取代的答复已在那边标注，对照见附录 A.3）；`docs/engine-sandbox-experiment.md`（预制环境包与进程级沙箱两个前提的实验报告，下称「实验报告」）。本文档与 R0 文档冲突时以本文档为准。
@@ -493,7 +493,7 @@ FineSub 转写引擎也要写 `transcript.json`（从它的 stable 投影出来�
 ## 6. 工作包
 
 ```text
-已完成：WP-Q、WP-A、WP0、WP-R0、WP-R2、WP-B、WP-R1、WP1、WP4a、WP4b、WP4c、WP3a/b/c、WP-C、WP-P0、WP-M1（最后一条完成标准还没做，WP-E3 已完成、可以做了）、WP-R4、WP-K、WP-E1、WP-CL0、WP5、WP-E2、WP-E3、WP-R5、WP-R6、WP6、WP-R7、WP-P1、WP-H、WP-L
+已完成：WP-Q、WP-A、WP0、WP-R0、WP-R2、WP-B、WP-R1、WP1、WP4a、WP4b、WP4c、WP3a/b/c、WP-C、WP-P0、WP-M1（最后一条完成标准还没做，WP-E3 已完成、可以做了）、WP-R4、WP-K、WP-E1、WP-CL0、WP5、WP-E2、WP-E3、WP-R5、WP-R6、WP6、WP-R7、WP-P1、WP-H、WP-L、WP-CL
 
 引擎线：
 WP-B ──┬─► WP1 ──► WP3a / WP3b / WP3c ───────────────┐
@@ -717,22 +717,9 @@ D:\Envir\Python312\python scripts/quality_gate.py --cloud  # 云端（WP-C；基
 
 已完成。交付摘要与原始说明移到 `docs/transcription-engines-plan-done.md` 的同名一节。
 
-### WP-CL 云端重做：只留转写包
+### WP-CL 云端重做：只留转写包（已完成 2026-11-18）
 
-等 WP-P1 做完再开工。改 `nonoka-sub-cloud/modal_compute/` 和 Worker 里任务结果那一部分；LLM 转发路由和 `tokyo_llm/` 一个文件都不动（4.7 第 36 条）。开工前先列出 Worker 里要改的文件交回确认。
-
-- 文件：云端仓库的 `modal_compute/**`、`src/jobs/` 里与结果产物有关的文件及其测试、需要时的 `migrations/`；本仓库 `desktop/internal/cloud/`（下载与提交的字段白名单）、核心里云端续跑的入口。
-- 内容：
-  - Modal 镜像只装 `engines/finesub-transcribe/`，经包的入口跑到 stable 并转出 `transcript.json`；不再装纠错相关的代码。镜像的 Python 依赖、加速选择照旧（4.7 第 37 条）；缺模型时任务报错，模型由 WP-CL0 的脚本预先放好。
-  - 结果契约改为 `transcript.json` 加不透明附件；Worker 存、发，不解析。
-  - 桌面侧云端续跑改成「转写结果已在手」：`transcript.json` 直接进核心，附件登记成私有附件。
-  - `test_source_contract.py` 钉的哈希一并更新。
-- 完成标准：
-  - `quality_gate.py --cloud` 按 WP-C 批准的标准通过；云端测试和 Worker 测试全过。
-  - 云端仓库的 `git diff` 不涉及 LLM 转发路由和 `tokyo_llm/`。
-  - 一个新的云端任务从提交到桌面出 `final-srt` 走通，纠错拿到的 stable 是附件原件，LLM 调用照旧经 Nonoka Cloud 转发。
-  - 删掉桌面上两个 FineSub 包，同一个云端任务能出到原始字幕。
-  - 一个改动前存下的旧结果，经 4.7 第 36 条的一次性转换后仍能在桌面上接着跑。
+已完成。交付摘要与原始说明移到 `docs/transcription-engines-plan-done.md` 的同名一节。
 
 ### WP-L 媒体库同步改用 Nonoka 的格式（已完成 2026-11-18）
 
@@ -936,6 +923,7 @@ D:\Envir\Python312\python scripts/quality_gate.py --cloud  # 云端（WP-C；基
 | 89 | 合并 WP-M2 阶段 1 时：合并后新代码的 sidecar 会自动迁移它打开的旧数据目录；迁移未完成时的门控；主数据目录里的 `*.pre-migration` 备份与留下的 `finesub-data\`；边界测试新豁免 `("migration/legacy.py", "package:finesub-transcribe")` | 直接合并，用户自己注意别让新代码指向开发机的真实安装；保持门控（推荐项）；没用的文件全部删除（用户自定）；同意豁免（2026-11-18） |
 | 90 | WP-M2 阶段 2：删 `*.pre-migration` 与 `finesub-data\` 的时机；有本机打不开的旧密钥时删不删 `finesub.env.pre-migration` | 本地步骤过了回滚点（旧环境开删）就删，不等下载；照删，报告里写明随备份删掉的密钥名，「除 `engines\` 外无 FineSub 文件」没有例外（推荐的是下载后再删、这种情况保留）（2026-11-18） |
 | 91 | 附录 C 第 9 问：迁移「先删后下」期间，界面要不要提示改用云端 FineSub 或云 API 引擎 | 不提示，只说明下载完成之前 FineSub 转写不可用（2026-11-18） |
+| 92 | 剩余工作怎么最省（可以减少测试） | 按主会话方案：评审时分支基于当前 main 就不重跑，main 动过才在试合并上跑一次 pytest 与默认闸门；子会话开发时只跑相关测试、交付前全量一次；`--real`（含 WP-M2 阶段 2 的那次）、`--cloud`、线上 LLM 与三个云引擎的真实调用集中到 WP8 各一次；WP-M2 阶段 2 的副本验收由 WP8 沿用；WP-M1 最后一条在换新版时作为 WP8 迁移一项的实测；合并 WP-CL 时重录 4 个云端调用基线（单独提交）；WP7 在 WP-CL 合并后开，WP-UI 等 WP-M2 阶段 2 合并后开（2026-11-18） |
 
 更早的问答：WP-R0 的 D1–D23 见 R0 文档第 0 节；WP0 的细节见附录 A.1（已移到 `docs/transcription-engines-plan-done.md`）；沙箱实验中的决定见实验报告。
 

@@ -410,6 +410,25 @@ harness 已在 main（`tests/quality_harness/cloud.py`、`quality_gate.py --clou
   - `go test ./...`、前端测试、Worker 测试全过；闸门通过。
 - 不在本包自动执行：对线上数据的转换和切换。那是发版时由用户按手册执行或明确批准后执行的操作。
 
+### WP-CL 云端重做：只留转写包（已完成 2026-11-18）
+
+> 交付（2026-11-18，问题与答复见附录 B 第 88、92 问）：本仓库 `8a36a94`、云端仓库 `5c8fbb7`（合并 本仓库 429ee9e、云端 379f86a）。Modal 镜像只装转写包；任务结果改为 `transcript.json` 加不透明附件，Worker 存、发不解析，对旧名字回 426；桌面云端续跑改成「转写结果已在手」，附件登记为私有附件；provider 校验不再要求装了 finesub 引擎；`job_convert` 做旧作业结果的一次性转换。`--cloud` 跑 1 次 PASS（约 18 分钟，花费在 $1 上限内）。端到端：本机 Worker（`wrangler dev --local`，密钥全用假值）加真实 relay 与 sidecar 走通到 `final-srt`，纠错拿到的 stable 与附件原件逐字节相同；删掉两个 FineSub 包后出到 `raw.srt`；改动前的旧结果转换后接着跑通。4 个云端调用基线（`tests/fixtures/quality/calls/cloud-*.json`，只差 `input`、`request` 两项）经用户批准重录，单独提交 `8ea28e2`。交回：WP8 / 发版——线上 LLM 那一程没实跑（东京中继按生产 Worker 的 `/v1/session` 验 key），集中到 WP8 或发版时按 J5 实测；线上转换和部署（Worker、Modal 应用、D1、R2）按手册 J1–J5 由用户执行或明确批准后执行。WP-M2——本机旧任务 `request.json` 的 `cloud_stable` 要转成 `cloud_transcript`（已转给阶段 2）。WP-UI——日文轴请求的校验要求装了 finesub 引擎；没装纠错包时云 API 引擎做 `raw-srt` 被 harness 档拦下。下面是原始说明。
+
+等 WP-P1 做完再开工。改 `nonoka-sub-cloud/modal_compute/` 和 Worker 里任务结果那一部分；LLM 转发路由和 `tokyo_llm/` 一个文件都不动（4.7 第 36 条）。开工前先列出 Worker 里要改的文件交回确认。
+
+- 文件：云端仓库的 `modal_compute/**`、`src/jobs/` 里与结果产物有关的文件及其测试、需要时的 `migrations/`；本仓库 `desktop/internal/cloud/`（下载与提交的字段白名单）、核心里云端续跑的入口。
+- 内容：
+  - Modal 镜像只装 `engines/finesub-transcribe/`，经包的入口跑到 stable 并转出 `transcript.json`；不再装纠错相关的代码。镜像的 Python 依赖、加速选择照旧（4.7 第 37 条）；缺模型时任务报错，模型由 WP-CL0 的脚本预先放好。
+  - 结果契约改为 `transcript.json` 加不透明附件；Worker 存、发，不解析。
+  - 桌面侧云端续跑改成「转写结果已在手」：`transcript.json` 直接进核心，附件登记成私有附件。
+  - `test_source_contract.py` 钉的哈希一并更新。
+- 完成标准：
+  - `quality_gate.py --cloud` 按 WP-C 批准的标准通过；云端测试和 Worker 测试全过。
+  - 云端仓库的 `git diff` 不涉及 LLM 转发路由和 `tokyo_llm/`。
+  - 一个新的云端任务从提交到桌面出 `final-srt` 走通，纠错拿到的 stable 是附件原件，LLM 调用照旧经 Nonoka Cloud 转发。
+  - 删掉桌面上两个 FineSub 包，同一个云端任务能出到原始字幕。
+  - 一个改动前存下的旧结果，经 4.7 第 36 条的一次性转换后仍能在桌面上接着跑。
+
 ## 附录 A 决定的来历
 
 ### A.1 时间线
