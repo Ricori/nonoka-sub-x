@@ -1,6 +1,6 @@
 # 转写引擎重构计划
 
-> 状态（2026-11-18）：已完成并合进 main 的工作包见第 6 节开头的「已完成」列表，它们的交付摘要与原始说明在 `docs/transcription-engines-plan-done.md`（本文只留标题）。第九批 WP-H、WP-L 已于 2026-11-18 合进两个仓库的 main。第十批：WP-CL 已于 2026-11-18 合进两个仓库的 main，WP-M2 阶段 1 已合进 main、阶段 2 进行中（第 88 问）；WP7 随后开工。按第 92 问的精简方案，`--real`、`--cloud` 与线上实测集中到 WP8 各跑一次。还没开的：WP-UI（等 WP-M2 阶段 2 合并）（WP-P1、WP-H 之后、WP8 之前，第 75 问）；之后 WP8。WP-M1 的最后一条完成标准先不做（第 70 问）。用户做过的决定都在第 4 节和附录 B，按问题编号查。本文档是交给子代理执行的工作说明，每个工作包可以单独领走。
+> 状态（2026-11-18）：已完成并合进 main 的工作包见第 6 节开头的「已完成」列表，它们的交付摘要与原始说明在 `docs/transcription-engines-plan-done.md`（本文只留标题）。第九批 WP-H、WP-L 已于 2026-11-18 合进两个仓库的 main。第十批 WP-CL、WP-M2、WP7 已合进 main（WP-CL 也合进云端仓库，2026-11-18 至 19）。按第 92 问的精简方案，`--real`、`--cloud` 与线上实测集中到 WP8 各跑一次。现在开 WP-UI，之后 WP8。WP-M1 的最后一条完成标准先不做（第 70 问）。用户做过的决定都在第 4 节和附录 B，按问题编号查。本文档是交给子代理执行的工作说明，每个工作包可以单独领走。
 > 写于 2026-11-10，基于 `main@1f14db3`、FineSub `v0.7.0@7123055`。
 > **2026-11-11 整理成干净版本**（用户决定，附录 B 第 1 问）：现行决定直接写在正文里，不再有「以后者为准」的追加条款。每个决定的来历、被推翻的旧说法，以及旧条款编号到新编号的对照，见附录 A；向用户问过的问题和答复见附录 B；还没定的事见附录 C。整理前的版本在 git 历史里（`main` 上的 `docs/transcription-engines-plan.md`）。
 > 相关文档：`docs/runtime-and-config.md`（WP-R0 的调查与设计答复 D1–D23，下称「R0 文档」；其中被本计划取代的答复已在那边标注，对照见附录 A.3）；`docs/engine-sandbox-experiment.md`（预制环境包与进程级沙箱两个前提的实验报告，下称「实验报告」）。本文档与 R0 文档冲突时以本文档为准。
@@ -493,7 +493,7 @@ FineSub 转写引擎也要写 `transcript.json`（从它的 stable 投影出来�
 ## 6. 工作包
 
 ```text
-已完成：WP-Q、WP-A、WP0、WP-R0、WP-R2、WP-B、WP-R1、WP1、WP4a、WP4b、WP4c、WP3a/b/c、WP-C、WP-P0、WP-M1（最后一条完成标准还没做，WP-E3 已完成、可以做了）、WP-R4、WP-K、WP-E1、WP-CL0、WP5、WP-E2、WP-E3、WP-R5、WP-R6、WP6、WP-R7、WP-P1、WP-H、WP-L、WP-CL
+已完成：WP-Q、WP-A、WP0、WP-R0、WP-R2、WP-B、WP-R1、WP1、WP4a、WP4b、WP4c、WP3a/b/c、WP-C、WP-P0、WP-M1（最后一条完成标准还没做，WP-E3 已完成、可以做了）、WP-R4、WP-K、WP-E1、WP-CL0、WP5、WP-E2、WP-E3、WP-R5、WP-R6、WP6、WP-R7、WP-P1、WP-H、WP-L、WP-CL、WP-M2、WP7
 
 引擎线：
 WP-B ──┬─► WP1 ──► WP3a / WP3b / WP3c ───────────────┐
@@ -679,23 +679,9 @@ D:\Envir\Python312\python scripts/quality_gate.py --cloud  # 云端（WP-C；基
   - 在一份旧布局副本上（含大文件根在另一个盘的情形、有 `python-builds` 的情形、模型不全的情形）跑完，文件各就各位，该删的删了，没有任何从 Hugging Face 的下载；`--dry-run` 不动任何文件；各有测试。
   - 用它把开发机的安装搬到新布局，WP-E3 完成后由 WP-E3 补齐模型并装上 WP-E1 构建的 Python 环境层和工具层，`quality_gate.py --real` 通过。
 
-### WP-M2 迁移的启动集成、续跑与回滚
+### WP-M2 迁移的启动集成、续跑与回滚（已完成 2026-11-19）
 
-> 阶段 1（Python 核心）已于 2026-11-18 合进 main（`6cf0129`）：sidecar 启动时迁移，未完成时除 `GET /v1/migration`、`POST /v1/migration/retry` 外一律 503 `migrating`；知识库进 `engines\finesub-knowledge\knowledge\`、限流状态进 `engines\finesub-correct\state`；旧任务归位并转换；回滚、续跑、只迁一次；去掉 `bind_environment` 的自动迁移。用户决定见附录 B 第 89 问。阶段 2 还剩：桌面的迁移进度与结果显示、迁移完成后删掉没用的旧文件（第 89 问）、真实形态旧数据副本上的验收与 `--real`、前端测试。
-
-等 WP-E3、WP-R4、WP-R5、WP-R7、WP-P1、WP-L 把新布局定型再开工。必须和改布局的那几个包进同一个版本（发版约束）。知识库从主数据目录搬进纠错包的数据目录、旧任务目录里的 FineSub 产物归进私有附件目录，也在这里做（4.6 第 34 条）。
-
-- 文件：`src/nonoka_x/migration/**`（在 WP-M1 的基础上）、`tests/test_migration.py`，sidecar 启动段里调用它的地方，桌面上显示迁移进度和结果的地方。
-- 内容：
-  - 启动时、sidecar 打开任何数据之前调 WP-M1 的探测与执行。
-  - 设置和密钥调 `config/migrate.py` 读进 Nonoka 的存储，旧文件改名留作备份。
-  - **先删后下**：清空旧环境后由 WP-E3 下载新层；界面显示进度，说明下载完成之前 FineSub 转写不可用（云 API 引擎在工具层装好后即可用）；下载失败可以重试；用户关掉应用后下次启动接着下。
-  - 可中断可续：每一步写进迁移日志，中途断电或被杀，下次启动从断点接着做。设置、密钥、知识库、任务这几步失败就回滚到迁移前的样子并在界面上说明；**环境清空之后没有回滚**（旧环境已删），只能继续下载。
-  - 只迁一次：迁完写标记；新版本再也不读旧路径。
-- 完成标准：
-  - 拿一份真实形态的旧数据目录副本（含大文件根在另一个盘、有 Nonoka 不认识的配置键、多 key 池、本地 Agent 路由、做过的任务与知识库）迁移，迁完：Nonoka 认识的设置和密钥都读得回来，不认识的配置键出现在迁移报告里，任务和文档在界面里照常打开，模型没有重下（只补了缺的文件），三层就绪，`quality_gate.py --real` 通过。
-  - 迁移在每一步被杀掉后都能续上，设置与数据那几步能回滚，各有测试。
-  - 迁移后主数据目录里除 `engines\` 外没有 FineSub 相关的文件。
+已完成。交付摘要与原始说明移到 `docs/transcription-engines-plan-done.md` 的同名一节。
 
 ### WP-P0 分包清单（已完成 2026-11-12）
 
@@ -727,6 +713,8 @@ D:\Envir\Python312\python scripts/quality_gate.py --cloud  # 云端（WP-C；基
 
 ### WP-UI 引擎配置页
 
+> 收到的交回（2026-11-19）：归档里 WP-E3、WP-P1、WP-H、WP-CL、WP-M2、WP7 各节「交回」中写给 WP-UI 的条目都归本包，其中 WP-M2 的「中继遇到 503 `migrating` 当成失败」一条在 `desktop/internal/cloud/relay.go`，WP-CL 的「日文轴请求的校验要求装了 finesub 引擎」一条在核心的请求校验，一并并入本包的文件。
+
 重构的其余部分做完之后开工：等 WP-P1、WP-L、WP-H、WP6、WP-E3，排在 WP8 之前，随同一个版本发布。规则见 4.9 第 39 条。
 
 > 2026-11-13 用户改了方向（4.9 第 39 条第一个子条目，附录 B 第 73 问）：没有单独的引擎配置页，「运行环境」页去掉，下面写到引擎配置页的内容都放进设置页；界面主体已由 WP6 第二阶段做完（见 WP6 一节），本包只剩依赖 WP-P1、WP-L、WP-H 的部分和完成标准里的整体验收：删掉转写包后的表现、按包列占用空间、选中未装的引擎时只装它缺的层（现在仍是运行环境段的「一键准备全部」与分组安装）、从 FineSub 换到云 API 引擎再换回来不重下的实测；Python 侧有些就绪文案还写「在『运行环境』页……」（如 `missing_harness`），要改成指向设置页。WP-R6、WP-R5 交来的界面事项（卸载视频工具的死代码、`repair` 的入口、「清理未使用的」、numba 缓存进不进「清理」）已由 WP6 第二阶段处理（附录 B 第 74 问）。
@@ -746,12 +734,13 @@ D:\Envir\Python312\python scripts/quality_gate.py --cloud  # 云端（WP-C；基
   - 设置页里纠错翻译、LLM、知识库相关的部分与改动前逐项相同。
   - 选 FineSub 时发出的请求与 WP6 完成时相同。
 
-### WP7 云端仓库与文档
+### WP7 云端仓库与文档（已完成 2026-11-19）
 
-- 云端仓库：确认 `modal_compute/nonoka_x_compute/phases.py` 在 WP-B 之后仍调得通（它不传 `asr`，预期不用改）；云端测试全过。需要改时提交在 nonoka-sub-cloud 仓库；`test_source_contract.py` 钉了哈希的文件动了要一起更新。
-- 本仓库文档：`docs/architecture.md`（架构图加引擎层与纠错层，FineSub 画成两个可插拔部件，运行环境画成三层预制包与沙箱）、`docs/provider-spec.md`、新增 `docs/transcription-engines.md`、`CHANGELOG.md`（写明数据目录的新布局、迁移会清空旧环境并重新下载、关闭加速后变慢）。
+已完成。交付摘要与原始说明移到 `docs/transcription-engines-plan-done.md` 的同名一节。
 
 ### WP8 集成验证
+
+> 补充（2026-11-19，第 92 问）：`--real`（含原属 WP-M2 的一次）、`--cloud`、线上 LLM 那一程（WP-CL 没实跑）、三个云引擎的真实调用都在本包各做一次；迁移一项沿用 WP-M2 阶段 2 在真实安装副本上的验收（笔记目录 `wp-m2-delivery.md`），另挑一个改写过的旧云端任务点重试；WP-M1 最后一条在用户换新版时作为迁移一项的实测；跑 `--real` 前先修好或绕开 `scripts/build_layers.py stage` 的过时之处（见归档 WP7 一节的交回）。
 
 - 全量测试：`D:\Envir\Python312\python -m pytest -q`（仓库根）、`cd desktop/frontend && npm test && npm run typecheck`、`cd desktop && go test ./...`、`cd nonoka-sub-cloud/modal_compute && python -m pytest -q tests`。
 - 最终闸门：`scripts/quality_gate.py --real`、`--layers`（对 R2 上要发布的层）和 `--cloud` 全部通过；用纠错进程跑的纠错里 `token_counter_source` 仍是 `tokcount`；两个引擎包里的 FineSub 文件相对 `1f14db3` 只有 `stages.py`、`pipeline.py`、`finesub_bootstrap` 的自下载部分变过，`speech/joint/` 不在，其余每个文件的哈希等于 WP-Q 的 `QUALITY_LOCK.json`；`third_party/finesub/` 不存在；`src/nonoka_x/` 里搜不到 `finesub`。
@@ -924,6 +913,7 @@ D:\Envir\Python312\python scripts/quality_gate.py --cloud  # 云端（WP-C；基
 | 90 | WP-M2 阶段 2：删 `*.pre-migration` 与 `finesub-data\` 的时机；有本机打不开的旧密钥时删不删 `finesub.env.pre-migration` | 本地步骤过了回滚点（旧环境开删）就删，不等下载；照删，报告里写明随备份删掉的密钥名，「除 `engines\` 外无 FineSub 文件」没有例外（推荐的是下载后再删、这种情况保留）（2026-11-18） |
 | 91 | 附录 C 第 9 问：迁移「先删后下」期间，界面要不要提示改用云端 FineSub 或云 API 引擎 | 不提示，只说明下载完成之前 FineSub 转写不可用（2026-11-18） |
 | 92 | 剩余工作怎么最省（可以减少测试） | 按主会话方案：评审时分支基于当前 main 就不重跑，main 动过才在试合并上跑一次 pytest 与默认闸门；子会话开发时只跑相关测试、交付前全量一次；`--real`（含 WP-M2 阶段 2 的那次）、`--cloud`、线上 LLM 与三个云引擎的真实调用集中到 WP8 各一次；WP-M2 阶段 2 的副本验收由 WP8 沿用；WP-M1 最后一条在换新版时作为 WP8 迁移一项的实测；合并 WP-CL 时重录 4 个云端调用基线（单独提交）；WP7 在 WP-CL 合并后开，WP-UI 等 WP-M2 阶段 2 合并后开（2026-11-18） |
+| 93 | 合并 WP-M2 阶段 2 与 WP7 时：合不合并；CHANGELOG 记在哪个版本；WP7 多写的 4 条（可选转写引擎、日文轴只在本机、云端新格式需要更新、引擎启动时确定一次代理）；WP-H 之后录不到包进程的 `scripts/engine_packages_real_record.py` | 两个都合并；改成 `0.8.0`；都留；删掉脚本（都是推荐项或用户选项，2026-11-19） |
 
 更早的问答：WP-R0 的 D1–D23 见 R0 文档第 0 节；WP0 的细节见附录 A.1（已移到 `docs/transcription-engines-plan-done.md`）；沙箱实验中的决定见实验报告。
 

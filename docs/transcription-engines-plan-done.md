@@ -429,6 +429,33 @@ harness 已在 main（`tests/quality_harness/cloud.py`、`quality_gate.py --clou
   - 删掉桌面上两个 FineSub 包，同一个云端任务能出到原始字幕。
   - 一个改动前存下的旧结果，经 4.7 第 36 条的一次性转换后仍能在桌面上接着跑。
 
+### WP-M2 迁移的启动集成、续跑与回滚（已完成 2026-11-19）
+
+> 交付（附录 B 第 89–92 问；分两阶段、两个会话）：阶段 1 `6cf0129`（合并 `2b8faf0`），摘要见下面原始说明开头的引用段。阶段 2 `0cc3bcd`、`47cf323`（合并 `01ff48b`）：桌面迁移界面（调 `GET /v1/migration`，进度、结果、重试，`migrating` 503 不当成 sidecar 故障）；新步骤 `leftovers` 过了回滚点就删主数据目录里的 `*.pre-migration` 与整个 `finesub-data\`（含不认识的文件、含本机打不开的旧密钥的备份），删了什么写进报告；旧云端续跑请求的 `cloud_stable` 改写成 `cloud_transcript`（附件键 `finesub.stable_json`、`finesub.diar_json`，随回滚写回），转不成的列进报告。验收：真实安装的新副本上 17/17（设置与密钥读回、不认识的键进报告、16 个任务与 20 个文档照常打开、模型 kept 27 fetched 0、三层 ready、主数据目录除 `engines\` 外没有 FineSub 文件，没有例外），过程记在笔记目录 `wp-m2-delivery.md` 的「验收」一节，WP8 直接沿用；`--real` 按第 92 问移到 WP8。主会话复核：与 WP7 一起在 main 上试合并，pytest 1004 通过、`go test`、前端 typecheck 与测试、默认闸门通过，wails 绑定重新生成与提交一致。交回：WP-UI——桌面中继（`desktop/internal/cloud/relay.go` 的 `startRelayLocal`）遇到 503 `migrating` 当成 refused 失败，应按 sidecar 未就绪等待（已有 `sidecar.IsMigrating`）；WP8——改写后的续跑请求只验过 main 的校验器，挑一个改写过的任务点重试即可端到端；发版——`.nonoka-partial` 半截副本已写进 CHANGELOG。下面是原始说明。
+
+> 阶段 1（Python 核心）已于 2026-11-18 合进 main（`6cf0129`）：sidecar 启动时迁移，未完成时除 `GET /v1/migration`、`POST /v1/migration/retry` 外一律 503 `migrating`；知识库进 `engines\finesub-knowledge\knowledge\`、限流状态进 `engines\finesub-correct\state`；旧任务归位并转换；回滚、续跑、只迁一次；去掉 `bind_environment` 的自动迁移。用户决定见附录 B 第 89 问。阶段 2 还剩：桌面的迁移进度与结果显示、迁移完成后删掉没用的旧文件（第 89 问）、真实形态旧数据副本上的验收与 `--real`、前端测试。
+
+等 WP-E3、WP-R4、WP-R5、WP-R7、WP-P1、WP-L 把新布局定型再开工。必须和改布局的那几个包进同一个版本（发版约束）。知识库从主数据目录搬进纠错包的数据目录、旧任务目录里的 FineSub 产物归进私有附件目录，也在这里做（4.6 第 34 条）。
+
+- 文件：`src/nonoka_x/migration/**`（在 WP-M1 的基础上）、`tests/test_migration.py`，sidecar 启动段里调用它的地方，桌面上显示迁移进度和结果的地方。
+- 内容：
+  - 启动时、sidecar 打开任何数据之前调 WP-M1 的探测与执行。
+  - 设置和密钥调 `config/migrate.py` 读进 Nonoka 的存储，旧文件改名留作备份。
+  - **先删后下**：清空旧环境后由 WP-E3 下载新层；界面显示进度，说明下载完成之前 FineSub 转写不可用（云 API 引擎在工具层装好后即可用）；下载失败可以重试；用户关掉应用后下次启动接着下。
+  - 可中断可续：每一步写进迁移日志，中途断电或被杀，下次启动从断点接着做。设置、密钥、知识库、任务这几步失败就回滚到迁移前的样子并在界面上说明；**环境清空之后没有回滚**（旧环境已删），只能继续下载。
+  - 只迁一次：迁完写标记；新版本再也不读旧路径。
+- 完成标准：
+  - 拿一份真实形态的旧数据目录副本（含大文件根在另一个盘、有 Nonoka 不认识的配置键、多 key 池、本地 Agent 路由、做过的任务与知识库）迁移，迁完：Nonoka 认识的设置和密钥都读得回来，不认识的配置键出现在迁移报告里，任务和文档在界面里照常打开，模型没有重下（只补了缺的文件），三层就绪，`quality_gate.py --real` 通过。
+  - 迁移在每一步被杀掉后都能续上，设置与数据那几步能回滚，各有测试。
+  - 迁移后主数据目录里除 `engines\` 外没有 FineSub 相关的文件。
+
+### WP7 云端仓库与文档（已完成 2026-11-19）
+
+> 交付（附录 B 第 93 问）：`c4f190b`（合并 `c82364d`）。`docs/architecture.md` 重画（引擎层与纠错层、三个包、三层预制包与沙箱、主数据目录新布局）；`docs/provider-spec.md` 按代码更正（`migrating` 503 与 `/v1/migration`、`/v1/migration/retry`，`missing_engine` 改指引擎包没装，去掉代码里已没有的 `invalid_engine`，日文轴只在本机）；新增 `docs/transcription-engines.md`；`CHANGELOG.md` 写进未发版小节，用户定为 `0.8.0`、多写的 4 条保留（`442bd4e`）；清掉过时的 `third_party/finesub` 引用与来源注释。云端仓库没改，测试全过（Worker 156、`modal_compute` 171）。`scripts/engine_packages_real_record.py` 在 WP-H 之后录不到包进程，按用户决定删除（`442bd4e`）。交回：WP-UI——`engine_host.py` 的 `missing_harness` 提示仍写「运行环境」页；没装纠错包时云 API 引擎做 `raw-srt` 被 harness 档拦下（文档已按现状写成例外）。WP8——`scripts/build_layers.py stage` 过时（仍打印已失效的 `NONOKA_QUALITY_PYTHON`，搭 WP-E3 之前的安装根形状），`--real` 现在要含 `layers\<层>\current.json` 的大文件根；`desktop/docs/PLUGINS.md` 的阶段表没改。下面是原始说明。
+
+- 云端仓库：确认 `modal_compute/nonoka_x_compute/phases.py` 在 WP-B 之后仍调得通（它不传 `asr`，预期不用改）；云端测试全过。需要改时提交在 nonoka-sub-cloud 仓库；`test_source_contract.py` 钉了哈希的文件动了要一起更新。
+- 本仓库文档：`docs/architecture.md`（架构图加引擎层与纠错层，FineSub 画成两个可插拔部件，运行环境画成三层预制包与沙箱）、`docs/provider-spec.md`、新增 `docs/transcription-engines.md`、`CHANGELOG.md`（写明数据目录的新布局、迁移会清空旧环境并重新下载、关闭加速后变慢）。
+
 ## 附录 A 决定的来历
 
 ### A.1 时间线
