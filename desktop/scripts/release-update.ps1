@@ -1,4 +1,4 @@
-param(
+﻿param(
     [Parameter(Mandatory = $true)][ValidatePattern('^\d+\.\d+\.\d+$')][string]$Version,
     [ValidateSet("windows", "macos", "all")][string]$Platform = "windows",
     [ValidateSet("amd64", "arm64")][string]$Arch = "amd64",
@@ -38,7 +38,7 @@ Set-VersionInFile "frontend\package-lock.json" '(?m)^(  "version": ")[^"]+("\s*,
 Set-VersionInFile "frontend\package-lock.json" '("":\s*\{\s*"name":\s*"[^"]+",\s*"version":\s*")[^"]+(")' "`${1}$Version`${2}"
 Set-VersionInFile "internal\selfupdate\service.go" '(?m)^(const Version = ")[^"]+("\s*$)' "`${1}$Version`${2}"
 Set-VersionInFile "build\config.yml" '(?m)^  version: "[^"]+"\r?$' "  version: `"$Version`""
-Set-VersionInFile "build\windows\info.json" '("(?:file_version|product_version|ProductVersion)"\s*:\s*")[^"]+(")' "`${1}$Version`${2}" 2
+Set-VersionInFile "build\windows\info.json" '("(?:file_version|product_version|FileVersion|ProductVersion)"\s*:\s*")[^"]+(")' "`${1}$Version`${2}" 4
 Set-VersionInFile "build\windows\wails.exe.manifest" '(<assemblyIdentity\s+type="win32"\s+name="app\.nonoka\.desktop"\s+version=")[^"]+(")' "`${1}$Version`${2}"
 Set-VersionInFile "build\darwin\Info.plist" '(<key>CFBundle(?:ShortVersionString|Version)</key>\s*<string>)[^<]+(</string>)' "`${1}$Version`${2}" 2
 Set-VersionInFile "build\darwin\Info.dev.plist" '(<key>CFBundle(?:ShortVersionString|Version)</key>\s*<string>)[^<]+(</string>)' "`${1}$Version`${2}" 2
