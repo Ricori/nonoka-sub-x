@@ -432,6 +432,39 @@ def test_the_run_reports_which_input_it_used(lines_run: dict) -> None:
     assert stages == ["diarize", "raw-srt"]
 
 
+def test_empty_stable_outputs_empty_correction_and_skips_llm(tmp_path: Path) -> None:
+    """No-speech transcription (`segments: []`) succeeds with an empty `correction.json` and skips LLM."""
+
+    source = tmp_path / "silent.wav"
+    source.write_bytes(b"")
+    stable = tmp_path / "upstream" / "silent-stable.json"
+    stable.parent.mkdir()
+    stable.write_text(json.dumps({"segments": [], "metadata": {"asr_align": {"language": "ja", "audio_duration": 3.0}}}), encoding="utf-8")
+
+    class Recorder:
+        def __getattr__(self, _name: str):
+            return lambda *_args, **_kwargs: None
+
+    for target in ("raw-srt", "final-srt"):
+        task_dir = tmp_path / f"task-{target}"
+        logs: list[str] = []
+        job = {
+            "transcription": {"transcript_json": str(task_dir / "transcript.json"), "native": {engine.NATIVE_STABLE: str(stable)}, "metadata": {}},
+            "source": str(source), "target": target, "task_dir": str(task_dir), "options": {},
+            "knowledge": {"knowledge": "none"}, "diarization_level": "off", "title": "silent", "task_id": f"t-{target}", "task_summary": "",
+        }
+        with mock.patch("finesub.llm.correction_translation.run_correction_task", side_effect=AssertionError("LLM must not run on empty stable")):
+            result = engine.FineSubCorrection(Recorder(), log=logs.append).run(job)
+        assert "correction_error" not in result["metadata"]
+        correction_path = Path(result["artifacts"]["correction_json"])
+        assert json.loads(correction_path.read_text(encoding="utf-8")) == {
+            "schema": 1, "engine": "finesub", "mode": "stable", "lines": [],
+        }
+        assert Path(result["artifacts"]["raw_srt"]).is_file()
+        if target == "final-srt":
+            assert any("跳过 LLM" in line for line in logs)
+
+
 # --- a source-text axis -----------------------------------------------------------
 
 

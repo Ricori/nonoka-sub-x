@@ -364,11 +364,16 @@ class FineSubCorrection:
                 )
                 self._log("纠错输入：由 transcript.json 转成的 stable，说话人来自各行标签")
 
+            stage = job["target"]
+            if stage in LLM_TARGETS and _stable_is_empty(Path(paths.stable_json)):
+                self._log("识别结果为空，跳过 LLM 纠错翻译，输出空字幕")
+                stage = "raw-srt"
+
             paths = run_post_stable(
                 str(job["source"]),
                 speaker_source=speaker_source,
                 judge_audio=judge_audio,
-                stage=job["target"],
+                stage=stage,
                 **_post_stable_keywords(job, options, output),
             )
         artifacts = {name: path for name, path in _artifacts(paths, job).items() if path.is_file()}
@@ -389,6 +394,17 @@ class FineSubCorrection:
             "artifacts": {name: str(path) for name, path in artifacts.items()},
             "metadata": metadata,
         }
+
+
+def _stable_is_empty(path: Path) -> bool:
+    """Whether a stable JSON has an empty segments list (e.g. VAD found no speech)."""
+
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False
+    segments = payload.get("segments") if isinstance(payload, dict) else payload
+    return isinstance(segments, list) and not segments
 
 
 def _post_stable_keywords(job: Mapping[str, Any], options: Mapping[str, Any], output: Path) -> dict[str, Any]:

@@ -60,6 +60,11 @@ class ProjectorTests(unittest.TestCase):
             (3.0, 4.5, "第二句"),
         ])
 
+    def test_srt_parser_accepts_empty_text(self) -> None:
+        self.assertEqual(parse_srt(""), [])
+        self.assertEqual(parse_srt("\n"), [])
+        self.assertEqual(parse_srt("\ufeff  \r\n"), [])
+
     def test_srt_parser_still_rejects_files_without_any_timing(self) -> None:
         with self.assertRaisesRegex(ProjectionError, "has no timing lines"):
             parse_srt("1\n\n")
@@ -214,6 +219,66 @@ class ProjectorTests(unittest.TestCase):
         self.assertEqual(first["zh"], "早上好")
         self.assertEqual([word["word"] for word in first["words"]], ["おはよう", "ございます"])
         self.assertTrue(document["subtitles"][1]["low_conf"])
+
+    def test_empty_stable_projects_to_empty_subtitles(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            stable = root / "silent-stable.json"
+            stable.write_text(json.dumps({"segments": []}), encoding="utf-8")
+
+            document = project_edit_document(stable, video_id="video-1", title="Silent")
+            self.assertEqual(document["subtitles"], [])
+            self.assertEqual(document["projection"], {"schema": 1, "mode": "stable"})
+
+            annotated = root / "silent-annotated.csv"
+            annotated.write_text("# type|position|duration|gap|corrected|translation|conf|char_count|spk|note\n", encoding="utf-8")
+            final = root / "silent.srt"
+            final.write_text("\n", encoding="utf-8")
+            final_doc = project_edit_document(
+                stable, annotated_csv=annotated, final_srt=final, video_id="video-1", title="Silent"
+            )
+            self.assertEqual(final_doc["subtitles"], [])
+            self.assertEqual(final_doc["projection"], {"schema": 1, "mode": "final"})
+
+    def test_all_empty_translations_with_empty_final_srt_projects(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            stable = root / "filler-stable.json"
+            stable.write_text(json.dumps({"segments": [{"start": 1.0, "end": 1.4, "text": "呃"}]}), encoding="utf-8")
+            annotated = root / "filler-annotated.csv"
+            annotated.write_text(
+                "# type|position|duration|gap|corrected|translation|conf|char_count|spk|note\n"
+                "sub|1|0.4||呃||high|0||整行只有垫词\n",
+                encoding="utf-8",
+            )
+            final = root / "filler.srt"
+            final.write_text("\n", encoding="utf-8")
+            document = project_edit_document(
+                stable, annotated_csv=annotated, final_srt=final, video_id="video-1", title="Filler"
+            )
+            self.assertEqual(len(document["subtitles"]), 1)
+            self.assertEqual(document["subtitles"][0]["ja"], "呃")
+            self.assertEqual(document["subtitles"][0]["zh"], "")
+
+    def test_non_empty_annotated_with_empty_final_srt_still_refuses(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            empty_srt = Path(temp) / "empty.srt"
+            empty_srt.write_text("\n", encoding="utf-8")
+            with self.assertRaisesRegex(ProjectionError, "row counts differ"):
+                project_edit_document(
+                    FIXTURES / "sample-stable.json",
+                    annotated_csv=FIXTURES / "sample-annotated.csv",
+                    final_srt=empty_srt,
+                    video_id="video-1",
+                    title="Sample",
+                )
+
+    def test_stable_without_segments_list_still_refuses(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            bad = Path(temp) / "bad-stable.json"
+            bad.write_text(json.dumps({"segments": "not-a-list"}), encoding="utf-8")
+            with self.assertRaisesRegex(ProjectionError, "segments list"):
+                project_edit_document(bad, video_id="video-1", title="Bad")
 
     def test_row_count_mismatch_fails_instead_of_zipping(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

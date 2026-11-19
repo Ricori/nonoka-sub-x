@@ -105,6 +105,8 @@ def parse_srt(text: str) -> list[SrtCue]:
         if match:
             timings.append((line_index, match))
     if not timings:
+        if not (text or "").lstrip("\ufeff").strip():
+            return []
         raise ProjectionError("final SRT has no timing lines")
 
     cues: list[SrtCue] = []
@@ -263,9 +265,9 @@ def _load_stable(path: Path) -> tuple[list[dict[str, Any]], dict[str, dict[str, 
     except (OSError, json.JSONDecodeError) as exc:
         raise ProjectionError(f"cannot read stable JSON: {exc}") from exc
     segments = payload.get("segments") if isinstance(payload, dict) else payload
-    if not isinstance(segments, list) or not segments:
-        raise ProjectionError("stable JSON must contain a non-empty segments list")
-    if all(isinstance(segment, dict) for segment in segments):
+    if not isinstance(segments, list):
+        raise ProjectionError("stable JSON must contain a segments list")
+    if segments and all(isinstance(segment, dict) for segment in segments):
         # The engine's own reader: `-stable.json` with its `-diar-rows.json`
         # (labels, acoustic row splits) and what a speaker judge changed. These
         # are the lines the ids in annotated.csv count, `<id>b` and `<id>i` too.
