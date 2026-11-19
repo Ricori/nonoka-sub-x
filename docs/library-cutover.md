@@ -61,4 +61,43 @@
 ### 6. 收尾
 
 - 确认无误一段时间后（由用户定），再删 `library-backup/wp-l/` 前缀与第 2 步的本机副本。**这是永久删除用户数据，删之前问用户。**
-- 任务结果（`jobs/…`）不在本手册里：它们最多存 48 小时，格式由 WP-CL 换（计划 4.7 第 36 条）；WP-CL 往同一个脚本里加任务结果那一步之前，切换窗口里等未取的作业取完或过期。
+- 云端识别作业的结果见下一节，与媒体库在同一个发版里切换。
+
+## 云端识别作业的结果（WP-CL）
+
+计划 4.7 第 36 条。作业结果从 FineSub 的产物（`stable_json`、可选 `diar_json`）换成与本机转写引擎同形的结果：`transcript_json` 加不透明附件 `finesub.stable_json`、`finesub.diar_json`。**不留兼容期**：新 Worker 只收、只发新名字（旧名字的下载回 426，旧名字的 `/complete` 回 422），新桌面只读新名字、提交前检查 `artifact_schema == 2`，新 Modal 应用只交新名字。所以 Worker、Modal 应用、桌面三者要在同一个切换窗口里换，换之前不能有作业正在跑。
+
+脚本是 `python -m nonoka_x_compute.operations.job_convert`（下称「作业脚本」，同样在云端仓库的 `modal_compute\` 里、本机跑，只需要 nonoka-sub-x 检出里的转写包）。作业最多存 48 小时，线上通常只有几条。
+
+### J1. 停止接新作业，等在跑的作业结束
+
+和媒体库第 1 步同一个窗口：临时 WAF 规则再拦 `POST /v1/tasks`、`POST /v1/tasks/*/retry`、`POST /v1/tasks/*/resume`（回 503）。等 `GET /v1/admin/jobs` 里没有 `queued` / `running` 的作业（或取消它们）。
+
+校验：`作业脚本 survey` 的 `by_artifact_names` 只剩 `diar_json,stable_json`、`stable_json`、`(none)` 这几种。
+回退：删掉临时规则。
+
+### J2. 转换作业结果
+
+1. 副本（只读）：`作业脚本 copy --to <本机目录>`；在副本上 `作业脚本 convert --store <副本目录> --report <报告>`，退出码 0，再跑一遍全是 `already` / `no-result`。
+2. 线上：`作业脚本 convert --store live --dry-run --report <报告>`，`would-convert` 的条数等于副本的 `converted`；然后去掉 `--dry-run` 正式跑。每条作业：用转写包的 `transcript_json` 操作从存着的 stable 出 `transcript.json`（语言取作业请求；旧作业没有 `-vad.json`，`duration` 取最后一行的结束时间），放到同一个 `jobs/<owner>/<job>/<run>/` 下并读回核对，再按 `rev` 比较并写回 D1 行：`stable_json`→`finesub.stable_json`、`diar_json`→`finesub.diar_json`，**R2 原对象原地不动**，只改登记名，所以不需要备份前缀。
+
+校验：退出码 0；报告的 `verify_problems` 为空（每条都从存储读回、按记录的 sha256 与字节数核对、`transcript.json` 能被核心读入且记着附件 stable 的 sha256）；没有 `raced`（有就再跑一遍）。
+回退：`作业脚本 revert --store live --report <报告>`：登记名改回旧名，`transcript_json.transcript.json` 对象留着但不再登记（下次清扫随作业删）。
+
+### J3. 部署新 Modal 应用与新 Worker
+
+与媒体库第 3 步一起部署 Worker；Modal 应用按 `modal_compute/docs/compute.md` 部署（镜像只改了 `PYTHONPATH` 那一步 `.env`，其余层复用）。
+
+校验：用测试 Key 提交一条短音频：`/v1/tasks/<job>/artifacts` 列出 `transcript_json` 与 `finesub.stable_json`；`/artifacts/stable_json` 回 426。
+回退：`wrangler rollback` 回旧 Worker、Modal 回旧应用版本，再按 J2 的回退把作业改回旧名。
+
+### J4. 发布新桌面版
+
+与媒体库第 4 步是同一个发布（`minVersion` 强制升级）。新桌面上，旧版本已取回但还没在本机续跑的云端任务（中继目录里只有旧的 `stable.json`）会以 `cloud_result_outdated` 失败并退回云端段，重试会重新上传识别，票据保证不再扣次；已经建好本机续跑任务的，按本机任务自己的断点继续。
+
+### J5. 恢复接新作业
+
+删掉 J1 的临时规则。
+
+校验：新桌面提交一条云端任务，走到 `final-srt`。
+

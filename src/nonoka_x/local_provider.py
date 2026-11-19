@@ -77,7 +77,7 @@ TARGET_READINESS = {
     "translated-srt": ("raw-srt", "final-srt"),
     "final-srt": ("raw-srt", "final-srt"),
 }
-# The same, for a run that continues from a stable.json the cloud recognised.
+# The same, for a run that continues from the transcript.json the cloud recognised.
 # Nothing here transcribes, so none of it needs the ASR runtime: the raw SRT
 # is rendered by the harness alone, and the LLM stages add the model. A cloud
 # API engine clears these too, after its own `raw-srt` tier (its readiness:
@@ -528,7 +528,7 @@ def validate_request(value: Mapping[str, Any], *, engines: Mapping[str, Any] | N
     source = request.get("source")
     if not isinstance(source, dict) or source.get("kind") not in SOURCE_KINDS:
         raise ProviderError(
-            "invalid_source", "Local Provider requires source.kind=local_file or cloud_stable"
+            "invalid_source", "Local Provider requires source.kind=local_file or cloud_transcript"
         )
     path_value = source.get("path")
     if not isinstance(path_value, str) or not Path(path_value).is_absolute():
@@ -544,9 +544,9 @@ def validate_request(value: Mapping[str, Any], *, engines: Mapping[str, Any] | N
         raise ProviderError(
             "unsupported_target", "target must be one of: " + ", ".join(PIPELINE_TARGETS)
         )
-    continuation = source["kind"] == "cloud_stable"
+    continuation = source["kind"] == "cloud_transcript"
     if continuation:
-        _validate_cloud_stable(request)
+        _validate_cloud_transcript(request)
     # Whether a finished run turns into the editable subtitle document. The
     # default is the app's own behaviour and the reason this is a field at all
     # is the other value: projection replaces the video's default document, so
@@ -646,13 +646,6 @@ def validate_request(value: Mapping[str, Any], *, engines: Mapping[str, Any] | N
     diarization = normalize_diarization(
         request.get("diarization"), target=request["target"], has_axis="axis" in request
     )
-    if continuation and "diar_json" not in request["source"]:
-        # The cloud wrote its acoustic labels onto the stable.json, and those
-        # render as they are. With no speaker timeline beside it the judge
-        # levels have nothing to judge, and asking for them again would only
-        # rerun the acoustic stage, which needs the ASR runtime. With one, the
-        # engine reuses it and the level runs as it does after a local run.
-        diarization = None
     if diarization is None:
         request.pop("diarization", None)
     else:
@@ -679,6 +672,12 @@ def _normalize_transcription(request: dict[str, Any], specs: Mapping[str, Any]) 
         options = block.get("options")
         if options is not None and not isinstance(options, dict):
             raise ProviderError("invalid_request", "transcription.options must be an object")
+    if engine_id == DEFAULT_ENGINE and request["source"]["kind"] == "cloud_transcript":
+        # The cloud's FineSub transcribed; nothing transcribes here, so the
+        # engine need not be installed (WP-CL: a cloud task reaches its raw
+        # SRT with no FineSub package). Installed, it would change nothing:
+        # FineSub takes every level and language and drops no field.
+        return
     spec = specs.get(engine_id)
     if spec is None:
         raise ProviderError(
@@ -688,10 +687,10 @@ def _normalize_transcription(request: dict[str, Any], specs: Mapping[str, Any]) 
     if engine_id != DEFAULT_ENGINE:
         # Both replace recognition: the cloud's FineSub made the one, the user
         # brought the other. Another engine would have nothing to transcribe.
-        if request["source"]["kind"] == "cloud_stable":
+        if request["source"]["kind"] == "cloud_transcript":
             raise ProviderError(
                 "invalid_request",
-                f"a cloud_stable source continues the cloud's recognition; it cannot run on {engine_id}",
+                f"a cloud_transcript source continues the cloud's recognition; it cannot run on {engine_id}",
             )
         if "axis" in request:
             raise ProviderError(
@@ -730,59 +729,74 @@ def _normalize_transcription(request: dict[str, Any], specs: Mapping[str, Any]) 
 
 
 #: Where a task's input comes from. `local_file` is media this machine
-#: recognises itself; `cloud_stable` is media the cloud has already recognised,
-#: delivered as the stable.json the run continues from.
-SOURCE_KINDS = ("local_file", "cloud_stable")
+#: recognises itself; `cloud_transcript` is media the cloud has already
+#: recognised, delivered as a transcription engine delivers its result: the
+#: `transcript.json` the run continues from and the engine package's own files
+#: as opaque attachments (plan 4.7 item 36).
+SOURCE_KINDS = ("local_file", "cloud_transcript")
 #: A cloud job stops at stable, so these are what is left to run here.
 CONTINUATION_TARGETS = ("raw-srt", "translated-srt", "final-srt")
 
 
-def _validate_cloud_stable(request: dict[str, Any]) -> None:
+def _absolute_file(value: Any, field_name: str) -> Path:
+    if not isinstance(value, str) or not Path(value).is_absolute():
+        raise ProviderError("invalid_source", f"{field_name} must be an absolute path")
+    path = Path(value).expanduser().resolve()
+    if not path.is_file():
+        raise ProviderError("source_not_found", f"{field_name} does not exist: {path}")
+    return path
+
+
+def _validate_cloud_transcript(request: dict[str, Any]) -> None:
     """Check what a continuation carries beyond a local run's fields.
 
     `source.path` is still the media -- the correction cuts audio and video
     clips from it, and the editor draws its waveform -- and was checked with
-    every other source. What is new is `source.stable_json`, the cloud's
-    recognition, which the worker seeds into the task's workspace so the
-    engine resumes from it instead of transcribing -- and, when the cloud ran
-    diarization, `source.diar_json`, its speaker timeline, seeded the same way.
+    every other source. What is new is the cloud's recognition, in the shape a
+    transcription engine hands its result over in (plan 5.1):
+
+    - `source.transcript_json`: Nonoka's `transcript.json`, read here with the
+      core's own reader, which the run continues from;
+    - `source.native`: the engine package's own files, by `native` key
+      (`<engine>.<name>`), opaque: checked to be files and nothing more. The
+      worker registers them as that package's private attachments of the task
+      and the correction decides what to do with them;
+    - `source.native_package`: the package whose files they are, the name of
+      their directory in the task (plan 4.6 item 34). Required with any.
     """
+
+    from .transcription.model import TranscriptError, read_transcript
 
     source = request["source"]
     if request["target"] not in CONTINUATION_TARGETS:
         raise ProviderError(
             "unsupported_target",
-            "a cloud_stable source continues to one of: " + ", ".join(CONTINUATION_TARGETS),
+            "a cloud_transcript source continues to one of: " + ", ".join(CONTINUATION_TARGETS),
         )
-    value = source.get("stable_json")
-    if not isinstance(value, str) or not Path(value).is_absolute():
-        raise ProviderError("invalid_source", "source.stable_json must be an absolute path")
-    stable_path = Path(value).expanduser().resolve()
+    transcript = _absolute_file(source.get("transcript_json"), "source.transcript_json")
     try:
-        document = json.loads(stable_path.read_text(encoding="utf-8"))
-    except FileNotFoundError as exc:
-        raise ProviderError("source_not_found", f"stable.json does not exist: {stable_path}") from exc
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise ProviderError("invalid_source", f"stable.json is unreadable: {exc}") from exc
-    if not isinstance(document, dict) or not isinstance(document.get("segments"), list):
-        raise ProviderError("invalid_source", "stable.json has no segments list")
-    source["stable_json"] = str(stable_path)
-    timeline = source.get("diar_json")
-    if timeline is None:
-        source.pop("diar_json", None)
-        return
-    if not isinstance(timeline, str) or not Path(timeline).is_absolute():
-        raise ProviderError("invalid_source", "source.diar_json must be an absolute path")
-    timeline_path = Path(timeline).expanduser().resolve()
-    try:
-        document = json.loads(timeline_path.read_text(encoding="utf-8"))
-    except FileNotFoundError as exc:
-        raise ProviderError("source_not_found", f"diar.json does not exist: {timeline_path}") from exc
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise ProviderError("invalid_source", f"diar.json is unreadable: {exc}") from exc
-    if not isinstance(document, dict):
-        raise ProviderError("invalid_source", "diar.json is not a speaker timeline")
-    source["diar_json"] = str(timeline_path)
+        read_transcript(transcript)
+    except (OSError, UnicodeDecodeError, ValueError, TranscriptError) as exc:
+        raise ProviderError("invalid_source", f"transcript.json is unreadable: {exc}") from exc
+    source["transcript_json"] = str(transcript)
+    native = source.get("native", {})
+    if not isinstance(native, dict):
+        raise ProviderError("invalid_source", "source.native must be an object")
+    checked: dict[str, str] = {}
+    for key, value in native.items():
+        engine, _, name = str(key).partition(".")
+        # Each part a safe file name: the key is the attachment's name in the task.
+        if not _safe_component(engine) or not _safe_component(name):
+            raise ProviderError("invalid_source", f"source.native key {key!r} is not <engine>.<name>")
+        checked[str(key)] = str(_absolute_file(value, f"source.native[{key!r}]"))
+    package = source.get("native_package")
+    if checked and (not isinstance(package, str) or not package or not _safe_component(package)):
+        raise ProviderError("invalid_source", "source.native_package must name the package the attachments are of")
+    if checked:
+        source["native"] = checked
+    else:
+        source.pop("native", None)
+        source.pop("native_package", None)
 
 
 # FineSub's `stages.DIARIZE_LEVELS`, restated for the same reason as
@@ -923,6 +937,12 @@ def _read_line_with_timeout(process: subprocess.Popen[str], timeout: float) -> s
     if reader.is_alive():
         return None
     return received[0] if received else ""
+
+
+def _core_renders_raw_srt(request: Mapping[str, Any], packages: Mapping[str, Any]) -> bool:
+    from .worker import core_renders_raw_srt
+
+    return core_renders_raw_srt(request, packages)
 
 
 def _safe_component(value: str) -> bool:
@@ -1313,8 +1333,12 @@ class LocalProvider:
             # A cloud API engine transcribes here, but with nothing of the ASR
             # stack: its own readiness (the `raw-srt` tier, keys included),
             # then the continuation's tiers.
-            if validated["source"]["kind"] == "cloud_stable" or "axis" in validated:
+            if validated["source"]["kind"] == "cloud_transcript" or "axis" in validated:
                 readiness = CONTINUATION_READINESS[validated["target"]]
+                if "axis" not in validated and _core_renders_raw_srt(validated, self.packages()):
+                    # Nothing of the correction runs: the core renders the
+                    # raw SRT from the cloud's transcript.json itself.
+                    readiness = ()
             elif specs[engine_id].kind == "local-gpu":
                 readiness = TARGET_READINESS[validated["target"]]
             else:

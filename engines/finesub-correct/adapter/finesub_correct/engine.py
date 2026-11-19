@@ -208,6 +208,25 @@ def write_stable(payload: Mapping[str, Any], path: Path) -> Path:
     return path
 
 
+def diarization_level(job: Mapping[str, Any]) -> str:
+    """The speaker diarization this job runs: the request's, unless the stable came without its timeline.
+
+    A FineSub stable handed over without the speaker timeline it was labelled
+    from -- the cloud's, when that job did not diarize -- renders with the
+    labels it carries. The judge levels would have nothing to judge, and
+    asking for the acoustic stage again would rerun it on a vocal track that is
+    not here, so the level is off. (Until WP-CL the core dropped the request's
+    `diarization` for such a cloud continuation; the timeline is this
+    package's file, so the rule is too.)
+    """
+
+    level = str(job.get("diarization_level") or "off")
+    native = (job.get("transcription") or {}).get("native") or {}
+    if native.get(NATIVE_STABLE) and not native.get(NATIVE_DIAR):
+        return "off"
+    return level
+
+
 def speakers_for(native: Mapping[str, Any]) -> tuple[str, str]:
     """`run_post_stable`'s `(speaker_source, judge_audio)` for this input."""
 
@@ -335,7 +354,7 @@ class FineSubCorrection:
                 # A transcription that labelled the lines itself (FineSub's, here)
                 # did this already in this run; asking again would only announce
                 # the stage a second time as reused.
-                level = str(job.get("diarization_level") or "off")
+                level = diarization_level(job)
                 if level != "off" and Path(paths.diar_json).exists() and not native.get(NATIVE_DIAR_ROWS):
                     _label_rows_from_timeline(paths, level)
             else:
@@ -396,7 +415,7 @@ def _post_stable_keywords(job: Mapping[str, Any], options: Mapping[str, Any], ou
         # The editor builds its own speaker tracks from the speaker labels,
         # so the engine's per-speaker exports stay off.
         "speaker_tracks": "off",
-        "diarize": str(job.get("diarization_level") or "off"),
+        "diarize": diarization_level(job),
         # Passed only when there is something to pin, so a run without
         # subjects calls the engine with exactly upstream's arguments.
         **({"knowledge_subjects": subjects} if subjects else {}),

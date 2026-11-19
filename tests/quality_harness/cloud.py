@@ -729,10 +729,27 @@ def compare_runs(first: Path, second: Path) -> dict[str, Any]:
 # --- structure and statistics (plan section 0.1, rule 3) ---------------------------
 
 
-#: What a desktop continuation receives from a cloud task: the key the scheduler
-#: hands back under (`summary.json` `handed_back`), and the engine file name the
-#: desktop seeds it as (`nonoka_x.worker.seed_cloud_stable`).
-HANDED_BACK = {"stable_json": "subtitle-stable.json", "diar_json": "subtitle-diar.json"}
+#: What a desktop continuation receives from a cloud task (WP-CL, plan 4.7 item
+#: 36): the attachments, by the key the scheduler hands each back under
+#: (`summary.json` `handed_back`), and the file of the captured working tree
+#: each one is, byte for byte; besides them `transcript_json`, projected from
+#: the stable outside that tree.
+HANDED_BACK = {"finesub.stable_json": "subtitle-stable.json", "finesub.diar_json": "subtitle-diar.json"}
+TRANSCRIPT_HANDED_BACK = "transcript_json"
+#: A run recorded before WP-CL handed back the same files under these names,
+#: and no transcript (the baselines under `test_data/` are from then and are not
+#: re-recorded). Read through the rename, such a run is held to the contract as
+#: it is now: every file it handed back must come back under its new name, and
+#: the transcript every result has besides.
+RECORDED_NAMES = {"stable_json": "finesub.stable_json", "diar_json": "finesub.diar_json"}
+
+
+def contract_names(handed_back: list[str]) -> list[str]:
+    """`handed_back` in the result contract's names: a run recorded before WP-CL read through the rename."""
+
+    if not set(handed_back) & set(RECORDED_NAMES):
+        return sorted(handed_back)
+    return sorted({RECORDED_NAMES.get(name, name) for name in handed_back} | {TRANSCRIPT_HANDED_BACK})
 
 
 @dataclass(frozen=True)
@@ -823,15 +840,62 @@ def _format_problems(path: Path) -> list[str]:
     return []
 
 
-def _desktop_reading(run_dir: Path, handed_back: list[str]) -> tuple[dict[str, Any], list[str]]:
-    """Read what was handed back the way the desktop's correction half reads it.
+def _handed_back_payload(run_dir: Path) -> dict[str, str] | None:
+    """What the scheduler handed back, as sent (`run.json`), or None for a run recorded before WP-CL."""
 
-    The desktop gets only the handed-back files, seeded under the engine's
-    names (`seed_cloud_stable`); the locked engine's own readers then load the
-    stable's rows (`subtitles.stable_rows.read_rows`), the lines the correction
-    reads (`llm.chunking.load_product_segments`) and the speaker timeline
-    (`speech.diarization.stage.read_timeline`). All three are standard library
-    only, so they run in the gate's interpreter.
+    path = run_dir / "run.json"
+    if not path.is_file():
+        return None
+    completed = (json.loads(path.read_text(encoding="utf-8")).get("raw") or {}).get("completed") or {}
+    artifacts = completed.get("artifacts")
+    return artifacts if isinstance(artifacts, dict) and TRANSCRIPT_HANDED_BACK in artifacts else None
+
+
+def _transcript_reading(run_dir: Path, payload: dict[str, str]) -> tuple[dict[str, Any], list[str]]:
+    """The handed-back transcript as the desktop's core reads it, and what proves where it came from.
+
+    It must parse with the core's own reader (`nonoka_x.transcription.model`,
+    standard library only); record the sha256 of the handed-back stable, so it
+    was projected from that attachment; and have one line per stable segment.
+    Each attachment must be its working-tree file byte for byte.
+    """
+
+    facts: dict[str, Any] = {}
+    problems: list[str] = []
+    for key, name in HANDED_BACK.items():
+        if key in payload and (run_dir / "artifacts" / name).is_file():
+            if payload[key].encode("utf-8") != (run_dir / "artifacts" / name).read_bytes():
+                problems.append(f"handed back {key!r}, which is not {name} byte for byte")
+    if str(ROOT / "src") not in sys.path:
+        sys.path.insert(0, str(ROOT / "src"))
+    from nonoka_x.transcription.model import parse_transcript
+
+    try:
+        document = parse_transcript(payload[TRANSCRIPT_HANDED_BACK])
+    except Exception as error:  # noqa: BLE001 - an unreadable transcript is the finding
+        return facts, [*problems, f"the core cannot read the transcript: {type(error).__name__}: {error}"]
+    facts["transcript_lines"] = len(document.lines)
+    stable = payload.get("finesub.stable_json")
+    if stable is not None:
+        digest = hashlib.sha256(stable.encode("utf-8")).hexdigest()
+        if (document.metadata or {}).get("sha256") != digest:
+            problems.append("the transcript does not record the handed-back stable's sha256")
+        segments = json.loads(stable).get("segments") or []
+        if len(document.lines) != len(segments):
+            problems.append(f"the transcript has {len(document.lines)} lines for {len(segments)} stable segments")
+    return facts, problems
+
+
+def _desktop_reading(run_dir: Path, handed_back: list[str]) -> tuple[dict[str, Any], list[str]]:
+    """Read what was handed back the way the desktop reads it.
+
+    The transcript (a run from WP-CL on) the way the core reads it
+    (`_transcript_reading`). The attachments the way the correction package
+    reads them: placed under the engine's names, the locked engine's own
+    readers then load the stable's rows (`subtitles.stable_rows.read_rows`),
+    the lines the correction reads (`llm.chunking.load_product_segments`) and
+    the speaker timeline (`speech.diarization.stage.read_timeline`). All are
+    standard library only, so they run in the gate's interpreter.
     """
 
     from . import union
@@ -839,8 +903,17 @@ def _desktop_reading(run_dir: Path, handed_back: list[str]) -> tuple[dict[str, A
     union.install()
     facts: dict[str, Any] = {}
     problems: list[str] = []
+    payload = _handed_back_payload(run_dir)
+    if payload is not None:
+        transcript_facts, transcript_problems = _transcript_reading(run_dir, payload)
+        facts.update(transcript_facts)
+        problems += transcript_problems
     with tempfile.TemporaryDirectory(prefix="nonoka-quality-cloud-read-") as seeded:
         for key in handed_back:
+            if key == TRANSCRIPT_HANDED_BACK:
+                if payload is None and not set(RECORDED_NAMES) & set(_recorded_handed_back(run_dir)):
+                    problems.append("handed back a transcript, but run.json does not carry it")
+                continue
             name = HANDED_BACK.get(key)
             if name is None:
                 problems.append(f"handed back {key!r}, which the desktop does not seed")
@@ -848,7 +921,7 @@ def _desktop_reading(run_dir: Path, handed_back: list[str]) -> tuple[dict[str, A
                 problems.append(f"handed back {key!r}, but {name} was not captured")
             else:
                 shutil.copyfile(run_dir / "artifacts" / name, Path(seeded) / name)
-        stable = Path(seeded) / HANDED_BACK["stable_json"]
+        stable = Path(seeded) / HANDED_BACK["finesub.stable_json"]
         if stable.is_file():
             try:
                 from finesub.llm.chunking import load_product_segments
@@ -861,7 +934,7 @@ def _desktop_reading(run_dir: Path, handed_back: list[str]) -> tuple[dict[str, A
                     problems.append("the correction half reads no lines from the stable")
             except Exception as error:  # noqa: BLE001 - an unreadable stable is the finding
                 problems.append(f"the correction half cannot read the stable: {type(error).__name__}: {error}")
-        diar = Path(seeded) / HANDED_BACK["diar_json"]
+        diar = Path(seeded) / HANDED_BACK["finesub.diar_json"]
         if diar.is_file():
             try:
                 from finesub.speech.diarization.stage import read_timeline
@@ -873,6 +946,11 @@ def _desktop_reading(run_dir: Path, handed_back: list[str]) -> tuple[dict[str, A
             except Exception as error:  # noqa: BLE001
                 problems.append(f"the desktop cannot read the speaker timeline: {type(error).__name__}: {error}")
     return facts, problems
+
+
+def _recorded_handed_back(run_dir: Path) -> list[str]:
+    path = run_dir / "summary.json"
+    return list((json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}).get("handed_back") or [])
 
 
 def _stable_lines(stable: Any) -> tuple[list[dict[str, Any]], list[str]]:
@@ -927,7 +1005,7 @@ def run_statistics(run_dir: Path) -> dict[str, Any]:
     request_path = run_dir / "request.json"
     request = json.loads(request_path.read_text(encoding="utf-8")) if request_path.is_file() else {}
     problems = [problem for name in names for problem in _format_problems(folder / name)]
-    handed_back = sorted(summary.get("handed_back") or [])
+    handed_back = contract_names(list(summary.get("handed_back") or []))
     reading, reading_problems = _desktop_reading(run_dir, handed_back)
     problems += reading_problems
     stats: dict[str, Any] = {
@@ -936,7 +1014,7 @@ def run_statistics(run_dir: Path) -> dict[str, Any]:
         "reading": reading,
         "audio_sec": (request.get("source") or {}).get("duration"),
     }
-    stable_path = folder / HANDED_BACK["stable_json"]
+    stable_path = folder / HANDED_BACK["finesub.stable_json"]
     lines: list[dict[str, Any]] = []
     if stable_path.is_file() and not _format_problems(stable_path):
         lines, shape = _stable_lines(json.loads(stable_path.read_text(encoding="utf-8")))
@@ -950,7 +1028,7 @@ def run_statistics(run_dir: Path) -> dict[str, Any]:
     stats["covered_sec"] = round(_covered_seconds(lines), 3)
     stats["coverage"] = (round(stats["covered_sec"] / stats["audio_sec"], 6)
                          if lines and stats["audio_sec"] else None)
-    diar_path = folder / HANDED_BACK["diar_json"]
+    diar_path = folder / HANDED_BACK["finesub.diar_json"]
     if diar_path.is_file() and not _format_problems(diar_path):
         tracks = json.loads(diar_path.read_text(encoding="utf-8")).get("tracks") or []
         stats["speakers"] = len({track.get("track") for track in tracks if isinstance(track, dict)})

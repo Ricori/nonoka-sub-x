@@ -106,6 +106,35 @@ AXIS = {
 }
 
 
+#: A cloud recognition as the desktop hands it to the core (WP-CL): the cloud's
+#: `transcript.json` and the transcription package's stable (and timeline) as
+#: its opaque attachments.
+CLOUD_SOURCE = {
+    "kind": "cloud_transcript",
+    "transcript_json": "$CLOUD_TRANSCRIPT",
+    "native": {"finesub.stable_json": "$CLOUD_STABLE"},
+    "native_package": "finesub-transcribe",
+}
+CLOUD_SOURCE_WITH_TIMELINE = {
+    **CLOUD_SOURCE,
+    "native": {"finesub.stable_json": "$CLOUD_STABLE", "finesub.diar_json": "$CLOUD_DIAR"},
+}
+
+
+def write_cloud_transcript(stable: Path, path: Path) -> None:
+    """The cloud's `transcript.json` of `stable`: what its CPU leg writes, the transcription package's projection."""
+
+    import importlib.util
+
+    module = ROOT / "engines" / "finesub-transcribe" / "adapter" / "finesub_transcribe" / "engine.py"
+    spec = importlib.util.spec_from_file_location("quality_cloud_transcript", module)
+    engine = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    sys.modules[spec.name] = engine  # its dataclasses look their module up
+    spec.loader.exec_module(engine)
+    engine.write_transcript(engine.project_transcript(stable, stage="stable", language="ja"), path)
+
+
 def _scenario(target: str, *, settings: str = "compat", setup: Iterable[str] = (), **fields: Any) -> dict[str, Any]:
     request = copy.deepcopy(BASE_REQUEST)
     request["target"] = target
@@ -227,21 +256,21 @@ SCENARIOS: dict[str, dict[str, Any]] = {
     # -- continuing a cloud recognition
     "cloud-raw-srt-no-timeline": _scenario(
         "raw-srt",
-        source={"kind": "cloud_stable", "stable_json": "$CLOUD_STABLE"},
+        source=CLOUD_SOURCE,
         diarization={"level": "acoustics"},
         knowledge="none",
     ),
     "cloud-raw-srt-timeline-acoustics": _scenario(
         "raw-srt",
         setup=["cloud_diar"],
-        source={"kind": "cloud_stable", "stable_json": "$CLOUD_STABLE", "diar_json": "$CLOUD_DIAR"},
+        source=CLOUD_SOURCE_WITH_TIMELINE,
         diarization={"level": "acoustics", "max_speakers": 4},
         knowledge="none",
     ),
     "cloud-final-srt-timeline-judge-audio": _scenario(
         "final-srt",
         setup=["cloud_diar"],
-        source={"kind": "cloud_stable", "stable_json": "$CLOUD_STABLE", "diar_json": "$CLOUD_DIAR"},
+        source=CLOUD_SOURCE_WITH_TIMELINE,
         diarization={"level": "judge-audio"},
         knowledge="update",
         knowledge_subjects=[SUBJECT_NEW],
@@ -250,7 +279,7 @@ SCENARIOS: dict[str, dict[str, Any]] = {
     ),
     "cloud-translated-srt-zh-update": _scenario(
         "translated-srt",
-        source={"kind": "cloud_stable", "stable_json": "$CLOUD_STABLE"},
+        source=CLOUD_SOURCE,
         language="zh",
         knowledge="update",
         knowledge_subjects=[SUBJECT_NEW],
@@ -430,6 +459,7 @@ def child_main(spec_path: Path) -> int:
         "$MEDIA": str(root / "media" / "节目.m4a"),
         "$VIDEO": str(root / "media" / "视频节目.mp4"),
         "$CLOUD_STABLE": str(root / "cloud" / "cloud.stable.json"),
+        "$CLOUD_TRANSCRIPT": str(root / "cloud" / "cloud.transcript.json"),
         "$CLOUD_DIAR": str(root / "cloud" / "cloud.diar.json"),
     }
     if "subject" in spec["setup"]:
@@ -600,6 +630,7 @@ def run_scenario(
     (root / "media" / "节目.m4a").write_bytes(b"quality-gate audio placeholder")
     (root / "media" / "视频节目.mp4").write_bytes(b"quality-gate video placeholder")
     shutil.copyfile(STABLE_FIXTURE, root / "cloud" / "cloud.stable.json")
+    write_cloud_transcript(root / "cloud" / "cloud.stable.json", root / "cloud" / "cloud.transcript.json")
     spec = {**scenario, "root": str(root), "out": str(root / "record.json")}
     if audit is not None:
         spec["audit"] = str(audit)

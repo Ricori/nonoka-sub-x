@@ -56,10 +56,11 @@ class CallEquivalenceTests(unittest.TestCase):
         self.assertTrue({'"none"', '"read"', '"update"', "null"} <= seen("knowledge"))
         self.assertTrue(any(request.get("knowledge_subjects") for request in requests))
         kinds = [request["source"].get("kind") for request in requests]
-        self.assertIn("cloud_stable", kinds)
-        self.assertTrue(any("diar_json" in request["source"] for request in requests))
-        self.assertTrue(any(request["source"].get("kind") == "cloud_stable" and "diar_json" not in request["source"]
-                            for request in requests))
+        self.assertIn("cloud_transcript", kinds)
+        native = [request["source"].get("native") or {} for request in requests
+                  if request["source"].get("kind") == "cloud_transcript"]
+        self.assertTrue(any("finesub.diar_json" in attachments for attachments in native))
+        self.assertTrue(any("finesub.diar_json" not in attachments for attachments in native))
         self.assertTrue(any(request.get("axis") for request in requests))
 
     def test_algorithm_entry_points_receive_the_baseline_arguments(self) -> None:

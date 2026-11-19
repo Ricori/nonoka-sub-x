@@ -21,10 +21,12 @@ import (
 )
 
 const relayStable = `{"segments":[{"id":1,"start":0,"end":1,"text":"fixture"}]}`
+const relayTranscript = `{"schema":1,"engine":"finesub","language":"ja","duration":1,"lines":[{"id":"1","start":0,"end":1,"text":"fixture"}]}`
 const relayLocalTask = "fedcba9876543210fedcba9876543210"
 
 // relayBackend is the cloud as a relay sees it: one upload, jobs that queue,
-// run and complete, a published stable.json, and the DELETE that collects it.
+// run and complete, a published result (transcript.json and the stable as an
+// attachment), and the DELETE that collects it.
 type relayBackend struct {
 	t       *testing.T
 	mu      sync.Mutex
@@ -32,16 +34,18 @@ type relayBackend struct {
 	jobs    []string
 	polls   map[string]int
 	missing map[string]bool
-	// The digest the manifest publishes; empty means the true one.
+	// The digest the manifest publishes for transcript.json; empty means the true one.
 	digest string
-	// The speaker timeline a diarized job publishes beside stable.json, and
-	// the digest for it; no diar means a job that ran no diarization.
+	// The speaker timeline a diarized job attaches, and the digest for it; no
+	// diar means a job that ran no diarization.
 	diar       string
 	diarDigest string
-	submitted  []map[string]any
-	deleted    []string
-	cancelled  []string
-	retried    []string
+	// The result format `/v1/capabilities` declares; 0 means the current one.
+	artifactSchema int
+	submitted      []map[string]any
+	deleted        []string
+	cancelled      []string
+	retried        []string
 }
 
 func newRelayBackend(t *testing.T) *relayBackend {
@@ -68,6 +72,13 @@ func (b *relayBackend) serve(writer http.ResponseWriter, request *http.Request) 
 	switch {
 	case path == "/v1/session":
 		_, _ = writer.Write([]byte(`{"authenticated":true,"remaining":2,"running":0}`))
+		return
+	case path == "/v1/capabilities":
+		schema := b.artifactSchema
+		if schema == 0 {
+			schema = cloudArtifactSchema
+		}
+		_, _ = fmt.Fprintf(writer, `{"provider":"cloud","artifact_schema":%d,"features":{}}`, schema)
 		return
 	case path == "/v1/uploads/init":
 		_, _ = writer.Write([]byte(`{"objectId":"upl_0123456789abcdef0123456789abcdef","uploadUrl":"` + b.server.URL + `/upload","contentType":"audio/mp4"}`))
@@ -116,26 +127,26 @@ func (b *relayBackend) serve(writer http.ResponseWriter, request *http.Request) 
 		}
 		_, _ = writer.Write([]byte(`{"schema":1,"task_id":"` + job + `","events":[` + strings.Join(page, ",") + `]}`))
 	case request.Method == http.MethodGet && suffix == "/artifacts":
-		digest := b.digest
-		if digest == "" {
-			sum := sha256.Sum256([]byte(relayStable))
-			digest = hex.EncodeToString(sum[:])
-		}
-		diar := ""
-		if b.diar != "" {
-			diarDigest := b.diarDigest
-			if diarDigest == "" {
-				sum := sha256.Sum256([]byte(b.diar))
-				diarDigest = hex.EncodeToString(sum[:])
+		entry := func(name, content, digest string) string {
+			if digest == "" {
+				sum := sha256.Sum256([]byte(content))
+				digest = hex.EncodeToString(sum[:])
 			}
-			diar = fmt.Sprintf(`,"diar_json":{"uri":"/v1/tasks/%s/artifacts/diar_json","sha256":"%s","bytes":%d}`, job, diarDigest, len(b.diar))
+			return fmt.Sprintf(`"%s":{"uri":"/v1/tasks/%s/artifacts/%s","sha256":"%s","bytes":%d}`, name, job, name, digest, len(content))
+		}
+		entries := []string{entry("transcript_json", relayTranscript, b.digest), entry("finesub.stable_json", relayStable, "")}
+		if b.diar != "" {
+			entries = append(entries, entry("finesub.diar_json", b.diar, b.diarDigest))
 		}
 		// An artifact this desktop does not know rides along too: newer
 		// manifests may carry more than it reads.
-		_, _ = fmt.Fprintf(writer, `{"schema":1,"task_id":"%s","engine_commit":"cloud","artifacts":{"stable_json":{"uri":"/v1/tasks/%s/artifacts/stable_json","sha256":"%s","bytes":%d}%s,"future_json":{"uri":"/v1/tasks/%s/artifacts/future_json","sha256":"%s","bytes":1}}}`, job, job, digest, len(relayStable), diar, job, strings.Repeat("0", 64))
-	case request.Method == http.MethodGet && suffix == "/artifacts/stable_json":
+		entries = append(entries, fmt.Sprintf(`"future_json":{"uri":"/v1/tasks/%s/artifacts/future_json","sha256":"%s","bytes":1}`, job, strings.Repeat("0", 64)))
+		_, _ = fmt.Fprintf(writer, `{"schema":1,"task_id":"%s","engine_commit":"cloud","artifacts":{%s}}`, job, strings.Join(entries, ","))
+	case request.Method == http.MethodGet && suffix == "/artifacts/transcript_json":
+		_, _ = writer.Write([]byte(relayTranscript))
+	case request.Method == http.MethodGet && suffix == "/artifacts/finesub.stable_json":
 		_, _ = writer.Write([]byte(relayStable))
-	case request.Method == http.MethodGet && suffix == "/artifacts/diar_json" && b.diar != "":
+	case request.Method == http.MethodGet && suffix == "/artifacts/finesub.diar_json" && b.diar != "":
 		_, _ = writer.Write([]byte(b.diar))
 	case request.Method == http.MethodDelete && suffix == "":
 		b.deleted = append(b.deleted, job)
@@ -167,14 +178,15 @@ func (b *relayBackend) snapshot() (submitted []map[string]any, deleted, cancelle
 
 // relayLocal is the sidecar as the local leg sees it.
 type relayLocal struct {
-	mu       sync.Mutex
-	started  []map[string]any
-	stable   string
-	diar     string
-	refusal  error
-	state    string
-	actions  []string
-	syncRead bool
+	mu         sync.Mutex
+	started    []map[string]any
+	transcript string
+	stable     string
+	diar       string
+	refusal    error
+	state      string
+	actions    []string
+	syncRead   bool
 }
 
 func (p *relayLocal) DoJSON(_ context.Context, method, endpoint string, body any, result any) error {
@@ -192,17 +204,20 @@ func (p *relayLocal) DoJSON(_ context.Context, method, endpoint string, body any
 		request := body.(map[string]any)
 		p.started = append(p.started, request)
 		source := request["source"].(map[string]any)
-		data, err := os.ReadFile(source["stable_json"].(string))
+		data, err := os.ReadFile(source["transcript_json"].(string))
 		if err != nil {
 			return err
 		}
-		p.stable = string(data)
-		if path, ok := source["diar_json"].(string); ok {
-			data, err := os.ReadFile(path)
-			if err != nil {
-				return err
+		p.transcript = string(data)
+		native, _ := source["native"].(map[string]any)
+		for key, target := range map[string]*string{"finesub.stable_json": &p.stable, "finesub.diar_json": &p.diar} {
+			if path, ok := native[key].(string); ok {
+				data, err := os.ReadFile(path)
+				if err != nil {
+					return err
+				}
+				*target = string(data)
 			}
-			p.diar = string(data)
 		}
 		return respond(map[string]any{"schema": 1, "task_id": relayLocalTask, "provider": "local", "state": "queued"})
 	case method == http.MethodGet && endpoint == "/v1/tasks/"+relayLocalTask:
@@ -314,7 +329,7 @@ func TestRelayRecognisesInTheCloudAndContinuesHere(t *testing.T) {
 	}
 
 	submitted, deleted, _, _ := backend.snapshot()
-	// The cloud recognises and nothing more: everything after stable.json is
+	// The cloud recognises and nothing more: everything after stable is
 	// this desktop's, so none of it may reach the job request.
 	if len(submitted) != 1 || submitted[0]["target"] != "stable" || submitted[0]["vocal_profile"] != "cost" {
 		t.Fatalf("cloud request = %#v", submitted)
@@ -335,15 +350,25 @@ func TestRelayRecognisesInTheCloudAndContinuesHere(t *testing.T) {
 
 	local.mu.Lock()
 	started := local.started
-	stable := local.stable
+	transcript, stable := local.transcript, local.stable
 	local.mu.Unlock()
-	if len(started) != 1 || stable != relayStable {
-		t.Fatalf("local leg = %#v, stable = %q", started, stable)
+	// The local leg gets the cloud's result as a local engine hands its own
+	// over: transcript.json, and the stable as the package's opaque attachment.
+	if len(started) != 1 || transcript != relayTranscript || stable != relayStable {
+		t.Fatalf("local leg = %#v, transcript = %q, stable = %q", started, transcript, stable)
 	}
 	request := started[0]
 	source := request["source"].(map[string]any)
-	if source["kind"] != "cloud_stable" || source["video_id"] != "loc_0123456789ab" || request["target"] != "final-srt" {
+	if source["kind"] != "cloud_transcript" || source["video_id"] != "loc_0123456789ab" || request["target"] != "final-srt" {
 		t.Fatalf("local request = %#v", request)
+	}
+	if source["transcript_json"] != service.relayTranscriptPath(id) || source["native_package"] != "finesub-transcribe" {
+		t.Fatalf("local source = %#v", source)
+	}
+	// Exactly the attachments the job published: nothing the desktop does not read.
+	if native := source["native"].(map[string]any); len(native) != 1 ||
+		native["finesub.stable_json"] != filepath.Join(service.relayNativeDirectory(id), "finesub.stable_json") {
+		t.Fatalf("local attachments = %#v", native)
 	}
 	// The local leg continues the cloud's recognition on FineSub: a request
 	// without the block, exactly as before engines were selectable.
@@ -360,9 +385,6 @@ func TestRelayRecognisesInTheCloudAndContinuesHere(t *testing.T) {
 	// for diarization here would rerun the acoustic stage without the vocals.
 	if _, exists := request["diarization"]; exists {
 		t.Fatalf("diarization without a cloud timeline: %#v", request)
-	}
-	if _, exists := source["diar_json"]; exists {
-		t.Fatalf("diar_json without a cloud timeline: %#v", source)
 	}
 
 	events := relayEventList(t, service, id)
@@ -425,8 +447,8 @@ func TestRelayNeverCollectsAJobWhoseResultFailsItsDigest(t *testing.T) {
 	if _, deleted, _, _ := backend.snapshot(); len(deleted) != 0 {
 		t.Fatalf("a job was deleted with no verified copy here: %v", deleted)
 	}
-	if _, err := os.Stat(service.relayStablePath(id)); !os.IsNotExist(err) {
-		t.Fatalf("an unverified stable.json was kept: %v", err)
+	if _, err := os.Stat(service.relayTranscriptPath(id)); !os.IsNotExist(err) {
+		t.Fatalf("an unverified transcript.json was kept: %v", err)
 	}
 
 	// Retrying the collection once the published digest is right finishes it.
@@ -639,7 +661,7 @@ func TestTelemetryReadsTheRelayRecord(t *testing.T) {
 }
 
 // The backend declares what it runs; the relay declares what a cloud task
-// does, and everything past stable.json is done by the local leg.
+// does, and everything past stable is done by the local leg.
 func TestCapabilitiesAreTheRelays(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		writer.Header().Set("Content-Type", "application/json")
@@ -647,7 +669,7 @@ func TestCapabilitiesAreTheRelays(t *testing.T) {
 		case "/v1/session":
 			_, _ = writer.Write([]byte(`{"authenticated":true}`))
 		case "/v1/capabilities":
-			_, _ = writer.Write([]byte(`{"provider":"cloud","features":{"raw_srt":true,"translation":false,"video_multimodal":false,"knowledge":false,"resume":true,"diarization":true}}`))
+			_, _ = writer.Write([]byte(`{"provider":"cloud","adapter_schema":1,"artifact_schema":2,"features":{"raw_srt":true,"translation":false,"video_multimodal":false,"knowledge":false,"resume":true,"diarization":true}}`))
 		default:
 			http.NotFound(writer, request)
 		}
@@ -665,6 +687,11 @@ func TestCapabilitiesAreTheRelays(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The backend's job-result format stays the relay's business; the
+	// renderer reads the relay's manifests, in the Provider spec's format.
+	if capabilities["artifact_schema"] != 1 {
+		t.Fatalf("artifact_schema = %v, want the Provider spec's 1", capabilities["artifact_schema"])
+	}
 	features := capabilities["features"].(map[string]any)
 	for _, name := range []string{"translation", "video_multimodal", "knowledge", "diarization"} {
 		if features[name] != true {
@@ -673,7 +700,7 @@ func TestCapabilitiesAreTheRelays(t *testing.T) {
 	}
 }
 
-// A diarized job publishes its speaker timeline beside stable.json. The local
+// A diarized job attaches its speaker timeline beside its stable. The local
 // leg gets both, and the level the user chose, so the judge runs here exactly
 // as it does after a local recognition.
 func TestRelayHandsTheCloudSpeakerTimelineToTheLocalLeg(t *testing.T) {
@@ -700,7 +727,7 @@ func TestRelayHandsTheCloudSpeakerTimelineToTheLocalLeg(t *testing.T) {
 	}
 	request := started[0]
 	source := request["source"].(map[string]any)
-	if source["diar_json"] != service.relayDiarPath(id) {
+	if native := source["native"].(map[string]any); native["finesub.diar_json"] != filepath.Join(service.relayNativeDirectory(id), "finesub.diar_json") {
 		t.Fatalf("local source = %#v", source)
 	}
 	diarization, _ := request["diarization"].(map[string]any)
@@ -709,7 +736,7 @@ func TestRelayHandsTheCloudSpeakerTimelineToTheLocalLeg(t *testing.T) {
 	}
 }
 
-// The timeline is held to the published digest like stable.json, and a
+// The timeline is held to the published digest like the transcript, and a
 // mismatch keeps the relay from moving on rather than seeding a wrong file.
 func TestRelayRefusesASpeakerTimelineThatFailsItsDigest(t *testing.T) {
 	local := &relayLocal{}
@@ -727,15 +754,91 @@ func TestRelayRefusesASpeakerTimelineThatFailsItsDigest(t *testing.T) {
 	if failed["state"] != "failed" {
 		t.Fatalf("relay ended %#v, want a failed fetch", failed)
 	}
-	if message := fmt.Sprint(failed["error"]); !strings.Contains(message, "subtitle-diar.json") {
+	if message := fmt.Sprint(failed["error"]); !strings.Contains(message, "finesub.diar_json") {
 		t.Fatalf("error = %s", message)
 	}
-	for _, path := range []string{service.relayStablePath(id), service.relayDiarPath(id)} {
+	for _, path := range []string{service.relayTranscriptPath(id), filepath.Join(service.relayNativeDirectory(id), "finesub.diar_json")} {
 		if _, err := os.Stat(path); !os.IsNotExist(err) {
 			t.Fatalf("%s was written despite the bad digest: %v", filepath.Base(path), err)
 		}
 	}
 	if _, deleted, _, _ := backend.snapshot(); len(deleted) != 0 {
 		t.Fatalf("job collected despite the failed fetch: %v", deleted)
+	}
+}
+
+// A backend that publishes results in another format is refused before any
+// audio is extracted or uploaded: this desktop could not read what it made.
+func TestRelayRefusesABackendWithAnotherResultFormat(t *testing.T) {
+	local := &relayLocal{}
+	service, backend, _ := newRelayService(t, local)
+	backend.artifactSchema = 1
+	extracted := false
+	service.extractor = func(_ context.Context, _, output string) error {
+		extracted = true
+		return os.WriteFile(output, []byte("audio-fixture"), 0o600)
+	}
+	if _, err := service.StartTask("loc_0123456789ab", map[string]any{"target": "raw-srt"}); err == nil || !strings.Contains(err.Error(), "格式") {
+		t.Fatalf("StartTask = %v, want the result format refused", err)
+	}
+	if submitted, _, _, _ := backend.snapshot(); len(submitted) != 0 || extracted {
+		t.Fatalf("submitted %v, extracted %v", submitted, extracted)
+	}
+}
+
+// A relay an older desktop collected holds only the old stable.json, which
+// nothing reads any more. It is not continued from: it fails back to the
+// cloud leg, so a retry resubmits the media, without a second charge.
+func TestRelayWithAnOldCollectedResultResubmitsOnRetry(t *testing.T) {
+	local := &relayLocal{}
+	service, backend, _ := newRelayService(t, local)
+	snapshot, err := service.StartTask("loc_0123456789ab", map[string]any{"target": "raw-srt"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := snapshot["task_id"].(string)
+	if done := waitRelay(t, service, id, "completed", "failed"); done["state"] != "completed" {
+		t.Fatalf("relay ended %#v", done)
+	}
+	// As an older desktop left it: collected, local leg not started, only stable.json.
+	service.stopRelayDriver(id)
+	if err := os.Remove(service.relayTranscriptPath(id)); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(service.relayNativeDirectory(id)); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(service.relayLegacyStablePath(id), []byte(relayStable), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	local.mu.Lock()
+	local.started = nil
+	local.mu.Unlock()
+	if _, err := service.updateRelay(id, func(next *relayRecord) ([]relayLine, error) {
+		next.Phase, next.LocalTaskID, next.State, next.Stage = relayPhaseLocal, "", "running", "handoff"
+		return nil, nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	service.startRelayDriver(id)
+	failed := waitRelay(t, service, id, "failed")
+	if failure, _ := failed["error"].(map[string]any); failure["code"] != "cloud_result_outdated" {
+		t.Fatalf("relay = %#v", failed)
+	}
+	local.mu.Lock()
+	started := len(local.started)
+	local.mu.Unlock()
+	if started != 0 {
+		t.Fatal("the old stable.json was continued from")
+	}
+	// The first job is collected, so the retry submits the media again.
+	if _, err := service.RetryTask(id); err != nil {
+		t.Fatal(err)
+	}
+	if done := waitRelay(t, service, id, "completed", "failed"); done["state"] != "completed" {
+		t.Fatalf("retried relay = %#v", done)
+	}
+	if submitted, _, _, _ := backend.snapshot(); len(submitted) != 2 {
+		t.Fatalf("submissions = %d, want the media submitted again", len(submitted))
 	}
 }

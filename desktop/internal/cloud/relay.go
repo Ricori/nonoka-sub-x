@@ -21,23 +21,47 @@ import (
 )
 
 // A relay is one subtitle task that crosses the machine boundary twice: the
-// cloud recognises the media up to stable.json, this desktop downloads that
-// file, and the local provider continues from it with the user's own models.
+// cloud recognises the media up to stable, this desktop downloads the result --
+// transcript.json and the transcription package's files as opaque attachments,
+// the shape a local engine hands over -- and the local provider continues from
+// it with the user's own models.
 // The renderer sees one task -- provider "cloud", one id, one event stream --
 // and everything that makes it two lives here.
 //
 // The relay is the durable record, not the cloud job: a job is deleted the
-// moment its stable.json is safely on disk, and the cloud keeps no log once it
-// is. So the record, the merged event stream and the downloaded stable.json
+// moment its result is safely on disk, and the cloud keeps no log once it
+// is. So the record, the merged event stream and the downloaded result
 // all live under the data directory, and a restart resumes the relay from
 // whichever leg it was in.
 
 var validRelayID = regexp.MustCompile(`^rly_[0-9a-f]{24}$`)
 var validJobID = regexp.MustCompile(`^job_[0-9a-f]{24}$`)
 
+// An attachment's key, `<engine>.<name>`, which is also its file name here.
+var validAttachmentKey = regexp.MustCompile(`^[a-z0-9_-]{1,40}\.[a-z0-9_]{1,40}$`)
+
+const (
+	// The artifact every cloud job's result has (the Worker's JOB_REQUIRED_ARTIFACT).
+	cloudTranscriptArtifact = "transcript_json"
+	// The result format this desktop reads: `artifact_schema` 2 is
+	// transcript.json plus attachments (plan 4.7 item 36).
+	cloudArtifactSchema = 2
+	// The Provider spec's `artifact_schema`, which the relay declares: its
+	// artifacts are the local leg's manifest.
+	providerArtifactSchema = 1
+	// The package the cloud's attachments are of: the cloud runs FineSub's
+	// transcription package. Their directory in the local task is named
+	// after it (plan 4.6 item 34).
+	cloudTranscriptionPackage = "finesub-transcribe"
+	// The attachment that is the speaker timeline. Diarization is asked of the
+	// local leg only with it: without one the judge levels have nothing to
+	// judge, and the acoustic stage would need the vocal track the cloud kept.
+	cloudTimelineAttachment = "finesub.diar_json"
+)
+
 const (
 	relayPhaseCloud = "cloud" // the cloud job is queued or running
-	relayPhaseFetch = "fetch" // the job finished; stable.json is being collected
+	relayPhaseFetch = "fetch" // the job finished; its result is being collected
 	relayPhaseLocal = "local" // the local provider continues from it
 
 	// How many collection attempts before the relay gives up and asks the user
@@ -173,14 +197,39 @@ func (s *Service) relayDirectory(id string) string {
 	return filepath.Join(s.relayRoot, id)
 }
 
-func (s *Service) relayStablePath(id string) string {
+// relayTranscriptPath is the cloud's transcript.json. On disk it is what moves
+// the relay on to the local leg.
+func (s *Service) relayTranscriptPath(id string) string {
+	return filepath.Join(s.relayDirectory(id), "transcript.json")
+}
+
+// relayNativeDirectory holds the job's attachments, each under its key.
+func (s *Service) relayNativeDirectory(id string) string {
+	return filepath.Join(s.relayDirectory(id), "native")
+}
+
+// relayLegacyStablePath is where a desktop before the new result format kept
+// the cloud's stable.json. Only looked for, to tell such a relay to resubmit.
+func (s *Service) relayLegacyStablePath(id string) string {
 	return filepath.Join(s.relayDirectory(id), "stable.json")
 }
 
-// relayDiarPath is the cloud's speaker timeline, the engine's
-// subtitle-diar.json, when the job ran diarization.
-func (s *Service) relayDiarPath(id string) string {
-	return filepath.Join(s.relayDirectory(id), "diar.json")
+// relayAttachments are the attachments collected for this relay, by key.
+func (s *Service) relayAttachments(id string) (map[string]string, error) {
+	entries, err := os.ReadDir(s.relayNativeDirectory(id))
+	if errors.Is(err, os.ErrNotExist) {
+		return map[string]string{}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	found := map[string]string{}
+	for _, entry := range entries {
+		if entry.Type().IsRegular() && validAttachmentKey.MatchString(entry.Name()) {
+			found[entry.Name()] = filepath.Join(s.relayNativeDirectory(id), entry.Name())
+		}
+	}
+	return found, nil
 }
 
 // loadRelays reads every relay on disk and recovers each leg's read position
@@ -538,12 +587,12 @@ func (s *Service) stepRelayCloud(ctx context.Context, record *relayRecord) {
 	})
 }
 
-// stepRelayFetch collects the job's stable.json, checks it against the
+// stepRelayFetch collects the job's result, checks it against the
 // digest the backend published, and only then tells the cloud to forget the
 // job. The order is the whole safety of the handoff: deleting first would
 // leave a run with no copy anywhere if the download then failed.
 func (s *Service) stepRelayFetch(ctx context.Context, record *relayRecord) {
-	err := s.collectStable(ctx, record)
+	err := s.collectResult(ctx, record)
 	if ctx.Err() != nil {
 		return
 	}
@@ -558,6 +607,10 @@ func (s *Service) stepRelayFetch(ctx context.Context, record *relayRecord) {
 			next.LocalCursor = 0
 			next.LocalWaits = 0
 			return []relayLine{relayNote("log", "识别结果已校验并保存在本机")}, nil
+		}
+		if errors.As(err, &status) && status.Status == http.StatusUpgradeRequired {
+			next.fail("cloud_result_format", status.Detail)
+			return []relayLine{relayNote("failed", next.Error.Message)}, nil
 		}
 		if errors.As(err, &status) && status.Status == http.StatusNotFound {
 			next.fail("cloud_job_missing", "云端作业已不存在（可能已超过保留期限）；重试会重新上传音频，不会再次扣次")
@@ -575,28 +628,51 @@ func (s *Service) stepRelayFetch(ctx context.Context, record *relayRecord) {
 	}
 }
 
-func (s *Service) collectStable(ctx context.Context, record *relayRecord) error {
+// collectResult downloads the job's result: its attachments, then its
+// transcript.json, each checked against the digest the backend published.
+// The transcript goes last because on disk it is what moves the relay on, so
+// it must not land before the files the correction will read beside it. An
+// attachment an earlier job of this relay left behind is removed: it belongs
+// to another recognition.
+func (s *Service) collectResult(ctx context.Context, record *relayRecord) error {
 	var manifest remoteArtifactManifest
 	if err := s.fetchJSON(ctx, "/v1/tasks/"+record.CloudJobID+"/artifacts", &manifest); err != nil {
 		return err
 	}
-	item, ok := manifest.Artifacts["stable_json"]
+	transcript, ok := manifest.Artifacts[cloudTranscriptArtifact]
 	if !ok {
-		return errors.New("cloud job published no stable.json")
+		return errors.New("cloud job published no transcript.json")
 	}
-	// The speaker timeline first: stable.json on disk is what moves the relay
-	// on, so it must not land before the timeline it is labelled from. A job
-	// that ran no diarization publishes none, and a timeline an earlier job of
-	// this relay left behind must not be seeded for this one.
-	diarPath := s.relayDiarPath(record.ID)
-	if diar, ok := manifest.Artifacts["diar_json"]; ok {
-		if err := s.collectArtifact(ctx, diar.URI, diar.SHA256, diarPath, "subtitle-diar.json"); err != nil {
-			return err
+	keys := make([]string, 0, len(manifest.Artifacts))
+	for key := range manifest.Artifacts {
+		if key == cloudTranscriptArtifact {
+			continue
 		}
-	} else if err := os.Remove(diarPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+		// Attachments are `<engine>.<name>`; anything else a newer manifest
+		// carries is not this desktop's to read.
+		if validAttachmentKey.MatchString(key) {
+			keys = append(keys, key)
+		}
+	}
+	sort.Strings(keys)
+	held, err := s.relayAttachments(record.ID)
+	if err != nil {
 		return err
 	}
-	return s.collectArtifact(ctx, item.URI, item.SHA256, s.relayStablePath(record.ID), "stable.json")
+	for key, path := range held {
+		if _, ok := manifest.Artifacts[key]; !ok {
+			if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+				return err
+			}
+		}
+	}
+	for _, key := range keys {
+		item := manifest.Artifacts[key]
+		if err := s.collectArtifact(ctx, item.URI, item.SHA256, filepath.Join(s.relayNativeDirectory(record.ID), key), key); err != nil {
+			return err
+		}
+	}
+	return s.collectArtifact(ctx, transcript.URI, transcript.SHA256, s.relayTranscriptPath(record.ID), "transcript.json")
 }
 
 // collectArtifact downloads one artifact of a job, checks it against the
@@ -699,7 +775,7 @@ func (s *Service) stepRelayLocal(ctx context.Context, record *relayRecord) {
 		var gone *sidecar.HTTPError
 		if errors.As(statusErr, &gone) && gone.StatusCode == http.StatusNotFound {
 			// The local task was removed under the relay. Retrying starts a
-			// new one from the stable.json that is still here.
+			// new one from the result that is still here.
 			next.LocalTaskID = ""
 			next.LocalCursor = 0
 			next.fail("local_task_missing", "本机续跑任务已不存在；重试会从已取回的识别结果重新开始")
@@ -730,11 +806,25 @@ func (s *Service) stepRelayLocal(ctx context.Context, record *relayRecord) {
 	})
 }
 
-// startRelayLocal hands the downloaded stable.json to the local provider. A
+// startRelayLocal hands the downloaded result to the local provider. A
 // refusal -- no model configured, the launcher missing the harness -- fails
 // the relay with the provider's own words; a sidecar that is not up yet is
 // waited for, within a bound.
 func (s *Service) startRelayLocal(ctx context.Context, record *relayRecord) {
+	if s.relayHoldsLegacyResult(record.ID) {
+		// Collected by a desktop from before the new result format: the cloud
+		// job is gone and nothing here reads that file any more. Back to the
+		// cloud leg, so a retry resubmits the media (the ticket is reused).
+		_, _ = s.updateRelay(record.ID, func(next *relayRecord) ([]relayLine, error) {
+			if next.Phase != relayPhaseLocal || next.LocalTaskID != "" {
+				return nil, errors.New("relay moved on")
+			}
+			next.Phase = relayPhaseCloud
+			next.fail("cloud_result_outdated", "这条任务的云端识别结果是旧版本取回的，新版本不再读取；重试会重新上传音频识别，不会再次扣次")
+			return []relayLine{relayNote("failed", next.Error.Message)}, nil
+		})
+		return
+	}
 	request, err := s.continuationRequest(record)
 	var snapshot map[string]any
 	if err == nil {
@@ -777,9 +867,21 @@ func (s *Service) startRelayLocal(ctx context.Context, record *relayRecord) {
 	})
 }
 
+// relayHoldsLegacyResult says whether the relay's only result is the
+// stable.json an older desktop collected.
+func (s *Service) relayHoldsLegacyResult(id string) bool {
+	if _, err := os.Stat(s.relayTranscriptPath(id)); err == nil {
+		return false
+	}
+	_, err := os.Stat(s.relayLegacyStablePath(id))
+	return err == nil
+}
+
 // continuationRequest is the local leg's TaskRequest: the dialog's settings for
-// everything past stable.json, and the media resolved afresh -- the file may
-// have been relinked while the cloud worked.
+// everything past stable, and the media resolved afresh -- the file may have
+// been relinked while the cloud worked. The cloud's result goes in as a local
+// engine's would: transcript.json, and the attachments by key as opaque files
+// of the package that made them.
 func (s *Service) continuationRequest(record *relayRecord) (map[string]any, error) {
 	if s.media == nil {
 		return nil, errors.New("media library is unavailable")
@@ -789,24 +891,35 @@ func (s *Service) continuationRequest(record *relayRecord) (map[string]any, erro
 		return nil, fmt.Errorf("本机媒体不可用：%w", err)
 	}
 	options := record.Options
+	attachments, err := s.relayAttachments(record.ID)
+	if err != nil {
+		return nil, err
+	}
 	source := map[string]any{
-		"kind": "cloud_stable", "path": path, "stable_json": s.relayStablePath(record.ID),
+		"kind": "cloud_transcript", "path": path, "transcript_json": s.relayTranscriptPath(record.ID),
 		"title": title, "fingerprint": fingerprint, "video_id": record.LocalID, "duration": duration,
+	}
+	if len(attachments) > 0 {
+		native := map[string]any{}
+		for key, file := range attachments {
+			native[key] = file
+		}
+		source["native"] = native
+		source["native_package"] = cloudTranscriptionPackage
 	}
 	request := map[string]any{
 		"schema": 1, "provider": "local", "source": source, "target": record.Target,
 		"language": stringOption(options, "language", "ja"), "projection": "document",
 		"cleanup_intermediate": false, "knowledge": "none", "correction": map[string]any{},
 	}
-	// The cloud computed the speaker timeline and labelled stable.json with it.
+	// The cloud computed the speaker timeline and labelled its stable with it.
 	// Handing the timeline over with the level the user chose lets the local
 	// leg reuse it and run the judge levels the way a local run does. Without
 	// a timeline there is nothing to continue from, and asking for diarization
 	// would rerun the acoustic stage, which needs the vocal track the cloud
 	// kept.
-	if _, err := os.Stat(s.relayDiarPath(record.ID)); err == nil {
+	if _, ok := attachments[cloudTimelineAttachment]; ok {
 		if diarization := diarizationOption(options); diarization != nil {
-			source["diar_json"] = s.relayDiarPath(record.ID)
 			request["diarization"] = diarization
 		}
 	}

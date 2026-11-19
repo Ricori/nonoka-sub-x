@@ -911,20 +911,27 @@ class HarnessReadinessTests(unittest.TestCase):
         self.assertTrue(stages["harness"]["ready"])
 
 
-class CloudStableContinuationTests(ProviderFixture):
-    """A task that starts where the cloud's recognition stopped."""
+class CloudTranscriptContinuationTests(ProviderFixture):
+    """A task that starts where the cloud's recognition stopped, from the result a cloud job hands over."""
 
     def setUp(self) -> None:
         super().setUp()
-        self.stable = self.root / "cloud.stable.json"
+        self.stable = self.root / "finesub.stable_json"
         self.stable.write_bytes((ROOT / "tests/fixtures/finesub/sample-stable.json").read_bytes())
+        self.transcript = self.root / "transcript.json"
+        self.transcript.write_text(json.dumps({
+            "schema": 1, "engine": "finesub", "language": "ja", "duration": 2.0,
+            "lines": [{"id": "1", "start": 0.0, "end": 1.0, "text": "x"}],
+        }), encoding="utf-8")
 
     def continuation(self, target: str = "final-srt") -> dict:
         request = self.request()
         request["source"] = {
-            "kind": "cloud_stable",
+            "kind": "cloud_transcript",
             "path": str(self.source),
-            "stable_json": str(self.stable),
+            "transcript_json": str(self.transcript),
+            "native": {"finesub.stable_json": str(self.stable)},
+            "native_package": "finesub-transcribe",
             "title": "success",
         }
         request["target"] = target
@@ -935,55 +942,112 @@ class CloudStableContinuationTests(ProviderFixture):
 
         request = self.continuation()
         request["vocal_profile"] = "cost"
-        request["diarization"] = {"level": "judge-text"}
         validated = validate_request(request)
         self.assertNotIn("vocal_profile", validated)
-        self.assertNotIn("diarization", validated)
-        self.assertEqual(validated["source"]["stable_json"], str(self.stable.resolve()))
+        self.assertEqual(validated["source"]["transcript_json"], str(self.transcript.resolve()))
+        self.assertEqual(validated["source"]["native"], {"finesub.stable_json": str(self.stable.resolve())})
+        self.assertEqual(validated["source"]["native_package"], "finesub-transcribe")
         # The cost profile is still refused for a run that separates here.
         local = self.request()
         local["vocal_profile"] = "cost"
         with self.assertRaisesRegex(ProviderError, "vocal_profile"):
             validate_request(local)
 
-    def test_a_cloud_speaker_timeline_keeps_the_chosen_level(self) -> None:
+    def test_the_attachments_are_opaque_and_the_level_is_the_requests(self) -> None:
+        """No attachment is read and no name is known here: the correction decides what a timeline is."""
+
         from nonoka_x.local_provider import validate_request
 
-        timeline = self.root / "cloud.diar.json"
-        timeline.write_text('{"backend": "cloud", "tracks": []}', encoding="utf-8")
+        timeline = self.root / "finesub.diar_json"
+        timeline.write_text("not even json", encoding="utf-8")
         request = self.continuation()
-        request["source"]["diar_json"] = str(timeline)
+        request["source"]["native"]["finesub.diar_json"] = str(timeline)
         request["diarization"] = {"level": "judge-audio", "max_speakers": 3}
         validated = validate_request(request)
-        self.assertEqual(validated["source"]["diar_json"], str(timeline.resolve()))
+        self.assertEqual(validated["source"]["native"]["finesub.diar_json"], str(timeline.resolve()))
         self.assertEqual(validated["diarization"], {"level": "judge-audio", "max_speakers": 3})
+        # Without one the request keeps its level too; the correction package
+        # turns it off when its stable came without its timeline.
+        request = self.continuation()
+        request["diarization"] = {"level": "judge-audio"}
+        self.assertEqual(validate_request(request)["diarization"]["level"], "judge-audio")
         # A run that stops before the correction still gets the acoustic labels.
         request = self.continuation("raw-srt")
-        request["source"]["diar_json"] = str(timeline)
         request["diarization"] = {"level": "judge-text"}
         self.assertEqual(
             validate_request(request)["diarization"],
             {"level": "acoustics", "max_speakers": None, "requested_level": "judge-text"},
         )
 
-    def test_a_missing_or_unusable_speaker_timeline_is_refused(self) -> None:
+    def test_a_transcript_alone_is_a_whole_result(self) -> None:
         from nonoka_x.local_provider import validate_request
 
-        broken = self.root / "broken.diar.json"
-        broken.write_text("[", encoding="utf-8")
-        listed = self.root / "listed.diar.json"
-        listed.write_text("[]", encoding="utf-8")
+        request = self.continuation()
+        del request["source"]["native"], request["source"]["native_package"]
+        validated = validate_request(request)
+        self.assertNotIn("native", validated["source"])
+        self.assertNotIn("native_package", validated["source"])
+
+    def test_unusable_attachments_are_refused(self) -> None:
+        from nonoka_x.local_provider import validate_request
+
         cases = {
-            "relative": ("cloud.diar.json", "absolute path"),
-            "missing": (str(self.root / "gone.diar.json"), "does not exist"),
-            "broken": (str(broken), "unreadable"),
-            "not a timeline": (str(listed), "speaker timeline"),
+            "relative": ({"finesub.stable_json": "finesub.stable_json"}, "finesub-transcribe", "absolute path"),
+            "missing": ({"finesub.stable_json": str(self.root / "gone")}, "finesub-transcribe", "does not exist"),
+            "no engine": ({"stable_json": str(self.stable)}, "finesub-transcribe", "<engine>.<name>"),
+            "a path in the key": ({"finesub.../x": str(self.stable)}, "finesub-transcribe", "<engine>.<name>"),
+            "no package": ({"finesub.stable_json": str(self.stable)}, None, "native_package"),
+            "a path as package": ({"finesub.stable_json": str(self.stable)}, "../x", "native_package"),
+            "not an object": (["x"], "finesub-transcribe", "must be an object"),
         }
-        for name, (value, message) in cases.items():
+        for name, (native, package, message) in cases.items():
             with self.subTest(name), self.assertRaisesRegex(ProviderError, message):
                 request = self.continuation()
-                request["source"]["diar_json"] = value
+                request["source"]["native"] = native
+                request["source"]["native_package"] = package
                 validate_request(request)
+
+    def test_a_missing_or_unusable_transcript_is_refused(self) -> None:
+        from nonoka_x.local_provider import validate_request
+
+        cases = {
+            "relative": ("transcript.json", "absolute path"),
+            "missing": (str(self.root / "gone.json"), "does not exist"),
+        }
+        broken = self.root / "broken.json"
+        broken.write_text("{", encoding="utf-8")
+        cases["broken"] = (str(broken), "unreadable")
+        stable = self.root / "a-stable.json"
+        stable.write_bytes(self.stable.read_bytes())
+        cases["a stable, not a transcript"] = (str(stable), "unreadable")
+        for label, (value, expected) in cases.items():
+            with self.subTest(label):
+                request = self.continuation()
+                request["source"]["transcript_json"] = value
+                with self.assertRaisesRegex(ProviderError, expected):
+                    validate_request(request)
+
+    def test_a_continuation_needs_no_transcription_engine_installed(self) -> None:
+        """No FineSub package here: the cloud's recognition still continues (to the raw SRT the core renders)."""
+
+        from nonoka_x.local_provider import validate_request
+
+        for target in ("raw-srt", "final-srt"):
+            with self.subTest(target):
+                self.assertEqual(validate_request(self.continuation(target), engines={})["target"], target)
+        # Asking for another engine is still refused, installed or not.
+        request = self.continuation()
+        request["transcription"] = {"engine": "mai2"}
+        with self.assertRaises(ProviderError):
+            validate_request(request, engines={})
+
+    def test_the_old_source_is_refused(self) -> None:
+        from nonoka_x.local_provider import validate_request
+
+        request = self.continuation()
+        request["source"] = {"kind": "cloud_stable", "path": str(self.source), "stable_json": str(self.stable)}
+        with self.assertRaisesRegex(ProviderError, "local_file or cloud_transcript"):
+            validate_request(request)
 
     def test_only_the_stages_after_stable_continue(self) -> None:
         from nonoka_x.local_provider import validate_request
@@ -994,26 +1058,6 @@ class CloudStableContinuationTests(ProviderFixture):
         for target in ("vocal", "aligned", "stable"):
             with self.subTest(target), self.assertRaisesRegex(ProviderError, "continues to"):
                 validate_request(self.continuation(target))
-
-    def test_a_missing_or_unusable_stable_json_is_refused(self) -> None:
-        from nonoka_x.local_provider import validate_request
-
-        cases = {
-            "relative": ("cloud.stable.json", "absolute path"),
-            "missing": (str(self.root / "gone.json"), "does not exist"),
-        }
-        broken = self.root / "broken.json"
-        broken.write_text("{", encoding="utf-8")
-        cases["broken"] = (str(broken), "unreadable")
-        shapeless = self.root / "shapeless.json"
-        shapeless.write_text('{"lines": []}', encoding="utf-8")
-        cases["shapeless"] = (str(shapeless), "no segments")
-        for label, (value, expected) in cases.items():
-            with self.subTest(label):
-                request = self.continuation()
-                request["source"]["stable_json"] = value
-                with self.assertRaisesRegex(ProviderError, expected):
-                    validate_request(request)
 
     def test_an_axis_cannot_continue_a_cloud_run(self) -> None:
         from nonoka_x.local_provider import validate_request
@@ -1189,10 +1233,11 @@ class EngineSelectionTests(ProviderFixture):
     def test_recognition_in_hand_cannot_pick_another_engine(self) -> None:
         from nonoka_x.local_provider import validate_request
 
-        stable = self.root / "cloud.stable.json"
-        stable.write_bytes((ROOT / "tests/fixtures/finesub/sample-stable.json").read_bytes())
+        transcript = self.root / "transcript.json"
+        transcript.write_text(json.dumps({"schema": 1, "engine": "finesub", "language": "ja", "duration": 1.0,
+                                          "lines": []}), encoding="utf-8")
         continuation = self.mai2()
-        continuation["source"] = {"kind": "cloud_stable", "path": str(self.source), "stable_json": str(stable)}
+        continuation["source"] = {"kind": "cloud_transcript", "path": str(self.source), "transcript_json": str(transcript)}
         axis = self.mai2(axis={"kind": "ja", "rows": [{"t0": 0.0, "t1": 1.0, "ja": "x"}]})
         for request in (continuation, axis):
             with self.assertRaises(ProviderError) as caught:

@@ -6,7 +6,7 @@ turns the source into a `TranscriptionResult`, and, for a target past
 `stable`, the request's correction engine (`correction.engine`) takes it from
 there. Both are looked up by id in their registries; nothing here knows which
 engine it is talking to. A result already in hand -- the cloud's recognition,
-which a `cloud_stable` source continues from -- takes the transcription's
+which a `cloud_transcript` source continues from -- takes the transcription's
 place. A source-text axis (`axis.kind == "ja"`) needs no transcription at all
 and goes straight to the correction engine's axis run.
 
@@ -28,6 +28,7 @@ import importlib
 import inspect
 import json
 import os
+import shutil
 import sys
 import traceback
 from pathlib import Path
@@ -370,10 +371,8 @@ CORRECTION_ENGINES: tuple[str, ...] = ()
 TARGETS = ("vocal", "aligned", "stable", "raw-srt", "translated-srt", "final-srt")
 TRANSCRIPTION_TARGETS = TARGETS[: TARGETS.index("stable") + 1]
 
-#: What a `cloud_stable` source carries, as the `native` attachments of the
-#: transcription the cloud's FineSub made (plan 5.1): its stable and, when it
-#: diarized, its speaker timeline.
-CLOUD_NATIVE = (("stable_json", "finesub.stable_json"), ("diar_json", "finesub.diar_json"))
+#: The sources a task runs from (`local_provider.SOURCE_KINDS`).
+SOURCE_KINDS = ("local_file", "cloud_transcript")
 
 #: Where an engine package keeps its files of one task (plan 4.6 item 34).
 NATIVE_DIRECTORY = "native"
@@ -521,22 +520,38 @@ def launch_contexts(packages: Mapping[str, Any], data_dir: Path | None, install_
 def transcription_in_hand(request: Mapping[str, Any], task_dir: Path) -> Any | None:
     """The transcription a continuation already has, or None when it is still to be made.
 
-    A `cloud_stable` source is the cloud's recognition of this media. Its
-    files are attachments the core does not parse; the correction decides
-    what to do with them. There is no `transcript.json` for it yet (the cloud
-    delivers one after WP-CL), so the result names the path one would have.
+    A `cloud_transcript` source is the cloud's recognition of this media, in
+    the shape an engine hands its result over in (plan 4.7 item 36): its
+    `transcript.json` becomes the task's, and its attachments -- by `native`
+    key, never parsed here -- become the private attachments of the package
+    that made them, in that package's directory of the task (plan 4.6 item
+    34), each under its key. The correction decides what to do with them.
+    Both are copied, so the task holds its whole input wherever the desktop
+    kept the download.
     """
 
     from .transcription import TRANSCRIPT_FILENAME, TranscriptionResult
 
     source = request["source"]
-    if source.get("kind") != "cloud_stable":
+    kind = source.get("kind", "local_file")
+    if kind not in SOURCE_KINDS:
+        # A stored request the provider no longer accepts (a retry runs it
+        # unvalidated): refused, never read as media to transcribe afresh.
+        raise RuntimeError(f"任务来源 {kind} 已不再支持：请重新提交这个任务")
+    if kind != "cloud_transcript":
         return None
-    return TranscriptionResult(
-        transcript_json=task_dir / TRANSCRIPT_FILENAME,
-        native={key: Path(source[field]) for field, key in CLOUD_NATIVE if source.get(field)},
-        metadata={"source": "cloud_stable"},
-    )
+    transcript = task_dir / TRANSCRIPT_FILENAME
+    task_dir.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(source["transcript_json"], transcript)
+    native: dict[str, Path] = {}
+    attachments = source.get("native") or {}
+    if attachments:
+        directory = task_dir / NATIVE_DIRECTORY / str(source["native_package"])
+        directory.mkdir(parents=True, exist_ok=True)
+        for key, path in sorted(attachments.items()):
+            native[key] = directory / key
+            shutil.copyfile(path, native[key])
+    return TranscriptionResult(transcript_json=transcript, native=native, metadata={"source": "cloud_transcript"})
 
 
 def native_dir(task_dir: Path, engine: Any | None) -> Path:
@@ -717,11 +732,8 @@ def run_engines(
     task_corrector = corrector
     core_raw_srt = core_renders_raw_srt(request, packages)
     if core_raw_srt:
+        # The core renders the raw SRT from `transcript.json`, the cloud's included.
         corrector = None
-        if in_hand is not None:
-            raise RuntimeError(
-                "没有安装纠错引擎包：云端识别结果要由纠错包转成原始字幕，请安装纠错包后重试"
-            )
     elif target in corrections.CORRECTION_TARGETS:
         corrector = corrections.registry.get(corrections.requested_engine(request))
         task_corrector = corrector
@@ -730,7 +742,9 @@ def run_engines(
 
     pending = None
     if corrector is not None:
-        placeholder = transcriptions.TranscriptionResult(
+        # A result in hand is the correction's input already, so its check sees
+        # what its run will; otherwise the transcript's path, still to be written.
+        placeholder = in_hand if in_hand is not None else transcriptions.TranscriptionResult(
             transcript_json=task_dir / transcriptions.TRANSCRIPT_FILENAME
         )
         pending = correction_job(
