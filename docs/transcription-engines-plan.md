@@ -914,6 +914,7 @@ D:\Envir\Python312\python scripts/quality_gate.py --cloud  # 云端（WP-C；基
 | 91 | 附录 C 第 9 问：迁移「先删后下」期间，界面要不要提示改用云端 FineSub 或云 API 引擎 | 不提示，只说明下载完成之前 FineSub 转写不可用（2026-11-18） |
 | 92 | 剩余工作怎么最省（可以减少测试） | 按主会话方案：评审时分支基于当前 main 就不重跑，main 动过才在试合并上跑一次 pytest 与默认闸门；子会话开发时只跑相关测试、交付前全量一次；`--real`（含 WP-M2 阶段 2 的那次）、`--cloud`、线上 LLM 与三个云引擎的真实调用集中到 WP8 各一次；WP-M2 阶段 2 的副本验收由 WP8 沿用；WP-M1 最后一条在换新版时作为 WP8 迁移一项的实测；合并 WP-CL 时重录 4 个云端调用基线（单独提交）；WP7 在 WP-CL 合并后开，WP-UI 等 WP-M2 阶段 2 合并后开（2026-11-18） |
 | 93 | 合并 WP-M2 阶段 2 与 WP7 时：合不合并；CHANGELOG 记在哪个版本；WP7 多写的 4 条（可选转写引擎、日文轴只在本机、云端新格式需要更新、引擎启动时确定一次代理）；WP-H 之后录不到包进程的 `scripts/engine_packages_real_record.py` | 两个都合并；改成 `0.8.0`；都留；删掉脚本（都是推荐项或用户选项，2026-11-19） |
+| 94 | WP-UI 开工前：没装知识库包时 `--style auto` 要不要在就绪里拦；核心 media 档的 ffmpeg 口径；沙箱 home 的 NVIDIA ComputeCache 进不进「清理」 | 在就绪里拦（推荐项）；统一只认工具层（推荐项）；不列进清理（2026-11-19） |
 
 更早的问答：WP-R0 的 D1–D23 见 R0 文档第 0 节；WP0 的细节见附录 A.1（已移到 `docs/transcription-engines-plan-done.md`）；沙箱实验中的决定见实验报告。
 
