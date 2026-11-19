@@ -74,7 +74,7 @@ export function AboutPage({ update }: { update?: SelfUpdate }) {
           <div className="about-heading">
             <span className="eyebrow">Nonoka Sub X</span>
             <h2>烤肉就交给 Nonoka</h2>
-            <p>一款面向视频字幕工作流的桌面工具</p>
+            <p>领先的 AI 工作流字幕工作台</p>
           </div>
           <div className="about-chips">
             <span className="about-chip about-chip-accent">{version ? `v${version}` : "读取版本…"}</span>
@@ -102,10 +102,10 @@ export function AboutPage({ update }: { update?: SelfUpdate }) {
         <Row label="作者">
           <strong>伊波千果</strong>
         </Row>
-        <Row label="项目源码">
+        <Row label="Github">
           <ExternalLink href={projectUrl}>github.com/Ricori/nonoka-sub-x</ExternalLink>
         </Row>
-        <Row label="鸣谢" note="感谢 finesub 项目带来的顶尖转写引擎。">
+        <Row label="鸣谢" >
           <ExternalLink href={acknowledgementUrl}>caca2331/finesub</ExternalLink>
         </Row>
       </article>
