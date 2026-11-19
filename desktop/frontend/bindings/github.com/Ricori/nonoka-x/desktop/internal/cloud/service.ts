@@ -42,7 +42,7 @@ export function CancelTask(taskID: string): $CancellablePromise<{ [_ in string]?
 
 /**
  * Capabilities are the relay's, not the backend's. The backend declares what
- * it runs -- recognition, and nothing past stable.json -- and the relay hands
+ * it runs -- recognition, and nothing past stable -- and the relay hands
  * the rest to the local provider, so correction, translation, the knowledge
  * base and video correction are all things a cloud task does. Whether this
  * machine can actually run them is the local provider's runtime report.
@@ -118,7 +118,7 @@ export function SetSyncEnabled(fingerprint: string, enabled: boolean): $Cancella
 }
 
 /**
- * StartTask starts a relay: the cloud recognises the media up to stable.json,
+ * StartTask starts a relay: the cloud recognises the media up to stable,
  * and this desktop continues from it with the user's own models once the file
  * is collected (relay.go). Returns the relay's snapshot, which is what the
  * renderer tracks; the cloud job behind it is an implementation detail that is

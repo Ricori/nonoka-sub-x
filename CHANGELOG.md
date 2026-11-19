@@ -2,7 +2,7 @@
 
 GitHub Release 和应用内更新提示共用此文件。版本号标题使用 `## x.y.z`，发布时自动摘取对应小节。
 
-## 0.7.1
+## 0.8.0
 - 新功能：设置页可以选择转写引擎：本机 FineSub、云端 FineSub，以及用自己的 Key 调用的 MAI-Transcribe-2、Gemini 3.5 Transcribe、MOSS Pro。后三个不需要显卡和本机运行环境，音频会发给对应的服务商
 - 优化：提高中文素材转录时的 UI 表现
 - 优化：桌面端框架升级到 Wails 3.1.0，修复若干 Windows 下的窗口崩溃与 WebView 稳定性问题
