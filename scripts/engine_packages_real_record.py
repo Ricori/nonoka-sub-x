@@ -14,10 +14,21 @@ Usage (take the GPU lock first, see WP-Q in docs/transcription-engines-plan.md):
 `NONOKA_P0_MAIN` names the main checkout (default D:\\Development\\nonoka-sub-x):
 `test_data/` lives only there.
 
-WP-P0's one-off. Since WP-P1 the worker imports no FineSub: the packages'
-processes do, and they inherit the recorder on their `PYTHONPATH`, so each
-writes the record when it exits and the last one wins. Rerunning this needs a
-record per process first.
+WP-P0's one-off, and it cannot be rerun as it stands: it refuses to start
+(`main`). Since WP-P1 the worker imports no FineSub -- the packages'
+processes do -- and since WP-H those processes run `python -I` in an
+environment built from nothing (`nonoka_x.engine_host.package_environment`,
+`interpreter_flags`). The recorder this script prepends to the worker's
+`PYTHONPATH` therefore never reaches them: `-I` ignores `PYTHONPATH`, and
+neither it nor `NONOKA_P0_RECORD` is carried into a package's environment.
+Running it would write records of the worker alone, with no FineSub module in
+them, which `scripts/engine_packages.py` would read as real.
+
+A rerun needs one record per package process: a recording hook the engine
+host itself installs in each process it starts (writing
+`real-<sample>-<package>.json`), and `scripts/engine_packages.py` reading the
+records per package. That hook belongs in `src/nonoka_x/engine_host.py`, which
+WP7 (a documentation package) did not touch; it is handed back.
 """
 from __future__ import annotations
 
@@ -41,6 +52,19 @@ OUT = WORKTREE / "docs" / "engine-packages" / "runtime-imports"
 
 
 def main() -> int:
+    # See the module note: the recorder cannot reach the package processes, so
+    # a run would record nothing of FineSub and overwrite the WP-P0 records.
+    print(
+        "engine_packages_real_record.py cannot record the package processes since WP-H "
+        "(they start with -I in an environment built from nothing); see the module docstring.",
+        file=sys.stderr,
+    )
+    return 2
+
+
+def _record_worker_only() -> int:
+    """The WP-P0 run, kept for reference: it records the worker process only."""
+
     OUT.mkdir(parents=True, exist_ok=True)
     failed = 0
     for name, sample in real.SAMPLES.items():

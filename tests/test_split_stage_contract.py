@@ -5,8 +5,8 @@ the GPU. Upstream 0.5.0 split the VAD half out by itself -- `run_vad_prefix`,
 `write_vad_prefix`/`read_vad_prefix`, `run_vad_asr(vad_prefix_path=...)`, and
 the referee's `warm` seam -- so the CPU container calls upstream code with
 upstream arguments. What is still ours is the other end:
-`finalize_qwen_verification` (local change 0001 in
-``third_party/finesub/LOCAL_CHANGES.md``) attaches the referee's evidence to an
+`finalize_qwen_verification` (local change 0001 in each engine package's
+``LOCAL_CHANGES.md``, e.g. ``engines/finesub-transcribe/LOCAL_CHANGES.md``) attaches the referee's evidence to an
 aligned artifact the GPU container already wrote.
 
 This file pins the seams the cloud depends on -- upstream's and ours alike,

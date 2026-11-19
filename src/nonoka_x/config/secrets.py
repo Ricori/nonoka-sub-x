@@ -1,8 +1,8 @@
 """Nonoka's key store, `<data dir>\\secrets.json`, and the envelope that protects it.
 
 The envelope is FineSub's (`docs/runtime-and-config.md` D2, 2.2), copied from
-FineSub v0.7.0 `third_party/finesub/src/finesub_bootstrap/secrets.py`
-(7123055): a random 32-byte master key, kept as one keyring token, seals every
+FineSub v0.7.0 `finesub_bootstrap/secrets.py` (7123055; the original now
+ships in `engines/finesub-transcribe/src/finesub_bootstrap/`): a random 32-byte master key, kept as one keyring token, seals every
 key value with a stream cipher plus MAC derived from it. How the master is kept
 is the one thing that differs by platform, and the token's prefix says which:
 

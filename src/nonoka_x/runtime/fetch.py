@@ -1,7 +1,7 @@
 """Nonoka's network route and its resumable, verified file download.
 
-Copied from FineSub v0.7.0 (`third_party/finesub/src/finesub_bootstrap/`, 7123055)
-so that Nonoka's own code stops importing `finesub_bootstrap`
+Copied from FineSub v0.7.0 (`finesub_bootstrap/`, 7123055; the original now ships
+in `engines/finesub-transcribe/src/finesub_bootstrap/`) so that Nonoka's own code stops importing `finesub_bootstrap`
 (`docs/transcription-engines-plan.md` 4.2 item 12, WP-R2):
 
 - `http_client.py`: the route discovery (`network_routes`: live proxies, then
