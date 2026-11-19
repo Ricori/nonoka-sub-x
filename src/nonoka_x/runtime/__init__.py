@@ -118,15 +118,18 @@ class RuntimeManager:
         return item is not None and item.get("state") == "ready"
 
     def model_ready(self, model_id: str) -> bool:
-        """Whether the runtime page lists `model_id` (a model of the model layer) as ready."""
+        """Whether the runtime page lists `model_id` (a model of a model layer) as ready."""
 
         status = self.status()
-        models = [*(status.get("models") or ()), *(status.get("optional_models") or ())]
-        by_id = {item.get("id"): item for item in models}
-        if self._provisioner is not None and model_id not in by_id:
+        models = [
+            *(status.get("models") or ()),
+            *(status.get("optional_models") or ()),
+            *(status.get("moss_models") or ()),
+        ]
+        matching = [item for item in models if item.get("id") == model_id]
+        if self._provisioner is not None and not matching:
             raise UnknownComponent(f"no managed model {model_id!r}")
-        item = by_id.get(model_id)
-        return item is not None and item.get("state") == "ready"
+        return any(item.get("state") == "ready" for item in matching)
 
     def model_dir(self, model_id: str) -> Path | None:
         """The installed files of model `model_id` (an id of Nonoka's model manifest), or None.

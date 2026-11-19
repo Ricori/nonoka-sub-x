@@ -320,12 +320,17 @@ def test_capability_layers_come_from_the_environment() -> None:
     assert environment_layers(EngineEnvironment(components=("asr-runtime", "media"), models=("whisper",))) == {
         "required": ["tools", "python", "models"], "optional": [],
     }
+    assert environment_layers(
+        EngineEnvironment(components=("asr-runtime", "media"), models=("moss-transcribe-diarize", "speaker-embedding"))
+    ) == {
+        "required": ["tools", "python", "models-moss"], "optional": [],
+    }
     assert environment_layers(EngineEnvironment(components=("media",), optional_models=("nemotron3",))) == {
         "required": ["tools"], "optional": ["models"],
     }
     assert environment_layers({"components": ["ffmpeg", "yt-dlp"]}) == {"required": ["tools"], "optional": []}
     # A component nobody knows keeps every layer: nothing it might need is ever offered for cleaning.
-    assert set(component_layers("something-new")) == {"python", "models", "tools"}
+    assert set(component_layers("something-new")) == {"python", "models", "models-moss", "tools"}
 
 
 def test_native_artifacts_are_namespaced_and_opaque(tmp_path: Path) -> None:
@@ -516,6 +521,7 @@ def test_contracts_import_in_a_bare_interpreter() -> None:
         "import sys\n"
         "import nonoka_x.transcription, nonoka_x.transcription.model, nonoka_x.correction\n"
         "import nonoka_x.config, nonoka_x.runtime\n"
+        "import nonoka_x.transcription.engines.moss_local\n"
         "heavy = sorted(m for m in sys.modules if m.split('.')[0] in {'torch', 'numpy', 'finesub', 'finesub_bootstrap'})\n"
         "print(','.join(heavy))\n"
     )
@@ -524,6 +530,20 @@ def test_contracts_import_in_a_bare_interpreter() -> None:
         [sys.executable, "-c", code], capture_output=True, text=True, env=environment, cwd=ROOT, check=True
     )
     assert completed.stdout.strip() == ""
+
+
+def test_moss_local_engine_spec_and_readiness(tmp_path: Path) -> None:
+    from nonoka_x.transcription.engines.moss_local import MossLocalEngine
+
+    engine = MossLocalEngine(runtime=None)
+    assert (engine.spec.id, engine.spec.label, engine.spec.kind) == ("moss-local", "MOSS 0.9B", "local-gpu")
+    assert engine.spec.environment.models == ("moss-transcribe-diarize", "speaker-embedding")
+    assert engine.spec.environment.gpu == "required"
+    readiness = engine.readiness(ReadinessContext(device="cpu"))
+    assert not readiness.ready
+    codes = {issue.code for issue in readiness.issues}
+    if sys.platform == "win32":
+        assert "gpu_required" in codes and "runtime_unavailable" in codes
 
 
 # --- facades ----------------------------------------------------------------------

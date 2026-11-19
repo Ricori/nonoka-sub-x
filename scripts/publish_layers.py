@@ -236,19 +236,23 @@ def file_key(sha256: str, pattern: str = FILES_PATH) -> str:
 
 
 def build_index(built: dict[str, Built], base_url: str = BASE_URL,
-                file_layers: Iterable[str] = FILE_LAYERS) -> dict[str, Any]:
+                file_layers: Iterable[str] = FILE_LAYERS,
+                existing_layers: dict[str, Any] | None = None) -> dict[str, Any]:
     """`layers.json` in the format fixed in the plan's WP-E2 section (`files.layers` = `file_layers`)."""
 
     layers: dict[str, Any] = {}
     for layer in lm.LAYERS:
-        item = built[layer]
-        layers[layer] = {
-            "version": item.version,
-            "manifest": {"path": manifest_key(layer, item.manifest_sha256), "size": len(item.manifest_data),
-                         "sha256": item.manifest_sha256},
-            "archive": {"path": archive_key(layer, item.archive_sha256), "size": item.archive_size,
-                        "sha256": item.archive_sha256},
-        }
+        if layer in built:
+            item = built[layer]
+            layers[layer] = {
+                "version": item.version,
+                "manifest": {"path": manifest_key(layer, item.manifest_sha256), "size": len(item.manifest_data),
+                             "sha256": item.manifest_sha256},
+                "archive": {"path": archive_key(layer, item.archive_sha256), "size": item.archive_size,
+                            "sha256": item.archive_sha256},
+            }
+        elif existing_layers and layer in existing_layers:
+            layers[layer] = existing_layers[layer]
     return {
         "schema": INDEX_SCHEMA,
         "platform": lm.PLATFORM,
@@ -283,8 +287,8 @@ def check_index(index: Any) -> dict[str, Any]:
     if not (isinstance(base, str) and base.endswith("/") and urlsplit(base).scheme in ("http", "https")):
         raise PublishError("layers.json: baseUrl must be an http(s) URL ending in /")
     layers = index.get("layers")
-    if not isinstance(layers, dict) or set(layers) != set(lm.LAYERS):
-        raise PublishError(f"layers.json: layers must be exactly {', '.join(lm.LAYERS)}")
+    if not isinstance(layers, dict) or not (set(lm.REQUIRED_INDEX_LAYERS) <= set(layers) <= set(lm.LAYERS)):
+        raise PublishError(f"layers.json: layers must include {', '.join(lm.REQUIRED_INDEX_LAYERS)} and only {', '.join(lm.LAYERS)}")
     for layer, item in layers.items():
         _check_entry(item.get("manifest"), f"{layer}.manifest")
         _check_entry(item.get("archive"), f"{layer}.archive")
@@ -292,7 +296,7 @@ def check_index(index: Any) -> dict[str, Any]:
             raise PublishError(f"layers.json: {layer}.version is not its manifest's sha256 prefix")
     files = index.get("files")
     if not (isinstance(files, dict) and isinstance(files.get("path"), str) and "{sha256}" in files["path"]
-            and isinstance(files.get("layers"), list) and set(files["layers"]) <= set(lm.LAYERS)):
+            and isinstance(files.get("layers"), list) and set(files["layers"]) <= set(layers)):
         raise PublishError("layers.json: files needs layers and a path with {sha256}")
     return index
 
@@ -302,10 +306,23 @@ def load_index(path: Path = INDEX_FILE) -> dict[str, Any]:
 
 
 def index_command(args: argparse.Namespace) -> int:
-    chosen = dict(item.split("=", 1) for item in args.version or [])
-    built = {layer: find_built(Path(args.source), layer, chosen.get(layer)) for layer in lm.LAYERS}
-    data = render_index(build_index(built, args.base_url))
+    source = Path(args.source)
     out = Path(args.out)
+    existing_layers: dict[str, Any] = {}
+    if out.is_file():
+        try:
+            existing_layers = dict(load_index(out).get("layers") or {})
+        except PublishError:
+            existing_layers = {}
+    chosen = dict(item.split("=", 1) for item in args.version or [])
+    built: dict[str, Built] = {}
+    for layer in lm.LAYERS:
+        if layer in chosen or (source / layer).is_dir():
+            built[layer] = find_built(source, layer, chosen.get(layer))
+        elif layer in lm.REQUIRED_INDEX_LAYERS and layer not in existing_layers:
+            built[layer] = find_built(source, layer, chosen.get(layer))
+    index = check_index(build_index(built, args.base_url, existing_layers=existing_layers))
+    data = render_index(index)
     if out.is_file() and out.read_bytes() == data:
         log(f"{out} is up to date")
         return 0
@@ -353,11 +370,35 @@ def unpacked_layer(built: Built, work: Path) -> Path:
     return target
 
 
-def plan_objects(index: dict[str, Any], source: Path, work: Path) -> list[PublishObject]:
-    """Every object `index` names, each with the local file it comes from, checked against the index."""
+def _selected_layers(index: dict[str, Any], layers: Iterable[str] | None) -> list[str]:
+    available = [item for item in lm.LAYERS if item in index["layers"]]
+    if layers is None:
+        return available
+    wanted = list(dict.fromkeys(layers))
+    missing = [layer for layer in wanted if layer not in index["layers"]]
+    if missing:
+        raise PublishError(f"layers.json has no entry for: {', '.join(missing)}")
+    return [item for item in available if item in wanted]
 
+
+def _local_or_requested_layers(index: dict[str, Any], source: Path, requested: Iterable[str] | None) -> list[str]:
+    if requested is not None:
+        return _selected_layers(index, requested)
+    available = _selected_layers(index, None)
+    present = [layer for layer in available if (Path(source) / layer / index["layers"][layer]["version"]).is_dir()]
+    if present and len(present) < len(available):
+        log(f"planning locally built layers in {source}: {', '.join(present)}")
+        return present
+    return available
+
+
+def plan_objects(index: dict[str, Any], source: Path, work: Path,
+                 *, layers: Iterable[str] | None = None) -> list[PublishObject]:
+    """Every object `index` names (or those for `layers`), each with the local file it comes from, checked against the index."""
+
+    chosen = _selected_layers(index, layers)
     objects: list[PublishObject] = []
-    for layer in lm.LAYERS:
+    for layer in chosen:
         entry = index["layers"][layer]
         directory = Path(source) / layer / entry["version"]
         manifest_path = directory / "manifest.json"
@@ -372,7 +413,7 @@ def plan_objects(index: dict[str, Any], source: Path, work: Path) -> list[Publis
         objects.append(PublishObject(entry["manifest"]["path"], entry["manifest"]["size"],
                                      entry["manifest"]["sha256"], manifest_path, "manifest", "application/json"))
     seen = {item.key for item in objects}
-    for layer in index["files"]["layers"]:
+    for layer in [item for item in index["files"]["layers"] if item in chosen]:
         entry = index["layers"][layer]
         built = Built(layer, entry["version"], Path(source) / layer / entry["version"],
                       (Path(source) / layer / entry["version"] / "manifest.json").read_bytes(),
@@ -767,7 +808,9 @@ def resolve_work(value: str | None) -> Path:
 
 def plan_command(args: argparse.Namespace) -> int:
     index = load_index(Path(args.index))
-    objects = plan_objects(index, Path(args.source), resolve_work(args.work))
+    source = Path(args.source)
+    layers = _local_or_requested_layers(index, source, getattr(args, "layer", None))
+    objects = plan_objects(index, source, resolve_work(args.work), layers=layers)
     print(f"objects for {BUCKET} ({index['baseUrl']}):\n{describe(objects)}")
     if args.list:
         for item in objects:
@@ -789,7 +832,9 @@ def plan_command(args: argparse.Namespace) -> int:
 
 def upload_command(args: argparse.Namespace) -> int:
     index = load_index(Path(args.index))
-    objects = plan_objects(index, Path(args.source), resolve_work(args.work))
+    source = Path(args.source)
+    layers = _local_or_requested_layers(index, source, getattr(args, "layer", None))
+    objects = plan_objects(index, source, resolve_work(args.work), layers=layers)
     route = chosen_route(args, required=False)
     print(f"uploading to {BUCKET} via {route.label}:\n{describe(objects)}", flush=True)
     store = open_store(route)
@@ -823,10 +868,11 @@ def _fetch(url: str, size: int, sha256: str, destination: Path, route: fetch.Net
 
 
 def verify(index: dict[str, Any], route: fetch.NetworkRoute, work: Path, *, keep: bool = False,
-           base_url: str | None = None) -> Verification:
+           base_url: str | None = None, layers: Iterable[str] | None = None) -> Verification:
     """Download what `index` names from its public address and check it against the manifests."""
 
     base = base_url or index["baseUrl"]
+    chosen = _selected_layers(index, layers)
     result = Verification()
     work = Path(work)
     if work.exists():
@@ -834,7 +880,7 @@ def verify(index: dict[str, Any], route: fetch.NetworkRoute, work: Path, *, keep
     work.mkdir(parents=True)
     try:
         manifests: dict[str, lm.LayerManifest] = {}
-        for layer in lm.LAYERS:
+        for layer in chosen:
             entry = index["layers"][layer]
             try:
                 path = _fetch(base + entry["manifest"]["path"], entry["manifest"]["size"],
@@ -896,7 +942,7 @@ def verify_command(args: argparse.Namespace) -> int:
     work = Path(args.work) if args.work else main_checkout() / ".tmp" / "layer-verify"
     log(f"verifying {index['baseUrl']} via {route.label}")
     started = time.perf_counter()
-    result = verify(index, route, work, keep=args.keep, base_url=args.base_url)
+    result = verify(index, route, work, keep=args.keep, base_url=args.base_url, layers=getattr(args, "layer", None))
     seconds = time.perf_counter() - started
     print(json.dumps({"route": route.label, "baseUrl": args.base_url or index["baseUrl"], "checked": result.checked,
                       "problems": result.problems, "downloaded": result.downloaded,
@@ -1034,12 +1080,15 @@ def main(argv: list[str] | None = None) -> int:
     making.add_argument("--version", action="append", help="<layer>=<version> when several are built")
     planning = commands.add_parser("plan", help="list the objects to upload, their number and size")
     common(planning, route=True)
+    planning.add_argument("--layer", action="append", choices=lm.LAYERS, help="only this layer (repeatable)")
     planning.add_argument("--list", action="store_true", help="every object")
     planning.add_argument("--remote", action="store_true", help="also ask the bucket which are there already")
     uploading = commands.add_parser("upload", help="upload what is missing (never overwrites)")
     common(uploading, route=True)
+    uploading.add_argument("--layer", action="append", choices=lm.LAYERS, help="only this layer (repeatable)")
     verifying = commands.add_parser("verify", help="download from the public address and check")
     common(verifying, route=True)
+    verifying.add_argument("--layer", action="append", choices=lm.LAYERS, help="only this layer (repeatable)")
     verifying.add_argument("--base-url", help="instead of layers.json's baseUrl")
     verifying.add_argument("--keep", action="store_true", help="keep the downloads")
     listing = commands.add_parser("unreferenced", help="objects no published version refers to (lists only)")

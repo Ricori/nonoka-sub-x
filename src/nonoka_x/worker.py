@@ -388,6 +388,7 @@ def diarization_models_missing(models_dir: str | Path | None) -> bool:
 #: factory is handed whichever of `store` (the config facade) and `runtime`
 #: (the runtime facade) it takes by name (`build_engines`).
 TRANSCRIPTION_ENGINES: tuple[str, ...] = (
+    "nonoka_x.transcription.engines.moss_local:MossLocalEngine",
     "nonoka_x.transcription.engines.mai2:Mai2Engine",
     "nonoka_x.transcription.engines.gemini:GeminiEngine",
     "nonoka_x.transcription.engines.moss_pro:MossProEngine",

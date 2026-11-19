@@ -42,8 +42,11 @@ TOOL_GROUPS = {
 #: blocked; they come with the model layer like the others.
 OPTIONAL_MODELS = ("nemotron3", "speaker-embedding")
 OPTIONAL_MODELS_TARGET = "optional-models"
+MODELS_MOSS_TARGET = "models-moss"
+MOSS_MODELS = ("moss-transcribe-diarize", "speaker-embedding")
+USER_REMOVABLE_LAYERS = ("models", "models-moss")
 REPAIR_TARGET = "repair"
-TARGETS = {"media", "runtime", "models", "all", OPTIONAL_MODELS_TARGET, REPAIR_TARGET,
+TARGETS = {"media", "runtime", "models", MODELS_MOSS_TARGET, "all", OPTIONAL_MODELS_TARGET, REPAIR_TARGET,
            *OPTIONAL_TOOLS, *REQUIRED_TOOLS, *TOOL_GROUPS}
 PIPELINE_MODELS = ("separator", "whisper", "qwen-referee")
 
@@ -52,6 +55,7 @@ START_MESSAGES = {
     "media": "正在准备下载工具层（FFmpeg 等）",
     "runtime": "正在准备安装运行时（不含模型）",
     "models": "正在准备下载模型层",
+    MODELS_MOSS_TARGET: "正在准备下载 MOSS 模型层",
     "all": "正在准备安装运行时并下载模型",
     OPTIONAL_MODELS_TARGET: "正在准备下载模型层（含说话人分离模型）",
     REPAIR_TARGET: "正在准备完整核对运行环境",
@@ -66,6 +70,7 @@ DONE_MESSAGES = {
     "media": "工具层已就绪（FFmpeg 与 FFprobe 可用）",
     "runtime": "运行时已就绪；模型仍需单独下载",
     "models": "模型层已下载并核对完成",
+    MODELS_MOSS_TARGET: "MOSS 模型层已下载并核对完成",
     "all": "运行时与模型已全部准备就绪",
     OPTIONAL_MODELS_TARGET: "模型层已下载并核对完成（含说话人分离模型）",
     REPAIR_TARGET: "运行环境已完整核对，有问题的层已重新安装",
@@ -80,7 +85,7 @@ CANCELLED_MESSAGE = "已取消；已下载的部分会保留，下次继续时�
 
 #: The children of the big-file root's `cache\\` that "clear the cache" empties: archives being
 #: fetched, and the engine packages' compile caches (`_cache_entry_names`; rebuilt by the next run).
-RUNTIME_CACHE_ENTRIES = ("downloads",)
+RUNTIME_CACHE_ENTRIES = ("downloads", "moss-local/triton")
 
 
 def _cache_entry_names() -> tuple[str, ...]:
@@ -269,6 +274,7 @@ class RuntimeProvisioner:
                 "resources": [],
                 "models": [{"id": model_id, "state": "missing"} for model_id in PIPELINE_MODELS],
                 "optional_models": [{"id": model_id, "state": "missing"} for model_id in OPTIONAL_MODELS],
+                "moss_models": [{"id": model_id, "state": "missing"} for model_id in MOSS_MODELS],
                 "layers": [],
                 "unused_layers": [],
                 "unused_bytes": 0,
@@ -278,6 +284,7 @@ class RuntimeProvisioner:
         by_layer = {item["id"]: item for item in overview["layers"]}
         runtime_item = {"id": "python", "version": "3.12", **self._item_state("python", by_layer)}
         models_state = self._item_state("models", by_layer)
+        moss_state = self._item_state("models-moss", by_layer)
         return {
             **base,
             "media_ready": self.tool_path("ffmpeg") is not None and self.tool_path("ffprobe") is not None,
@@ -285,6 +292,7 @@ class RuntimeProvisioner:
             "resources": self._tool_items(by_layer),
             "models": [{"id": model_id, **models_state} for model_id in PIPELINE_MODELS],
             "optional_models": [{"id": model_id, **models_state} for model_id in OPTIONAL_MODELS],
+            "moss_models": [{"id": model_id, **moss_state} for model_id in MOSS_MODELS],
             "layers": overview["layers"],
             "unused_layers": overview["unused"],
             "unused_bytes": overview["unused_bytes"],
@@ -326,7 +334,7 @@ class RuntimeProvisioner:
     def start(self, target: str) -> dict[str, Any]:
         if target not in TARGETS:
             raise RuntimeProvisionError(
-                f"target must be one of: media, runtime, models, all, {OPTIONAL_MODELS_TARGET}, {REPAIR_TARGET}, "
+                f"target must be one of: media, runtime, models, {MODELS_MOSS_TARGET}, all, {OPTIONAL_MODELS_TARGET}, {REPAIR_TARGET}, "
                 + ", ".join((*OPTIONAL_TOOLS, *REQUIRED_TOOLS, *TOOL_GROUPS))
             )
         if target == "media" and not self._media_supported:
@@ -355,6 +363,50 @@ class RuntimeProvisioner:
                 "proxy": proxy_label(live_proxy()),
             }
         thread = threading.Thread(target=self._run, args=(target,), name="nonoka-runtime-provision", daemon=True)
+        thread.start()
+        return self.status()
+
+    def start_offline(self, layer: str, archive_path: str | Path) -> dict[str, Any]:
+        """Install one prebuilt layer from a user-selected local `.tar.zst` archive (zero network)."""
+
+        from nonoka_x.runtime.layers import LABELS
+
+        if layer not in lm.LAYERS:
+            raise RuntimeProvisionError(f"未知的运行环境层：{layer!r}")
+        if layer == "tools" and not self._media_supported:
+            raise RuntimeProvisionError(f"当前平台（{self.platform}）暂不支持工具层")
+        if layer != "tools" and not self._runtime_supported:
+            raise RuntimeProvisionError(f"当前平台（{self.platform}）暂不支持该运行环境层")
+        if self.layers is None:
+            raise RuntimeProvisionError(f"运行环境层不可用：{self._bootstrap_error}")
+        if layer not in self.layers.index.layers:
+            raise RuntimeProvisionError(f"当前版本未登记运行环境层：{layer}")
+        raw_path = str(archive_path or "").strip()
+        if not raw_path:
+            raise RuntimeProvisionError("请选择离线包文件（.tar.zst）")
+        source = Path(raw_path)
+        label = LABELS.get(layer, layer)
+        with self._lock:
+            if self._job["state"] == "running":
+                raise RuntimeProvisionError("已有安装任务正在进行，请先取消后再使用离线包安装")
+            if self._clearing_cache:
+                raise RuntimeProvisionError("正在清理下载缓存，请稍后再安装")
+            if self._cleaning:
+                raise RuntimeProvisionError("正在清理未使用的运行环境层，请稍后再安装")
+            self._cancel.clear()
+            self._job = {
+                "state": "running",
+                "target": f"offline:{layer}",
+                "resource": layer,
+                "stage": "offline",
+                "message": f"正在准备从离线包安装{label}",
+                "progress": None,
+                "error": None,
+                "proxy": "",
+            }
+        thread = threading.Thread(
+            target=self._run_offline, args=(layer, source), name="nonoka-runtime-provision-offline", daemon=True,
+        )
         thread.start()
         return self.status()
 
@@ -428,6 +480,36 @@ class RuntimeProvisioner:
             # checkpoints or the download's `DownloadPaused` -- so it is a cancellation, not a failure.
             if self._cancel.is_set():
                 self._update(state="cancelled", stage="cancelled", message=CANCELLED_MESSAGE, resource="",
+                             progress=None, error=None)
+                return
+            code = ("install_path_too_deep" if isinstance(exc, PathTooDeep)
+                    else "runtime_in_use" if isinstance(exc, LayerBusy) else "runtime_install_failed")
+            self._update(state="failed", stage="failed", message=str(exc), error={"code": code, "message": str(exc)},
+                         progress=None)
+
+    def _run_offline(self, layer: str, archive_path: Path) -> None:
+        from nonoka_x.runtime.layers import LABELS, LayerBusy, PathTooDeep
+        from nonoka_x.runtime_install import vc_runtime_problem
+
+        label = LABELS.get(layer, layer)
+        try:
+            assert self.layers is not None
+            self._stop_if_cancelled()
+            problem = vc_runtime_problem((layer,))
+            if problem:
+                raise RuntimeProvisionError(problem)
+            state = self.layers.install(
+                layer,
+                archive_path=archive_path,
+                progress=self._layer_progress,
+                should_pause=self._cancelled,
+            )
+            if not state.ready:
+                raise RuntimeProvisionError(f"{label}安装完成后仍不可用：{'；'.join(state.problems[:3])}")
+            self._update(state="completed", stage="completed", message=f"{label}已从离线包安装并核对完成", progress=None)
+        except Exception as exc:
+            if self._cancel.is_set():
+                self._update(state="cancelled", stage="cancelled", message="已取消离线包安装", resource="",
                              progress=None, error=None)
                 return
             code = ("install_path_too_deep" if isinstance(exc, PathTooDeep)
@@ -519,22 +601,26 @@ class RuntimeProvisioner:
         return self.status()
 
     def remove_layer(self, layer: str) -> dict[str, Any]:
-        """Remove one user-removable layer (currently only `models`); default layers stay."""
+        """Remove one user-removable model layer (`models` or `models-moss`); default layers stay."""
+
+        from nonoka_x.runtime.layers import LABELS
 
         if self.layers is None:
             raise RuntimeProvisionError(f"运行环境层不可用：{self._bootstrap_error}")
-        if layer != "models":
+        if layer not in USER_REMOVABLE_LAYERS:
             raise RuntimeProvisionError("仅允许删除模型层；工具层与 Python 环境层为默认基础环境")
-        self._refuse_while_busy("删除模型层")
+        label = LABELS.get(layer, layer)
+        target_name = f"remove-{layer}"
+        self._refuse_while_busy(f"删除{label}层")
         result = self.layers.remove_layer(layer)
         if result["kept"]:
             reasons = "、".join(f"{item['name']}（{item['reason']}）" for item in result["kept"])
-            detail = f"模型层未能完全删除，可能有文件正在被占用：{reasons}"
-            self._update(state="failed", target="remove-models", resource="", stage="failed", message=detail,
+            detail = f"{label}层未能完全删除，可能有文件正在被占用：{reasons}"
+            self._update(state="failed", target=target_name, resource="", stage="failed", message=detail,
                          progress=None, error={"code": "remove_failed", "message": detail})
             raise RuntimeProvisionError(detail)
-        self._update(state="completed", target="remove-models", resource="", stage="completed",
-                     message="模型层已删除；工具层、Python 环境层与用户数据已保留",
+        self._update(state="completed", target=target_name, resource="", stage="completed",
+                     message=f"{label}层已删除；工具层、Python 环境层与用户数据已保留",
                      progress=None, error=None)
         return self.status()
 

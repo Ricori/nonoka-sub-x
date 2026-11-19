@@ -124,6 +124,12 @@ class SidecarHandler(BaseHTTPRequestHandler):
             self._json(200, provider.runtime_provision_status())
         elif self.command == "POST" and parts == ["v1", "runtime", "provision"]:
             self._json(202, provider.install_runtime(str(self._body().get("target") or "all")))
+        elif self.command == "POST" and parts == ["v1", "runtime", "provision", "offline"]:
+            body = self._body()
+            self._json(202, provider.install_runtime_offline(
+                str(body.get("layer") or ""),
+                str(body.get("path") or ""),
+            ))
         elif self.command == "POST" and parts == ["v1", "runtime", "provision", "cancel"]:
             self._json(200, provider.cancel_runtime_install())
         elif self.command == "DELETE" and parts == ["v1", "runtime", "provision"]:

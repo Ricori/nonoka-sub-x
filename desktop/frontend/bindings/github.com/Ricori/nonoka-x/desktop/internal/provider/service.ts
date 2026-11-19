@@ -9,6 +9,10 @@ import { Call as $Call, CancellablePromise as $CancellablePromise } from "@wails
 // @ts-ignore: Unused imports
 import * as sidecar$0 from "../sidecar/models.js";
 
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
+import * as $models from "./models.js";
+
 /**
  * CancelRuntimeInstall stops the running provisioning job. The sidecar cancels
  * cooperatively and keeps whatever it already downloaded, so this is a stop
@@ -24,6 +28,14 @@ export function CancelTask(taskID: string): $CancellablePromise<{ [_ in string]?
 
 export function Capabilities(): $CancellablePromise<{ [_ in string]?: any } | null> {
     return $Call.ByID(2454552558);
+}
+
+/**
+ * ChooseLayerOfflineArchive opens a native file picker for a single prebuilt
+ * layer archive (.tar.zst, identical to the R2 object).
+ */
+export function ChooseLayerOfflineArchive(layer: string): $CancellablePromise<$models.OfflineArchivePick> {
+    return $Call.ByID(2530786069, layer);
 }
 
 /**
@@ -50,6 +62,14 @@ export function DocumentPeaks(videoID: string): $CancellablePromise<{ [_ in stri
  */
 export function ImportDocument(payload: { [_ in string]?: any } | null): $CancellablePromise<{ [_ in string]?: any } | null> {
     return $Call.ByID(4000625540, payload);
+}
+
+/**
+ * InstallLayerOffline asks the sidecar to verify and install one prebuilt layer
+ * directly from the local .tar.zst archive without touching the network.
+ */
+export function InstallLayerOffline(layer: string, archivePath: string): $CancellablePromise<{ [_ in string]?: any } | null> {
+    return $Call.ByID(3738259907, layer, archivePath);
 }
 
 export function InstallPython(): $CancellablePromise<{ [_ in string]?: any } | null> {
@@ -98,6 +118,13 @@ export function PythonBootstrapStatus(): $CancellablePromise<{ [_ in string]?: a
  */
 export function RemoveModels(): $CancellablePromise<{ [_ in string]?: any } | null> {
     return $Call.ByID(2091337930);
+}
+
+/**
+ * RemoveModelsMoss removes only the models-moss layer (local MOSS 0.9B).
+ */
+export function RemoveModelsMoss(): $CancellablePromise<{ [_ in string]?: any } | null> {
+    return $Call.ByID(1890846764);
 }
 
 /**

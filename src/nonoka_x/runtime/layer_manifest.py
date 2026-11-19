@@ -34,17 +34,40 @@ SCHEMA = 1
 #: The manifest's name inside the layer's own root directory.
 MANIFEST_NAME = ".nonoka-layer.json"
 
-#: The three layers (4.2 item 14). Windows only for now (macOS tools: plan appendix B, question 31).
-LAYERS = ("python", "models", "tools")
+#: The four layers (4.2 item 14, plus the optional local-MOSS model layer). Windows only for now.
+LAYERS = ("python", "models", "models-moss", "tools")
+#: The three layers every `layers.json` since v0.7 carries; `models-moss` may be added once built.
+REQUIRED_INDEX_LAYERS = ("python", "models", "tools")
 PLATFORM = "windows-x64"
 
 #: Every file and directory of a built layer carries this modification time: 2026-01-01T00:00:00Z.
 FIXED_MTIME = 1767225600
 
-#: Model-manifest ids the model layer holds: the ones FineSub's default path loads (owner 2026-11-12,
+#: Model-manifest ids the FineSub model layer holds: the ones FineSub's default path loads (owner 2026-11-12,
 #: plan appendix C item 6). separator, whisper and qwen-referee on every run; nemotron3 and
 #: speaker-embedding whenever speaker diarization is not `off`.
 MODEL_LAYER_IDS = ("separator", "whisper", "qwen-referee", "nemotron3", "speaker-embedding")
+
+#: Model-manifest ids the local MOSS model layer (`models-moss`) holds: `moss-transcribe-diarize` plus
+#: `speaker-embedding` trimmed to the ~26 MB CPU WeSpeaker + PLDA files `relink` opens.
+MOSS_MODEL_LAYER_IDS = ("moss-transcribe-diarize", "speaker-embedding")
+MOSS_SPEAKER_EMBEDDING_FILES = ("wespeaker-cpu.ts", "plda/plda.npz", "plda/xvec_transform.npz")
+MODEL_LAYERS: dict[str, tuple[str, ...]] = {
+    "models": MODEL_LAYER_IDS,
+    "models-moss": MOSS_MODEL_LAYER_IDS,
+}
+
+
+def layer_model_spec(layer: str, model_id: str, spec: dict[str, Any]) -> dict[str, Any]:
+    """The model-manifest entry as `layer` builds and verifies it (`models-moss` trims `speaker-embedding`)."""
+
+    copied = dict(spec)
+    files = [dict(item) for item in spec.get("files", [])]
+    if layer == "models-moss" and model_id == "speaker-embedding":
+        copied["listedOnly"] = True
+        files = [item for item in files if item.get("name") in MOSS_SPEAKER_EMBEDDING_FILES]
+    copied["files"] = files
+    return copied
 
 #: Tool-manifest ids the tool layer leaves out: uv only builds the Python layer (4.2 item 14).
 TOOLS_LEFT_OUT = ("uv",)
@@ -303,8 +326,12 @@ __all__ = [
     "HF_MARKER_NAME",
     "LAYERS",
     "MANIFEST_NAME",
+    "MODEL_LAYERS",
     "MODEL_LAYER_IDS",
+    "MOSS_MODEL_LAYER_IDS",
+    "MOSS_SPEAKER_EMBEDDING_FILES",
     "PLATFORM",
+    "REQUIRED_INDEX_LAYERS",
     "SCHEMA",
     "SEPARATOR_DIR",
     "TOOLS_LEFT_OUT",
@@ -318,6 +345,7 @@ __all__ = [
     "digest_of",
     "is_link",
     "iter_paths",
+    "layer_model_spec",
     "manifest_in",
     "parse",
     "read",

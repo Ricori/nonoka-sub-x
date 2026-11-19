@@ -1,6 +1,6 @@
 import type { Snapshot as SidecarSnapshot } from "../../bindings/github.com/Ricori/nonoka-x/desktop/internal/sidecar/models.js";
 import { useEffect, useState } from "react";
-import type { PythonBootstrapState, RuntimeCleanupItem, RuntimeCleanupPlan, RuntimeInstallTarget, RuntimeItem, RuntimeLayerOverview, RuntimeProvisionState } from "../bridge/runtime.ts";
+import type { PythonBootstrapState, RuntimeCleanupItem, RuntimeCleanupPlan, RuntimeInstallTarget, RuntimeItem, RuntimeLayerId, RuntimeLayerOverview, RuntimeProvisionState } from "../bridge/runtime.ts";
 import type { RelocationProgress, StorageDestination, StorageStatus, StorageTarget } from "../bridge/storage.ts";
 import type { RuntimeCacheState } from "./runtimeCache.ts";
 import { cleanupView, layerLabel } from "./engineLayers.ts";
@@ -26,9 +26,11 @@ interface RuntimeSectionProps {
   sidecar: SidecarSnapshot | null;
   migrationActive?: boolean;
   onInstall: (target: RuntimeInstallTarget) => Promise<void>;
+  onInstallOffline?: (layer: RuntimeLayerId) => Promise<void>;
   onInstallPython: () => Promise<void>;
   onCancelInstall: () => Promise<void>;
   onRemoveModels: () => Promise<void>;
+  onRemoveModelsMoss?: () => Promise<void>;
   onRemoveUnused: (layers: string[]) => Promise<void>;
   cleanup: RuntimeCleanupPlan | null;
   requestedInstall: { target: RuntimeInstallTarget; seq: number } | null;
@@ -61,8 +63,10 @@ const layerStateLabels: Record<RuntimeLayerOverview["state"], string> = {
 
 const stageOrder: Record<string, number> = {
   preparing: 0,
+  manifest: 0,
   resource: 0,
   downloading: 0,
+  offline: 1,
   verifying: 1,
   checking: 1,
   extracting: 2,
@@ -74,6 +78,17 @@ const stageOrder: Record<string, number> = {
   installing_dependencies: 3,
   completed: 4,
 };
+
+const KNOWN_LAYER_IDS = new Set<string>(["tools", "python", "models", "models-moss"]);
+
+function isRuntimeLayerId(value: string): value is RuntimeLayerId {
+  return KNOWN_LAYER_IDS.has(value);
+}
+
+function offlineButtonTitle(layer: RuntimeLayerOverview | undefined, blocked: string): string {
+  if (blocked) return blocked;
+  return `选择本地 .tar.zst 离线包安装（与 R2 压缩包一致${layer?.version ? `，所需版本：${layer.version}` : ""}）`;
+}
 
 function formatBytes(value: number): string {
   if (!Number.isFinite(value) || value <= 0) return "0 B";
@@ -91,15 +106,29 @@ interface ProgressJob {
   proxy?: string;
 }
 
-function ProvisionProgress({ job, onCancel, cancellable = true }: { job: ProgressJob; onCancel: () => Promise<void>; cancellable?: boolean }) {
+function ProvisionProgress({
+  job,
+  onCancel,
+  cancellable = true,
+  onSwitchToOffline,
+}: {
+  job: ProgressJob;
+  onCancel: () => Promise<void>;
+  cancellable?: boolean;
+  onSwitchToOffline?: () => void;
+}) {
   const progress = job.progress;
   const percentage = progress?.total ? Math.min(100, Math.max(0, progress.completed / progress.total * 100)) : 0;
   const activePhase = stageOrder[job.stage] ?? 0;
+  const slowDownload = job.stage === "downloading"
+    && progress?.bytes_per_second != null
+    && progress.bytes_per_second > 0
+    && progress.bytes_per_second < 512 * 1024;
   const progressDescription = progress?.total
     ? `${formatBytes(progress.completed)} / ${formatBytes(progress.total)}`
     : job.stage === "installing_dependencies" || job.stage === "activating" || job.stage === "runtime"
       ? "正在安装已下载的依赖"
-      : job.stage === "verifying" || job.stage === "extracting" || job.stage === "unpacking" || job.stage === "checking"
+      : job.stage === "offline" || job.stage === "verifying" || job.stage === "extracting" || job.stage === "unpacking" || job.stage === "checking"
         ? job.message
         : "正在准备…";
   return (
@@ -111,7 +140,21 @@ function ProvisionProgress({ job, onCancel, cancellable = true }: { job: Progres
           <strong>{job.message || "正在准备下载"}</strong>
         </div>
         <b>{progress?.total ? `${Math.round(percentage)}%` : "处理中"}</b>
-        {cancellable && <button className="cancel-button" onClick={() => void onCancel()} type="button">取消</button>}
+        {(onSwitchToOffline || cancellable) && (
+          <div className="provision-progress-actions">
+            {onSwitchToOffline && (
+              <button
+                className="quiet-button runtime-compact-btn"
+                title="下载慢或卡住时，可直接选择本地 .tar.zst 离线包安装（选定后自动中止在线下载）"
+                onClick={onSwitchToOffline}
+                type="button"
+              >
+                改用离线包…
+              </button>
+            )}
+            {cancellable && <button className="cancel-button" onClick={() => void onCancel()} type="button">取消</button>}
+          </div>
+        )}
       </div>
       {job.proxy && <p className="provision-proxy">通过 {job.proxy} 下载</p>}
       <div className={`provision-progress-track ${progress?.total ? "" : "indeterminate"}`}>
@@ -119,8 +162,11 @@ function ProvisionProgress({ job, onCancel, cancellable = true }: { job: Progres
       </div>
       <div className="provision-progress-meta">
         <span>{progressDescription}</span>
-        <span>{progress?.bytes_per_second ? `${formatBytes(progress.bytes_per_second)}/s` : "校验后自动安装"}</span>
+        <span>{progress?.bytes_per_second ? `${formatBytes(progress.bytes_per_second)}/s` : job.stage === "offline" ? "离线包校验后自动安装" : "校验后自动安装"}</span>
       </div>
+      {slowDownload && onSwitchToOffline && (
+        <p className="provision-slow-hint">当前在线下载较慢，可随时点击「改用离线包…」直接导入本地 .tar.zst 压缩包。</p>
+      )}
       <div className="provision-phase-list">
         {installPhases.map((phase, index) => (
           <span className={index < activePhase ? "complete" : index === activePhase ? "active" : ""} key={phase.id}>
@@ -144,6 +190,12 @@ function modelTooltip(models: RuntimeItem[], optionalModels: RuntimeItem[]): str
   return `供本机 FineSub 转写使用，按需下载与删除。\n包含：${names.join("、")}${total > 0 ? `\n当前就绪：${ready}/${total}` : ""}`;
 }
 
+function mossModelTooltip(mossModels: RuntimeItem[]): string {
+  const ready = mossModels.filter((item) => item.state === "ready").length;
+  const total = mossModels.length;
+  return `供本机 MOSS 0.9B 转写使用，按需下载与删除（需 NVIDIA RTX 30 系及以上显卡，约 8 GB 显存）。\n包含：MOSS-Transcribe-Diarize（0.9B 语音识别与说话人分离）、说话人声纹模型（WeSpeaker CPU + PLDA，约 26 MB）${total > 0 ? `\n当前就绪：${ready}/${total}` : ""}`;
+}
+
 export function RuntimeSection(props: RuntimeSectionProps) {
   const {
     provisionMessage,
@@ -154,8 +206,10 @@ export function RuntimeSection(props: RuntimeSectionProps) {
     onCancelInstall,
     onDismissProvisionMessage,
     onInstall,
+    onInstallOffline,
     onInstallPython,
     onRemoveModels,
+    onRemoveModelsMoss,
     onRemoveUnused,
     cleanup,
     requestedInstall,
@@ -173,6 +227,7 @@ export function RuntimeSection(props: RuntimeSectionProps) {
   } = props;
 
   const [confirmRemoveModels, setConfirmRemoveModels] = useState(false);
+  const [confirmRemoveModelsMoss, setConfirmRemoveModelsMoss] = useState(false);
   const [confirmUnused, setConfirmUnused] = useState(false);
   const { pending, choosing, choose, clear } = useDestinationChoice(onChooseStorage);
 
@@ -199,6 +254,7 @@ export function RuntimeSection(props: RuntimeSectionProps) {
   const toolsLayer = layerById.get("tools");
   const pythonLayer = layerById.get("python");
   const modelsLayer = layerById.get("models");
+  const modelsMossLayer = layerById.get("models-moss");
 
   const toolsState: RuntimeLayerOverview["state"] = toolsLayer?.state
     ?? (provision?.media_ready ? "ready" : "missing");
@@ -220,10 +276,17 @@ export function RuntimeSection(props: RuntimeSectionProps) {
 
   const requiredModels = provision?.models ?? [];
   const optionalModels = provision?.optional_models ?? [];
+  const mossModels = provision?.moss_models ?? [];
   const modelsReady = modelsLayer ? modelsLayer.state === "ready" : (requiredModels.length > 0 && requiredModels.every((item) => item.state === "ready"));
   const modelsInstalled = modelsLayer ? modelsLayer.current !== null : requiredModels.some((item) => item.state === "ready");
   const modelsNeedsUpdate = modelsLayer ? modelsLayer.state === "outdated" : requiredModels.some((item) => item.state === "outdated");
   const modelsNeedsRepair = modelsLayer ? modelsLayer.state === "damaged" : requiredModels.some((item) => item.state === "failed");
+
+  const modelsMossIndexed = Boolean(modelsMossLayer);
+  const modelsMossReady = modelsMossLayer ? modelsMossLayer.state === "ready" : (mossModels.length > 0 && mossModels.every((item) => item.state === "ready"));
+  const modelsMossInstalled = modelsMossLayer ? modelsMossLayer.current !== null : mossModels.some((item) => item.state === "ready");
+  const modelsMossNeedsUpdate = modelsMossLayer ? modelsMossLayer.state === "outdated" : mossModels.some((item) => item.state === "outdated");
+  const modelsMossNeedsRepair = modelsMossLayer ? modelsMossLayer.state === "damaged" : mossModels.some((item) => item.state === "failed");
 
   const migrationBlocked = migrationActive ? "旧版升级正在自动更新运行环境，请等待完成。" : "";
   const connectionBlocked = !provision
@@ -236,12 +299,18 @@ export function RuntimeSection(props: RuntimeSectionProps) {
 
   const toolsBlocked = migrationBlocked || connectionBlocked || (provision && !provision.media_supported ? "当前平台暂不支持工具层。" : "") || jobBlocked;
   const pythonLayerBlocked = migrationBlocked || connectionBlocked || (provision && !provision.runtime_supported ? `本地 GPU 环境暂不支持 ${provision.platform}。` : "") || jobBlocked;
-  const modelsBlocked = migrationBlocked
+  const modelsOfflineBlocked = migrationBlocked
     || connectionBlocked
     || (provision && !provision.runtime_supported ? `本地模型暂不支持 ${provision.platform}。` : "")
-    || jobBlocked
+    || jobBlocked;
+  const modelsBlocked = modelsOfflineBlocked
     || (provision && pythonState !== "ready" ? "请先完成基础环境初始化后再下载模型。" : "");
   const removeModelsBlocked = migrationBlocked || connectionBlocked || jobBlocked || (!modelsInstalled ? "模型层尚未安装。" : "");
+  const modelsMossOfflineBlocked = modelsOfflineBlocked
+    || (provision && !modelsMossIndexed ? "当前版本尚未在 layers.json 中登记 MOSS 模型层。" : "");
+  const modelsMossBlocked = modelsMossOfflineBlocked
+    || (provision && pythonState !== "ready" ? "请先完成基础环境初始化后再下载模型。" : "");
+  const removeModelsMossBlocked = migrationBlocked || connectionBlocked || jobBlocked || (!modelsMossInstalled ? "MOSS 模型层尚未安装。" : "");
 
   const installedLayers = (provision?.layers ?? []).filter((layer) => layer.current !== null);
   const repairBlocked = migrationBlocked || connectionBlocked || jobBlocked
@@ -275,17 +344,54 @@ export function RuntimeSection(props: RuntimeSectionProps) {
 
   const toolsSupported = provision?.media_supported ?? true;
   const pythonSupported = provision?.runtime_supported ?? true;
-  const toolsWorking = migrationActive || (jobRunning && (job?.target === "media" || job?.target === "runtime" || job?.target === "all"));
-  const pythonWorking = migrationActive || (jobRunning && (job?.target === "runtime" || job?.target === "all"));
-  const modelsWorking = migrationActive || (jobRunning && (job?.target === "models" || job?.target === "all"));
+  const toolsWorking = migrationActive || (jobRunning && (job?.resource === "tools" || job?.target === "offline:tools" || job?.target === "media" || job?.target === "runtime" || job?.target === "all"));
+  const pythonWorking = migrationActive || (jobRunning && (job?.resource === "python" || job?.target === "offline:python" || job?.target === "runtime" || job?.target === "all"));
+  const modelsWorking = migrationActive || (jobRunning && (job?.resource === "models" || job?.target === "offline:models" || job?.target === "models" || job?.target === "all"));
+  const modelsMossWorking = migrationActive || (jobRunning && (job?.resource === "models-moss" || job?.target === "offline:models-moss" || job?.target === "models-moss"));
+
+  const activeDownloadLayer: RuntimeLayerId | null = (() => {
+    if (!jobRunning || !job || !onInstallOffline) return null;
+    if (job.stage === "offline" || job.stage === "unpacking" || job.stage === "checking" || job.stage === "completed") return null;
+    if (isRuntimeLayerId(job.resource)) return job.resource;
+    if (job.target === "media") return "tools";
+    if (job.target === "models" || job.target === "optional-models") return "models";
+    if (job.target === "models-moss") return "models-moss";
+    if (job.target === "runtime" || job.target === "all") return toolsState !== "ready" ? "tools" : pythonState !== "ready" ? "python" : null;
+    return null;
+  })();
+
+  const failedLayer: RuntimeLayerId | null = (() => {
+    if (migrationActive || jobRunning || !job || !onInstallOffline) return null;
+    if (job.state !== "failed" && job.state !== "cancelled") return null;
+    if (isRuntimeLayerId(job.resource)) return job.resource;
+    if (job.target.startsWith("offline:")) {
+      const candidate = job.target.slice("offline:".length);
+      if (isRuntimeLayerId(candidate)) return candidate;
+    }
+    if (job.target === "media") return "tools";
+    if (job.target === "models" || job.target === "optional-models") return "models";
+    if (job.target === "models-moss") return "models-moss";
+    if (job.target === "runtime" || job.target === "all") {
+      if (toolsState !== "ready") return "tools";
+      if (pythonState !== "ready") return "python";
+      if (!modelsReady) return "models";
+    }
+    return null;
+  })();
 
   const toolsActionLabel = toolsState === "outdated" ? "更新" : toolsState === "damaged" ? "修复" : "安装";
   const pythonActionLabel = pythonState === "outdated" ? "更新" : pythonState === "damaged" ? "修复" : "安装";
   const modelsActionLabel = modelsNeedsRepair ? "修复模型" : modelsNeedsUpdate ? "更新模型" : "下载模型";
+  const modelsMossActionLabel = modelsMossNeedsRepair ? "修复模型" : modelsMossNeedsUpdate ? "更新模型" : "下载模型";
   const modelsSizeText = modelsLayer && modelsLayer.bytes > 0
     ? formatStorageBytes(modelsLayer.bytes)
     : modelsLayer && modelsLayer.archive_bytes > 0
       ? `下载约 ${formatStorageBytes(modelsLayer.archive_bytes)}`
+      : "";
+  const modelsMossSizeText = modelsMossLayer && modelsMossLayer.bytes > 0
+    ? formatStorageBytes(modelsMossLayer.bytes)
+    : modelsMossLayer && modelsMossLayer.archive_bytes > 0
+      ? `下载约 ${formatStorageBytes(modelsMossLayer.archive_bytes)}`
       : "";
 
   return (
@@ -400,10 +506,30 @@ export function RuntimeSection(props: RuntimeSectionProps) {
           </section>
         )}
 
-        {!migrationActive && jobRunning && job && <ProvisionProgress job={job} onCancel={onCancelInstall} />}
+        {!migrationActive && jobRunning && job && (
+          <ProvisionProgress
+            job={job}
+            onCancel={onCancelInstall}
+            onSwitchToOffline={activeDownloadLayer && onInstallOffline ? () => void onInstallOffline(activeDownloadLayer) : undefined}
+          />
+        )}
         {!migrationActive && !jobRunning && !showOnboardingCard && <Notice className={`provision-message ${job?.state ?? ""}`} message={job?.message ?? ""} />}
+        {!migrationActive && !jobRunning && failedLayer && onInstallOffline && (
+          <div className="runtime-offline-fallback" role="status">
+            <span>在线下载较慢或出错？可直接选择「{layerLabel(failedLayer)}」的本地离线包（.tar.zst）安装。</span>
+            <button
+              type="button"
+              className="quiet-button runtime-compact-btn"
+              disabled={(failedLayer === "tools" ? toolsBlocked : failedLayer === "python" ? pythonLayerBlocked : failedLayer === "models-moss" ? modelsMossOfflineBlocked : modelsOfflineBlocked) !== ""}
+              onClick={() => void onInstallOffline(failedLayer)}
+              title={offlineButtonTitle(layerById.get(failedLayer), "")}
+            >
+              离线安装 {layerLabel(failedLayer)}…
+            </button>
+          </div>
+        )}
 
-        {/* 拍平的 3 行核心层列表：工具层、Python 环境层、AI 模型层 */}
+        {/* 拍平的核心层列表：工具层、Python 环境层、AI 模型层 */}
         <div className="runtime-layer-list">
           <div className="runtime-layer-row">
             <div className="runtime-layer-info">
@@ -413,6 +539,17 @@ export function RuntimeSection(props: RuntimeSectionProps) {
             </div>
             <div className="runtime-layer-actions">
               {toolsLayer && toolsLayer.bytes > 0 && <span className="runtime-layer-size">{formatStorageBytes(toolsLayer.bytes)}</span>}
+              {!migrationActive && toolsSupported && toolsState !== "ready" && onInstallOffline && (
+                <button
+                  type="button"
+                  className="quiet-button runtime-compact-btn"
+                  disabled={toolsBlocked !== ""}
+                  title={offlineButtonTitle(toolsLayer, toolsBlocked)}
+                  onClick={() => void onInstallOffline("tools")}
+                >
+                  离线安装…
+                </button>
+              )}
               {!showOnboardingCard && !migrationActive && toolsSupported && toolsState !== "ready" && (
                 <button
                   type="button"
@@ -439,6 +576,17 @@ export function RuntimeSection(props: RuntimeSectionProps) {
             </div>
             <div className="runtime-layer-actions">
               {pythonLayer && pythonLayer.bytes > 0 && <span className="runtime-layer-size">{formatStorageBytes(pythonLayer.bytes)}</span>}
+              {!migrationActive && pythonSupported && pythonState !== "ready" && onInstallOffline && (
+                <button
+                  type="button"
+                  className="quiet-button runtime-compact-btn"
+                  disabled={pythonLayerBlocked !== ""}
+                  title={offlineButtonTitle(pythonLayer, pythonLayerBlocked)}
+                  onClick={() => void onInstallOffline("python")}
+                >
+                  离线安装…
+                </button>
+              )}
               {!showOnboardingCard && !migrationActive && pythonSupported && pythonState !== "ready" && (
                 <button
                   type="button"
@@ -484,6 +632,17 @@ export function RuntimeSection(props: RuntimeSectionProps) {
                   {confirmRemoveModels ? "确认删除" : "删除模型"}
                 </button>
               )}
+              {!modelsReady && !migrationActive && pythonSupported && onInstallOffline && (
+                <button
+                  type="button"
+                  className="quiet-button runtime-compact-btn"
+                  disabled={modelsOfflineBlocked !== ""}
+                  title={offlineButtonTitle(modelsLayer, modelsOfflineBlocked)}
+                  onClick={() => void onInstallOffline("models")}
+                >
+                  离线安装…
+                </button>
+              )}
               {!modelsReady && !migrationActive && (
                 <button
                   className="primary-button runtime-compact-btn"
@@ -498,6 +657,63 @@ export function RuntimeSection(props: RuntimeSectionProps) {
               {(modelsWorking || !modelsReady) && (
                 <Mark tone={modelsWorking ? "accent" : modelsNeedsUpdate || modelsNeedsRepair ? "caution" : "neutral"}>
                   {modelsWorking ? "处理中" : modelsNeedsUpdate ? "需更新" : modelsNeedsRepair ? "需修复" : "未安装"}
+                </Mark>
+              )}
+            </div>
+          </div>
+
+          <div className="runtime-layer-row">
+            <div className="runtime-layer-info">
+              <span className={modelsMossReady ? "layer-dot ready" : "layer-dot"} aria-hidden="true">{modelsMossReady ? "✓" : "↓"}</span>
+              <strong>MOSS 模型层</strong>
+              <InfoTip text={mossModelTooltip(mossModels)} label="MOSS 模型层" />
+            </div>
+            <div className="runtime-layer-actions">
+              {modelsMossSizeText && <span className="runtime-layer-size">{modelsMossSizeText}</span>}
+              {modelsMossInstalled && !migrationActive && onRemoveModelsMoss && (
+                <button
+                  className={confirmRemoveModelsMoss ? "runtime-remove-button runtime-compact-btn confirming" : "runtime-remove-button runtime-compact-btn"}
+                  disabled={removeModelsMossBlocked !== ""}
+                  onBlur={() => setConfirmRemoveModelsMoss(false)}
+                  onClick={() => {
+                    if (!confirmRemoveModelsMoss) {
+                      setConfirmRemoveModelsMoss(true);
+                      return;
+                    }
+                    setConfirmRemoveModelsMoss(false);
+                    void onRemoveModelsMoss();
+                  }}
+                  title={removeModelsMossBlocked || "仅删除 MOSS 模型层，基础环境与用户数据保持不变"}
+                  type="button"
+                >
+                  {confirmRemoveModelsMoss ? "确认删除" : "删除模型"}
+                </button>
+              )}
+              {!modelsMossReady && !migrationActive && pythonSupported && onInstallOffline && (
+                <button
+                  type="button"
+                  className="quiet-button runtime-compact-btn"
+                  disabled={modelsMossOfflineBlocked !== ""}
+                  title={offlineButtonTitle(modelsMossLayer, modelsMossOfflineBlocked)}
+                  onClick={() => void onInstallOffline("models-moss")}
+                >
+                  离线安装…
+                </button>
+              )}
+              {!modelsMossReady && !migrationActive && (
+                <button
+                  className="primary-button runtime-compact-btn"
+                  disabled={modelsMossBlocked !== ""}
+                  onClick={() => void onInstall("models-moss")}
+                  title={modelsMossBlocked || modelsMossActionLabel}
+                  type="button"
+                >
+                  {modelsMossWorking ? "下载中…" : modelsMossActionLabel}
+                </button>
+              )}
+              {(modelsMossWorking || !modelsMossReady) && (
+                <Mark tone={modelsMossWorking ? "accent" : modelsMossNeedsUpdate || modelsMossNeedsRepair ? "caution" : "neutral"}>
+                  {modelsMossWorking ? "处理中" : modelsMossNeedsUpdate ? "需更新" : modelsMossNeedsRepair ? "需修复" : "未安装"}
                 </Mark>
               )}
             </div>

@@ -157,6 +157,31 @@ func TestServiceAcceptsOptionalRuntimeTargets(t *testing.T) {
 	}
 }
 
+func TestServiceInstallLayerOfflineAndValidation(t *testing.T) {
+	transport := &fakeCaller{}
+	service, _ := New(transport)
+	if _, err := service.InstallLayerOffline("bogus", `C:\tmp\a.tar.zst`); err == nil {
+		t.Fatal("unknown layer was accepted")
+	}
+	if _, err := service.InstallLayerOffline("tools", "   "); err == nil {
+		t.Fatal("empty archive path was accepted")
+	}
+	if len(transport.calls) != 0 {
+		t.Fatalf("invalid offline call reached transport: %#v", transport.calls)
+	}
+	if _, err := service.InstallLayerOffline("python", `D:\Downloads\python.tar.zst`); err != nil {
+		t.Fatalf("valid offline install rejected: %v", err)
+	}
+	want := []call{{
+		method:   "POST",
+		endpoint: "/v1/runtime/provision/offline",
+		body:     map[string]any{"layer": "python", "path": `D:\Downloads\python.tar.zst`},
+	}}
+	if !reflect.DeepEqual(transport.calls, want) {
+		t.Fatalf("calls = %#v\nwant  = %#v", transport.calls, want)
+	}
+}
+
 func TestServiceExposesNativePythonBootstrapWithoutCallingSidecar(t *testing.T) {
 	transport := &fakeCaller{}
 	bootstrap := &fakePythonBootstrap{}

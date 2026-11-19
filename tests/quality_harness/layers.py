@@ -194,14 +194,17 @@ def check_models(manifest: Any, root: Path | None, recorded: dict[str, Any]) -> 
     lm, build_layers = _modules()
     problems: list[str] = []
     files = _files(manifest)
+    expected_ids = lm.MODEL_LAYERS.get(manifest.layer, lm.MODEL_LAYER_IDS)
     sources = {item["id"]: item for item in manifest.sources.get("models", [])}
-    if list(sources) != list(lm.MODEL_LAYER_IDS):
-        problems.append(f"models {sorted(sources)}, expected {list(lm.MODEL_LAYER_IDS)}")
+    if list(sources) != list(expected_ids):
+        problems.append(f"models {sorted(sources)}, expected {list(expected_ids)}")
     accounted: set[str] = set()
     stamped: list[str] = []
     expected_content: dict[str, bytes] = {}
-    for model_id in lm.MODEL_LAYER_IDS:
-        source, pinned = sources.get(model_id), recorded["models"].get(model_id)
+    for model_id in expected_ids:
+        raw_pinned = recorded["models"].get(model_id)
+        pinned = lm.layer_model_spec(manifest.layer, model_id, raw_pinned) if raw_pinned is not None else None
+        source = sources.get(model_id)
         if source is None or pinned is None:
             continue
         for key in ("repo", "revision", "listedOnly"):
@@ -291,7 +294,12 @@ def check_tools(manifest: Any, root: Path | None, recorded: dict[str, Any]) -> l
     return problems
 
 
-CHECKERS = {"python": check_python, "models": check_models, "tools": check_tools}
+CHECKERS = {
+    "python": check_python,
+    "models": check_models,
+    "models-moss": check_models,
+    "tools": check_tools,
+}
 
 
 def unpack(archive: Path, scratch: Path) -> Path:

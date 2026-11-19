@@ -203,6 +203,7 @@ func Run(assets fs.FS) error {
 	home := applicationInstance.Window.NewWithOptions(homeOptions)
 	windowService.attach(applicationInstance, home)
 	storageService.attach(applicationInstance, home)
+	provider.Attach(providerService, applicationInstance, home)
 	plugins.Attach(pluginService, applicationInstance, home)
 	// A missing or unreachable manifest must not block startup: the shell
 	// simply stays on the current build.

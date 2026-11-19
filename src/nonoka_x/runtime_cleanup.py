@@ -49,6 +49,16 @@ def component_layers(component: str) -> tuple[str, ...]:
     return tuple(LAYERS)
 
 
+def _layers_for_models(model_ids: Iterable[str], *, moss_scope: bool) -> set[str]:
+    found: set[str] = set()
+    for model_id in model_ids:
+        if model_id == "moss-transcribe-diarize" or (moss_scope and model_id == "speaker-embedding"):
+            found.add("models-moss")
+        else:
+            found.add("models")
+    return found
+
+
 def environment_layers(environment: Any) -> dict[str, list[str]]:
     """`{"required": [...], "optional": [...]}`: the layers an `EngineEnvironment` (or its dict) names.
 
@@ -59,16 +69,20 @@ def environment_layers(environment: Any) -> dict[str, list[str]]:
         value = environment.get(name) if isinstance(environment, Mapping) else getattr(environment, name, ())
         return tuple(str(item) for item in value or ())
 
+    req_models = field("models")
+    opt_models = field("optional_models")
+    moss_scope = "moss-transcribe-diarize" in (*req_models, *opt_models)
+
     required: set[str] = set()
     for component in field("components"):
         required.update(component_layers(component))
-    if field("models"):
-        required.add("models")
+    if req_models:
+        required.update(_layers_for_models(req_models, moss_scope=moss_scope))
     optional: set[str] = set()
     for component in field("optional_components"):
         optional.update(component_layers(component))
-    if field("optional_models"):
-        optional.add("models")
+    if opt_models:
+        optional.update(_layers_for_models(opt_models, moss_scope=moss_scope))
     return {"required": ordered(required), "optional": ordered(optional - required)}
 
 

@@ -12,10 +12,12 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/Ricori/nonoka-x/desktop/internal/sidecar"
 	"github.com/Ricori/nonoka-x/desktop/internal/telemetry"
+	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
 var validTaskID = regexp.MustCompile(`^[0-9a-f]{32}$`)
@@ -25,7 +27,7 @@ var validTaskID = regexp.MustCompile(`^[0-9a-f]{32}$`)
 // message is derived from it rather than written out again, because the two
 // drifted apart once already -- aria2c was added to the Python side and this
 // list still refused it, naming the old tools in the error.
-var runtimeTargets = []string{"media", "runtime", "models", "all", "optional-models", "repair", "yt-dlp", "tokcount", "aria2c", "node", "pot-provider", "video-tools"}
+var runtimeTargets = []string{"media", "runtime", "models", "models-moss", "all", "optional-models", "repair", "yt-dlp", "tokcount", "aria2c", "node", "pot-provider", "video-tools"}
 
 // engineID is the registry's id shape (`nonoka_x.transcription.check_id`).
 var engineID = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,63}$`)
@@ -53,6 +55,9 @@ type pythonBootstrap interface {
 }
 
 type Service struct {
+	mu              sync.RWMutex
+	app             *application.App
+	window          *application.WebviewWindow
 	telemetry       *telemetry.Service
 	provider        caller
 	pythonBootstrap pythonBootstrap
@@ -67,6 +72,13 @@ func New(local caller, bootstrap ...pythonBootstrap) (*Service, error) {
 		service.pythonBootstrap = bootstrap[0]
 	}
 	return service, nil
+}
+
+func Attach(s *Service, app *application.App, window *application.WebviewWindow) {
+	s.mu.Lock()
+	s.app = app
+	s.window = window
+	s.mu.Unlock()
 }
 
 func SetTelemetry(s *Service, t *telemetry.Service) { s.telemetry = t }
@@ -127,6 +139,84 @@ func (s *Service) RuntimeProvisionStatus() (map[string]any, error) {
 	return result, err
 }
 
+// OfflineArchivePick is the file chosen for per-layer offline installation.
+type OfflineArchivePick struct {
+	Layer     string `json:"layer"`
+	Path      string `json:"path,omitempty"`
+	Cancelled bool   `json:"cancelled,omitempty"`
+}
+
+var layerDialogLabels = map[string]string{
+	"tools":       "工具层",
+	"python":      "Python 环境层",
+	"models":      "AI 模型层",
+	"models-moss": "MOSS 模型层",
+}
+
+func dialogDismissed(err error) bool {
+	if err == nil {
+		return false
+	}
+	text := strings.ToLower(err.Error())
+	return errors.Is(err, context.Canceled) || strings.Contains(text, "cancel")
+}
+
+// ChooseLayerOfflineArchive opens a native file picker for a single prebuilt
+// layer archive (.tar.zst, identical to the R2 object).
+func (s *Service) ChooseLayerOfflineArchive(layer string) (OfflineArchivePick, error) {
+	if !slices.Contains(runtimeLayers, layer) {
+		return OfflineArchivePick{}, fmt.Errorf("unknown runtime layer: %q", layer)
+	}
+	s.mu.RLock()
+	app, window := s.app, s.window
+	s.mu.RUnlock()
+	if app == nil || window == nil {
+		return OfflineArchivePick{}, errors.New("application window is not ready")
+	}
+	label := layerDialogLabels[layer]
+	if label == "" {
+		label = layer
+	}
+	picked, err := app.Dialog.OpenFile().
+		SetTitle("选择 " + label + " 离线包（.tar.zst）").
+		AttachToWindow(window).
+		AddFilter("运行环境层离线包 (*.tar.zst)", "*.tar.zst").
+		AddFilter("所有文件 (*.*)", "*.*").
+		PromptForSingleSelection()
+	if dialogDismissed(err) {
+		return OfflineArchivePick{Layer: layer, Cancelled: true}, nil
+	}
+	if err != nil {
+		return OfflineArchivePick{}, err
+	}
+	picked = strings.TrimSpace(picked)
+	if picked == "" {
+		return OfflineArchivePick{Layer: layer, Cancelled: true}, nil
+	}
+	return OfflineArchivePick{Layer: layer, Path: picked}, nil
+}
+
+// InstallLayerOffline asks the sidecar to verify and install one prebuilt layer
+// directly from the local .tar.zst archive without touching the network.
+func (s *Service) InstallLayerOffline(layer, archivePath string) (map[string]any, error) {
+	if !slices.Contains(runtimeLayers, layer) {
+		return nil, fmt.Errorf("unknown runtime layer: %q", layer)
+	}
+	archivePath = strings.TrimSpace(archivePath)
+	if archivePath == "" {
+		return nil, errors.New("archive path is required")
+	}
+	var result map[string]any
+	err := s.provider.DoJSON(
+		context.Background(),
+		http.MethodPost,
+		"/v1/runtime/provision/offline",
+		map[string]any{"layer": layer, "path": archivePath},
+		&result,
+	)
+	return result, err
+}
+
 func (s *Service) InstallRuntime(target string) (map[string]any, error) {
 	if !slices.Contains(runtimeTargets, target) {
 		return nil, fmt.Errorf("runtime target must be one of: %s", strings.Join(runtimeTargets, ", "))
@@ -149,6 +239,13 @@ func (s *Service) RemoveRuntime() (map[string]any, error) {
 func (s *Service) RemoveModels() (map[string]any, error) {
 	var result map[string]any
 	err := s.provider.DoJSON(context.Background(), http.MethodDelete, "/v1/runtime/provision?layer=models", nil, &result)
+	return result, err
+}
+
+// RemoveModelsMoss removes only the models-moss layer (local MOSS 0.9B).
+func (s *Service) RemoveModelsMoss() (map[string]any, error) {
+	var result map[string]any
+	err := s.provider.DoJSON(context.Background(), http.MethodDelete, "/v1/runtime/provision?layer=models-moss", nil, &result)
 	return result, err
 }
 
@@ -184,7 +281,7 @@ func (s *Service) UnusedRuntime(engine string) (map[string]any, error) {
 }
 
 // runtimeLayers are the layers a user may tick for removal as a whole.
-var runtimeLayers = []string{"tools", "python", "models"}
+var runtimeLayers = []string{"tools", "python", "models", "models-moss"}
 
 // RemoveUnusedRuntime deletes the old layer versions UnusedRuntime(engine)
 // lists, and of the whole layers it offers only those the user ticked

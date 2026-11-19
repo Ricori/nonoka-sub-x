@@ -148,7 +148,7 @@ def check_inputs(pins: dict[str, Any]) -> list[str]:
                                                         record.get("sha256"), record.get("required_files", [])):
             problems.append(f"tool differs from RUNTIME_PINS.json: {resource['id']}")
     models = manifests.model_manifest()["models"]
-    for model_id in lm.MODEL_LAYER_IDS:
+    for model_id in dict.fromkeys((*lm.MODEL_LAYER_IDS, *lm.MOSS_MODEL_LAYER_IDS)):
         spec, record = models.get(model_id), pins["models"].get(model_id)
         if spec is None or record is None:
             problems.append(f"model not in the manifest and the pins: {model_id}")
@@ -660,21 +660,27 @@ class Build:
 
     # -- models ---------------------------------------------------------------------------------------
 
-    def build_models(self) -> tuple[Path, dict[str, Any], list[dict[str, str]]]:
-        root = self.work / "models"
+    def _build_model_layer(self, layer: str, model_ids: tuple[str, ...]) -> tuple[Path, dict[str, Any], list[dict[str, str]]]:
+        root = self.work / layer
         remove_tree(root)
         timings: dict[str, float] = {}
         started = time.perf_counter()
         models = manifests.model_manifest()["models"]
         sources: list[dict[str, Any]] = []
-        for model_id in lm.MODEL_LAYER_IDS:
-            spec = models[model_id]
+        for model_id in model_ids:
+            spec = lm.layer_model_spec(layer, model_id, models[model_id])
             if spec.get("repo"):
                 sources.append(self.hf_model(model_id, spec, root))
             else:
                 sources.append(self.fixed_model(model_id, spec, root))
         timings["download"] = time.perf_counter() - started
         return root, {"sources": {"models": sources}, "timings": timings}, []
+
+    def build_models(self) -> tuple[Path, dict[str, Any], list[dict[str, str]]]:
+        return self._build_model_layer("models", lm.MODEL_LAYER_IDS)
+
+    def build_models_moss(self) -> tuple[Path, dict[str, Any], list[dict[str, str]]]:
+        return self._build_model_layer("models-moss", lm.MOSS_MODEL_LAYER_IDS)
 
     def fixed_model(self, model_id: str, spec: dict[str, Any], root: Path) -> dict[str, Any]:
         directory = root / lm.SEPARATOR_DIR
@@ -895,7 +901,12 @@ def marker_applies(marker: str | None) -> bool:
     return bool(eval(" ".join(comparison(token) for token in tokens), {"__builtins__": {}}, {}))  # noqa: S307
 
 
-BUILDERS = {"python": Build.build_python, "models": Build.build_models, "tools": Build.build_tools}
+BUILDERS = {
+    "python": Build.build_python,
+    "models": Build.build_models,
+    "models-moss": Build.build_models_moss,
+    "tools": Build.build_tools,
+}
 
 
 def build(args: argparse.Namespace) -> int:
@@ -999,11 +1010,11 @@ def stage(args: argparse.Namespace) -> int:
 
     into = Path(args.into).resolve()
     found = _manifests_under(Path(args.source))
-    missing = [layer for layer in lm.LAYERS if layer not in found]
+    missing = [layer for layer in lm.REQUIRED_INDEX_LAYERS if layer not in found]
     if missing:
         raise BuildError(f"no {', '.join(missing)} layer under {args.source}")
     unpacked: dict[str, Path] = {}
-    for layer in lm.LAYERS:
+    for layer in [item for item in lm.LAYERS if item in found]:
         manifest_path = found[layer]
         archive = manifest_path.parent / "layer.tar.zst"
         version = lm.version_of(manifest_path.read_bytes())

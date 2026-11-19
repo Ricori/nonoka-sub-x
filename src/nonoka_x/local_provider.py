@@ -716,7 +716,7 @@ def _normalize_transcription(request: dict[str, Any], specs: Mapping[str, Any]) 
             raise ProviderError(
                 "invalid_request", f"a source-text axis replaces recognition; it cannot run on {engine_id}"
             )
-    if spec.kind != "local-gpu" and request["target"] not in CONTINUATION_TARGETS:
+    if spec.id != DEFAULT_ENGINE and request["target"] not in CONTINUATION_TARGETS:
         # Such an engine's one product is transcript.json; the first artifact
         # of a task on it is the raw SRT the correction renders from that.
         raise ProviderError(
@@ -1266,6 +1266,14 @@ class LocalProvider:
         except RuntimeProvisionError as exc:
             raise ProviderError("runtime_install_unavailable", str(exc), http_status=409) from exc
 
+    def install_runtime_offline(self, layer: str, path: str) -> dict[str, Any]:
+        if self._provisioner is None:
+            raise ProviderError("runtime_unavailable", "FineSub runtime installer is unavailable", http_status=503)
+        try:
+            return self._provisioner.start_offline(layer, path)
+        except RuntimeProvisionError as exc:
+            raise ProviderError("runtime_install_unavailable", str(exc), http_status=409) from exc
+
     def cancel_runtime_install(self) -> dict[str, Any]:
         if self._provisioner is None:
             raise ProviderError("runtime_unavailable", "FineSub runtime installer is unavailable", http_status=503)
@@ -1439,7 +1447,7 @@ class LocalProvider:
             raise
 
     def _start(self, request: Mapping[str, Any]) -> dict[str, Any]:
-        from .transcription import ReadinessContext, requested_engine, requested_options
+        from .transcription import DEFAULT_ENGINE, ReadinessContext, requested_engine, requested_options
 
         specs = self._engine_specs()
         validated = validate_request(request, engines=specs)
@@ -1459,7 +1467,7 @@ class LocalProvider:
                     # Nothing of the correction runs: the core renders the
                     # raw SRT from the cloud's transcript.json itself.
                     readiness = ()
-            elif specs[engine_id].kind == "local-gpu":
+            elif engine_id == DEFAULT_ENGINE:
                 readiness = TARGET_READINESS[validated["target"]]
             elif _core_renders_raw_srt(validated, self.packages()):
                 # No correction package: the core renders the raw SRT from the

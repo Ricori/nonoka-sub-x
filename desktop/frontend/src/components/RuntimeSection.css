@@ -412,6 +412,34 @@
   font-variant-numeric: tabular-nums;
 }
 
+.provision-progress-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.provision-slow-hint {
+  margin: 0;
+  color: var(--warn);
+  font-size: 11.5px;
+  line-height: 1.45;
+}
+
+.runtime-offline-fallback {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 9px 12px;
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--line-soft));
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--accent) 7%, transparent);
+  color: var(--mut);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
 .cancel-button {
   height: var(--ctl-h-sm);
   min-height: var(--ctl-h-sm);

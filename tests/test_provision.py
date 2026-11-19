@@ -284,7 +284,7 @@ def test_remove_layer_removes_only_models_and_keeps_default_layers(tmp_path, ind
     status = page.remove_layer("models")
     assert status["job"]["target"] == "remove-models" and status["job"]["state"] == "completed"
     layers = {item["id"]: item["state"] for item in status["layers"]}
-    assert layers == {"python": "ready", "models": "missing", "tools": "ready"}
+    assert layers == {"python": "ready", "models": "missing", "models-moss": "missing", "tools": "ready"}
 
 
 def test_cache_usage_and_clear_cache_cover_the_downloads(tmp_path, index):
@@ -460,3 +460,31 @@ def test_startup_has_no_separate_tool_fetch_any_more(tmp_path, index, monkeypatc
     page = provisioner(tmp_path, index)
     monkeypatch.setattr(page, "start", lambda target: pytest.fail("nothing to start"))
     page.ensure_required_tools()
+
+
+@WINDOWS
+def test_offline_layer_install_succeeds_without_network(tmp_path, built, origin, index):
+    import shutil
+
+    page = provisioner(tmp_path, index)
+    before = len(origin.requests)
+    archive = tmp_path / "my-tools.tar.zst"
+    shutil.copyfile(built["tools"].archive, archive)
+
+    page.start_offline("tools", archive)
+    job = wait(page)
+
+    assert job["state"] == "completed"
+    assert job["target"] == "offline:tools"
+    assert page.status()["media_ready"] is True
+    assert len(origin.requests) == before
+    assert archive.is_file()
+
+
+@WINDOWS
+def test_offline_layer_install_rejects_unknown_layer_and_empty_path(tmp_path, index):
+    page = provisioner(tmp_path, index)
+    with pytest.raises(RuntimeProvisionError, match="未知"):
+        page.start_offline("bogus", tmp_path / "x.tar.zst")
+    with pytest.raises(RuntimeProvisionError, match="离线包"):
+        page.start_offline("tools", "")

@@ -96,7 +96,7 @@ SYSTEM_TAR = Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32" / "t
 #: How long a quick check's answer is reused within one process.
 QUICK_CHECK_SECONDS = 30.0
 
-LABELS = {"python": "Python 运行环境", "models": "模型", "tools": "工具"}
+LABELS = {"python": "Python 运行环境", "models": "模型", "models-moss": "MOSS 模型", "tools": "工具"}
 
 
 class LayerIndexError(lm.LayerError):
@@ -449,6 +449,21 @@ def unpack(
         raise LayerMismatch(f"tar could not unpack {archive.name} ({process.returncode}): " + " | ".join(tail[-5:]))
 
 
+def read_embedded_manifest(archive: Path, *, tar: Path | None = None) -> bytes:
+    """Read `.nonoka-layer.json` (the first entry) straight from a layer archive without unpacking it."""
+
+    completed = subprocess.run(
+        [str(tar or SYSTEM_TAR), "-x", "-q", "-O", "-f", str(archive), lm.MANIFEST_NAME],
+        capture_output=True,
+        stdin=subprocess.DEVNULL,
+        creationflags=no_window(),
+    )
+    if completed.returncode != 0:
+        detail = completed.stderr.decode("utf-8", errors="replace").strip()[-240:]
+        raise LayerMismatch(f"无法从离线包 {archive.name} 读取清单（{lm.MANIFEST_NAME}）：{detail or completed.returncode}")
+    return completed.stdout
+
+
 # --- the manager --------------------------------------------------------------------------------------------
 
 
@@ -621,6 +636,8 @@ class LayerManager:
     def root(self, layer: str) -> Path | None:
         """The directory of the wanted version when it is the current one and ready; else None."""
 
+        if layer not in self.index.layers:
+            return None
         state = self.state(layer)
         return state.path if state.ready else None
 
@@ -739,30 +756,38 @@ class LayerManager:
         return None
 
     def model_dir(self, model_id: str) -> Path | None:
-        """Where model `model_id`'s files are inside the model layer, or None.
+        """Where model `model_id`'s files are inside an installed model layer, or None.
 
         The snapshot directory for a Hugging Face model, the model's directory for the others; only
         when the layer is ready and holds the model.
         """
 
-        manifest = self._installed_manifest("models")
-        root = self.root("models")
-        if manifest is None or root is None:
-            return None
-        for item in manifest.sources.get("models") or ():
-            if item.get("id") != model_id:
+        for layer in lm.MODEL_LAYERS:
+            manifest = self._installed_manifest(layer)
+            root = self.root(layer)
+            if manifest is None or root is None:
                 continue
-            directory = root / lm.check_path(str(item["directory"]))
-            if item.get("repo") and item.get("revision"):
-                directory = directory / "snapshots" / lm.check_path(str(item["revision"]))
-            return directory if directory.is_dir() else None
+            for item in manifest.sources.get("models") or ():
+                if item.get("id") != model_id:
+                    continue
+                directory = root / lm.check_path(str(item["directory"]))
+                if item.get("repo") and item.get("revision"):
+                    directory = directory / "snapshots" / lm.check_path(str(item["revision"]))
+                if directory.is_dir():
+                    return directory
         return None
 
     def model_ids(self) -> tuple[str, ...]:
-        manifest = self._installed_manifest("models")
-        if manifest is None:
-            return ()
-        return tuple(str(item.get("id")) for item in manifest.sources.get("models") or ())
+        seen: list[str] = []
+        for layer in lm.MODEL_LAYERS:
+            manifest = self._installed_manifest(layer)
+            if manifest is None:
+                continue
+            for item in manifest.sources.get("models") or ():
+                model_id = str(item.get("id"))
+                if model_id not in seen:
+                    seen.append(model_id)
+        return tuple(seen)
 
     # -- fetching ----------------------------------------------------------------------------------------------
 
@@ -865,6 +890,71 @@ class LayerManager:
                 f"{self.paths.runtime} 所在的磁盘只剩 {free / 2**30:.1f} GiB"
             )
 
+    def _verify_offline_archive(
+        self,
+        layer: str,
+        archive_path: Path,
+        progress: ProgressCallback,
+        should_pause: PauseCheck | None,
+    ) -> tuple[lm.LayerManifest, bytes]:
+        """Verify a user-picked `.tar.zst` archive against `layers.json` and read its embedded manifest (0 network)."""
+
+        entry = self.index.entry(layer)
+        label = LABELS.get(layer, layer)
+        if not archive_path.is_file():
+            raise LayerMismatch(f"找不到离线包文件：{archive_path}")
+        actual_size = archive_path.stat().st_size
+        if actual_size != entry.archive.size:
+            other = next(
+                (name for name, item in self.index.layers.items() if name != layer and item.archive.size == actual_size),
+                None,
+            )
+            if other is not None:
+                other_label = LABELS.get(other, other)
+                raise LayerMismatch(
+                    f"所选文件大小与{label}不符，它看起来是「{other_label}」的离线包，请在「{other_label}」行选择离线安装"
+                )
+            raise LayerMismatch(
+                f"所选离线包与当前版本所需的{label}不符（文件大小 {actual_size} 字节，需要 {entry.archive.size} 字节，"
+                f"所需版本 {entry.version}）"
+            )
+        message = f"正在校验{label}离线包"
+        progress(LayerProgress(layer, "offline", message, 0, entry.archive.size))
+        digest = self._hash_with_progress(
+            archive_path, entry.archive.size, layer, "offline", message, progress, should_pause,
+        )
+        if digest != entry.archive.sha256:
+            other = next(
+                (name for name, item in self.index.layers.items() if name != layer and item.archive.sha256 == digest),
+                None,
+            )
+            if other is not None:
+                other_label = LABELS.get(other, other)
+                raise LayerMismatch(
+                    f"所选文件是「{other_label}」的离线包，请在「{other_label}」行选择离线安装"
+                )
+            raise LayerMismatch(
+                f"所选离线包校验失败：文件可能不完整、已损坏，或不是当前版本（{entry.version}）对应的{label}离线包"
+            )
+        progress(LayerProgress(layer, "manifest", f"正在读取{label}离线包里的文件清单"))
+        data = read_embedded_manifest(archive_path, tar=self._tar)
+        if lm.digest_of(data) != entry.manifest.sha256 or len(data) != entry.manifest.size:
+            raise LayerMismatch(f"{label}离线包内的清单与当前版本（{entry.version}）不符")
+        if lm.version_of(data) != entry.version:
+            raise LayerMismatch(f"{label}离线包内的清单版本为 {lm.version_of(data)}，需要 {entry.version}")
+        manifest = lm.parse(data)
+        if manifest.layer != layer or manifest.platform != lm.PLATFORM:
+            raise LayerMismatch(f"离线包内的清单属于 {manifest.layer}（{manifest.platform}），不是当前所需的 {layer}")
+        return manifest, data
+
+    def _cleanup_partial_download(self, entry: LayerEntry) -> None:
+        base = self.downloads / f"{entry.archive.sha256}.tar.zst"
+        for candidate in (base, base.with_name(base.name + ".part"), base.with_suffix(base.suffix + ".lock")):
+            try:
+                candidate.unlink(missing_ok=True)
+            except OSError:
+                pass
+
     # -- installing --------------------------------------------------------------------------------------------
 
     def install(
@@ -875,12 +965,14 @@ class LayerManager:
         should_pause: PauseCheck | None = None,
         full: bool = False,
         force: bool = False,
+        archive_path: Path | None = None,
     ) -> LayerState:
         """Make the wanted version of `layer` the current one; a no-op when it already is and checks out.
 
         `force` reinstalls even a ready layer (repair). `full` hashes every unpacked file before the
         switch; otherwise the archive's sha256 vouches for the content and the tree is checked by list
-        and sizes.
+        and sizes. When `archive_path` is given, the archive is verified and unpacked in place without
+        touching the network or deleting the caller's file.
         """
 
         report = progress if progress is not None else (lambda _value: None)
@@ -893,25 +985,38 @@ class LayerManager:
                 state = self.state(layer, full=full, fresh=True)
                 if state.ready:
                     return state
-            report(LayerProgress(layer, "manifest", f"正在获取{label}的文件清单"))
-            manifest, data = self.fetch_manifest(layer, should_pause=should_pause)
             target = self.paths.layer_version(layer, entry.version)
             staging = target.with_name(target.name + UNPACK_SUFFIX)
-            check_path_length(layer, staging, manifest)
-            check_path_length(layer, target, manifest)
-
-            # A version unpacked and renamed into place by a process that died before the pointer moved.
-            if not force and target.is_dir() and self.pointer(layer) != entry.version:
-                if not self._mismatch(target, manifest, data, full=True, layer=layer, report=report):
-                    return self._switch(layer, entry, downloaded=None)
-
-            partial = self.downloads / f"{entry.archive.sha256}.tar.zst"
-            have = partial.stat().st_size if partial.is_file() else 0
-            if self._offline_object(entry.archive) is None:
-                self._free_space_check(layer, manifest, max(0, entry.archive.size - have))
-            else:
+            if archive_path is not None:
+                source_archive = Path(archive_path)
+                manifest, data = self._verify_offline_archive(layer, source_archive, report, should_pause)
+                check_path_length(layer, staging, manifest)
+                check_path_length(layer, target, manifest)
+                if not force and target.is_dir() and self.pointer(layer) != entry.version:
+                    if not self._mismatch(target, manifest, data, full=True, layer=layer, report=report):
+                        state = self._switch(layer, entry, downloaded=None)
+                        self._cleanup_partial_download(entry)
+                        return state
                 self._free_space_check(layer, manifest, 0)
-            archive, downloaded = self.fetch_archive(layer, report, should_pause)
+                archive, downloaded = source_archive, False
+            else:
+                report(LayerProgress(layer, "manifest", f"正在获取{label}的文件清单"))
+                manifest, data = self.fetch_manifest(layer, should_pause=should_pause)
+                check_path_length(layer, staging, manifest)
+                check_path_length(layer, target, manifest)
+
+                # A version unpacked and renamed into place by a process that died before the pointer moved.
+                if not force and target.is_dir() and self.pointer(layer) != entry.version:
+                    if not self._mismatch(target, manifest, data, full=True, layer=layer, report=report):
+                        return self._switch(layer, entry, downloaded=None)
+
+                partial = self.downloads / f"{entry.archive.sha256}.tar.zst"
+                have = partial.stat().st_size if partial.is_file() else 0
+                if self._offline_object(entry.archive) is None:
+                    self._free_space_check(layer, manifest, max(0, entry.archive.size - have))
+                else:
+                    self._free_space_check(layer, manifest, 0)
+                archive, downloaded = self.fetch_archive(layer, report, should_pause)
 
             remove_tree(staging)
             sizes = {item.path: item.size for item in manifest.files}
@@ -925,7 +1030,10 @@ class LayerManager:
                 raise LayerMismatch(f"{label}解压后与清单不符：" + "；".join(problems[:10]))
             self._retire(target)
             replace_path(staging, target)
-            return self._switch(layer, entry, downloaded=archive if downloaded else None)
+            state = self._switch(layer, entry, downloaded=archive if downloaded else None)
+            if archive_path is not None:
+                self._cleanup_partial_download(entry)
+            return state
 
     def _mismatch(self, root: Path, manifest: lm.LayerManifest, data: bytes, *, full: bool, layer: str,
                   report: ProgressCallback, exact: bool = False) -> list[str]:
@@ -1376,5 +1484,6 @@ __all__ = [
     "offline_pack",
     "open_manager",
     "parse_index",
+    "read_embedded_manifest",
     "unpack",
 ]

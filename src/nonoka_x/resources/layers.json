@@ -29,6 +29,19 @@
         "sha256": "d81f9de187b2d89a47d9d50871fd92c4e2fdabb74f48872faef65bee12528eb3"
       }
     },
+    "models-moss": {
+      "version": "2a522a08456e9270",
+      "manifest": {
+        "path": "v1/models-moss/2a522a08456e9270f9900151c0e773ea2507867c12d0ad8a3db168144d69d642.json",
+        "size": 9600,
+        "sha256": "2a522a08456e9270f9900151c0e773ea2507867c12d0ad8a3db168144d69d642"
+      },
+      "archive": {
+        "path": "v1/models-moss/0477c160f42e9dd5a8f5164a248860054a1162081efba25599cd96d2416c5f09.tar.zst",
+        "size": 1450410355,
+        "sha256": "0477c160f42e9dd5a8f5164a248860054a1162081efba25599cd96d2416c5f09"
+      }
+    },
     "tools": {
       "version": "b2e46916329ea7c4",
       "manifest": {

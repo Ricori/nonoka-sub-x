@@ -15,7 +15,7 @@ import { dataMigration } from "../bridge/migration.ts";
 import type { MigrationStatus } from "../bridge/migration.ts";
 import { MigrationPanel } from "../components/MigrationPanel.tsx";
 import { isMigratingError, migrationPollIntervalMs, migrationView } from "../components/migration.ts";
-import type { PythonBootstrapState, RuntimeCleanupPlan, RuntimeInstallTarget, RuntimeProvisionState } from "../bridge/runtime.ts";
+import type { PythonBootstrapState, RuntimeCleanupPlan, RuntimeInstallTarget, RuntimeLayerId, RuntimeProvisionState } from "../bridge/runtime.ts";
 import { desktopPreferences } from "../bridge/preferences.ts";
 import { desktopTaskHistory } from "../bridge/taskHistory.ts";
 import { desktopPlugins, mountedTools } from "../bridge/plugins.ts";
@@ -1647,10 +1647,48 @@ export default function App() {
     }
   }, [refresh]);
 
+  const installLayerOffline = useCallback(async (layer: RuntimeLayerId) => {
+    setProvisionMessage("");
+    try {
+      const picked = await fineSubRuntime.chooseOfflineArchive(layer);
+      if (picked.cancelled || !picked.path) return;
+      let latest = await fineSubRuntime.status();
+      if (latest.job.state === "running") {
+        setRuntimeProvision(await fineSubRuntime.cancel());
+        const deadline = Date.now() + 8000;
+        while (Date.now() < deadline) {
+          await new Promise((resolve) => window.setTimeout(resolve, 150));
+          latest = await fineSubRuntime.status();
+          setRuntimeProvision(latest);
+          if (latest.job.state !== "running") break;
+        }
+        if (latest.job.state === "running") {
+          setProvisionMessage("正在停止当前的在线下载，请稍后再选择离线包安装。");
+          return;
+        }
+      }
+      setRuntimeProvision(await fineSubRuntime.installLayerOffline(layer, picked.path));
+    } catch (value) {
+      setProvisionMessage(value instanceof Error ? value.message : String(value));
+      await refresh({ silent: true });
+    }
+  }, [refresh]);
+
   const removeModels = useCallback(async () => {
     setProvisionMessage("");
     try {
       setRuntimeProvision(await fineSubRuntime.removeModels());
+      await refresh();
+    } catch (value) {
+      setProvisionMessage(value instanceof Error ? value.message : String(value));
+      await refresh({ silent: true });
+    }
+  }, [refresh]);
+
+  const removeModelsMoss = useCallback(async () => {
+    setProvisionMessage("");
+    try {
+      setRuntimeProvision(await fineSubRuntime.removeModelsMoss());
       await refresh();
     } catch (value) {
       setProvisionMessage(value instanceof Error ? value.message : String(value));
@@ -2123,8 +2161,10 @@ export default function App() {
                 migrationActive: Boolean(migration && (migration.state === "downloading" || migration.state === "download-failed" || migration.dataOpen === false)),
                 onCancelInstall: cancelRuntimeInstall,
                 onInstall: installRuntime,
+                onInstallOffline: installLayerOffline,
                 onInstallPython: installPython,
                 onRemoveModels: removeModels,
+                onRemoveModelsMoss: removeModelsMoss,
                 onRemoveUnused: removeUnusedRuntime,
                 cleanup: cleanupPlan,
               }}

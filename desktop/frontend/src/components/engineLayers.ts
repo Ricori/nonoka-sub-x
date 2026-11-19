@@ -1,12 +1,13 @@
 import type { RuntimeCleanupItem, RuntimeInstallTarget, RuntimeLayerOverview, RuntimeProvisionState } from "../bridge/runtime.ts";
 import type { EngineLayers } from "../providers/types.ts";
 
-/** 三个运行环境层的名字，按安装顺序（`nonoka_x.runtime_install.INSTALL_ORDER`）。 */
-export const LAYER_ORDER = ["tools", "python", "models"] as const;
+/** 运行环境层的名字，按安装顺序（`nonoka_x.runtime_install.INSTALL_ORDER`）。 */
+export const LAYER_ORDER = ["tools", "python", "models", "models-moss"] as const;
 
 export const LAYER_LABELS: Record<string, string> = {
   python: "Python 环境层",
   models: "模型层",
+  "models-moss": "MOSS 模型层",
   tools: "工具层",
 };
 
@@ -61,6 +62,7 @@ export function installTargetFor(missing: string[]): RuntimeInstallTarget | null
   if (within(["tools"])) return "media";
   if (within(["tools", "python"])) return "runtime";
   if (within(["models"])) return "models";
+  if (within(["models-moss"])) return "models-moss";
   return "all";
 }
 

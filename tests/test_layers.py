@@ -114,6 +114,8 @@ def test_three_layers_install_into_an_empty_root(tmp_path, built, origin):
     assert layers.tool_dir("yt-dlp").name == "yt-dlp"
     assert layers.model_dir("whisper").name == fakes.HF_REVISION
     assert layers.model_dir("separator").name == "audio-separator"
+    assert layers.model_dir("moss-transcribe-diarize").name == fakes.HF_REVISION
+    assert layers.model_dir("speaker-embedding").name == fakes.HF_REVISION
     assert layers.model_dir("nemotron3") is None
 
 
@@ -559,3 +561,39 @@ def test_the_single_pass_scan_agrees_with_the_manifest_compare(tmp_path, built, 
     found = L.inspect(manifest, root, full=True).problems
     expected = [line.split(" (")[0] for line in lm.compare(manifest, root, full=True)]  # compare adds sizes
     assert sorted(found) == sorted(expected) and len(found) == 3
+
+
+def test_install_from_single_layer_offline_archive_uses_no_network(tmp_path, built, origin):
+    # Origin is deliberately closed/unused: installing from a picked .tar.zst must make 0 HTTP calls.
+    before = len(origin.requests)
+    mgr = manager(tmp_path, built, origin)
+    picked = tmp_path / "downloaded-tools-layer.tar.zst"
+    shutil.copyfile(built["tools"].archive, picked)
+    # Seed a leftover .part file from an abandoned slow online download to verify it gets cleaned up.
+    entry = mgr.index.entry("tools")
+    mgr.downloads.mkdir(parents=True, exist_ok=True)
+    part = mgr.downloads / f"{entry.archive.sha256}.tar.zst.part"
+    part.write_bytes(b"half")
+
+    stages: list[str] = []
+    state = mgr.install("tools", archive_path=picked, progress=lambda item: stages.append(item.stage))
+
+    assert state.ready
+    assert len(origin.requests) == before
+    assert picked.is_file()  # user's local archive is never deleted
+    assert not part.exists()
+    assert "offline" in stages and "unpacking" in stages
+
+
+def test_install_from_offline_archive_rejects_wrong_layer_and_corrupt_file(tmp_path, built, origin):
+    mgr = manager(tmp_path, built, origin)
+    # Passing python's archive to tools should identify the wrong layer clearly.
+    with pytest.raises(L.LayerMismatch, match="Python 运行环境"):
+        mgr.install("tools", archive_path=built["python"].archive)
+
+    # Corrupt file of identical size should fail sha256 verification.
+    bad = tmp_path / "corrupt-tools.tar.zst"
+    bad.write_bytes(b"\x00" * built["tools"].archive.stat().st_size)
+    with pytest.raises(L.LayerMismatch, match="校验失败"):
+        mgr.install("tools", archive_path=bad)
+    assert not mgr.state("tools").ready

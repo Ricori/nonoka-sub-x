@@ -32,6 +32,10 @@ SEPARATOR_FILE = "audio-separator/model.ckpt"
 HF_DIRECTORY = "huggingface/hub/models--fake--whisper"
 HF_REVISION = "0123456789abcdef0123456789abcdef01234567"
 HF_SNAPSHOT = f"{HF_DIRECTORY}/snapshots/{HF_REVISION}"
+HF_MOSS_DIRECTORY = "huggingface/hub/models--fake--moss"
+HF_MOSS_SNAPSHOT = f"{HF_MOSS_DIRECTORY}/snapshots/{HF_REVISION}"
+HF_SPEAKER_DIRECTORY = "huggingface/hub/models--fake--spk"
+HF_SPEAKER_SNAPSHOT = f"{HF_SPEAKER_DIRECTORY}/snapshots/{HF_REVISION}"
 
 
 def noise(size: int, seed: int) -> bytes:
@@ -56,6 +60,15 @@ def default_files(layer: str, *, big: int = 0) -> dict[str, bytes]:
         files = {SEPARATOR_FILE: checkpoint, f"{SEPARATOR_FILE}.verified": stamp(checkpoint),
                  f"{HF_DIRECTORY}/.finesub-verified.json": b'{"manifest": "x", "repo": "fake/whisper"}',
                  f"{HF_SNAPSHOT}/model.bin": noise(8192, 2), f"{HF_SNAPSHOT}/config.json": b"{}"}
+    elif layer == "models-moss":
+        files = {
+            f"{HF_MOSS_DIRECTORY}/.finesub-verified.json": b'{"manifest": "m", "repo": "fake/moss"}',
+            f"{HF_MOSS_SNAPSHOT}/model.bin": noise(6144, 3),
+            f"{HF_MOSS_SNAPSHOT}/config.json": b"{}",
+            f"{HF_SPEAKER_DIRECTORY}/.finesub-verified.json": b'{"manifest": "s", "repo": "fake/spk"}',
+            f"{HF_SPEAKER_SNAPSHOT}/spk.ts": noise(2048, 4),
+            f"{HF_SPEAKER_SNAPSHOT}/plda.npz": b"plda",
+        }
     else:
         files = {"ffmpeg/ffmpeg-n9/bin/ffmpeg.exe": b"MZ ffmpeg", "ffmpeg/ffmpeg-n9/bin/ffprobe.exe": b"MZ ffprobe",
                  "tokcount/tokcount.exe": b"MZ tokcount", "yt-dlp/yt_dlp/__init__.py": b"# yt-dlp\n"}
@@ -69,6 +82,13 @@ def sources(layer: str) -> dict[str, Any]:
         return {"models": [
             {"id": "separator", "directory": "audio-separator", "files": []},
             {"id": "whisper", "directory": HF_DIRECTORY, "repo": "fake/whisper", "revision": HF_REVISION, "files": []},
+        ]}
+    if layer == "models-moss":
+        return {"models": [
+            {"id": "moss-transcribe-diarize", "directory": HF_MOSS_DIRECTORY, "repo": "fake/moss",
+             "revision": HF_REVISION, "listedOnly": True, "files": []},
+            {"id": "speaker-embedding", "directory": HF_SPEAKER_DIRECTORY, "repo": "fake/speaker-embedding",
+             "revision": HF_REVISION, "listedOnly": True, "files": []},
         ]}
     if layer == "tools":
         return {"tools": [

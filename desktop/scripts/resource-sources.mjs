@@ -20,7 +20,8 @@ export const PYTHON_RELEASES = "https://github.com/astral-sh/python-build-standa
 const ASTRAL_RELEASES = "https://releases.astral.sh/github/python-build-standalone/releases/download/";
 
 /** The layer kinds, in the order the layer manager installs them. */
-export const LAYERS = ["tools", "python", "models"];
+export const LAYERS = ["tools", "python", "models", "models-moss"];
+const REQUIRED_LAYERS = ["tools", "python", "models"];
 
 const SHA256 = /^[0-9a-f]{64}$/;
 
@@ -57,7 +58,10 @@ export function readLayersIndex(file = layersIndexFile) {
   const layers = {};
   for (const layer of LAYERS) {
     const entry = index.layers?.[layer];
-    if (!entry) throw new Error(`${file}: no ${layer} layer`);
+    if (!entry) {
+      if (REQUIRED_LAYERS.includes(layer)) throw new Error(`${file}: no ${layer} layer`);
+      continue;
+    }
     const manifest = checkObject(`${layer}.manifest`, entry.manifest);
     const archive = checkObject(`${layer}.archive`, entry.archive);
     if (entry.version !== manifest.sha256.slice(0, 16)) {
@@ -70,7 +74,7 @@ export function readLayersIndex(file = layersIndexFile) {
 
 /** Every object of the index: the layer, which object it is, and where it lives under baseUrl. */
 export function layerObjects(index) {
-  return LAYERS.flatMap(layer => ["manifest", "archive"].map(kind => ({
+  return Object.keys(index.layers).flatMap(layer => ["manifest", "archive"].map(kind => ({
     layer,
     kind,
     version: index.layers[layer].version,

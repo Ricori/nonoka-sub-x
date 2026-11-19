@@ -51,6 +51,7 @@ TaskRequest
 | ID | 名称 | `kind` | 在哪跑 | 要什么 |
 | :--- | :--- | :--- | :--- | :--- |
 | `finesub` | FineSub | `local-gpu` | 转写包 `engines/finesub-transcribe/` 的独立进程，沙箱里 | Python 环境层、模型层、工具层；显卡可选（没有只是警告）；`HF_TOKEN` 可选 |
+| `moss-local` | MOSS 0.9B | `local-gpu` | Python 环境层子进程（或当前已带 ASR 依赖的进程），核心自带 | Python 环境层、MOSS 模型层（`models-moss`）、工具层；必须有 NVIDIA RTX 30 系及以上显卡（Compute Capability ≥ 8.0，约 8 GB 显存） |
 | `mai2` | MAI-Transcribe-2 | `cloud-api` | worker 进程内（核心自带） | 工具层的 ffmpeg / ffprobe；`OPENROUTER_STT_KEY`，或 `AZURE_SPEECH_KEY` 加 `AZURE_SPEECH_ENDPOINT` |
 | `gemini-transcribe` | Gemini 3.5 Transcribe | `cloud-api` | 同上 | 工具层；`GEMINI_FREE` 池里至少一个免费 Key |
 | `moss-pro` | MOSS Pro | `cloud-api` | 同上 | 工具层；`MOSS_PRO` 池里至少一个 Key |
@@ -175,15 +176,16 @@ TaskRequest
 
 ## 5. 运行环境
 
-三层预制包装在大文件根 `runtime/layers/<层>/<版本>/`，由层管理器（`src/nonoka_x/runtime/`）从 R2 下载、核对、切换：
+四层预制包装在大文件根 `runtime/layers/<层>/<版本>/`，由层管理器（`src/nonoka_x/runtime/`）从 R2 下载（或由用户在界面上按层选择与 R2 完全一致的本地 `.tar.zst` 离线包导入）、核对、切换：
 
 | 层 | 内容 | 谁要 |
 | :--- | :--- | :--- |
-| `python` | python-build-standalone 3.12.1，锁里的全部包装进解释器自己的 `site-packages`（不建 venv），`.py` 全部预编译 | FineSub 转写 |
-| `models` | 模型清单里钉住 revision 的全部模型（不含编译加速产物） | FineSub 转写 |
+| `python` | python-build-standalone 3.12.1，锁里的全部包装进解释器自己的 `site-packages`（不建 venv），`.py` 全部预编译 | FineSub 转写、MOSS 0.9B |
+| `models` | 模型清单里 FineSub 默认路径要的 5 个模型（不含编译加速产物） | FineSub 转写 |
+| `models-moss` | `moss-transcribe-diarize` 与裁剪后的 `speaker-embedding`（`wespeaker-cpu.ts` + `plda/*`，约 26 MB） | MOSS 0.9B |
 | `tools` | ffmpeg、ffprobe、tokcount、yt-dlp、aria2c、node、pot-provider | 所有引擎；桌面自己的导出与下载器 |
 
-引擎在 `EngineEnvironment` 里用组件 ID 声明要什么（`nonoka_x.runtime`）：`asr-runtime` = Python 环境层；`media` = 工具层的 ffmpeg 加 ffprobe；单个工具按它自己的 ID；层按 `python` / `models` / `tools`；模型按模型清单里的 ID（`separator`、`whisper`、`qwen-referee`，可选的 `nemotron3`、`speaker-embedding`）。就绪 = 要的组件在、当前版本与清单相符；**工具只认工具层**，用户 PATH 上的 ffmpeg 不算，核心自己的 `media` 档也一样。工具层与 Python 环境层属于默认基础层，安装后支持更新与完整核对、不提供整层删除；AI 模型层支持按需下载与单层删除（`DELETE /v1/runtime/provision?layer=models`）；存在旧版本残留时可在设置页一键清理。
+引擎在 `EngineEnvironment` 里用组件 ID 声明要什么（`nonoka_x.runtime`）：`asr-runtime` = Python 环境层；`media` = 工具层的 ffmpeg 加 ffprobe；单个工具按它自己的 ID；层按 `python` / `models` / `models-moss` / `tools`；模型按模型清单里的 ID（`separator`、`whisper`、`qwen-referee`、`moss-transcribe-diarize`，可选的 `nemotron3`、`speaker-embedding`）。就绪 = 要的组件在、当前版本与清单相符；**工具只认工具层**，用户 PATH 上的 ffmpeg 不算，核心自己的 `media` 档也一样。工具层与 Python 环境层属于默认基础层，安装后支持更新与完整核对、不提供整层删除；`models` 与 `models-moss` 两个模型层均支持按需下载、按层离线安装与单层删除（`DELETE /v1/runtime/provision?layer=models|models-moss`）；存在旧版本残留时可在设置页一键清理。
 
 FineSub 引擎的代码不进层，随桌面安装包下发，与核心同步升级。
 

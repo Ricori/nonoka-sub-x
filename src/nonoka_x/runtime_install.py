@@ -17,7 +17,7 @@ from nonoka_x.msvc_runtime import msvc_runtime_problem
 
 #: The order layers are installed in when a target needs several: the tools are small and serve the
 #: cloud engines as well, so they come first; the models last.
-INSTALL_ORDER = ("tools", "python", "models")
+INSTALL_ORDER = ("tools", "python", "models", "models-moss")
 
 #: What each install target of the runtime page needs, in layers. Every tool is in the one tool layer
 #: (4.2 item 14), so installing any tool installs them all.
@@ -25,8 +25,9 @@ TARGET_LAYERS: dict[str, tuple[str, ...]] = {
     "media": ("tools",),
     "runtime": ("tools", "python"),
     "models": ("models",),
+    "models-moss": ("models-moss",),
     "optional-models": ("models",),
-    "all": INSTALL_ORDER,
+    "all": ("tools", "python", "models"),
     "repair": INSTALL_ORDER,
     "yt-dlp": ("tools",),
     "tokcount": ("tools",),

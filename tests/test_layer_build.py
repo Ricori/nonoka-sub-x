@@ -134,8 +134,16 @@ class BuildHelperTests(TempCase):
 
     def test_the_model_layer_holds_the_default_path_models(self) -> None:
         self.assertEqual(lm.MODEL_LAYER_IDS, ("separator", "whisper", "qwen-referee", "nemotron3", "speaker-embedding"))
+        self.assertEqual(lm.MOSS_MODEL_LAYER_IDS, ("moss-transcribe-diarize", "speaker-embedding"))
         models = manifests.model_manifest()["models"]
         self.assertTrue(set(lm.MODEL_LAYER_IDS) <= set(models))
+        self.assertTrue(set(lm.MOSS_MODEL_LAYER_IDS) <= set(models))
+        trimmed = lm.layer_model_spec("models-moss", "speaker-embedding", models["speaker-embedding"])
+        self.assertTrue(trimmed.get("listedOnly"))
+        self.assertEqual(
+            [item["name"] for item in trimmed["files"]],
+            ["wespeaker-cpu.ts", "plda/plda.npz", "plda/xvec_transform.npz"],
+        )
         sys.path.insert(0, str(VENDOR_SOURCE))
         from finesub_bootstrap import model_caches
 

@@ -53,6 +53,7 @@ test("the install target covers only the missing layers", () => {
   assert.equal(installTargetFor(["python"]), "runtime");
   assert.equal(installTargetFor(["tools", "python"]), "runtime");
   assert.equal(installTargetFor(["models"]), "models");
+  assert.equal(installTargetFor(["models-moss"]), "models-moss");
   // The job installs only the layers not ready (provision._run), so "all" never re-downloads the tools.
   assert.equal(installTargetFor(["python", "models"]), "all");
 });

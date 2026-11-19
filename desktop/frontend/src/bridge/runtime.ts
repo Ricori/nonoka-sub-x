@@ -10,10 +10,18 @@ export interface RuntimeItem {
 
 /** 每个目标对应它要的运行环境层（`nonoka_x.runtime_install.TARGET_LAYERS`）：装任何一个工具都是装整个工具层。
     `repair` 对已装的层做完整核对（逐文件 sha256），有问题的整层重新安装。 */
-export type RuntimeInstallTarget = "media" | "runtime" | "models" | "all" | "optional-models" | "repair" | "yt-dlp" | "tokcount" | "aria2c" | "node" | "pot-provider" | "video-tools";
+export type RuntimeInstallTarget = "media" | "runtime" | "models" | "models-moss" | "all" | "optional-models" | "repair" | "yt-dlp" | "tokcount" | "aria2c" | "node" | "pot-provider" | "video-tools";
+export type RuntimeLayerId = "python" | "models" | "models-moss" | "tools";
+
+export interface OfflineArchivePick {
+  layer: string;
+  path?: string;
+  cancelled?: boolean;
+}
+
 /** 一个运行环境层的状态（`LayerManager.overview()`），给设置页的「清理未使用的」用。 */
 export interface RuntimeLayerOverview {
-  id: "python" | "models" | "tools";
+  id: RuntimeLayerId;
   label: string;
   state: "ready" | "missing" | "outdated" | "damaged";
   /** 这个版本要的层版本。 */
@@ -87,6 +95,8 @@ export interface RuntimeProvisionState {
   models: RuntimeItem[];
   /** 只有部分任务用得到的模型（目前是说话人分离的两个），可单独下载，从不阻断转写。 */
   optional_models?: RuntimeItem[];
+  /** 本地 MOSS 0.9B 的模型层条目。 */
+  moss_models?: RuntimeItem[];
   /** 三层各自的状态；旧版 sidecar 没有这几个字段。 */
   layers?: RuntimeLayerOverview[];
   unused_layers?: RuntimeUnusedLayer[];
@@ -138,9 +148,12 @@ export const fineSubRuntime = {
   installPython: () => ProviderService.InstallPython() as Promise<unknown> as Promise<PythonBootstrapState>,
   status: () => ProviderService.RuntimeProvisionStatus() as Promise<unknown> as Promise<RuntimeProvisionState>,
   install: (target: RuntimeInstallTarget) => ProviderService.InstallRuntime(target) as Promise<unknown> as Promise<RuntimeProvisionState>,
+  chooseOfflineArchive: (layer: RuntimeLayerId) => ProviderService.ChooseLayerOfflineArchive(layer) as Promise<unknown> as Promise<OfflineArchivePick>,
+  installLayerOffline: (layer: RuntimeLayerId, archivePath: string) => ProviderService.InstallLayerOffline(layer, archivePath) as Promise<unknown> as Promise<RuntimeProvisionState>,
   cancel: () => ProviderService.CancelRuntimeInstall() as Promise<unknown> as Promise<RuntimeProvisionState>,
   removeAll: () => ProviderService.RemoveRuntime() as Promise<unknown> as Promise<RuntimeProvisionState>,
   removeModels: () => ProviderService.RemoveModels() as Promise<unknown> as Promise<RuntimeProvisionState>,
+  removeModelsMoss: () => ProviderService.RemoveModelsMoss() as Promise<unknown> as Promise<RuntimeProvisionState>,
   /** 以当前转写引擎为准；sidecar 不认识的引擎只列旧版本。 */
   cleanupPlan: (engine: string) => ProviderService.UnusedRuntime(engine) as Promise<unknown> as Promise<RuntimeCleanupPlan>,
   /** 删旧版本；`layers` 是用户勾选、要整层删的层（默认不删整层）。 */

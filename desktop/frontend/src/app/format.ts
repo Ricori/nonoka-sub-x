@@ -52,6 +52,7 @@ export function formatTaskDate(value: number | string): string {
 const TRANSCRIPTION_ENGINE_LABELS: Record<string, string> = {
   [DEFAULT_TRANSCRIPTION_ENGINE]: "FineSub",
   [CLOUD_TRANSCRIPTION_ENGINE]: "FineSub",
+  "moss-local": "MOSS 0.9B",
   mai2: "MAI-Transcribe-2",
   "gemini-transcribe": "Gemini 3.5 Transcribe",
   "moss-pro": "MOSS Pro",

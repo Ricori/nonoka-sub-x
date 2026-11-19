@@ -49,6 +49,9 @@ function keyState(settings: FineSubSettingsState | null, name: string): FineSubK
 
 function tooltipFor(item: EngineChoice, provision: RuntimeProvisionState | null, migrationActive: boolean): string {
   const parts = [KIND_NOTES[item.kind]];
+  if (item.id === "moss-local") {
+    parts.push("需要 NVIDIA RTX 30 系及以上显卡（Compute Capability ≥ 8.0，约 8 GB 显存）。");
+  }
   if (item.billing) parts.push(item.billing);
   if (item.kind === "local-gpu") {
     if (migrationActive) {
@@ -56,7 +59,7 @@ function tooltipFor(item: EngineChoice, provision: RuntimeProvisionState | null,
     } else {
       const status = engineLayerStatus(item.layers, provision);
       if (status.known && status.missing.length) {
-        const missingBase = status.missing.some((layer) => layer !== "models");
+        const missingBase = status.missing.some((layer) => layer !== "models" && layer !== "models-moss");
         parts.push(missingBase ? "需先在下方完成基础环境初始化。" : `需下载 AI 模型（约 ${formatStorageBytes(status.downloadBytes)}）。`);
       }
     }
@@ -140,7 +143,7 @@ export function TranscriptionEngineSection(props: TranscriptionEngineSectionProp
           const selected = item.id === current;
           const selectable = item.ready;
           const install = !migrationActive && item.kind === "local-gpu" ? engineInstallView(item, provision) : null;
-          const onlyModelsMissing = install !== null && install.target === "models";
+          const onlyModelsMissing = install !== null && (install.target === "models" || install.target === "models-moss");
           const tip = tooltipFor(item, provision, migrationActive);
           return (
             <div className={`engine-row ${selected ? "selected" : ""} ${!selectable ? "disabled" : ""}`.trim()} key={item.id}>
@@ -188,7 +191,7 @@ export function TranscriptionEngineSection(props: TranscriptionEngineSectionProp
                         className="primary-button engine-action-btn"
                         disabled={install.blocked !== ""}
                         title={install.blocked || `下载 AI 模型（约 ${formatStorageBytes(install.total)}）`}
-                        onClick={() => onInstallLayers("models")}
+                        onClick={() => onInstallLayers(install.target)}
                       >
                         下载模型
                       </button>
