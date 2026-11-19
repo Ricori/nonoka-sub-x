@@ -477,6 +477,7 @@ interface UploadedAudioSource {
 | `unsupported_engine` | 400 | `transcription.engine` 不在本 Provider 的 `transcription_engines` 里 |
 | `missing_engine` | 503 | 所要的引擎包没装：所选转写引擎的包（同时出现在该引擎的 `issues` 与 `raw-srt` 档里），或纠错包（`harness` 及其后各档） |
 | `missing_key` | 503 | 所选转写引擎缺少它要的密钥（如 MAI-Transcribe-2 没配 OpenRouter STT 或 Azure Speech）；同时出现在该引擎 `transcription_engines[].issues` 与 `runtime.stages` 的 `raw-srt` 档里 |
+| `missing_diarization_model` | 503 | 请求要说话人分离，而所选本机引擎要用的说话人模型（模型层里的 `nemotron3`、`speaker-embedding`）没装；不跑到一半才丢掉说话人。云端续跑、日文轴与云 API 引擎不受影响 |
 | `missing_knowledge_package` | 503 | 知识库包不在，而任务读写知识库、从知识库取 ASR 上下文，或要做纠错与翻译（纠错从知识库读取风格目录，`knowledge` 为 `none` 也一样）；只到原始字幕的任务不受影响 |
 | `migrating` | 503 | 本地 Provider 正在把旧版数据迁移到新布局；迁移的本地步骤完成之前，除 `GET /v1/migration`、`POST /v1/migration/retry` 外的路由都这样回答（见第 9 节） |
 | *运行时就绪 issue code* | 503 | `start()` 时目标阶段未就绪，直接返回该 issue |
@@ -643,7 +644,7 @@ interface UploadedAudioSource {
 | :--- | :--- | :--- |
 | `GET` / `POST` / `DELETE` | `/v1/runtime/provision` | 查询 / 安装 / 卸载运行时 |
 | `POST` | `/v1/runtime/provision/cancel` | 取消安装 |
-| `GET` / `DELETE` | `/v1/runtime/provision/unused?engine=<id>` | 「清理未使用的」：查询 / 执行。`engine` 是宿主当前的转写引擎；会删的是它、纠错包与媒体探测（工具层）都用不到的层（整层，`reason: "unneeded"`），以及没人用的层版本（既不是当前的、也不是这个版本要的，`reason: "old-version"`）。查询回报 `{engine, engine_available, needed, busy, items: [{layer, name, path, bytes, reason, blocked}], bytes, blocked_bytes}`；未结束的任务可能用到的层不删（`blocked` 写明原因，旧版本在有任何未结束任务时都不删）。执行时按当时的状态重新算，回报 `{removed, kept, freed}` 及同样的头部；安装在跑时拒绝。不带 `engine` 或引擎不在本 Provider 上时只列旧版本 |
+| `GET` / `DELETE` | `/v1/runtime/provision/unused?engine=<id>[&layers=python,models]` | 「清理未使用的」：查询 / 执行。`engine` 是宿主当前的转写引擎。列出两种：没人用的层版本（既不是当前的、也不是这个版本要的，`reason: "old-version"`），执行时默认就删；当前引擎、纠错包与媒体探测（工具层）都用不到的层（整层，`reason: "unneeded"`），只有在 `layers` 里点名（用户勾选）时才删，点名了不在列的层回 409。查询回报 `{engine, engine_available, needed, busy, items: [{layer, name, path, bytes, reason, blocked}], bytes, layer_bytes, blocked_bytes}`（`bytes` 是默认清理腾出的空间，`layer_bytes` 是可整层删的层合计）；未结束的任务可能用到的层不删（`blocked` 写明原因，旧版本在有任何未结束任务时都不删）。执行时按当时的状态重新算，回报 `{removed, kept, freed}` 及同样的头部；安装在跑时拒绝。不带 `engine` 或引擎不在本 Provider 上时只列旧版本 |
 | `GET` / `DELETE` | `/v1/runtime/cache` | 统计 / 清空缓存：未装完的层压缩包与转写引擎的编译缓存 |
 | `GET` | `/v1/settings` | 读取配置快照（**不得**回传密钥明文）；`engineKeys` 另列转写引擎自己的 Key（与 `keys` 同形，只有掩码），不交给 FineSub |
 | `PUT` | `/v1/settings/keys` | 写入用户自持 API Key |

@@ -14,7 +14,7 @@ import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable, Mapping
+from typing import Any, Callable, Iterable, Mapping
 from urllib.parse import unquote, urlparse
 from urllib.request import url2pathname
 
@@ -1191,6 +1191,36 @@ class LocalProvider:
         paths = getattr(self._provisioner, "paths", None)
         return paths if paths is not None else NonokaPaths.for_roots(self._data_dir())
 
+    def _diarization_problem(self, request: Mapping[str, Any], spec: Any) -> str | None:
+        """Why a request that asks for diarization cannot have it here, or None.
+
+        Only for an engine that diarizes with the model layer's speaker models (its
+        `optional_models`, FineSub's `nemotron3` and `speaker-embedding`), and only when it
+        recognises here: a cloud transcript or a Japanese axis brings its own speakers or none.
+        A provisioner that lists no optional models (an older one) is not judged.
+        """
+
+        from .model_install import DIARIZATION_MODEL_IDS
+        from .worker import diarization_kwargs
+
+        if diarization_kwargs(request)["diarize"] == "off":
+            return None
+        if request["source"]["kind"] == "cloud_transcript" or "axis" in request or self._provisioner is None:
+            return None
+        wanted = [model for model in DIARIZATION_MODEL_IDS if model in spec.environment.optional_models]
+        if not wanted:
+            return None
+        states = {item.get("id"): item.get("state") for item in self._provisioner.status().get("optional_models") or ()}
+        if not states:
+            return None
+        missing = [model for model in wanted if states.get(model) != "ready"]
+        if not missing:
+            return None
+        return (
+            f"说话人分离要用的模型尚未安装（{'、'.join(missing)}，约 450MB）：引擎不会自行下载；"
+            "请到「设置 → 运行环境」的「AI模型」下载，或关闭说话人分离后重试"
+        )
+
     def _knowledge_problem(self, request: Mapping[str, Any], task_dir: Path | None = None) -> str | None:
         """`worker.knowledge_package_problem` for `request` as the worker would run it.
 
@@ -1336,18 +1366,25 @@ class LocalProvider:
         needed, busy, header = self._cleanup_scope(engine)
         return {**self._provisioner.cleanup_plan(needed, busy), **header}
 
-    def remove_unused_runtime(self, engine: str | None = None) -> dict[str, Any]:
-        """Delete what `runtime_cleanup_plan(engine)` offers (the settings page's "clean up unused").
+    def remove_unused_runtime(self, engine: str | None = None, layers: Iterable[str] = ()) -> dict[str, Any]:
+        """The settings page's "clean up unused", for the current engine `engine`.
 
-        The layers neither `engine` nor the correction package needs, and the layer versions nothing
-        uses; a layer an unfinished task may use stays (reported in `kept`).
+        The layer versions nothing uses always; of the layers neither `engine` nor the correction
+        package needs, only the ones the user ticked (`layers`). A layer an unfinished task may use
+        stays (reported in `kept`).
         """
+
+        from .runtime import LAYERS
 
         if self._provisioner is None:
             raise ProviderError("runtime_unavailable", "FineSub runtime installer is unavailable", http_status=503)
+        chosen = tuple(dict.fromkeys(str(layer) for layer in layers))
+        unknown = [layer for layer in chosen if layer not in LAYERS]
+        if unknown:
+            raise ProviderError("invalid_request", "unknown layers: " + ", ".join(unknown))
         needed, busy, header = self._cleanup_scope(engine)
         try:
-            return {**self._provisioner.cleanup(needed, busy), **header}
+            return {**self._provisioner.cleanup(needed, busy, chosen), **header}
         except RuntimeProvisionError as exc:
             raise ProviderError("runtime_remove_unavailable", str(exc), http_status=409) from exc
         except OSError as exc:
@@ -1449,6 +1486,12 @@ class LocalProvider:
                 if issues:
                     issue = issues[0]
                     raise ProviderError(issue["code"], issue["message"], http_status=503)
+            # Asked for speakers without the models that find them: refused now,
+            # not left to the engine's stage, which can only drop the labels
+            # after the recognition (the user, 2026-11-19).
+            problem = self._diarization_problem(validated, specs[engine_id])
+            if problem:
+                raise ProviderError("missing_diarization_model", problem, http_status=503)
             # The worker refuses the same request the same way, with the same
             # check (plan 4.6 item 35a): a run that reads or writes the
             # knowledge base, or picks its ASR context from it, needs the

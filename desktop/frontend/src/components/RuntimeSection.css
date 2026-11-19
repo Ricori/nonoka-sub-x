@@ -723,6 +723,14 @@
 .runtime-unused li b { color: var(--text); font-weight: 600; }
 .runtime-unused li small, .runtime-usage li small { overflow: hidden; color: var(--faint); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
 .runtime-unused li.held { opacity: .7; }
+.runtime-unused-layers { display: grid; gap: 8px; border-top: 1px solid var(--line-soft); padding-top: 10px; }
+.runtime-unused-layers > small { color: var(--faint); font-size: 12px; }
+.runtime-unused-layers label { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: start; gap: 8px; cursor: pointer; }
+.runtime-unused-layers label.held { opacity: .7; cursor: default; }
+.runtime-unused-layers label input { margin-top: 2px; }
+.runtime-unused-layers label span { display: grid; gap: 2px; min-width: 0; }
+.runtime-unused-layers label strong { color: var(--text); font-size: 12px; font-weight: 600; }
+.runtime-unused-layers label small { color: var(--warn); font-size: 12px; }
 .runtime-usage { display: grid; gap: 10px; margin-top: 16px; border: 1px solid var(--line-soft); border-radius: 12px; padding: 14px 16px; }
 .runtime-usage ul { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
 .runtime-usage li { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 10px; color: var(--mut); font-size: 12px; }

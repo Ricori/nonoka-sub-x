@@ -55,8 +55,10 @@ export interface RuntimeCleanupPlan {
   /** 有未结束任务可能用到的层。 */
   busy: string[];
   items: RuntimeCleanupItem[];
-  /** 能腾出的空间（不含被占用而留下的）。 */
+  /** 默认清理（只删旧版本）能腾出的空间，不含被占用而留下的。 */
   bytes: number;
+  /** 可以单独勾选整层删除的层（`unneeded`、未被占用）合计的空间。 */
+  layer_bytes: number;
   blocked_bytes: number;
 }
 
@@ -140,7 +142,8 @@ export const fineSubRuntime = {
   removeAll: () => ProviderService.RemoveRuntime() as Promise<unknown> as Promise<RuntimeProvisionState>,
   /** 以当前转写引擎为准；sidecar 不认识的引擎只列旧版本。 */
   cleanupPlan: (engine: string) => ProviderService.UnusedRuntime(engine) as Promise<unknown> as Promise<RuntimeCleanupPlan>,
-  removeUnused: (engine: string) => ProviderService.RemoveUnusedRuntime(engine) as Promise<unknown> as Promise<RuntimeUnusedRemoval>,
+  /** 删旧版本；`layers` 是用户勾选、要整层删的层（默认不删整层）。 */
+  removeUnused: (engine: string, layers: string[] = []) => ProviderService.RemoveUnusedRuntime(engine, layers) as Promise<unknown> as Promise<RuntimeUnusedRemoval>,
   cacheStatus: () => ProviderService.RuntimeCacheStatus() as Promise<unknown> as Promise<RuntimeCacheStatus>,
   clearCache: () => ProviderService.ClearRuntimeCache() as Promise<unknown> as Promise<RuntimeCacheClearResult>,
 };

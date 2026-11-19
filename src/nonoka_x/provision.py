@@ -545,8 +545,11 @@ class RuntimeProvisioner:
             self.layers, needed=needed, busy=busy, tasks_running=self.layers._in_use(),
         )}
 
-    def cleanup(self, needed: set[str] | None, busy: set[str]) -> dict[str, Any]:
-        """Delete what `cleanup_plan` offers unblocked; refused while an install runs."""
+    def cleanup(self, needed: set[str] | None, busy: set[str], layers: tuple[str, ...] = ()) -> dict[str, Any]:
+        """Delete the old versions `cleanup_plan` offers unblocked, and the whole `layers` the user ticked.
+
+        Refused while an install runs, and when a ticked layer is not offered as a whole now.
+        """
 
         from nonoka_x import runtime_cleanup
 
@@ -561,8 +564,10 @@ class RuntimeProvisioner:
             self._cleaning = True
         try:
             result = runtime_cleanup.execute(
-                self.layers, needed=needed, busy=busy, tasks_running=self.layers._in_use(),
+                self.layers, needed=needed, busy=busy, tasks_running=self.layers._in_use(), layers=layers,
             )
+        except runtime_cleanup.UnknownLayers as error:
+            raise RuntimeProvisionError(str(error)) from error
         finally:
             with self._lock:
                 self._cleaning = False

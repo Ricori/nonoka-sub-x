@@ -88,6 +88,13 @@ class SidecarHandler(BaseHTTPRequestHandler):
         value = parse_qs(query).get("engine", [""])[0].strip()
         return value or None
 
+    @staticmethod
+    def _layers_query(query: str) -> list[str]:
+        """`?layers=python,models`: the layers the user ticked for removal as a whole; none when not given."""
+
+        value = parse_qs(query).get("layers", [""])[0]
+        return [part.strip() for part in value.split(",") if part.strip()]
+
     def _dispatch(self) -> None:
         if not self._authorized():
             self._json(401, {"error": {"code": "invalid_session", "message": "Invalid sidecar session token"}})
@@ -128,7 +135,8 @@ class SidecarHandler(BaseHTTPRequestHandler):
         elif self.command == "GET" and parts == ["v1", "runtime", "provision", "unused"]:
             self._json(200, provider.runtime_cleanup_plan(self._engine_query(parsed.query)))
         elif self.command == "DELETE" and parts == ["v1", "runtime", "provision", "unused"]:
-            self._json(200, provider.remove_unused_runtime(self._engine_query(parsed.query)))
+            self._json(200, provider.remove_unused_runtime(
+                self._engine_query(parsed.query), self._layers_query(parsed.query)))
         elif self.command == "GET" and parts == ["v1", "settings"]:
             self._json(200, provider.get_settings())
         elif self.command == "POST" and parts == ["v1", "knowledge"]:

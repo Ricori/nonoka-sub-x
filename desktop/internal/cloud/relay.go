@@ -808,9 +808,11 @@ func (s *Service) stepRelayLocal(ctx context.Context, record *relayRecord) {
 
 // startRelayLocal hands the downloaded result to the local provider. A
 // refusal -- no model configured, the launcher missing the harness -- fails
-// the relay with the provider's own words; a sidecar that is not up yet, or
-// still migrating an older installation's data (503 `migrating`, WP-M2), is
-// waited for, within a bound.
+// the relay with the provider's own words; a sidecar that is not up yet is
+// waited for, within a bound. One still migrating an older installation's data
+// (503 `migrating`, WP-M2) is waited for without a bound, for as long as the
+// migration goes on; a migration that stopped -- blocked, rolled back,
+// failed -- fails the relay with its own words.
 func (s *Service) startRelayLocal(ctx context.Context, record *relayRecord) {
 	if s.relayHoldsLegacyResult(record.ID) {
 		// Collected by a desktop from before the new result format: the cloud
@@ -835,6 +837,13 @@ func (s *Service) startRelayLocal(ctx context.Context, record *relayRecord) {
 		return
 	}
 	taskID, _ := snapshot["task_id"].(string)
+	migrationStopped := ""
+	if sidecar.IsMigrating(err) {
+		migrationStopped = s.stoppedMigration(ctx)
+		if ctx.Err() != nil {
+			return
+		}
+	}
 	var refused *sidecar.HTTPError
 	_, _ = s.updateRelay(record.ID, func(next *relayRecord) ([]relayLine, error) {
 		if next.Phase != relayPhaseLocal || next.LocalTaskID != "" {
@@ -852,7 +861,12 @@ func (s *Service) startRelayLocal(ctx context.Context, record *relayRecord) {
 			return []relayLine{{Leg: "relay", Event: relayEvent{Type: "handoff", Payload: map[string]any{"stage": "handoff", "message": message, "local_task_id": taskID}}}}, nil
 		case err == nil:
 			next.fail("local_start_failed", "本地服务返回了无效的任务 id")
-		case (errors.Is(err, sidecar.ErrNotRunning) || sidecar.IsMigrating(err)) && next.LocalWaits < relayLocalWaits:
+		case sidecar.IsMigrating(err) && migrationStopped != "":
+			next.fail("migration_failed", migrationStopped)
+		case sidecar.IsMigrating(err):
+			// The migration is under way: it ends on its own, so the wait has no bound.
+			return nil, nil
+		case errors.Is(err, sidecar.ErrNotRunning) && next.LocalWaits < relayLocalWaits:
 			next.LocalWaits++
 			return nil, nil
 		case errors.As(err, &refused):
@@ -866,6 +880,29 @@ func (s *Service) startRelayLocal(ctx context.Context, record *relayRecord) {
 		}
 		return []relayLine{relayNote("failed", next.Error.Message)}, nil
 	})
+}
+
+// migrationStoppedStates are the sidecar's migration states that keep its data
+// closed with nothing running towards opening it (`nonoka_x.migration.startup`):
+// only the user's retry moves them on.
+var migrationStoppedStates = map[string]bool{"blocked": true, "rolled-back": true, "failed": true}
+
+// stoppedMigration says why the sidecar's migration stopped, or "" while it is
+// still under way (or its status cannot be read: then it is waited for too).
+func (s *Service) stoppedMigration(ctx context.Context) string {
+	var status map[string]any
+	if err := s.provider.DoJSON(ctx, http.MethodGet, "/v1/migration", nil, &status); err != nil {
+		return ""
+	}
+	state, _ := status["state"].(string)
+	if !migrationStoppedStates[state] {
+		return ""
+	}
+	message, _ := status["message"].(string)
+	if message == "" {
+		message = state
+	}
+	return "本机旧版数据迁移没有完成（" + message + "）：请在迁移提示里重试迁移，完成后再重试这条任务"
 }
 
 // relayHoldsLegacyResult says whether the relay's only result is the

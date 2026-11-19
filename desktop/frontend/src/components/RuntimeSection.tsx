@@ -4,7 +4,7 @@ import type { PythonBootstrapState, RuntimeCleanupItem, RuntimeCleanupPlan, Runt
 import type { RelocationProgress, StorageDestination, StorageStatus, StorageTarget } from "../bridge/storage.ts";
 import { InstallLocationCard } from "./InstallLocationCard.tsx";
 import { installLocationView } from "./installLocation.ts";
-import { layerLabel, layerUsage, type UsageOwner } from "./engineLayers.ts";
+import { cleanupBytes, cleanupView, layerLabel, layerUsage, type UsageOwner } from "./engineLayers.ts";
 import { Mark } from "./Mark.tsx";
 import type { Capabilities } from "../providers/types.ts";
 import "./RuntimeSection.css";
@@ -27,8 +27,8 @@ interface RuntimeSectionProps {
   onInstallPython: () => Promise<void>;
   onCancelInstall: () => Promise<void>;
   onRemoveAll: () => Promise<void>;
-  /** 「清理未使用的」：删掉当前引擎和纠错包都用不到的层，以及没人用的旧版本。 */
-  onRemoveUnused: () => Promise<void>;
+  /** 「清理未使用的」：删掉没人用的旧版本，以及用户勾选的、当前引擎和纠错包都用不到的整层。 */
+  onRemoveUnused: (layers: string[]) => Promise<void>;
   /** 现在清理会删什么（以当前转写引擎为准）；旧版 sidecar 读不到时为 null，只按旧版本列。 */
   cleanup: RuntimeCleanupPlan | null;
   /** 引擎列表里点了「下载所缺的层」：在这里走同一套安装流程（含安装位置确认）；`seq` 变了就再装一次。 */
@@ -283,10 +283,6 @@ function DiarizationAction({ item, installing, blocked, onInstall }: {
   );
 }
 
-const cleanupReasons: Record<RuntimeCleanupItem["reason"], string> = {
-  "old-version": "旧版本",
-  unneeded: "当前转写引擎与纠错都用不到",
-};
 
 /** 按引擎列出占用：本机能跑的转写引擎，加纠错引擎（云端 FineSub 不占本机的层）。 */
 function usageOwners(capabilities: Capabilities | null): UsageOwner[] {
@@ -300,6 +296,8 @@ function usageOwners(capabilities: Capabilities | null): UsageOwner[] {
 export function RuntimeSection({ capabilities, message, provisionMessage, provision, pythonBootstrap, ready, sidecar, onCancelInstall, onDismissProvisionMessage, onInstall, onInstallPython, onRemoveAll, onRemoveUnused, cleanup, requestedInstall, storage, storageProgress, storageBusy, onChooseStorage, onRelocateStorage, onCancelStorage }: RuntimeSectionProps) {
   const [confirmRemove, setConfirmRemove] = useState(false);
   const [confirmUnused, setConfirmUnused] = useState(false);
+  // 用户勾选、要整层删掉的层；默认一个都不勾。
+  const [pickedCleanup, setPickedCleanup] = useState<string[]>([]);
   // 用户点了大安装但还没确认位置时，先停在这里等确认。
   const [awaitingLocation, setAwaitingLocation] = useState<RuntimeInstallTarget | null>(null);
   const runtimeLocation = (storage?.locations ?? []).find((item) => item.target === "runtime") ?? null;
@@ -388,19 +386,25 @@ export function RuntimeSection({ capabilities, message, provisionMessage, provis
   const installedLayers = (provision?.layers ?? []).filter((layer) => layer.current !== null);
   const repairBlocked = connectionBlocked || jobBlocked
     || (provision && provision.layers && installedLayers.length === 0 ? "还没有安装任何运行环境层。" : "");
-  // 读得到清理计划就按它（含当前引擎用不到的整层）；旧版 sidecar 只有旧版本这一种。
+  // 读得到清理计划就按它；旧版 sidecar 只有旧版本这一种。默认只删旧版本，
+  // 当前引擎用不到的整层要用户逐层勾选才删（换回要它的引擎得重新下载）。
   const cleanupItems: RuntimeCleanupItem[] = cleanup?.items
     ?? (provision?.unused_layers ?? []).map((item) => ({ ...item, reason: "old-version" as const, blocked: "" }));
-  const removableItems = cleanupItems.filter((item) => !item.blocked);
-  const heldItems = cleanupItems.filter((item) => item.blocked);
-  const cleanupBytes = cleanup?.bytes ?? removableItems.reduce((sum, item) => sum + item.bytes, 0);
-  const unusedBlocked = connectionBlocked || jobBlocked || (removableItems.length === 0 ? "列出的层都有未结束的任务在用，等任务结束后再清理。" : "");
+  const owners = usageOwners(capabilities);
+  const cleanupChoice = cleanupView(cleanupItems, provision, owners);
+  const pickedLayers = cleanupChoice.layers.filter((item) => pickedCleanup.includes(item.layer) && !item.blocked).map((item) => item.layer);
+  const cleanupTotal = cleanupBytes(cleanupChoice, pickedLayers);
+  const unusedBlocked = connectionBlocked || jobBlocked
+    || (cleanupChoice.removable.length === 0 && pickedLayers.length === 0
+      ? cleanupChoice.held.length > 0 ? "旧版本都有未结束的任务在用，等任务结束后再清理。" : "没有旧版本可删；要删整层请先勾选下面的层。"
+      : "");
   const cleanupNote = [
-    `${removableItems.length} 项可删，腾出 ${formatStorageBytes(cleanupBytes)}`,
-    heldItems.length > 0 ? `${heldItems.length} 项有未结束的任务在用，暂不删` : "",
+    cleanupChoice.removable.length > 0 ? `${cleanupChoice.removable.length} 个旧版本可删，腾出 ${formatStorageBytes(cleanupChoice.oldBytes)}` : "没有可删的旧版本",
+    cleanupChoice.held.length > 0 ? `${cleanupChoice.held.length} 个旧版本有未结束的任务在用，暂不删` : "",
+    cleanupChoice.layers.length > 0 ? "当前引擎用不到的整层默认不删，需要时在下面单独勾选" : "",
     cleanup && !cleanup.engine_available ? "当前转写引擎不可用，只清理旧版本" : "",
   ].filter(Boolean).join("；");
-  const usage = layerUsage(usageOwners(capabilities), provision);
+  const usage = layerUsage(owners, provision);
   const pythonBlocked = !pythonBootstrap
     ? ""
     : !pythonBootstrap.supported
@@ -596,23 +600,56 @@ export function RuntimeSection({ capabilities, message, provisionMessage, provis
                   return;
                 }
                 setConfirmUnused(false);
-                void onRemoveUnused();
+                const layers = pickedLayers;
+                setPickedCleanup([]);
+                void onRemoveUnused(layers);
               }}
-              title={unusedBlocked || "删除下面列出的层；有未结束任务在用的层不会删。整层删掉的，换回要它的引擎时需要重新下载"}
+              title={unusedBlocked || (pickedLayers.length
+                ? `删除旧版本，并整层删除 ${pickedLayers.map(layerLabel).join("、")}；换回要它的引擎时需要重新下载`
+                : "删除没人用的旧版本；当前引擎用不到的整层不删，除非在下面勾选")}
               type="button"
             >
-              {confirmUnused ? `确认删除，腾出 ${formatStorageBytes(cleanupBytes)}` : "清理未使用的"}
+              {confirmUnused ? `确认删除，腾出 ${formatStorageBytes(cleanupTotal)}` : "清理未使用的"}
             </button>
           </div>
-          <ul>
-            {cleanupItems.map((item) => (
+          {(cleanupChoice.removable.length > 0 || cleanupChoice.held.length > 0) && <ul>
+            {[...cleanupChoice.removable, ...cleanupChoice.held].map((item) => (
               <li key={item.path} title={item.path} className={item.blocked ? "held" : undefined}>
                 <span>{layerLabel(item.layer)}</span>
-                <small>{item.blocked ? `${cleanupReasons[item.reason]} · ${item.blocked}，不删` : item.reason === "old-version" ? `${cleanupReasons[item.reason]} ${item.name}` : cleanupReasons[item.reason]}</small>
+                <small>{item.blocked ? `旧版本 ${item.name} · ${item.blocked}，不删` : `旧版本 ${item.name}`}</small>
                 <b>{formatStorageBytes(item.bytes)}</b>
               </li>
             ))}
-          </ul>
+          </ul>}
+          {cleanupChoice.layers.length > 0 && <div className="runtime-unused-layers">
+            <small>当前转写引擎与纠错都用不到的层，默认保留；勾选的才会整层删除：</small>
+            {cleanupChoice.layers.map((item) => {
+              const picked = pickedLayers.includes(item.layer);
+              const backTo = item.neededBy.length ? item.neededBy.join("、") : "要它的引擎";
+              const redownload = item.downloadBytes > 0 ? `约 ${formatStorageBytes(item.downloadBytes)}` : "这一层";
+              return (
+                <label key={item.layer} className={item.blocked ? "held" : undefined}>
+                  <input
+                    type="checkbox"
+                    checked={picked}
+                    disabled={item.blocked !== ""}
+                    onChange={(event) => {
+                      setConfirmUnused(false);
+                      setPickedCleanup((current) => event.target.checked
+                        ? [...current.filter((layer) => layer !== item.layer), item.layer]
+                        : current.filter((layer) => layer !== item.layer));
+                    }}
+                  />
+                  <span>
+                    <strong>{`同时删除${item.label}（占用 ${formatStorageBytes(item.bytes)}）`}</strong>
+                    <small>{item.blocked
+                      ? `${item.blocked}，不能删`
+                      : `换回${backTo}时要重新下载${redownload}`}</small>
+                  </span>
+                </label>
+              );
+            })}
+          </div>}
         </section>}
         {provision?.root && <div className="runtime-storage-row">
           <small className="runtime-root">安装目录：{provision.root}</small>

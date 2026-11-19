@@ -61,8 +61,9 @@ func TestServiceMapsFixedProviderEndpoints(t *testing.T) {
 	_, _ = service.CancelRuntimeInstall()
 	_, _ = service.RemoveRuntime()
 	_, _ = service.UnusedRuntime("mai2")
-	_, _ = service.RemoveUnusedRuntime("mai2")
-	_, _ = service.RemoveUnusedRuntime("")
+	_, _ = service.RemoveUnusedRuntime("mai2", nil)
+	_, _ = service.RemoveUnusedRuntime("mai2", []string{"python", "models"})
+	_, _ = service.RemoveUnusedRuntime("", nil)
 	_, _ = service.RuntimeCacheStatus()
 	_, _ = service.ClearRuntimeCache()
 	_, _ = service.Settings()
@@ -87,6 +88,7 @@ func TestServiceMapsFixedProviderEndpoints(t *testing.T) {
 		{method: "DELETE", endpoint: "/v1/runtime/provision"},
 		{method: "GET", endpoint: "/v1/runtime/provision/unused?engine=mai2"},
 		{method: "DELETE", endpoint: "/v1/runtime/provision/unused?engine=mai2"},
+		{method: "DELETE", endpoint: "/v1/runtime/provision/unused?engine=mai2&layers=python%2Cmodels"},
 		{method: "DELETE", endpoint: "/v1/runtime/provision/unused"},
 		{method: "GET", endpoint: "/v1/runtime/cache"},
 		{method: "DELETE", endpoint: "/v1/runtime/cache"},
@@ -128,8 +130,13 @@ func TestServiceRefusesAMalformedEngineForCleanup(t *testing.T) {
 		if _, err := service.UnusedRuntime(engine); err == nil {
 			t.Fatalf("engine %q was accepted", engine)
 		}
-		if _, err := service.RemoveUnusedRuntime(engine); err == nil {
+		if _, err := service.RemoveUnusedRuntime(engine, nil); err == nil {
 			t.Fatalf("engine %q was accepted", engine)
+		}
+	}
+	for _, layer := range []string{"cache", "python&engine=finesub", ""} {
+		if _, err := service.RemoveUnusedRuntime("mai2", []string{layer}); err == nil {
+			t.Fatalf("layer %q was accepted", layer)
 		}
 	}
 	if len(transport.calls) != 0 {

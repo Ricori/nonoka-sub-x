@@ -1,4 +1,4 @@
-import type { RuntimeInstallTarget, RuntimeLayerOverview, RuntimeProvisionState } from "../bridge/runtime.ts";
+import type { RuntimeCleanupItem, RuntimeInstallTarget, RuntimeLayerOverview, RuntimeProvisionState } from "../bridge/runtime.ts";
 import type { EngineLayers } from "../providers/types.ts";
 
 /** 三个运行环境层的名字，按安装顺序（`nonoka_x.runtime_install.INSTALL_ORDER`）。 */
@@ -155,4 +155,53 @@ export function layerUsage(owners: UsageOwner[], provision: RuntimeProvisionStat
     return { id: owner.id, label: owner.label, layers, bytes: layers.reduce((sum, layer) => sum + layer.bytes, 0) };
   });
   return { rows, total: [...installed.values()].reduce((sum, item) => sum + item.bytes, 0) };
+}
+
+/** 「清理未使用的」里一个可以整层删的层：默认不删，用户勾选才删（2026-11-19）。 */
+export interface CleanupLayerChoice {
+  layer: string;
+  label: string;
+  /** 删掉能腾出的空间。 */
+  bytes: number;
+  /** 换回要它的引擎时要重新下载的量（压缩包大小；不知道时为 0）。 */
+  downloadBytes: number;
+  /** 要它的引擎（标签），用来写「换回 … 要重新下载」。 */
+  neededBy: string[];
+  /** 非空时不能勾选，写着原因（有未结束的任务用到它）。 */
+  blocked: string;
+}
+
+export interface CleanupView {
+  /** 默认就删的旧版本里能删的，与因任务未结束而留下的。 */
+  removable: RuntimeCleanupItem[];
+  held: RuntimeCleanupItem[];
+  oldBytes: number;
+  layers: CleanupLayerChoice[];
+}
+
+/** 把清理计划分成两种：默认删的旧版本，和要单独勾选的整层。 */
+export function cleanupView(items: RuntimeCleanupItem[], provision: RuntimeProvisionState | null, owners: UsageOwner[]): CleanupView {
+  const old = items.filter((item) => item.reason === "old-version");
+  const removable = old.filter((item) => !item.blocked);
+  const byId = new Map<string, RuntimeLayerOverview>((provision?.layers ?? []).map((item) => [item.id, item]));
+  const unneeded = items.filter((item) => item.reason === "unneeded");
+  const layers = ordered(unneeded.map((item) => item.layer)).map((layer): CleanupLayerChoice => {
+    const rows = unneeded.filter((item) => item.layer === layer);
+    return {
+      layer,
+      label: layerLabel(layer),
+      bytes: rows.reduce((sum, item) => sum + item.bytes, 0),
+      downloadBytes: byId.get(layer)?.archive_bytes ?? 0,
+      neededBy: owners.filter((owner) => owner.layers?.required.includes(layer)).map((owner) => owner.label),
+      blocked: rows.find((item) => item.blocked)?.blocked ?? "",
+    };
+  });
+  return { removable, held: old.filter((item) => item.blocked), oldBytes: removable.reduce((sum, item) => sum + item.bytes, 0), layers };
+}
+
+/** 这次清理会腾出的空间：旧版本加上勾选了、没被占用的整层。 */
+export function cleanupBytes(view: CleanupView, picked: string[]): number {
+  return view.oldBytes + view.layers
+    .filter((item) => picked.includes(item.layer) && !item.blocked)
+    .reduce((sum, item) => sum + item.bytes, 0);
 }

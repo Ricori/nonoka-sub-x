@@ -1448,6 +1448,65 @@ class EngineSelectionTests(ProviderFixture):
         self.assertEqual([issue["code"] for issue in issues], ["missing_ffmpeg"])
         self.assertIn("设置 → 运行环境", issues[0]["message"])
 
+    def test_diarization_without_its_models_is_refused_before_it_runs(self) -> None:
+        """The user, 2026-11-19: a run that asks for speakers without the speaker models is refused at
+        start, with words that say so, instead of reaching the engine's stage (which can only drop
+        the labels after recognising, and prints its own "first use: downloading" line)."""
+
+        media_tool = self.source
+
+        class Ready:
+            optional = "missing"
+
+            def status(self) -> dict:
+                return {
+                    "runtime": {"state": "ready"},
+                    "resources": [],
+                    "models": [{"id": model, "state": "ready"} for model in ("separator", "whisper", "qwen-referee")],
+                    "optional_models": [{"id": model, "state": self.optional} for model in ("nemotron3", "speaker-embedding")],
+                }
+
+            def tool_path(self, _name: str) -> Path:
+                return media_tool
+
+            def worker_python(self) -> None:
+                return None
+
+            def worker_environment(self) -> dict[str, str]:
+                return os.environ.copy()
+
+        provisioner = Ready()
+        provider = LocalProvider(self.root / "tasks", ROOT / "engines", worker_command=self.command,
+                                 settings=KeySettings(self.root, {}), provisioner=provisioner)
+        self.providers.append(provider)
+        speakers = {**self.request(), "target": "raw-srt", "diarization": {"level": "acoustics"}}
+
+        def executable(name: str) -> str | None:
+            return None if name == "nvidia-smi" else str(media_tool)
+
+        with (
+            patch("nonoka_x.local_provider.sys.platform", "win32"),
+            patch("nonoka_x.engine_host.sys.platform", "win32"),
+            patch("shutil.which", side_effect=executable),
+            patch("nonoka_x.local_provider.local_agent_executable", return_value=None),
+        ):
+            with self.assertRaises(ProviderError) as caught:
+                provider.start(speakers)
+            self.assertEqual(caught.exception.code, "missing_diarization_model")
+            self.assertEqual(caught.exception.http_status, 503)
+            self.assertIn("nemotron3、speaker-embedding", str(caught.exception))
+            self.assertIn("设置 → 运行环境", str(caught.exception))
+            # Without speakers, or with the models in, it starts.
+            plain = provider.start({**self.request(), "target": "raw-srt"})
+            wait_state(provider, plain["task_id"], {"completed"})
+            provisioner.optional = "ready"
+            task = provider.start(speakers)
+            wait_state(provider, task["task_id"], {"completed"})
+        # A cloud API engine diarizes on its own service: not judged here.
+        provisioner.optional = "missing"
+        self.assertIsNone(provider._diarization_problem(
+            {"source": {"kind": "local_file"}, "diarization": {"level": "acoustics"}}, provider._engine_specs()["mai2"]))
+
     # "clean up unused" (WP-UI)
 
     def cleanup_provider(self):  # noqa: ANN201
@@ -1458,8 +1517,8 @@ class EngineSelectionTests(ProviderFixture):
                 calls.append(("plan", needed, busy))
                 return {"schema": 1, "items": [], "bytes": 0, "blocked_bytes": 0}
 
-            def cleanup(self, needed, busy):  # noqa: ANN001, ANN202
-                calls.append(("cleanup", needed, busy))
+            def cleanup(self, needed, busy, layers=()):  # noqa: ANN001, ANN202
+                calls.append(("cleanup", needed, busy, layers))
                 return {"schema": 1, "removed": [], "kept": [], "freed": 0}
 
         provider = LocalProvider(self.root / "tasks", ROOT / "engines", worker_command=self.command,
@@ -1487,10 +1546,16 @@ class EngineSelectionTests(ProviderFixture):
                 self.assertEqual(plan["engine_available"], needed is not None)
                 self.assertEqual(plan["needed"], None if needed is None else [
                     layer for layer in ("tools", "python", "models") if layer in needed])
+        # Only old versions unless the user ticked whole layers (2026-11-19).
         provider.remove_unused_runtime("mai2")
-        self.assertEqual(calls[-1], ("cleanup", {"tools"}, set()))
+        self.assertEqual(calls[-1], ("cleanup", {"tools"}, set(), ()))
+        provider.remove_unused_runtime("mai2", ["models", "python", "models"])
+        self.assertEqual(calls[-1], ("cleanup", {"tools"}, set(), ("models", "python")))
         with self.assertRaises(ProviderError) as caught:
             provider.runtime_cleanup_plan("Not An Id")
+        self.assertEqual(caught.exception.code, "invalid_request")
+        with self.assertRaises(ProviderError) as caught:
+            provider.remove_unused_runtime("mai2", ["cache"])
         self.assertEqual(caught.exception.code, "invalid_request")
 
     def test_cleanup_spares_the_layers_unfinished_tasks_may_use(self) -> None:
@@ -1526,9 +1591,11 @@ class EngineSelectionTests(ProviderFixture):
             self.assertEqual(calls[-1], ("plan", {"tools"}, set()))
             self.assertEqual(call("DELETE", "?engine=finesub")["needed"], ["tools", "python", "models"])
             self.assertEqual(calls[-1][0], "cleanup")
+            call("DELETE", "?engine=mai2&layers=python,models")
+            self.assertEqual(calls[-1], ("cleanup", {"tools"}, set(), ("python", "models")))
             # A desktop from before WP-UI names no engine: old versions only.
             self.assertIsNone(call("DELETE")["needed"])
-            self.assertEqual(calls[-1], ("cleanup", None, set()))
+            self.assertEqual(calls[-1], ("cleanup", None, set(), ()))
         finally:
             server.shutdown()
             server.server_close()
