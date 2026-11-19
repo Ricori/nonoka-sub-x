@@ -334,7 +334,8 @@ def _install_all(page: RuntimeProvisioner, monkeypatch) -> None:
 @WINDOWS
 def test_cleanup_offers_the_layers_the_current_engine_does_not_need(tmp_path, index, origin, monkeypatch):
     """WP-UI: switched to a cloud API engine, the Python and model layers are unused; switching back
-    to FineSub before cleaning downloads nothing again."""
+    to FineSub before cleaning downloads nothing again. By default only old versions go; a whole
+    layer goes only when the user ticks it (2026-11-19)."""
 
     page = provisioner(tmp_path, index)
     _install_all(page, monkeypatch)
@@ -342,32 +343,53 @@ def test_cleanup_offers_the_layers_the_current_engine_does_not_need(tmp_path, in
     stray = page.paths.layer("tools") / "0123456789abcdef"
     stray.mkdir(parents=True)
     (stray / "ffmpeg.exe").write_bytes(b"x" * 10)
+    old_python = page.paths.layer("python") / "fedcba9876543210"
+    old_python.mkdir(parents=True)
+    (old_python / "python.exe").write_bytes(b"x" * 7)
 
-    # FineSub (all three layers needed): only the tool layer's old version.
+    # FineSub (all three layers needed): only the old versions.
     plan = page.cleanup_plan({"python", "models", "tools"}, set())
-    assert [(item["layer"], item["reason"]) for item in plan["items"]] == [("tools", "old-version")]
-    assert plan["bytes"] == 10
+    assert sorted((item["layer"], item["reason"]) for item in plan["items"]) == [
+        ("python", "old-version"), ("tools", "old-version")]
+    assert plan["bytes"] == 17 and plan["layer_bytes"] == 0
     # The engine unknown (`needed` None): the same.
     assert page.cleanup_plan(None, set())["items"] == plan["items"]
 
-    # A cloud API engine: the tool layer stays, the other two go as a whole.
+    # A cloud API engine: the tool layer stays; Python and models are offered as whole layers, apart
+    # from the old versions, which the default frees on its own.
     plan = page.cleanup_plan({"tools"}, set())
-    reasons = {(item["layer"], item["reason"]) for item in plan["items"]}
-    assert reasons == {("python", "unneeded"), ("models", "unneeded"), ("tools", "old-version")}
-    assert plan["bytes"] == sum(item["bytes"] for item in plan["items"]) and plan["blocked_bytes"] == 0
+    reasons = sorted((item["layer"], item["reason"]) for item in plan["items"])
+    assert reasons == [("models", "unneeded"), ("python", "old-version"), ("python", "unneeded"), ("tools", "old-version")]
+    assert plan["bytes"] == 17
+    assert plan["layer_bytes"] == sum(item["bytes"] for item in plan["items"] if item["reason"] == "unneeded") > 0
+    assert plan["blocked_bytes"] == 0
 
     # Switching back and forth before cleaning re-downloads nothing.
     page.start("all")
     assert wait(page)["state"] == "completed"
     assert len(origin.archive_requests()) == downloaded
 
+    # Nothing ticked: the old versions go, every layer stays.
     result = page.cleanup({"tools"}, set())
-    assert {item["layer"] for item in result["removed"]} == {"python", "models", "tools"}
-    assert result["kept"] == [] and result["freed"] == plan["bytes"]
+    assert sorted(item["layer"] for item in result["removed"]) == ["python", "tools"]
+    assert result["kept"] == [] and result["freed"] == 17
+    assert not stray.exists() and not old_python.exists()
+    status = page.status()
+    assert status["runtime"]["state"] == "ready" and status["models"][0]["state"] == "ready"
+
+    # A layer the engine needs cannot be ticked.
+    with pytest.raises(RuntimeProvisionError, match="不能整层删除"):
+        page.cleanup({"tools"}, set(), ("tools",))
+    assert page.status()["media_ready"]
+
+    # Python ticked: it goes as a whole, the model layer stays.
+    result = page.cleanup({"tools"}, set(), ("python",))
+    assert {item["layer"] for item in result["removed"]} == {"python"} and result["kept"] == []
     status = page.status()
     assert status["media_ready"] and status["runtime"]["state"] == "missing"
-    assert not page.paths.layer_pointer("python").exists() and not stray.exists()
-    assert page.cleanup_plan({"tools"}, set())["items"] == []
+    assert status["models"][0]["state"] == "ready"
+    assert not page.paths.layer_pointer("python").exists()
+    assert [item["layer"] for item in page.cleanup_plan({"tools"}, set())["items"]] == ["models"]
 
 
 @WINDOWS
@@ -381,13 +403,15 @@ def test_cleanup_never_touches_a_layer_an_unfinished_task_may_use(tmp_path, inde
     plan = page.cleanup_plan({"tools"}, {"python"})
     blocked = {(item["layer"], item["blocked"]) for item in plan["items"]}
     assert blocked == {("python", "有未结束的任务用到这一层"), ("models", ""), ("tools", "有未结束的任务")}
-    assert plan["bytes"] == sum(item["bytes"] for item in plan["items"] if item["layer"] == "models")
+    assert plan["bytes"] == 0
+    assert plan["layer_bytes"] == sum(item["bytes"] for item in plan["items"] if item["layer"] == "models")
 
-    result = page.cleanup({"tools"}, {"python"})
+    result = page.cleanup({"tools"}, {"python"}, ("python", "models"))
     assert [item["layer"] for item in result["removed"]] == ["models"]
     assert {item["layer"] for item in result["kept"]} == {"python", "tools"}
     assert page.worker_python() is not None and stray.exists()
     assert page.status()["models"][0]["state"] == "missing"
+
 
 
 def test_cleanup_refuses_while_an_install_is_running(tmp_path, index):

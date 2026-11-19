@@ -1647,10 +1647,10 @@ export default function App() {
     }
   }, [refresh]);
 
-  const removeUnusedRuntime = useCallback(async () => {
+  const removeUnusedRuntime = useCallback(async (layers: string[]) => {
     setProvisionMessage("");
     try {
-      const result = await fineSubRuntime.removeUnused(transcriptionEngine);
+      const result = await fineSubRuntime.removeUnused(transcriptionEngine, layers);
       if (result.kept.length > 0) {
         setProvisionMessage(`有 ${result.kept.length} 项未能删除：${result.kept.map((item) => `${item.name}（${item.reason}）`).join("、")}`);
       }

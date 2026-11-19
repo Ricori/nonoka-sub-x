@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { engineChoices } from "../src/components/engineChoices.ts";
-import { engineInstallView, engineLayerStatus, installTargetFor, layerUsage } from "../src/components/engineLayers.ts";
+import { cleanupBytes, cleanupView, engineInstallView, engineLayerStatus, installTargetFor, layerUsage } from "../src/components/engineLayers.ts";
 
 const GB = 1024 ** 3;
 const MB = 1024 ** 2;
@@ -92,6 +92,33 @@ test("space is listed per engine, shared layers marked and counted once", () => 
   // A layer not installed takes no space.
   assert.deepEqual(layerUsage([{ id: "finesub", label: "FineSub", layers: FINESUB }], toolsOnly).rows[0].layers.map((item) => item.id), ["tools"]);
   assert.equal(layerUsage([], provision(undefined)), null);
+});
+
+test("clean-up deletes old versions by default; a whole layer only when ticked", () => {
+  const item = (layer, name, bytes, reason, blocked = "") => ({ layer, name, path: `${layer}\\${name}`, bytes, reason, blocked });
+  const installed = provision([
+    layer("python", "ready", { bytes: 4 * GB, archive: 3 * GB }),
+    layer("models", "ready", { bytes: 5 * GB, archive: 6 * GB }),
+    layer("tools", "ready", { bytes: 300 * MB }),
+  ]);
+  const owners = [{ id: "finesub", label: "FineSub", layers: FINESUB }, { id: "mai2", label: "MAI-Transcribe-2", layers: MAI2 }];
+  const view = cleanupView([
+    item("tools", "old", 10, "old-version"),
+    item("python", "older", 7, "old-version", "有未结束的任务"),
+    item("python", "v1", 4 * GB, "unneeded"),
+    item("models", "v1", 5 * GB, "unneeded", "有未结束的任务用到这一层"),
+  ], installed, owners);
+  assert.deepEqual(view.removable.map((entry) => entry.name), ["old"]);
+  assert.deepEqual(view.held.map((entry) => entry.name), ["older"]);
+  assert.equal(view.oldBytes, 10);
+  assert.deepEqual(view.layers.map((entry) => [entry.layer, entry.bytes, entry.downloadBytes, entry.neededBy, entry.blocked]), [
+    ["python", 4 * GB, 3 * GB, ["FineSub"], ""],
+    ["models", 5 * GB, 6 * GB, ["FineSub"], "有未结束的任务用到这一层"],
+  ]);
+  // Nothing ticked frees the old versions alone; a ticked layer adds its size, a held one never does.
+  assert.equal(cleanupBytes(view, []), 10);
+  assert.equal(cleanupBytes(view, ["python"]), 10 + 4 * GB);
+  assert.equal(cleanupBytes(view, ["python", "models"]), 10 + 4 * GB);
 });
 
 test("the engine list carries each engine's layers; the cloud's FineSub needs none here", () => {

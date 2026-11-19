@@ -175,13 +175,29 @@ func (s *Service) UnusedRuntime(engine string) (map[string]any, error) {
 	return result, err
 }
 
-// RemoveUnusedRuntime deletes what UnusedRuntime(engine) lists, worked out
-// again by the sidecar at that moment, and reports what went and what stayed.
-// The sidecar refuses while an install runs.
-func (s *Service) RemoveUnusedRuntime(engine string) (map[string]any, error) {
+// runtimeLayers are the layers a user may tick for removal as a whole.
+var runtimeLayers = []string{"tools", "python", "models"}
+
+// RemoveUnusedRuntime deletes the old layer versions UnusedRuntime(engine)
+// lists, and of the whole layers it offers only those the user ticked
+// (layers), worked out again by the sidecar at that moment; it reports what
+// went and what stayed. The sidecar refuses while an install runs.
+func (s *Service) RemoveUnusedRuntime(engine string, layers []string) (map[string]any, error) {
 	endpoint, err := unusedEndpoint(engine)
 	if err != nil {
 		return nil, err
+	}
+	if len(layers) > 0 {
+		for _, layer := range layers {
+			if !slices.Contains(runtimeLayers, layer) {
+				return nil, fmt.Errorf("unknown runtime layer: %q", layer)
+			}
+		}
+		separator := "?"
+		if strings.Contains(endpoint, "?") {
+			separator = "&"
+		}
+		endpoint += separator + "layers=" + url.QueryEscape(strings.Join(layers, ","))
 	}
 	var result map[string]any
 	err = s.provider.DoJSON(context.Background(), http.MethodDelete, endpoint, nil, &result)

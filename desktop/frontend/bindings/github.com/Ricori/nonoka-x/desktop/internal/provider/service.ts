@@ -101,12 +101,13 @@ export function RemoveRuntime(): $CancellablePromise<{ [_ in string]?: any } | n
 }
 
 /**
- * RemoveUnusedRuntime deletes what UnusedRuntime(engine) lists, worked out
- * again by the sidecar at that moment, and reports what went and what stayed.
- * The sidecar refuses while an install runs.
+ * RemoveUnusedRuntime deletes the old layer versions UnusedRuntime(engine)
+ * lists, and of the whole layers it offers only those the user ticked
+ * (layers), worked out again by the sidecar at that moment; it reports what
+ * went and what stayed. The sidecar refuses while an install runs.
  */
-export function RemoveUnusedRuntime(engine: string): $CancellablePromise<{ [_ in string]?: any } | null> {
-    return $Call.ByID(2086091386, engine);
+export function RemoveUnusedRuntime(engine: string, layers: string[] | null): $CancellablePromise<{ [_ in string]?: any } | null> {
+    return $Call.ByID(2086091386, engine, layers);
 }
 
 /**

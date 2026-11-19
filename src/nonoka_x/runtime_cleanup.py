@@ -1,8 +1,9 @@
 """Which layers an engine needs, and what the settings page's "clean up unused" removes (WP-UI).
 
-Plan 4.9 item 39: switching engines keeps what is installed; "clean up unused" deletes the layers
-neither the current transcription engine nor the correction package needs, and the layer versions
-nothing points at any more. A layer an unfinished task may still use is never offered.
+Plan 4.9 item 39: switching engines keeps what is installed. "Clean up unused" deletes the layer
+versions nothing points at any more; the layers neither the current transcription engine nor the
+correction package needs go only when the user ticks them (2026-11-19). A layer an unfinished task
+may still use is never deleted.
 
 An engine names what it needs as runtime components and models (`EngineEnvironment`, plan 4.2
 item 15); here they become the three layers (`runtime.layer_manifest.LAYERS`). The tool layer is
@@ -89,63 +90,94 @@ def needed_layers(engine_layers: Iterable[str] | None, correction_layers: Iterab
     return {*engine_layers, *correction_layers, *CORE_LAYERS}
 
 
-def plan(manager: Any, *, needed: set[str] | None, busy: set[str], tasks_running: bool) -> dict[str, Any]:
-    """What "clean up unused" would delete now, item by item, and what it frees.
+def _row(item: dict[str, Any], reason: str) -> dict[str, Any]:
+    return {key: item[key] for key in ("layer", "name", "path", "bytes")} | {"reason": reason}
 
-    `manager` is the `LayerManager`. `needed` the layers the current engine keeps (None: only old
-    versions are offered); `busy` the layers an unfinished task may use; `tasks_running` whether any
+
+def plan(manager: Any, *, needed: set[str] | None, busy: set[str], tasks_running: bool) -> dict[str, Any]:
+    """What "clean up unused" can delete now, item by item, and what it frees.
+
+    `manager` is the `LayerManager`. `needed` the layers the current engine keeps (None: no layer is
+    offered as a whole); `busy` the layers an unfinished task may use; `tasks_running` whether any
     task is unfinished (an old version is only removed when none is, as `LayerManager.remove_unused`).
     Each item is `{layer, name, path, bytes, reason, blocked}`; `blocked` says why it stays.
+
+    Two kinds, deleted differently (the user, 2026-11-19): the old versions nothing uses
+    (`old-version`) go by default; a layer the current engine does not need (`unneeded`: its
+    current and wanted versions) goes only when the user ticks it, since switching back means
+    downloading it again. `bytes` is what the default frees, `layer_bytes` what the layers add.
     """
 
     items: list[dict[str, Any]] = []
-    whole: set[str] = set()
+    old = manager.unused()
+    old_paths = {str(item.path) for item in old}
     if needed is not None:
         for layer in ordered(set(manager.index.layers) - needed):
-            versions = manager.versions(layer)
-            if not versions:
-                continue
-            whole.add(layer)
             blocked = LAYER_IN_USE if layer in busy else ""
-            items.extend(item.to_dict() | {"reason": UNNEEDED, "blocked": blocked} for item in versions)
-    for item in manager.unused():
-        if item.layer in whole:
-            continue
+            items.extend(
+                item.to_dict() | {"reason": UNNEEDED, "blocked": blocked}
+                for item in manager.versions(layer) if str(item.path) not in old_paths
+            )
+    for item in old:
         items.append(item.to_dict() | {"reason": OLD_VERSION, "blocked": TASKS_RUNNING if tasks_running else ""})
+
+    def total(reason: str, blocked: bool) -> int:
+        return sum(item["bytes"] for item in items if item["reason"] == reason and bool(item["blocked"]) == blocked)
+
     return {
         "items": items,
-        "bytes": sum(item["bytes"] for item in items if not item["blocked"]),
-        "blocked_bytes": sum(item["bytes"] for item in items if item["blocked"]),
+        "bytes": total(OLD_VERSION, False),
+        "layer_bytes": total(UNNEEDED, False),
+        "blocked_bytes": total(OLD_VERSION, True) + total(UNNEEDED, True),
     }
 
 
-def execute(manager: Any, *, needed: set[str] | None, busy: set[str], tasks_running: bool) -> dict[str, Any]:
-    """Delete what `plan` offers unblocked; `{removed, kept, freed}` as `LayerManager.remove_unused` reports.
+class UnknownLayers(ValueError):
+    """The user ticked a layer that is not offered as a whole now."""
 
-    The plan is worked out again here, not taken from the page: a task may have started since.
+
+def execute(manager: Any, *, needed: set[str] | None, busy: set[str], tasks_running: bool,
+            layers: Iterable[str] = ()) -> dict[str, Any]:
+    """Delete the old versions `plan` offers unblocked, and the whole `layers` the user ticked.
+
+    `{removed, kept, freed}` as `LayerManager.remove_unused` reports. The plan is worked out again
+    here, not taken from the page: a task may have started since. A ticked layer that is no longer
+    offered (the engine changed, it is not installed) raises `UnknownLayers`; one an unfinished task
+    may use now stays and is reported in `kept`.
     """
 
     current = plan(manager, needed=needed, busy=busy, tasks_running=tasks_running)
+    chosen = set(layers)
+    offered = {item["layer"] for item in current["items"] if item["reason"] == UNNEEDED}
+    if chosen - offered:
+        raise UnknownLayers(
+            "这些层现在不能整层删除（当前引擎要用它，或没有安装）：" + "、".join(ordered(chosen - offered))
+        )
     removed: list[dict[str, Any]] = []
     kept: list[dict[str, Any]] = []
     freed = 0
-    unneeded = ordered({item["layer"] for item in current["items"] if item["reason"] == UNNEEDED and not item["blocked"]})
-    for layer in unneeded:
+    whole: set[str] = set()
+    for layer in ordered(chosen):
+        rows = [item for item in current["items"] if item["layer"] == layer and item["reason"] == UNNEEDED]
+        if any(item["blocked"] for item in rows):
+            kept.extend(_row(item, item["blocked"]) for item in rows)
+            continue
         try:
             result = manager.remove_layer(layer)
         except Exception as error:  # noqa: BLE001 - one layer that will not go does not stop the rest
-            kept.extend(
-                {key: item[key] for key in ("layer", "name", "path", "bytes")} | {"reason": str(error)}
-                for item in current["items"] if item["layer"] == layer and item["reason"] == UNNEEDED
-            )
+            kept.extend(_row(item, str(error)) for item in rows)
             continue
+        whole.add(layer)
         removed.extend(result["removed"])
         kept.extend(result["kept"])
         freed += result["freed"]
     for item in current["items"]:
-        if item["blocked"]:
-            kept.append({key: item[key] for key in ("layer", "name", "path", "bytes")} | {"reason": item["blocked"]})
-    old_layers = ordered({item["layer"] for item in current["items"] if item["reason"] == OLD_VERSION and not item["blocked"]})
+        if item["reason"] == OLD_VERSION and item["blocked"]:
+            kept.append(_row(item, item["blocked"]))
+    old_layers = ordered({
+        item["layer"] for item in current["items"]
+        if item["reason"] == OLD_VERSION and not item["blocked"] and item["layer"] not in whole
+    })
     for layer in old_layers:
         result = manager.remove_unused(layer)
         removed.extend(result["removed"])
@@ -159,6 +191,7 @@ __all__ = [
     "LAYER_IN_USE",
     "OLD_VERSION",
     "TASKS_RUNNING",
+    "UnknownLayers",
     "UNNEEDED",
     "component_layers",
     "environment_layers",

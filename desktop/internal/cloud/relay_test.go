@@ -188,6 +188,8 @@ type relayLocal struct {
 	actions    []string
 	syncRead   bool
 	attempts   int
+	// The state GET /v1/migration answers ("migrating" when empty).
+	migration string
 }
 
 func (p *relayLocal) DoJSON(_ context.Context, method, endpoint string, body any, result any) error {
@@ -198,6 +200,12 @@ func (p *relayLocal) DoJSON(_ context.Context, method, endpoint string, body any
 		return json.Unmarshal(encoded, result)
 	}
 	switch {
+	case method == http.MethodGet && endpoint == "/v1/migration":
+		state := p.migration
+		if state == "" {
+			state = "migrating"
+		}
+		return respond(map[string]any{"schema": 1, "state": state, "message": "迁移状态：" + state, "dataOpen": false})
 	case method == http.MethodPost && endpoint == "/v1/tasks":
 		p.attempts++
 		if p.refusal != nil {
@@ -498,8 +506,8 @@ func TestRelayFailsWithTheLocalProvidersRefusalAndRetriesIt(t *testing.T) {
 }
 
 // A sidecar still migrating an older installation's data answers 503
-// `migrating` (WP-M2): the local leg waits for it as for one not yet up, and
-// carries on once the migration is done, instead of failing the relay.
+// `migrating` (WP-M2): the local leg waits for it past the bound it gives a
+// sidecar that is not up, and carries on once the migration is done.
 func TestRelayWaitsForAMigratingSidecar(t *testing.T) {
 	local := &relayLocal{refusal: &sidecar.HTTPError{StatusCode: 503, Code: sidecar.MigratingCode, Message: "正在迁移旧版数据"}}
 	service, _, _ := newRelayService(t, local)
@@ -513,13 +521,16 @@ func TestRelayWaitsForAMigratingSidecar(t *testing.T) {
 		local.mu.Lock()
 		attempts := local.attempts
 		local.mu.Unlock()
-		if attempts >= 3 {
+		if attempts >= relayLocalWaits+5 {
 			break
+		}
+		if status, _ := service.TaskStatus(id); status["state"] == "failed" {
+			t.Fatalf("a migrating sidecar failed the relay after %d tries: %#v", attempts, status)
 		}
 		if time.Now().After(deadline) {
 			t.Fatalf("the local leg was tried %d times", attempts)
 		}
-		time.Sleep(5 * time.Millisecond)
+		time.Sleep(2 * time.Millisecond)
 	}
 	if status, _ := service.TaskStatus(id); status["state"] == "failed" {
 		t.Fatalf("a migrating sidecar failed the relay: %#v", status)
@@ -529,6 +540,26 @@ func TestRelayWaitsForAMigratingSidecar(t *testing.T) {
 	local.mu.Unlock()
 	if done := waitRelay(t, service, id, "completed", "failed"); done["state"] != "completed" {
 		t.Fatalf("relay after the migration = %#v", done)
+	}
+}
+
+// A migration that stopped (blocked, rolled back, failed) waits for the
+// user's retry, not for time: the relay fails with what the migration says.
+func TestRelayFailsWhenTheMigrationStopped(t *testing.T) {
+	for _, state := range []string{"blocked", "rolled-back", "failed"} {
+		t.Run(state, func(t *testing.T) {
+			local := &relayLocal{migration: state, refusal: &sidecar.HTTPError{StatusCode: 503, Code: sidecar.MigratingCode, Message: "正在迁移旧版数据"}}
+			service, _, _ := newRelayService(t, local)
+			snapshot, err := service.StartTask("loc_0123456789ab", map[string]any{"target": "final-srt"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			failed := waitRelay(t, service, snapshot["task_id"].(string), "failed", "completed")
+			failure, _ := failed["error"].(map[string]any)
+			if failed["state"] != "failed" || failure["code"] != "migration_failed" || !strings.Contains(failure["message"].(string), "迁移状态："+state) {
+				t.Fatalf("relay = %#v", failed)
+			}
+		})
 	}
 }
 
