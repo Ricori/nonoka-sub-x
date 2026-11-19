@@ -717,7 +717,7 @@ D:\Envir\Python312\python scripts/quality_gate.py --cloud  # 云端（WP-C；基
 
 ### WP8 集成验证
 
-> 进度（2026-11-19）：静态核对已做——引擎包里的 FineSub 文件相对 `1f14db3` 只在批准范围内变过（`stages.py`、自下载两处、两份锁去 `onnx`、WP-K 的 18 个知识库访问点、纠错与知识库包的兼容包），`speech/joint/` 不在任何包里，`third_party/finesub` 在 git 里已没有文件（本地剩未跟踪的 `__pycache__`）。`src/nonoka_x/` 没有 `import finesub`，但字符串 `finesub` 出现在 95 个文件里（引擎 id、附件键、注释），这条完成标准怎么理解要问用户。其余各项都还没做，见主会话笔记目录 `wp8-progress.md`。
+> 进度（2026-11-19）：静态核对已做——引擎包里的 FineSub 文件相对 `1f14db3` 只在批准范围内变过（`stages.py`、自下载两处、两份锁去 `onnx`、WP-K 的 18 个知识库访问点、纠错与知识库包的兼容包），`speech/joint/` 不在任何包里，`third_party/finesub` 已不存在（git 里没有文件，本地残留 2026-11-19 已清掉）。`src/nonoka_x/` 没有 `import finesub`，但字符串 `finesub` 出现在 95 个文件里（引擎 id、附件键、注释），这条完成标准怎么理解要问用户。其余各项都还没做，见主会话笔记目录 `wp8-progress.md`；2026-11-19 按用户要求清掉了全部临时数据（含 `--real` 的运行环境与迁移验收副本），接手时要先重建，见笔记目录 `main-session-handoff.md`。
 
 > 补充（2026-11-19，第 92 问）：`--real`（含原属 WP-M2 的一次）、`--cloud`、线上 LLM 那一程（WP-CL 没实跑）、三个云引擎的真实调用都在本包各做一次；迁移一项沿用 WP-M2 阶段 2 在真实安装副本上的验收（笔记目录 `wp-m2-delivery.md`），另挑一个改写过的旧云端任务点重试；WP-M1 最后一条在用户换新版时作为迁移一项的实测；跑 `--real` 前先修好或绕开 `scripts/build_layers.py stage` 的过时之处（见归档 WP7 一节的交回）。
 
