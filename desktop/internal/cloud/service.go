@@ -41,7 +41,27 @@ const (
 	// The header timeout still catches a backend that never answers.
 	artifactHeaderTimeout   = 30 * time.Second
 	artifactDownloadTimeout = 10 * time.Minute
+	artifactUploadTimeout   = 5 * time.Minute
 )
+
+var defaultSyncRetryBackoff = []time.Duration{
+	1 * time.Minute,
+	5 * time.Minute,
+	15 * time.Minute,
+	1 * time.Hour,
+}
+
+type syncFailureState struct {
+	artifactTime int64
+	permanent    bool
+	attempts     int
+	retryAfter   time.Time
+}
+
+type permanentSyncError struct{ err error }
+
+func (e *permanentSyncError) Error() string { return e.err.Error() }
+func (e *permanentSyncError) Unwrap() error { return e.err }
 
 var validTaskID = regexp.MustCompile(`^[0-9a-f]{32}$`)
 var validLibraryID = regexp.MustCompile(`^vid_[0-9a-f]{24}$`)
@@ -162,22 +182,37 @@ func accountTag(session storedSession) string {
 	return hex.EncodeToString(sum[:8])
 }
 
-type syncRequest struct {
-	LocalID      string            `json:"localId"`
-	Fingerprint  string            `json:"fingerprint"`
-	Title        string            `json:"title"`
-	Duration     float64           `json:"duration"`
-	TaskID       string            `json:"taskId"`
-	EngineCommit string            `json:"engineCommit"`
-	Artifacts    map[string]string `json:"artifacts"`
-	// The cover the local library already drew for this media, carried up with
-	// the subtitles as the JPEG bytes encoding/json base64-encodes for it.
-	// Nothing else uploads one on this path -- a local run never goes through
-	// /v1/uploads/init, which is the only other place a cover reaches the
-	// bucket -- so leaving it out is what made every synced entry coverless on
-	// every other machine. Omitted when there is none, which leaves the
-	// backend's flag false rather than promising a frame that is not there.
-	Thumbnail []byte `json:"thumbnail,omitempty"`
+type syncArtifactSpec struct {
+	SHA256 string `json:"sha256"`
+	Bytes  int64  `json:"bytes"`
+}
+
+type syncInitRequest struct {
+	LocalID      string                      `json:"localId"`
+	Fingerprint  string                      `json:"fingerprint"`
+	Title        string                      `json:"title"`
+	Duration     float64                     `json:"duration"`
+	TaskID       string                      `json:"taskId"`
+	EngineCommit string                      `json:"engineCommit"`
+	Artifacts    map[string]syncArtifactSpec `json:"artifacts"`
+	HasThumbnail bool                        `json:"hasThumbnail"`
+}
+
+type syncInitResponse struct {
+	VideoID         string   `json:"videoId"`
+	UploadArtifacts []string `json:"uploadArtifacts"`
+	UploadThumbnail bool     `json:"uploadThumbnail"`
+	Entry           *Entry   `json:"entry,omitempty"`
+}
+
+type syncCommitRequest struct {
+	LocalID      string                      `json:"localId"`
+	Fingerprint  string                      `json:"fingerprint"`
+	Title        string                      `json:"title"`
+	Duration     float64                     `json:"duration"`
+	TaskID       string                      `json:"taskId"`
+	EngineCommit string                      `json:"engineCommit"`
+	Artifacts    map[string]syncArtifactSpec `json:"artifacts"`
 }
 
 type storedSession struct {
@@ -247,6 +282,11 @@ type Service struct {
 	// this does not lapse when the media is transcribed again: it holds until
 	// the user switches it back on.
 	syncDisabled map[string]bool
+	// Per-fingerprint failure memory: permanent 4xx rejections stop retrying
+	// until local artifacts change; transient failures back off exponentially.
+	syncFailures     map[string]syncFailureState
+	syncRetryBackoff []time.Duration
+	now              func() time.Time
 
 	// Relays (relay.go). relayMu guards the records and the driver table;
 	// relayActionMu serialises the renderer's cancel and restart, which stop
@@ -286,6 +326,8 @@ func New(dataDirectory string, provider providerCaller, resolvers ...mediaResolv
 		remoteSeenPath:       filepath.Join(root, "cloud-sync-remote.json"),
 		syncDisabledPath:     filepath.Join(root, "cloud-sync-disabled.json"),
 		syncDisabled:         map[string]bool{},
+		syncFailures:         map[string]syncFailureState{},
+		now:                  time.Now,
 		root:                 root,
 		thumbRoot:            filepath.Join(root, "cloud-thumbnails"),
 		tasksRoot:            filepath.Join(root, "tasks"),
@@ -982,6 +1024,7 @@ func (s *Service) Login(backend, key string) (Session, error) {
 		s.mu.Unlock()
 		return Session{}, err
 	}
+	s.syncFailures = map[string]syncFailureState{}
 	s.mu.Unlock()
 	s.publishAccountState()
 	s.mergeLocalLibrary(&result)
@@ -991,6 +1034,7 @@ func (s *Service) Login(backend, key string) (Session, error) {
 func (s *Service) Logout() error {
 	s.mu.Lock()
 	s.session = storedSession{}
+	s.syncFailures = map[string]syncFailureState{}
 	err := os.Remove(s.configPath)
 	s.mu.Unlock()
 	s.publishAccountState()
@@ -1151,7 +1195,190 @@ func (s *Service) SyncLocalTask(taskID, localID, fingerprint, title string, dura
 	return s.syncArtifactManifest(manifest, localID, fingerprint, title, duration)
 }
 
+func (s *Service) currentTime() time.Time {
+	if s.now != nil {
+		return s.now()
+	}
+	return time.Now()
+}
+
+func isPermanentSyncError(err error) bool {
+	if err == nil {
+		return false
+	}
+	var marked *permanentSyncError
+	if errors.As(err, &marked) {
+		return true
+	}
+	var status *httpStatusError
+	if errors.As(err, &status) {
+		if status.Status < 400 || status.Status >= 500 {
+			return false
+		}
+		switch status.Status {
+		case http.StatusUnauthorized, http.StatusForbidden, http.StatusRequestTimeout, http.StatusConflict, http.StatusTooManyRequests:
+			return false
+		default:
+			return true
+		}
+	}
+	return false
+}
+
+func (s *Service) shouldSkipFailedSync(fingerprint string, newestArtifact int64) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	state, ok := s.syncFailures[fingerprint]
+	if !ok {
+		return false
+	}
+	if newestArtifact > state.artifactTime {
+		return false
+	}
+	if state.permanent {
+		return true
+	}
+	return s.currentTime().Before(state.retryAfter)
+}
+
+func (s *Service) recordSyncFailure(fingerprint string, newestArtifact int64, err error) {
+	permanent := isPermanentSyncError(err)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.syncFailures == nil {
+		s.syncFailures = map[string]syncFailureState{}
+	}
+	prev := s.syncFailures[fingerprint]
+	attempts := prev.attempts + 1
+	if prev.artifactTime != newestArtifact {
+		attempts = 1
+	}
+	schedule := s.syncRetryBackoff
+	if len(schedule) == 0 {
+		schedule = defaultSyncRetryBackoff
+	}
+	index := attempts - 1
+	if index >= len(schedule) {
+		index = len(schedule) - 1
+	}
+	s.syncFailures[fingerprint] = syncFailureState{
+		artifactTime: newestArtifact,
+		permanent:    permanent,
+		attempts:     attempts,
+		retryAfter:   s.currentTime().Add(schedule[index]),
+	}
+}
+
+func (s *Service) clearSyncFailure(fingerprint string) {
+	s.mu.Lock()
+	delete(s.syncFailures, fingerprint)
+	s.mu.Unlock()
+}
+
+func fileArtifactSpec(path string) (syncArtifactSpec, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return syncArtifactSpec{}, err
+	}
+	defer file.Close()
+	hasher := sha256.New()
+	written, err := io.Copy(hasher, file)
+	if err != nil {
+		return syncArtifactSpec{}, err
+	}
+	return syncArtifactSpec{
+		SHA256: hex.EncodeToString(hasher.Sum(nil)),
+		Bytes:  written,
+	}, nil
+}
+
+func (s *Service) putLibraryArtifact(ctx context.Context, videoID, name, path string, spec syncArtifactSpec) error {
+	s.mu.RLock()
+	session := s.session
+	s.mu.RUnlock()
+	if session.Backend == "" || session.Key == "" {
+		return errors.New("cloud login is required")
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	ctx, cancel := context.WithTimeout(ctx, artifactUploadTimeout)
+	defer cancel()
+	request, err := http.NewRequestWithContext(ctx, http.MethodPut, session.Backend+"/v1/library/"+videoID+"/artifacts/"+name, file)
+	if err != nil {
+		return err
+	}
+	request.ContentLength = spec.Bytes
+	request.Header.Set("Authorization", "Bearer "+session.Key)
+	request.Header.Set("Accept", "application/json")
+	request.Header.Set("Content-Type", "text/plain; charset=utf-8")
+	request.Header.Set("X-Content-SHA256", spec.SHA256)
+	response, err := s.download.Do(request)
+	if err != nil {
+		return fmt.Errorf("upload library artifact %s: %w", name, err)
+	}
+	defer response.Body.Close()
+	payload, err := io.ReadAll(io.LimitReader(response.Body, maxResponseBytes+1))
+	if err != nil {
+		return &transientError{fmt.Errorf("read library artifact upload response: %w", err)}
+	}
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		var failure struct {
+			Detail string `json:"detail"`
+		}
+		_ = json.Unmarshal(payload, &failure)
+		if failure.Detail == "" {
+			failure.Detail = strings.TrimSpace(string(payload))
+		}
+		return &httpStatusError{Status: response.StatusCode, Detail: failure.Detail}
+	}
+	return nil
+}
+
+func (s *Service) putLibraryThumbnail(ctx context.Context, videoID string, jpeg []byte) error {
+	s.mu.RLock()
+	session := s.session
+	s.mu.RUnlock()
+	if session.Backend == "" || session.Key == "" {
+		return errors.New("cloud login is required")
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodPut, session.Backend+"/v1/library/"+videoID+"/thumbnail", bytes.NewReader(jpeg))
+	if err != nil {
+		return err
+	}
+	request.ContentLength = int64(len(jpeg))
+	request.Header.Set("Authorization", "Bearer "+session.Key)
+	request.Header.Set("Accept", "application/json")
+	request.Header.Set("Content-Type", "image/jpeg")
+	response, err := s.client.Do(request)
+	if err != nil {
+		return fmt.Errorf("upload library thumbnail: %w", err)
+	}
+	defer response.Body.Close()
+	payload, err := io.ReadAll(io.LimitReader(response.Body, maxResponseBytes+1))
+	if err != nil {
+		return &transientError{fmt.Errorf("read library thumbnail response: %w", err)}
+	}
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		var failure struct {
+			Detail string `json:"detail"`
+		}
+		_ = json.Unmarshal(payload, &failure)
+		if failure.Detail == "" {
+			failure.Detail = strings.TrimSpace(string(payload))
+		}
+		return &httpStatusError{Status: response.StatusCode, Detail: failure.Detail}
+	}
+	return nil
+}
+
 func (s *Service) syncArtifactManifest(manifest artifactManifest, localID, fingerprint, title string, duration float64) (Entry, error) {
+	return s.syncArtifactManifestWithOptions(manifest, localID, fingerprint, title, duration, false)
+}
+
+func (s *Service) syncArtifactManifestWithOptions(manifest artifactManifest, localID, fingerprint, title string, duration float64, respectBackoff bool) (Entry, error) {
 	if !validTaskID.MatchString(manifest.TaskID) {
 		return Entry{}, errors.New("invalid local task id in artifact manifest")
 	}
@@ -1184,9 +1411,14 @@ func (s *Service) syncArtifactManifest(manifest artifactManifest, localID, finge
 		return Entry{}, errors.New("local task has no syncable artifacts")
 	}
 	if !projectable(paths) {
+		if respectBackoff && s.shouldSkipFailedSync(fingerprint, newestArtifact) {
+			return Entry{Fingerprint: fingerprint, Status: "suppressed", Source: "local_sync"}, nil
+		}
 		// A task finished before this version keeps only its engine's own
 		// products; it is converted when the data directory is migrated.
-		return Entry{}, errors.New("这个任务是旧版本生成的，需要先迁移到新的数据格式才能同步")
+		err := &permanentSyncError{errors.New("这个任务是旧版本生成的，需要先迁移到新的数据格式才能同步")}
+		s.recordSyncFailure(fingerprint, newestArtifact, err)
+		return Entry{}, err
 	}
 	s.mu.Lock()
 	suppressedAt := s.syncSuppressions[fingerprint]
@@ -1195,21 +1427,27 @@ func (s *Service) syncArtifactManifest(manifest artifactManifest, localID, finge
 		return Entry{Fingerprint: fingerprint, Status: "suppressed", Source: "local_sync"}, nil
 	}
 	s.mu.Unlock()
-	contents := map[string]string{}
+	if respectBackoff && s.shouldSkipFailedSync(fingerprint, newestArtifact) {
+		return Entry{Fingerprint: fingerprint, Status: "suppressed", Source: "local_sync"}, nil
+	}
+
+	specs := map[string]syncArtifactSpec{}
 	total := int64(0)
 	for name, path := range paths {
-		data, err := os.ReadFile(path)
+		spec, err := fileArtifactSpec(path)
 		if err != nil {
 			return Entry{}, err
 		}
-		total += int64(len(data))
+		total += spec.Bytes
 		if total > maxArtifactBytes {
-			return Entry{}, errors.New("local task artifacts exceed the sync limit")
+			err := &permanentSyncError{errors.New("local task artifacts exceed the sync limit")}
+			s.recordSyncFailure(fingerprint, newestArtifact, err)
+			return Entry{}, err
 		}
-		contents[name] = string(data)
+		specs[name] = spec
 	}
 	s.mu.Lock()
-	// Re-read under the lock it is cleared under: the files were read without it.
+	// Re-read under the lock it is cleared under: the files were hashed without it.
 	suppressedAt = s.syncSuppressions[fingerprint]
 	if suppressedAt > 0 {
 		delete(s.syncSuppressions, fingerprint)
@@ -1220,15 +1458,64 @@ func (s *Service) syncArtifactManifest(manifest artifactManifest, localID, finge
 		}
 	}
 	s.mu.Unlock()
-	request := syncRequest{
-		LocalID: localID, Fingerprint: fingerprint, Title: strings.TrimSpace(title), Duration: duration,
-		TaskID: manifest.TaskID, EngineCommit: manifest.EngineCommit, Artifacts: contents,
-		Thumbnail: s.localCover(localID),
+
+	cover := s.localCover(localID)
+	trimmedTitle := strings.TrimSpace(title)
+	initReq := syncInitRequest{
+		LocalID: localID, Fingerprint: fingerprint, Title: trimmedTitle, Duration: duration,
+		TaskID: manifest.TaskID, EngineCommit: manifest.EngineCommit, Artifacts: specs,
+		HasThumbnail: len(cover) > 0,
 	}
-	var result Entry
-	if err := s.authenticatedDo(context.Background(), http.MethodPost, "/v1/library/sync", request, &result); err != nil {
+	var initResp syncInitResponse
+	if err := s.authenticatedDo(context.Background(), http.MethodPost, "/v1/library/sync/init", initReq, &initResp); err != nil {
+		s.recordSyncFailure(fingerprint, newestArtifact, err)
 		return Entry{}, err
 	}
+	if !validLibraryID.MatchString(initResp.VideoID) {
+		err := errors.New("cloud returned an invalid library entry id")
+		s.recordSyncFailure(fingerprint, newestArtifact, err)
+		return Entry{}, err
+	}
+
+	for _, name := range initResp.UploadArtifacts {
+		path, ok := paths[name]
+		spec, specOK := specs[name]
+		if !ok || !specOK {
+			err := fmt.Errorf("cloud requested unknown artifact %q", name)
+			s.recordSyncFailure(fingerprint, newestArtifact, err)
+			return Entry{}, err
+		}
+		if err := s.putLibraryArtifact(context.Background(), initResp.VideoID, name, path, spec); err != nil {
+			s.recordSyncFailure(fingerprint, newestArtifact, err)
+			return Entry{}, err
+		}
+	}
+
+	var result Entry
+	if initResp.Entry != nil && len(initResp.UploadArtifacts) == 0 {
+		result = *initResp.Entry
+	} else {
+		commitReq := syncCommitRequest{
+			LocalID: localID, Fingerprint: fingerprint, Title: trimmedTitle, Duration: duration,
+			TaskID: manifest.TaskID, EngineCommit: manifest.EngineCommit, Artifacts: specs,
+		}
+		if err := s.authenticatedDo(context.Background(), http.MethodPost, "/v1/library/"+initResp.VideoID+"/sync/commit", commitReq, &result); err != nil {
+			s.recordSyncFailure(fingerprint, newestArtifact, err)
+			return Entry{}, err
+		}
+	}
+
+	// Cover is decoration uploaded as raw image/jpeg stream directly to R2.
+	// A failed cover upload never fails the committed subtitle sync.
+	if initResp.UploadThumbnail && len(cover) > 0 {
+		if err := s.putLibraryThumbnail(context.Background(), initResp.VideoID, cover); err != nil {
+			log.Printf("cloud: thumbnail upload failed for %s: %v", initResp.VideoID, err)
+		} else {
+			result.ThumbnailAvailable = true
+		}
+	}
+
+	s.clearSyncFailure(fingerprint)
 	return result, nil
 }
 
@@ -1300,7 +1587,7 @@ func (s *Service) mergeLocalLibrary(session *Session) {
 			session.SyncFailed++
 			continue
 		}
-		synced, syncErr := s.syncArtifactManifest(manifest, entry.ID, entry.Fingerprint, entry.Title, entry.Duration)
+		synced, syncErr := s.syncArtifactManifestWithOptions(manifest, entry.ID, entry.Fingerprint, entry.Title, entry.Duration, true)
 		if syncErr != nil {
 			session.SyncFailed++
 			continue
@@ -1992,6 +2279,7 @@ func (s *Service) SetSyncEnabled(fingerprint string, enabled bool) error {
 	}
 	if enabled {
 		delete(s.syncDisabled, fingerprint)
+		delete(s.syncFailures, fingerprint)
 	} else {
 		s.syncDisabled[fingerprint] = true
 	}

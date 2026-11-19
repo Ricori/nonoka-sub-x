@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -169,24 +170,45 @@ func TestLoginLibraryAndArtifactSync(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	videoID := "vid_000000000000000000000001"
+	uploadedArtifacts := map[string]string{}
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		if request.Header.Get("Authorization") != "Bearer login-key" {
 			http.Error(writer, `{"detail":"key 无效"}`, http.StatusUnauthorized)
 			return
 		}
 		writer.Header().Set("Content-Type", "application/json")
-		switch request.URL.Path {
-		case "/v1/session":
+		switch {
+		case request.URL.Path == "/v1/session":
 			_, _ = writer.Write([]byte(`{"authenticated":true,"remaining":3,"running":0}`))
-		case "/v1/library":
+		case request.URL.Path == "/v1/library":
 			_, _ = writer.Write([]byte(`{"videos":[]}`))
-		case "/v1/library/sync":
-			var body syncRequest
-			if err := json.NewDecoder(request.Body).Decode(&body); err != nil || body.Artifacts["final_srt"] == "" {
+		case request.Method == http.MethodPost && request.URL.Path == "/v1/library/sync/init":
+			var body syncInitRequest
+			if err := json.NewDecoder(request.Body).Decode(&body); err != nil || body.Artifacts["final_srt"].Bytes == 0 {
 				http.Error(writer, `{"detail":"missing artifact"}`, http.StatusBadRequest)
 				return
 			}
-			_, _ = writer.Write([]byte(`{"id":"vid_1","title":"demo","fingerprint":"fp","duration":1,"status":"completed","source":"local_sync","createdAt":"now","updatedAt":"now"}`))
+			_ = json.NewEncoder(writer).Encode(syncInitResponse{
+				VideoID:         videoID,
+				UploadArtifacts: []string{"correction_json", "final_srt"},
+			})
+		case request.Method == http.MethodPut && strings.HasPrefix(request.URL.Path, "/v1/library/"+videoID+"/artifacts/"):
+			name := strings.TrimPrefix(request.URL.Path, "/v1/library/"+videoID+"/artifacts/")
+			raw, _ := io.ReadAll(request.Body)
+			sum := sha256.Sum256(raw)
+			if request.Header.Get("X-Content-SHA256") != hex.EncodeToString(sum[:]) {
+				http.Error(writer, `{"detail":"sha mismatch"}`, http.StatusUnprocessableEntity)
+				return
+			}
+			uploadedArtifacts[name] = string(raw)
+			_, _ = writer.Write([]byte(`{"ok":true}`))
+		case request.Method == http.MethodPost && request.URL.Path == "/v1/library/"+videoID+"/sync/commit":
+			if uploadedArtifacts["final_srt"] == "" {
+				http.Error(writer, `{"detail":"not uploaded"}`, http.StatusConflict)
+				return
+			}
+			_, _ = writer.Write([]byte(`{"id":"` + videoID + `","title":"demo","fingerprint":"fp","duration":1,"status":"completed","source":"local_sync","createdAt":"now","updatedAt":"now"}`))
 		default:
 			http.NotFound(writer, request)
 		}
@@ -220,7 +242,7 @@ func TestLoginLibraryAndArtifactSync(t *testing.T) {
 		t.Fatalf("tasks = %#v, %v", tasks, err)
 	}
 	entry, err := service.SyncLocalTask(taskID, "loc_1", "fp", "demo", 1)
-	if err != nil || entry.ID != "vid_1" {
+	if err != nil || entry.ID != videoID {
 		t.Fatalf("sync = %#v, %v", entry, err)
 	}
 	if err := service.Logout(); err != nil || service.Session().Authenticated {
@@ -321,9 +343,10 @@ func TestDeleteLibraryEntry(t *testing.T) {
 		case request.Method == http.MethodDelete && request.URL.Path == "/v1/library/"+identifier:
 			deleted = true
 			_, _ = writer.Write([]byte(`{"removed":"` + identifier + `"}`))
-		case request.Method == http.MethodPost && request.URL.Path == "/v1/library/sync":
+		case request.Method == http.MethodPost && request.URL.Path == "/v1/library/sync/init":
 			syncCalls++
-			_, _ = writer.Write([]byte(`{"id":"vid_111111111111111111111111","fingerprint":"fingerprint","status":"completed","source":"local_sync"}`))
+			entry := Entry{ID: "vid_111111111111111111111111", Fingerprint: "fingerprint", Status: "completed", Source: "local_sync"}
+			_ = json.NewEncoder(writer).Encode(syncInitResponse{VideoID: entry.ID, Entry: &entry})
 		default:
 			http.NotFound(writer, request)
 		}
@@ -397,30 +420,49 @@ func TestLoginMergesExistingLocalDocumentsAndSkipsRemoteFingerprints(t *testing.
 
 	remote := []Entry{}
 	syncCalls := 0
-	cover := "ÿØÿcover"
+	cover := "\xff\xd8\xffcover"
 	var syncedCover []byte
+	var coverContentType string
+	videoID := "vid_000000000000000000000001"
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		if request.Header.Get("Authorization") != "Bearer login-key" {
 			http.Error(writer, `{"detail":"key 无效"}`, http.StatusUnauthorized)
 			return
 		}
 		writer.Header().Set("Content-Type", "application/json")
-		switch request.URL.Path {
-		case "/v1/session":
+		switch {
+		case request.URL.Path == "/v1/session":
 			_, _ = writer.Write([]byte(`{"authenticated":true,"remaining":3,"running":0}`))
-		case "/v1/library":
+		case request.URL.Path == "/v1/library":
 			_ = json.NewEncoder(writer).Encode(map[string]any{"videos": remote})
-		case "/v1/library/sync":
+		case request.Method == http.MethodPost && request.URL.Path == "/v1/library/sync/init":
 			syncCalls++
-			var body syncRequest
-			if err := json.NewDecoder(request.Body).Decode(&body); err != nil || body.Fingerprint != "fingerprint" || body.Artifacts["final_srt"] == "" {
+			var body syncInitRequest
+			if err := json.NewDecoder(request.Body).Decode(&body); err != nil || body.Fingerprint != "fingerprint" || body.Artifacts["final_srt"].Bytes == 0 || !body.HasThumbnail {
 				http.Error(writer, `{"detail":"invalid sync"}`, http.StatusBadRequest)
 				return
 			}
-			syncedCover = body.Thumbnail
-			entry := Entry{ID: "vid_1", Title: body.Title, Fingerprint: body.Fingerprint, Duration: body.Duration, Status: "completed", Source: "local_sync", CreatedAt: "now", UpdatedAt: "now"}
+			_ = json.NewEncoder(writer).Encode(syncInitResponse{
+				VideoID:         videoID,
+				UploadArtifacts: []string{"correction_json", "final_srt"},
+				UploadThumbnail: true,
+			})
+		case request.Method == http.MethodPut && strings.HasPrefix(request.URL.Path, "/v1/library/"+videoID+"/artifacts/"):
+			_, _ = io.Copy(io.Discard, request.Body)
+			_, _ = writer.Write([]byte(`{"ok":true}`))
+		case request.Method == http.MethodPost && request.URL.Path == "/v1/library/"+videoID+"/sync/commit":
+			var body syncCommitRequest
+			if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+				http.Error(writer, `{"detail":"invalid commit"}`, http.StatusBadRequest)
+				return
+			}
+			entry := Entry{ID: videoID, Title: body.Title, Fingerprint: body.Fingerprint, Duration: body.Duration, Status: "completed", Source: "local_sync", CreatedAt: "now", UpdatedAt: "now"}
 			remote = append(remote, entry)
 			_ = json.NewEncoder(writer).Encode(entry)
+		case request.Method == http.MethodPut && request.URL.Path == "/v1/library/"+videoID+"/thumbnail":
+			coverContentType = request.Header.Get("Content-Type")
+			syncedCover, _ = io.ReadAll(request.Body)
+			_, _ = writer.Write([]byte(`{"id":"` + videoID + `","thumbnailAvailable":true}`))
 		default:
 			http.NotFound(writer, request)
 		}
@@ -442,12 +484,10 @@ func TestLoginMergesExistingLocalDocumentsAndSkipsRemoteFingerprints(t *testing.
 	if err != nil || session.Synced != 1 || session.SyncFailed != 0 || session.CloudVideos != 1 || syncCalls != 1 {
 		t.Fatalf("first merge = %#v, calls=%d, err=%v", session, syncCalls, err)
 	}
-	// The cover rides the sync. Nothing else uploads one for a locally
-	// transcribed entry -- a local run never goes through /v1/uploads/init --
-	// so without it the subtitles reach every other machine with no frame to
-	// show and no video there to draw one from.
-	if string(syncedCover) != cover {
-		t.Fatalf("synced cover = %q", syncedCover)
+	// The cover is streamed separately as raw image/jpeg after commit so the
+	// Worker never decodes base64 inside a JSON sync body.
+	if string(syncedCover) != cover || coverContentType != "image/jpeg" {
+		t.Fatalf("synced cover = %q (%q)", syncedCover, coverContentType)
 	}
 	session, err = service.RefreshSession()
 	if err != nil || session.Synced != 0 || session.SyncSkipped != 1 || session.CloudVideos != 1 || syncCalls != 1 {
@@ -501,11 +541,11 @@ func TestRefreshDoesNotUndoADeletionMadeElsewhere(t *testing.T) {
 			_ = json.NewEncoder(writer).Encode(map[string]any{"authenticated": true, "running": 0, "videos": remote})
 		case "/v1/library":
 			_ = json.NewEncoder(writer).Encode(map[string]any{"videos": remote})
-		case "/v1/library/sync":
+		case "/v1/library/sync/init":
 			syncCalls++
 			entry := Entry{ID: "vid_000000000000000000000002", Fingerprint: "fingerprint", Status: "completed", Source: "local_sync", CreatedAt: "now", UpdatedAt: "now"}
 			remote = append(remote, entry)
-			_ = json.NewEncoder(writer).Encode(entry)
+			_ = json.NewEncoder(writer).Encode(syncInitResponse{VideoID: entry.ID, Entry: &entry})
 		default:
 			http.NotFound(writer, request)
 		}
@@ -602,11 +642,11 @@ func TestSyncSwitchHoldsSubtitlesBackUntilSwitchedOn(t *testing.T) {
 			_ = json.NewEncoder(writer).Encode(map[string]any{"authenticated": true, "running": 0, "videos": remote})
 		case "/v1/library":
 			_ = json.NewEncoder(writer).Encode(map[string]any{"videos": remote})
-		case "/v1/library/sync":
+		case "/v1/library/sync/init":
 			syncCalls++
 			entry := Entry{ID: "vid_000000000000000000000001", Fingerprint: "fingerprint", Status: "completed", Source: "local_sync", CreatedAt: "now", UpdatedAt: "now"}
 			remote = append(remote, entry)
-			_ = json.NewEncoder(writer).Encode(entry)
+			_ = json.NewEncoder(writer).Encode(syncInitResponse{VideoID: entry.ID, Entry: &entry})
 		default:
 			http.NotFound(writer, request)
 		}
@@ -1316,5 +1356,251 @@ func TestRetiredModalSessionMovesToTheCloudBackend(t *testing.T) {
 	var saved storedSession
 	if !readState(path, &saved) || saved != (storedSession{Backend: cloudBackend, Key: "login-key"}) {
 		t.Fatalf("saved session = %#v, want the migrated one", saved)
+	}
+}
+
+func TestStreamingSyncSkipsUnchangedArtifactsAndCover(t *testing.T) {
+	root := t.TempDir()
+	taskID := "0123456789abcdef0123456789abcdef"
+	artifactRoot := filepath.Join(root, "tasks", taskID, "workspace")
+	if err := os.MkdirAll(artifactRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	artifactPath := filepath.Join(artifactRoot, "final.srt")
+	if err := os.WriteFile(artifactPath, []byte("1\n00:00:00,000 --> 00:00:01,000\nunchanged\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	videoID := "vid_000000000000000000000009"
+	initCalls, putCalls, commitCalls, thumbCalls := 0, 0, 0, 0
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writer.Header().Set("Content-Type", "application/json")
+		switch {
+		case request.URL.Path == "/v1/session":
+			_, _ = writer.Write([]byte(`{"authenticated":true,"running":0,"videos":[]}`))
+		case request.Method == http.MethodPost && request.URL.Path == "/v1/library/sync/init":
+			initCalls++
+			entry := Entry{ID: videoID, Title: "demo", Fingerprint: "fp-same", Status: "completed", Source: "local_sync", ThumbnailAvailable: true}
+			_ = json.NewEncoder(writer).Encode(syncInitResponse{
+				VideoID:         videoID,
+				UploadArtifacts: []string{},
+				UploadThumbnail: false,
+				Entry:           &entry,
+			})
+		case request.Method == http.MethodPut && strings.Contains(request.URL.Path, "/artifacts/"):
+			putCalls++
+			_, _ = writer.Write([]byte(`{"ok":true}`))
+		case request.Method == http.MethodPost && strings.HasSuffix(request.URL.Path, "/sync/commit"):
+			commitCalls++
+			_, _ = writer.Write([]byte(`{}`))
+		case request.Method == http.MethodPut && strings.HasSuffix(request.URL.Path, "/thumbnail"):
+			thumbCalls++
+			_, _ = writer.Write([]byte(`{}`))
+		default:
+			http.NotFound(writer, request)
+		}
+	}))
+	defer server.Close()
+
+	provider := fakeProvider{manifest: artifactManifest{
+		EngineCommit: "commit",
+		Artifacts: map[string]struct {
+			URI string `json:"uri"`
+		}{"correction_json": {URI: localFileURI(artifactPath)}, "final_srt": {URI: localFileURI(artifactPath)}},
+	}}
+	service, err := New(root, provider, fakeMedia{path: artifactPath, thumbnail: "\xff\xd8\xffcover"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.Login(server.URL, "login-key"); err != nil {
+		t.Fatal(err)
+	}
+	entry, err := service.SyncLocalTask(taskID, "loc_0123456789ab", "fp-same", "demo", 120)
+	if err != nil || entry.ID != videoID || !entry.ThumbnailAvailable {
+		t.Fatalf("sync = %#v, %v", entry, err)
+	}
+	if initCalls != 1 || putCalls != 0 || commitCalls != 0 || thumbCalls != 0 {
+		t.Fatalf("calls init=%d put=%d commit=%d thumb=%d, want 1/0/0/0", initCalls, putCalls, commitCalls, thumbCalls)
+	}
+}
+
+func TestMergeLocalLibraryStopsPermanentFailuresUntilArtifactsChange(t *testing.T) {
+	root := t.TempDir()
+	taskID := "0123456789abcdef0123456789abcdef"
+	localID := "loc_0123456789ab"
+	artifactRoot := filepath.Join(root, "tasks", taskID, "workspace")
+	if err := os.MkdirAll(artifactRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	artifactPath := filepath.Join(artifactRoot, "final.srt")
+	if err := os.WriteFile(artifactPath, []byte("1\n00:00:00,000 --> 00:00:01,000\n字幕\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	documentRoot := filepath.Join(root, "documents", localID)
+	if err := os.MkdirAll(documentRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	manifest := artifactManifest{
+		TaskID: taskID, EngineCommit: "commit",
+		Artifacts: map[string]struct {
+			URI string `json:"uri"`
+		}{"correction_json": {URI: localFileURI(artifactPath)}, "final_srt": {URI: localFileURI(artifactPath)}},
+	}
+	encodedManifest, _ := json.Marshal(manifest)
+	if err := os.WriteFile(filepath.Join(documentRoot, "artifacts.json"), encodedManifest, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	reject := true
+	initCalls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writer.Header().Set("Content-Type", "application/json")
+		switch request.URL.Path {
+		case "/v1/session":
+			_, _ = writer.Write([]byte(`{"authenticated":true,"running":0,"videos":[]}`))
+		case "/v1/library/sync/init":
+			initCalls++
+			if reject {
+				http.Error(writer, `{"detail":"duration 超出范围"}`, http.StatusUnprocessableEntity)
+				return
+			}
+			entry := Entry{ID: "vid_000000000000000000000001", Fingerprint: "fp-perm", Status: "completed", Source: "local_sync"}
+			_ = json.NewEncoder(writer).Encode(syncInitResponse{VideoID: entry.ID, Entry: &entry})
+		case "/v1/library":
+			_, _ = writer.Write([]byte(`{"videos":[]}`))
+		default:
+			http.NotFound(writer, request)
+		}
+	}))
+	defer server.Close()
+
+	catalog := fakeCatalog{
+		fakeMedia: fakeMedia{path: artifactPath},
+		entries: []library.Entry{{
+			ID: localID, Title: "long.mp4", Fingerprint: "fp-perm", Duration: 10000,
+			DocumentAvailable: true, Available: true,
+		}},
+	}
+	service, err := New(root, fakeProvider{}, catalog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.Login(server.URL, "login-key"); err != nil {
+		t.Fatal(err)
+	}
+	if initCalls != 1 {
+		t.Fatalf("after login initCalls = %d, want 1", initCalls)
+	}
+	// Repeated background refreshes must not hammer the backend with a permanent 422.
+	for range 3 {
+		session, err := service.RefreshSession()
+		if err != nil || session.SyncFailed != 0 || session.SyncSkipped != 1 {
+			t.Fatalf("refresh after 422 = %#v, %v", session, err)
+		}
+	}
+	if initCalls != 1 {
+		t.Fatalf("permanent 422 was retried: initCalls = %d, want 1", initCalls)
+	}
+	// Once local artifacts change, sync is attempted again and succeeds.
+	reject = false
+	future := time.Now().Add(time.Minute)
+	if err := os.Chtimes(artifactPath, future, future); err != nil {
+		t.Fatal(err)
+	}
+	session, err := service.RefreshSession()
+	if err != nil || session.Synced != 1 || initCalls != 2 {
+		t.Fatalf("refresh after new local artifact = %#v, calls=%d, err=%v", session, initCalls, err)
+	}
+}
+
+func TestMergeLocalLibraryBacksOffTransientFailures(t *testing.T) {
+	root := t.TempDir()
+	taskID := "0123456789abcdef0123456789abcdef"
+	localID := "loc_0123456789ab"
+	artifactRoot := filepath.Join(root, "tasks", taskID, "workspace")
+	if err := os.MkdirAll(artifactRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	artifactPath := filepath.Join(artifactRoot, "final.srt")
+	if err := os.WriteFile(artifactPath, []byte("1\n00:00:00,000 --> 00:00:01,000\n字幕\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	documentRoot := filepath.Join(root, "documents", localID)
+	if err := os.MkdirAll(documentRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	manifest := artifactManifest{
+		TaskID: taskID, EngineCommit: "commit",
+		Artifacts: map[string]struct {
+			URI string `json:"uri"`
+		}{"correction_json": {URI: localFileURI(artifactPath)}, "final_srt": {URI: localFileURI(artifactPath)}},
+	}
+	encodedManifest, _ := json.Marshal(manifest)
+	if err := os.WriteFile(filepath.Join(documentRoot, "artifacts.json"), encodedManifest, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	failTransient := true
+	initCalls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writer.Header().Set("Content-Type", "application/json")
+		switch request.URL.Path {
+		case "/v1/session":
+			_, _ = writer.Write([]byte(`{"authenticated":true,"running":0,"videos":[]}`))
+		case "/v1/library/sync/init":
+			initCalls++
+			if failTransient {
+				http.Error(writer, `{"detail":"overloaded"}`, http.StatusServiceUnavailable)
+				return
+			}
+			entry := Entry{ID: "vid_000000000000000000000001", Fingerprint: "fp-503", Status: "completed", Source: "local_sync"}
+			_ = json.NewEncoder(writer).Encode(syncInitResponse{VideoID: entry.ID, Entry: &entry})
+		case "/v1/library":
+			_, _ = writer.Write([]byte(`{"videos":[]}`))
+		default:
+			http.NotFound(writer, request)
+		}
+	}))
+	defer server.Close()
+
+	catalog := fakeCatalog{
+		fakeMedia: fakeMedia{path: artifactPath},
+		entries: []library.Entry{{
+			ID: localID, Title: "transient.mp4", Fingerprint: "fp-503", Duration: 120,
+			DocumentAvailable: true, Available: true,
+		}},
+	}
+	service, err := New(root, fakeProvider{}, catalog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	clock := time.Date(2026, 11, 19, 12, 0, 0, 0, time.UTC)
+	service.now = func() time.Time { return clock }
+	service.syncRetryBackoff = []time.Duration{time.Minute, 5 * time.Minute}
+
+	if _, err := service.Login(server.URL, "login-key"); err != nil {
+		t.Fatal(err)
+	}
+	if initCalls != 1 {
+		t.Fatalf("after login initCalls = %d, want 1", initCalls)
+	}
+	// Still inside the 1-minute backoff window: skipped without hitting the server.
+	clock = clock.Add(30 * time.Second)
+	if session, err := service.RefreshSession(); err != nil || session.SyncSkipped != 1 || initCalls != 1 {
+		t.Fatalf("inside backoff = %#v, calls=%d, err=%v", session, initCalls, err)
+	}
+	// Past 1 minute: retries once, fails again, now backed off for 5 minutes.
+	clock = clock.Add(31 * time.Second)
+	if session, err := service.RefreshSession(); err != nil || session.SyncFailed != 1 || initCalls != 2 {
+		t.Fatalf("first retry = %#v, calls=%d, err=%v", session, initCalls, err)
+	}
+	clock = clock.Add(2 * time.Minute)
+	if session, err := service.RefreshSession(); err != nil || session.SyncSkipped != 1 || initCalls != 2 {
+		t.Fatalf("inside 5m backoff = %#v, calls=%d, err=%v", session, initCalls, err)
+	}
+	// Past 5 minutes with backend healthy: succeeds and clears backoff.
+	failTransient = false
+	clock = clock.Add(4 * time.Minute)
+	if session, err := service.RefreshSession(); err != nil || session.Synced != 1 || initCalls != 3 {
+		t.Fatalf("recovery = %#v, calls=%d, err=%v", session, initCalls, err)
 	}
 }

@@ -60,6 +60,11 @@ const cloudPollIntervalMs = 60_000;
 const cloudBusyPollIntervalMs = 20_000;
 const cloudOfflinePollIntervalMs = 15_000;
 const focusRevalidateMs = 10_000;
+const syncRetryBackoffMs = [60_000, 300_000, 900_000, 3_600_000];
+const isPermanentSyncFailure = (detail: string) =>
+  /cloud HTTP (400|411|413|422|426)\b/.test(detail)
+  || detail.includes("先迁移到新的数据格式")
+  || detail.includes("exceed the sync limit");
 // Attempts per cloud cover before it is left blank for the session.
 const cloudCoverAttemptLimit = 3;
 
@@ -220,6 +225,7 @@ export default function App() {
   const cloudCapabilitiesKnown = useRef(false);
   const adoptedCloudEntries = useRef(new Set<string>());
   const syncedTasks = useRef(new Set<string>());
+  const failedSyncTasks = useRef(new Map<string, { retryAt: number; permanent: boolean; attempts: number }>());
   const reconciledLocalTasks = useRef(new Set<string>());
   const reconciledCloudTasks = useRef(new Set<string>());
   const observedActiveCloudTasks = useRef(new Set<string>());
@@ -1382,11 +1388,14 @@ export default function App() {
   const cloudReachable = cloudSync.syncedAt > 0 && cloudSync.phase !== "offline";
   useEffect(() => {
     if (!cloudSession?.authenticated || cloudLoading || !cloudReachable) return;
+    const now = Date.now();
     const latestByFingerprint = new Map<string, { item: TaskHistoryEntry; entry: MediaEntry }>();
     for (const item of taskHistory) {
       // 云端任务的字幕也是本机续跑出来的（relay），同样要同步；Go 侧按 relay 找到本地那一段。
       const syncable = item.provider === "local" || isRelayTaskId(item.taskId);
       if (!syncable || item.snapshot.state !== "completed" || syncedTasks.current.has(item.taskId)) continue;
+      const failed = failedSyncTasks.current.get(item.taskId);
+      if (failed && (failed.permanent || now < failed.retryAt)) continue;
       const entry = media.find((candidate) => candidate.id === item.mediaId);
       if (!entry?.documentAvailable || !entry.fingerprint || syncDisabled.has(entry.fingerprint)) continue;
       const existing = latestByFingerprint.get(entry.fingerprint);
@@ -1406,23 +1415,36 @@ export default function App() {
     candidates.forEach(({ item }) => syncedTasks.current.add(item.taskId));
     setAccountMessage("正在把本机字幕同步到云端…");
     void (async () => {
-      try {
-        let suppressed = 0;
-        for (const { item, entry } of candidates) {
+      let suppressed = 0;
+      let uploaded = 0;
+      let firstError = "";
+      for (const { item, entry } of candidates) {
+        try {
           const result = await cloudAccount.syncLocalTask(item.taskId, entry.id, entry.fingerprint, entry.title, entry.duration);
+          failedSyncTasks.current.delete(item.taskId);
           if (result.status === "suppressed") suppressed += 1;
+          else uploaded += 1;
+        } catch (value) {
+          syncedTasks.current.delete(item.taskId);
+          const detail = errorText(value);
+          if (!firstError) firstError = detail;
+          const prev = failedSyncTasks.current.get(item.taskId);
+          const attempts = (prev?.attempts ?? 0) + 1;
+          const permanent = isPermanentSyncFailure(detail);
+          const wait = syncRetryBackoffMs[Math.min(attempts - 1, syncRetryBackoffMs.length - 1)]!;
+          failedSyncTasks.current.set(item.taskId, { permanent, attempts, retryAt: Date.now() + wait });
         }
-        void loadCloud({ background: true });
-        const uploaded = candidates.length - suppressed;
-        setAccountMessage(uploaded === 0
-          ? "已保留云端删除设置，本机字幕不会自动重新上传。"
-          : suppressed > 0
-            ? `已自动同步 ${uploaded} 个本机字幕；另有 ${suppressed} 个按云端删除设置保留在本机。`
-            : uploaded === 1 ? "本机字幕已自动同步到云端。" : `已自动同步 ${uploaded} 个本机字幕到云端。`);
-      } catch (value) {
-        candidates.forEach(({ item }) => syncedTasks.current.delete(item.taskId));
-        setAccountMessage(`自动同步失败：${value instanceof Error ? value.message : String(value)}`);
       }
+      if (uploaded > 0) void loadCloud({ background: true });
+      if (firstError) {
+        setAccountMessage(`自动同步失败：${firstError}`);
+        return;
+      }
+      setAccountMessage(uploaded === 0
+        ? "已保留云端删除设置，本机字幕不会自动重新上传。"
+        : suppressed > 0
+          ? `已自动同步 ${uploaded} 个本机字幕；另有 ${suppressed} 个按云端删除设置保留在本机。`
+          : uploaded === 1 ? "本机字幕已自动同步到云端。" : `已自动同步 ${uploaded} 个本机字幕到云端。`);
     })();
   }, [cloudLoading, cloudMedia, cloudReachable, cloudSession?.authenticated, loadCloud, media, syncDisabled, taskHistory]);
 
@@ -1459,7 +1481,10 @@ export default function App() {
         ? `已恢复“${entry.title}”的云端同步。`
         : `“${entry.title}”不再与云端同步，云端已有的字幕保持不动。`));
       // Back on: the refresh is what uploads what the cloud is missing.
-      if (enable) void loadCloud({ background: true });
+      if (enable) {
+        failedSyncTasks.current.clear();
+        void loadCloud({ background: true });
+      }
     } catch (value) {
       setLibraryMessage(warnNotice(value instanceof Error ? value.message : String(value)));
     }

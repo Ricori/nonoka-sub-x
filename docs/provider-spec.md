@@ -47,7 +47,7 @@ Provider 只负责**「把一个媒体源变成一组字幕产物」**，其余�
 
 - **事件**：relay 把两段的事件重新编号成一条连续的游标序列，存在本机 `cloud-relays/<id>/events.jsonl`；云端作业删除后日志仍可读。云端自己的 `completed` 与本地任务的 `started`、以及本地对 vocal / aligned / stable 的「已有结果，跳过」不进入日志，交接处由 relay 写两条 `handoff`。
 - **快照**：`stage` 在云端段跟随作业；取回与等待本地启动期间为 `handoff`；本地段只在 `raw-srt` / `translated-srt` / `final-srt` 时跟随本地任务，进度条不会倒退。`requested_capabilities.target` 始终是用户要的最终目标。
-- **产物与同步**：本地段完成时已把文档投影好，`artifacts()` 返回本地任务的清单（`task_id` 换成 relay id）；云端库条目由完成后的同步（`/v1/library/sync`）创建，与本地任务一致。
+- **产物与同步**：本地段完成时已把文档投影好，`artifacts()` 返回本地任务的清单（`task_id` 换成 relay id）；云端库条目由完成后的流式同步（`/v1/library/sync/init` 等）创建，与本地任务一致。
 - **重启**：relay 记录与事件文件即状态；应用重启后每个未结束的 relay 从所在阶段继续。旧版的 `vid_` 云端任务 id 不再可查，统一报为失败（`legacy_cloud_task`）。
 
 ---

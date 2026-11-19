@@ -103,7 +103,7 @@ FineSub 按固定的上游 commit（`UPSTREAM.json`）分装成三个包，代�
 ### 2.5 Cloud Provider（云端执行）
 通过 HTTPS 与 Nonoka 后端（Cloudflare Worker + Modal，仓库 `nonoka-sub-cloud`）通信：
 - 基于业务 Key 进行身份认证、任务额度扣减与单 Key 并发控制（默认最多 1 个任务）。
-- 桌面端在本地提取无损音频（`.m4a` 容器）后通过 Presigned URL 上传，**云端不接收原视频，也不接收参与算法计算的视频帧**。另有一张本地已生成的封面缩略图（JPEG，$\le 5\text{ MB}$）随任务上传，仅用于云端媒体库列表展示，不进入转写或纠错流水线。本机跑完再同步上去的条目没有上传槽位，封面改随 `/v1/library/sync` 一起带上；取回字幕时封面也会写进本地媒体库，否则换一台机器打开就只剩占位图，而那边没有视频可以重新截帧。
+- 桌面端在本地提取无损音频（`.m4a` 容器）后通过 Presigned URL 上传，**云端不接收原视频，也不接收参与算法计算的视频帧**。另有一张本地已生成的封面缩略图（JPEG，$\le 5\text{ MB}$）随任务上传，仅用于云端媒体库列表展示，不进入转写或纠错流水线。本机跑完再同步上去的条目没有上传槽位，封面在同步提交后通过 `PUT /v1/library/{video_id}/thumbnail`（`Content-Type: image/jpeg`）以二进制流单独上传；取回字幕时封面也会写进本地媒体库，否则换一台机器打开就只剩占位图，而那边没有视频可以重新截帧。
 - Modal 容器只装 FineSub 转写包，跑到 stable 为止，在容器里由转写包的适配器转出 `transcript.json`；作业结果是 `transcript.json` 加不透明附件（`finesub.stable_json`、`finesub.diar_json`），Worker 只存、只发，不解析。容器的运行环境按云端自己的方式装（Linux，不用预制层），加速由容器自行选择。
 - 桌面的 relay（`desktop/internal/cloud/relay.go`）取回结果后以 `source.kind=cloud_transcript` 交给本机 Provider 续跑纠错与翻译（[provider-spec.md](provider-spec.md) 2.3）。桌面上两个 FineSub 包都不在时，云端任务照样能出到原始字幕。
 - 导入日文轴的任务不走云端：它已经是识别结果，没有要云端识别的东西，桌面直接提示改用本机运行（见 4.4）。
@@ -448,8 +448,8 @@ ASS 样式表**跟着视频走**，整段 `[V4+ Styles]` 原文存在 `document.
 媒体库只存 Nonoka 的格式和字幕（`docs/provider-spec.md` 7.5）：`transcript_json`、`correction_json`、`raw_srt`、`final_srt`。引擎自己的产物（FineSub 的 stable、annotated 表等）是任务目录里的私有附件，不上云。本地任务完成后，Go 后端自动触发同步：
 1. 校验产物路径必须位于 Nonoka X `tasks/` 白名单内。
 2. 提取上面四个（总计限制 $\le 32\text{ MB}$）；必须有 `transcript_json` 或 `correction_json`，否则为旧版格式任务，提示先迁移。
-3. 调用 `POST /v1/library/sync` 上传这些文本、引擎 commit 与媒体指纹。两种文档格式都不带的请求（旧桌面版）服务端回 `426` 并提示升级。
-4. 服务端按指纹更新对应记录，不上传音视频，不扣减配额。
+3. 先调用 `POST /v1/library/sync/init` 只发送元数据与各产物的 `sha256` / `bytes`（两种文档格式都不带的请求服务端回 `426` 并提示升级）；服务端对比已有摘要，跳过内容未变的产物和已有封面。
+4. 仅对需要上传的产物逐个调用 `PUT /v1/library/{video_id}/artifacts/{name}`（原字节流 + `X-Content-SHA256`，R2 原生校验），随后 `POST /v1/library/{video_id}/sync/commit` 原子更新数据库；需要补封面时再以 `PUT /v1/library/{video_id}/thumbnail`（`Content-Type: image/jpeg`）流式直传 R2。不上传音视频，不扣减配额。
 
 取回（adopt）时桌面下载同样四个名字，交给 sidecar 的 `POST /v1/documents/project`：有 `correction.json` 就逐行照抄它，否则从 `transcript.json` 投影（`provider-spec.md` 7.1）。
 
@@ -471,7 +471,9 @@ ASS 样式表**跟着视频走**，整段 `[V4+ Styles]` 原文存在 `document.
 | `GET` | `/v1/session` | 验证当前 Key，获取剩余额度与进行中任务数 | 无 |
 | `GET` | `/v1/capabilities` | 云端引擎版本与能力；`artifact_schema` 是作业结果的格式（2：`transcript.json` 加附件），与桌面不一致时桌面拒绝提交 | 无 |
 | `GET` | `/v1/library` | 获取云端视频列表（管理员返回所有 Key 的视频） | 无 |
-| `POST` | `/v1/library/sync` | 同步本地已完成的字幕产物（只收 `transcript_json`、`correction_json`、`raw_srt`、`final_srt`，见 5.3） | 无 |
+| `POST` | `/v1/library/sync/init`、`/{video_id}/sync/commit` | 流式同步本地已完成的字幕产物（先对比 sha256 跳过未变文件，再提交，见 5.3） | 无 |
+| `PUT` | `/v1/library/{video_id}/artifacts/{name}` | 原字节流式上传单个字幕产物（`X-Content-SHA256` 由 R2 校验） | 无 |
+| `PUT` | `/v1/library/{video_id}/thumbnail` | 二进制流式上传封面（`Content-Type: image/jpeg`） | 无 |
 | `GET` | `/v1/library/{video_id}/artifacts[/{name}]` | 库条目的产物清单与原字节 | 无 |
 | `DELETE` | `/v1/library/{video_id}` | 删除云端视频记录与字幕产物 | 无 |
 | `POST` | `/v1/uploads/init` | 获取音频上传 Presigned URL | 无 |
