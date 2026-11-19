@@ -1,6 +1,6 @@
 # 转写引擎与纠错引擎
 
-本文说明转写引擎重构之后，一个任务从媒体到字幕要经过哪些部件：转写层与纠错层的契约、注册了哪些引擎、FineSub 的三个引擎包怎么被发现和拉起、它们跑在什么运行环境里，以及怎么再加一个引擎。按代码现状（`main@1b8b3b2` 之后）写；设计的来历与每个决定的理由见 [转写引擎重构计划](transcription-engines-plan.md)（下称「计划」）及其附录。
+本文说明 Nonoka X 中一个任务从媒体到字幕要经过哪些部件：转写层与纠错层的契约、已注册的引擎、FineSub 三个引擎包的发现与密闭拉起方式、三层预制运行环境，以及如何扩展接入新引擎。
 
 相关文档：
 
@@ -57,9 +57,9 @@ TaskRequest
 | `moss-pro` | MOSS Pro | `cloud-api` | 同上 | 工具层；`MOSS_PRO` 池里至少一个 Key |
 | `finesub-cloud` | 云端 FineSub | `cloud-service` | Nonoka Cloud（任务交给 Cloud Provider） | 已登录且有额度；桌面端列出，sidecar 不注册 |
 
-- 三个云 API 引擎由 Nonoka 维护（WP3，迁自 FineSub 的 `speech/joint/`），共用 `engines/cloud.py`：ffprobe 取时长 → 调提供方（每次调用的原始回答缓存在任务的缓存目录，重跑不花额度）→ `lines.py` 断行 → 写 `transcript.json`。它们只在启动器环境里跑，不 import FineSub、torch、numpy。首次上传前会在任务日志里说明音频将离开本机。
-- 迁来的可选增强（`transcription/enhance/`：Silero 空档重问、声纹重连、断句、强制对齐等）原样留着、第一版不接（计划 4.1 第 6 条）；本地 MOSS（`engines/moss_local/`）不注册。
-- 用户在设置页全局选定一个转写引擎，新建任务时从全局设置填入请求；重试与续跑沿用请求里记的引擎（换引擎等于新任务）。
+- 三个云 API 引擎由 Nonoka 维护，共用 `engines/cloud.py`：ffprobe 取时长 → 调提供方（每次调用的原始回答缓存在任务的缓存目录，重跑不花额度）→ `lines.py` 断行 → 写 `transcript.json`。它们只在启动器环境里跑，不 import FineSub、torch、numpy。首次上传前会在任务日志里说明音频将离开本机。
+- 可选增强模块（`transcription/enhance/`：Silero 空档重问、声纹重连、断句、强制对齐等）暂不启用；本地 MOSS（`engines/moss_local/`）暂不注册。
+- 用户在设置页全局选定一个已就绪的转写引擎（未配置或未就绪的引擎在配置完凭据/环境前不可选中），新建任务时从全局设置填入请求；重试与续跑沿用请求里记的引擎（换引擎等于新任务）。
 
 ### 2.3 请求
 
@@ -143,7 +143,7 @@ TaskRequest
 | :--- | :--- |
 | 转写包 | 本机 FineSub 转写不出现；云 API 引擎、云端 FineSub 与 FineSub 纠错照常 |
 | 纠错包 | 转写照常，原始字幕由核心渲染；纠错翻译各档报 `missing_engine` |
-| 知识库包 | 读写知识库或要用知识库做 ASR 上下文的请求被就绪检查拦下（`missing_knowledge_package`），不静默当作关闭；纠错与翻译也被拦下，因为纠错要从知识库读取风格目录（`--style auto`，知识库关着也一样，附录 B 第 94 问）；只到原始字幕的任务照常 |
+| 知识库包 | 读写知识库或要用知识库做 ASR 上下文的请求被就绪检查拦下（`missing_knowledge_package`），不静默当作关闭；纠错与翻译也被拦下，因为纠错要从知识库读取风格目录（`--style auto`，知识库关着也一样）；只到原始字幕的任务照常 |
 | 转写与纠错两个包 | 核心照常启动；云端 FineSub 与云 API 引擎的任务能出到原始字幕 |
 
 界面不提供卸载；删除指代码层面可分离、打包时可以不带。
@@ -184,7 +184,7 @@ TaskRequest
 | `models` | 模型清单里钉住 revision 的全部模型（不含编译加速产物） | FineSub 转写 |
 | `tools` | ffmpeg、ffprobe、tokcount、yt-dlp、aria2c、node、pot-provider | 所有引擎；桌面自己的导出与下载器 |
 
-引擎在 `EngineEnvironment` 里用组件 ID 声明要什么（`nonoka_x.runtime`）：`asr-runtime` = Python 环境层；`media` = 工具层的 ffmpeg 加 ffprobe；单个工具按它自己的 ID；层按 `python` / `models` / `tools`；模型按模型清单里的 ID（`separator`、`whisper`、`qwen-referee`，可选的 `nemotron3`、`speaker-embedding`）。就绪 = 要的组件在、当前版本与清单相符；**工具只认工具层**，用户 PATH 上的 ffmpeg 不算，核心自己的 `media` 档也一样（附录 B 第 94 问）。这些组件对应到哪几层由 `nonoka_x.runtime_cleanup.environment_layers` 推出，设置页据此列出各引擎缺的层与占用，「清理未使用的」据此判断哪些层当前引擎和纠错包都用不到。
+引擎在 `EngineEnvironment` 里用组件 ID 声明要什么（`nonoka_x.runtime`）：`asr-runtime` = Python 环境层；`media` = 工具层的 ffmpeg 加 ffprobe；单个工具按它自己的 ID；层按 `python` / `models` / `tools`；模型按模型清单里的 ID（`separator`、`whisper`、`qwen-referee`，可选的 `nemotron3`、`speaker-embedding`）。就绪 = 要的组件在、当前版本与清单相符；**工具只认工具层**，用户 PATH 上的 ffmpeg 不算，核心自己的 `media` 档也一样。工具层与 Python 环境层属于默认基础层，安装后支持更新与完整核对、不提供整层删除；AI 模型层支持按需下载与单层删除（`DELETE /v1/runtime/provision?layer=models`）；存在旧版本残留时可在设置页一键清理。
 
 FineSub 引擎的代码不进层，随桌面安装包下发，与核心同步升级。
 
@@ -196,11 +196,11 @@ FineSub 引擎的代码不进层，随桌面安装包下发，与核心同步升
 - 纠错与知识库进程不进沙箱，用真实的用户目录；本地 Agent CLI 的配置与证书变量只带给纠错进程。
 - 桌面关闭全部编译加速（`FINESUB_SEPARATOR_ACCEL=0`、`FINESUB_REFEREE_ACCEL=0`）：人声分离与 qwen 裁判都走 eager。
 
-逐项的分类、证明办法与管不到的边界见 [engine.md](engine.md) 2.1a 与计划 4.5。
+逐项的环境变量分类与证明办法见 [engine.md](engine.md) 2.1a。
 
 ## 7. 云端 FineSub
 
-- Modal 容器（云端仓库 `modal_compute/`）只装转写包，跑到 stable，在容器里由转写包适配器的同一个投影函数转出 `transcript.json`。容器的运行环境按云端自己的方式装（Linux，不用预制层），加速由容器按输入自选，所以云端结果不逐次复现，闸门 `--cloud` 只比结构与统计（计划第 0.1 节第 3 条）。缺模型时任务报错，模型由部署前的预热脚本放进 Volume。
+- Modal 容器（云端仓库 `modal_compute/`）只装转写包，跑到 stable，在容器里由转写包适配器的同一个投影函数转出 `transcript.json`。容器的运行环境按云端自己的方式装（Linux，不用预制层），加速由容器按输入自选，因此闸门 `--cloud` 按结构与统计指标比对（段数差、文本编辑距离、说话人数与覆盖率）。缺模型时任务报错，模型由部署前的预热脚本放进 Volume。
 - 作业结果：`transcript_json` 加不透明附件 `finesub.stable_json`、`finesub.diar_json`（键名与本机 `native` 相同）；Worker 只存、只发，不解析。
 - 桌面 relay 取回后以 `cloud_transcript` 交本机续跑；纠错包拿到的 stable 就是附件原件。两个 FineSub 包都不在时，云端任务出到原始字幕为止。
 - LLM 转发（Nonoka Cloud 模型）与云端识别无关，纠错包照旧经 `nonoka-cloud` 路由调用。
@@ -229,4 +229,4 @@ FineSub 引擎的代码不进层，随桌面安装包下发，与核心同步升
 | 运行环境的钉住内容 | `tests/test_runtime_pins.py`、闸门的「预制层」一项 |
 | 密闭与沙箱 | `tests/test_engine_hermetic.py`、`tests/test_engine_sandbox.py`、闸门 `--real` 的 `sandbox` 一项 |
 | 新旧投影一致、媒体库往返 | `tests/test_projection_equivalence.py`、`tests/test_library_roundtrip.py` |
-| FineSub 路径的结果不变 | `scripts/quality_gate.py`（默认、`--real`、`--layers`、`--cloud`），标准见计划第 0 节 |
+| FineSub 路径的结果不变 | `scripts/quality_gate.py`（默认、`--real`、`--layers`、`--cloud`），质量红线见 [engine.md](engine.md) 第 1 节 |

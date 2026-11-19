@@ -1,6 +1,6 @@
 # 预制环境层：构建与发布手册
 
-本手册分两部分：**构建**（WP-E1，第 1 节）与**发布**（WP-E2，第 2 节）。设计依据见 `docs/transcription-engines-plan.md` 第 0 节第 5 条、4.2 第 14–20 条、WP-E1；前提实验见 `docs/engine-sandbox-experiment.md`。
+本手册分两部分：**构建**（第 1 节）与**发布**（第 2 节）。整体架构与引擎包协作见 [architecture.md](architecture.md) 与 [transcription-engines.md](transcription-engines.md)。
 
 ## 1. 构建
 
@@ -9,10 +9,10 @@
 | 层 | 内容 | 根目录下 |
 |---|---|---|
 | `python` | python-build-standalone `cpython-3.12.1+20240107-x86_64-pc-windows-msvc-shared-install_only`，锁（`src/nonoka_x/resources/pylock.win-py312.toml`）里的 97 个包直接装进它自己的 `Lib\site-packages`，不建 venv；去掉 pip 与 `Lib\site-packages\README.txt`；全部 `.py` 以 `unchecked-hash` 预编译 | `python.exe`、`Lib\`、`DLLs\`、`Scripts\`…… |
-| `models` | 模型清单里 FineSub 默认路径会加载的 5 个模型（用户 2026-11-12 定，附录 C 第 6 项）：`separator`、`whisper`、`qwen-referee`、`nemotron3`、`speaker-embedding` | 即一个 `FINESUB_MODEL_DIR`：`audio-separator\`、`huggingface\hub\models--*\snapshots\<revision>\` |
-| `tools` | 工具清单里除 uv 以外的全部：ffmpeg/ffprobe、tokcount、yt-dlp、aria2c、node、pot-provider | 平铺 `<工具目录>\<压缩包原样内容>`（用户 2026-11-12 定），例如 `ffmpeg\ffmpeg-n9.0.2-…-win64-gpl-9.0\bin\ffmpeg.exe` |
+| `models` | 模型清单里 FineSub 默认路径会加载的 5 个模型：`separator`、`whisper`、`qwen-referee`、`nemotron3`、`speaker-embedding` | 即一个 `FINESUB_MODEL_DIR`：`audio-separator\`、`huggingface\hub\models--*\snapshots\<revision>\` |
+| `tools` | 工具清单里除 uv 以外的全部：ffmpeg/ffprobe、tokcount、yt-dlp、aria2c、node、pot-provider | 平铺 `<工具目录>\<压缩包原样内容>`，例如 `ffmpeg\ffmpeg-n9.0.2-…-win64-gpl-9.0\bin\ffmpeg.exe` |
 
-没有放进模型层的清单条目：`whisper-ja`（只在显式 `--model` 时用）、`diarizen-ts-cuda`/`-cpu`（只在 `--diarization-backend diarizen` 时用）、`diarizen`、`wespeaker`（运行时没有代码加载，是导出工具的源模型）、`moss-transcribe-diarize`（本地 MOSS，第一版不注册）。云 API 引擎增强要的断句模型和强制对齐模型不在清单里，第一版也不接（4.1 第 6 条）。
+没有放进模型层的清单条目：`whisper-ja`（只在显式 `--model` 时用）、`diarizen-ts-cuda`/`-cpu`（只在 `--diarization-backend diarizen` 时用）、`diarizen`、`wespeaker`（运行时没有代码加载，是导出工具的源模型）、`moss-transcribe-diarize`（本地 MOSS，当前不注册）。
 
 ### 1.2 怎么跑
 
@@ -21,22 +21,19 @@ D:\Envir\Python312\python scripts/build_layers.py build                 # 三层
 D:\Envir\Python312\python scripts/build_layers.py build --layer python  # 只建一层（可重复）
 D:\Envir\Python312\python scripts/build_layers.py build --clean         # 先清空构建目录（含全部下载缓存）
 D:\Envir\Python312\python scripts/build_layers.py compare <第一次> <第二次>
-D:\Envir\Python312\python scripts/build_layers.py stage dist\layers --into "<目录>"   # 解压三层，搭出 --real 用的安装根
 D:\Envir\Python312\python scripts/quality_gate.py --only layers --layers dist\layers
 ```
 
-用层跑 `--real`（WP-E1 完成标准；harness 不进沙箱）：`stage` 把三层解到 `<目录>\layers\<层>\<版本>\` 并逐文件核对，再搭出 `<目录>\install\`：`models` 是指向模型层的目录联接，`runtime\<工具>\<版本>` 是指向工具层里该工具目录的联接，旁边写 `current.json`。它打印三个变量，设上后照常跑：
+用已安装好的三层运行质量闸门 `--real`（含 `layers/<层>/<版本>` 及 `current.json` 的大文件根，加按 `bootstrap-requirements.py312.txt` 构建的 Python 3.12 启动器）：
 
 ```text
-set NONOKA_QUALITY_PYTHON=<目录>\layers\python\<版本>\python.exe
-set NONOKA_QUALITY_INSTALL_DIR=<目录>\install
-set NONOKA_QUALITY_DATA_DIR=<目录>\data
+set NONOKA_QUALITY_LAUNCHER_PYTHON=<启动器目录>\launcher\Scripts\python.exe
+set NONOKA_QUALITY_INSTALL_DIR=<运行环境目录>
+set NONOKA_QUALITY_DATA_DIR=<数据目录>
 D:\Envir\Python312\python scripts/quality_gate.py --real
 ```
 
-（`tests/quality_harness/real.py` 在 2026-11-12 修过一处：清环境之前先读安装位置，否则后两个变量到不了 worker。）跑完可以用 `--layers <目录>\layers\<层>\<版本>` 原地核对层有没有被写入。
-
-> **现状（2026-11-19 核对，未改代码）**：上面这套做法是 WP-E3 之前写的，与现在的 harness 对不上。WP-P1 起 `NONOKA_QUALITY_PYTHON` 不再生效，设了它 `--real` 会直接拒跑（转写解释器由 worker 从 Python 环境层取，纠错与知识库进程的启动器用 `NONOKA_QUALITY_LAUNCHER_PYTHON` 指定）；`NONOKA_QUALITY_INSTALL_DIR` 现在指的是含 `layers\`（各层旁边要有 `current.json`）的大文件根，而 `stage` 搭的 `install\` 仍是 WP-E3 之前的「`models` 联接 + `runtime\<工具>\<版本>`」形状，层版本还要对得上 `layers.json`（或用 `NONOKA_QUALITY_LAYERS_INDEX` 指定另一份）。`stage` 改好之前，用本机已装好层的数据目录跑 `--real`（`real.locate_runtime` 的找法）。
+（`NONOKA_QUALITY_PYTHON` 已废弃；如需针对非默认索引校验，可设置 `NONOKA_QUALITY_LAYERS_INDEX`。）跑完可以用 `--only layers --layers <运行环境目录>\layers\<层>\<版本>` 原地核对层是否未被写入。
 
 - 构建目录默认是**主检出**的 `.tmp\layer-build\`（在 worktree 里跑也一样，worktree 会被清理，大文件不放那里），产出默认在主检出的 `dist\layers\<层>\<版本>\`。两者都被 git 忽略。`--build-dir`、`--out-dir` 可以改。
 - 只用本机已有的：系统 Python（跑脚本本身，要 httpx）和 Windows 自带的 `C:\Windows\System32\tar.exe`（bsdtar，带 zstd）。uv 按工具清单下载、校验后只在构建目录里用。
@@ -218,7 +215,7 @@ D:\Envir\Python312\python scripts/publish_layers.py ratelimit --direct
 - **上传幂等、绝不覆盖**：先 HEAD；已存在且大小和 `x-amz-meta-sha256` 都对得上就跳过；名字被占用但内容不同（或没有记录 sha256）就停下报错，不动它。写入一律带 `If-None-Match: *`，所以 HEAD 与写入之间被别人抢先也不会覆盖。64 MiB 以上分片上传（每片 64 MiB），每个请求都带载荷的 sha256 由 R2 校验，整对象的 sha256 在完成上传前再核一遍，对不上就放弃这次分片上传。传完再 HEAD 一次确认。中途被杀留下的未完成分片上传，R2 默认 7 天后自动清掉。
 - 上传走 R2 的 S3 接口 `https://<账号 ID>.r2.cloudflarestorage.com`，不经自定义域名；默认按 Nonoka 的网络线路选代理或直连，也可以 `--proxy`/`--direct` 指定。
 - **gzip**：客户端声明接受 gzip 时，R2（S3 接口和自定义域名都是）会把 JSON 对象压缩后发出，回包没有 `Content-Length`；带 `Range` 的请求则拿到原始字节。脚本发给 R2 的请求一律带 `Accept-Encoding: identity`（2026-11-13 第一次真实上传就因为 HEAD 读不到长度停过一次）。层管理器下载清单时也应带 `Accept-Encoding: identity`，大小核对和断点续传才可靠。
-- **外网校验**（发版约束，附录 B 第 14 问）：`verify` 从 `layers.json` 的 `baseUrl` 下载全部对象，用 Nonoka 自己的下载器按大小和 sha256 校验，核对清单的版本，把压缩包解开、核对它带的清单与下载的清单同字节、逐文件比 sha256（`files.layers` 列了层时再逐个下载它的单文件校验）。经代理和不经代理各跑一次。每次下载约 5.7 GiB；临时目录默认是主检出的 `.tmp\layer-verify\`，一层一层解开核对、核完就删，最多同时占约 8 GiB（Python 层的压缩包加解开的 5.3 GiB），`--keep` 全部保留。
+- **外网校验**（发版前必做）：`verify` 从 `layers.json` 的 `baseUrl` 下载全部对象，用 Nonoka 自己的下载器按大小和 sha256 校验，核对清单的版本，把压缩包解开、核对它带的清单与下载的清单同字节、逐文件比 sha256（`files.layers` 列了层时再逐个下载它的单文件校验）。经代理和不经代理各跑一次。每次下载约 5.7 GiB；临时目录默认是主检出的 `.tmp\layer-verify\`，一层一层解开核对、核完就删，最多同时占约 8 GiB（Python 层的压缩包加解开的 5.3 GiB），`--keep` 全部保留。
 - 桶里已经有的对象不会因为重新跑 `index` 而改变：内容不变，名字就不变。
 
 ### 2.4 验证速率限制
@@ -231,7 +228,7 @@ D:\Envir\Python312\python scripts/publish_layers.py ratelimit --direct
 
 ### 2.5 旧版本
 
-不自动删（用户 2026-11-13，附录 B 第 60 问）。`unreferenced` 列出桶里没被任何已发布版本引用的对象和各自大小：已发布版本 = 每个 `v*` 标签上的 `src/nonoka_x/resources/layers.json`，加上当前工作区这份（用户 2026-11-13 定）；按文件托管的层（现在没有）的单文件，是否被引用按这些 `layers.json` 指向的清单算。脚本没有删除命令；要删哪些，由用户确认后单独执行（R2 面板里删，或另写一次性的命令，删除本身不收费）。
+不自动删。`unreferenced` 列出桶里没被任何已发布版本引用的对象和各自大小：已发布版本 = 每个 `v*` 标签上的 `src/nonoka_x/resources/layers.json`，加上当前工作区这份；按文件托管的层（当前没有）的单文件，是否被引用按这些 `layers.json` 指向的清单算。脚本没有删除命令；要删哪些，由维护者确认后单独执行（R2 面板里删，或另写一次性的命令，删除本身不收费）。
 
 ```text
 D:\Envir\Python312\python scripts/publish_layers.py unreferenced
@@ -250,8 +247,8 @@ R2 的价格（2026-11-13 查 <https://developers.cloudflare.com/r2/pricing/>）
 ```
 
 - **存储**：一整套层 5.73 GiB ≈ 6.15 GB，在免费额度内，$0/月。再多保留一整套旧版本共约 12.3 GB，超出约 2.3 GB，约 $0.035/月；之后每多一整套约 $0.09/月。只换一层时按那一层算（Python 层 2.5 GiB）。
-- **每个新用户**：下载 3 份清单 + 3 个压缩包 ≈ **5.73 GiB**（计划里说的约 5.8 GiB），流量免费；请求是 6 次 GET，加上断点续传时每续一次多 1 次，按 10 次算。即使每月 1 万个新用户也只有约 10 万次 B 类操作，在免费额度内。
-- **迁移补齐**：模型文件不在 R2 上单独托管，迁移时按文件补齐不产生 R2 的请求（怎么补由 WP-E3 / 计划另定）。
+- **每个新用户**：下载 3 份清单 + 3 个压缩包 ≈ **5.73 GiB**，流量免费；请求是 6 次 GET，加上断点续传时每续一次多 1 次，按 10 次算。即使每月 1 万个新用户也只有约 10 万次 B 类操作，在免费额度内。
+- **迁移补齐**：模型文件不在 R2 上单独托管，迁移时缺失模型改为下载整层模型包。
 - **一次发布**：A 类约 100 次（3 次 PUT 清单 + 3 个压缩包的分片上传：Python 40 片、模型 48 片、工具 4 片，各加创建与完成），B 类十几次 HEAD；重复上传只有 6 次 HEAD。
 - **盗链的上限**：流量不要钱，能推高费用的只有请求次数。速率限制把每个 IP 压在 10 秒 50 次以内，一个 IP 持续打满一个月约 1300 万次 B 类操作（约 $1，超出免费额度的部分）；靠规则挡住突发、看用量发现持续的异常 IP（2.7），必要时再加规则封掉。
 

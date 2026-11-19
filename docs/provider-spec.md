@@ -143,7 +143,7 @@ interface ExecutionProvider {
 
 #### 4.1.1 转写引擎与纠错引擎（`transcription_engines`、`correction_engines`）
 
-> 转写引擎重构（`docs/transcription-engines-plan.md` 第 5.3 节）新增的两个字段；类型定义在 `nonoka_x.transcription`、`nonoka_x.correction`。尚未接入的 Provider 可以不提供，宿主此时视为只有默认的 `finesub` 一项。
+> 类型定义在 `nonoka_x.transcription`、`nonoka_x.correction`。尚未接入多引擎的 Provider 可以不提供，宿主此时视为只有默认的 `finesub` 一项。
 
 ```jsonc
 "transcription_engines": [
@@ -523,7 +523,7 @@ interface UploadedAudioSource {
 
 ### 7.2 `transcript.json`
 
-转写层交给纠错层的唯一必备产物，格式与规则见 `docs/transcription-engines-plan.md` 5.2（`schema`、`engine`、`language`、`duration`、`lines` 必填；行有 `id`、`start`、`end`、`text`，可选 `speaker`、`words`）。FineSub 转写引擎按 2026-11-11 的规则从 stable 投出：一段一行、**不带说话人**（它的说话人只经纠错包进 `correction.json`，WP-L 第 3 问）。
+转写层交给纠错层的唯一必备产物（`schema`、`engine`、`language`、`duration`、`lines` 必填；行有 `id`、`start`、`end`、`text`，可选 `speaker`、`words`，详见 [transcription-engines.md](transcription-engines.md) 2.4）。FineSub 转写引擎从 stable 投出：一段一行、**不带说话人**（它的说话人经纠错包进 `correction.json`）。
 
 ### 7.3 `correction.json`
 
@@ -642,7 +642,7 @@ interface UploadedAudioSource {
 
 | 方法 | 路径 | 说明 |
 | :--- | :--- | :--- |
-| `GET` / `POST` / `DELETE` | `/v1/runtime/provision` | 查询 / 安装 / 卸载运行时 |
+| `GET` / `POST` / `DELETE` | `/v1/runtime/provision[?layer=models]` | 查询 / 安装 / 卸载运行时；`DELETE` 带 `layer=models` 时仅删除 AI 模型层，保留默认基础层（`tools`、`python`） |
 | `POST` | `/v1/runtime/provision/cancel` | 取消安装 |
 | `GET` / `DELETE` | `/v1/runtime/provision/unused?engine=<id>[&layers=python,models]` | 「清理未使用的」：查询 / 执行。`engine` 是宿主当前的转写引擎。列出两种：没人用的层版本（既不是当前的、也不是这个版本要的，`reason: "old-version"`），执行时默认就删；当前引擎、纠错包与媒体探测（工具层）都用不到的层（整层，`reason: "unneeded"`），只有在 `layers` 里点名（用户勾选）时才删，点名了不在列的层回 409。查询回报 `{engine, engine_available, needed, busy, items: [{layer, name, path, bytes, reason, blocked}], bytes, layer_bytes, blocked_bytes}`（`bytes` 是默认清理腾出的空间，`layer_bytes` 是可整层删的层合计）；未结束的任务可能用到的层不删（`blocked` 写明原因，旧版本在有任何未结束任务时都不删）。执行时按当时的状态重新算，回报 `{removed, kept, freed}` 及同样的头部；安装在跑时拒绝。不带 `engine` 或引擎不在本 Provider 上时只列旧版本 |
 | `GET` / `DELETE` | `/v1/runtime/cache` | 统计 / 清空缓存：未装完的层压缩包与转写引擎的编译缓存 |

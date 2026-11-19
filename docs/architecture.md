@@ -88,7 +88,7 @@ FineSub 按固定的上游 commit（`UPSTREAM.json`）分装成三个包，代�
 - **层管理器** `src/nonoka_x/runtime/`：按 `resources/layers.json` 从 R2（`https://layers.nonoka.online/`）下载各层的 `tar.zst` 与逐文件清单，校验、解压、切换 `current.json`、修复、清理。层的版本号取自它清单的哈希；就绪 = 当前版本目录与清单相符。构建与发布见 [预制环境层手册](runtime-layers.md)。
 - **各引擎要什么**由 `EngineSpec.environment` / `PACKAGE.json` 声明：FineSub 转写要三层；云 API 引擎只要工具层；FineSub 纠错与知识库不要层（跑在启动器里），只用工具层里的 ffmpeg、ffprobe、tokcount。
 - **密闭运行**：包进程的环境从零构建，每个变量要么是按名带的系统必需项、要么由 Nonoka 无条件写入，其余一律不存在；解释器以 `-I` 启动。机器上的外部环境变量（代理、HF 镜像、`CUDA_VISIBLE_DEVICES`、线程数……）和外部配置文件不再影响引擎，外部的东西要生效只能先成为 Nonoka 的设置。
-- **转写进程的沙箱**：用户目录与临时目录指向 `engines/finesub-transcribe/sandbox/`（`home/` 跨运行共用，`temp/<进程>/` 每进程一份、结束即删），当前目录是任务目录，模型离线加载（`HF_HUB_OFFLINE=1`）。纠错与知识库进程不进沙箱，用真实的用户目录（本地 Agent CLI 要自己的登录状态）。启动细节见 [engine.md](engine.md) 2.1a，管不到的边界见计划 `transcription-engines-plan.md` 4.5 第 31 条。
+- **转写进程的沙箱**：用户目录与临时目录指向 `engines/finesub-transcribe/sandbox/`（`home/` 跨运行共用，`temp/<进程>/` 每进程一份、结束即删），当前目录是任务目录，模型离线加载（`HF_HUB_OFFLINE=1`）。纠错与知识库进程不进沙箱，用真实的用户目录（本地 Agent CLI 要自己的登录状态）。启动细节见 [engine.md](engine.md) 2.1a（受进程级沙箱约束，OS 级全局缓存与显卡驱动行为除外）。
 - **桌面端关闭全部编译加速**：人声分离与 qwen 裁判都走 eager，结果不随机器与编译器变化，代价是更慢。
 
 ### 2.4 Local Provider（本地执行）
@@ -110,7 +110,7 @@ FineSub 按固定的上游 commit（`UPSTREAM.json`）分装成三个包，代�
 - 具备任务状态持久化、容器抢占自动恢复、断点续跑与产物下载能力。
 
 ### 2.6 Artifact Projector（产物投影层）
-Projector 是连接算法与编辑器的防腐层。自 WP-L 起它**只读 Nonoka 的格式**，不解析任何引擎的私有文件：
+Projector 是连接算法与编辑器的防腐层，**只读 Nonoka 的格式**，不解析任何引擎的私有文件：
 
 ```text
 correction.json   -> 纠错引擎的结果：每行起止、原文、译文、说话人、低置信、词级时间
@@ -381,7 +381,7 @@ FineSub 产物到这些项的对应（final SRT 的时间、annotated 表的纠�
 - `artifacts.json`：投影所用任务的产物清单（路径与哈希；云端媒体库同步读它）。
 - `axis.json`：用户导入的已有轴（若有），见 4.4。
 
-数据目录里有两个会长到几十 GB 的目录，可以在「设置 → 磁盘占用与位置」整体搬到别的盘：
+数据目录里有两个会长到几十 GB 的目录，分别在「设置 → 运行环境」与「设置 → 存储与网络」中支持整体搬到别的盘：
 
 | 目录 | 默认位置 | 内容 |
 | :--- | :--- | :--- |
@@ -395,7 +395,7 @@ FineSub 产物到这些项的对应（final SRT 的时间、annotated 表的纠�
 - 失败或取消都不删已复制的部分，也不动原目录——只有目标完整落盘后才删源。
 - 同盘迁移走 rename。Windows 上目录里只要还有打开的句柄（刚写完的 exe/dll 正被杀软扫描），rename 就会报 `Access is denied`，因此 rename 与删源都带退避重试；跨盘的 `ERROR_NOT_SAME_DEVICE` 不可重试，直接转复制路径。
 - 工程文档、字幕、样式、偏好这类小文件始终留在数据目录，不随迁移移动。
-- **安装前就问一次**：运行环境还没装（大文件根小于 64 MB）且用户没自己选过位置时，「运行环境」页会在下载开始前挂出一张位置卡，写明约需 14 GB（三层装好约 10 GB，装模型层时压缩包与解压目录同时在盘上，峰值约 13 GB）与所在盘剩余空间；点「一键准备全部」等大安装会先停在这张卡上确认。这时改位置不用复制任何文件，只是改一条记录——装完再搬就得跨盘挪十几 GB。所在盘装不下建议体量时卡片转为警告态，即使用户已经选过位置也会再问一次。判定逻辑集中在 `frontend/src/components/installLocation.ts`。
+- **首次启动位置确认**：首次打开应用且基础环境（工具层或 Python 环境层）尚未安装时，桌面端会自动引导至「设置 → 运行环境」并在安装前展示位置确认卡，提示下载体量与目标盘剩余空间。此时更换安装目录只需更新记录、无需复制大文件；确认后安装默认基础环境（工具层与 Python 环境层），AI 模型层则按需单独下载与删除（判定与界面逻辑见 `desktop/frontend/src/app/App.tsx` 与 `desktop/frontend/src/components/RuntimeSection.tsx`）。
 
 ASS 样式表**跟着视频走**，整段 `[V4+ Styles]` 原文存在 `document.json` 的 `styles` 字段里：
 - 于是在预览画面里直接拖字幕、改颜色只影响当前这个视频；样式也随文档一起进历史版本、
@@ -420,7 +420,7 @@ ASS 样式表**跟着视频走**，整段 `[V4+ Styles]` 原文存在 `document.
 
 几条约束：
 
-- **日文轴只跑纠错那一半**：识别那半条链整个用不上，所以不需要任何转写引擎，也不需要 Python 环境层与模型层；纠错包没装时由就绪检查拦下。云端自 WP-CL 起只做识别，日文轴没有要云端做的事，桌面在上传之前就拒绝（`desktop/internal/cloud/service.go`）。
+- **日文轴只跑纠错那一半**：识别那半条链整个用不上，所以不需要任何转写引擎，也不需要 Python 环境层与模型层；纠错包没装时由就绪检查拦下。云端只做识别，日文轴没有要云端做的事，桌面在上传之前就拒绝（`desktop/internal/cloud/service.go`）。
 - **FineSub 没有「按给定轴识别」这回事**：FineSub 的识别入口（`run_transcription`）全部参数里没有任何时间轴入口，而包里的算法文件是哈希钉死的。空轴因此不进引擎，改由 Projector 在投影阶段重排——这条路对本地与云端一视同仁，轴只记在本机 `documents/<video-id>/axis.json`，从不上传。
 - **重排的口径**：输出的行数恒等于轴的行数，每行带着轴自己的时间，识别不到内容的行留空交给用户填。词级时间戳是原始 ASR 的，因此只在**未经 LLM 纠错**时用来切分原文；纠错后的一行跨了几行轴时整句落在重叠最多的那一行，绝不在猜出来的位置切开。
 - **说话人优先来自轴**：ASS 一人一个 Style 是这套轴的实际约定，人标的比 diarization 准。读出 ≥ 2 位说话人时按人分轨，`Default` / `JP` / `CN` / `origin` 这类排版样式不算人，此时转写对话框不再提供说话人分离。轴没标说话人时（空轴），本次运行若开了说话人分离，每一行取落在它上面发言最多的那位说话人，再按说话人分轨。
@@ -445,9 +445,9 @@ ASS 样式表**跟着视频走**，整段 `[V4+ Styles]` 原文存在 `document.
 - **云端永远不存储客户端本地绝对路径**。
 
 ### 5.3 本地任务自动同步流程
-媒体库只存 Nonoka 的格式和字幕（WP-L，`docs/provider-spec.md` 7.5）：`transcript_json`、`correction_json`、`raw_srt`、`final_srt`。引擎自己的产物（FineSub 的 stable、annotated 表等）是任务目录里的私有附件，不上云。本地任务完成后，Go 后端自动触发同步：
+媒体库只存 Nonoka 的格式和字幕（`docs/provider-spec.md` 7.5）：`transcript_json`、`correction_json`、`raw_srt`、`final_srt`。引擎自己的产物（FineSub 的 stable、annotated 表等）是任务目录里的私有附件，不上云。本地任务完成后，Go 后端自动触发同步：
 1. 校验产物路径必须位于 Nonoka X `tasks/` 白名单内。
-2. 提取上面四个（总计限制 $\le 32\text{ MB}$）；必须有 `transcript_json` 或 `correction_json`，否则是 WP-L 之前的旧任务，提示先迁移。
+2. 提取上面四个（总计限制 $\le 32\text{ MB}$）；必须有 `transcript_json` 或 `correction_json`，否则为旧版格式任务，提示先迁移。
 3. 调用 `POST /v1/library/sync` 上传这些文本、引擎 commit 与媒体指纹。两种文档格式都不带的请求（旧桌面版）服务端回 `426` 并提示升级。
 4. 服务端按指纹更新对应记录，不上传音视频，不扣减配额。
 

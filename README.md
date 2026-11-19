@@ -186,7 +186,7 @@ Rename-Item .\hello-tool.zip hello-tool.nonoka-plugin
 - 选择视频清晰度、显示下载结果，并在完成后自动导入媒体库；
 - 使用 `tools.yt-dlp` 和 `media.import` 权限隔离高风险能力。
 
-运行 Demo 前，请先在 Nonoka Sub X“运行环境”页面安装 FFmpeg 和可选工具 yt-dlp。当前示例支持公开的 YouTube 视频、Twitch VOD 和 Twitch Clips，不读取浏览器 Cookie，也不支持需要登录的内容。
+运行 Demo 前，请先在 Nonoka Sub X「设置 → 运行环境」安装工具层（内置 FFmpeg、yt-dlp 等）。当前示例支持公开的 YouTube 视频、Twitch VOD 和 Twitch Clips，不读取浏览器 Cookie，也不支持需要登录的内容。
 
 ### 4. 引擎能力：LLM、阶段与中间产物
 
@@ -234,7 +234,7 @@ nonoka-x/
   - `documents/`：字幕工程、波形缓存与编辑版本历史（`document.json`、`history/` 等）。
   - `tasks/`：本地转写任务中间产物与日志。
   - `thumbs/`：媒体快照缩略图。
-  - `runtime/`：Windows 端由 `uv` 自动管理的隔离 Python 与模型环境。
+  - `runtime/`：预制运行环境层（`layers/tools`、`layers/python`、`layers/models`）与下载/编译缓存，可在「设置 → 运行环境」整体迁移至其他磁盘。
   - `config.json`：全局偏好设置与窗口状态。
   - `library.json`：本地媒体库与工程索引。
 
@@ -242,9 +242,11 @@ nonoka-x/
 
 ## 📚 进阶架构与规范
 
-- 🏗️ **[系统架构与契约规范](docs/architecture.md)**：深入了解 Provider 执行协议、EditDocument 投影规则、云端同步契约与后端 API。
+- 🏗️ **[系统架构与契约规范](docs/architecture.md)**：深入了解系统分层、引擎包与沙箱、EditDocument 投影规则、数据布局与云端同步契约。
+- 🎙️ **[转写引擎与纠错引擎](docs/transcription-engines.md)**：两层引擎契约、已注册引擎、FineSub 三个引擎包、密闭运行环境与新引擎接入指南。
 - 🔌 **[Nonoka Sub X Provider 接口规范](docs/provider-spec.md)**：自建执行后端的完整接口契约——数据模型、状态机、事件流、错误码、产物格式与一致性检查清单。
-- ⚙️ **[FineSub 引擎同步与构建规范](docs/engine.md)**：了解上游引擎同步白名单、补丁栈管理与 CTranslate2 构建规范。
+- ⚙️ **[FineSub 引擎集成、质量锁与上游对齐](docs/engine.md)**：质量红线、算法文件哈希锁、密闭启动规则、上游同步与 Patched CTranslate2 构建。
+- 📦 **[预制环境层构建与发布手册](docs/runtime-layers.md)**：三层预制运行环境（`tools` / `python` / `models`）的构建、R2 发布与外网校验。
 
 ---
 
