@@ -5,6 +5,16 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#faf9fe" />
     <title>Nonoka Sub X</title>
+    <style>
+      @font-face {
+        font-family: "NonokaBrandDisplay";
+        src: url("./fonts/JingNanBoBoHei.woff2") format("woff2");
+        font-weight: 400 900;
+        font-style: normal;
+        font-display: swap;
+        unicode-range: U+0041-005A, U+0061-007A;
+      }
+    </style>
   </head>
   <body class="light" data-file-drop-target>
     <script>
@@ -12,7 +22,7 @@
         const dark = new URLSearchParams(location.search).get("theme") === "dark";
         document.documentElement.classList.toggle("light", !dark);
         document.body.classList.toggle("light", !dark);
-        document.querySelector('meta[name="theme-color"]').content = dark ? "#0f111b" : "#faf9fe";
+        document.querySelector('meta[name="theme-color"]').content = dark ? "#11131e" : "#faf9fe";
       })();
     </script>
     <div id="root"></div>

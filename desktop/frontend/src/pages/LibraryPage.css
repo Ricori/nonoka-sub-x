@@ -59,12 +59,11 @@
 .library-view .media-card.menu-open .media-thumb { border-color: var(--accent-border); box-shadow: 0 12px 28px rgba(0, 0, 0, .40), 0 0 0 2px var(--accent-dim); transform: translateY(-2px); }
 .library-view .media-card.missing-media .media-thumb { border-color: color-mix(in srgb, var(--warn) 38%, var(--line-soft)); }
 .library-view .media-thumb::after { content: ""; position: absolute; inset: 0; pointer-events: none; background: linear-gradient(180deg, rgba(7, 10, 18, .10), transparent 36%, rgba(7, 10, 18, .28)); }
-.library-view .media-thumb img { width: 100%; height: 100%; object-fit: cover; transition: scale .24s ease; }
-.library-view .media-card:hover .media-thumb img { scale: 1.03; }
+.library-view .media-thumb img { width: 100%; height: 100%; object-fit: cover; filter: brightness(.93); transition: scale .24s ease, filter var(--ease); }
+.library-view .media-card:hover .media-thumb img { scale: 1.03; filter: brightness(1); }
 .media-placeholder { font-size: 26px; opacity: .68; }
 .media-placeholder-svg { position: relative; z-index: 1; width: 28px; height: 28px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; opacity: .72; }
 .cloud-thumb { background: linear-gradient(145deg, color-mix(in srgb, var(--info) 17%, var(--panel)), color-mix(in srgb, var(--bg) 88%, var(--raised))); }
-.cloud-thumb > span { z-index: 1; font-size: 27px; }
 
 /* 刚导入未处理的视频：灰色蒙版，点击后直接打开开始任务弹窗 */
 .media-unprocessed-mask { position: absolute; inset: 0; z-index: 2; display: grid; place-items: center; background: rgba(24, 24, 34, .54); backdrop-filter: grayscale(55%) blur(1px); transition: background var(--ease); }
@@ -73,7 +72,8 @@
 .library-view .media-card:hover .media-unprocessed-pill { border-color: var(--accent-border); background: var(--accent); color: var(--on-accent); transform: scale(1.03); }
 
 /* 左上角语义角标（处理中 / 仅云端 / 异常状态） */
-.state-badge { position: absolute; z-index: 3; left: 8px; top: 8px; display: inline-flex; align-items: center; gap: 4px; height: 21px; border: 1px solid rgba(255, 255, 255, .14); border-radius: var(--r-sm); padding: 0 7px; background: rgba(18, 20, 32, .74); color: #f3f5fb; font-size: var(--fs-xs); font-weight: var(--fw-semibold); line-height: 1; box-shadow: 0 2px 8px rgba(0, 0, 0, .18); backdrop-filter: blur(7px); pointer-events: none; }
+.library-view .media-thumb > .state-badge,
+.state-badge { position: absolute; z-index: 3; left: 8px; top: 8px; display: inline-flex; align-items: center; gap: 4px; height: 21px; border: 1px solid rgba(255, 255, 255, .14); border-radius: var(--r-sm); padding: 0 7px; background: rgba(18, 20, 32, .74); color: #f3f5fb; font-size: var(--fs-xs); font-weight: var(--fw-semibold); line-height: 1; opacity: 1; box-shadow: 0 2px 8px rgba(0, 0, 0, .18); backdrop-filter: blur(7px); pointer-events: none; }
 .state-badge-icon { flex: none; width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; }
 .state-badge.running { border-color: color-mix(in srgb, var(--accent-pink) 42%, transparent); background: color-mix(in srgb, #3a2036 86%, transparent); color: #ffcfe0; }
 .state-badge.cloud { border-color: rgba(206, 198, 255, .26); background: rgba(24, 24, 46, .72); color: #eae5ff; }
@@ -82,7 +82,8 @@
 @keyframes state-badge-breathe { 50% { opacity: .28; scale: .68; } }
 
 /* 左下角时长胶囊：避开右下角悬停菜单按钮，亮暗封面均可读 */
-.media-duration { position: absolute; z-index: 3; left: 8px; bottom: 8px; display: inline-flex; align-items: center; height: 20px; border: 1px solid rgba(255, 255, 255, .10); border-radius: 6px; padding: 0 6px; background: rgba(14, 15, 24, .72); color: #f4f5fb; font-size: 11px; font-weight: var(--fw-semibold); font-variant-numeric: tabular-nums; line-height: 1; backdrop-filter: blur(6px); pointer-events: none; }
+.library-view .media-thumb > .media-duration,
+.media-duration { position: absolute; z-index: 3; left: 8px; bottom: 8px; display: inline-flex; align-items: center; height: 20px; border: 1px solid rgba(255, 255, 255, .10); border-radius: 6px; padding: 0 6px; background: rgba(14, 15, 24, .72); color: #f4f5fb; font-size: 11px; font-weight: var(--fw-semibold); font-variant-numeric: tabular-nums; line-height: 1; opacity: 1; backdrop-filter: blur(6px); pointer-events: none; }
 .card-progress { position: absolute; z-index: 3; left: 0; bottom: 0; height: 3px; border-radius: 0 99px 99px 0; background: var(--grad); transition: width .3s ease; }
 
 /* 右下角悬停三点按钮（参考 CapCut） */
@@ -116,7 +117,6 @@
 .list-view .media-row:hover .media-thumb { box-shadow: none; transform: none; }
 .list-view .media-row .media-placeholder { font-size: 14px; }
 .list-view .media-row .media-placeholder-svg { width: 16px; height: 16px; }
-.list-view .media-row .cloud-thumb > span { font-size: 16px; }
 .list-view .media-row-title { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .list-view .media-row-title strong { overflow: hidden; color: var(--text); font-size: var(--fs-md); font-weight: var(--fw-semibold); text-overflow: ellipsis; white-space: nowrap; }
 .list-view .media-col { overflow: hidden; color: var(--mut); font-size: var(--fs-sm); font-variant-numeric: tabular-nums; text-align: right; text-overflow: ellipsis; white-space: nowrap; }
@@ -141,6 +141,7 @@ body.light .library-view .media-card { background: transparent; box-shadow: none
 body.light .library-view .media-card:hover .media-thumb,
 body.light .library-view .media-card.menu-open .media-thumb { box-shadow: 0 10px 24px rgba(79, 62, 103, .16), 0 0 0 2px var(--accent-dim); }
 body.light .library-view .media-thumb { background: linear-gradient(145deg, #eee9f6, #faf9fe); }
+body.light .library-view .media-thumb img { filter: none; }
 body.light .library-view .media-thumb::after { background: linear-gradient(180deg, rgba(42, 34, 58, .05), transparent 38%, rgba(42, 34, 58, .18)); }
 body.light .cloud-thumb { background: linear-gradient(145deg, #eee7f6, #fff6fa); color: var(--info); }
 body.light .list-view .media-row:hover,

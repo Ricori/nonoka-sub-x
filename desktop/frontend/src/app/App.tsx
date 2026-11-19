@@ -128,7 +128,6 @@ export default function App() {
   const [activePluginTool, setActivePluginTool] = useState<{ pluginId: string; toolId: string } | null>(null);
   const [pluginBusy, setPluginBusy] = useState("");
   const [pluginMessage, setPluginMessage] = useState("");
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [theme, setTheme] = useState<Theme>(initialTheme);
   const [libraryFilter, setLibraryFilter] = useState<LibraryFilter>("all");
   const [sortMode, setSortMode] = useState<SortMode>("recent");
@@ -322,7 +321,6 @@ export default function App() {
   useEffect(() => {
     void desktopPreferences.get().then((value) => {
       setTheme(value.homeTheme === "dark" ? "dark" : "light");
-      setSidebarCollapsed(value.sidebarCollapsed);
       setViewMode(value.libraryView === "list" ? "list" : "grid");
       if (value.transcriptionEngine) setTranscriptionEngine(value.transcriptionEngine);
       setOnboardingCompletedPref(Boolean(value.onboardingCompleted));
@@ -345,10 +343,6 @@ export default function App() {
     applyTheme(theme);
     if (preferencesHydrated.current) void desktopPreferences.save({ homeTheme: theme }).catch(() => undefined);
   }, [theme]);
-
-  useEffect(() => {
-    if (preferencesHydrated.current) void desktopPreferences.save({ sidebarCollapsed }).catch(() => undefined);
-  }, [sidebarCollapsed]);
 
   useEffect(() => {
     if (preferencesHydrated.current) void desktopPreferences.save({ libraryView: viewMode }).catch(() => undefined);
@@ -1972,18 +1966,12 @@ export default function App() {
     missing: media.filter((entry) => !entry.available).length,
   };
   return (
-    <div className={`app-shell ${sidebarCollapsed ? "sidebar-collapsed" : ""}`} data-file-drop-target>
+    <div className="app-shell" data-file-drop-target>
       <WindowDropOverlay onFilesDropped={handleDroppedFiles} />
       <UpdateOverlay update={selfUpdate} />
       <aside className="sidebar">
         <div className="brand">
-          <img className="brand-glyph" src="./assets/icon.png" alt="Nonoka Sub X" draggable={false} />
-          <span className="brand-name">Nonoka Sub X</span>
-          <button className="sidebar-collapse" type="button" aria-label={sidebarCollapsed ? "展开侧边栏" : "折叠侧边栏"} title={sidebarCollapsed ? "展开侧边栏" : "折叠侧边栏"} onClick={() => setSidebarCollapsed((value) => !value)}>
-            <svg viewBox="0 0 16 16" aria-hidden="true">
-              {sidebarCollapsed ? <path d="M6.2 3.8 10.4 8l-4.2 4.2" /> : <path d="M9.8 3.8 5.6 8l4.2 4.2" />}
-            </svg>
-          </button>
+          <span className="brand-wordmark">Nonoka Sub</span>
         </div>
         <span className="nav-label">工作区</span>
         <nav aria-label="主导航">

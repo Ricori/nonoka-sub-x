@@ -105,10 +105,11 @@ tasks:
       - go run ./build/tools/stage -repository .. -output internal/app/bundled/nonoka_x -python "{{.STAGE_PYTHON}}"
 
   generate:icons:
-    summary: Generates PNG, ICNS, and ICO icons from the Nonoka X mascot
+    summary: Generates PNG, ICNS, and ICO icons for Nonoka Sub X
     run: once
     sources:
       - build/icon-source.png
+      - build/appicon-source.png
       - build/tools/icon/main.go
     generates:
       - frontend/public/assets/icon.png
@@ -117,7 +118,7 @@ tasks:
       - build/windows/icon.ico
     cmds:
       - go run ./build/tools/icon -input build/icon-source.png -output frontend/public/assets/icon.png
-      - '{{.WAILS}} tool cp frontend/public/assets/icon.png build/appicon.png'
+      - go run ./build/tools/icon -input build/appicon-source.png -output build/appicon.png
       - '{{.WAILS}} generate icons -input build/appicon.png -macfilename build/darwin/icons.icns -windowsfilename build/windows/icon.ico'
 
   update:build-assets:

@@ -143,3 +143,22 @@ func TestSavedMaximisedEditorStateIsRestored(t *testing.T) {
 		t.Fatalf("normal size = %dx%d, want %dx%d", options.Width, options.Height, want.Width, want.Height)
 	}
 }
+
+func TestSavedHomeBoundsAreClampedToMaxWidth(t *testing.T) {
+	store, err := preferences.New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetWindowBounds("home", preferences.WindowBounds{X: 40, Y: 40, Width: 1800, Height: 900}); err != nil {
+		t.Fatal(err)
+	}
+
+	options := applyWindowOptions(store, "home", application.WebviewWindowOptions{
+		MinWidth:  1020,
+		MaxWidth:  1418,
+		MinHeight: 620,
+	})
+	if options.Width != 1418 || options.Height != 900 {
+		t.Fatalf("clamped size = %dx%d, want 1418x900", options.Width, options.Height)
+	}
+}

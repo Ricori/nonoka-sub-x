@@ -10,7 +10,7 @@
 
 body {
   margin: 0;
-  min-width: 960px;
+  min-width: 1020px;
   min-height: 620px;
   background: radial-gradient(circle at 78% -20%, #183756 0, transparent 42%), #08101a;
 }
@@ -420,7 +420,7 @@ body.light .mascot {
   object-fit: cover;
 }
 
-.media-thumb>span {
+.media-thumb>.media-placeholder {
   font-size: 26px;
   opacity: .8;
 }
@@ -1418,32 +1418,32 @@ dd {
 /* Home window v3: soft anime-media palette shared by the desktop surfaces. */
 :root {
   color-scheme: dark;
-  --bg: #0f111b;
-  --panel: #191c2d;
-  --raised: #252a42;
-  --line: #363c59;
-  --line-soft: #2b3048;
-  --text: #f5f2fb;
-  --mut: #aeaac6;
-  --faint: #8b86a8;
-  --accent: #9caef7;
-  --accent2: #f2ce75;
-  --accent-pink: #f19ab7;
-  --info: #b59ff4;
-  --accent-dim: rgba(156, 174, 247, .13);
-  --accent-line: rgba(156, 174, 247, .36);
-  --accent-border: rgba(156, 174, 247, .50);
+  --bg: #11131e;
+  --panel: #191c2b;
+  --raised: #24283e;
+  --line: #343a54;
+  --line-soft: #292e45;
+  --text: #e6e3f0;
+  --mut: #a7a3be;
+  --faint: #8480a0;
+  --accent: #98a8ee;
+  --accent2: #e6c473;
+  --accent-pink: #df92b0;
+  --info: #ad9ae8;
+  --accent-dim: rgba(152, 168, 238, .12);
+  --accent-line: rgba(152, 168, 238, .32);
+  --accent-border: rgba(152, 168, 238, .48);
   /* 单一强调渐变：紫→粉。凡是铺 --grad 的地方都用 --on-grad 写字，
-     两个主题下都必须过 4.5:1，所以亮色不能只是把暗色渐变原样调亮。 */
-  --grad: linear-gradient(120deg, #9caef7, #d8afe8);
-  --on-grad: #1b2140;
-  --glow: rgba(241, 154, 183, .22);
-  --ok: #70dcc2;
-  --warn: #f08fae;
+     两个主题下都必须过 4.5:1，暗色用沉稳深鸢尾紫避免大片高亮度刺眼。 */
+  --grad: linear-gradient(120deg, #6453c2, #8650b8);
+  --on-grad: #f4f2fc;
+  --glow: rgba(116, 92, 206, .20);
+  --ok: #68cbb3;
+  --warn: #e289a7;
   --page-bg:
-    radial-gradient(620px 350px at 8% 112%, rgba(156, 174, 247, .11), transparent 70%),
-    radial-gradient(680px 380px at 94% 116%, rgba(241, 154, 183, .08), transparent 70%),
-    radial-gradient(720px 300px at 54% -18%, rgba(181, 159, 244, .06), transparent 72%),
+    radial-gradient(620px 350px at 8% 112%, rgba(124, 140, 224, .08), transparent 70%),
+    radial-gradient(680px 380px at 94% 116%, rgba(210, 126, 168, .06), transparent 70%),
+    radial-gradient(720px 300px at 54% -18%, rgba(152, 132, 220, .05), transparent 72%),
     var(--bg);
   color: var(--text);
   background: var(--bg);
@@ -1704,19 +1704,14 @@ body.light .titlebar-theme-button:active {
 
 .app-shell {
   min-height: 100vh;
-  grid-template-columns: 226px minmax(0, 1fr);
+  grid-template-columns: 204px minmax(0, 1fr);
   background: var(--page-bg);
-  transition: grid-template-columns .18s ease;
-}
-
-.app-shell.sidebar-collapsed {
-  grid-template-columns: 76px minmax(0, 1fr);
 }
 
 .sidebar {
   z-index: 5;
   height: 100vh;
-  padding: 16px 13px 14px;
+  padding: 16px 11px 14px;
   border-color: var(--line-soft);
   background:
     radial-gradient(220px 180px at 12% -3%, color-mix(in srgb, var(--accent) 11%, transparent), transparent 72%),
@@ -1726,11 +1721,34 @@ body.light .titlebar-theme-button:active {
 
 .brand {
   height: 40px;
-  gap: 10px;
-  padding: 0 7px;
-  font-size: 15px;
+  gap: 8px;
+  padding: 0 10px;
   -webkit-app-region: drag;
   --wails-draggable: drag;
+  --brand-grad: linear-gradient(120deg, #b6c0ed 0%, #a29ce2 52%, #cb9cb9 100%);
+}
+
+body.light .brand {
+  --brand-grad: linear-gradient(122deg, #4b369c 0%, #7152d8 48%, #c04d94 100%);
+}
+
+.brand-wordmark {
+  display: inline-block;
+  font-family: "NonokaBrandDisplay", "Segoe UI Variable Display", "SF Pro Rounded", "Segoe UI", sans-serif;
+  font-size: 22px;
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: -.015em;
+  white-space: nowrap;
+  user-select: none;
+  background: var(--brand-grad);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+body.light .brand-wordmark {
+  filter: drop-shadow(0 1px 0 rgba(255, 255, 255, .75));
 }
 
 .brand-glyph {
@@ -1747,38 +1765,8 @@ body.light .titlebar-theme-button:active {
 .brand-name {
   min-width: 0;
   overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.sidebar-collapse {
-  display: grid;
-  place-items: center;
-  width: 26px;
-  height: 26px;
-  margin-left: auto;
-  border: 0;
-  border-radius: 7px;
-  background: transparent;
-  color: var(--faint);
-  cursor: pointer;
-  transition: background .14s ease, color .14s ease;
-  -webkit-app-region: no-drag;
-  --wails-draggable: no-drag;
-}
-
-.sidebar-collapse svg {
-  width: 14px;
-  height: 14px;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.8;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
-
-.sidebar-collapse:hover {
-  color: var(--text);
-  background: var(--raised);
 }
 
 .nav-label {
@@ -1813,8 +1801,8 @@ body.light .titlebar-theme-button:active {
 .sidebar nav button {
   position: relative;
   height: 38px;
-  gap: 11px;
-  padding: 0 11px;
+  gap: 10px;
+  padding: 0 10px;
   color: var(--mut);
   transition: background .14s ease, color .14s ease, box-shadow .14s ease;
 }
@@ -1976,50 +1964,6 @@ body.light .sidebar-provider-action:hover {
   to {
     rotate: 360deg;
   }
-}
-
-.sidebar-collapsed .brand {
-  justify-content: center;
-  padding: 0;
-}
-
-.sidebar-collapsed .brand-name,
-.sidebar-collapsed .brand-sparkle,
-.sidebar-collapsed .nav-label,
-.sidebar-collapsed .nav-text,
-.sidebar-collapsed .nav-count,
-.sidebar-collapsed .sidebar-provider-status div,
-.sidebar-collapsed .sidebar-provider-chevron {
-  display: none;
-}
-
-.sidebar-collapsed .sidebar-collapse {
-  position: absolute;
-  top: 56px;
-  left: 50%;
-  margin: 0;
-  translate: -50% 0;
-  background: var(--raised);
-}
-
-.sidebar-collapsed .sidebar nav:first-of-type {
-  margin-top: 30px;
-}
-
-.sidebar-collapsed .sidebar nav button {
-  justify-content: center;
-  padding-inline: 0;
-}
-
-.sidebar-collapsed .sidebar-provider {
-  display: grid;
-  place-items: center;
-  border-color: transparent;
-  background: transparent;
-}
-
-.sidebar-collapsed .sidebar-provider-status {
-  padding: 10px;
 }
 
 .workspace {
@@ -2340,11 +2284,7 @@ dd {
 
 @media (max-width: 1050px) {
   .app-shell {
-    grid-template-columns: 196px minmax(0, 1fr);
-  }
-
-  .app-shell.sidebar-collapsed {
-    grid-template-columns: 76px minmax(0, 1fr);
+    grid-template-columns: 192px minmax(0, 1fr);
   }
 
   .workspace-scroll {

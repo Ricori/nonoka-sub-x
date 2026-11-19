@@ -21,7 +21,14 @@ func applyWindowOptions(store *preferences.Service, kind string, options applica
 	if !ok || !validWindowBounds(bounds, options.MinWidth, options.MinHeight) {
 		return options
 	}
-	options.Width, options.Height = bounds.Width, bounds.Height
+	width, height := bounds.Width, bounds.Height
+	if options.MaxWidth > 0 && width > options.MaxWidth {
+		width = options.MaxWidth
+	}
+	if options.MaxHeight > 0 && height > options.MaxHeight {
+		height = options.MaxHeight
+	}
+	options.Width, options.Height = width, height
 	options.X, options.Y = bounds.X, bounds.Y
 	options.InitialPosition = application.WindowXY
 	options.StartState = application.WindowStateNormal
