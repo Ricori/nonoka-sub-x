@@ -24,7 +24,16 @@ the `task-products` step:
    library's sync reads those) -- so every entry points at the file's new
    place, and adds `transcript_json` / `correction_json`. Each is backed up
    under `runtime-state\\migration-backup\\` first; the projected documents
-   themselves are left as they are.
+   themselves are left as they are;
+4. **rewrites an old cloud continuation's request** (`source.kind` =
+   `cloud_stable`, retired by WP-CL: a retry would refuse it) into the
+   `cloud_transcript` shape a continuation has now: the task's converted
+   `transcript.json` and the transcription package's stable (and speaker
+   timeline, if any) as the cloud's attachments. They are copied into
+   `<task>\\migration\\cloud-source\\`, never pointed at in place: a retry
+   copies the source into the task's own `transcript.json` and
+   `native\\finesub-transcribe\\`, and a file cannot be copied onto itself. A
+   task without a transcript keeps its old request; the report says so.
 
 A task that already has `native\\` is not merged into (it is listed and left).
 Every operation is repeatable, so a step killed anywhere runs again from the
@@ -66,6 +75,12 @@ CONVERTED_FILES = {TRANSCRIPT_ARTIFACT: "transcript.json", CORRECTION_ARTIFACT: 
 TRANSCRIPTION = "transcription"
 CORRECTION = "correction"
 BOTH = "both"
+
+REQUEST_NAME = "request.json"
+#: Where a rewritten cloud continuation's source is kept, inside the task (see 4. above).
+CLOUD_SOURCE_DIRECTORY = ("migration", "cloud-source")
+#: The report's name for a request that could not be rewritten.
+REQUEST_ARTIFACT = "request_json"
 
 Log = Callable[[str], None]
 
@@ -412,11 +427,24 @@ def file_task(task: Path, context: MigrationContext, tools: Converter, documents
     backups = backup_root(context)
     task_backup = backups / "tasks" / task.name / MANIFEST_NAME
     _backup(manifest, task_backup)
-    if not task_backup.is_file():
-        return record
-    original = _read(task_backup)
-    if not isinstance(original, Mapping):
-        return record
+    original = _read(task_backup) if task_backup.is_file() else None
+    if isinstance(original, Mapping):
+        _convert_and_repoint(task, original, record, context, tools, documents)
+    request = _rewrite_cloud_request(task, context)
+    if request is not None:
+        if request:
+            record.setdefault("refused", {})[REQUEST_ARTIFACT] = request
+        else:
+            record["request"] = legacy.CLOUD_SOURCE_KIND
+    return record
+
+
+def _convert_and_repoint(
+    task: Path, original: Mapping[str, Any], record: dict[str, Any], context: MigrationContext, tools: Converter,
+    documents: Mapping[str, list[Path]],
+) -> None:
+    manifest = task / MANIFEST_NAME
+    backups = backup_root(context)
     refused = _convert(task, original, tools, context.log)
     if refused:
         record["refused"] = refused
@@ -428,7 +456,59 @@ def file_task(task: Path, context: MigrationContext, tools: Converter, documents
         if backup.is_file():
             _write_json(document, repointed(_read(backup), task, converted))
     record["converted"] = sorted(name for name, path in converted.items() if path.is_file() and name not in (original.get("artifacts") or {}))
-    return record
+
+
+def _only(directory: Path, suffix: str) -> Path | None:
+    try:
+        found = sorted(entry for entry in directory.iterdir() if entry.is_file() and entry.name.endswith(suffix))
+    except OSError:
+        return None
+    return found[0] if len(found) == 1 else None
+
+
+def _rewrite_cloud_request(task: Path, context: MigrationContext) -> str | None:
+    """Rewrite an old cloud continuation's `request.json` (item 4 of the module's list). Repeatable.
+
+    Returns None when the task is no such continuation (or was rewritten
+    already), "" when it was rewritten, else why it could not be.
+    """
+
+    request_path = task / REQUEST_NAME
+    backup = backup_root(context) / "tasks" / task.name / REQUEST_NAME
+    try:
+        request = _read(backup if backup.is_file() else request_path)
+    except (OSError, ValueError):
+        return None
+    source = request.get("source") if isinstance(request, Mapping) else None
+    if not isinstance(source, Mapping) or source.get("kind") != legacy.OLD_CLOUD_SOURCE_KIND:
+        return None
+    transcript = task / CONVERTED_FILES[TRANSCRIPT_ARTIFACT]
+    transcription = native_dirs(task)[TRANSCRIPTION]
+    stable = _only(transcription, legacy.CLOUD_STABLE_ATTACHMENT[1])
+    if not transcript.is_file():
+        return "no transcript.json to continue from; a retry of this task is refused"
+    if stable is None:
+        return "no single stable among the transcription's files; a retry of this task is refused"
+    _backup(request_path, backup)
+    target = task.joinpath(*CLOUD_SOURCE_DIRECTORY)
+    native_dir = target / NATIVE_DIRECTORY_NAME
+    _copy_once(transcript, target / CONVERTED_FILES[TRANSCRIPT_ARTIFACT])
+    native = {legacy.CLOUD_STABLE_ATTACHMENT[0]: native_dir / legacy.CLOUD_STABLE_ATTACHMENT[0]}
+    _copy_once(stable, native[legacy.CLOUD_STABLE_ATTACHMENT[0]])
+    timeline = _only(transcription, legacy.CLOUD_TIMELINE_ATTACHMENT[1])
+    if timeline is not None:
+        native[legacy.CLOUD_TIMELINE_ATTACHMENT[0]] = native_dir / legacy.CLOUD_TIMELINE_ATTACHMENT[0]
+        _copy_once(timeline, native[legacy.CLOUD_TIMELINE_ATTACHMENT[0]])
+    rewritten = {key: value for key, value in source.items() if key not in legacy.OLD_CLOUD_SOURCE_FIELDS}
+    rewritten.update({
+        "kind": legacy.CLOUD_SOURCE_KIND,
+        "transcript_json": str(target / CONVERTED_FILES[TRANSCRIPT_ARTIFACT]),
+        "native": {key: str(path) for key, path in native.items()},
+        "native_package": legacy.TRANSCRIPTION_PACKAGE,
+    })
+    _write_json(request_path, {**request, "source": rewritten})
+    context.log(f"  {task.name}: the cloud continuation's request now carries the transcript")
+    return ""
 
 
 def file_tasks(actions: list[Any], context: MigrationContext) -> dict[str, Any]:
@@ -454,6 +534,15 @@ def undo_task(task: Path, context: MigrationContext, documents: Mapping[str, lis
     """Put one task back as it was before `file_task`. Repeatable."""
 
     backups = backup_root(context)
+    request_backup = backups / "tasks" / task.name / REQUEST_NAME
+    if request_backup.is_file():
+        _write_bytes(task / REQUEST_NAME, request_backup.read_bytes())
+        request_backup.unlink()
+    cloud_source = task.joinpath(*CLOUD_SOURCE_DIRECTORY)
+    if cloud_source.is_dir():
+        remove_tree(cloud_source)
+    if cloud_source.parent.is_dir() and not any(cloud_source.parent.iterdir()):
+        cloud_source.parent.rmdir()
     for document in documents.get(task.name, []):
         backup = backups / DOCUMENTS_DIRECTORY / document.parent.name / MANIFEST_NAME
         if backup.is_file():

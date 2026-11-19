@@ -18,13 +18,23 @@ downloads -- "delete first, download after", plan appendix B question 2):
 | `task-products` | WP-M2 | file each old task's `workspace\\` under `native\\<package>\\`, convert it to Nonoka's formats (`migration.tasks`) |
 | `old-environment` | WP-M1 | delete the old `runtime\\` (the venv, `python-builds\\`, the tools, whatever else is in it) |
 | `caches` | WP-M1 | delete the old `cache\\`, FineSub's compiled-kernel caches in staged engines and the checkout, and the moved models' `accel\\`, `xet\\`, `.locks\\` and `*.lock` |
-| `rebuildable` | WP-M1 | delete the store marker, the registration script, the model catalog and `finesub-data\\` |
+| `rebuildable` | WP-M1 | delete the store marker, the registration script, the model catalog and `finesub-data\\`'s known files |
+| `leftovers` | WP-M2 | delete the settings backups and what is left of `finesub-data\\` |
 | `model-completion` | WP-E3 | check the models against the model layer, fetch only what is missing |
 | `layer-download` | WP-E3 | download the Python environment and tool layers |
 
 Everything up to `task-products` can be undone (`runner`; plan WP-M2: a failed
 settings or data step rolls back to the layout before the migration); from
 `old-environment` on nothing can, the old environment being gone.
+
+`leftovers` (owner 2026-11-18/19, plan appendix B questions 89 and 90: delete
+every file that is no longer of use, once past the point of rollback): the
+settings backups serve only a rollback, so they go as soon as the deletions
+have ruled one out, without waiting for the downloads -- even when they hold
+keys this machine could not open (the report names those keys). With them goes
+the rest of `finesub-data\\`, unrecognised files included, so nothing of
+FineSub's is left in the main data directory outside `engines\\`. The step's
+report names what it deleted.
 """
 
 from __future__ import annotations
@@ -48,6 +58,7 @@ MODELS = "models"
 OLD_ENVIRONMENT = "old-environment"
 CACHES = "caches"
 REBUILDABLE = "rebuildable"
+LEFTOVERS = "leftovers"
 
 #: The steps that can be undone, in execution order: a failure in one of them rolls back all of them.
 REVERSIBLE = (
@@ -72,6 +83,7 @@ STEP_ORDER = (
     OLD_ENVIRONMENT,
     CACHES,
     REBUILDABLE,
+    LEFTOVERS,
     deferred.MODEL_COMPLETION,
     deferred.LAYER_DOWNLOAD,
 )
@@ -88,6 +100,7 @@ TITLES = {
     REBUILDABLE: "Delete files that are rebuilt or no longer used",
     deferred.MODEL_COMPLETION: "Check the models against the model layer and fetch what is missing",
     deferred.LAYER_DOWNLOAD: "Download the Python environment and tool layers",
+    LEFTOVERS: "Delete the settings backups and what is left of finesub-data",
 }
 
 # -- plan states --------------------------------------------------------------------------------------------------
@@ -591,9 +604,28 @@ def _rebuildable(context: MigrationContext, blockers: list[str]) -> list[Action]
         except OSError:
             rest = []
         if rest:
-            actions.append(Action(kind=KEEP, path=str(finesub_data), note="kept: also holds " + ", ".join(rest)))
+            actions.append(Action(kind=KEEP, path=str(finesub_data), note="also holds " + ", ".join(rest) + ": deleted with it by the leftovers step"))
         else:
             actions.append(Action(kind=DELETE_IF_EMPTY, path=str(finesub_data), note="the directory itself, once empty"))
+    return actions
+
+
+def _leftovers(context: MigrationContext, blockers: list[str]) -> list[Action]:
+    data = context.layout.data
+    actions = [
+        Action(kind=DELETE, path=str(backup), note="the settings backup, once past the point of rollback")
+        for backup in legacy.settings_backups(data)
+    ]
+    for name in legacy.SETTINGS_FILES:
+        if (data / name).is_file():
+            actions.append(Action(
+                kind=DELETE,
+                path=str(data / (name + legacy.SETTINGS_BACKUP_SUFFIX)),
+                note=f"the backup the settings step makes of {name}, once past the point of rollback",
+            ))
+    finesub_data = data / legacy.FINESUB_DATA_DIRECTORY
+    if os.path.lexists(finesub_data):
+        actions.append(_measured(DELETE, finesub_data, note="whatever is left in it, unrecognised files included"))
     return actions
 
 
@@ -632,6 +664,7 @@ _BUILDERS = {
     REBUILDABLE: _rebuildable,
     deferred.MODEL_COMPLETION: _model_completion,
     deferred.LAYER_DOWNLOAD: _layer_download,
+    LEFTOVERS: _leftovers,
 }
 
 
@@ -700,6 +733,7 @@ def render(plan: MigrationPlan) -> str:
 __all__ = [
     "COMPLETED",
     "DOWNLOADS",
+    "LEFTOVERS",
     "REVERSIBLE",
     "ROLLING_BACK",
     "FRESH",

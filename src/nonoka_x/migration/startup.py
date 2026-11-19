@@ -203,8 +203,11 @@ class StartupMigration:
                 return False
             self._log(f"migrating {plan.data} ({plan.state})")
             self._set(MIGRATING, plan)
+            # Nothing to download: run to the end here rather than show a "download" phase.
+            downloads = any(plan.step(step_id).actions for step_id in planning.DOWNLOADS)
             plan = runner.execute(
-                plan, hooks=self.hooks(), log=self._step_log, engines=self._engines, stop_before=FIRST_DOWNLOAD,
+                plan, hooks=self.hooks(), log=self._step_log, engines=self._engines,
+                stop_before=FIRST_DOWNLOAD if downloads else None,
             )
         except runner.MigrationRolledBack as error:
             self._fail(ROLLED_BACK, str(error), step=error.step)
@@ -366,9 +369,14 @@ class StartupMigration:
             journal = runner.read_journal(self.data_dir) or {}
         except runner.MigrationError:
             journal = {}
-        tasks = ((journal.get("steps") or {}).get(planning.deferred.TASK_PRODUCTS) or {}).get("report") or {}
+        steps = journal.get("steps") or {}
+        tasks = (steps.get(planning.deferred.TASK_PRODUCTS) or {}).get("report") or {}
         if tasks:
             report["tasks"] = tasks
+        # What the `leftovers` step deleted (plan appendix B questions 89-90): names relative to the main data directory.
+        cleanup = (steps.get(planning.LEFTOVERS) or {}).get("report") or {}
+        if cleanup:
+            report["cleanup"] = cleanup
         return report
 
 

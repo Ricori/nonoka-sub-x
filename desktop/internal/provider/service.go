@@ -80,6 +80,25 @@ func (s *Service) InstallPython() (map[string]any, error) {
 	return s.pythonBootstrap.Install()
 }
 
+// MigrationStatus reports the sidecar's start-up migration of an old data
+// directory: its state, steps, download progress, failure and report. It is one
+// of the two calls the sidecar answers while the migration keeps its data
+// closed; every other call then fails with sidecar.IsMigrating.
+func (s *Service) MigrationStatus() (map[string]any, error) {
+	var result map[string]any
+	err := s.provider.DoJSON(context.Background(), http.MethodGet, "/v1/migration", nil, &result)
+	return result, err
+}
+
+// RetryMigration runs the local steps again after a block, a rollback or an
+// interruption, or the downloads again after they failed, and returns the new
+// status at once; the work itself runs in the sidecar's background.
+func (s *Service) RetryMigration() (map[string]any, error) {
+	var result map[string]any
+	err := s.provider.DoJSON(context.Background(), http.MethodPost, "/v1/migration/retry", map[string]any{}, &result)
+	return result, err
+}
+
 func (s *Service) Capabilities() (map[string]any, error) {
 	var result map[string]any
 	err := s.provider.DoJSON(context.Background(), http.MethodGet, "/v1/capabilities", nil, &result)

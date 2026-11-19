@@ -62,6 +62,9 @@ MODEL_LOCK_SUFFIX = ".lock"
 #: Settings and keys: read into `settings.json` / `secrets.json` by WP-R4's
 #: `config/migrate.py`, then renamed as a backup.
 SETTINGS_FILES = ("finesub.env", "finesub.toml")
+#: The backups the settings migration leaves (`<name>.pre-migration`, `.1`, `.2` if taken); deleted
+#: once the migration is past the point of rollback (owner 2026-11-18/19, plan appendix B questions 89-90).
+SETTINGS_BACKUP_SUFFIX = ".pre-migration"
 #: The old key file's protector line (`finesub_bootstrap/secrets.py:58`): read, never carried.
 KEYRING_NAME = "FINESUB_KEYRING"
 #: FineSub's names for the cloud ASR engines' keys -> Nonoka's (WP1; plan appendix B question 36).
@@ -73,6 +76,7 @@ LEGACY_KEY_RENAMES = {
 #: Derived per process from now on, so deleted (R0 2.7 item 5).
 REBUILDABLE_FILES = ("model_catalog.toml", "model_catalog.psv")
 FINESUB_DATA_DIRECTORY = "finesub-data"
+#: (`finesub-data\\` itself, with whatever else is left in it, goes at the same point.)
 #: `locations.json` is gone (D18) and so is download-route state (no mirrors, 4.4 item 24).
 FINESUB_DATA_FILES = ("locations.json", "locations.lock", "download-routes.json")
 #: Moved by WP-M2, content unchanged (plan 4.4 item 25, 4.6 item 35a).
@@ -90,6 +94,15 @@ CHECKOUT_DATA_DIRECTORY = ".local"
 
 #: Task states that mean nothing is running (`local_provider.TERMINAL`).
 TERMINAL_TASK_STATES = frozenset({"completed", "failed", "cancelled"})
+
+
+def settings_backups(data: Path) -> list[Path]:
+    """The settings migration's backups now in `data`, in name order."""
+
+    found: list[Path] = []
+    for name in SETTINGS_FILES:
+        found.extend(sorted(path for path in data.glob(f"{name}{SETTINGS_BACKUP_SUFFIX}*") if path.is_file()))
+    return found
 
 
 def default_data_dir() -> Path | None:
@@ -267,6 +280,17 @@ TRANSCRIPTION_SUFFIXES = (
     "-diar-evidence.npz",
 )
 BOTH_SUFFIXES = ("-metadata.json",)
+
+#: An old cloud continuation's request (`request.json`): the cloud's stable handed over as
+#: `source.stable_json` (and its speaker timeline as `source.diar_json`). That source kind is
+#: retired (WP-CL): a continuation now carries the cloud's `transcript.json` and the
+#: transcription package's files as attachments by `<engine>.<name>` key -- the cloud's two
+#: attachment names, which are also the files' names (`worker.py`, `desktop/internal/cloud/relay.go`).
+OLD_CLOUD_SOURCE_KIND = "cloud_stable"
+CLOUD_SOURCE_KIND = "cloud_transcript"
+OLD_CLOUD_SOURCE_FIELDS = ("stable_json", "diar_json")
+CLOUD_STABLE_ATTACHMENT = ("finesub.stable_json", "-stable.json")
+CLOUD_TIMELINE_ATTACHMENT = ("finesub.diar_json", "-diar.json")
 
 #: Where WP-R4 derived FineSub's files until WP-R5 (owner 2026-11-12): a sealed copy of the keys,
 #: under the main data directory's `engines\`. Removed at start-up.
