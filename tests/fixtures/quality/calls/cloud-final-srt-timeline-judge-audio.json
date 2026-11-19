@@ -197,11 +197,15 @@
     "provider": "local",
     "schema": 1,
     "source": {
-      "diar_json": "$CLOUD_DIAR",
-      "kind": "cloud_stable",
+      "kind": "cloud_transcript",
+      "native": {
+        "finesub.diar_json": "$CLOUD_DIAR",
+        "finesub.stable_json": "$CLOUD_STABLE"
+      },
+      "native_package": "finesub-transcribe",
       "path": "$MEDIA",
-      "stable_json": "$CLOUD_STABLE",
-      "title": "节目"
+      "title": "节目",
+      "transcript_json": "$CLOUD_TRANSCRIPT"
     },
     "target": "final-srt",
     "vocal_profile": "cost"
@@ -266,11 +270,15 @@
     "schema": 1,
     "separate": true,
     "source": {
-      "diar_json": "$ROOT/cloud/cloud.diar.json",
-      "kind": "cloud_stable",
+      "kind": "cloud_transcript",
+      "native": {
+        "finesub.diar_json": "$ROOT/cloud/cloud.diar.json",
+        "finesub.stable_json": "$ROOT/cloud/cloud.stable.json"
+      },
+      "native_package": "finesub-transcribe",
       "path": "$ROOT/media/节目.m4a",
-      "stable_json": "$ROOT/cloud/cloud.stable.json",
-      "title": "节目"
+      "title": "节目",
+      "transcript_json": "$ROOT/cloud/cloud.transcript.json"
     },
     "target": "final-srt"
   },

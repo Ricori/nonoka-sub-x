@@ -63,10 +63,14 @@
     "provider": "local",
     "schema": 1,
     "source": {
-      "kind": "cloud_stable",
+      "kind": "cloud_transcript",
+      "native": {
+        "finesub.stable_json": "$CLOUD_STABLE"
+      },
+      "native_package": "finesub-transcribe",
       "path": "$MEDIA",
-      "stable_json": "$CLOUD_STABLE",
-      "title": "节目"
+      "title": "节目",
+      "transcript_json": "$CLOUD_TRANSCRIPT"
     },
     "target": "raw-srt"
   },
@@ -90,6 +94,10 @@
     "cleanup_intermediate": false,
     "correction": {},
     "device": "cuda",
+    "diarization": {
+      "level": "acoustics",
+      "max_speakers": null
+    },
     "gpu_tier": "auto",
     "knowledge": "none",
     "language": "ja",
@@ -98,10 +106,14 @@
     "schema": 1,
     "separate": true,
     "source": {
-      "kind": "cloud_stable",
+      "kind": "cloud_transcript",
+      "native": {
+        "finesub.stable_json": "$ROOT/cloud/cloud.stable.json"
+      },
+      "native_package": "finesub-transcribe",
       "path": "$ROOT/media/节目.m4a",
-      "stable_json": "$ROOT/cloud/cloud.stable.json",
-      "title": "节目"
+      "title": "节目",
+      "transcript_json": "$ROOT/cloud/cloud.transcript.json"
     },
     "target": "raw-srt"
   },
