@@ -1205,7 +1205,7 @@ class LocalProvider:
 
         if diarization_kwargs(request)["diarize"] == "off":
             return None
-        if request["source"]["kind"] == "cloud_transcript" or "axis" in request or self._provisioner is None:
+        if request["source"]["kind"] == "cloud_transcript" or "axis" in request or self._provisioner is None or spec is None:
             return None
         wanted = [model for model in DIARIZATION_MODEL_IDS if model in spec.environment.optional_models]
         if not wanted:
@@ -1274,13 +1274,15 @@ class LocalProvider:
         except RuntimeProvisionError as exc:
             raise ProviderError("runtime_install_not_running", str(exc), http_status=409) from exc
 
-    def remove_runtime(self) -> dict[str, Any]:
+    def remove_runtime(self, layer: str | None = None) -> dict[str, Any]:
         if self._provisioner is None:
             raise ProviderError("runtime_unavailable", "FineSub runtime installer is unavailable", http_status=503)
         with self._lock:
             if any(process.poll() is None for process in self._processes.values()):
                 raise ProviderError("runtime_in_use", "有本地任务正在运行，请先停止任务再删除环境", http_status=409)
         try:
+            if layer is not None:
+                return self._provisioner.remove_layer(layer)
             return self._provisioner.remove_all()
         except RuntimeProvisionError as exc:
             raise ProviderError("runtime_remove_unavailable", str(exc), http_status=409) from exc
@@ -1489,7 +1491,7 @@ class LocalProvider:
             # Asked for speakers without the models that find them: refused now,
             # not left to the engine's stage, which can only drop the labels
             # after the recognition (the user, 2026-11-19).
-            problem = self._diarization_problem(validated, specs[engine_id])
+            problem = self._diarization_problem(validated, specs.get(engine_id))
             if problem:
                 raise ProviderError("missing_diarization_model", problem, http_status=503)
             # The worker refuses the same request the same way, with the same

@@ -256,7 +256,7 @@ def test_the_engine_picks_mai2s_route_from_nonokas_keys(store) -> None:
     store.pools = {}
     assert mai2.route(store) is None
     (issue,) = mai2.Mai2Engine(store, None).key_issues(store)
-    assert issue.code == "missing_key" and "OPENROUTER_STT_KEY" in issue.message
+    assert issue.code == "missing_key"
 
 
 def test_local_moss_reports_through_the_engines_error() -> None:

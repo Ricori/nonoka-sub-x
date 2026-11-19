@@ -12,7 +12,7 @@ function BookIcon() {
   return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 6v15M3 4h5a4 4 0 0 1 4 2 4 4 0 0 1 4-2h5v15h-5a4 4 0 0 0-4 2 4 4 0 0 0-4-2H3Z" /></svg>;
 }
 
-export function KnowledgePage({ active }: { active: boolean }) {
+export function KnowledgePage({ active, onNavigateLibrary }: { active: boolean; onNavigateLibrary?: () => void }) {
   const [entries, setEntries] = useState<Entry[]>([]);
   const [detail, setDetail] = useState<Detail | null>(null);
   const [draft, setDraft] = useState("");
@@ -24,6 +24,8 @@ export function KnowledgePage({ active }: { active: boolean }) {
   const [notice, setNotice] = useState("");
   const [pendingID, setPendingID] = useState<string | null>(null);
   const loading = useRef(false);
+  const detailRef = useRef<Detail | null>(null);
+  detailRef.current = detail;
   const dirty = detail !== null && draft !== detail.content;
 
   async function refresh() {
@@ -33,6 +35,11 @@ export function KnowledgePage({ active }: { active: boolean }) {
     try {
       const data = await call<{ entries: Entry[] }>({ action: "list" });
       setEntries(data.entries); setLoaded(true);
+      // 首次进入且有条目时自动打开第一条，避免右侧大面积留白
+      if (!detailRef.current && data.entries.length > 0) {
+        const first = await call<Detail>({ action: "read", id: data.entries[0].id });
+        setDetail(first); setDraft(first.content);
+      }
     } catch (e) { setError(String(e)); }
     finally { loading.current = false; setBusy(false); }
   }
@@ -85,7 +92,10 @@ export function KnowledgePage({ active }: { active: boolean }) {
           {visible.map(e => <button key={e.id} disabled={busy} className={detail?.id === e.id ? "selected" : ""} onClick={() => void select(e.id)} aria-pressed={detail?.id === e.id}>
             <span className={`knowledge-entry-icon category-${e.category}`}><BookIcon /></span><span className="knowledge-entry-copy"><strong>{e.name}</strong><small className={`knowledge-category category-${e.category}`}>{labels[e.category] ?? e.category}</small>{e.intro && <span className="knowledge-entry-description">{e.intro}</span>}</span><span className="knowledge-entry-arrow" aria-hidden="true">›</span>
           </button>)}
-          {loaded && !visible.length && <div className="knowledge-list-empty"><BookIcon /><strong>{entries.length ? "没有找到相关条目" : "等待第一份知识"}</strong><p>{entries.length ? "试试其他关键词或分类。" : "转写时开启“读取知识库并自动更新”，这里就会逐渐丰富起来。"}</p></div>}
+          {loaded && !visible.length && <div className="knowledge-list-empty"><BookIcon /><strong>{entries.length ? "没有找到相关条目" : "等待第一份知识"}</strong><p>{entries.length ? "试试其他关键词或分类。" : "转写时开启「读取知识库并自动更新」，这里就会逐渐丰富起来。"}</p></div>}
+        </div>
+        <div className="knowledge-list-footer">
+          <span>转写时开启自动更新，新条目会沉淀到这里</span>
         </div>
       </aside>
       <div className="knowledge-editor">
@@ -97,7 +107,20 @@ export function KnowledgePage({ active }: { active: boolean }) {
           <textarea aria-label="知识库条目内容" spellCheck={false} disabled={busy} value={draft} onChange={e => setDraft(e.target.value)} onKeyDown={e => { if ((e.ctrlKey || e.metaKey) && e.key === "s") { e.preventDefault(); void save(); } }} />
           <div className="knowledge-editor-footer"><span>{draft.length.toLocaleString()} 字符 · {draft.split("\n").length} 行</span><span><kbd>Ctrl / ⌘</kbd> + <kbd>S</kbd> 保存</span></div>
           <details className="knowledge-format-help"><summary>编辑格式说明</summary><p>保留标题和章节结构。术语行格式为「原名 | 中文定名 | 别名 | 描述」，保存后将在后续翻译中使用。</p></details>
-        </> : <div className="knowledge-placeholder"><div className="knowledge-empty-art"><span /><BookIcon /></div><span className="knowledge-empty-eyebrow">你的翻译记忆</span><h2>{busy ? "正在加载知识库" : "从一条知识开始"}</h2><p>{busy ? "正在读取本机保存的内容…" : "选择左侧条目，查看积累的资料，\n或补充让下一次翻译更准确的细节。"}</p><div className="knowledge-empty-tags"></div></div>}
+        </> : <div className="knowledge-placeholder">
+          <div className="knowledge-empty-art"><span /><BookIcon /></div>
+          <span className="knowledge-empty-eyebrow">你的翻译记忆</span>
+          <h2>{busy ? "正在加载知识库" : entries.length > 0 ? "选择一条知识开始编辑" : "从第一份翻译记忆开始"}</h2>
+          <p>{busy ? "正在读取本机保存的内容…" : entries.length > 0 ? "选择左侧条目，查看积累的资料，\n或补充让下一次翻译更准确的细节。" : "在媒体库开始转写任务并勾选知识库后，\n主播设定、专有名词和翻译风格会自动沉淀在这里。"}</p>
+          <div className="knowledge-empty-tags">
+            <span>主播资料</span>
+            <span>通用术语</span>
+            <span>翻译风格</span>
+          </div>
+          {!busy && entries.length === 0 && onNavigateLibrary && (
+            <button className="primary-button knowledge-empty-cta" type="button" onClick={onNavigateLibrary}>前往媒体库开始转写</button>
+          )}
+        </div>}
       </div>
     </div>
   </section>;

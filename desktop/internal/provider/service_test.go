@@ -60,6 +60,7 @@ func TestServiceMapsFixedProviderEndpoints(t *testing.T) {
 	_, _ = service.InstallRuntime("yt-dlp")
 	_, _ = service.CancelRuntimeInstall()
 	_, _ = service.RemoveRuntime()
+	_, _ = service.RemoveModels()
 	_, _ = service.UnusedRuntime("mai2")
 	_, _ = service.RemoveUnusedRuntime("mai2", nil)
 	_, _ = service.RemoveUnusedRuntime("mai2", []string{"python", "models"})
@@ -86,6 +87,7 @@ func TestServiceMapsFixedProviderEndpoints(t *testing.T) {
 		{method: "POST", endpoint: "/v1/runtime/provision", body: map[string]any{"target": "yt-dlp"}},
 		{method: "POST", endpoint: "/v1/runtime/provision/cancel", body: map[string]any{}},
 		{method: "DELETE", endpoint: "/v1/runtime/provision"},
+		{method: "DELETE", endpoint: "/v1/runtime/provision?layer=models"},
 		{method: "GET", endpoint: "/v1/runtime/provision/unused?engine=mai2"},
 		{method: "DELETE", endpoint: "/v1/runtime/provision/unused?engine=mai2"},
 		{method: "DELETE", endpoint: "/v1/runtime/provision/unused?engine=mai2&layers=python%2Cmodels"},

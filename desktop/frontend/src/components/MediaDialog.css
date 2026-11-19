@@ -15,6 +15,5 @@
 .dialog-choice.selected { border-color: var(--accent-border); background: var(--accent-dim); }
 .dialog-choice.disabled { opacity: .5; cursor: not-allowed; }
 .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 23px; }
-.dialog-actions button { border: 1px solid var(--line); border-radius: 9px; padding: 8px 12px; background: var(--raised); color: var(--mut); cursor: pointer; }
-.dialog-actions .primary-button { border: 0; background: var(--grad); color: var(--on-grad); }
-.dialog-actions .danger-button { margin: 0; border-color: color-mix(in srgb, var(--warn) 45%, transparent); background: color-mix(in srgb, var(--warn) 10%, var(--panel)); color: var(--warn); }
+.dialog-actions button:not(.primary-button):not(.danger-button):not(.quiet-button):not(.ghost-button) { min-height: var(--ctl-h); border: 1px solid var(--line); border-radius: var(--r-md); padding: 0 14px; background: var(--panel); color: var(--text); font-size: var(--fs-md); font-weight: var(--fw-semibold); cursor: pointer; }
+.dialog-actions button:not(.primary-button):not(.danger-button):not(.quiet-button):not(.ghost-button):hover:not(:disabled) { border-color: var(--accent-border); color: var(--accent); }

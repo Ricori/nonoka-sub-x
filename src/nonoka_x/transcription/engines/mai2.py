@@ -322,7 +322,7 @@ SPEC = EngineSpec(
     # Either route: OpenRouter's key, or the user's Azure Speech resource (key and endpoint).
     keys=(keys.OPENROUTER_STT_KEY, keys.AZURE_SPEECH_KEY, keys.AZURE_SPEECH_ENDPOINT),
     environment=EngineEnvironment(components=(MEDIA,)),
-    billing=f"按音频时长计费，约 ${USD_PER_HOUR:.2f}/小时（OpenRouter 或自己的 Azure Speech，2026-10 价格）",
+    billing=f"按音频时长计费，约 ${USD_PER_HOUR:.2f}/小时",
 )
 
 
@@ -350,8 +350,7 @@ def billable_seconds(source: Path, *, cache_root: str | Path, via: str, language
 
 def estimate_notice(seconds: float, *, via: str) -> str:
     hours = seconds / 3600
-    return (f"MAI-Transcribe-2（{via}）按音频时长计费：这次要上传 {hours:.2f} 小时音频（窗口重叠部分计两次，"
-            f"已缓存的窗口不计），按 ${USD_PER_HOUR:.2f}/小时（2026-10 价格）约 ${hours * USD_PER_HOUR:.2f}")
+    return (f"MAI-Transcribe-2（{via}）按音频时长计费：这次要上传 {hours:.2f} 小时音频")
 
 
 class Mai2Engine(CloudEngine):
@@ -363,8 +362,7 @@ class Mai2Engine(CloudEngine):
     def key_issues(self, store: Any) -> list[Issue]:
         if route(store) is not None:
             return []
-        return [Issue("missing_key", f"MAI-Transcribe-2 需要 {keys.OPENROUTER_STT_KEY}（OpenRouter），或 "
-                                     f"{keys.AZURE_SPEECH_KEY} 加 {keys.AZURE_SPEECH_ENDPOINT}（自己的 Azure Speech 资源）")]
+        return [Issue("missing_key", f"缺少服务商 key（OpenRouter 或者 Azure Speech）")]
 
     def run(self, job: TranscriptionJob, report: Reporter, *, duration: float,
             language: str | None) -> tuple[Transcript, dict[str, Any]]:

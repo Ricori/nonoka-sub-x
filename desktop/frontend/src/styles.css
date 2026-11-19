@@ -863,17 +863,7 @@ dd {
   cursor: not-allowed;
 }
 
-.provision-actions .primary-button {
-  border: 0;
-  color: var(--on-grad);
-  background: var(--grad);
-}
-
-.provision-actions .primary-button:hover:not(:disabled) {
-  color: var(--on-grad);
-  background: var(--grad);
-  filter: brightness(1.06);
-}
+/* .provision-actions .primary-button 由 design-system.css 统一。 */
 
 .provision-hint {
   margin: -6px 0 0;
@@ -1556,13 +1546,21 @@ select {
 }
 
 html.wails-frameless .workspace-titlebar {
-  display: block;
+  display: flex;
+  align-items: center;
+  height: var(--titlebar-h);
+  padding-right: 138px;
+  user-select: none;
+}
+
+.workspace-titlebar-drag {
+  flex: 1;
+  height: 100%;
   /* Reported to WM_NCHITTEST as HTCAPTION, so Windows performs the drag itself:
      snapping, double-click-to-maximise and the right-click system menu all come
      for free instead of being approximated by mousemove in JS. */
   --wails-non-client-region: caption;
   --wails-draggable: drag;
-  user-select: none;
 }
 
 html.wails-fullscreen .workspace-titlebar {
@@ -1646,6 +1644,61 @@ body.light #wails-window-controls button:not(.wails-close):active {
 
 html.wails-fullscreen #wails-window-controls {
   display: none;
+}
+
+/* 深浅色切换按钮：放在标题栏非拖拽区，紧挨系统三键左侧，中间用细竖线隔开。 */
+.titlebar-theme-button {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 32px;
+  height: 32px;
+  margin-right: 6px;
+  border: 0;
+  border-radius: 7px;
+  padding: 0;
+  background: transparent;
+  color: var(--mut);
+  cursor: pointer;
+  user-select: none;
+  -webkit-app-region: no-drag;
+  --wails-draggable: no-drag;
+  transition: background .14s ease, color .14s ease;
+}
+
+.titlebar-theme-button svg {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.08;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.titlebar-theme-button:hover {
+  background: color-mix(in srgb, var(--text) 9%, transparent);
+  color: var(--text);
+}
+
+.titlebar-theme-button:active {
+  background: color-mix(in srgb, var(--text) 14%, transparent);
+}
+
+body.light .titlebar-theme-button:hover {
+  background: color-mix(in srgb, var(--text) 10%, transparent);
+}
+
+body.light .titlebar-theme-button:active {
+  background: color-mix(in srgb, var(--text) 16%, transparent);
+}
+
+.titlebar-divider {
+  flex: 0 0 auto;
+  width: 1px;
+  height: 14px;
+  margin-right: 4px;
+  background: var(--line-soft);
 }
 
 

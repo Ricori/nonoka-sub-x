@@ -20,7 +20,7 @@ export function KeyConfigurationCard({ item, value, busy, setDrafts, onSave, add
     <article className="panel key-card">
       <div className="key-card-heading">
         <div><h3>{item.label}</h3><code>{item.name}</code></div>
-        <Mark>{item.configured ? `${item.count} 个已配置` : "未配置"}</Mark>
+        <Mark tone={item.configured ? "ok" : "neutral"}>{item.configured ? `${item.count} 个已配置` : "未配置"}</Mark>
       </div>
       <p>{item.purpose}</p>
       <div className="key-current-value">

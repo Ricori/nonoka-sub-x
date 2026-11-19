@@ -177,7 +177,7 @@ const CPU_DEVICE_HINT = "无显卡时的运行方式；整条流水线仍然完�
 // 关掉分离不会报错，只会让识别质量整体塌掉——所以这里说清它是给什么输入用的。
 const CHINESE_SOURCE_NOTE = "中文素材只做纠错和润色，不翻译。这条路径不读写知识库，翻译风格也不生效，所以这里不再显示它们。";
 
-const SKIP_SEPARATION_HINT ="仅在输入本身就是纯人声（已分离的人声轨、录音棚干声）时关闭；该分离而没分离不会报错，只是识别质量整体下降";
+const SKIP_SEPARATION_HINT = "仅在输入本身就是纯人声（已分离的人声轨、录音棚干声）时关闭；该分离而没分离不会报错，只是识别质量整体下降";
 
 export function TranscriptionDialog(props: TranscriptionDialogProps) {
   const {
@@ -642,7 +642,6 @@ export function TranscriptionDialog(props: TranscriptionDialogProps) {
                   <span className="current-engine-copy">
                     <small>转写引擎</small>
                     <strong>{engineLabel}</strong>
-                    <small>{engine === "cloud" ? "音轨上传到云端识别，纠错与翻译回到本机" : remoteAudio ? "在本机调用第三方语音识别服务，音频会发送给该服务" : "在本机识别，音频不离开这台电脑"}</small>
                   </span>
                   <em>{engine === "cloud" ? cloudBadge : localBadge}</em>
                   <button type="button" className="quiet-button" onClick={() => onOpenSettings("engine")}>更换</button>

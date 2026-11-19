@@ -112,6 +112,21 @@ func TestInterpreterProbeScriptPinsTheExactVersion(t *testing.T) {
 	}
 }
 
+// External interpreters (PATH / bundled) are not topped up by TopUpLauncher, so
+// they must carry opencc and (on Windows) tzdata as well; otherwise LLM test /
+// correction fails on ZoneInfo("America/Los_Angeles").
+func TestFullInterpreterProbeScriptRequiresHarnessPackages(t *testing.T) {
+	for _, fragment := range []string{
+		"sys.version_info[:2] == (3, 12)",
+		"import httpx, pydantic, opencc",
+		"tzdata",
+	} {
+		if !strings.Contains(fullInterpreterProbeScript, fragment) {
+			t.Fatalf("full probe script lost %q: %s", fragment, fullInterpreterProbeScript)
+		}
+	}
+}
+
 func TestFirstConfiguredPathPreservesAbsoluteCandidate(t *testing.T) {
 	root := t.TempDir()
 	candidate := filepath.Join(root, "resource.py")

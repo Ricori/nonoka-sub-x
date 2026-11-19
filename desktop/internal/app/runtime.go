@@ -1,7 +1,6 @@
 package app
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -35,6 +34,13 @@ const interpreterProbeTimeout = 10 * time.Second
 // to the managed Python rather than running the sidecar untested.
 const interpreterProbeScript = "import sys; sys.version_info[:2] == (3, 12) or sys.exit(1); import httpx, pydantic"
 
+// External interpreters (bundled or on PATH) are never topped up by
+// TopUpLauncher, so they must already carry the full launcher dependency set
+// (matching pyproject.toml and bootstrap-requirements.py312.txt), including
+// opencc and Windows tzdata (needed by ZoneInfo("America/Los_Angeles") in
+// finesub-correct's LLM client).
+const fullInterpreterProbeScript = "import sys; sys.version_info[:2] == (3, 12) or sys.exit(1); import httpx, pydantic, opencc; sys.platform != 'win32' or __import__('tzdata')"
+
 // SidecarConfig resolves development defaults without baking a checkout path
 // into the application. Packaged builds set the same four environment values
 // to their managed runtime and resource locations.
@@ -53,8 +59,11 @@ func SidecarConfig() (sidecar.Config, error) {
 	}
 	python := os.Getenv(managedtools.PythonEnvironment)
 	if python == "" {
-		pythonCandidates := append([]string{managedtools.BootstrapPython(data)}, bundledPythonCandidates(resourceRoot)...)
-		python = firstUsableExecutable(interpreterCanRunSidecar, pythonCandidates...)
+		if bootstrap := managedtools.BootstrapPython(data); usableFile(interpreterCanRunSidecar, bootstrap) {
+			python = bootstrap
+		} else {
+			python = firstUsableExecutable(interpreterCanRunFullSidecar, bundledPythonCandidates(resourceRoot)...)
+		}
 	}
 	if python == "" {
 		// Refusing here is what surfaces the managed-Python offer: the desktop
@@ -124,6 +133,17 @@ func bundledPythonCandidates(resourceRoot string) []string {
 	}
 }
 
+func usableFile(usable func(string) bool, candidate string) bool {
+	if candidate == "" {
+		return false
+	}
+	info, err := os.Stat(candidate)
+	if err != nil || info.IsDir() {
+		return false
+	}
+	return usable(candidate)
+}
+
 // firstUsableExecutable returns the first interpreter that both exists and
 // satisfies `usable`. An interpreter of the wrong version, or without FineSub's
 // bootstrap dependencies, is worse than none: it starts a sidecar that answers
@@ -132,10 +152,7 @@ func bundledPythonCandidates(resourceRoot string) []string {
 // because that offer is gated on the sidecar being down.
 func firstUsableExecutable(usable func(string) bool, candidates ...string) string {
 	for _, candidate := range candidates {
-		if info, err := os.Stat(candidate); err != nil || info.IsDir() {
-			continue
-		}
-		if usable(candidate) {
+		if usableFile(usable, candidate) {
 			return candidate
 		}
 	}
@@ -156,11 +173,11 @@ func firstUsableExecutable(usable func(string) bool, candidates ...string) strin
 // sidecar sources are built for. Failure is the answer for anything that cannot be run
 // at all, so a stale path or a Store alias stub counts as unusable.
 func interpreterCanRunSidecar(python string) bool {
-	probeContext, cancel := context.WithTimeout(context.Background(), interpreterProbeTimeout)
-	defer cancel()
-	command := exec.CommandContext(probeContext, python, "-I", "-c", interpreterProbeScript)
-	configureBootstrapProcess(command)
-	return command.Run() == nil
+	return runBootstrapProbe(python, interpreterProbeScript) == nil
+}
+
+func interpreterCanRunFullSidecar(python string) bool {
+	return runBootstrapProbe(python, fullInterpreterProbeScript) == nil
 }
 
 func DataDirectory() (string, error) {

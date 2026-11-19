@@ -14,16 +14,15 @@
 .plugin-card-title { display: flex; align-items: center; gap: 8px; }
 .plugin-card-title h3 { margin: 0; font-size: 14px; }
 .plugin-card-title span { color: var(--faint); font-size: 11px; }
-.plugin-card-title i { border-radius: 20px; padding: 3px 7px; background: var(--raised); color: var(--faint); font-size: 10px; font-style: normal; }
-.plugin-card-title i.enabled { background: color-mix(in srgb, var(--ok) 13%, transparent); color: var(--ok); }
-.plugin-card-title i.system { background: var(--accent-dim); color: var(--accent); }
-.plugin-card-copy p { margin: 0; color: var(--mut); font-size: 12px; line-height: 1.55; }
-.plugin-card-copy small { color: var(--faint); font-size: 11px; }
-.plugin-permissions { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 2px; }
-.plugin-permissions span { border: 1px solid var(--line-soft); border-radius: 20px; padding: 3px 7px; color: var(--faint); font-size: 10px; }
+.plugin-card-title i { display: inline-flex; align-items: center; height: 22px; border: 1px solid var(--tone-neutral-bd); border-radius: var(--r-pill); padding: 0 9px; background: var(--tone-neutral-bg); color: var(--tone-neutral-fg); font-size: var(--fs-xs); font-style: normal; font-weight: var(--fw-semibold); line-height: 1; }
+.plugin-card-title i.enabled { border-color: var(--tone-ok-bd); background: var(--tone-ok-bg); color: var(--tone-ok-fg); }
+.plugin-card-title i.system { border-color: var(--tone-accent-bd); background: var(--tone-accent-bg); color: var(--tone-accent-fg); }
+.plugin-card-copy p { margin: 0; color: var(--mut); font-size: var(--fs-sm); line-height: 1.55; }
+.plugin-card-copy small { color: var(--faint); font-size: var(--fs-xs); }
+.plugin-permissions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 2px; }
+.plugin-permissions span { display: inline-flex; align-items: center; height: 22px; border: 1px solid var(--tone-neutral-bd); border-radius: var(--r-pill); padding: 0 9px; background: var(--tone-neutral-bg); color: var(--tone-neutral-fg); font-size: var(--fs-xs); font-weight: var(--fw-medium); line-height: 1; }
 .plugin-card-actions { display: flex; align-items: center; gap: 8px; }
-.danger-text-button { border: 0; padding: 8px; background: transparent; color: var(--warn); font-size: 12px; cursor: pointer; }
-.danger-text-button:disabled { opacity: .45; cursor: wait; }
+.plugin-card-actions .danger-text-button { padding: 0 6px; font-size: var(--fs-sm); }
 .plugin-tool-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
 .plugin-tool-chips button { border: 1px solid var(--line-soft); border-radius: 8px; padding: 6px 9px; background: var(--raised); color: var(--mut); font-size: 10px; cursor: pointer; }
 .plugin-tool-chips button:hover { border-color: var(--accent-line); color: var(--accent); }

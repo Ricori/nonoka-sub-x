@@ -1327,7 +1327,6 @@ class EngineSelectionTests(ProviderFixture):
                 with self.assertRaises(ProviderError) as caught:
                     provider.start(self.mai2("final-srt"))
                 self.assertEqual(caught.exception.code, "missing_key")
-                self.assertIn("OPENROUTER_STT_KEY", str(caught.exception))
                 self.assertEqual(caught.exception.http_status, 503)
 
     def test_a_cloud_engine_still_needs_the_llm_for_a_translation(self) -> None:
@@ -1538,7 +1537,7 @@ class EngineSelectionTests(ProviderFixture):
 
     def test_cleanup_keeps_what_the_current_engine_and_the_correction_need(self) -> None:
         provider, calls = self.cleanup_provider()
-        for engine, needed in (("mai2", {"tools"}), ("finesub-cloud", {"tools"}),
+        for engine, needed in (("mai2", {"tools", "python"}), ("finesub-cloud", {"tools", "python"}),
                                ("finesub", {"tools", "python", "models"}), ("no-such-engine", None), (None, None)):
             with self.subTest(engine=engine):
                 plan = provider.runtime_cleanup_plan(engine)
@@ -1548,9 +1547,9 @@ class EngineSelectionTests(ProviderFixture):
                     layer for layer in ("tools", "python", "models") if layer in needed])
         # Only old versions unless the user ticked whole layers (2026-11-19).
         provider.remove_unused_runtime("mai2")
-        self.assertEqual(calls[-1], ("cleanup", {"tools"}, set(), ()))
+        self.assertEqual(calls[-1], ("cleanup", {"tools", "python"}, set(), ()))
         provider.remove_unused_runtime("mai2", ["models", "python", "models"])
-        self.assertEqual(calls[-1], ("cleanup", {"tools"}, set(), ("models", "python")))
+        self.assertEqual(calls[-1], ("cleanup", {"tools", "python"}, set(), ("models", "python")))
         with self.assertRaises(ProviderError) as caught:
             provider.runtime_cleanup_plan("Not An Id")
         self.assertEqual(caught.exception.code, "invalid_request")
@@ -1565,7 +1564,7 @@ class EngineSelectionTests(ProviderFixture):
         self.assertEqual(calls[-1][2], set())
         self.unfinished(provider, "mai2", "interrupted")
         provider.runtime_cleanup_plan("mai2")
-        self.assertEqual(calls[-1][2], {"tools"})
+        self.assertEqual(calls[-1][2], {"tools", "python"})
         # A task from before the field ran on FineSub; one on an engine gone since may need anything.
         self.unfinished(provider, None, "queued")
         provider.runtime_cleanup_plan("mai2")
@@ -1588,11 +1587,11 @@ class EngineSelectionTests(ProviderFixture):
 
         try:
             self.assertEqual(call("GET", "?engine=mai2")["engine"], "mai2")
-            self.assertEqual(calls[-1], ("plan", {"tools"}, set()))
+            self.assertEqual(calls[-1], ("plan", {"tools", "python"}, set()))
             self.assertEqual(call("DELETE", "?engine=finesub")["needed"], ["tools", "python", "models"])
             self.assertEqual(calls[-1][0], "cleanup")
             call("DELETE", "?engine=mai2&layers=python,models")
-            self.assertEqual(calls[-1], ("cleanup", {"tools"}, set(), ("python", "models")))
+            self.assertEqual(calls[-1], ("cleanup", {"tools", "python"}, set(), ("python", "models")))
             # A desktop from before WP-UI names no engine: old versions only.
             self.assertIsNone(call("DELETE")["needed"])
             self.assertEqual(calls[-1], ("cleanup", None, set(), ()))
@@ -1614,6 +1613,37 @@ class EngineSelectionTests(ProviderFixture):
         # Another engine is still refused, installed or not.
         with self.assertRaises(ProviderError):
             validate_request({**request, "transcription": {"engine": "mai2"}}, engines={})
+
+    def test_cloud_transcript_starts_without_finesub_transcription_package(self) -> None:
+        """WP8 regression: starting a cloud_transcript task without finesub-transcribe must not KeyError on specs['finesub']."""
+
+        from nonoka_x.transcription import TranscriptDocument, TranscriptLine, write_transcript
+
+        empty_engines = self.root / "no-engines"
+        empty_engines.mkdir(exist_ok=True)
+        transcript = self.root / "cloud-transcript.json"
+        write_transcript(
+            TranscriptDocument(
+                engine="finesub-cloud",
+                model="test",
+                language="ja",
+                duration=2.0,
+                lines=(TranscriptLine(id="1", start=0.0, end=2.0, text="テスト"),),
+            ),
+            transcript,
+        )
+        provider = LocalProvider(self.root / "tasks-no-tx", empty_engines, worker_command=self.command,
+                                 provisioner=ToolsOnly(self.source))
+        self.providers.append(provider)
+        started = provider.start({
+            "schema": 1,
+            "provider": "local",
+            "source": {"kind": "cloud_transcript", "path": str(self.source), "transcript_json": str(transcript)},
+            "target": "raw-srt",
+            "language": "ja",
+            "knowledge": "none",
+        })
+        self.assertIn("task_id", started)
 
     # capabilities
 

@@ -1,20 +1,4 @@
-.update-button {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  border: 1px solid color-mix(in srgb, var(--accent) 42%, transparent);
-  border-radius: 9px;
-  padding: 9px 12px;
-  background: color-mix(in srgb, var(--accent) 12%, var(--panel));
-  color: var(--accent);
-  font-size: 12px;
-  white-space: nowrap;
-  cursor: pointer;
-}
-
-.update-button:hover {
-  background: color-mix(in srgb, var(--accent) 20%, var(--panel));
-}
+/* .update-button 外观由 design-system.css 统一为次要按钮 */
 
 /* A mandatory update owns the window, so it sits above every other dialog. */
 .update-gate {

@@ -277,33 +277,7 @@
    gap: 8px;
 }
 
-.llm-config-footer .secondary-button {
-   border: 1px solid var(--line);
-   background: transparent;
-   color: var(--text);
-}
-
-.llm-config-footer .secondary-button:hover:not(:disabled) {
-   border-color: var(--accent-border);
-}
-
-.llm-config-actions button {
-   border: 0;
-   border-radius: 8px;
-   padding: 8px 18px;
-   font-size: 12px;
-   cursor: pointer;
-}
-
-.llm-config-actions button:disabled {
-   opacity: .42;
-   cursor: not-allowed;
-}
-
-/* 主按钮的不可用态已经是中性灰，不再叠一层透明度。 */
-.llm-config-footer .primary-button:disabled {
-   opacity: 1;
-}
+/* 按钮外观由 design-system.css 统一。 */
 
 /* 底栏左侧的保存结果：和「已保存」状态同一个位置、同一行高，不另起一块。 */
 .llm-config-footer .llm-footer-notice {

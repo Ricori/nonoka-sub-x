@@ -13,5 +13,3 @@
 .key-input-label input:focus { border-color: var(--accent-border); box-shadow: 0 0 0 3px var(--accent-dim); }
 .key-card-actions { display: flex; align-items: center; justify-content: flex-end; gap: 10px; }
 .key-card-actions .danger-link { margin-right: auto; }
-.key-card-actions .primary-button { border: 0; border-radius: 8px; padding: 8px 11px; font-size: 11px; cursor: pointer; }
-.key-card-actions button:disabled { opacity: .45; cursor: not-allowed; }

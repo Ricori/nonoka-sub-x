@@ -144,6 +144,14 @@ func (s *Service) RemoveRuntime() (map[string]any, error) {
 	return result, err
 }
 
+// RemoveModels removes only the models layer, keeping the default tools and
+// Python environment layers, tasks, subtitle documents, and user settings.
+func (s *Service) RemoveModels() (map[string]any, error) {
+	var result map[string]any
+	err := s.provider.DoJSON(context.Background(), http.MethodDelete, "/v1/runtime/provision?layer=models", nil, &result)
+	return result, err
+}
+
 // RuntimeCacheStatus measures the runtime's download caches: the uv package
 // cache, the runtime wheels and the resource archives under the install root.
 func (s *Service) RuntimeCacheStatus() (map[string]any, error) {

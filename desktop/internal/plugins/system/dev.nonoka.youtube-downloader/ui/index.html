@@ -6,40 +6,58 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>视频下载</title>
   <style>
-    /* 宿主只把 iframe 撑满工作区，不再套面板，所以卡片由这一页自己画。
-       body 保持透明，让宿主的工作区底色透上来 —— 页面比工作区短的那一截才不会
-       被浏览器用 color-scheme 的默认画布涂成一块死色。 */
+    /* 宿主把 iframe 撑满工作区，body 保持透明让宿主底色透上来。
+       配色和设计变量与宿主 styles.css / design-system.css 保持一致。 */
     :root {
       color-scheme: dark;
+      --bg: #0f111b;
       --fg: #f5f2fb;
       --mut: #aeaac6;
       --faint: #8b86a8;
       --line: #363c59;
+      --line-soft: #2b3048;
       --panel: #191c2d;
       --field: #252a42;
       --accent: #9caef7;
-      --accent-fg: #1b2140;
+      --accent-dim: rgba(156, 174, 247, .13);
+      --accent-line: rgba(156, 174, 247, .36);
+      --accent-border: rgba(156, 174, 247, .50);
+      --grad: linear-gradient(120deg, #9caef7, #d8afe8);
+      --on-grad: #1b2140;
+      --glow: rgba(241, 154, 183, .22);
       --ok: #70dcc2;
       --err: #f08fae;
+      --shadow-sm: 0 1px 2px rgba(0, 0, 0, .08), 0 6px 18px rgba(0, 0, 0, .10);
       font-family: "Segoe UI Variable Text", "Segoe UI", "Microsoft YaHei UI", "PingFang SC", "Noto Sans SC", sans-serif;
     }
 
-    /* 取值对齐宿主 styles.css 的主题变量：插件页读不到宿主的 CSS 变量，只能抄一份 */
     body.light {
+      --bg: #faf9fe;
       --fg: #383344;
       --mut: #5f5a6e;
       --faint: #79738a;
       --line: #ded8ea;
+      --line-soft: #ebe7f1;
       --panel: #fff;
-      --field: #f0ecf8;
+      --field: #f4f1fa;
       --accent: #6b4fd0;
-      --accent-fg: #fff;
+      --accent-dim: rgba(107, 79, 208, .10);
+      --accent-line: rgba(107, 79, 208, .32);
+      --accent-border: rgba(107, 79, 208, .50);
+      --grad: linear-gradient(120deg, #6d5bd6, #9c4fb6);
+      --on-grad: #fff;
+      --glow: rgba(183, 77, 120, .16);
       --ok: #18796b;
       --err: #bd4670;
+      --shadow-sm: 0 1px 2px rgba(60, 46, 84, .05), 0 6px 20px rgba(60, 46, 84, .06);
     }
 
     * {
       box-sizing: border-box;
+    }
+
+    [hidden] {
+      display: none !important;
     }
 
     html,
@@ -49,121 +67,302 @@
 
     body {
       margin: 0;
-      padding: 12px 0;
+      padding: 4px 0 28px;
       color: var(--fg);
+      font-size: 13px;
     }
 
     main {
+      display: grid;
+      gap: 16px;
       width: 100%;
-      max-width: 750px;
     }
 
     .card {
-      border: 1px solid var(--line);
-      border-radius: 14px;
-      padding: 22px;
+      border: 1px solid var(--line-soft);
+      border-radius: 16px;
+      padding: 22px 24px;
       background: var(--panel);
+      box-shadow: var(--shadow-sm);
     }
 
-    .platforms {
+    /* 主 URL 输入条 */
+    .url-bar {
       display: flex;
-      gap: 6px;
-      margin-bottom: 18px;
+      align-items: center;
+      gap: 10px;
     }
 
-    .platforms span {
+    .url-input-wrap {
+      position: relative;
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      align-items: center;
+    }
+
+    .url-input-wrap input {
+      width: 100%;
+      height: 42px;
       border: 1px solid var(--line);
-      border-radius: 20px;
-      padding: 4px 10px;
+      border-radius: 10px;
+      padding: 0 76px 0 14px;
+      background: var(--field);
+      color: var(--fg);
+      font: inherit;
+      font-size: 13px;
+      outline: none;
+      transition: border-color .15s ease, box-shadow .15s ease;
+    }
+
+    .url-input-wrap input::placeholder {
       color: var(--faint);
-      font-size: 10px;
     }
 
-    label {
-      display: grid;
-      gap: 7px;
+    .url-input-wrap input:focus {
+      border-color: var(--accent-border);
+      box-shadow: 0 0 0 3px var(--accent-dim);
+    }
+
+    .paste-btn {
+      position: absolute;
+      right: 6px;
+      height: 30px;
+      padding: 0 11px;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: var(--panel);
       color: var(--mut);
-      font-size: 11px;
+      font: inherit;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: border-color .15s ease, color .15s ease, background .15s ease;
     }
 
-    /* 地址是主输入，独占一行；下拉是次要选项，缩到固定宽度并排 */
-    .address {
-      margin-bottom: 14px;
+    .paste-btn:hover {
+      border-color: var(--accent-border);
+      color: var(--accent);
+      background: var(--accent-dim);
+    }
+
+    .url-meta {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-top: 10px;
+      min-height: 22px;
+    }
+
+    .platform-hint {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      color: var(--faint);
+      font-size: 12px;
+    }
+
+    .platform-hint.detected {
+      color: var(--accent);
+      font-weight: 600;
+    }
+
+    .platform-hint i {
+      display: none;
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: currentColor;
+    }
+
+    .platform-hint.detected i {
+      display: inline-block;
+    }
+
+    /* 按钮体系对齐宿主 design-system.css */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      height: 36px;
+      border: 1px solid transparent;
+      border-radius: 9px;
+      padding: 0 16px;
+      font: inherit;
+      font-size: 13px;
+      font-weight: 600;
+      white-space: nowrap;
+      cursor: pointer;
+      transition: background .15s ease, border-color .15s ease, color .15s ease, filter .15s ease, box-shadow .15s ease;
+    }
+
+    .btn-primary {
+      height: 42px;
+      padding: 0 18px;
+      background: var(--grad);
+      color: var(--on-grad);
+      box-shadow: 0 4px 12px var(--glow);
+    }
+
+    .btn-primary:hover:not(:disabled) {
+      filter: brightness(1.05) saturate(1.04);
+      box-shadow: 0 6px 16px var(--glow);
+    }
+
+    .btn-secondary {
+      border-color: var(--line);
+      background: var(--panel);
+      color: var(--fg);
+    }
+
+    .btn-secondary:hover:not(:disabled) {
+      border-color: var(--accent-border);
+      background: color-mix(in srgb, var(--accent) 6%, var(--panel));
+      color: var(--accent);
+    }
+
+    .btn-accent {
+      border-color: var(--accent-line);
+      background: var(--accent-dim);
+      color: var(--accent);
+    }
+
+    .btn-accent:hover:not(:disabled) {
+      border-color: var(--accent-border);
+      background: color-mix(in srgb, var(--accent) 16%, transparent);
+    }
+
+    .btn-danger {
+      height: 42px;
+      border-color: color-mix(in srgb, var(--err) 36%, transparent);
+      background: color-mix(in srgb, var(--err) 12%, transparent);
+      color: var(--err);
+    }
+
+    .btn-danger:hover:not(:disabled) {
+      border-color: var(--err);
+      background: color-mix(in srgb, var(--err) 18%, transparent);
+    }
+
+    .btn-sm {
+      height: 30px;
+      border-radius: 8px;
+      padding: 0 11px;
+      font-size: 12px;
+    }
+
+    .btn:disabled {
+      opacity: .5;
+      cursor: not-allowed;
+      box-shadow: none;
+      filter: none;
+    }
+
+    /* 高级选项折叠区 */
+    .advanced {
+      margin-top: 14px;
+      border-top: 1px solid var(--line-soft);
+      padding-top: 12px;
+    }
+
+    .advanced summary {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      list-style: none;
+      color: var(--mut);
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .advanced summary::-webkit-details-marker {
+      display: none;
+    }
+
+    .advanced summary:hover {
+      color: var(--fg);
+    }
+
+    .advanced-summary-meta {
+      color: var(--faint);
+      font-weight: 400;
+    }
+
+    .advanced-chevron {
+      display: inline-block;
+      margin-left: 6px;
+      transition: transform .15s ease;
+    }
+
+    .advanced[open] .advanced-chevron {
+      transform: rotate(180deg);
     }
 
     .options {
       display: grid;
-      grid-template-columns: repeat(3, 160px);
+      grid-template-columns: repeat(3, minmax(0, 1fr));
       gap: 12px;
+      margin-top: 14px;
     }
 
-    input,
-    select {
-      width: 100%;
-      border: 1px solid var(--line);
-      border-radius: 9px;
-      padding: 10px 12px;
-      background: var(--field);
-      color: var(--fg);
-      font: inherit;
-      font-size: 12px;
-      outline: none;
-    }
-
-    input::placeholder {
-      color: var(--faint);
-    }
-
-    input:focus,
-    select:focus {
-      border-color: var(--accent);
-      box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent);
-    }
-
-    .actions {
-      display: flex;
-      align-items: center;
-      gap: 9px;
-      margin-top: 18px;
-    }
-
-    button {
-      border: 1px solid transparent;
-      border-radius: 9px;
-      padding: 10px 15px;
-      background: var(--accent);
-      color: var(--accent-fg);
-      font: inherit;
-      font-size: 11px;
-      font-weight: 700;
-      cursor: pointer;
-    }
-
-    button:hover:not(:disabled) {
-      filter: brightness(1.08);
-    }
-
-    button.secondary {
-      border-color: var(--line);
-      background: transparent;
+    label.field {
+      display: grid;
+      gap: 6px;
       color: var(--mut);
+      font-size: 12px;
       font-weight: 500;
     }
 
-    button.secondary:hover:not(:disabled) {
-      border-color: var(--accent);
-      color: var(--accent);
-      filter: none;
+    /* 自定义样式下拉框，避免 Windows 原生丑下拉外观 */
+    .select-wrap {
+      position: relative;
     }
 
-    button:disabled {
-      opacity: .5;
-      cursor: wait;
+    .select-wrap select {
+      width: 100%;
+      height: 36px;
+      appearance: none;
+      -webkit-appearance: none;
+      border: 1px solid var(--line);
+      border-radius: 9px;
+      padding: 0 32px 0 12px;
+      background: var(--field);
+      color: var(--fg);
+      font: inherit;
+      font-size: 13px;
+      outline: none;
+      cursor: pointer;
+      transition: border-color .15s ease, box-shadow .15s ease;
     }
 
+    .select-wrap select:focus {
+      border-color: var(--accent-border);
+      box-shadow: 0 0 0 3px var(--accent-dim);
+    }
+
+    .select-wrap::after {
+      content: "";
+      position: absolute;
+      right: 12px;
+      top: 50%;
+      width: 6px;
+      height: 6px;
+      margin-top: -4px;
+      border-right: 1.5px solid var(--mut);
+      border-bottom: 1.5px solid var(--mut);
+      transform: rotate(45deg);
+      pointer-events: none;
+    }
+
+    /* 进度与日志 */
     .meter {
       display: none;
-      margin-top: 18px;
+      margin-top: 16px;
     }
 
     .meter.visible {
@@ -172,7 +371,7 @@
 
     .meter-track {
       height: 5px;
-      border-radius: 3px;
+      border-radius: 99px;
       background: var(--field);
       overflow: hidden;
     }
@@ -180,15 +379,15 @@
     .meter-fill {
       height: 100%;
       width: 0;
-      border-radius: 3px;
-      background: var(--accent);
+      border-radius: 99px;
+      background: var(--grad);
       transition: width .25s ease;
     }
 
     .meter-label {
       margin-top: 7px;
       color: var(--faint);
-      font-size: 10px;
+      font-size: 12px;
       font-variant-numeric: tabular-nums;
     }
 
@@ -206,13 +405,7 @@
 
     .log-head span {
       color: var(--faint);
-      font-size: 10px;
-    }
-
-    .log-head button {
-      padding: 5px 10px;
-      font-size: 10px;
-      font-weight: 500;
+      font-size: 12px;
     }
 
     .log {
@@ -220,13 +413,13 @@
       margin-top: 8px;
       max-height: 190px;
       overflow-y: auto;
-      border: 1px solid var(--line);
-      border-radius: 9px;
-      padding: 9px 11px;
+      border: 1px solid var(--line-soft);
+      border-radius: 10px;
+      padding: 10px 12px;
       background: var(--field);
       color: var(--mut);
       font-family: ui-monospace, Consolas, monospace;
-      font-size: 10px;
+      font-size: 11px;
       line-height: 1.65;
       white-space: pre-wrap;
       word-break: break-all;
@@ -242,12 +435,12 @@
 
     .status {
       display: none;
-      margin-top: 16px;
-      border: 1px solid var(--line);
+      margin-top: 14px;
+      border: 1px solid var(--line-soft);
       border-radius: 10px;
-      padding: 11px 13px;
+      padding: 11px 14px;
       color: var(--mut);
-      font-size: 11px;
+      font-size: 12px;
       line-height: 1.6;
     }
 
@@ -258,16 +451,16 @@
     .status.error {
       border-color: color-mix(in srgb, var(--err) 38%, transparent);
       color: var(--err);
-      background: color-mix(in srgb, var(--err) 7%, transparent);
+      background: color-mix(in srgb, var(--err) 8%, transparent);
     }
 
     .status.success {
       border-color: color-mix(in srgb, var(--ok) 34%, transparent);
       color: var(--ok);
-      background: color-mix(in srgb, var(--ok) 7%, transparent);
+      background: color-mix(in srgb, var(--ok) 8%, transparent);
     }
 
-    .status button {
+    .status-actions {
       margin-top: 10px;
     }
 
@@ -283,45 +476,86 @@
       animation: spin .75s linear infinite;
     }
 
-    .cookie-bar {
+    /* 环境与凭据：两栏信息卡 */
+    .env-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    .env-card {
       display: flex;
       align-items: center;
-      gap: 10px;
-      margin-top: 16px;
-      padding-top: 14px;
-      border-top: 1px solid var(--line);
+      justify-content: space-between;
+      gap: 14px;
+      border: 1px solid var(--line-soft);
+      border-radius: 14px;
+      padding: 16px 18px;
+      background: var(--panel);
+      box-shadow: var(--shadow-sm);
     }
 
-    .cookie-state {
-      flex: 1;
+    .env-info {
+      display: grid;
+      gap: 4px;
       min-width: 0;
-      color: var(--mut);
-      font-size: 11px;
     }
 
-    .cookie-state.warn {
+    .env-title {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--fg);
+    }
+
+    .env-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--faint);
+      flex: 0 0 auto;
+    }
+
+    .env-dot.ok {
+      background: var(--ok);
+    }
+
+    .env-dot.warn {
+      background: var(--err);
+    }
+
+    .env-desc {
+      color: var(--mut);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    .env-desc.warn {
       color: var(--err);
     }
 
     .cookie-panel {
-      margin-top: 14px;
-      border: 1px solid var(--line);
-      border-radius: 10px;
-      padding: 14px;
+      border: 1px solid var(--line-soft);
+      border-radius: 14px;
+      padding: 18px 20px;
+      background: var(--panel);
+      box-shadow: var(--shadow-sm);
     }
 
     .cookie-panel ol {
       margin: 0 0 12px;
       padding-left: 18px;
       color: var(--mut);
-      font-size: 11px;
-      line-height: 1.9;
+      font-size: 12px;
+      line-height: 1.85;
     }
 
     .cookie-panel .warn-note {
       margin: 0 0 12px;
       color: var(--faint);
-      font-size: 10px;
+      font-size: 11px;
       line-height: 1.7;
     }
 
@@ -341,8 +575,8 @@
     }
 
     textarea:focus {
-      border-color: var(--accent);
-      box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent);
+      border-color: var(--accent-border);
+      box-shadow: 0 0 0 3px var(--accent-dim);
     }
 
     .cookie-panel label {
@@ -351,14 +585,92 @@
 
     .cookie-actions {
       display: flex;
-      gap: 9px;
+      gap: 8px;
     }
 
-    .hint {
-      margin: 14px 2px 0;
+    /* 最近下载记录 */
+    .history-section {
+      display: grid;
+      gap: 10px;
+    }
+
+    .history-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 0 2px;
+    }
+
+    .history-header h2 {
+      margin: 0;
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--fg);
+    }
+
+    .history-header small {
+      margin-left: 8px;
       color: var(--faint);
-      font-size: 10px;
-      line-height: 1.7;
+      font-size: 12px;
+      font-weight: 400;
+    }
+
+    .history-panel {
+      border: 1px solid var(--line-soft);
+      border-radius: 14px;
+      background: var(--panel);
+      box-shadow: var(--shadow-sm);
+      overflow: hidden;
+    }
+
+    .history-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+      padding: 12px 18px;
+    }
+
+    .history-row + .history-row {
+      border-top: 1px solid var(--line-soft);
+    }
+
+    .history-copy {
+      display: grid;
+      gap: 3px;
+      min-width: 0;
+    }
+
+    .history-copy strong {
+      overflow: hidden;
+      color: var(--fg);
+      font-size: 13px;
+      font-weight: 600;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .history-copy span {
+      color: var(--faint);
+      font-size: 12px;
+    }
+
+    .history-empty {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+      padding: 18px 20px;
+      color: var(--mut);
+      font-size: 12px;
+    }
+
+    .history-empty strong {
+      display: block;
+      margin-bottom: 3px;
+      color: var(--fg);
+      font-size: 13px;
     }
 
     @keyframes spin {
@@ -367,12 +679,17 @@
       }
     }
 
-    @media (max-width: 560px) {
-      body {
-        padding: 16px;
+    @media (max-width: 720px) {
+      .url-bar {
+        flex-wrap: wrap;
       }
 
-      .options {
+      .url-input-wrap {
+        flex: 1 1 100%;
+      }
+
+      .options,
+      .env-grid {
         grid-template-columns: 1fr;
       }
     }
@@ -382,77 +699,126 @@
 <body>
   <main>
     <section class="card">
-      <div class="platforms"><span>YouTube</span><span>Twitch VOD</span><span>Twitch Clips</span></div>
-      <label class="address">视频地址<input id="url" type="url" inputmode="url" autocomplete="off"
-          placeholder="https://www.youtube.com/watch?v=…"></label>
-      <div class="options">
-        <label>最高画质<select id="quality">
-            <option value="best">最佳可用</option>
-            <option value="2160">2160p</option>
-            <option value="1440">1440p</option>
-            <option value="1080" selected>1080p</option>
-            <option value="720">720p</option>
-          </select></label>
-        <label>下载器<select id="downloader">
-            <option value="aria2c" selected>aria2c 加速</option>
-            <option value="builtin">yt-dlp 内置</option>
-          </select></label>
-        <label>并发分片<select id="fragments">
-            <option value="16">16（最快）</option>
-            <option value="8">8</option>
-            <option value="4" selected>4</option>
-            <option value="1">1（最稳）</option>
-          </select></label>
+      <div class="url-bar">
+        <div class="url-input-wrap">
+          <input id="url" type="url" inputmode="url" autocomplete="off"
+            placeholder="粘贴 YouTube 或 Twitch 视频链接，例如 https://www.youtube.com/watch?v=…">
+          <button id="paste" class="paste-btn" type="button" title="从剪贴板粘贴链接">粘贴</button>
+        </div>
+        <button id="download" class="btn btn-primary" type="button">选择位置并下载</button>
+        <button id="cancel" class="btn btn-danger" type="button" hidden>取消下载</button>
       </div>
-      <div class="actions">
-        <button id="download">选择位置并下载</button>
-        <button id="cancel" class="secondary" hidden>取消下载</button>
-        <button id="runtime" class="secondary">运行环境</button>
+
+      <div class="url-meta">
+        <span id="platformHint" class="platform-hint"><i></i><span>支持 YouTube、Twitch VOD、Twitch Clips</span></span>
       </div>
+
+      <details id="advanced" class="advanced">
+        <summary>
+          <span>高级选项</span>
+          <span><span id="advancedSummary" class="advanced-summary-meta">1080p · aria2c 加速 · 4 分片</span><span class="advanced-chevron">▾</span></span>
+        </summary>
+        <div class="options">
+          <label class="field">最高画质
+            <div class="select-wrap">
+              <select id="quality">
+                <option value="best">最佳可用</option>
+                <option value="2160">2160p</option>
+                <option value="1440">1440p</option>
+                <option value="1080" selected>1080p</option>
+                <option value="720">720p</option>
+              </select>
+            </div>
+          </label>
+          <label class="field">下载器
+            <div class="select-wrap">
+              <select id="downloader">
+                <option value="aria2c" selected>aria2c 加速</option>
+                <option value="builtin">yt-dlp 内置</option>
+              </select>
+            </div>
+          </label>
+          <label class="field">并发分片
+            <div class="select-wrap">
+              <select id="fragments">
+                <option value="16">16（最快）</option>
+                <option value="8">8</option>
+                <option value="4" selected>4</option>
+                <option value="1">1（最稳）</option>
+              </select>
+            </div>
+          </label>
+        </div>
+      </details>
+
       <div id="meter" class="meter">
         <div class="meter-track">
           <div id="meterFill" class="meter-fill"></div>
         </div>
         <div id="meterLabel" class="meter-label">正在准备…</div>
       </div>
+
       <div id="logHead" class="log-head">
         <span>下载日志</span>
-        <button id="clearLog" class="secondary" type="button">清除日志</button>
+        <button id="clearLog" class="btn btn-secondary btn-sm" type="button">清除日志</button>
       </div>
       <div id="log" class="log" aria-label="下载日志"></div>
       <div id="status" class="status" role="status" aria-live="polite"></div>
+    </section>
 
-      <div class="cookie-bar">
-        <span id="cookieState" class="cookie-state">正在读取配置…</span>
-        <button id="editCookies" class="secondary" type="button">编辑 cookies</button>
-      </div>
-
-      <section id="cookiePanel" class="cookie-panel" hidden>
-        <ol>
-          <li>在浏览器里登录 YouTube。</li>
-          <li>装一个能导出 <b>Netscape 格式 cookies.txt</b> 的浏览器扩展（搜 “cookies.txt”，Chrome / Edge / Firefox 都有）。</li>
-          <li>打开 <code>youtube.com</code>，用该扩展导出当前站点的 cookies.txt。</li>
-          <li>用文本编辑器打开导出的文件，<b>全选复制</b>，粘贴到下面。</li>
-        </ol>
-        <p class="warn-note">
-          cookies 等同于你的 YouTube 登录态，请勿外传；退出登录或长期不用会让它失效，失效后重新导出即可。
-          出于安全考虑，已保存的 cookies <b>不会回显</b>，重新粘贴即为替换。
-        </p>
-        <label>cookies.txt 内容<textarea id="cookieText" spellcheck="false"
-            placeholder="整份粘贴，包含开头的 # Netscape HTTP Cookie File 一行"></textarea></label>
-        <div class="cookie-actions">
-          <button id="saveCookies" type="button">保存</button>
-          <button id="clearCookies" class="secondary" type="button">清除 cookies</button>
-          <button id="closeCookies" class="secondary" type="button">收起</button>
+    <div class="env-grid">
+      <div class="env-card">
+        <div class="env-info">
+          <div class="env-title"><span id="cookieDot" class="env-dot"></span><span>YouTube Cookies</span></div>
+          <span id="cookieDesc" class="env-desc">正在读取配置…</span>
         </div>
-      </section>
+        <button id="editCookies" class="btn btn-secondary btn-sm" type="button">编辑 cookies</button>
+      </div>
+      <div class="env-card">
+        <div class="env-info">
+          <div class="env-title"><span id="potDot" class="env-dot"></span><span>下载运行环境</span></div>
+          <span id="potDesc" class="env-desc">正在检查 PO Token 与工具状态…</span>
+        </div>
+        <button id="runtime" class="btn btn-secondary btn-sm" type="button">运行环境</button>
+      </div>
+    </div>
+
+    <section id="cookiePanel" class="cookie-panel" hidden>
+      <ol>
+        <li>在浏览器里登录 YouTube。</li>
+        <li>装一个能导出 <b>Netscape 格式 cookies.txt</b> 的浏览器扩展（搜 “cookies.txt”，Chrome / Edge / Firefox 都有）。</li>
+        <li>打开 <code>youtube.com</code>，用该扩展导出当前站点的 cookies.txt。</li>
+        <li>用文本编辑器打开导出的文件，<b>全选复制</b>，粘贴到下面。</li>
+      </ol>
+      <p class="warn-note">
+        cookies 等同于你的 YouTube 登录态，请勿外传；退出登录或长期不用会让它失效，失效后重新导出即可。
+        出于安全考虑，已保存的 cookies <b>不会回显</b>，重新粘贴即为替换。
+      </p>
+      <label class="field">cookies.txt 内容<textarea id="cookieText" spellcheck="false"
+          placeholder="整份粘贴，包含开头的 # Netscape HTTP Cookie File 一行"></textarea></label>
+      <div class="cookie-actions">
+        <button id="saveCookies" class="btn btn-accent btn-sm" type="button">保存</button>
+        <button id="clearCookies" class="btn btn-secondary btn-sm" type="button">清除 cookies</button>
+        <button id="closeCookies" class="btn btn-secondary btn-sm" type="button">收起</button>
+      </div>
+    </section>
+
+    <section class="history-section">
+      <div class="history-header">
+        <h2>最近下载<small id="historyCount"></small></h2>
+        <button id="clearHistory" class="btn btn-secondary btn-sm" type="button" hidden>清空记录</button>
+      </div>
+      <div id="historyPanel" class="history-panel"></div>
     </section>
   </main>
   <script>
     const url = document.querySelector("#url");
+    const pasteBtn = document.querySelector("#paste");
+    const platformHint = document.querySelector("#platformHint");
     const quality = document.querySelector("#quality");
     const fragments = document.querySelector("#fragments");
     const downloader = document.querySelector("#downloader");
+    const advancedSummary = document.querySelector("#advancedSummary");
     const download = document.querySelector("#download");
     const status = document.querySelector("#status");
     const meter = document.querySelector("#meter");
@@ -461,17 +827,104 @@
     const cancel = document.querySelector("#cancel");
     const logBox = document.querySelector("#log");
     const logHead = document.querySelector("#logHead");
-    // 日志只留最近这些行：yt-dlp 会刷很多行，无上限地堆 DOM 会让长任务越跑越卡。
     const LOG_LIMIT = 200;
-    const cookieState = document.querySelector("#cookieState");
+    const cookieDot = document.querySelector("#cookieDot");
+    const cookieDesc = document.querySelector("#cookieDesc");
+    const potDot = document.querySelector("#potDot");
+    const potDesc = document.querySelector("#potDesc");
     const cookiePanel = document.querySelector("#cookiePanel");
     const cookieText = document.querySelector("#cookieText");
+    const historyPanel = document.querySelector("#historyPanel");
+    const historyCount = document.querySelector("#historyCount");
+    const clearHistoryBtn = document.querySelector("#clearHistory");
+    const HISTORY_KEY = "nonoka.downloader.history.v1";
+
     let requestId = "";
-    // 下载是否在进行，由宿主说了算：切走页面会销毁 iframe，页面自己的状态不能作数。
     let downloading = false;
     let logId = "";
-    // 保存 / 清除 / 改服务地址都回同一种结果，共用一个 id 即可，最后一个响应生效。
     let settingsId = "";
+    let lastRequestedPlatform = "";
+
+    function detectPlatform(raw) {
+      const text = (raw || "").trim();
+      if (!text) return "";
+      if (/(?:youtube\.com|youtu\.be)/i.test(text)) return "YouTube";
+      if (/clips\.twitch\.tv|twitch\.tv\/[^/]+\/clip\//i.test(text)) return "Twitch Clips";
+      if (/twitch\.tv/i.test(text)) return "Twitch VOD";
+      return "";
+    }
+
+    function updatePlatformHint() {
+      const detected = detectPlatform(url.value);
+      const span = platformHint.querySelector("span");
+      if (detected) {
+        platformHint.className = "platform-hint detected";
+        span.textContent = "已识别平台：" + detected;
+      } else {
+        platformHint.className = "platform-hint";
+        span.textContent = "支持 YouTube、Twitch VOD、Twitch Clips";
+      }
+    }
+
+    function updateAdvancedSummary() {
+      const qLabel = quality.options[quality.selectedIndex].textContent;
+      const dLabel = downloader.options[downloader.selectedIndex].textContent;
+      advancedSummary.textContent = qLabel + " · " + dLabel + " · " + fragments.value + " 分片";
+    }
+
+    function loadHistory() {
+      try {
+        const parsed = JSON.parse(localStorage.getItem(HISTORY_KEY) || "[]");
+        return Array.isArray(parsed) ? parsed : [];
+      } catch {
+        return [];
+      }
+    }
+
+    function saveHistory(items) {
+      try {
+        localStorage.setItem(HISTORY_KEY, JSON.stringify(items.slice(0, 12)));
+      } catch { /* ignore storage quota errors */ }
+    }
+
+    function addHistoryItem(title, platform) {
+      const items = loadHistory();
+      items.unshift({
+        title: title || "未命名视频",
+        platform: platform || "视频下载",
+        at: Date.now()
+      });
+      saveHistory(items);
+      renderHistory();
+    }
+
+    function formatTime(ts) {
+      const d = new Date(ts);
+      const pad = (n) => String(n).padStart(2, "0");
+      return (d.getMonth() + 1) + "月" + d.getDate() + "日 " + pad(d.getHours()) + ":" + pad(d.getMinutes());
+    }
+
+    function renderHistory() {
+      const items = loadHistory();
+      historyCount.textContent = items.length > 0 ? items.length + " 条" : "";
+      clearHistoryBtn.hidden = items.length === 0;
+      if (items.length === 0) {
+        historyPanel.innerHTML = "<div class=\"history-empty\"><div><strong>还没有下载记录</strong><span>粘贴 YouTube 或 Twitch 链接开始下载，完成后会自动导入媒体库。</span></div></div>";
+        return;
+      }
+      historyPanel.innerHTML = items.map(function (item) {
+        return "<div class=\"history-row\">"
+          + "<div class=\"history-copy\"><strong>" + escapeHTML(item.title) + "</strong>"
+          + "<span>" + escapeHTML(item.platform) + " · " + escapeHTML(formatTime(item.at)) + "</span></div>"
+          + "<button class=\"btn btn-accent btn-sm history-open\" type=\"button\">前往媒体库</button>"
+          + "</div>";
+      }).join("");
+      historyPanel.querySelectorAll(".history-open").forEach(function (btn) {
+        btn.addEventListener("click", function () {
+          window.nonoka.post("ui.openLibrary");
+        });
+      });
+    }
 
     function askSettings(method, params) {
       settingsId = "settings-" + Date.now() + "-" + Math.random().toString(36).slice(2, 7);
@@ -484,29 +937,34 @@
     };
 
     function renderSettings(settings) {
-      const parts = [];
       if (settings.cookiesPresent) {
-        parts.push("已配置 cookies（" + settings.cookieCount + " 条）");
+        cookieDot.className = "env-dot ok";
+        cookieDesc.className = "env-desc";
+        cookieDesc.textContent = "已配置（" + settings.cookieCount + " 条）";
       } else {
-        parts.push("未配置 cookies —— 较长的视频很可能下载失败");
+        cookieDot.className = "env-dot warn";
+        cookieDesc.className = "env-desc warn";
+        cookieDesc.textContent = "未配置，较长的视频可能下载失败";
       }
+
       if (settings.potReady) {
-        parts.push("PO Token 已就绪");
+        potDot.className = "env-dot ok";
+        potDesc.className = "env-desc";
+        potDesc.textContent = "PO Token 已就绪";
       } else {
         const missing = (settings.missing || []).map(function (id) {
           return TOOL_LABELS[id] || id;
         });
-        parts.push("PO Token 未就绪，需在“运行环境”安装：" + (missing.join("、") || "可选工具"));
+        potDot.className = "env-dot warn";
+        potDesc.className = "env-desc warn";
+        potDesc.textContent = "需安装：" + (missing.join("、") || "可选工具");
       }
+
       if (settings.downloadRunning && !downloading) {
-        // 这个页面是在下载开始之后才挂载的：重新接管进度，别让用户以为任务丢了。
         setDownloading(true);
         meterLabel.textContent = "正在下载…";
         show("<span class=\"spinner\"></span>下载正在后台继续，切换页面不会中断。", "");
       }
-      cookieState.textContent = parts.join(" · ");
-      const healthy = settings.cookiesPresent && settings.potReady;
-      cookieState.className = "cookie-state" + (healthy ? "" : " warn");
     }
 
     function show(message, tone) {
@@ -523,7 +981,6 @@
       if (!active) meterFill.style.width = "0";
     }
 
-    // 页面是新挂载的：把宿主留存的这一轮日志补回来，否则日志会从半路开始。
     function loadLog() {
       logId = "log-" + Date.now();
       window.nonoka.post("downloader.log", {}, logId);
@@ -541,7 +998,6 @@
       logBox.appendChild(entry);
       while (logBox.childElementCount > LOG_LIMIT) logBox.removeChild(logBox.firstChild);
       setLogVisible(true);
-      // 只在用户没有往上翻看历史时才自动滚到底，否则会把他正在读的内容顶走。
       const atBottom = logBox.scrollHeight - logBox.scrollTop - logBox.clientHeight < 40;
       if (atBottom) logBox.scrollTop = logBox.scrollHeight;
     }
@@ -552,6 +1008,29 @@
       meterLabel.textContent = "已下载 " + percent.toFixed(1) + "%";
     }
 
+    url.addEventListener("input", updatePlatformHint);
+    quality.addEventListener("change", updateAdvancedSummary);
+    downloader.addEventListener("change", updateAdvancedSummary);
+    fragments.addEventListener("change", updateAdvancedSummary);
+
+    pasteBtn.addEventListener("click", async function () {
+      try {
+        const text = (await navigator.clipboard.readText()).trim();
+        if (text) {
+          url.value = text;
+          updatePlatformHint();
+          url.focus();
+        }
+      } catch {
+        url.focus();
+      }
+    });
+
+    clearHistoryBtn.addEventListener("click", function () {
+      saveHistory([]);
+      renderHistory();
+    });
+
     download.addEventListener("click", function () {
       const value = url.value.trim();
       if (!value) {
@@ -559,6 +1038,7 @@
         url.focus();
         return;
       }
+      lastRequestedPlatform = detectPlatform(value) || "视频下载";
       requestId = "download-" + Date.now();
       setDownloading(true);
       logBox.textContent = "";
@@ -580,7 +1060,6 @@
         "--no-part",
         "-N", fragments.value
       ];
-      // 只是向宿主提出请求：aria2c 的路径由宿主解析，没装或用不了代理时自动退回内置下载器。
       if (downloader.value === "aria2c") args.push("--downloader", "aria2c");
       window.nonoka.post("tools.runYtDLP", { url: value, args: args }, requestId);
     });
@@ -588,8 +1067,6 @@
     document.querySelector("#clearLog").addEventListener("click", function () {
       logBox.textContent = "";
       setLogVisible(false);
-      // 也清掉宿主留存的那份：页面每次挂载都会重新拉取，只清 DOM 的话，
-      // 下次切走再回来日志会原样回来。
       window.nonoka.post("downloader.clearLog", {}, "clearlog-" + Date.now());
     });
 
@@ -618,7 +1095,6 @@
         return;
       }
       askSettings("downloader.saveCookies", { content: cookieText.value });
-      // 不留在输入框里：这是凭据，存下去之后没有理由继续摆在页面上。
       cookieText.value = "";
     });
 
@@ -633,8 +1109,6 @@
       if (message.method === "host.info") {
         const light = message.result.theme === "light";
         document.body.classList.toggle("light", light);
-        // 原生控件（select 的箭头和下拉面板）也跟着宿主主题走：钉死在 dark 的话，
-        // 浅色主题里下拉会是一块突兀的深色。
         document.documentElement.style.colorScheme = light ? "light" : "dark";
         return;
       }
@@ -649,9 +1123,7 @@
       if (message.method === "download.finished") {
         const wasMine = requestId !== "";
         setDownloading(false);
-        // 发起下载的那个 frame 已经不在了，结果拿不到，只能给个中性提示；
-        // 没切走的情况下 rpc.result 随后就到，会覆盖成带标题的完成信息。
-        if (!wasMine) show("下载已结束，请到确认结果。", "");
+        if (!wasMine) show("下载已结束，请到媒体库确认结果。", "");
         askSettings("downloader.settings", {});
         return;
       }
@@ -679,13 +1151,16 @@
         show("已取消下载。", "");
         return;
       }
+      addHistoryItem(message.result.media.title, lastRequestedPlatform);
       show("下载完成，已导入媒体库：<strong>" + escapeHTML(message.result.media.title)
-        + "</strong><br><button id=\"library\" class=\"secondary\">前往媒体库</button>", "success");
+        + "</strong><div class=\"status-actions\"><button id=\"library\" class=\"btn btn-accent btn-sm\" type=\"button\">前往媒体库</button></div>", "success");
       document.querySelector("#library").addEventListener("click", function () {
         window.nonoka.post("ui.openLibrary");
       });
     });
 
+    updateAdvancedSummary();
+    renderHistory();
     askSettings("downloader.settings", {});
     loadLog();
 

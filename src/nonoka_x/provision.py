@@ -518,6 +518,26 @@ class RuntimeProvisioner:
                      progress=None, error=None)
         return self.status()
 
+    def remove_layer(self, layer: str) -> dict[str, Any]:
+        """Remove one user-removable layer (currently only `models`); default layers stay."""
+
+        if self.layers is None:
+            raise RuntimeProvisionError(f"运行环境层不可用：{self._bootstrap_error}")
+        if layer != "models":
+            raise RuntimeProvisionError("仅允许删除模型层；工具层与 Python 环境层为默认基础环境")
+        self._refuse_while_busy("删除模型层")
+        result = self.layers.remove_layer(layer)
+        if result["kept"]:
+            reasons = "、".join(f"{item['name']}（{item['reason']}）" for item in result["kept"])
+            detail = f"模型层未能完全删除，可能有文件正在被占用：{reasons}"
+            self._update(state="failed", target="remove-models", resource="", stage="failed", message=detail,
+                         progress=None, error={"code": "remove_failed", "message": detail})
+            raise RuntimeProvisionError(detail)
+        self._update(state="completed", target="remove-models", resource="", stage="completed",
+                     message="模型层已删除；工具层、Python 环境层与用户数据已保留",
+                     progress=None, error=None)
+        return self.status()
+
     def unused_layers(self) -> dict[str, Any]:
         """For WP-UI's "clean up unused": the versions and leftovers no one uses, with their sizes."""
 

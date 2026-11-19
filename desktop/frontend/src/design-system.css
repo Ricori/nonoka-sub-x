@@ -1,0 +1,428 @@
+/* ==========================================================================
+   Nonoka 设计系统
+   --------------------------------------------------------------------------
+   主窗口唯一的字号 / 间距 / 圆角 / 语义色来源，外加按钮和标签两类基础组件。
+   在 main.tsx 里紧跟 styles.css 引入，所以能盖住 styles.css 里的旧规则；
+   各页面 CSS 只负责布局，不再各自给按钮和标签另配一套颜色。
+
+   按钮（四档：主操作 / 柔紫强调 / 次要描边 / 弱按钮，外加危险态）
+     .primary-button                 主操作：品牌紫渐变 + 轻光晕，每区域最多一个
+     .accent-button                  柔紫操作：淡紫底 + 紫描边（卡片主动作、查看媒体、更新）
+     .quiet-button / .secondary-button 次要操作：白底描边 + 轻投影
+     .ghost-button / .ghost          弱操作：无边框，悬停出底色
+     .danger-button                  危险操作：危险色描边 + 轻红底
+     .inline-link / .danger-link     行内文字链接
+     .icon-button / .theme-button    方形图标按钮
+     .btn-sm                         小号（30px，列表行、卡片里用）
+
+   标签
+     .badge（或 <Mark tone>）+ .tone-neutral | accent | ok | caution | danger
+     统一 22px 胶囊形态 + 语义浅底 + 细描边。
+   ========================================================================== */
+
+:root {
+  --fs-xs: 11px;
+  --fs-sm: 12px;
+  --fs-md: 13px;
+  --fs-base: 14px;
+  --fs-lg: 16px;
+  --fs-xl: 20px;
+  --fs-title: 28px;
+
+  --fw-regular: 400;
+  --fw-medium: 500;
+  --fw-semibold: 600;
+  --fw-bold: 700;
+
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 20px;
+  --sp-6: 24px;
+  --sp-8: 32px;
+
+  --r-sm: 6px;
+  --r-md: 9px;
+  --r-lg: 12px;
+  --r-xl: 16px;
+  --r-pill: 999px;
+
+  --ctl-h: 36px;
+  --ctl-h-sm: 30px;
+  --ctl-h-top: 38px;
+  --page-max-w: 1120px;
+
+  --ease: .15s ease;
+}
+
+/* 语义色别名必须挂在 body 上：亮色主题的变量写在 body.light 里，
+   如果别名放在 :root，会在 :root 处就被解析成暗色的值再继承下来。 */
+body {
+  --on-accent: var(--on-grad);
+  --danger: var(--warn);
+  --caution: var(--accent2);
+
+  --tone-neutral-fg: var(--mut);
+  --tone-neutral-bg: color-mix(in srgb, var(--raised) 70%, transparent);
+  --tone-neutral-bd: var(--line-soft);
+
+  --tone-accent-fg: var(--accent);
+  --tone-accent-bg: var(--accent-dim);
+  --tone-accent-bd: var(--accent-line);
+
+  --tone-ok-fg: var(--ok);
+  --tone-ok-bg: color-mix(in srgb, var(--ok) 13%, transparent);
+  --tone-ok-bd: color-mix(in srgb, var(--ok) 32%, transparent);
+
+  --tone-caution-fg: var(--caution);
+  --tone-caution-bg: color-mix(in srgb, var(--caution) 14%, transparent);
+  --tone-caution-bd: color-mix(in srgb, var(--caution) 34%, transparent);
+
+  --tone-danger-fg: var(--danger);
+  --tone-danger-bg: color-mix(in srgb, var(--danger) 12%, transparent);
+  --tone-danger-bd: color-mix(in srgb, var(--danger) 34%, transparent);
+
+  --shadow-ctl: 0 1px 2px rgba(0, 0, 0, .14);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, .08), 0 4px 12px rgba(0, 0, 0, .08);
+  --shadow-md: 0 8px 28px rgba(0, 0, 0, .16);
+}
+
+body.light {
+  --shadow-ctl: 0 1px 2px rgba(60, 46, 84, .06);
+  --shadow-sm: 0 1px 2px rgba(60, 46, 84, .05), 0 4px 14px rgba(60, 46, 84, .06);
+  --shadow-md: 0 10px 30px rgba(60, 46, 84, .10);
+}
+
+button:focus-visible,
+a:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* --------------------------------------------------------------------------
+   按钮
+   -------------------------------------------------------------------------- */
+
+.primary-button,
+.accent-button,
+.quiet-button,
+.secondary-button,
+.ghost-button,
+.ghost,
+.danger-button,
+.icon-button,
+.theme-button,
+.update-button,
+.about-update {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: var(--ctl-h);
+  min-height: var(--ctl-h);
+  margin: 0;
+  border: 1px solid transparent;
+  border-radius: var(--r-md);
+  padding: 0 15px;
+  font-size: var(--fs-md);
+  font-weight: var(--fw-semibold);
+  line-height: 1;
+  white-space: nowrap;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background var(--ease), border-color var(--ease), color var(--ease), box-shadow var(--ease), filter var(--ease), opacity var(--ease);
+}
+
+.primary-button:disabled,
+.accent-button:disabled,
+.quiet-button:disabled,
+.secondary-button:disabled,
+.ghost-button:disabled,
+.ghost:disabled,
+.danger-button:disabled,
+.icon-button:disabled,
+.theme-button:disabled,
+.update-button:disabled,
+.about-update:disabled {
+  cursor: not-allowed;
+}
+
+/* 顶栏里的按钮和搜索框统一高度（38px） */
+.topbar-actions > .primary-button,
+.topbar-actions > .quiet-button,
+.topbar-actions > .update-button,
+.topbar-actions > .theme-button {
+  height: var(--ctl-h-top);
+  min-height: var(--ctl-h-top);
+}
+
+.library-search input {
+  height: var(--ctl-h-top);
+  font-size: var(--fs-md);
+}
+
+/* 主按钮：品牌渐变 + 柔和光晕 */
+.primary-button {
+  border-color: transparent;
+  background: var(--grad);
+  color: var(--on-grad);
+  box-shadow: 0 4px 12px var(--glow);
+}
+
+.primary-button:hover:not(:disabled) {
+  filter: brightness(1.05) saturate(1.04);
+  box-shadow: 0 6px 16px var(--glow);
+}
+
+.primary-button:active:not(:disabled) {
+  filter: brightness(.97);
+}
+
+.primary-button:disabled {
+  border-color: transparent;
+  background: var(--raised);
+  color: var(--faint);
+  box-shadow: none;
+  filter: none;
+  opacity: 1;
+}
+
+/* 柔紫强调按钮：保留紫色系轻盈感，用于次主操作（如查看媒体、继续、更新） */
+.accent-button,
+.update-button,
+.about-update {
+  border-color: var(--accent-line);
+  background: var(--accent-dim);
+  color: var(--accent);
+}
+
+.accent-button:hover:not(:disabled),
+.update-button:hover:not(:disabled),
+.about-update:hover:not(:disabled) {
+  border-color: var(--accent-border);
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+}
+
+.accent-button:disabled,
+.update-button:disabled,
+.about-update:disabled {
+  opacity: .5;
+}
+
+/* 次要按钮：白底描边 + 轻投影 */
+.quiet-button,
+.secondary-button,
+.theme-button,
+.icon-button {
+  border-color: var(--line);
+  background: var(--panel);
+  color: var(--text);
+  box-shadow: var(--shadow-ctl);
+}
+
+.quiet-button:hover:not(:disabled),
+.secondary-button:hover:not(:disabled),
+.theme-button:hover:not(:disabled),
+.icon-button:hover:not(:disabled) {
+  border-color: var(--accent-border);
+  background: color-mix(in srgb, var(--accent) 6%, var(--panel));
+  color: var(--accent);
+}
+
+.quiet-button:disabled,
+.secondary-button:disabled,
+.theme-button:disabled,
+.icon-button:disabled {
+  opacity: .5;
+  box-shadow: none;
+}
+
+/* 处于“展开/选中”状态的次要按钮 */
+.quiet-button.open,
+.quiet-button[aria-pressed="true"],
+.quiet-button[aria-expanded="true"] {
+  border-color: var(--accent-border);
+  background: var(--accent-dim);
+  color: var(--accent);
+  box-shadow: none;
+}
+
+/* 弱按钮 */
+.ghost-button,
+.ghost {
+  background: transparent;
+  color: var(--mut);
+  box-shadow: none;
+}
+
+.ghost-button:hover:not(:disabled),
+.ghost:hover:not(:disabled) {
+  background: var(--tone-neutral-bg);
+  color: var(--text);
+}
+
+.ghost-button:disabled,
+.ghost:disabled {
+  opacity: .5;
+}
+
+/* 危险按钮 */
+.danger-button {
+  border-color: var(--tone-danger-bd);
+  background: var(--tone-danger-bg);
+  color: var(--danger);
+}
+
+.danger-button:hover:not(:disabled) {
+  border-color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 18%, transparent);
+}
+
+.danger-button:disabled {
+  opacity: .5;
+}
+
+/* 图标按钮：保持正方形 */
+.icon-button {
+  width: var(--ctl-h);
+  padding: 0;
+  font-size: var(--fs-base);
+  font-weight: var(--fw-regular);
+}
+
+.theme-button {
+  width: var(--ctl-h-top);
+  height: var(--ctl-h-top);
+  min-height: var(--ctl-h-top);
+  padding: 0;
+  font-size: var(--fs-base);
+  font-weight: var(--fw-regular);
+}
+
+/* 小号按钮（列表行、紧凑操作区） */
+.btn-sm {
+  height: var(--ctl-h-sm);
+  min-height: var(--ctl-h-sm);
+  border-radius: 8px;
+  padding: 0 11px;
+  font-size: var(--fs-sm);
+}
+
+.btn-sm.icon-button {
+  width: var(--ctl-h-sm);
+  padding: 0;
+}
+
+/* 行内文字链接 */
+.inline-link,
+.danger-link,
+.danger-text-button {
+  display: inline;
+  height: auto;
+  min-height: 0;
+  border: 0;
+  border-radius: var(--r-sm);
+  padding: 0;
+  background: transparent;
+  color: var(--accent);
+  font: inherit;
+  font-weight: var(--fw-semibold);
+  cursor: pointer;
+}
+
+.danger-link,
+.danger-text-button {
+  color: var(--danger);
+}
+
+.inline-link:hover:not(:disabled),
+.danger-link:hover:not(:disabled),
+.danger-text-button:hover:not(:disabled) {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.inline-link:disabled,
+.danger-link:disabled,
+.danger-text-button:disabled {
+  opacity: .45;
+  cursor: not-allowed;
+}
+
+/* --------------------------------------------------------------------------
+   标签
+   -------------------------------------------------------------------------- */
+
+.badge,
+.mark {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 4px;
+  height: 22px;
+  border: 1px solid var(--badge-bd, var(--tone-neutral-bd));
+  border-radius: var(--r-pill);
+  padding: 0 9px;
+  background: var(--badge-bg, var(--tone-neutral-bg));
+  color: var(--badge-fg, var(--tone-neutral-fg));
+  font-size: var(--fs-xs);
+  font-style: normal;
+  font-weight: var(--fw-semibold);
+  line-height: 1;
+  letter-spacing: 0;
+  white-space: nowrap;
+}
+
+.tone-neutral { --badge-bg: var(--tone-neutral-bg); --badge-fg: var(--tone-neutral-fg); --badge-bd: var(--tone-neutral-bd); }
+.tone-accent  { --badge-bg: var(--tone-accent-bg);  --badge-fg: var(--tone-accent-fg);  --badge-bd: var(--tone-accent-bd); }
+.tone-ok      { --badge-bg: var(--tone-ok-bg);      --badge-fg: var(--tone-ok-fg);      --badge-bd: var(--tone-ok-bd); }
+.tone-caution { --badge-bg: var(--tone-caution-bg); --badge-fg: var(--tone-caution-fg); --badge-bd: var(--tone-caution-bd); }
+.tone-danger  { --badge-bg: var(--tone-danger-bg);  --badge-fg: var(--tone-danger-fg);  --badge-bd: var(--tone-danger-bd); }
+
+.badge.with-dot::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+/* --------------------------------------------------------------------------
+   排版
+   -------------------------------------------------------------------------- */
+
+/* --------------------------------------------------------------------------
+   版心与页头统一
+   -------------------------------------------------------------------------- */
+
+.workspace-scroll > * {
+  width: 100%;
+  max-width: var(--page-max-w);
+  margin-inline: auto;
+}
+
+.workspace-scroll.narrow-page > * {
+  max-width: var(--page-max-w);
+}
+
+.topbar {
+  min-height: 40px;
+  margin-bottom: 18px;
+}
+
+.topbar h1 {
+  font-size: clamp(24px, 2.2vw, var(--fs-title));
+  font-weight: var(--fw-bold);
+  line-height: 1.15;
+  letter-spacing: -.015em;
+}
+
+.section-title {
+  font-size: var(--fs-base);
+  font-weight: var(--fw-semibold);
+}
+
+.section-title small {
+  font-size: var(--fs-sm);
+}

@@ -140,12 +140,22 @@ export function LibraryPage(props: LibraryPageProps) {
       ) : items.length === 0 ? (
         <button className="empty-state library-empty" onClick={() => void onImport()} disabled={busy}><Mascot pose="welcome" /><h3>把本地视频或音频拖进来</h3><p>支持 MP4 / MOV / MKV / WebM 视频，以及 MP3 / M4A / FLAC / WAV / Opus 等纯音频。登录云端后，字幕记录会按媒体指纹自动合并到同一个媒体库。</p></button>
       ) : visibleItems.length === 0 ? (
-        <div className="filtered-empty"><Mascot pose="idle" /><strong>没有匹配的媒体</strong><span>尝试清除搜索词或切换筛选条件。</span><button onClick={() => { onClearQuery(); setFilter("all"); }}>查看全部媒体</button></div>
+        <div className="filtered-empty"><Mascot pose="idle" /><strong>没有匹配的媒体</strong><span>尝试清除搜索词或切换筛选条件。</span><button className="quiet-button" onClick={() => { onClearQuery(); setFilter("all"); }}>查看全部媒体</button></div>
       ) : (
         <div className={`media-grid ${view === "list" ? "list-view" : ""}`}>
+          {view === "list" && (
+            <div className="media-list-header" aria-hidden="true">
+              <button type="button" className={sort === "name" ? "active" : ""} onClick={() => setSort("name")}>名称{sort === "name" ? " ↓" : ""}</button>
+              <span>格式</span>
+              <span>大小</span>
+              <button type="button" className={sort === "duration" ? "active" : ""} onClick={() => setSort("duration")}>时长{sort === "duration" ? " ↓" : ""}</button>
+              <button type="button" className={sort === "recent" ? "active" : ""} onClick={() => setSort("recent")}>最近使用{sort === "recent" ? " ↓" : ""}</button>
+              <span />
+            </div>
+          )}
           {visibleItems.map((item) => item.kind === "local" ? (
-            <LocalMediaCard key={`local:${item.entry.id}`} entry={item.entry} thumbnail={coverOf(item.entry)} running={item.entry.id === localRunningID} adopting={adoptingMedia.has(item.entry.id)} runningProgress={runningProgress} cloudEntry={remoteByFingerprint.get(item.entry.fingerprint)} canStart={item.entry.available && !taskActive} cloudLinked={cloudSync.linked} syncEnabled={!syncDisabled.has(item.entry.fingerprint)} onOpen={onOpen} onStart={onStart} onCancel={onCancel} onRename={onRename} onDeleteSubtitles={onDeleteSubtitles} onToggleSync={onToggleSync} onRemove={onRemove} onAdoptCloud={onAdoptCloud} onRelink={onRelink} />
-          ) : <CloudMediaCard key={`cloud:${item.entry.id}`} entry={item.entry} thumbnail={cloudThumbnails[item.entry.id]} adopting={adoptingCloud.has(item.entry.id)} onEdit={onEditCloud} onAssociate={onAssociateCloud} onDelete={onDeleteCloud} />)}
+            <LocalMediaCard key={`local:${item.entry.id}`} view={view} entry={item.entry} thumbnail={coverOf(item.entry)} running={item.entry.id === localRunningID} adopting={adoptingMedia.has(item.entry.id)} runningProgress={runningProgress} cloudEntry={remoteByFingerprint.get(item.entry.fingerprint)} canStart={item.entry.available && !taskActive} cloudLinked={cloudSync.linked} syncEnabled={!syncDisabled.has(item.entry.fingerprint)} onOpen={onOpen} onStart={onStart} onCancel={onCancel} onRename={onRename} onDeleteSubtitles={onDeleteSubtitles} onToggleSync={onToggleSync} onRemove={onRemove} onAdoptCloud={onAdoptCloud} onRelink={onRelink} />
+          ) : <CloudMediaCard key={`cloud:${item.entry.id}`} view={view} entry={item.entry} thumbnail={cloudThumbnails[item.entry.id]} adopting={adoptingCloud.has(item.entry.id)} onEdit={onEditCloud} onAssociate={onAssociateCloud} onDelete={onDeleteCloud} />)}
         </div>
       )}
     </section>

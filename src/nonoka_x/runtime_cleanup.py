@@ -19,8 +19,8 @@ from typing import Any
 from nonoka_x.runtime import ASR_RUNTIME, LAYERS, MEDIA, TOOLS
 from nonoka_x.runtime_install import INSTALL_ORDER
 
-#: Kept whatever engine is current: the core's media tier needs the tool layer's ffmpeg / ffprobe.
-CORE_LAYERS = ("tools",)
+#: Kept whatever engine is current: tools and python are default base layers installed on first launch.
+CORE_LAYERS = ("tools", "python")
 #: The other managed tools; each lives in the tool layer like ffmpeg (plan 4.2 item 14).
 _OTHER_TOOLS = ("yt-dlp", "aria2c", "node", "pot-provider")
 

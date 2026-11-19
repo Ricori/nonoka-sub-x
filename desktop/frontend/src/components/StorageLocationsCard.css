@@ -13,7 +13,7 @@
 .storage-row-heading > b { flex: 0 0 auto; color: var(--text); font-size: 17px; font-weight: 600; font-variant-numeric: tabular-nums; }
 .storage-row-heading > b small { color: var(--faint); font-size: 12px; font-weight: 400; }
 
-.storage-badge { border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--line)); border-radius: 99px; padding: 1px 8px; color: var(--accent); font-size: 11px; font-weight: 500; }
+.storage-badge { display: inline-flex; align-items: center; height: 22px; border: 1px solid var(--tone-accent-bd); border-radius: var(--r-pill); padding: 0 9px; background: var(--tone-accent-bg); color: var(--tone-accent-fg); font-size: var(--fs-xs); font-weight: var(--fw-semibold); line-height: 1; }
 
 /* 用量条单独占一行，紧贴在「1.17 GB / 20 GB」下面，读数和条形一眼对得上。 */
 .storage-row > .storage-meter { height: 4px; margin-top: 12px; }
@@ -35,15 +35,36 @@
 .storage-cache-limit input:disabled { opacity: .55; }
 
 .storage-row-actions { display: flex; flex: 0 0 auto; align-items: center; gap: 8px; }
-.storage-row-actions button { border: 1px solid var(--line); border-radius: 8px; padding: 6px 13px; background: var(--raised); color: var(--text); font-size: 12px; cursor: pointer; }
-.storage-row-actions button:disabled { opacity: .4; cursor: not-allowed; }
-.storage-row-actions .ghost { background: transparent; color: var(--mut); }
-.storage-row-actions .danger-link { border-color: color-mix(in srgb, #e27777 40%, var(--line)); color: #e99a9a; background: transparent; }
+.storage-row-actions button:not(.ghost):not(.danger-link) { height: var(--ctl-h-sm); min-height: var(--ctl-h-sm); border: 1px solid var(--line); border-radius: 8px; padding: 0 11px; background: var(--panel); color: var(--text); font-size: var(--fs-sm); font-weight: var(--fw-semibold); cursor: pointer; }
+.storage-row-actions button:not(.ghost):not(.danger-link):hover:not(:disabled) { border-color: var(--accent-border); color: var(--accent); }
+.storage-row-actions button:disabled { opacity: .5; cursor: not-allowed; }
+.storage-row-actions .ghost { height: var(--ctl-h-sm); min-height: var(--ctl-h-sm); padding: 0 11px; font-size: var(--fs-sm); }
+.storage-row-actions .danger-link { padding: 0 6px; font-size: var(--fs-sm); }
 .storage-inline-progress { color: var(--accent); font-size: 12px; }
 
 .storage-cache-message { margin: 10px 0 0; color: var(--accent); font-size: 12px; }
 
 .storage-message { margin: 12px 0 0; color: var(--accent); font-size: 12px; }
+
+.storage-compact-row { display: grid; gap: 8px; }
+.storage-compact-top {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 10px;
+  min-height: 36px;
+}
+.storage-compact-label { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+.storage-compact-label strong { font-size: 13px; color: var(--text); }
+.storage-compact-usage { color: var(--text); font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.storage-compact-usage small { color: var(--faint); font-weight: 400; }
+.storage-compact-actions { display: flex; flex: 0 0 auto; align-items: center; gap: 6px; }
+
+@media (max-width: 820px) {
+  .storage-compact-top { grid-template-columns: minmax(0, 1fr) auto; }
+  .storage-compact-top .runtime-dir-path { grid-column: 1 / -1; }
+  .storage-compact-actions { grid-column: 1 / -1; flex-wrap: wrap; }
+}
 
 @media (max-width: 760px) {
   .storage-row-heading { flex-direction: column; gap: 8px; }

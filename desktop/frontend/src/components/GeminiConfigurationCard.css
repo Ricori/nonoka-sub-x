@@ -156,18 +156,7 @@
   font-size: 11px;
 }
 
-.gemini-config-footer button {
-  border: 0;
-  border-radius: 8px;
-  padding: 8px 12px;
-  font-size: 11px;
-  cursor: pointer;
-}
-
-.gemini-config-footer button:disabled {
-  opacity: .42;
-  cursor: not-allowed;
-}
+/* 按钮外观由 design-system.css 统一。 */
 
 @media (max-width: 900px) {
   .gemini-key-row {

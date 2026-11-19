@@ -4,6 +4,8 @@ import { createRoot } from "react-dom/client";
 // after App.tsx let its legacy hard-coded dark colours win over the themed rules in
 // LibraryPage.css and friends, which is what broke light mode.
 import "./styles.css";
+// 设计系统（字号/间距/圆角/语义色 + 按钮、标签）紧跟 base sheet，压过其中的旧规则。
+import "./design-system.css";
 import App from "./app/App.tsx";
 import { installWindowsTitlebar } from "./bridge/window.ts";
 import { installScrollbarHover } from "./app/scrollbars.ts";

@@ -93,6 +93,14 @@ export function PythonBootstrapStatus(): $CancellablePromise<{ [_ in string]?: a
 }
 
 /**
+ * RemoveModels removes only the models layer, keeping the default tools and
+ * Python environment layers, tasks, subtitle documents, and user settings.
+ */
+export function RemoveModels(): $CancellablePromise<{ [_ in string]?: any } | null> {
+    return $Call.ByID(2091337930);
+}
+
+/**
  * RemoveRuntime removes replaceable managed environments and caches. The
  * sidecar preserves tasks, subtitle documents, and user settings.
  */

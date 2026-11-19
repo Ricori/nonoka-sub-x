@@ -844,7 +844,7 @@ SPEC = EngineSpec(
                             diarization_levels=DIARIZATION_LEVELS),
     keys=(keys.GEMINI_FREE,),
     environment=EngineEnvironment(components=(MEDIA,)),
-    billing="只用 GEMINI_FREE 池的免费额度：每个 key 每天的请求数有限，用完换下一个；不会自动动用付费池",
+    billing="只用 GEMINI_FREE 池的免费额度",
 )
 
 
@@ -857,8 +857,7 @@ class GeminiEngine(CloudEngine):
     def key_issues(self, store: Any) -> list[Issue]:
         if has_key(store, keys.GEMINI_FREE):
             return []
-        return [Issue("missing_key", f"Gemini 3.5 Transcribe 需要 {keys.GEMINI_FREE} 池里至少一个免费 key"
-                                     "（不会动用付费池）")]
+        return [Issue("missing_key", f"缺少 Gemini 免费 key")]
 
     def caller(self) -> Caller:
         """The free pool's keys and the ledger beside the store, read once per run."""

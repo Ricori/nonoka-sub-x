@@ -1,0 +1,61 @@
+.info-tip {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  color: var(--faint);
+  vertical-align: middle;
+  cursor: help;
+  outline: none;
+  transition: color .15s, background .15s;
+}
+
+.info-tip svg {
+  display: block;
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.info-tip .info-tip-dot {
+  fill: currentColor;
+  stroke: none;
+}
+
+.info-tip:hover,
+.info-tip:focus-visible {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.info-tip-portal {
+  position: fixed;
+  z-index: 9999;
+  width: max-content;
+  max-width: 320px;
+  padding: 8px 12px;
+  border: 1px solid color-mix(in srgb, var(--line) 85%, var(--accent) 15%);
+  border-radius: 9px;
+  background: var(--panel);
+  box-shadow: 0 10px 30px color-mix(in srgb, black 22%, transparent), 0 2px 6px color-mix(in srgb, black 10%, transparent);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.55;
+  white-space: pre-line;
+  text-align: left;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity .12s ease;
+}
+
+.info-tip-portal.visible {
+  opacity: 1;
+}

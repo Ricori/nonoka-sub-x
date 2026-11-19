@@ -1,48 +1,49 @@
 import type { Snapshot as SidecarSnapshot } from "../../bindings/github.com/Ricori/nonoka-x/desktop/internal/sidecar/models.js";
-import { useEffect, useState, type ReactNode } from "react";
-import type { PythonBootstrapState, RuntimeCleanupItem, RuntimeCleanupPlan, RuntimeInstallTarget, RuntimeItem, RuntimeProvisionState } from "../bridge/runtime.ts";
+import { useEffect, useState } from "react";
+import type { PythonBootstrapState, RuntimeCleanupItem, RuntimeCleanupPlan, RuntimeInstallTarget, RuntimeItem, RuntimeLayerOverview, RuntimeProvisionState } from "../bridge/runtime.ts";
 import type { RelocationProgress, StorageDestination, StorageStatus, StorageTarget } from "../bridge/storage.ts";
-import { InstallLocationCard } from "./InstallLocationCard.tsx";
-import { installLocationView } from "./installLocation.ts";
-import { cleanupBytes, cleanupView, layerLabel, layerUsage, type UsageOwner } from "./engineLayers.ts";
+import type { RuntimeCacheState } from "./runtimeCache.ts";
+import { cleanupView, layerLabel } from "./engineLayers.ts";
+import { InfoTip } from "./InfoTip.tsx";
 import { Mark } from "./Mark.tsx";
-import type { Capabilities } from "../providers/types.ts";
 import "./RuntimeSection.css";
+import "./InstallLocationCard.css";
+import "./StorageLocationsCard.css";
 import { Notice } from "./Notice.tsx";
-import { formatStorageBytes } from "./StorageRelocation.tsx";
+import {
+  RelocationConfirm,
+  RelocationProgressView,
+  formatStorageBytes,
+  useDestinationChoice,
+} from "./StorageRelocation.tsx";
 
-/** The settings page's 「运行环境」 section: what the runtime page was before WP6 folded it in. */
+/** The settings page's 「运行环境」 section. */
 interface RuntimeSectionProps {
-  capabilities: Capabilities | null;
-  message: string;
-  /** Failure of the last install/cancel/remove action, shown next to the
-      controls that triggered it. */
   provisionMessage: string;
   onDismissProvisionMessage: () => void;
   provision: RuntimeProvisionState | null;
   pythonBootstrap: PythonBootstrapState | null;
-  ready: boolean;
   sidecar: SidecarSnapshot | null;
+  migrationActive?: boolean;
   onInstall: (target: RuntimeInstallTarget) => Promise<void>;
   onInstallPython: () => Promise<void>;
   onCancelInstall: () => Promise<void>;
-  onRemoveAll: () => Promise<void>;
-  /** 「清理未使用的」：删掉没人用的旧版本，以及用户勾选的、当前引擎和纠错包都用不到的整层。 */
+  onRemoveModels: () => Promise<void>;
   onRemoveUnused: (layers: string[]) => Promise<void>;
-  /** 现在清理会删什么（以当前转写引擎为准）；旧版 sidecar 读不到时为 null，只按旧版本列。 */
   cleanup: RuntimeCleanupPlan | null;
-  /** 引擎列表里点了「下载所缺的层」：在这里走同一套安装流程（含安装位置确认）；`seq` 变了就再装一次。 */
   requestedInstall: { target: RuntimeInstallTarget; seq: number } | null;
   storage: StorageStatus | null;
   storageProgress: RelocationProgress | null;
   storageBusy: boolean;
+  storageMessage: string;
+  onDismissStorageMessage: () => void;
   onChooseStorage: (target: StorageTarget) => Promise<StorageDestination | null>;
   onRelocateStorage: (target: StorageTarget, destination: string) => Promise<void>;
+  onResetStorage: (target: StorageTarget) => Promise<void>;
   onCancelStorage: () => Promise<void>;
+  onOpenStorage?: (target: StorageTarget) => Promise<void>;
+  runtimeCache?: RuntimeCacheState;
 }
-
-// 会把十几 GB 拉下来的安装目标。装 yt-dlp 等小工具不值得为它弹位置提示。
-const largeInstallTargets = new Set<RuntimeInstallTarget>(["all", "runtime", "models", "optional-models"]);
 
 const installPhases = [
   { id: "downloading", label: "下载" },
@@ -51,71 +52,21 @@ const installPhases = [
   { id: "activating", label: "安装" },
 ] as const;
 
-const assetStateLabels: Record<RuntimeItem["state"], string> = {
-  missing: "尚未安装",
-  downloading: "下载中",
-  outdated: "需要更新",
+const layerStateLabels: Record<RuntimeLayerOverview["state"], string> = {
   ready: "已就绪",
-  failed: "安装失败",
+  missing: "未安装",
+  outdated: "需更新",
+  damaged: "需修复",
 };
-
-const optionalToolIds = new Set(["yt-dlp", "aria2c", "node", "pot-provider"]);
-
-// 这几样单独装没有意义：yt-dlp 下载，aria2c 提速，node 与 pot-provider 一起
-// 提供 YouTube 要的 PO token。所以它们作为一件事呈现，也作为一件事安装。
-const videoToolIds = new Set(["yt-dlp", "aria2c", "node", "pot-provider"]);
-
-const diarizationIds: ReadonlySet<string> = new Set(["diarization"]);
-
-const assetLabels: Record<string, string> = {
-  python: "Python / CUDA",
-  ffmpeg: "FFmpeg",
-  ffprobe: "FFprobe",
-  separator: "人声分离模型",
-  whisper: "Whisper 转写模型",
-  "qwen-referee": "Qwen 复核模型",
-  nemotron3: "说话人活动模型",
-  "speaker-embedding": "声纹模型",
-  diarization: "说话人分离模型",
-  "yt-dlp": "yt-dlp",
-  tokcount: "tokcount",
-  aria2c: "aria2c",
-  node: "Node.js",
-  "pot-provider": "PO Token Provider",
-};
-
-const compactAssetLabels: Record<string, string> = {
-  diarization: "说话人分离",
-};
-
-const toolPurposes: Record<string, string> = {
-  nemotron3: "说话人分离：判断谁在说话",
-  "speaker-embedding": "说话人分离：按声音归人",
-  "yt-dlp": "解析在线视频与字幕",
-  aria2c: "多连接加速下载",
-  node: "运行 JavaScript 挑战",
-  "pot-provider": "生成 YouTube PO Token",
-};
-
-// 说话人分离的两个模型只能一起用、一起装，所以在「AI模型」里合成一项展示。
-function combineDiarization(models: RuntimeItem[]): RuntimeItem | null {
-  if (!models.length) return null;
-  const states = models.map((item) => item.state);
-  const state: RuntimeItem["state"] = states.includes("downloading") ? "downloading"
-    : states.includes("failed") ? "failed"
-      : states.includes("outdated") ? "outdated"
-        : states.every((value) => value === "ready") ? "ready"
-          : "missing";
-  const detail = models.map((item) => `${assetLabels[item.id] ?? item.id}：${assetStateLabels[item.state] ?? item.state}`).join("；");
-  return { id: "diarization", state, detail };
-}
 
 const stageOrder: Record<string, number> = {
   preparing: 0,
   resource: 0,
   downloading: 0,
   verifying: 1,
+  checking: 1,
   extracting: 2,
+  unpacking: 2,
   activating: 3,
   runtime: 3,
   model: 3,
@@ -148,21 +99,21 @@ function ProvisionProgress({ job, onCancel, cancellable = true }: { job: Progres
     ? `${formatBytes(progress.completed)} / ${formatBytes(progress.total)}`
     : job.stage === "installing_dependencies" || job.stage === "activating" || job.stage === "runtime"
       ? "正在安装已下载的依赖"
-      : job.stage === "verifying" || job.stage === "extracting"
+      : job.stage === "verifying" || job.stage === "extracting" || job.stage === "unpacking" || job.stage === "checking"
         ? job.message
-        : "正在准备下载";
+        : "正在准备…";
   return (
     <section className="provision-progress-card" role="status" aria-live="polite">
       <div className="provision-progress-heading">
         <div className="download-pulse" aria-hidden="true"><span>↓</span></div>
         <div>
-          <small>{job.resource ? `正在处理 ${job.resource.toUpperCase()}` : "正在准备运行环境"}</small>
+          <small>{job.resource ? `正在处理 ${layerLabel(job.resource)}` : "正在准备运行环境"}</small>
           <strong>{job.message || "正在准备下载"}</strong>
         </div>
         <b>{progress?.total ? `${Math.round(percentage)}%` : "处理中"}</b>
         {cancellable && <button className="cancel-button" onClick={() => void onCancel()} type="button">取消</button>}
       </div>
-      {job.proxy && <p className="provision-proxy">已检测到{job.proxy}，所有下载将通过该代理进行</p>}
+      {job.proxy && <p className="provision-proxy">通过 {job.proxy} 下载</p>}
       <div className={`provision-progress-track ${progress?.total ? "" : "indeterminate"}`}>
         <span style={progress?.total ? { width: `${percentage}%` } : undefined} />
       </div>
@@ -181,417 +132,392 @@ function ProvisionProgress({ job, onCancel, cancellable = true }: { job: Progres
   );
 }
 
-function AssetTile({ item, optional = false, action }: {
-  item: RuntimeItem;
-  optional?: boolean;
-  action?: ReactNode;
-}) {
-  const ready = item.state === "ready";
-  const stateLabel = optional && !ready
-    ? item.state === "downloading" ? "下载中" : item.state === "outdated" ? "可按需更新" : "按需安装"
-    : ready && item.source === "system" ? "系统已安装" : assetStateLabels[item.state] ?? item.state;
-  const purpose = toolPurposes[item.id];
-  const label = assetLabels[item.id] ?? item.id;
-  // 未装好的按需项自带按钮时，按钮已说明状态；只留短名，给按钮腾地方。
-  const compact = optional && !ready && Boolean(action);
-  const shownLabel = compact ? compactAssetLabels[item.id] ?? label : label;
-  const title = [label, stateLabel, item.version, purpose, item.detail].filter(Boolean).join(" · ");
-  return (
-    <div className={[optional && "optional-asset-tile", action && "has-action"].filter(Boolean).join(" ") || undefined} title={title || undefined} aria-label={`${label}：${stateLabel}${purpose ? `，${purpose}` : ""}`}>
-      <span className={ready ? "asset-ready" : optional ? "asset-optional" : "asset-missing"}>{ready ? "✓" : optional ? "○" : "↓"}</span>
-      <div>
-        <span className="asset-title-row">
-          <strong>{shownLabel}</strong>
-          {!compact && <small className="asset-state">{stateLabel}</small>}
-        </span>
-        {purpose && <small className="asset-purpose">{purpose}</small>}
-      </div>
-      {action}
-    </div>
-  );
+function modelTooltip(models: RuntimeItem[], optionalModels: RuntimeItem[]): string {
+  const names = [
+    "人声分离模型",
+    "Whisper 转写模型",
+    "Qwen 复核模型",
+    ...(optionalModels.length ? ["说话人分离模型（活动检测 + 声纹）"] : []),
+  ];
+  const ready = [...models, ...optionalModels].filter((item) => item.state === "ready").length;
+  const total = models.length + optionalModels.length;
+  return `供本机 FineSub 转写使用，按需下载与删除。\n包含：${names.join("、")}${total > 0 ? `\n当前就绪：${ready}/${total}` : ""}`;
 }
 
-function AssetGroup({ title, items, optional = false, optionalIds, itemActions, target, installing, blocked, onInstall }: {
-  title: string;
-  items: RuntimeItem[];
-  optional?: boolean;
-  /** 混排分组里按需安装的那几项。 */
-  optionalIds?: ReadonlySet<string>;
-  /** 自带安装按钮的项；分组按钮不管它们。 */
-  itemActions?: Record<string, ReactNode>;
-  target: RuntimeInstallTarget;
-  installing: boolean;
-  blocked: string;
-  onInstall: (target: RuntimeInstallTarget) => Promise<void>;
-}) {
-  const readyCount = items.filter((item) => item.state === "ready").length;
-  const groupItems = items.filter((item) => !itemActions?.[item.id]);
-  const allReady = groupItems.length > 0 && groupItems.every((item) => item.state === "ready");
-  // 这个版本要的是另一个版本的层：动作是「更新」（整层替换），不是「下载缺失项」。
-  const needsUpdate = groupItems.some((item) => item.state === "outdated");
-  // 层与清单不符（文件缺了或被改过）：重新安装这一层就是修复。
-  const needsRepair = groupItems.some((item) => item.state === "failed");
-  const disabledReason = blocked
-    || (!items.length ? "当前平台没有可安装的项目。" : "")
-    || (allReady ? "该分组已全部安装并通过校验。" : "");
-  return (
-    <section className={`asset-group categorized ${optional ? "optional" : "required"}`}>
-      <div className="asset-group-heading">
-        <div className="asset-group-title">
-          <strong>{title}</strong>
-          <small>{readyCount}/{items.length} 已就绪</small>
-        </div>
-        <div className="asset-group-actions">
-          <button
-            className="quiet-button asset-group-action"
-            disabled={disabledReason !== ""}
-            onClick={() => void onInstall(target)}
-            title={disabledReason || (needsRepair ? `重新安装「${title}」所在的运行环境层` : needsUpdate ? `这个版本需要新的运行环境层，更新时整层重新下载` : `下载并安装「${title}」所在的运行环境层`)}
-            type="button"
-          >
-            {installing ? needsRepair ? "修复中…" : needsUpdate ? "更新中…" : "安装中…" : allReady ? "已安装" : needsRepair ? "修复" : needsUpdate ? "更新" : "下载缺失项"}
-          </button>
-        </div>
-      </div>
-      <div className="asset-grid">
-        {items.map((item) => <AssetTile item={item} key={`${item.id}:${item.version ?? ""}`} optional={optional || optionalIds?.has(item.id)} action={itemActions?.[item.id]} />)}
-        {!items.length && <p className="asset-group-empty">当前平台没有可用项目</p>}
-      </div>
-    </section>
-  );
-}
+export function RuntimeSection(props: RuntimeSectionProps) {
+  const {
+    provisionMessage,
+    provision,
+    pythonBootstrap,
+    sidecar,
+    migrationActive = false,
+    onCancelInstall,
+    onDismissProvisionMessage,
+    onInstall,
+    onInstallPython,
+    onRemoveModels,
+    onRemoveUnused,
+    cleanup,
+    requestedInstall,
+    storage,
+    storageProgress,
+    storageBusy,
+    storageMessage,
+    onDismissStorageMessage,
+    onChooseStorage,
+    onRelocateStorage,
+    onResetStorage,
+    onCancelStorage,
+    onOpenStorage,
+    runtimeCache,
+  } = props;
 
-function DiarizationAction({ item, installing, blocked, onInstall }: {
-  item: RuntimeItem;
-  installing: boolean;
-  blocked: string;
-  onInstall: () => void;
-}) {
-  // 已就绪时卡片上的「已就绪」标签就够了，不再放一个禁用的按钮。
-  if (item.state === "ready" && !installing) return null;
-  const needsUpdate = item.state === "outdated";
-  return (
-    <button
-      className="quiet-button asset-tile-action"
-      disabled={blocked !== ""}
-      onClick={onInstall}
-      title={blocked || (needsUpdate ? "更新说话人分离模型" : "下载说话人分离模型")}
-      type="button"
-    >
-      {installing ? needsUpdate ? "更新中…" : "下载中…" : needsUpdate ? "更新" : "下载"}
-    </button>
-  );
-}
-
-
-/** 按引擎列出占用：本机能跑的转写引擎，加纠错引擎（云端 FineSub 不占本机的层）。 */
-function usageOwners(capabilities: Capabilities | null): UsageOwner[] {
-  const engines = (capabilities?.transcription_engines ?? [])
-    .filter((item) => item.kind !== "cloud-service")
-    .map((item) => ({ id: item.id, label: item.label, layers: item.layers }));
-  const correction = capabilities?.correction_engines?.[0];
-  return correction ? [...engines, { id: `correction:${correction.id}`, label: "finesub correction（纠错与翻译）", layers: correction.layers }] : engines;
-}
-
-export function RuntimeSection({ capabilities, message, provisionMessage, provision, pythonBootstrap, ready, sidecar, onCancelInstall, onDismissProvisionMessage, onInstall, onInstallPython, onRemoveAll, onRemoveUnused, cleanup, requestedInstall, storage, storageProgress, storageBusy, onChooseStorage, onRelocateStorage, onCancelStorage }: RuntimeSectionProps) {
-  const [confirmRemove, setConfirmRemove] = useState(false);
+  const [confirmRemoveModels, setConfirmRemoveModels] = useState(false);
   const [confirmUnused, setConfirmUnused] = useState(false);
-  // 用户勾选、要整层删掉的层；默认一个都不勾。
-  const [pickedCleanup, setPickedCleanup] = useState<string[]>([]);
-  // 用户点了大安装但还没确认位置时，先停在这里等确认。
-  const [awaitingLocation, setAwaitingLocation] = useState<RuntimeInstallTarget | null>(null);
+  const { pending, choosing, choose, clear } = useDestinationChoice(onChooseStorage);
+
   const runtimeLocation = (storage?.locations ?? []).find((item) => item.target === "runtime") ?? null;
-  const locationView = installLocationView(runtimeLocation, awaitingLocation !== null);
-  const requestInstall = async (target: RuntimeInstallTarget) => {
-    if (locationView.prompt && largeInstallTargets.has(target)) {
-      setAwaitingLocation(target);
-      return;
-    }
-    await onInstall(target);
-  };
-  // 引擎列表发来的安装请求：同一套位置确认与进度。只认新的 seq，重渲染不会重复安装。
+  const relocatingRuntime = storageProgress?.active === true && storageProgress.target === "runtime";
+  const storageActive = storageProgress?.active === true;
+
   const [handledInstall, setHandledInstall] = useState(0);
   useEffect(() => {
     if (!requestedInstall || requestedInstall.seq === handledInstall) return;
     setHandledInstall(requestedInstall.seq);
-    void requestInstall(requestedInstall.target);
+    void onInstall(requestedInstall.target);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [requestedInstall]);
-  const issues = capabilities?.runtime?.issues ?? [];
-  // 不阻断运行、但会改变耗时的情况（现在只有「没 N 卡，走 CPU」）
-  const warnings = capabilities?.runtime?.warnings ?? [];
-  const stages = capabilities?.runtime?.stages ?? [];
+
   const job = provision?.job;
+  const jobRunning = job?.state === "running";
   const pythonInstalling = pythonBootstrap?.state === "running";
   const pythonNeedsRepair = Boolean(pythonBootstrap?.python) && (pythonInstalling || pythonBootstrap?.state === "failed");
-  // A sidecar that cannot build its layer manager (no readable layers.json, or
-  // an interpreter missing the launcher's dependencies) answers requests but
-  // cannot install anything. The card is the way out of the interpreter half of
-  // that, so a running sidecar must not hide it.
   const bootstrapBroken = (provision?.bootstrap_error ?? "") !== "";
-  const showPythonCard = !sidecar?.running || pythonInstalling || bootstrapBroken || pythonBootstrap?.state === "failed";
-  const resources = provision?.resources ?? [];
-  const optionalTools = resources.filter((item) => optionalToolIds.has(item.id));
-  const videoTools = optionalTools.filter((item) => videoToolIds.has(item.id));
-  const requiredRuntimeAssets = [
-    ...(provision?.runtime_supported && provision.runtime ? [provision.runtime] : []),
-    ...resources.filter((item) => !optionalToolIds.has(item.id)),
-  ];
+  const connecting = !provision && !bootstrapBroken && (!pythonBootstrap || pythonBootstrap.state === "missing" || pythonBootstrap.state === "running" || pythonBootstrap.state === "ready");
+
+  const layerById = new Map<string, RuntimeLayerOverview>((provision?.layers ?? []).map((layer) => [layer.id, layer]));
+  const toolsLayer = layerById.get("tools");
+  const pythonLayer = layerById.get("python");
+  const modelsLayer = layerById.get("models");
+
+  const toolsState: RuntimeLayerOverview["state"] = toolsLayer?.state
+    ?? (provision?.media_ready ? "ready" : "missing");
+  const pythonState: RuntimeLayerOverview["state"] = pythonLayer?.state
+    ?? (provision?.runtime?.state === "ready" ? "ready" : provision?.runtime?.state === "outdated" ? "outdated" : provision?.runtime?.state === "failed" ? "damaged" : "missing");
+
+  const toolsMissing = (provision?.media_supported ?? false) && toolsState === "missing";
+  const pythonMissing = (provision?.runtime_supported ?? false) && pythonState === "missing";
+  const baseMissing = Boolean(provision && !bootstrapBroken && (toolsMissing || pythonMissing));
+  const baseTarget: RuntimeInstallTarget = provision?.runtime_supported ? "runtime" : "media";
+  const baseDownloadBytes = (toolsMissing ? toolsLayer?.archive_bytes ?? 0 : 0) + (pythonMissing ? pythonLayer?.archive_bytes ?? 0 : 0);
+
+  const showOnboardingCard = !migrationActive && (pythonInstalling || (baseMissing && !jobRunning));
+  const showPythonRecoveryCard = !migrationActive && !pythonInstalling && (
+    bootstrapBroken
+    || pythonBootstrap?.state === "failed"
+    || Boolean(pythonBootstrap && !pythonBootstrap.supported && !sidecar?.running)
+  );
+
   const requiredModels = provision?.models ?? [];
-  const diarization = combineDiarization(provision?.optional_models ?? []);
-  const aiModels = diarization ? [...requiredModels, diarization] : requiredModels;
-  const runtimeTarget: RuntimeInstallTarget = provision?.runtime_supported ? "runtime" : "media";
-  // Every control below is gated on provision state. Without a reason attached
-  // the panel greys out silently — on a first launch, or whenever the sidecar
-  // cannot build its provisioner, that reads as a dead page.
-  const jobRunning = job?.state === "running";
+  const optionalModels = provision?.optional_models ?? [];
+  const modelsReady = modelsLayer ? modelsLayer.state === "ready" : (requiredModels.length > 0 && requiredModels.every((item) => item.state === "ready"));
+  const modelsInstalled = modelsLayer ? modelsLayer.current !== null : requiredModels.some((item) => item.state === "ready");
+  const modelsNeedsUpdate = modelsLayer ? modelsLayer.state === "outdated" : requiredModels.some((item) => item.state === "outdated");
+  const modelsNeedsRepair = modelsLayer ? modelsLayer.state === "damaged" : requiredModels.some((item) => item.state === "failed");
+
+  const migrationBlocked = migrationActive ? "旧版升级正在自动更新运行环境，请等待完成。" : "";
   const connectionBlocked = !provision
-    ? pythonInstalling
-      ? "正在准备 Python 启动环境，完成后即可安装运行时与模型。"
-      // 只在服务确实没起来时才怪 Python：服务在跑而 provision 读不到，是另一回事。
-      : sidecar?.running || !pythonBootstrap || pythonBootstrap.state === "ready"
-        ? "本地执行服务尚未连接，无法读取运行时状态。等待服务启动，或点击右上角「重新检查」。"
-        : pythonBootstrap.supported
-          ? "本地执行服务尚未连接：请先用下方「Python 3.12」卡片准备启动环境。"
-          // 平台没有自动安装，按钮点不动，所以这里必须给出手动出路，否则整页无解。
-          : `本地执行服务尚未连接：${pythonBootstrap.platform} 暂不支持自动安装 Python。可自行准备一个 Python 3.12 环境并安装 httpx、pydantic，用环境变量 NONOKA_PYTHON 指向它后重启应用。`
-    : provision.bootstrap_error
-      ? `运行环境层不可用，暂时无法安装运行时或模型：${provision.bootstrap_error}。如果本地服务运行在缺少依赖的 Python 上，可用下方「Python 3.12」卡片安装隔离的启动环境后重试。`
-      : "";
-  // 本地不支持 ≠ 用不了：云端不依赖这里的任何运行时与模型，所以这条提示要把出路说清楚，
-  // 而不是只报告「不支持」。
+    ? connecting ? "正在连接本地服务…" : "本地执行服务尚未连接。"
+    : bootstrapBroken ? `运行环境层不可用：${provision.bootstrap_error}` : "";
   const platformNotice = provision && !provision.runtime_supported
-    ? `本地 GPU 流水线仅面向 Windows x64/NVIDIA，${provision.platform} 上${provision.media_supported ? "只能安装工具层（FFmpeg 等）" : "暂时没有预制的运行环境层，本地转写与托管 FFmpeg 都不可用"}。在此平台请在首页把运行方式切到「云端」——云端转写不需要本地运行时与模型，只需登录账号。`
+    ? `${provision.platform} 上仅提供工具层；本机 GPU 转写仅支持 Windows x64，可使用云端 FineSub 或云 API 引擎。`
     : "";
-  const jobBlocked = jobRunning ? "已有安装任务正在进行，请等待其结束。" : "";
-  const runtimeUnavailable = provision && !provision.runtime_supported && !provision.media_supported
-    ? `托管运行时暂不支持 ${provision.platform}。`
-    : "";
-  const runtimeBlocked = connectionBlocked || runtimeUnavailable || jobBlocked;
-  const requiredRuntimeReady = requiredRuntimeAssets.length > 0 && requiredRuntimeAssets.every((item) => item.state === "ready");
-  const allBlocked = connectionBlocked
-    || (provision && !provision.runtime_supported ? `本地 GPU 环境暂不支持 ${provision.platform}。` : "")
-    || jobBlocked
-    || (requiredRuntimeReady ? "必备运行时已齐全。" : "");
-  const modelsBlocked = connectionBlocked
+  const jobBlocked = jobRunning ? "已有安装任务正在进行。" : "";
+
+  const toolsBlocked = migrationBlocked || connectionBlocked || (provision && !provision.media_supported ? "当前平台暂不支持工具层。" : "") || jobBlocked;
+  const pythonLayerBlocked = migrationBlocked || connectionBlocked || (provision && !provision.runtime_supported ? `本地 GPU 环境暂不支持 ${provision.platform}。` : "") || jobBlocked;
+  const modelsBlocked = migrationBlocked
+    || connectionBlocked
     || (provision && !provision.runtime_supported ? `本地模型暂不支持 ${provision.platform}。` : "")
     || jobBlocked
-    || (provision && provision.runtime.state !== "ready" ? "需要先完成「必备运行时」。" : "");
-  const toolsBlocked = connectionBlocked
-    || (provision && !provision.runtime_supported ? `托管可选工具暂不支持 ${provision.platform}。` : "")
-    || jobBlocked;
-  // 位置卡上的「开始安装」用它对应目标的门槛，包括改完位置后 sidecar 重启的那几秒。
-  const awaitingBlocked = awaitingLocation === "models" ? modelsBlocked : awaitingLocation === "runtime" ? runtimeBlocked : allBlocked;
-  // 「完整核对」逐文件比 sha256，只对已经装上的层有意义。
+    || (provision && pythonState !== "ready" ? "请先完成基础环境初始化后再下载模型。" : "");
+  const removeModelsBlocked = migrationBlocked || connectionBlocked || jobBlocked || (!modelsInstalled ? "模型层尚未安装。" : "");
+
   const installedLayers = (provision?.layers ?? []).filter((layer) => layer.current !== null);
-  const repairBlocked = connectionBlocked || jobBlocked
+  const repairBlocked = migrationBlocked || connectionBlocked || jobBlocked
     || (provision && provision.layers && installedLayers.length === 0 ? "还没有安装任何运行环境层。" : "");
-  // 读得到清理计划就按它；旧版 sidecar 只有旧版本这一种。默认只删旧版本，
-  // 当前引擎用不到的整层要用户逐层勾选才删（换回要它的引擎得重新下载）。
+
   const cleanupItems: RuntimeCleanupItem[] = cleanup?.items
     ?? (provision?.unused_layers ?? []).map((item) => ({ ...item, reason: "old-version" as const, blocked: "" }));
-  const owners = usageOwners(capabilities);
-  const cleanupChoice = cleanupView(cleanupItems, provision, owners);
-  const pickedLayers = cleanupChoice.layers.filter((item) => pickedCleanup.includes(item.layer) && !item.blocked).map((item) => item.layer);
-  const cleanupTotal = cleanupBytes(cleanupChoice, pickedLayers);
-  const unusedBlocked = connectionBlocked || jobBlocked
-    || (cleanupChoice.removable.length === 0 && pickedLayers.length === 0
-      ? cleanupChoice.held.length > 0 ? "旧版本都有未结束的任务在用，等任务结束后再清理。" : "没有旧版本可删；要删整层请先勾选下面的层。"
-      : "");
-  const cleanupNote = [
-    cleanupChoice.removable.length > 0 ? `${cleanupChoice.removable.length} 个旧版本可删，腾出 ${formatStorageBytes(cleanupChoice.oldBytes)}` : "没有可删的旧版本",
-    cleanupChoice.held.length > 0 ? `${cleanupChoice.held.length} 个旧版本有未结束的任务在用，暂不删` : "",
-    cleanupChoice.layers.length > 0 ? "当前引擎用不到的整层默认不删，需要时在下面单独勾选" : "",
-    cleanup && !cleanup.engine_available ? "当前转写引擎不可用，只清理旧版本" : "",
-  ].filter(Boolean).join("；");
-  const usage = layerUsage(owners, provision);
+  const cleanupChoice = cleanupView(cleanupItems, provision, []);
+  const hasOldVersions = cleanupChoice.removable.length > 0 || cleanupChoice.held.length > 0;
+  const unusedBlocked = migrationBlocked || connectionBlocked || jobBlocked
+    || (cleanupChoice.removable.length === 0 ? "旧版本有未结束的任务在用，请稍后清理。" : "");
+
   const pythonBlocked = !pythonBootstrap
     ? ""
     : !pythonBootstrap.supported
       ? pythonBootstrap.message || `${pythonBootstrap.platform} 暂不支持自动安装 Python。`
       : pythonInstalling ? "Python 正在安装中。" : "";
+
+  const confirmRelocation = () => {
+    if (!pending) return;
+    const { directory } = pending;
+    clear();
+    void onRelocateStorage("runtime", directory);
+  };
+
+  const runtimeCacheStatus = runtimeLocation && !runtimeLocation.missing ? runtimeCache?.status : null;
+  const sharedCacheOnly = runtimeCacheStatus != null && runtimeCacheStatus.bytes > 0 && runtimeCacheStatus.reclaimable === 0;
+  const nothingToOpen = !runtimeLocation || runtimeLocation.missing || (runtimeLocation.empty && runtimeLocation.bytes === 0 && runtimeLocation.files === 0);
+  const tightDisk = runtimeLocation ? !runtimeLocation.enoughSpace : false;
+  const baseInterrupted = job?.state === "failed" || job?.state === "cancelled";
+
+  const toolsSupported = provision?.media_supported ?? true;
+  const pythonSupported = provision?.runtime_supported ?? true;
+  const toolsWorking = migrationActive || (jobRunning && (job?.target === "media" || job?.target === "runtime" || job?.target === "all"));
+  const pythonWorking = migrationActive || (jobRunning && (job?.target === "runtime" || job?.target === "all"));
+  const modelsWorking = migrationActive || (jobRunning && (job?.target === "models" || job?.target === "all"));
+
+  const toolsActionLabel = toolsState === "outdated" ? "更新" : toolsState === "damaged" ? "修复" : "安装";
+  const pythonActionLabel = pythonState === "outdated" ? "更新" : pythonState === "damaged" ? "修复" : "安装";
+  const modelsActionLabel = modelsNeedsRepair ? "修复模型" : modelsNeedsUpdate ? "更新模型" : "下载模型";
+  const modelsSizeText = modelsLayer && modelsLayer.bytes > 0
+    ? formatStorageBytes(modelsLayer.bytes)
+    : modelsLayer && modelsLayer.archive_bytes > 0
+      ? `下载约 ${formatStorageBytes(modelsLayer.archive_bytes)}`
+      : "";
+
   return (
     <section className="runtime-layout">
-      <article className="panel runtime-diagnostics">
-        <div className="panel-heading">
-          <div><h2>环境诊断</h2></div>
-          <Mark>{ready ? "环境已就绪" : sidecar?.running ? "需要处理" : "服务未连接"}</Mark>
-        </div>
-        {issues.length ? (
-          <ul className="issues">
-            {issues.map((issue) => <li key={`${issue.code}:${issue.message}`}><strong>{issue.code}</strong><span>{issue.message}</span></li>)}
-          </ul>
-        ) : !ready && <p className="success-copy">{message || "等待环境状态。"}</p>}
-        {warnings.length > 0 && (
-          <ul className="issues advisory">
-            {warnings.map((warning) => <li key={`${warning.code}:${warning.message}`}><strong>{warning.code}</strong><span>{warning.message}</span></li>)}
-          </ul>
-        )}
-        <div className="diagnostic-section-heading">
-          <strong>运行环节</strong>
-          <small>{stages.filter((stage) => stage.ready).length} / {stages.length} 可用</small>
-        </div>
-        <div className="stage-list">
-          {stages.map((stage) => (
-            <div className={stage.ready ? "stage-ready" : "stage-blocked"} key={stage.id} title={stage.ready ? undefined : stage.issues[0]?.message}>
-              <span>{stage.ready ? "✓" : "!"}</span>
-              <div><strong>{stage.label}</strong></div>
-            </div>
-          ))}
-          {!stages.length && <p className="success-copy">连接桌面执行服务后，将分别检测媒体准备、ASR、LLM、知识库和视频多模态环节。</p>}
-        </div>
-      </article>
-      <article className="panel provision-panel">
-        <div className="panel-heading">
-          <div><h2>运行时与模型</h2></div>
-          <div className="provision-actions">
-            <button
-              className={confirmRemove ? "runtime-remove-button confirming" : "runtime-remove-button"}
-              disabled={!provision?.root || jobRunning}
-              onBlur={() => setConfirmRemove(false)}
-              onClick={() => {
-                if (!confirmRemove) {
-                  setConfirmRemove(true);
-                  return;
-                }
-                setConfirmRemove(false);
-                void onRemoveAll();
-              }}
-              title={jobRunning ? "请先取消或等待当前安装任务结束。" : "删除全部运行环境层（Python、模型、工具）与下载缓存；不会删除任务、字幕和用户设置。"}
-              type="button"
-            >
-              {confirmRemove ? "确认删除环境" : "删除环境"}
-            </button>
-            <button
-              className="quiet-button"
-              disabled={repairBlocked !== ""}
-              onClick={() => void onInstall("repair")}
-              title={repairBlocked || "逐个文件核对已安装的运行环境层；与清单不符的层整层重新安装"}
-              type="button"
-            >
-              {jobRunning && job?.target === "repair" ? "核对中…" : "完整核对"}
-            </button>
-            <button className="primary-button" disabled={allBlocked !== ""} onClick={() => void requestInstall("all")} title={allBlocked || "安装必备运行时，并下载全部缺失模型"}>一键准备全部</button>
-          </div>
-        </div>
+      <article className="panel runtime-flat-panel">
         <Notice className="provision-message failed" message={provisionMessage} autoDismissMs={0} onDismiss={onDismissProvisionMessage} />
-        {(connectionBlocked || platformNotice) !== "" && (
-          <p className={provision?.bootstrap_error ? "provision-blocked failed" : "provision-blocked"} role="status">{connectionBlocked || platformNotice}</p>
+
+        {migrationActive && (
+          <p className="provision-blocked" role="status">旧版升级正在后台更新运行环境，请查看页面顶部进度。</p>
         )}
-        {showPythonCard && <section className={`required-dependency-card ${pythonBootstrap?.state ?? "missing"}`}>
-          <div className="required-dependency-main">
-            <div className="required-dependency-icon" aria-hidden="true">PY</div>
-            <div className="required-dependency-copy">
-              <span>启动依赖 · AUTOMATIC</span>
-              <h3>Python 3.12</h3>
-              <p>{pythonBootstrap?.state === "failed" && !pythonInstalling
-                ? pythonBootstrap.message
-                : bootstrapBroken && !pythonInstalling
-                  ? "当前本地服务运行在版本不符或缺少依赖的系统 Python 上。安装隔离的 Python 3.12 后会自动重启服务。"
-                  : pythonBootstrap?.message || "Nonoka Sub X 将自动下载隔离的 Python，不会修改系统 Python。"}</p>
-              {pythonBootstrap && !pythonBootstrap.supported && (
-                <p className="required-dependency-hint">手动方案：准备一个装有 httpx、pydantic 的 Python 3.12，把环境变量 <code>NONOKA_PYTHON</code> 指向它的可执行文件后重启应用。</p>
+
+        {!migrationActive && platformNotice !== "" && (
+          <p className="provision-blocked" role="status">{platformNotice}</p>
+        )}
+
+        {!migrationActive && !showOnboardingCard && !connecting && connectionBlocked !== "" && (
+          <p className={bootstrapBroken ? "provision-blocked failed" : "provision-blocked"} role="status">{connectionBlocked}</p>
+        )}
+
+        {/* A1 首次初始化卡片：启动器静默就绪 → 先确认安装目录 → 点击开始安装 */}
+        {showOnboardingCard && (
+          <section className={`install-location-card ${tightDisk ? "tight" : ""} awaiting`}>
+            {pythonInstalling && pythonBootstrap ? (
+              <ProvisionProgress
+                job={{
+                  resource: "本地服务",
+                  stage: pythonBootstrap.stage,
+                  message: "正在初始化本地服务，不会修改系统环境",
+                  progress: pythonBootstrap.progress,
+                  proxy: pythonBootstrap.proxy,
+                }}
+                onCancel={async () => undefined}
+                cancellable={false}
+              />
+            ) : (
+              <>
+                <div className="install-location-main">
+                  <div className="install-location-icon" aria-hidden="true">{tightDisk ? "!" : "HD"}</div>
+                  <div className="install-location-copy">
+                    <span>首次初始化 · 基础环境</span>
+                    <h3>{baseInterrupted ? "基础环境安装未完成" : tightDisk ? "当前磁盘空间不足，建议更换安装位置" : "确认基础运行环境的安装位置"}</h3>
+                    <p>
+                      {baseInterrupted && job?.message
+                        ? job.message
+                        : `将安装工具层与 Python 环境层${baseDownloadBytes > 0 ? `（下载约 ${formatStorageBytes(baseDownloadBytes)}）` : ""}，磁盘紧张时建议选非系统盘。`}
+                    </p>
+                  </div>
+                </div>
+                {runtimeLocation ? (
+                  <>
+                    <div className="install-location-path" title={runtimeLocation.directory}>
+                      <span>安装到</span>
+                      <code>{runtimeLocation.directory}</code>
+                    </div>
+                    <p className={tightDisk ? "install-location-free tight" : "install-location-free"}>
+                      {runtimeLocation.volume} 剩余 <b>{formatStorageBytes(runtimeLocation.freeBytes)}</b>
+                      {runtimeLocation.custom && "（已自定义）"}
+                    </p>
+                  </>
+                ) : (
+                  <p className="install-location-free">正在读取默认安装位置…</p>
+                )}
+                {pending && <RelocationConfirm pending={pending} busy={storageBusy} empty={runtimeLocation?.empty ?? true} onConfirm={confirmRelocation} onDismiss={clear} />}
+                <RelocationProgressView progress={relocatingRuntime ? storageProgress : null} onCancel={() => void onCancelStorage()} />
+                <div className="install-location-actions">
+                  {runtimeLocation && (
+                    <button
+                      className="quiet-button"
+                      disabled={storageBusy || relocatingRuntime || choosing !== ""}
+                      onClick={() => void choose("runtime")}
+                      type="button"
+                    >
+                      {choosing === "runtime" ? "正在选择…" : "更改位置…"}
+                    </button>
+                  )}
+                  <button
+                    className="primary-button"
+                    disabled={!runtimeLocation || storageBusy || relocatingRuntime || (baseTarget === "runtime" ? pythonLayerBlocked : toolsBlocked) !== ""}
+                    onClick={() => void onInstall(baseTarget)}
+                    type="button"
+                  >
+                    {relocatingRuntime ? "正在设置位置…" : baseInterrupted ? "继续安装" : baseDownloadBytes > 0 ? `开始安装（约 ${formatStorageBytes(baseDownloadBytes)}）` : "开始安装"}
+                  </button>
+                </div>
+              </>
+            )}
+          </section>
+        )}
+
+        {showPythonRecoveryCard && (
+          <section className={`required-dependency-card ${pythonBootstrap?.state ?? "failed"}`}>
+            <div className="required-dependency-main">
+              <div className="required-dependency-icon" aria-hidden="true">PY</div>
+              <div className="required-dependency-copy">
+                <span>本地服务</span>
+                <h3>Python 3.12 启动环境</h3>
+                <p>{pythonBootstrap?.state === "failed"
+                  ? pythonBootstrap.message
+                  : bootstrapBroken
+                    ? "当前服务运行在缺少依赖的 Python 上，修复后会自动重启。"
+                    : pythonBootstrap?.message || "需要准备隔离的 Python 3.12 启动环境。"}</p>
+                {pythonBootstrap && !pythonBootstrap.supported && (
+                  <p className="required-dependency-hint">手动方案：准备装有 httpx、pydantic 的 Python 3.12，通过环境变量 <code>NONOKA_PYTHON</code> 指向它后重启应用。</p>
+                )}
+              </div>
+              <div className="required-dependency-action">
+                <button className="primary-button" disabled={pythonBlocked !== ""} title={pythonBlocked || undefined} onClick={() => void onInstallPython()}>
+                  {pythonNeedsRepair ? "修复环境" : "重试安装"}
+                </button>
+              </div>
+            </div>
+          </section>
+        )}
+
+        {!migrationActive && jobRunning && job && <ProvisionProgress job={job} onCancel={onCancelInstall} />}
+        {!migrationActive && !jobRunning && !showOnboardingCard && <Notice className={`provision-message ${job?.state ?? ""}`} message={job?.message ?? ""} />}
+
+        {/* 拍平的 3 行核心层列表：工具层、Python 环境层、AI 模型层 */}
+        <div className="runtime-layer-list">
+          <div className="runtime-layer-row">
+            <div className="runtime-layer-info">
+              <span className={toolsState === "ready" ? "layer-dot ready" : "layer-dot"} aria-hidden="true">{toolsState === "ready" ? "✓" : "↓"}</span>
+              <strong>工具层</strong>
+              <InfoTip text="默认安装，支持更新。包含 FFmpeg、FFprobe、tokcount 与在线视频下载工具（yt-dlp、aria2c、Node.js、PO Token 生成器）。" label="工具层" />
+            </div>
+            <div className="runtime-layer-actions">
+              {toolsLayer && toolsLayer.bytes > 0 && <span className="runtime-layer-size">{formatStorageBytes(toolsLayer.bytes)}</span>}
+              {!showOnboardingCard && !migrationActive && toolsSupported && toolsState !== "ready" && (
+                <button
+                  type="button"
+                  className="quiet-button runtime-compact-btn"
+                  disabled={toolsBlocked !== ""}
+                  onClick={() => void onInstall("media")}
+                >
+                  {toolsWorking ? `${toolsActionLabel}中…` : toolsActionLabel}
+                </button>
+              )}
+              {(!toolsSupported || toolsWorking || toolsState !== "ready") && (
+                <Mark tone={!toolsSupported ? "neutral" : toolsWorking ? "accent" : toolsState === "missing" ? "neutral" : "caution"}>
+                  {!toolsSupported ? "不支持" : toolsWorking ? "处理中" : layerStateLabels[toolsState]}
+                </Mark>
               )}
             </div>
-            <div className="required-dependency-action">
-              <small>{pythonInstalling ? `↓ 正在${pythonNeedsRepair ? "修复" : "安装"}` : pythonBootstrap?.state === "failed" ? `! ${pythonNeedsRepair ? "环境损坏" : "安装失败"}` : pythonBootstrap?.state === "ready" ? "✓ 已安装" : "! 尚未安装"}</small>
-              <button className="primary-button" disabled={pythonBlocked !== ""} title={pythonBlocked || undefined} onClick={() => void onInstallPython()}>
-                {pythonInstalling ? `正在${pythonNeedsRepair ? "修复" : "启用"}…` : pythonBootstrap?.state === "failed" ? pythonNeedsRepair ? "修复环境" : "重试安装" : pythonBootstrap?.state === "ready" ? "重新启用" : "立即安装"}
-              </button>
+          </div>
+
+          <div className="runtime-layer-row">
+            <div className="runtime-layer-info">
+              <span className={pythonState === "ready" ? "layer-dot ready" : "layer-dot"} aria-hidden="true">{pythonState === "ready" ? "✓" : pythonSupported ? "↓" : "—"}</span>
+              <strong>Python 环境层</strong>
+              <InfoTip text="默认安装，支持更新。提供本机转写与推理所需的 Python 3.12 / PyTorch / CUDA 运行环境。" label="Python 环境层" />
+            </div>
+            <div className="runtime-layer-actions">
+              {pythonLayer && pythonLayer.bytes > 0 && <span className="runtime-layer-size">{formatStorageBytes(pythonLayer.bytes)}</span>}
+              {!showOnboardingCard && !migrationActive && pythonSupported && pythonState !== "ready" && (
+                <button
+                  type="button"
+                  className="quiet-button runtime-compact-btn"
+                  disabled={pythonLayerBlocked !== ""}
+                  onClick={() => void onInstall("runtime")}
+                >
+                  {pythonWorking ? `${pythonActionLabel}中…` : pythonActionLabel}
+                </button>
+              )}
+              {(!pythonSupported || pythonWorking || pythonState !== "ready") && (
+                <Mark tone={!pythonSupported ? "neutral" : pythonWorking ? "accent" : pythonState === "missing" ? "neutral" : "caution"}>
+                  {!pythonSupported ? "不支持" : pythonWorking ? "处理中" : layerStateLabels[pythonState]}
+                </Mark>
+              )}
             </div>
           </div>
-          {pythonInstalling && pythonBootstrap && <ProvisionProgress job={{
-            resource: "Python 3.12",
-            stage: pythonBootstrap.stage,
-            message: pythonBootstrap.message,
-            progress: pythonBootstrap.progress,
-            proxy: pythonBootstrap.proxy,
-          }} onCancel={async () => undefined} cancellable={false} />}
-        </section>}
-        {locationView.visible && runtimeLocation && (
-          <InstallLocationCard
-            location={runtimeLocation}
-            view={locationView}
-            progress={storageProgress}
-            busy={storageBusy}
-            awaitingInstall={awaitingLocation !== null}
-            installBlocked={awaitingBlocked || ""}
-            onChoose={onChooseStorage}
-            onRelocate={onRelocateStorage}
-            onCancelRelocation={onCancelStorage}
-            onProceed={() => {
-              const target = awaitingLocation;
-              setAwaitingLocation(null);
-              if (target) void onInstall(target);
-            }}
-            onDismiss={() => setAwaitingLocation(null)}
-          />
-        )}
-        {job?.state === "running" && <ProvisionProgress job={job} onCancel={onCancelInstall} />}
-        {job?.state !== "running" && <Notice className={`provision-message ${job?.state ?? ""}`} message={job?.message ?? ""} />}
-        <div className="asset-groups">
-          <AssetGroup
-            title="必备运行时"
-            items={requiredRuntimeAssets}
-            target={runtimeTarget}
-            installing={jobRunning && job?.target === runtimeTarget}
-            blocked={runtimeBlocked}
-            onInstall={requestInstall}
-          />
-          <AssetGroup
-            title="AI模型"
-            items={aiModels}
-            optionalIds={diarizationIds}
-            itemActions={diarization ? { diarization: (
-              <DiarizationAction
-                item={diarization}
-                installing={jobRunning && job?.target === "optional-models"}
-                blocked={modelsBlocked}
-                onInstall={() => void requestInstall("optional-models")}
-              />
-            ) } : undefined}
-            target="models"
-            installing={jobRunning && job?.target === "models"}
-            blocked={modelsBlocked}
-            onInstall={requestInstall}
-          />
-          <AssetGroup
-            title="视频下载工具"
-            items={videoTools}
-            optional
-            target="video-tools"
-            installing={jobRunning && job?.target === "video-tools"}
-            blocked={toolsBlocked}
-            onInstall={requestInstall}
-          />
+
+          <div className="runtime-layer-row">
+            <div className="runtime-layer-info">
+              <span className={modelsReady ? "layer-dot ready" : "layer-dot"} aria-hidden="true">{modelsReady ? "✓" : "↓"}</span>
+              <strong>AI 模型层</strong>
+              <InfoTip text={modelTooltip(requiredModels, optionalModels)} label="AI 模型层" />
+            </div>
+            <div className="runtime-layer-actions">
+              {modelsSizeText && <span className="runtime-layer-size">{modelsSizeText}</span>}
+              {modelsInstalled && !migrationActive && (
+                <button
+                  className={confirmRemoveModels ? "runtime-remove-button runtime-compact-btn confirming" : "runtime-remove-button runtime-compact-btn"}
+                  disabled={removeModelsBlocked !== ""}
+                  onBlur={() => setConfirmRemoveModels(false)}
+                  onClick={() => {
+                    if (!confirmRemoveModels) {
+                      setConfirmRemoveModels(true);
+                      return;
+                    }
+                    setConfirmRemoveModels(false);
+                    void onRemoveModels();
+                  }}
+                  title={removeModelsBlocked || "仅删除 AI 模型层，基础环境与用户数据保持不变"}
+                  type="button"
+                >
+                  {confirmRemoveModels ? "确认删除" : "删除模型"}
+                </button>
+              )}
+              {!modelsReady && !migrationActive && (
+                <button
+                  className="primary-button runtime-compact-btn"
+                  disabled={modelsBlocked !== ""}
+                  onClick={() => void onInstall("models")}
+                  title={modelsBlocked || modelsActionLabel}
+                  type="button"
+                >
+                  {modelsWorking ? "下载中…" : modelsActionLabel}
+                </button>
+              )}
+              {(modelsWorking || !modelsReady) && (
+                <Mark tone={modelsWorking ? "accent" : modelsNeedsUpdate || modelsNeedsRepair ? "caution" : "neutral"}>
+                  {modelsWorking ? "处理中" : modelsNeedsUpdate ? "需更新" : modelsNeedsRepair ? "需修复" : "未安装"}
+                </Mark>
+              )}
+            </div>
+          </div>
         </div>
-        {usage && usage.total > 0 && <section className="runtime-usage" aria-labelledby="runtime-usage-title">
-          <div className="runtime-unused-heading">
-            <div>
-              <strong id="runtime-usage-title">按引擎占用</strong>
-              <small>{`已装的层共 ${formatStorageBytes(usage.total)}；共用的层只算一次`}</small>
-            </div>
-          </div>
-          <ul>
-            {usage.rows.map((row) => (
-              <li key={row.id}>
-                <span>{row.label}</span>
-                <small>{row.layers.length
-                  ? row.layers.map((layer) => layer.sharedWith.length ? `${layer.label}（与 ${layer.sharedWith.join("、")} 共用）` : layer.label).join("、")
-                  : "不占运行环境层"}</small>
-                <b>{formatStorageBytes(row.bytes)}</b>
-              </li>
-            ))}
-          </ul>
-        </section>}
-        {cleanupItems.length > 0 && <section className="runtime-unused" aria-labelledby="runtime-unused-title">
-          <div className="runtime-unused-heading">
-            <div>
-              <strong id="runtime-unused-title">清理未使用的</strong>
-              <small>{cleanupNote}</small>
+
+        {/* 仅在存在旧版本残留时出现的一键清理 */}
+        {hasOldVersions && (
+          <div className="runtime-inline-bar runtime-old-bar">
+            <div className="runtime-inline-meta">
+              <strong>旧版本残留</strong>
+              <InfoTip text={[...cleanupChoice.removable, ...cleanupChoice.held].map((item) => `${layerLabel(item.layer)} ${item.name}（${formatStorageBytes(item.bytes)}）`).join("\n")} label="旧版本残留" />
+              <span>
+                {cleanupChoice.removable.length > 0
+                  ? `${cleanupChoice.removable.length} 项可清理 · ${formatStorageBytes(cleanupChoice.oldBytes)}`
+                  : `${cleanupChoice.held.length} 项正在使用`}
+              </span>
             </div>
             <button
-              className={confirmUnused ? "runtime-remove-button confirming" : "quiet-button"}
+              className={confirmUnused ? "runtime-remove-button runtime-compact-btn confirming" : "quiet-button runtime-compact-btn"}
               disabled={unusedBlocked !== ""}
               onBlur={() => setConfirmUnused(false)}
               onClick={() => {
@@ -600,60 +526,92 @@ export function RuntimeSection({ capabilities, message, provisionMessage, provis
                   return;
                 }
                 setConfirmUnused(false);
-                const layers = pickedLayers;
-                setPickedCleanup([]);
-                void onRemoveUnused(layers);
+                void onRemoveUnused([]);
               }}
-              title={unusedBlocked || (pickedLayers.length
-                ? `删除旧版本，并整层删除 ${pickedLayers.map(layerLabel).join("、")}；换回要它的引擎时需要重新下载`
-                : "删除没人用的旧版本；当前引擎用不到的整层不删，除非在下面勾选")}
               type="button"
             >
-              {confirmUnused ? `确认删除，腾出 ${formatStorageBytes(cleanupTotal)}` : "清理未使用的"}
+              {confirmUnused ? `确认清理 ${formatStorageBytes(cleanupChoice.oldBytes)}` : "一键清理"}
             </button>
           </div>
-          {(cleanupChoice.removable.length > 0 || cleanupChoice.held.length > 0) && <ul>
-            {[...cleanupChoice.removable, ...cleanupChoice.held].map((item) => (
-              <li key={item.path} title={item.path} className={item.blocked ? "held" : undefined}>
-                <span>{layerLabel(item.layer)}</span>
-                <small>{item.blocked ? `旧版本 ${item.name} · ${item.blocked}，不删` : `旧版本 ${item.name}`}</small>
-                <b>{formatStorageBytes(item.bytes)}</b>
-              </li>
-            ))}
-          </ul>}
-          {cleanupChoice.layers.length > 0 && <div className="runtime-unused-layers">
-            <small>当前转写引擎与纠错都用不到的层，默认保留；勾选的才会整层删除：</small>
-            {cleanupChoice.layers.map((item) => {
-              const picked = pickedLayers.includes(item.layer);
-              const backTo = item.neededBy.length ? item.neededBy.join("、") : "要它的引擎";
-              const redownload = item.downloadBytes > 0 ? `约 ${formatStorageBytes(item.downloadBytes)}` : "这一层";
-              return (
-                <label key={item.layer} className={item.blocked ? "held" : undefined}>
-                  <input
-                    type="checkbox"
-                    checked={picked}
-                    disabled={item.blocked !== ""}
-                    onChange={(event) => {
-                      setConfirmUnused(false);
-                      setPickedCleanup((current) => event.target.checked
-                        ? [...current.filter((layer) => layer !== item.layer), item.layer]
-                        : current.filter((layer) => layer !== item.layer));
-                    }}
-                  />
-                  <span>
-                    <strong>{`同时删除${item.label}（占用 ${formatStorageBytes(item.bytes)}）`}</strong>
-                    <small>{item.blocked
-                      ? `${item.blocked}，不能删`
-                      : `换回${backTo}时要重新下载${redownload}`}</small>
-                  </span>
-                </label>
-              );
-            })}
-          </div>}
-        </section>}
-        {provision?.root && <div className="runtime-storage-row">
-          <small className="runtime-root">安装目录：{provision.root}</small>
-        </div>}
+        )}
+
+        {/* 合并的安装目录区（两行结构：顶栏标题/占用/操作 + 底部全宽路径条与打开） */}
+        {runtimeLocation && !showOnboardingCard && (
+          <div className="runtime-dir-section">
+            <div className="dir-header-row">
+              <div className="dir-header-left">
+                <strong>安装目录</strong>
+                {runtimeLocation.custom && <span className="storage-badge">已迁移</span>}
+                <span className="dir-meta">
+                  {runtimeLocation.missing
+                    ? "目录不可访问"
+                    : `${formatStorageBytes(runtimeLocation.bytes)} · ${runtimeLocation.volume} 剩余 ${formatStorageBytes(runtimeLocation.freeBytes)}`}
+                </span>
+              </div>
+              <div className="dir-header-actions">
+                {runtimeCache && runtimeCacheStatus != null && runtimeCacheStatus.bytes > 0 && (
+                  <button
+                    type="button"
+                    className="runtime-remove-button runtime-compact-btn"
+                    disabled={runtimeCache.busy || storageBusy || storageActive || jobRunning || runtimeCacheStatus.reclaimable === 0}
+                    title={sharedCacheOnly ? "缓存与已安装环境共用，删除不会腾出空间" : `清理缓存（${formatStorageBytes(runtimeCacheStatus.reclaimable)}）`}
+                    onClick={() => void runtimeCache.clear()}
+                  >
+                    {runtimeCache.busy ? "清理中…" : "清理缓存"}
+                  </button>
+                )}
+                {runtimeLocation.custom && (
+                  <button
+                    type="button"
+                    className="quiet-button runtime-compact-btn"
+                    disabled={storageBusy || storageActive || jobRunning || migrationActive}
+                    onClick={() => void onResetStorage("runtime")}
+                  >
+                    移回默认
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className="quiet-button runtime-compact-btn"
+                  disabled={storageBusy || storageActive || jobRunning || migrationActive || choosing !== ""}
+                  onClick={() => void choose("runtime")}
+                >
+                  {choosing === "runtime" ? "选择中…" : "更改位置…"}
+                </button>
+                <button
+                  type="button"
+                  className="quiet-button runtime-compact-btn"
+                  disabled={repairBlocked !== ""}
+                  onClick={() => void onInstall("repair")}
+                  title={repairBlocked || "逐文件核对已安装的运行环境层，损坏自动重装"}
+                >
+                  {jobRunning && job?.target === "repair" ? "核对中…" : "完整核对"}
+                </button>
+              </div>
+            </div>
+            <div className="dir-path-bar">
+              <code title={runtimeLocation.directory}>{runtimeLocation.directory}</code>
+              {onOpenStorage && (
+                <button
+                  type="button"
+                  className="dir-open-btn"
+                  disabled={nothingToOpen}
+                  title={nothingToOpen ? "目录还不存在" : "在文件管理器中打开"}
+                  onClick={() => void onOpenStorage("runtime")}
+                >
+                  <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 4.5A1.5 1.5 0 0 1 3.5 3h2.8l1.4 1.5h4.8A1.5 1.5 0 0 1 14 6v5.5a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 2 11.5z" /></svg>
+                  打开
+                </button>
+              )}
+            </div>
+            {pending && <RelocationConfirm pending={pending} busy={storageBusy} empty={runtimeLocation.empty} onConfirm={confirmRelocation} onDismiss={clear} />}
+            <RelocationProgressView progress={relocatingRuntime ? storageProgress : null} onCancel={() => void onCancelStorage()} />
+            {runtimeCache?.message && (
+              <Notice className="storage-cache-message" message={runtimeCache.message} tone={runtimeCache.tone} onDismiss={runtimeCache.dismiss} />
+            )}
+            <Notice className="storage-message" message={storageMessage} onDismiss={onDismissStorageMessage} />
+          </div>
+        )}
       </article>
     </section>
   );

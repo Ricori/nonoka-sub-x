@@ -270,6 +270,23 @@ def test_remove_all_waits_for_unfinished_tasks(tmp_path, index):
         page.remove_all()
 
 
+@WINDOWS
+def test_remove_layer_removes_only_models_and_keeps_default_layers(tmp_path, index):
+    page = provisioner(tmp_path, index)
+    page.start("all")
+    assert wait(page)["state"] == "completed"
+
+    with pytest.raises(RuntimeProvisionError, match="仅允许删除模型层"):
+        page.remove_layer("tools")
+    with pytest.raises(RuntimeProvisionError, match="仅允许删除模型层"):
+        page.remove_layer("python")
+
+    status = page.remove_layer("models")
+    assert status["job"]["target"] == "remove-models" and status["job"]["state"] == "completed"
+    layers = {item["id"]: item["state"] for item in status["layers"]}
+    assert layers == {"python": "ready", "models": "missing", "tools": "ready"}
+
+
 def test_cache_usage_and_clear_cache_cover_the_downloads(tmp_path, index):
     page = provisioner(tmp_path, index)
     downloads = page.paths.cache / "downloads"

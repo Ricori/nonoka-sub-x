@@ -1,25 +1,583 @@
-.keys-layout { gap: 26px; }
-.settings-group { display: grid; gap: 12px; }
+.keys-layout { grid-template-columns: minmax(0, 1fr); gap: 18px; min-width: 0; }
+.settings-group { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; min-width: 0; }
 
-/* 高级配置和模型配置卡的行用同一套内边距与字号，展开前看起来就是同一组的。 */
-.advanced-keys { overflow: hidden; }
-.advanced-keys summary { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 15px 25px; cursor: pointer; list-style: none; transition: background .15s; }
-.advanced-keys summary:hover { background: color-mix(in srgb, var(--accent) 5%, transparent); }
-.advanced-keys summary::-webkit-details-marker { display: none; }
-.advanced-keys summary span { display: grid; gap: 4px; }
-.advanced-keys summary strong { font-size: 13px; }
-.advanced-keys summary small { color: var(--faint); font-size: 12px; }
-.advanced-keys summary i { color: var(--mut); font-size: 12px; font-style: normal; }
-.advanced-keys summary i::after { content: "›"; display: inline-block; margin-left: 6px; font-size: 15px; line-height: 1; transition: transform .15s; }
-.advanced-keys[open] summary i::after { transform: rotate(90deg); }
-.advanced-keys[open] summary { border-bottom: 1px solid var(--line-soft); }
-.advanced-keys .key-grid { padding: 16px 25px 20px; }
-/* 卡里套卡：去掉内层的投影，只留边框分隔。 */
-.advanced-keys .key-card { box-shadow: none; }
-.advanced-keys .keys-message { margin: 0 25px 18px; }
+.settings-group-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
 
-.unavailable-card { min-height: 0; }
-.unavailable-card .keys-message { margin-top: 12px; }
+.unavailable-card { min-height: 0; padding: 16px 20px; }
+.unavailable-card .keys-message { margin-top: 10px; }
 
 .keys-layout .keys-message { border: 1px solid transparent; border-radius: 10px; padding: 9px 12px; font-size: 12px; line-height: 1.5; }
 .keys-layout .keys-message.notice-warn { border-color: color-mix(in srgb, var(--warn) 32%, transparent); background: color-mix(in srgb, var(--warn) 8%, var(--panel)); color: var(--warn); }
+
+/* 合并的「存储与网络」紧凑卡片 */
+.storage-network-merged {
+  display: grid;
+  gap: 12px;
+  padding: 16px 20px;
+  overflow: visible;
+}
+
+.storage-network-divider {
+  height: 1px;
+  background: var(--line-soft);
+}
+
+/* 纠错与翻译摘要单行卡 */
+.correction-summary-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 14px 20px;
+  overflow: visible;
+}
+
+.correction-summary-left {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+/* 纠错与翻译卡片（全局模型外置） */
+.llm-config-compact {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+.llm-compact-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 14px 20px;
+}
+
+.llm-config-compact .llm-row {
+  grid-template-columns: 112px minmax(0, 1fr) auto;
+  padding: 12px 20px;
+  min-height: 52px;
+}
+
+.llm-model-routing-flush {
+  border-top: 0;
+}
+
+.llm-row-status {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.llm-footer-left {
+  display: flex;
+  flex: 1 1 0;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--mut);
+  font-size: 12px;
+}
+
+.llm-footer-left > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.llm-footer-left > span.llm-test-ok { color: var(--ok); }
+.llm-footer-left > span.llm-test-failed { color: var(--warn); }
+
+.llm-config-compact .llm-config-footer {
+  padding: 11px 20px;
+}
+
+.llm-config-compact .llm-row .runtime-remove-button {
+  justify-self: end;
+}
+
+/* 统一的两行式目录块（运行环境安装目录 & 视频缓存目录共用） */
+.dir-header-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 14px;
+}
+
+.dir-header-left {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.dir-header-left strong {
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.dir-meta {
+  color: var(--faint);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.dir-header-actions {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 7px;
+}
+
+.dir-limit-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: var(--ctl-h-sm);
+  padding: 0 8px;
+  border: 1px solid var(--line-soft);
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--bg) 55%, var(--panel));
+  color: var(--mut);
+  font-size: 12px;
+}
+
+.dir-limit-control input {
+  width: 42px;
+  height: 22px;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  outline: none;
+}
+
+.dir-limit-control:focus-within {
+  border-color: var(--accent-border);
+  box-shadow: 0 0 0 2px var(--accent-dim);
+}
+
+.dir-path-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 5px 4px 12px;
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bg) 72%, var(--panel));
+}
+
+.dir-path-bar code {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--mut);
+  font-size: 11.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dir-open-btn {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 5px;
+  height: 26px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--mut);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background .15s, color .15s;
+}
+
+.dir-open-btn:hover:not(:disabled) {
+  background: var(--raised);
+  color: var(--text);
+}
+
+.dir-open-btn:disabled {
+  opacity: .4;
+  cursor: not-allowed;
+}
+
+.dir-open-btn svg {
+  width: 13px;
+  height: 13px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.4;
+  stroke-linejoin: round;
+}
+
+.settings-modal-title-block {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.settings-modal-title-block h3 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.settings-modal-subtitle {
+  margin: 0;
+  color: var(--faint);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.modal-section-note {
+  color: var(--faint);
+  font-size: 12px;
+}
+
+.modal-key-item {
+  display: grid;
+  gap: 6px;
+  padding: 12px 14px;
+}
+
+.modal-key-item + .modal-key-item {
+  border-top: 1px solid var(--line-soft);
+}
+
+.modal-key-item-top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.modal-key-item-top strong {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.modal-key-item-top small {
+  color: var(--faint);
+  font-size: 11.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.modal-key-desc {
+  margin: 0;
+  color: var(--mut);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.modal-key-input-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.modal-key-input-row input {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 34px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0 10px;
+  background: color-mix(in srgb, var(--bg) 72%, var(--panel));
+  color: var(--text);
+  font-size: 12px;
+  outline: none;
+}
+
+.modal-key-input-row input:focus {
+  border-color: var(--accent-border);
+  box-shadow: 0 0 0 3px var(--accent-dim);
+}
+
+.correction-summary-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.correction-summary-title strong {
+  color: var(--text);
+  font-size: 13px;
+}
+
+.summary-pill {
+  flex: 0 0 auto;
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--line-soft));
+  border-radius: 999px;
+  padding: 1px 7px;
+  color: var(--accent);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.correction-test-inline {
+  font-size: 12px;
+  color: var(--mut);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.correction-test-inline.llm-test-ok { color: var(--ok); }
+.correction-test-inline.llm-test-failed { color: var(--warn); }
+
+.correction-summary-actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 8px;
+}
+
+/* 通用设置弹窗（转写引擎凭据 / 纠错与翻译配置） */
+.settings-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: color-mix(in srgb, black 44%, transparent);
+  backdrop-filter: blur(4px);
+}
+
+.settings-modal {
+  display: flex;
+  flex-direction: column;
+  width: min(560px, 100%);
+  max-height: min(84vh, 720px);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--panel);
+  box-shadow: 0 24px 60px color-mix(in srgb, black 34%, transparent);
+  overflow: hidden;
+}
+
+.settings-modal-wide {
+  width: min(680px, 100%);
+}
+
+.settings-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 22px;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.settings-modal-title {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.settings-modal-title h3 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.settings-modal-close {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--mut);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.settings-modal-close:hover {
+  background: var(--raised);
+  color: var(--text);
+}
+
+.settings-modal-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 18px 22px;
+}
+
+.llm-modal-body {
+  display: grid;
+  gap: 20px;
+}
+
+.modal-section {
+  display: grid;
+  gap: 10px;
+}
+
+.modal-section-heading {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.modal-section-heading h4 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.modal-section .llm-model-routing {
+  border: 1px solid var(--line-soft);
+  border-radius: 12px;
+}
+
+.modal-section .llm-row {
+  padding: 10px 14px;
+  min-height: 50px;
+}
+
+.modal-section .llm-task-routing summary,
+.modal-section .llm-task-routing-locked {
+  padding: 11px 14px;
+}
+
+/* 紧凑弹窗凭据列表（无环境变量名，无巨型方框） */
+.modal-key-list {
+  display: grid;
+  border: 1px solid var(--line-soft);
+  border-radius: 12px;
+}
+
+.modal-key-row {
+  display: grid;
+  grid-template-columns: 168px minmax(0, 1fr) 44px;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+}
+
+.modal-key-row + .modal-key-row {
+  border-top: 1px solid var(--line-soft);
+}
+
+.modal-key-label {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.modal-key-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+
+.modal-key-name strong {
+  font-size: 13px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.modal-key-label small {
+  color: var(--faint);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.modal-key-row input {
+  width: 100%;
+  min-width: 0;
+  height: 34px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0 10px;
+  background: color-mix(in srgb, var(--bg) 72%, var(--panel));
+  color: var(--text);
+  font-size: 12px;
+  outline: none;
+}
+
+.modal-key-row input:focus {
+  border-color: var(--accent-border);
+  box-shadow: 0 0 0 3px var(--accent-dim);
+}
+
+.modal-key-clear {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.settings-modal-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 13px 22px;
+  border-top: 1px solid var(--line-soft);
+}
+
+.settings-modal-status {
+  min-width: 0;
+  font-size: 12px;
+  color: var(--mut);
+}
+
+.settings-modal-status > span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-modal-status > span.llm-test-ok { color: var(--ok); }
+.settings-modal-status > span.llm-test-failed { color: var(--warn); }
+
+.modal-footer-notice {
+  margin: 0;
+  font-size: 12px;
+}
+
+.settings-modal-actions {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 8px;
+}
+
+.settings-modal-actions button {
+  padding: 7px 14px;
+  border-radius: 8px;
+  font-size: 12px;
+}
+
+@media (max-width: 680px) {
+  .correction-summary-card { flex-direction: column; align-items: flex-start; }
+  .modal-key-row { grid-template-columns: minmax(0, 1fr) auto; }
+  .modal-key-label { grid-column: 1 / -1; }
+}

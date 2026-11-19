@@ -1,6 +1,6 @@
 /* 迁移确认与进度的共用样式：设置页的存储卡片和运行环境页的安装位置提示都用这一套。 */
 
-.storage-warn { margin: 0; color: #e99a9a; font-size: 11px; line-height: 1.6; }
+.storage-warn { margin: 0; color: var(--danger); font-size: var(--fs-xs); line-height: 1.6; }
 
 .storage-confirm { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; margin-top: 16px; padding: 14px 16px; border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--line)); border-radius: 11px; background: color-mix(in srgb, var(--accent) 7%, transparent); }
 .storage-confirm > div { min-width: 0; }
@@ -10,11 +10,10 @@
 .storage-confirm-actions { display: flex; flex: 0 0 auto; gap: 8px; }
 
 .storage-confirm-actions button,
-.storage-progress button { border: 1px solid var(--line); border-radius: 8px; padding: 7px 12px; background: var(--raised); color: var(--text); font-size: 11px; cursor: pointer; }
-.storage-confirm-actions button:disabled { opacity: .4; cursor: not-allowed; }
-.storage-confirm-actions .ghost,
-.storage-progress .ghost { background: transparent; color: var(--mut); }
-.storage-confirm-actions .primary { border-color: color-mix(in srgb, var(--accent) 55%, var(--line)); color: var(--accent); }
+.storage-progress button { height: var(--ctl-h-sm); min-height: var(--ctl-h-sm); border-radius: 8px; padding: 0 11px; font-size: var(--fs-sm); font-weight: var(--fw-semibold); }
+.storage-confirm-actions .primary { border: 0; background: var(--grad); color: var(--on-grad); box-shadow: 0 3px 10px var(--glow); cursor: pointer; }
+.storage-confirm-actions .primary:hover:not(:disabled) { filter: brightness(1.05); }
+.storage-confirm-actions .primary:disabled { border-color: transparent; background: var(--raised); color: var(--faint); cursor: not-allowed; }
 
 .storage-progress { margin-top: 16px; padding: 14px 16px; border: 1px solid var(--line); border-radius: 11px; background: color-mix(in srgb, var(--panel) 75%, transparent); }
 .storage-progress-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; }

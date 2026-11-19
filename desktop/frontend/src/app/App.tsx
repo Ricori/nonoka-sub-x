@@ -38,7 +38,7 @@ import { AboutPage } from "../pages/AboutPage.tsx";
 import { AdminKeysPage } from "../pages/AdminKeysPage.tsx";
 import { SettingsPage, type SettingsAnchor } from "../pages/SettingsPage.tsx";
 import { engineChoices } from "../components/engineChoices.ts";
-import { CLOUD_TRANSCRIPTION_ENGINE, DEFAULT_TRANSCRIPTION_ENGINE } from "../providers/types.ts";
+import { DEFAULT_TRANSCRIPTION_ENGINE } from "../providers/types.ts";
 import { KnowledgePage } from "../pages/KnowledgePage.tsx";
 import { TasksPage } from "../pages/TasksPage.tsx";
 import { LibraryPage } from "../pages/LibraryPage.tsx";
@@ -160,7 +160,6 @@ export default function App() {
   const storageStatusSeq = useRef(0);
   const [pipeline, setPipeline] = useState<PipelineState>(controller.current() as PipelineState);
   const [taskHistory, setTaskHistory] = useState<TaskHistoryEntry[]>([]);
-  const [taskHistoryBusy, setTaskHistoryBusy] = useState(false);
   const [taskHistoryMessage, setTaskHistoryMessage] = useState<PageNotice>(noNotice);
   const [settings, setSettings] = useState<FineSubSettingsState | null>(null);
   const [runtimeProvision, setRuntimeProvision] = useState<RuntimeProvisionState | null>(null);
@@ -231,6 +230,7 @@ export default function App() {
   const taskHistoryStored = useRef(false);
   const taskHistoryRef = useRef(taskHistory);
   const pythonBootstrapStarted = useRef(false);
+  const defaultLayersStarted = useRef(false);
 
   const refreshPlugins = useCallback(async () => {
     setPlugins(await desktopPlugins.list());
@@ -756,8 +756,6 @@ export default function App() {
     const failures = result.failed ?? [];
     if (failures.length > 0) {
       setLibraryMessage(warnNotice(failures.map((failure) => `${failure.name}: ${failure.message}`).join("；")));
-    } else if ((result.added ?? []).length > 0) {
-      setLibraryMessage(okNotice(`已导入 ${(result.added ?? []).length} 个本地媒体`));
     }
     await loadLibrary();
   }, [loadLibrary]);
@@ -769,14 +767,7 @@ export default function App() {
   const importMedia = useCallback(async (paths?: string[]) => {
     if (mediaDependencyMissing) {
       openSettings("runtime");
-      setMessage("导入视频需要 FFmpeg 与 FFprobe，正在准备下载到 Nonoka Sub X 缓存目录。");
-      if (runtimeProvision?.media_supported && runtimeProvision.job.state !== "running") {
-        try {
-          setRuntimeProvision(await fineSubRuntime.install("media"));
-        } catch (value) {
-          setMessage(value instanceof Error ? value.message : String(value));
-        }
-      }
+      setMessage("导入视频需要工具层（FFmpeg 与 FFprobe），请先在「设置 → 运行环境」完成基础环境初始化。");
       return;
     }
     setLibraryBusy(true);
@@ -924,7 +915,6 @@ export default function App() {
   }, []);
 
   const refreshTaskHistory = useCallback(async () => {
-    setTaskHistoryBusy(true);
     setTaskHistoryMessage(noNotice);
     try {
       const current = taskHistoryRef.current;
@@ -944,8 +934,6 @@ export default function App() {
       setTaskHistory((currentHistory) => reconcileTaskHistory(currentHistory, refreshed));
     } catch (value) {
       setTaskHistoryMessage(warnNotice(value instanceof Error ? value.message : String(value)));
-    } finally {
-      setTaskHistoryBusy(false);
     }
   }, [cloudProvider, cloudSession?.authenticated, localProvider]);
 
@@ -1634,15 +1622,13 @@ export default function App() {
     }
   }, [refresh]);
 
-  const removeRuntime = useCallback(async () => {
+  const removeModels = useCallback(async () => {
     setProvisionMessage("");
     try {
-      setRuntimeProvision(await fineSubRuntime.removeAll());
+      setRuntimeProvision(await fineSubRuntime.removeModels());
       await refresh();
     } catch (value) {
       setProvisionMessage(value instanceof Error ? value.message : String(value));
-      // A refused or partial removal still changed what is on disk, so the
-      // panel is reconciled with the sidecar rather than left as it was.
       await refresh({ silent: true });
     }
   }, [refresh]);
@@ -1705,6 +1691,21 @@ export default function App() {
     pythonBootstrapStarted.current = true;
     void installPython();
   }, [installPython, pythonBootstrap, sidecar?.running]);
+
+  // First launch onboarding (A1): when default base layers (tools / python)
+  // are still missing, land on Settings -> Runtime so the user confirms the
+  // install directory before downloading ~2.9 GB.
+  useEffect(() => {
+    if (defaultLayersStarted.current || !sidecar?.running || !runtimeProvision || runtimeProvision.bootstrap_error) return;
+    if (migration && migration.state !== "not-needed" && migration.state !== "completed") return;
+    if (runtimeProvision.job.state !== "idle") return;
+    const byId = new Map((runtimeProvision.layers ?? []).map((item) => [item.id, item]));
+    const toolsMissing = runtimeProvision.media_supported && byId.get("tools")?.state === "missing";
+    const pythonMissing = runtimeProvision.runtime_supported && byId.get("python")?.state === "missing";
+    if (!toolsMissing && !pythonMissing) return;
+    defaultLayersStarted.current = true;
+    openSettings("runtime");
+  }, [migration, openSettings, runtimeProvision, sidecar?.running]);
 
   const runtimeProvisionMissing = runtimeProvision === null;
 
@@ -1780,18 +1781,6 @@ export default function App() {
     () => engineChoices(capabilities, { authenticated: cloudSession?.authenticated === true, remaining: cloudSession?.remaining ?? undefined }),
     [capabilities, cloudSession?.authenticated, cloudSession?.remaining],
   );
-  // The banner speaks for the engine new tasks run on: FineSub here needs the
-  // runtime; a cloud API engine its keys; the cloud's FineSub a signed-in account.
-  const currentEngine = engines.find((item) => item.id === transcriptionEngine) ?? null;
-  // FineSub's package removed is FineSub gone, not a runtime to finish: the engine list
-  // no longer offers it (`capabilities` loaded and it is not there), so say so and send
-  // the user to pick another, never fall back to one silently.
-  const currentEngineGone = capabilities !== null && currentEngine === null;
-  const fineSubRuntimeBanner = transcriptionEngine === DEFAULT_TRANSCRIPTION_ENGINE && !currentEngineGone;
-  const currentEngineReady = fineSubRuntimeBanner ? runtimeReady : currentEngine?.ready === true;
-  const currentEngineIssue = fineSubRuntimeBanner
-    ? message || issues[0]?.message || "正在读取 capabilities…"
-    : currentEngine ? currentEngine.issues[0]?.message ?? "" : "当前转写引擎不可用（可能已被移除），请到设置里重新选择";
   const title = section === "knowledge" ? "知识库" : section === "library"
     ? "媒体库"
     : section === "tasks"
@@ -1938,11 +1927,31 @@ export default function App() {
       </aside>
 
       <main className="workspace">
-        {/* Windows caption strip: empty on purpose so the whole band stays a
-            non-client drag region — anything interactive placed here would be
-            swallowed by the native hit test. */}
-        <div className="workspace-titlebar" aria-hidden="true" />
-        <div className={`workspace-scroll${section === "plugin" ? " plugin-workspace-scroll" : ""}${narrowSections.has(section) ? " narrow-page" : ""}`}>
+        {/* Windows caption strip: only .workspace-titlebar-drag carries the native
+            caption region so the theme button beside it never gets swallowed by WM_NCHITTEST. */}
+        <div className="workspace-titlebar">
+          <div className="workspace-titlebar-drag" aria-hidden="true" />
+          <button
+            className="titlebar-theme-button"
+            type="button"
+            aria-label="切换主题"
+            title={theme === "dark" ? "切换到浅色模式" : "切换到深色模式"}
+            onClick={() => setTheme((value) => value === "dark" ? "light" : "dark")}
+          >
+            {theme === "dark" ? (
+              <svg viewBox="0 0 16 16" aria-hidden="true">
+                <circle cx="8" cy="8" r="3" />
+                <path d="M8 1.5v1.6M8 12.9v1.6M1.5 8h1.6M12.9 8h1.6M3.4 3.4l1.1 1.1M11.5 11.5l1.1 1.1M12.6 3.4l-1.1 1.1M4.5 11.5l-1.1 1.1" />
+              </svg>
+            ) : (
+              <svg viewBox="0 0 16 16" aria-hidden="true">
+                <path d="M13.2 9.9A5.4 5.4 0 0 1 6.1 2.8a5.5 5.5 0 1 0 7.1 7.1Z" />
+              </svg>
+            )}
+          </button>
+          <span className="titlebar-divider" aria-hidden="true" />
+        </div>
+        <div className={`workspace-scroll${section === "plugin" ? " plugin-workspace-scroll" : ""}${section === "knowledge" ? " knowledge-workspace-scroll" : ""}${narrowSections.has(section) ? " narrow-page" : ""}`}>
           <header className="topbar">
             <div>
               <h1>{title}</h1>
@@ -1950,11 +1959,8 @@ export default function App() {
             {section === "library" && <label className="library-search"><span>⌕</span><input type="search" placeholder="搜索标题或文件名" value={query} onChange={(event) => setQuery(event.target.value)} /></label>}
             <div className="topbar-actions">
               <UpdateButton update={selfUpdate} />
-              <button className="theme-button" aria-label="切换主题" title={theme === "dark" ? "切换到浅色模式" : "切换到深色模式"} onClick={() => setTheme((value) => value === "dark" ? "light" : "dark")}>{theme === "dark" ? "☀" : "☾"}</button>
               {section === "library" ? (
                 <button className="primary-button" disabled={libraryBusy} onClick={() => void importMedia()}>{libraryBusy ? "正在导入…" : "＋ 添加媒体"}</button>
-              ) : section === "tasks" ? (
-                <button className="quiet-button" onClick={() => void refreshTaskHistory()} disabled={taskHistoryBusy}>{taskHistoryBusy ? "正在刷新…" : "刷新任务"}</button>
               ) : section === "plugins" ? (
                 <button className="primary-button" disabled={pluginBusy !== ""} onClick={() => void installPlugin()}>{pluginBusy === "install" ? "正在安装…" : "＋ 安装插件"}</button>
               ) : section === "keys" ? (
@@ -1966,16 +1972,6 @@ export default function App() {
           <MigrationPanel view={migrationPanel} retrying={migrationRetrying} onRetry={() => void retryMigration()} onDismiss={() => setMigrationDismissed(true)} />
 
           {!migrationBlocking && <>
-          {!currentEngineReady && loadState !== "loading" && (section === "library" || section === "tasks") && <section className={`runtime-banner warning`}>
-            <div className="runtime-symbol">!</div>
-            <div className="runtime-copy">
-              <span className="eyebrow">{`转写引擎 · ${currentEngine?.label ?? transcriptionEngine}`}</span>
-              <h2>{currentEngineGone ? "当前转写引擎不可用" : fineSubRuntimeBanner ? "需要完成运行时配置" : transcriptionEngine === CLOUD_TRANSCRIPTION_ENGINE ? "需要登录云端账户" : "当前转写引擎尚未就绪"}</h2>
-              <p>{currentEngineIssue}</p>
-            </div>
-            <button onClick={() => openSettings(fineSubRuntimeBanner ? "runtime" : "engine")}>查看详情 →</button>
-          </section>}
-
           {section === "library" && (
             <LibraryPage
               items={libraryItems}
@@ -2060,7 +2056,7 @@ export default function App() {
             />
           )}
 
-          <KnowledgePage active={section === "knowledge"} />
+          <KnowledgePage active={section === "knowledge"} onNavigateLibrary={() => setSection("library")} />
 
           {section === "keys" && (
             <SettingsPage
@@ -2094,17 +2090,16 @@ export default function App() {
               onSelectEngine={selectTranscriptionEngine}
               onOpenAccount={() => setSection("account")}
               runtime={{
-                message,
                 provisionMessage,
                 onDismissProvisionMessage: () => setProvisionMessage(""),
                 provision: runtimeProvision,
                 pythonBootstrap,
-                ready: runtimeReady,
                 sidecar,
+                migrationActive: Boolean(migration && (migration.state === "downloading" || migration.state === "download-failed" || migration.dataOpen === false)),
                 onCancelInstall: cancelRuntimeInstall,
                 onInstall: installRuntime,
                 onInstallPython: installPython,
-                onRemoveAll: removeRuntime,
+                onRemoveModels: removeModels,
                 onRemoveUnused: removeUnusedRuntime,
                 cleanup: cleanupPlan,
               }}

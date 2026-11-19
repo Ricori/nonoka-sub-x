@@ -813,24 +813,21 @@
   border-top: 1px solid var(--line-soft);
 }
 
-.transcription-actions button {
+.transcription-actions button:not(.primary-button):not(.quiet-button):not(.danger-button) {
+  min-height: var(--ctl-h);
   border: 1px solid var(--line);
-  border-radius: 9px;
-  padding: 9px 14px;
-  background: var(--raised);
-  color: var(--mut);
+  border-radius: var(--r-md);
+  padding: 0 14px;
+  background: var(--panel);
+  color: var(--text);
+  font-size: var(--fs-md);
+  font-weight: var(--fw-semibold);
   cursor: pointer;
 }
 
-.transcription-actions .primary-button {
-  border: 0;
-  background: var(--grad);
-  color: var(--on-grad);
-}
-
-.transcription-actions button:disabled {
-  cursor: wait;
-  opacity: .5;
+.transcription-actions button:not(.primary-button):not(.quiet-button):not(.danger-button):hover:not(:disabled) {
+  border-color: var(--accent-border);
+  color: var(--accent);
 }
 
 @media (max-height: 700px) {
@@ -942,6 +939,7 @@
   border: 1px solid var(--line-soft);
   border-radius: 12px;
   padding: 10px 12px;
+  margin-top: 12px;
 }
 
 .current-engine .execution-icon {
@@ -1047,6 +1045,7 @@
 }
 
 @media (max-width: 640px) {
+
   .transcription-block .form-grid,
   .transcription-block .prompt-grid {
     grid-template-columns: minmax(0, 1fr);

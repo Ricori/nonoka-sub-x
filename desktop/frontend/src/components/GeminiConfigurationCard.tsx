@@ -46,7 +46,7 @@ export function GeminiConfigurationCard({ free, paid, drafts, busy, setDrafts, o
     <article className="panel gemini-config-card">
       <div className="gemini-config-heading">
         <div><span className="eyebrow">Minimum configuration</span><h2>Gemini API Key</h2><p>免费额度与付费额度任选其一即可；也可以同时配置，按任务需求选择。</p></div>
-        <Mark>{configured > 0 ? `已配置 ${configured} 项` : "任选其一"}</Mark>
+        <Mark tone={configured > 0 ? "ok" : "neutral"}>{configured > 0 ? `已配置 ${configured} 项` : "任选其一"}</Mark>
       </div>
       <div className="gemini-key-list">
         {free && <GeminiKeyRow item={free} kind="free" value={drafts[free.name] ?? ""} busy={busy} setDrafts={setDrafts} onSave={onSave} />}

@@ -140,6 +140,7 @@ export const fineSubRuntime = {
   install: (target: RuntimeInstallTarget) => ProviderService.InstallRuntime(target) as Promise<unknown> as Promise<RuntimeProvisionState>,
   cancel: () => ProviderService.CancelRuntimeInstall() as Promise<unknown> as Promise<RuntimeProvisionState>,
   removeAll: () => ProviderService.RemoveRuntime() as Promise<unknown> as Promise<RuntimeProvisionState>,
+  removeModels: () => ProviderService.RemoveModels() as Promise<unknown> as Promise<RuntimeProvisionState>,
   /** 以当前转写引擎为准；sidecar 不认识的引擎只列旧版本。 */
   cleanupPlan: (engine: string) => ProviderService.UnusedRuntime(engine) as Promise<unknown> as Promise<RuntimeCleanupPlan>,
   /** 删旧版本；`layers` 是用户勾选、要整层删的层（默认不删整层）。 */

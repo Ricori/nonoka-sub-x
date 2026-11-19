@@ -2,7 +2,6 @@
   display: grid;
   grid-template-columns: minmax(320px, 1.15fr) minmax(320px, 1fr);
   gap: 18px;
-  max-width: 960px;
 }
 
 .about-layout>.panel {
@@ -90,21 +89,24 @@
 }
 
 .about-chip {
-  padding: 5px 11px;
-  border: 1px solid var(--line-soft);
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--raised) 55%, transparent);
-  color: var(--mut);
-  font-size: 11px;
-  font-weight: 650;
-  letter-spacing: .02em;
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  border: 1px solid var(--tone-neutral-bd);
+  border-radius: var(--r-pill);
+  padding: 0 9px;
+  background: var(--tone-neutral-bg);
+  color: var(--tone-neutral-fg);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-semibold);
+  line-height: 1;
   white-space: nowrap;
 }
 
 .about-chip-accent {
-  border-color: var(--accent-line);
-  background: var(--accent-dim);
-  color: var(--accent);
+  border-color: var(--tone-accent-bd);
+  background: var(--tone-accent-bg);
+  color: var(--tone-accent-fg);
   font-variant-numeric: tabular-nums;
 }
 
@@ -192,19 +194,10 @@
 }
 
 .about-update {
-  padding: 4px 12px;
-  border: 1px solid var(--accent-border);
-  border-radius: 999px;
-  background: var(--accent-dim);
-  color: var(--accent);
-  font-size: 11px;
-  font-weight: 700;
-  cursor: pointer;
-  transition: all .2s ease;
-}
-
-.about-update:hover {
-  background: color-mix(in srgb, var(--accent) 20%, transparent);
+  height: var(--ctl-h-sm);
+  min-height: var(--ctl-h-sm);
+  padding: 0 11px;
+  font-size: var(--fs-sm);
 }
 
 .about-update-note {

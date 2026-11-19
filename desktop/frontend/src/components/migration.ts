@@ -49,13 +49,35 @@ export interface MigrationView {
 const headings: Record<MigrationState, string> = {
   checking: "正在检查旧版数据",
   "not-needed": "",
-  migrating: "正在迁移旧版数据",
-  blocked: "旧版数据暂时无法迁移",
-  "rolled-back": "迁移失败，已恢复原样",
-  failed: "迁移中断",
-  downloading: "正在下载新的运行环境",
-  "download-failed": "运行环境下载失败",
-  completed: "旧版数据已迁移完成",
+  migrating: "正在升级旧版数据",
+  blocked: "旧版数据暂时无法升级",
+  "rolled-back": "升级失败，已恢复原样",
+  failed: "升级中断",
+  downloading: "正在更新运行环境",
+  "download-failed": "运行环境更新中断",
+  completed: "旧版数据升级完成",
+};
+
+const shortMessages: Partial<Record<MigrationState, string>> = {
+  checking: "",
+  migrating: "完成前请勿关闭应用",
+  downloading: "完成前暂不可用本机转写",
+  completed: "",
+};
+
+const stepLabels: Record<string, string> = {
+  "runtime-root": "切换运行环境目录",
+  models: "移动已有模型",
+  settings: "迁移设置与密钥",
+  knowledge: "迁移知识库",
+  "limit-state": "迁移限流状态",
+  "task-products": "转换历史任务",
+  "old-environment": "清理旧运行环境",
+  caches: "清理旧缓存",
+  rebuildable: "清理旧辅助文件",
+  leftovers: "清理旧配置残留",
+  "model-completion": "核对并补齐模型",
+  "layer-download": "下载运行环境",
 };
 
 const tones: Record<MigrationState, MigrationView["tone"]> = {
@@ -93,21 +115,15 @@ const convertedNames: Record<string, string> = {
 export function reportSections(report: MigrationReport | undefined, taskTitles: Record<string, string> = {}): MigrationView["sections"] {
   if (!report) return [];
   const sections: MigrationView["sections"] = [];
-  const settings = report.settings;
-  if (settings) {
-    const dropped = [...settings.droppedVariables, ...settings.droppedTables, ...settings.droppedKeys];
-    if (dropped.length) sections.push({ title: "没有带过来的旧设置（Nonoka 不认识，FineSub 今后用默认值）", items: dropped });
-    if (settings.unreadable.length) sections.push({ title: "本机打不开、没能带过来的密钥（请在设置里重新填写）", items: settings.unreadable });
-    const renamed = Object.entries(settings.renamed).map(([from, to]) => `${from} → ${to}`);
-    if (renamed.length) sections.push({ title: "改了名字的密钥", items: renamed });
-  }
+  const unreadable = [...new Set([
+    ...(report.settings?.unreadable ?? []),
+    ...(report.cleanup?.unreadableKeysRemoved ?? []),
+  ])];
+  if (unreadable.length) sections.push({ title: "需要重新填写的密钥", items: unreadable });
   const refused = Object.entries(report.tasks?.not_converted ?? {}).flatMap(([taskId, files]) => Object.entries(files).map(
-    ([name, reason]) => `${taskTitles[taskId] || taskId}：${convertedNames[name] ?? name}没有转换（${reason}）`,
+    ([name, reason]) => `${taskTitles[taskId] || taskId}：${convertedNames[name] ?? name}未转换（${reason}）`,
   ));
-  if (refused.length) sections.push({ title: "没有转换成新格式的任务（原有文件都在，可以照常打开）", items: refused });
-  const cleanup = report.cleanup;
-  if (cleanup?.unreadableKeysRemoved?.length) sections.push({ title: "本机打不开的密钥已随旧密钥文件的备份一起删除", items: cleanup.unreadableKeysRemoved });
-  if (cleanup?.removed.length) sections.push({ title: "已删除的旧文件", items: cleanup.removed });
+  if (refused.length) sections.push({ title: "未转换的历史任务", items: refused });
   return sections;
 }
 
@@ -128,9 +144,7 @@ export function migrationView(
 
   const steps = status.steps ?? [];
   const index = status.step ? steps.findIndex((step) => step.id === status.step) : -1;
-  const stepLine = index >= 0 && (state === "migrating" || downloading)
-    ? `第 ${index + 1} / ${steps.length} 步：${steps[index].title}`
-    : "";
+  const stepLabel = index >= 0 ? (stepLabels[steps[index].id] ?? steps[index].title) : "";
 
   let percent: number | null = null;
   let progressLine = "";
@@ -142,12 +156,21 @@ export function migrationView(
     progressLine = [progress.message ?? "", amount, speed].filter(Boolean).join(" · ");
   }
 
+  const stepLine = index >= 0 && (state === "migrating" || (state === "downloading" && !progressLine))
+    ? `${stepLabel}（${index + 1}/${steps.length}）`
+    : "";
+
+  const heading = headings[state] ?? state;
+  const message = state in shortMessages
+    ? (shortMessages[state] ?? "")
+    : status.message === heading ? "" : status.message;
+
   return {
     visible: true,
     blocking,
     tone: tones[state] ?? "info",
-    heading: headings[state] ?? state,
-    message: status.message === headings[state] ? "" : status.message,
+    heading,
+    message,
     polling: pollingStates.has(state),
     canRetry: retryStates.has(state),
     dismissible,

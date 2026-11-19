@@ -98,12 +98,11 @@ def test_the_spec_says_what_the_engine_needs() -> None:
     assert (spec.id, spec.kind, spec.keys) == ("moss-pro", "cloud-api", ("MOSS_PRO",))
     assert spec.environment.components == ("media",) and not spec.environment.models
     assert spec.features.speakers and not spec.features.word_timestamps
-    assert "免费额度" in spec.billing and "预付余额" in spec.billing
 
 
 def test_readiness_wants_a_moss_pro_key(tmp_path: Path) -> None:
     issues = moss_pro.MossProEngine(Store(tmp_path, {}), Runtime()).readiness(ReadinessContext()).issues
-    assert [i.code for i in issues] == ["missing_key"] and "MOSS_PRO" in issues[0].message
+    assert [i.code for i in issues] == ["missing_key"]
     assert moss_pro.MossProEngine(Store(tmp_path, {keys.MOSS_PRO: POOL}), Runtime()).readiness(
         ReadinessContext()).ready
 

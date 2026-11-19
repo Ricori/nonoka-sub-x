@@ -65,13 +65,12 @@ def test_the_spec_asks_for_the_free_pool_only() -> None:
     assert isinstance(gemini.GeminiEngine(), TranscriptionEngine)
     assert (spec.id, spec.kind, spec.keys) == ("gemini-transcribe", "cloud-api", ("GEMINI_FREE",))
     assert spec.environment.components == ("media",) and not spec.environment.models
-    assert "GEMINI_FREE" in spec.billing and "付费池" in spec.billing
 
 
 def test_readiness_wants_a_free_key_and_ignores_the_paid_pool(tmp_path: Path) -> None:
     paid_only = Store(tmp_path, {"GEMINI_PAID": [("", "paid")]})
     issues = gemini.GeminiEngine(paid_only, Runtime()).readiness(ReadinessContext()).issues
-    assert [i.code for i in issues] == ["missing_key"] and "GEMINI_FREE" in issues[0].message
+    assert [i.code for i in issues] == ["missing_key"]
     assert gemini.GeminiEngine(Store(tmp_path, {keys.GEMINI_FREE: FREE}), Runtime()).readiness(
         ReadinessContext()).ready
     assert [i.code for i in gemini.GeminiEngine(Store(tmp_path, {keys.GEMINI_FREE: FREE}),
@@ -81,7 +80,7 @@ def test_readiness_wants_a_free_key_and_ignores_the_paid_pool(tmp_path: Path) ->
 
 def test_without_a_free_key_the_run_stops_before_any_call(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setattr(audio, "probe_media_duration", lambda path, **k: 700.0)
-    with pytest.raises(cloud.CloudEngineError, match="GEMINI_FREE"):
+    with pytest.raises(cloud.CloudEngineError):
         gemini.GeminiEngine(Store(tmp_path, {"GEMINI_PAID": [("", "paid")]}), Runtime()).transcribe(
             job_for(tmp_path, "gemini-windows"), Recorder())
     keys.use_store(None)

@@ -445,8 +445,7 @@ SPEC = EngineSpec(
                             diarization_levels=DIARIZATION_LEVELS),
     keys=(keys.MOSS_PRO,),
     environment=EngineEnvironment(components=(MEDIA,)),
-    billing=(f"MOSS_PRO 池前 {keys.POOL_LIMITS[keys.MOSS_PRO]} 个 key，每个每天约 {DAILY_HOURS} 小时免费额度"
-             "（北京时间零点刷新）；默认池里最后一个 key 用完免费额度后按预付余额计费（选项 paid 可关）"),
+    billing=(f"每天约 {DAILY_HOURS} 小时免费额度"),
 )
 
 
@@ -469,7 +468,7 @@ class MossProEngine(CloudEngine):
     def key_issues(self, store) -> list[Issue]:
         if has_key(store, keys.MOSS_PRO):
             return []
-        return [Issue("missing_key", f"MOSS Pro 需要 {keys.MOSS_PRO} 池里至少一个 key")]
+        return [Issue("missing_key", f"缺少 moss 服务商的 key。")]
 
     def caller(self, *, paid: bool) -> Caller:
         """The pool's keys and the ledger beside the store, read once per run."""
