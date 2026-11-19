@@ -1,7 +1,7 @@
 """The three FineSub engine packages as WP-P1 left them (plan 4.6 items 33-35a, WP-P1's completion criteria).
 
 - Nothing in `engines/` is installable: no `pyproject.toml` (or `setup.py`).
-- Each package's `src/` is exactly its list in `docs/engine-packages/<package>.json`,
+- Each package's `src/` is exactly its list in `tests/engine-packages/<package>.json`,
   file for file and byte for byte; every file of the vendored tree's lock is
   in a package or in `not-carried.json` with the reason.
 - A file two packages carry -- FineSub's, or the packages' own shared modules
@@ -36,7 +36,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 ENGINES = ROOT / "engines"
-LISTS = ROOT / "docs" / "engine-packages"
+LISTS = ROOT / "tests" / "engine-packages"
 PACKAGES = {"transcribe": "finesub-transcribe", "correct": "finesub-correct", "knowledge": "finesub-knowledge"}
 #: Each package's own top-level packages (`adapter/`).
 ADAPTERS = {

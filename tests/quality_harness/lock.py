@@ -8,7 +8,7 @@ and `finesub_bootstrap/`. Bytes are hashed as stored: `.gitattributes` marks
 committed bytes.
 
 The packages were split out of one vendored tree in WP-P1; that tree's lock is
-kept as `docs/engine-packages/vendor-quality-lock.json`, and every entry of a
+kept as `tests/engine-packages/vendor-quality-lock.json`, and every entry of a
 package's lock must be that lock's entry for the same path: splitting moved
 files, it changed none (`tests/test_engine_packages.py` also accounts for every
 file of the old lock).
@@ -28,7 +28,7 @@ from . import PACKAGE_IDS, PACKAGES_ROOT, ROOT, SOURCES
 
 LOCK_NAME = "QUALITY_LOCK.json"
 #: The lock of the vendored tree the packages were split from (WP-P1).
-VENDOR_LOCK = ROOT / "docs" / "engine-packages" / "vendor-quality-lock.json"
+VENDOR_LOCK = ROOT / "tests" / "engine-packages" / "vendor-quality-lock.json"
 #: Unlocked single files, relative to a package's `src/`.
 UNLOCKED_FILES = ("finesub/stages.py",)
 #: Unlocked directories (everything below them), same base. `finesub_bootstrap/`

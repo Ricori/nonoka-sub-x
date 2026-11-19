@@ -19,8 +19,8 @@ from scripts.finesub_align import is_key_path, main
 
 
 ROOT = Path(__file__).resolve().parents[1]
-VENDOR_LOCK = ROOT / "docs" / "engine-packages" / "vendor-quality-lock.json"
-NOT_CARRIED = ROOT / "docs" / "engine-packages" / "not-carried.json"
+VENDOR_LOCK = ROOT / "tests" / "engine-packages" / "vendor-quality-lock.json"
+NOT_CARRIED = ROOT / "tests" / "engine-packages" / "not-carried.json"
 SOURCES = tuple(ROOT / "engines" / package / "src" / "finesub"
                 for package in ("finesub-transcribe", "finesub-correct", "finesub-knowledge"))
 

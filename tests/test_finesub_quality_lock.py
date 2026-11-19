@@ -10,7 +10,7 @@ model manifests, the model constants) is guarded by content in
 by `tests/test_engine_packages.py`.
 
 The packages were split out of one vendored tree in WP-P1. That tree's lock
-is kept as `docs/engine-packages/vendor-quality-lock.json`, and each package's
+is kept as `tests/engine-packages/vendor-quality-lock.json`, and each package's
 lock entry must be that lock's entry for the same path: the split moved files,
 it changed none. `tests/test_engine_packages.py` accounts for every file of the
 old lock (in a package, or listed as not carried with the reason).
@@ -36,7 +36,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 PACKAGES = ("finesub-transcribe", "finesub-correct", "finesub-knowledge")
-VENDOR_LOCK = ROOT / "docs" / "engine-packages" / "vendor-quality-lock.json"
+VENDOR_LOCK = ROOT / "tests" / "engine-packages" / "vendor-quality-lock.json"
 UNLOCKED_FILES = {"finesub/stages.py"}
 UNLOCKED_DIRS = ("finesub_bootstrap/",)
 

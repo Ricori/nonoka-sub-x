@@ -8,7 +8,7 @@
 
 **FineSub 原先的转写、纠错、翻译质量必须保住。** 编排可以拆、可以重组，但结果不能变。
 
-1. **算法文件上锁。** FineSub 分装在三个引擎包里（见 2.1）。每个包 `src/` 下除第 2 条的两处外，每个文件的 sha256 都记在该包的 `QUALITY_LOCK.json`，由 `tests/test_finesub_quality_lock.py` 检查：哈希相同，文件不多不少，而且每一条都等于分包前基准锁（`docs/engine-packages/vendor-quality-lock.json`）里同一路径的那一条。分包前的 550 个上锁文件，每个要么在某个包里，要么列在 `docs/engine-packages/not-carried.json` 并写明不带原因（`tests/test_engine_packages.py`）。运行时锁、运行时清单和模型清单按内容钉在 `src/nonoka_x/resources/RUNTIME_PINS.json`，由 `tests/test_runtime_pins.py` 看住。
+1. **算法文件上锁。** FineSub 分装在三个引擎包里（见 2.1）。每个包 `src/` 下除第 2 条的两处外，每个文件的 sha256 都记在该包的 `QUALITY_LOCK.json`，由 `tests/test_finesub_quality_lock.py` 检查：哈希相同，文件不多不少，而且每一条都等于分包前基准锁（`tests/engine-packages/vendor-quality-lock.json`）里同一路径的那一条。分包前的 550 个上锁文件，每个要么在某个包里，要么列在 `tests/engine-packages/not-carried.json` 并写明不带原因（`tests/test_engine_packages.py`）。运行时锁、运行时清单和模型清单按内容钉在 `src/nonoka_x/resources/RUNTIME_PINS.json`，由 `tests/test_runtime_pins.py` 看住。
 2. **只解锁两处**，它们是编排和安装设施，不是算法：`finesub/stages.py`、`finesub_bootstrap/`（知识库包的 18 处知识库访问点按协议隔离，仍受 `QUALITY_LOCK.json` 看住）。
 3. **解锁的地方改完，FineSub 路径的结果必须和改之前一致**，由回归闸门 `scripts/quality_gate.py` 证明。默认逐字节比对；仅以下本身含时间戳/随机流号的产物按内容比对：`-stable.json` / `-aligned.json`（除顶层 `metadata` 外逐项一致）、`-vocal.ogg`（解码采样一致）、`-vad.json`（去掉 `source.mtime_ns`、顶层 `timing` 与 `*_sec` 后逐项一致）。
 4. **Nonoka 传给 FineSub 的参数和环境、装出来的运行环境内容，都与基线等价。**
@@ -25,7 +25,7 @@
 
 ### 2.1 目录结构
 
-FineSub 按 `docs/engine-packages/*.json` 清单分装为三个独立引擎包，每个包在各自的隔离进程中运行：
+FineSub 按 `tests/engine-packages/*.json` 清单分装为三个独立引擎包，每个包在各自的隔离进程中运行：
 
 ```text
 engines/
@@ -50,7 +50,7 @@ engines/
     └── src/finesub_bootstrap/ # 兼容包：知识库代码 import 的名字
 ```
 
-两个包都带的 FineSub 文件逐字节相同，三个包各带一份的 `bridge.py`、`wire.py`、`failures.py` 也逐字相同（`tests/test_engine_packages.py`）。每个包只留核心代码与元数据：没有 `pyproject.toml`、`VERSION`、README，版本号以 `UPSTREAM.json` 为准；包目录里不同时有 `pyproject.toml` 和 `src/finesub`，引擎也就不会把它当成源码检出。各包文件清单由 `scripts/engine_packages.py` 生成并保存在 `docs/engine-packages/*.json`。
+两个包都带的 FineSub 文件逐字节相同，三个包各带一份的 `bridge.py`、`wire.py`、`failures.py` 也逐字相同（`tests/test_engine_packages.py`）。每个包只留核心代码与元数据：没有 `pyproject.toml`、`VERSION`、README，版本号以 `UPSTREAM.json` 为准；包目录里不同时有 `pyproject.toml` 和 `src/finesub`，引擎也就不会把它当成源码检出。各包文件清单由 `scripts/engine_packages.py` 生成并保存在 `tests/engine-packages/*.json`。
 
 不要把机器上安装的 `site-packages/finesub` 复制到这里。
 

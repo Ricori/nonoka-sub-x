@@ -217,7 +217,7 @@ class JointBranchRemovedTests(unittest.TestCase):
 
         for source in SOURCES:
             self.assertFalse((source / "finesub/pipeline.py").exists())
-        not_carried = json.loads((ROOT / "docs/engine-packages/not-carried.json").read_text(encoding="utf-8"))
+        not_carried = json.loads((ROOT / "tests/engine-packages/not-carried.json").read_text(encoding="utf-8"))
         listed = {entry["path"]: entry for entry in not_carried["files"]}
         for path in ("finesub/pipeline.py", "finesub/batch_state.py", "finesub/scheduler.py"):
             with self.subTest(path=path):

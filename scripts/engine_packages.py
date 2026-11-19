@@ -80,11 +80,11 @@ ENGINES = ROOT / "engines"
 #: package: the others carry a compatibility package with fewer names.
 SOURCE_ORDER = ("finesub-transcribe", "finesub-correct", "finesub-knowledge")
 #: The lock of the vendored tree the packages were split from.
-LOCK = ROOT / "docs" / "engine-packages" / "vendor-quality-lock.json"
+LOCK = ROOT / "tests" / "engine-packages" / "vendor-quality-lock.json"
 #: What no package carries, with the reason (written by the split, WP-P1).
-NOT_CARRIED = ROOT / "docs" / "engine-packages" / "not-carried.json"
+NOT_CARRIED = ROOT / "tests" / "engine-packages" / "not-carried.json"
 SURFACE = ROOT / "tests" / "fixtures" / "quality" / "bootstrap-surface.json"
-OUT = ROOT / "docs" / "engine-packages"
+OUT = ROOT / "tests" / "engine-packages"
 RECORD_DIR = OUT / "runtime-imports"
 
 PACKAGES = ("transcribe", "correct", "knowledge")
