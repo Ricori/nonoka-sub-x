@@ -108,7 +108,7 @@ python scripts/finesub_align.py diff --ref v0.8.0
 
 ### 3.4 下载线路与离线版
 
-> **下载线路**：桌面端和本地服务的每个下载都走同一条阶梯：离线包（有就用）→ 经代理（设置页的自定义代理，没有则系统代理）从官方源 → 直连官方源 → 报错提示开代理。**没有镜像、不按地区选线路**：官方源慢的地方靠用户自己的本地代理（计划 4.2 第 18 条）。Go 侧是 `desktop/internal/app/download_route.go`（启动器 Python），Python 侧是 `nonoka_x.runtime.fetch` 与 `nonoka_x.download_route`。运行环境的三层托管在 R2（`https://layers.nonoka.online/`），发布方法见 `docs/runtime-layers.md` 第 2 节。
+> **下载线路**：桌面端和本地服务的每个下载都走同一条阶梯：离线包（有就用）→ 经代理（设置页的自定义代理，没有则系统代理）从官方源 → 直连官方源 → 报错提示开代理。**没有镜像、不按地区选线路**：官方源慢的地方靠用户自己的本地代理。Go 侧是 `desktop/internal/app/download_route.go`（启动器 Python），Python 侧是 `nonoka_x.runtime.fetch` 与 `nonoka_x.download_route`。运行环境的三层按 `src/nonoka_x/resources/layers.json` 下载与校验。
 
 > **离线版**：exe 旁边的 `offline-pack/`（或 `NONOKA_OFFLINE_PACK` 指向的目录，里面有 `pack.json`）排在下载阶梯最前面，缺的文件照常在线下载。内容：
 > - 三层的清单与压缩包，路径与 R2 上相同：`v1/<层>/<清单 sha256>.json`、`v1/<层>/<压缩包 sha256>.tar.zst`。层管理器（`nonoka_x.runtime.layers`）按 `layers.json` 找它们，大小对上就原地读、不复制、不删，装完照常按清单核对。

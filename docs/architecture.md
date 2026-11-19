@@ -85,7 +85,7 @@ FineSub 按固定的上游 commit（`UPSTREAM.json`）分装成三个包，代�
 - 引擎读写的私有数据在 `<数据目录>/engines/<包>/`，任务的原生产物在 `tasks/<id>/native/<包>/`；核心只把原生产物当不透明附件登记，不解析。
 
 ### 2.3 运行环境：三层预制包与沙箱
-- **层管理器** `src/nonoka_x/runtime/`：按 `resources/layers.json` 从 R2（`https://layers.nonoka.online/`）下载各层的 `tar.zst` 与逐文件清单，校验、解压、切换 `current.json`、修复、清理。层的版本号取自它清单的哈希；就绪 = 当前版本目录与清单相符。构建与发布见 [预制环境层手册](runtime-layers.md)。
+- **层管理器** `src/nonoka_x/runtime/`：按 `resources/layers.json` 下载各层的 `tar.zst` 与逐文件清单，校验、解压、切换 `current.json`、修复、清理。层的版本号取自它清单的哈希；就绪 = 当前版本目录与清单相符。
 - **各引擎要什么**由 `EngineSpec.environment` / `PACKAGE.json` 声明：FineSub 转写要三层；云 API 引擎只要工具层；FineSub 纠错与知识库不要层（跑在启动器里），只用工具层里的 ffmpeg、ffprobe、tokcount。
 - **密闭运行**：包进程的环境从零构建，每个变量要么是按名带的系统必需项、要么由 Nonoka 无条件写入，其余一律不存在；解释器以 `-I` 启动。机器上的外部环境变量（代理、HF 镜像、`CUDA_VISIBLE_DEVICES`、线程数……）和外部配置文件不再影响引擎，外部的东西要生效只能先成为 Nonoka 的设置。
 - **转写进程的沙箱**：用户目录与临时目录指向 `engines/finesub-transcribe/sandbox/`（`home/` 跨运行共用，`temp/<进程>/` 每进程一份、结束即删），当前目录是任务目录，模型离线加载（`HF_HUB_OFFLINE=1`）。纠错与知识库进程不进沙箱，用真实的用户目录（本地 Agent CLI 要自己的登录状态）。启动细节见 [engine.md](engine.md) 2.1a（受进程级沙箱约束，OS 级全局缓存与显卡驱动行为除外）。
@@ -385,11 +385,11 @@ FineSub 产物到这些项的对应（final SRT 的时间、annotated 表的纠�
 
 | 目录 | 默认位置 | 内容 |
 | :--- | :--- | :--- |
-| 大文件根（运行环境） | `<数据目录>/runtime` | 预制运行环境层 `layers/<层>/<版本>/`（`python`、`models`、`tools` 三层，每层旁边一个 `current.json` 指向在用的版本）与 `cache/`（只放随时可删的东西：`downloads/` 是还没装完的层压缩包，断点续传用；`<包>/` 是引擎的编译缓存）。格式与安装见 `docs/runtime-layers.md` |
+| 大文件根（运行环境） | `<数据目录>/runtime` | 预制运行环境层 `layers/<层>/<版本>/`（`python`、`models`、`tools` 三层，每层旁边一个 `current.json` 指向在用的版本）与 `cache/`（只放随时可删的东西：`downloads/` 是还没装完的层压缩包，断点续传用；`<包>/` 是引擎的编译缓存） |
 | 视频缓存目录 | `<数据目录>/videos` | 任务执行期间复制的视频工作副本，按缓存上限 LRU 回收 |
 
 - 选择结果记在数据目录根部的 `storage.json`；字段为空即表示仍用默认位置，因此备份还原到另一台机器不会带着一个不存在的盘符。
-- 迁移运行环境时桌面端会先停掉本地服务（它的 worker 用的 Python 层就在这棵树里），把整个 `runtime/` 搬过去，再用新路径重新拉起。层里不含任何绝对路径（`docs/runtime-layers.md` 1.4、1.5），搬完不需要任何修补；层管理器的就绪检查照常通过。
+- 迁移运行环境时桌面端会先停掉本地服务（它的 worker 用的 Python 层就在这棵树里），把整个 `runtime/` 搬过去，再用新路径重新拉起。层里不含任何绝对路径，搬完不需要任何修补；层管理器的就绪检查照常通过。
 - 桌面端自己找托管工具（视频编辑、导出用的 FFmpeg，下载器用的 yt-dlp 与 PO Token）也在工具层里找：`layers/tools/current.json` 指向的版本目录下 `<工具 id>/`（`desktop/internal/managedtools`）。
 - 跨盘迁移直接写入目标目录，期间在同级放一个 `<目标>.nonoka-partial` 标记：`storage.json` 才是提交点，所以中途取消或崩溃时目标只是一堆孤立文件，Nonoka X 仍指向原目录。标记让下次迁移认出这是自己没做完的副本并**从中断处续传**（按文件大小跳过已就位的），而不是重新复制几十 GB；标记里记着来源路径，另一个目录的半成品不会被误认领。
 - 失败或取消都不删已复制的部分，也不动原目录——只有目标完整落盘后才删源。
@@ -451,7 +451,7 @@ ASS 样式表**跟着视频走**，整段 `[V4+ Styles]` 原文存在 `document.
 3. 调用 `POST /v1/library/sync` 上传这些文本、引擎 commit 与媒体指纹。两种文档格式都不带的请求（旧桌面版）服务端回 `426` 并提示升级。
 4. 服务端按指纹更新对应记录，不上传音视频，不扣减配额。
 
-取回（adopt）时桌面下载同样四个名字，交给 sidecar 的 `POST /v1/documents/project`：有 `correction.json` 就逐行照抄它，否则从 `transcript.json` 投影（`provider-spec.md` 7.1）。云端已有的旧条目由一次性转换脚本（云端仓库 `modal_compute/nonoka_x_compute/operations/library_convert.py`）转成新格式，步骤见 `docs/library-cutover.md`。
+取回（adopt）时桌面下载同样四个名字，交给 sidecar 的 `POST /v1/documents/project`：有 `correction.json` 就逐行照抄它，否则从 `transcript.json` 投影（`provider-spec.md` 7.1）。
 
 ### 5.4 无损音频提取与上传
 云端任务只需纯音频：

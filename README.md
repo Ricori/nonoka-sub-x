@@ -246,7 +246,6 @@ nonoka-x/
 - 🎙️ **[转写引擎与纠错引擎](docs/transcription-engines.md)**：两层引擎契约、已注册引擎、FineSub 三个引擎包、密闭运行环境与新引擎接入指南。
 - 🔌 **[Nonoka Sub X Provider 接口规范](docs/provider-spec.md)**：自建执行后端的完整接口契约——数据模型、状态机、事件流、错误码、产物格式与一致性检查清单。
 - ⚙️ **[FineSub 引擎集成、质量锁与上游对齐](docs/engine.md)**：质量红线、算法文件哈希锁、密闭启动规则、上游同步与 Patched CTranslate2 构建。
-- 📦 **[预制环境层构建与发布手册](docs/runtime-layers.md)**：三层预制运行环境（`tools` / `python` / `models`）的构建、R2 发布与外网校验。
 
 ---
 

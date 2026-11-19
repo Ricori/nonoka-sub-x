@@ -586,7 +586,7 @@ interface UploadedAudioSource {
 | `raw_srt` | `…/raw_srt.raw.srt` | |
 | `final_srt` | `…/final_srt.srt` | |
 
-一次同步必须带 `transcript_json` 或 `correction_json`。两者都不带的同步请求（WP-L 之前的桌面版）Worker 回 `426`，`detail` 为「云端媒体库已升级，请把 Nonoka X 更新到最新版本后再同步」，什么都不存；带了未知名字回 `400`。桌面上只有引擎旧产物、没有这两个文件的旧任务同步时报「这个任务是旧版本生成的，需要先迁移到新的数据格式才能同步」（WP-M2 的本地转换解决）。取回时桌面把下载到的文本交给 sidecar 的 `POST /v1/documents/project`（`artifacts` 只收这四个名字，至少要有一个文档格式），不再有放宽对齐的 `relaxed_srt`。切换步骤见 `docs/library-cutover.md`。
+一次同步必须带 `transcript_json` 或 `correction_json`。两者都不带的同步请求（旧版桌面端）服务端回 `426`，`detail` 为「云端媒体库已升级，请把 Nonoka X 更新到最新版本后再同步」，什么都不存；带了未知名字回 `400`。桌面上只有引擎旧产物、没有这两个文件的旧任务同步时报「这个任务是旧版本生成的，需要先迁移到新的数据格式才能同步」。取回时桌面把下载到的文本交给 sidecar 的 `POST /v1/documents/project`（`artifacts` 只收这四个名字，至少要有一个文档格式），不再有放宽对齐的 `relaxed_srt`。
 
 ---
 

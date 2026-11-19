@@ -7,7 +7,6 @@
 - [系统架构与契约规范](architecture.md)：整体架构图、数据目录布局。
 - [Provider 接口规范](provider-spec.md)：`capabilities()` 里的 `transcription_engines` / `correction_engines`（4.1.1）、请求的 `transcription` 字段（4.2）、`transcript.json` 与 `correction.json`（第 7 节）、错误码（第 5 节）。
 - [FineSub 引擎集成、质量锁与上游对齐](engine.md)：三个包的目录、质量锁、包进程怎么密闭启动（2.1a）。
-- [预制环境层手册](runtime-layers.md)：三层的构建与发布。
 
 ---
 
