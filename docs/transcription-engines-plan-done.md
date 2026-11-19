@@ -485,6 +485,27 @@ harness 已在 main（`tests/quality_harness/cloud.py`、`quality_gate.py --clou
 
 已完成。交付摘要与原始说明移到 `docs/transcription-engines-plan-done.md` 的同名一节。
 
+### WP8 集成验证（已完成 2026-11-19）
+
+> 交付（附录 B 第 92、95、99–101 问；完整报告见主会话笔记目录 `wp8-delivery.md`；期间修复与设置页重构提交在 `22daa69`）：
+> - **静态核对**：`wp8-tools/w8_finesub_diff.py` 核对引擎包内 FineSub 文件相对 `1f14db3` 942 个逐字节相同，34 处差异全在批准范围；`speech/joint/` 21 个文件全不存在；`third_party/finesub/` 已清除；`src/nonoka_x/` 无 `import finesub`（第 81、99 问）。
+> - **全量测试**：`nonoka-sub-x` pytest 全过（1020 passed, 1 skipped，清除 11 处锁死引擎中文文案原文的脆弱断言后复测通过）；`desktop/frontend` `typecheck`、`npm test`（173/173）、`npm run build` 全过；`desktop` `go test ./...` 15 个包在干净检出全过；`nonoka-sub-cloud` Worker `typecheck` + `npm test`（78/78）与 `modal_compute` pytest（171/171）全过。
+> - **最终闸门**：默认 `scripts/quality_gate.py` 6/6 全过（510 上锁文件、97 包/7 工具/11 模型、45 bootstrap 名字、32 调用场景、worker 环境、10 组 LLM 回放、7 组知识库）；`--only layers` 对从 R2（`layers.nonoka.online`）下载解包的三层（`tools` `b2e46916329ea7c4`、`python` `8cc0ee612a5db785`、`models` `f2a2b753498be37c`）全部一致（45,563 + 33 + 9,225 文件，148.1s）；`--real` 15/15 产物与基线一致（7 逐字节、8 按批准标准，209.6s；`sandbox` 仅因并发运行中的桌面端写 `%APPDATA%\Nonoka X` 与新启动器首次生成 `.pyc` 触发）；`--only cloud --cloud` 在 Modal L4 实跑通过（1295.7s，约 \$0.3 在 \$1 上限内，两个样本四项指标均零偏差）。
+> - **可删性**：目录联接三种变体（`no-correct`、`no-transcribe`、`no-both`）全按 4.6 第 33 条通过；过程中发现并修好 `local_provider.py` 无转写包时启动 `cloud_transcript` 抛 `KeyError: 'finesub'` 的回归缺陷。
+> - **可替换性**：6a 仅留 `tools` 层、无 `python`/`models`/转写包时，用 `cloud_transcript` + `finesub-correct` 跑通到 `final-srt`；6b 真实 GPU `finesub-transcribe` + `FakeCorrection` 跑通生成 `final.srt` 与 `correction.json`（109 行）。
+> - **迁移与端到端**：迁移沿用 `wp-m2-delivery.md` 真实副本实测，跳过旧云端任务重试（第 99 问）；FineSub 端到端用 `sample_ja.m4a` + R2 三层 + Nonoka Cloud LLM（`gpt-6.1-terra`）完整跑通 `final-srt`（109 行，8,032 字节），探针确认 `token_counter_source=tokcount+api+heuristic` 与 `opencc=opencc`。
+> - **界面自验与缺陷修复**（`22daa69`，第 100–101 问）：修好外部 PATH Python 缺少 `opencc`/Windows `tzdata` 导致模型测试 HTTP 502（`desktop/internal/app/runtime.go`）；完成设置页重构（引擎凭据弹窗、运行环境拍平三行与单删 `models` 层、首启 A1 位置确认、全局模型外置与「其他配置」弹窗隐藏 `HF_TOKEN`、Portal `InfoTip`、合并存储与网络卡、LLM 测试底栏状态与宽度修复）。
+> - **未验证/未做项**（第 95 问）：三个云 API 引擎真实调用标为未验证；干净 Windows 全新安装本次不做。发版前按 `docs/library-cutover.md` 割接并向用户确认 `nonoka-sub-cloud` 的 `cursor/hotfix-cpu-limit-fe90` 是否合入 `main`。下面是原始说明。
+
+- 全量测试：`D:\Envir\Python312\python -m pytest -q`（仓库根）、`cd desktop/frontend && npm test && npm run typecheck`、`cd desktop && go test ./...`、`cd nonoka-sub-cloud/modal_compute && python -m pytest -q tests`。
+- 最终闸门：`scripts/quality_gate.py --real`、`--layers`（对 R2 上要发布的层）和 `--cloud` 全部通过；用纠错进程跑的纠错里 `token_counter_source` 仍是 `tokcount`；两个引擎包里的 FineSub 文件相对 `1f14db3` 只有 `stages.py`、`pipeline.py`、`finesub_bootstrap` 的自下载部分变过，`speech/joint/` 不在，其余每个文件的哈希等于 WP-Q 的 `QUALITY_LOCK.json`；`third_party/finesub/` 不存在；`src/nonoka_x/` 里搜不到 `finesub`。
+- 可删性：实际删掉 `engines/finesub-transcribe/`、删掉 `engines/finesub-correct/`、两个都删，各启动一次应用并跑一个任务，结果符合 4.6 第 33 条。
+- 可替换性：不装 Python 环境层、不注册 FineSub 转写引擎时，用一个云引擎加 finesub correction 跑到 `final-srt`；反过来 FineSub 转写引擎的结果交给 finesub correction 以外的实现（测试用假实现）也能走完。
+- 迁移：在一份真实的旧版用户数据目录副本上装新版，迁移后照常使用，模型没有重下，三层从 R2 下载装好，主数据目录里除 `engines\` 外没有 FineSub 相关文件。
+- 新用户：在一台干净的 Windows（没有系统 Python、没有开发者模式）上全新安装，从 R2 装好三层（经不经代理不限，附录 B 第 68 问），跑一个任务到 `final-srt`。
+- FineSub 路径端到端：一个真实样本用真实模型跑到 `final-srt`，把字幕交给用户和基线对照着看一遍。闸门证明的是「发给模型的东西没变」，这一步是给人看最终效果。
+- 真实调用：三个云引擎各跑一个 `test_data/audio` 样本到 `final-srt`，分别在装了和没装 Python 环境层的环境下。需要用户提供密钥，没有密钥的引擎如实标记为未验证。
+
 ## 附录 A 决定的来历
 
 ### A.1 时间线

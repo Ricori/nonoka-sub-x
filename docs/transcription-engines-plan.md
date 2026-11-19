@@ -1,6 +1,6 @@
 # 转写引擎重构计划
 
-> 状态（2026-11-18）：已完成并合进 main 的工作包见第 6 节开头的「已完成」列表，它们的交付摘要与原始说明在 `docs/transcription-engines-plan-done.md`（本文只留标题）。第九批 WP-H、WP-L 已于 2026-11-18 合进两个仓库的 main。第十批 WP-CL、WP-M2、WP7 已合进 main（WP-CL 也合进云端仓库，2026-11-18 至 19）。按第 92 问的精简方案，`--real`、`--cloud` 与线上实测集中到 WP8 各跑一次。WP-UI 已于 2026-11-19 合进 main（界面由用户自验）。只剩 WP8，在主会话里做（第 95 问）；2026-11-19 做了静态核对后按用户要求停下，进度与接手要点在主会话笔记目录的 `wp8-progress.md`。WP-M1 的最后一条完成标准先不做（第 70 问）。用户做过的决定都在第 4 节和附录 B，按问题编号查。本文档是交给子代理执行的工作说明，每个工作包可以单独领走。
+> 状态（2026-11-19）：全部工作包（含 WP8 集成验证）已完成并合进 main，交付摘要与原始说明均已归档至 `docs/transcription-engines-plan-done.md`（本文第 6 节只留标题）。WP8 期间的修复与设置页重构提交在 `22daa69`；WP8 详细报告在主会话笔记目录 `wp8-delivery.md`。三个云 API 引擎真实调用与干净 Windows 全新安装按第 95 问标为未验证/未做；WP-M1 最后一条待用户换新版时实测（第 70、92 问）。发版前按 `docs/library-cutover.md` 执行线上割接，并确认云端仓库未合并分支 `cursor/hotfix-cpu-limit-fe90` 的去留。用户做过的决定都在第 4 节和附录 B，按问题编号查。
 > 写于 2026-11-10，基于 `main@1f14db3`、FineSub `v0.7.0@7123055`。
 > **2026-11-11 整理成干净版本**（用户决定，附录 B 第 1 问）：现行决定直接写在正文里，不再有「以后者为准」的追加条款。每个决定的来历、被推翻的旧说法，以及旧条款编号到新编号的对照，见附录 A；向用户问过的问题和答复见附录 B；还没定的事见附录 C。整理前的版本在 git 历史里（`main` 上的 `docs/transcription-engines-plan.md`）。
 > 相关文档：`docs/runtime-and-config.md`（WP-R0 的调查与设计答复 D1–D23，下称「R0 文档」；其中被本计划取代的答复已在那边标注，对照见附录 A.3）；`docs/engine-sandbox-experiment.md`（预制环境包与进程级沙箱两个前提的实验报告，下称「实验报告」）。本文档与 R0 文档冲突时以本文档为准。
@@ -715,20 +715,9 @@ D:\Envir\Python312\python scripts/quality_gate.py --cloud  # 云端（WP-C；基
 
 已完成。交付摘要与原始说明移到 `docs/transcription-engines-plan-done.md` 的同名一节。
 
-### WP8 集成验证
+### WP8 集成验证（已完成 2026-11-19）
 
-> 进度（2026-11-19）：静态核对已做——引擎包里的 FineSub 文件相对 `1f14db3` 只在批准范围内变过（`stages.py`、自下载两处、两份锁去 `onnx`、WP-K 的 18 个知识库访问点、纠错与知识库包的兼容包），`speech/joint/` 不在任何包里，`third_party/finesub` 已不存在（git 里没有文件，本地残留 2026-11-19 已清掉）。`src/nonoka_x/` 没有 `import finesub`，但字符串 `finesub` 出现在 95 个文件里（引擎 id、附件键、注释），这条完成标准怎么理解要问用户。其余各项都还没做，见主会话笔记目录 `wp8-progress.md`；2026-11-19 按用户要求清掉了全部临时数据（含 `--real` 的运行环境与迁移验收副本），接手时要先重建，见笔记目录 `main-session-handoff.md`。
-
-> 补充（2026-11-19，第 92 问）：`--real`（含原属 WP-M2 的一次）、`--cloud`、线上 LLM 那一程（WP-CL 没实跑）、三个云引擎的真实调用都在本包各做一次；迁移一项沿用 WP-M2 阶段 2 在真实安装副本上的验收（笔记目录 `wp-m2-delivery.md`），另挑一个改写过的旧云端任务点重试；WP-M1 最后一条在用户换新版时作为迁移一项的实测；跑 `--real` 前先修好或绕开 `scripts/build_layers.py stage` 的过时之处（见归档 WP7 一节的交回）。
-
-- 全量测试：`D:\Envir\Python312\python -m pytest -q`（仓库根）、`cd desktop/frontend && npm test && npm run typecheck`、`cd desktop && go test ./...`、`cd nonoka-sub-cloud/modal_compute && python -m pytest -q tests`。
-- 最终闸门：`scripts/quality_gate.py --real`、`--layers`（对 R2 上要发布的层）和 `--cloud` 全部通过；用纠错进程跑的纠错里 `token_counter_source` 仍是 `tokcount`；两个引擎包里的 FineSub 文件相对 `1f14db3` 只有 `stages.py`、`pipeline.py`、`finesub_bootstrap` 的自下载部分变过，`speech/joint/` 不在，其余每个文件的哈希等于 WP-Q 的 `QUALITY_LOCK.json`；`third_party/finesub/` 不存在；`src/nonoka_x/` 里搜不到 `finesub`。
-- 可删性：实际删掉 `engines/finesub-transcribe/`、删掉 `engines/finesub-correct/`、两个都删，各启动一次应用并跑一个任务，结果符合 4.6 第 33 条。
-- 可替换性：不装 Python 环境层、不注册 FineSub 转写引擎时，用一个云引擎加 finesub correction 跑到 `final-srt`；反过来 FineSub 转写引擎的结果交给 finesub correction 以外的实现（测试用假实现）也能走完。
-- 迁移：在一份真实的旧版用户数据目录副本上装新版，迁移后照常使用，模型没有重下，三层从 R2 下载装好，主数据目录里除 `engines\` 外没有 FineSub 相关文件。
-- 新用户：在一台干净的 Windows（没有系统 Python、没有开发者模式）上全新安装，从 R2 装好三层（经不经代理不限，附录 B 第 68 问），跑一个任务到 `final-srt`。
-- FineSub 路径端到端：一个真实样本用真实模型跑到 `final-srt`，把字幕交给用户和基线对照着看一遍。闸门证明的是「发给模型的东西没变」，这一步是给人看最终效果。
-- 真实调用：三个云引擎各跑一个 `test_data/audio` 样本到 `final-srt`，分别在装了和没装 Python 环境层的环境下。需要用户提供密钥，没有密钥的引擎如实标记为未验证。
+已完成。交付摘要与原始说明移到 `docs/transcription-engines-plan-done.md` 的同名一节，完整报告在主会话笔记目录 `wp8-delivery.md`。
 
 ## 7. 约定
 
@@ -898,6 +887,9 @@ D:\Envir\Python312\python scripts/quality_gate.py --cloud  # 云端（WP-C；基
 | 96 | 合并 WP-UI 阶段 1（`7d4518d`，合并 `a3cc842`）时：缺说话人分离模型的请求要不要在就绪里拦；中继遇到迁移时的 60 次轮询上限；「清理未使用的」把当前引擎用不到的整层（约 10 GB）列为可删；被中断的任务算不算占用层 | 合并；在就绪里拦；迁移期间不计上限；整层要单独勾选才删，默认只清没人用的旧版本；被中断的任务仍算占用（都是推荐项，2026-11-19） |
 | 97 | 合并 WP-UI 补改（`49a10e4`，合并 `71edf0a`）时：缺说话人分离模型、缺知识库包的检查只在新建任务时判，重试或续跑旧任务时要不要也拦 | 合并；不用（推荐项，2026-11-19） |
 | 98 | WP-UI 阶段 2 的预览验收怎么做（只能起真的桌面应用、用屏幕操作点；整套要从 R2 下几 GB、真删层） | 精简验收：能用接口与自动化测试证明的用接口验；界面由用户自己点一遍（2026-11-19） |
+| 99 | WP8 口径确认：`src/nonoka_x/` 搜不到 `finesub` 的理解；迁移项是否重造副本重试旧云端任务；三个云 API 引擎不实调时可替换性怎么验 | 按第 81 问理解（无 `import finesub`、不依赖实现）；不用管旧云端任务，迁移沿用 `wp-m2-delivery.md`；无 Python 层/无转写包的可替换性改用 `cloud_transcript` + `finesub-correct` 到 `final-srt` 验证（2026-11-19） |
+| 100 | WP-UI 用户自验后的设置页重构：引擎凭据弹窗、运行环境卡片拍平与只删 AI 模型层、首启 A1 目录确认、纠错与翻译全局模型外置并隐藏 `HF_TOKEN`、Portal Tooltip、未配置引擎禁选、去除多余「已就绪」与引擎文案精简 | 全部采纳并落地（提交 `22daa69`），同步修好外部 Python 探测缺少 `opencc`/Windows `tzdata` 导致模型测试失败的问题（2026-11-19） |
+| 101 | 引擎计费与缺密钥文案精简后，11 个锁死旧中文原文的单测断言怎么处理 | 清除无用的文案原文断言，保留错误码与行为校验（2026-11-19） |
 
 更早的问答：WP-R0 的 D1–D23 见 R0 文档第 0 节；WP0 的细节见附录 A.1（已移到 `docs/transcription-engines-plan-done.md`）；沙箱实验中的决定见实验报告。
 
