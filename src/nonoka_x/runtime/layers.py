@@ -402,16 +402,27 @@ def unpack(
     """
 
     destination.mkdir(parents=True, exist_ok=True)
-    command = [str(tar or SYSTEM_TAR), "-x", "-v", "-f", str(archive), "-C", str(destination)]
+    # Windows' built-in bsdtar uses ANSI argv, so non-ASCII paths (e.g. Chinese on an English locale)
+    # get mangled if passed via -f / -C / -T. Passing destination as cwd (CreateProcessW Unicode),
+    # streaming the archive on stdin (-f -), and keeping the member list as a local ASCII filename
+    # keeps every argv token pure ASCII.
+    command = [str(tar or SYSTEM_TAR), "-x", "-v", "-f", "-"]
     listing: Path | None = None
     if members is not None:
-        listing = destination.parent / f"{destination.name}.members.txt"
+        listing = destination / ".nonoka-unpack-members.txt"
         listing.write_text("\n".join(members) + "\n", encoding="utf-8")
-        command += ["-T", str(listing)]
-    process = subprocess.Popen(
-        command, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, stdin=subprocess.DEVNULL,
-        creationflags=no_window(),
-    )
+        command += ["-T", listing.name]
+    archive_stream = archive.open("rb")
+    try:
+        process = subprocess.Popen(
+            command, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, stdin=archive_stream,
+            cwd=str(destination), creationflags=no_window(),
+        )
+    except Exception:
+        archive_stream.close()
+        if listing is not None:
+            listing.unlink(missing_ok=True)
+        raise
     tail: list[str] = []
     done = 0
 
@@ -443,6 +454,7 @@ def unpack(
             process.kill()
             process.wait()
         reader.join(timeout=5)
+        archive_stream.close()
         if listing is not None:
             listing.unlink(missing_ok=True)
     if process.returncode != 0:
@@ -452,12 +464,13 @@ def unpack(
 def read_embedded_manifest(archive: Path, *, tar: Path | None = None) -> bytes:
     """Read `.nonoka-layer.json` (the first entry) straight from a layer archive without unpacking it."""
 
-    completed = subprocess.run(
-        [str(tar or SYSTEM_TAR), "-x", "-q", "-O", "-f", str(archive), lm.MANIFEST_NAME],
-        capture_output=True,
-        stdin=subprocess.DEVNULL,
-        creationflags=no_window(),
-    )
+    with archive.open("rb") as archive_stream:
+        completed = subprocess.run(
+            [str(tar or SYSTEM_TAR), "-x", "-q", "-O", "-f", "-", lm.MANIFEST_NAME],
+            capture_output=True,
+            stdin=archive_stream,
+            creationflags=no_window(),
+        )
     if completed.returncode != 0:
         detail = completed.stderr.decode("utf-8", errors="replace").strip()[-240:]
         raise LayerMismatch(f"无法从离线包 {archive.name} 读取清单（{lm.MANIFEST_NAME}）：{detail or completed.returncode}")
