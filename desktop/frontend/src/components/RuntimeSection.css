@@ -17,10 +17,12 @@
 }
 
 .runtime-compact-btn {
-  padding: 4px 10px;
-  border-radius: 7px;
-  font-size: 12px;
-  line-height: 1.4;
+  height: var(--ctl-h-sm);
+  min-height: var(--ctl-h-sm);
+  padding: 0 11px;
+  border-radius: 8px;
+  font-size: var(--fs-sm);
+  line-height: 1;
   white-space: nowrap;
 }
 
@@ -710,9 +712,13 @@
 }
 
 .runtime-remove-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   flex: 0 0 auto;
   height: var(--ctl-h-sm);
   min-height: var(--ctl-h-sm);
+  margin: 0;
   padding: 0 11px;
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -720,6 +726,8 @@
   color: var(--mut);
   font-size: var(--fs-sm);
   font-weight: var(--fw-semibold);
+  line-height: 1;
+  white-space: nowrap;
   cursor: pointer;
   transition: background var(--ease), border-color var(--ease), color var(--ease);
 }

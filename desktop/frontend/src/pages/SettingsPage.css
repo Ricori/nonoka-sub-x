@@ -145,7 +145,7 @@
   height: var(--ctl-h-sm);
   padding: 0 8px;
   border: 1px solid var(--line-soft);
-  border-radius: 7px;
+  border-radius: 8px;
   background: color-mix(in srgb, var(--bg) 55%, var(--panel));
   color: var(--mut);
   font-size: 12px;
