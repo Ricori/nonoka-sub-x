@@ -81,6 +81,20 @@ def test_the_completion_hook_completes_the_migrated_directory():
     assert "kept 3, fetched 1 (offline)" in lines[-1] and "removed 2" in lines[-1]
 
 
+def test_the_completion_hook_skips_on_unsupported_platforms(monkeypatch):
+    from nonoka_x.runtime import layers as L
+
+    monkeypatch.setattr(sys, "platform", "darwin")
+    monkeypatch.setattr(L, "LayerManager", lambda *a, **k: (_ for _ in ()).throw(AssertionError("should not open")))
+    lines: list[str] = []
+    context = SimpleNamespace(migrated_models=Path("layers/models/migrated"), log=lines.append)
+    hook = model_install.ModelCompletionHook()
+
+    assert hook.download_bytes(context) == 0
+    hook.run(context)
+    assert any("skipped" in line for line in lines)
+
+
 def test_the_layer_markers_the_completion_rebuilds_are_the_builds(tmp_path):
     """`layers._marker_content` derives the stamps and markers exactly as `scripts/build_layers.py` writes them."""
 

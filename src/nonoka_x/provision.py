@@ -17,10 +17,8 @@ from __future__ import annotations
 
 import json
 import os
-import platform
 import shutil
 import stat
-import sys
 import threading
 from pathlib import Path
 from typing import Any
@@ -205,8 +203,10 @@ class RuntimeProvisioner:
         self.install_root = self.paths.runtime
         self.platform = self._platform_id()
         self._runtime_supported = self.platform == lm.PLATFORM
-        # The tool layer is built for Windows only so far (plan appendix B, question 31).
-        self._media_supported = self.platform == lm.PLATFORM
+        from nonoka_x.runtime import manifests
+
+        self._tool_manifest = manifests.tool_manifest_for(self.platform)
+        self._media_supported = self._runtime_supported or self._tool_manifest is not None
         self._bootstrap_error = ""
         self.layers = None
         if self._runtime_supported:
@@ -215,6 +215,13 @@ class RuntimeProvisioner:
 
                 index = load_index(Path(index_path) if index_path is not None else None)
                 self.layers = LayerManager(self.paths, index, **(layer_options or {}))
+            except Exception as exc:  # noqa: BLE001 - shown on the page instead of failing the sidecar
+                self._bootstrap_error = f"{type(exc).__name__}: {exc}"
+        elif self._media_supported and self._tool_manifest is not None:
+            try:
+                from nonoka_x.runtime.manifest_tools import ManifestToolsManager
+
+                self.layers = ManifestToolsManager(self.paths, self._tool_manifest, **(layer_options or {}))
             except Exception as exc:  # noqa: BLE001 - shown on the page instead of failing the sidecar
                 self._bootstrap_error = f"{type(exc).__name__}: {exc}"
         self._lock = threading.RLock()
@@ -237,15 +244,7 @@ class RuntimeProvisioner:
 
     @staticmethod
     def _platform_id() -> str:
-        if sys.platform == "win32":
-            return "windows-x64"
-        if sys.platform == "darwin":
-            machine = platform.machine().lower()
-            if machine in {"arm64", "aarch64"}:
-                return "macos-arm64"
-            if machine in {"x86_64", "amd64"}:
-                return "macos-amd64"
-        return sys.platform
+        return lm.current_platform()
 
     # -- status ------------------------------------------------------------------------------------------------
 
@@ -282,17 +281,31 @@ class RuntimeProvisioner:
             }
         overview = self.layers.overview()
         by_layer = {item["id"]: item for item in overview["layers"]}
-        runtime_item = {"id": "python", "version": "3.12", **self._item_state("python", by_layer)}
-        models_state = self._item_state("models", by_layer)
-        moss_state = self._item_state("models-moss", by_layer)
+        if self._runtime_supported:
+            runtime_item = {"id": "python", "version": "3.12", **self._item_state("python", by_layer)}
+            models_state = self._item_state("models", by_layer)
+            moss_state = self._item_state("models-moss", by_layer)
+            models = [{"id": model_id, **models_state} for model_id in PIPELINE_MODELS]
+            optional_models = [{"id": model_id, **models_state} for model_id in OPTIONAL_MODELS]
+            moss_models = [{"id": model_id, **moss_state} for model_id in MOSS_MODELS]
+        else:
+            runtime_item = {
+                "id": "python",
+                "version": "3.12",
+                "state": "missing",
+                "detail": "本地 GPU 运行时当前仅支持 Windows x64/NVIDIA",
+            }
+            models = [{"id": model_id, "state": "missing"} for model_id in PIPELINE_MODELS]
+            optional_models = [{"id": model_id, "state": "missing"} for model_id in OPTIONAL_MODELS]
+            moss_models = [{"id": model_id, "state": "missing"} for model_id in MOSS_MODELS]
         return {
             **base,
             "media_ready": self.tool_path("ffmpeg") is not None and self.tool_path("ffprobe") is not None,
             "runtime": runtime_item,
             "resources": self._tool_items(by_layer),
-            "models": [{"id": model_id, **models_state} for model_id in PIPELINE_MODELS],
-            "optional_models": [{"id": model_id, **models_state} for model_id in OPTIONAL_MODELS],
-            "moss_models": [{"id": model_id, **moss_state} for model_id in MOSS_MODELS],
+            "models": models,
+            "optional_models": optional_models,
+            "moss_models": moss_models,
             "layers": overview["layers"],
             "unused_layers": overview["unused"],
             "unused_bytes": overview["unused_bytes"],
@@ -316,8 +329,9 @@ class RuntimeProvisioner:
         from nonoka_x.runtime import manifests
 
         tools_state = self._item_state("tools", by_layer)
+        manifest = self._tool_manifest if self._tool_manifest is not None else manifests.tool_manifest()
         items = []
-        for resource in manifests.tool_manifest().get("resources") or ():
+        for resource in manifest.get("resources") or ():
             tool_id = resource["id"]
             if tool_id in lm.TOOLS_LEFT_OUT:
                 continue
@@ -332,14 +346,21 @@ class RuntimeProvisioner:
     # -- the install job -----------------------------------------------------------------------------------------
 
     def start(self, target: str) -> dict[str, Any]:
+        from nonoka_x.runtime_install import layers_for
+
         if target not in TARGETS:
             raise RuntimeProvisionError(
                 f"target must be one of: media, runtime, models, {MODELS_MOSS_TARGET}, all, {OPTIONAL_MODELS_TARGET}, {REPAIR_TARGET}, "
                 + ", ".join((*OPTIONAL_TOOLS, *REQUIRED_TOOLS, *TOOL_GROUPS))
             )
-        if target == "media" and not self._media_supported:
-            raise RuntimeProvisionError(f"managed FFmpeg is unavailable on {self.platform}")
-        if target != "media" and not self._runtime_supported:
+        target_layers = layers_for(target)
+        if target == REPAIR_TARGET:
+            if not (self._media_supported or self._runtime_supported):
+                raise RuntimeProvisionError("FineSub managed GPU runtime currently supports Windows x64 only")
+        elif target_layers == ("tools",):
+            if not self._media_supported:
+                raise RuntimeProvisionError(f"managed FFmpeg is unavailable on {self.platform}")
+        elif not self._runtime_supported:
             raise RuntimeProvisionError("FineSub managed GPU runtime currently supports Windows x64 only")
         if self.layers is None:
             raise RuntimeProvisionError(f"运行环境层不可用：{self._bootstrap_error}")
@@ -373,10 +394,8 @@ class RuntimeProvisioner:
 
         if layer not in lm.LAYERS:
             raise RuntimeProvisionError(f"未知的运行环境层：{layer!r}")
-        if layer == "tools" and not self._media_supported:
-            raise RuntimeProvisionError(f"当前平台（{self.platform}）暂不支持工具层")
-        if layer != "tools" and not self._runtime_supported:
-            raise RuntimeProvisionError(f"当前平台（{self.platform}）暂不支持该运行环境层")
+        if not self._runtime_supported:
+            raise RuntimeProvisionError(f"当前平台（{self.platform}）暂不支持从离线 .tar.zst 包导入运行环境层")
         if self.layers is None:
             raise RuntimeProvisionError(f"运行环境层不可用：{self._bootstrap_error}")
         if layer not in self.layers.index.layers:
@@ -460,6 +479,8 @@ class RuntimeProvisioner:
             if target == REPAIR_TARGET:
                 for layer in needed:
                     self._stop_if_cancelled()
+                    if layer not in self.layers.index.layers:
+                        continue
                     if self.layers.state(layer, fresh=True).state == "missing":
                         continue
                     self._update(resource=layer, stage="checking", message=f"正在完整核对{layer}层", progress=None)
@@ -540,7 +561,7 @@ class RuntimeProvisioner:
         under `layers\\models\\` when this build has no layers.json.
         """
 
-        if self.layers is not None:
+        if self.layers is not None and "models" in self.layers.index.layers:
             return self.model_root() or self.layers.wanted_dir("models")
         return self.paths.layer("models") / "unavailable"
 

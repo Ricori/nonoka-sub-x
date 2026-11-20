@@ -399,7 +399,7 @@ export function OnboardingPage(props: OnboardingPageProps) {
 
   // 活跃下载层（供「改用离线包」使用）
   const activeDownloadLayer: RuntimeLayerId | null = (() => {
-    if (!jobRunning || !job) return null;
+    if (!jobRunning || !job || !hardware.runtimeSupported) return null;
     if (job.stage === "offline" || job.stage === "unpacking" || job.stage === "checking" || job.stage === "completed") return null;
     if (isLayerId(job.resource)) return job.resource;
     if (job.target === "media") return "tools";
@@ -1227,7 +1227,11 @@ export function OnboardingPage(props: OnboardingPageProps) {
 
                     {slowDownload && (
                       <div className="onboarding-slow-banner" role="status">
-                        <span>当前在线下载较慢，建议配置网络代理提速，或改用本地离线包（.tar.zst）安装。</span>
+                        <span>
+                          {hardware.runtimeSupported
+                            ? "当前在线下载较慢，建议配置网络代理提速，或改用本地离线包（.tar.zst）安装。"
+                            : "当前在线下载较慢，建议配置网络代理提速。"}
+                        </span>
                         <div className="onboarding-slow-banner-actions">
                           <button type="button" className="quiet-button btn-sm" onClick={() => setProxyModalOpen(true)}>
                             配置网络代理
@@ -1359,13 +1363,15 @@ export function OnboardingPage(props: OnboardingPageProps) {
                         <button type="button" className="quiet-button btn-sm" onClick={() => setProxyModalOpen(true)}>
                           配置网络代理
                         </button>
-                        <button
-                          type="button"
-                          className="quiet-button btn-sm"
-                          onClick={() => setInstallSource("offline")}
-                        >
-                          改用离线包导入
-                        </button>
+                        {hardware.runtimeSupported && (
+                          <button
+                            type="button"
+                            className="quiet-button btn-sm"
+                            onClick={() => setInstallSource("offline")}
+                          >
+                            改用离线包导入
+                          </button>
+                        )}
                       </div>
                     </div>
                   )}
@@ -1416,7 +1422,8 @@ export function OnboardingPage(props: OnboardingPageProps) {
                     />
                   </div>
 
-                  {/* 明确询问用户有无离线包 */}
+                  {/* 明确询问用户有无离线包（仅支持预制离线包的平台展示） */}
+                  {hardware.runtimeSupported && (
                   <div className="onboarding-section-block">
                     <div className="onboarding-section-head">
                       <span>你是否已准备好本地离线包（.tar.zst）？</span>
@@ -1453,6 +1460,7 @@ export function OnboardingPage(props: OnboardingPageProps) {
                       </button>
                     </div>
                   </div>
+                  )}
 
                   {/* 组件清单（在线模式展示体积；离线模式每层直接带导入按钮） */}
                   <div className="onboarding-checklist">

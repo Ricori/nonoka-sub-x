@@ -14,6 +14,7 @@ import sys
 from typing import Any
 
 from nonoka_x.msvc_runtime import msvc_runtime_problem
+from nonoka_x.runtime import layer_manifest as lm
 
 #: The order layers are installed in when a target needs several: the tools are small and serve the
 #: cloud engines as well, so they come first; the models last.
@@ -75,6 +76,10 @@ class LayerDownloadHook:
     def _manager(self, context: Any) -> Any:
         if self._open is not None:
             return self._open(context)
+        if not lm.platform_supported():
+            from nonoka_x.runtime.manifest_tools import open_tools_manager
+
+            return open_tools_manager(context.paths)
         from nonoka_x.runtime.layers import LayerManager, load_index
 
         return LayerManager(context.paths, load_index())
@@ -86,15 +91,38 @@ class LayerDownloadHook:
             index = load_index()
         except Exception:  # noqa: BLE001 - the plan only asks; None means "cannot say yet"
             return None
+        index_platform = getattr(index, "platform", None)
+        if index_platform is not None and index_platform != lm.current_platform():
+            from nonoka_x.runtime import manifests
+
+            tool_manifest = manifests.tool_manifest_for(lm.current_platform())
+            if tool_manifest is None:
+                return 0
+            return sum(
+                int((item.get("asset") or {}).get("size") or 0)
+                for item in tool_manifest.get("resources") or ()
+                if item.get("id") not in lm.TOOLS_LEFT_OUT
+            )
         return sum(index.entry(layer).archive.size for layer in self.layers if layer in index.layers)
 
     def run(self, context: Any) -> None:
-        problem = vc_runtime_problem(self.layers)
-        if problem:
-            raise RuntimeError(problem)
-        manager = self._manager(context)
+        target_layers: tuple[str, ...] = self.layers
+        if self._open is None and not lm.platform_supported():
+            manager = self._manager(context)
+            if manager is None:
+                context.log(
+                    f"layer-download: skipped on {lm.current_platform()} (prebuilt layers are {lm.PLATFORM} only)"
+                )
+                return
+            target_layers = ("tools",)
+            context.log(f"layer-download: python skipped on {lm.current_platform()} ({lm.PLATFORM} only)")
+        else:
+            problem = vc_runtime_problem(target_layers)
+            if problem:
+                raise RuntimeError(problem)
+            manager = self._manager(context)
         progress = getattr(context, "progress", None)
-        for layer in self.layers:
+        for layer in target_layers:
             context.log(f"layer-download: {layer}")
             state = manager.install(layer, **({"progress": progress} if progress is not None else {}))
             context.log(f"layer-download: {layer} {state.state} ({state.wanted})")

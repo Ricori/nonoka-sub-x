@@ -45,6 +45,17 @@ def tool_manifest() -> dict[str, Any]:
     return json.loads(TOOL_MANIFEST.read_text(encoding="utf-8"))
 
 
+def tool_manifest_for(platform_id: str) -> dict[str, Any] | None:
+    """The tool manifest for `platform_id` (`windows-x64`, `macos-arm64`, `macos-amd64`), or None."""
+
+    if not platform_id or "/" in platform_id or "\\" in platform_id or ".." in platform_id:
+        return None
+    candidate = RESOURCES / f"runtime-manifest.{platform_id}.json"
+    if not candidate.is_file():
+        return None
+    return json.loads(candidate.read_text(encoding="utf-8"))
+
+
 def model_manifest() -> dict[str, Any]:
     """The model manifest: `models`, by model id."""
 

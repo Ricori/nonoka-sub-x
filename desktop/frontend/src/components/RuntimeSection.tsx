@@ -289,7 +289,9 @@ export function RuntimeSection(props: RuntimeSectionProps) {
     ? connecting ? "正在连接本地服务…" : "本地执行服务尚未连接。"
     : bootstrapBroken ? `运行环境层不可用：${provision.bootstrap_error}` : "";
   const platformNotice = provision && !provision.runtime_supported
-    ? `${provision.platform} 上仅提供工具层；本机 GPU 转写仅支持 Windows x64，可使用云端 FineSub 或云 API 引擎。`
+    ? provision.media_supported
+      ? `${provision.platform} 上仅提供工具层；本机 GPU 转写仅支持 Windows x64，可使用云端 FineSub 或云 API 引擎。`
+      : `当前平台（${provision.platform}）暂不支持预制运行环境层；本机 GPU 转写仅支持 Windows x64，可使用云端 FineSub。`
     : "";
   const jobBlocked = jobRunning ? "已有安装任务正在进行。" : "";
 
@@ -346,7 +348,7 @@ export function RuntimeSection(props: RuntimeSectionProps) {
   const modelsMossWorking = migrationActive || (jobRunning && (job?.resource === "models-moss" || job?.target === "offline:models-moss" || job?.target === "models-moss"));
 
   const activeDownloadLayer: RuntimeLayerId | null = (() => {
-    if (!jobRunning || !job || !onInstallOffline) return null;
+    if (!jobRunning || !job || !onInstallOffline || !pythonSupported) return null;
     if (job.stage === "offline" || job.stage === "unpacking" || job.stage === "checking" || job.stage === "completed") return null;
     if (isRuntimeLayerId(job.resource)) return job.resource;
     if (job.target === "media") return "tools";
@@ -409,7 +411,9 @@ export function RuntimeSection(props: RuntimeSectionProps) {
                 <span>
                   {baseInterrupted && job?.message
                     ? job.message
-                    : `工具层与 Python 环境层${baseDownloadBytes > 0 ? `约 ${formatStorageBytes(baseDownloadBytes)}` : ""}，可打开配置向导按使用方式一步步安装。`}
+                    : pythonSupported
+                      ? `工具层与 Python 环境层${baseDownloadBytes > 0 ? `约 ${formatStorageBytes(baseDownloadBytes)}` : ""}，可打开配置向导按使用方式一步步安装。`
+                      : `工具层（FFmpeg、FFprobe 与 yt-dlp）${baseDownloadBytes > 0 ? `约 ${formatStorageBytes(baseDownloadBytes)}` : ""}，安装后即可导入视频、导出字幕与使用云端引擎。`}
                 </span>
               </div>
               <div className="runtime-wizard-actions">
@@ -481,11 +485,16 @@ export function RuntimeSection(props: RuntimeSectionProps) {
             <div className="runtime-layer-info">
               <span className={toolsState === "ready" ? "layer-dot ready" : "layer-dot"} aria-hidden="true">{toolsState === "ready" ? "✓" : "↓"}</span>
               <strong>工具层</strong>
-              <InfoTip text="默认安装，支持更新。包含 FFmpeg、FFprobe、tokcount 与在线视频下载工具（yt-dlp、aria2c、Node.js、PO Token 生成器）。" label="工具层" />
+              <InfoTip
+                text={pythonSupported
+                  ? "默认安装，支持更新。包含 FFmpeg、FFprobe、tokcount 与在线视频下载工具（yt-dlp、aria2c、Node.js、PO Token 生成器）。"
+                  : "包含 FFmpeg、FFprobe 与 yt-dlp，用于视频导入、转码导出、在线下载与云端转写。"}
+                label="工具层"
+              />
             </div>
             <div className="runtime-layer-actions">
               {toolsLayer && toolsLayer.bytes > 0 && <span className="runtime-layer-size">{formatStorageBytes(toolsLayer.bytes)}</span>}
-              {!migrationActive && toolsSupported && toolsState !== "ready" && onInstallOffline && (
+              {!migrationActive && toolsSupported && pythonSupported && toolsState !== "ready" && onInstallOffline && (
                 <button
                   type="button"
                   className="quiet-button runtime-compact-btn"

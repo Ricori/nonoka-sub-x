@@ -204,7 +204,10 @@ class StartupMigration:
             self._log(f"migrating {plan.data} ({plan.state})")
             self._set(MIGRATING, plan)
             # Nothing to download: run to the end here rather than show a "download" phase.
-            downloads = any(plan.step(step_id).actions for step_id in planning.DOWNLOADS)
+            downloads = any(
+                plan.step(step_id).actions and plan.step(step_id).download_bytes != 0
+                for step_id in planning.DOWNLOADS
+            )
             plan = runner.execute(
                 plan, hooks=self.hooks(), log=self._step_log, engines=self._engines,
                 stop_before=FIRST_DOWNLOAD if downloads else None,

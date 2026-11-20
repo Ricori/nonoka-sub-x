@@ -91,10 +91,17 @@ class ModelCompletionHook:
         return LayerManager(context.paths, load_index())
 
     def download_bytes(self, context: Any) -> int | None:
+        if self._open is None and not lm.platform_supported():
+            return 0
         # How much is missing is only known once every moved file has been hashed.
         return None
 
     def run(self, context: Any) -> None:
+        if self._open is None and not lm.platform_supported():
+            context.log(
+                f"model-completion: skipped on {lm.current_platform()} (prebuilt layers are {lm.PLATFORM} only)"
+            )
+            return
         progress = getattr(context, "progress", None)
         report = self._manager(context).complete_models(
             context.migrated_models, log=context.log, **({"progress": progress} if progress is not None else {})

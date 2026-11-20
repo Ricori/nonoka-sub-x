@@ -24,7 +24,9 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import platform
 import stat
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 from typing import Any, Iterable
@@ -39,6 +41,27 @@ LAYERS = ("python", "models", "models-moss", "tools")
 #: The three layers every `layers.json` since v0.7 carries; `models-moss` may be added once built.
 REQUIRED_INDEX_LAYERS = ("python", "models", "tools")
 PLATFORM = "windows-x64"
+
+
+def current_platform(platform_name: str | None = None, machine: str | None = None) -> str:
+    """The layer platform id for the running host (`windows-x64`, `macos-arm64`, `macos-amd64`, ...)."""
+
+    target = sys.platform if platform_name is None else platform_name
+    if target == "win32":
+        return "windows-x64"
+    if target == "darwin":
+        arch = (platform.machine() if machine is None else machine).lower()
+        if arch in {"arm64", "aarch64"}:
+            return "macos-arm64"
+        if arch in {"x86_64", "amd64"}:
+            return "macos-amd64"
+    return target
+
+
+def platform_supported(platform_name: str | None = None, machine: str | None = None) -> bool:
+    """Whether prebuilt environment layers (`PLATFORM`) are built for this host."""
+
+    return current_platform(platform_name, machine) == PLATFORM
 
 #: Every file and directory of a built layer carries this modification time: 2026-01-01T00:00:00Z.
 FIXED_MTIME = 1767225600
@@ -341,6 +364,7 @@ __all__ = [
     "LayerManifest",
     "check_path",
     "compare",
+    "current_platform",
     "differences",
     "digest_of",
     "is_link",
@@ -348,6 +372,7 @@ __all__ = [
     "layer_model_spec",
     "manifest_in",
     "parse",
+    "platform_supported",
     "read",
     "relative",
     "render",

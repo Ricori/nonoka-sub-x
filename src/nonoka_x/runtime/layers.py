@@ -53,6 +53,7 @@ import os
 from pathlib import Path, PurePosixPath
 import shutil
 import subprocess
+import sys
 import threading
 import time
 from typing import Any, BinaryIO
@@ -91,7 +92,18 @@ MIGRATED_NAME = "migrated"
 OFFLINE_PACK_ENVIRONMENT = "NONOKA_OFFLINE_PACK"
 OFFLINE_PACK_MARKER = "pack.json"
 
-SYSTEM_TAR = Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32" / "tar.exe"
+def _default_tar() -> Path:
+    if os.name == "nt":
+        return Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32" / "tar.exe"
+    if sys.platform == "darwin":
+        mac_tar = Path("/usr/bin/tar")
+        if mac_tar.is_file():
+            return mac_tar
+    found = shutil.which("tar")
+    return Path(found) if found else Path("/usr/bin/tar")
+
+
+SYSTEM_TAR = _default_tar()
 
 #: How long a quick check's answer is reused within one process.
 QUICK_CHECK_SECONDS = 30.0
