@@ -192,15 +192,34 @@ def test_a_pin_on_an_endpoint_without_a_row_falls_back(tmp_path):
 
 
 def test_a_local_agent_pin_resolves_only_the_offered_models():
-    from nonoka_x.settings import LOCAL_AGENT_PROVIDERS
+    from nonoka_x.settings import LOCAL_AGENT_OVERLAY_MODELS, LOCAL_AGENT_PROVIDERS
 
     spec = LOCAL_AGENT_PROVIDERS["local-codex"]
-    model = spec["models"][0]
     targets = dict((fact.api_model_id, target) for fact, target in bridge.local_agent_targets(spec["tier"]))
-    pin = {"group": "default", "provider": "local-codex", "model": model, "kind": "local_agent", "tier": spec["tier"],
-           "offered": list(spec["models"])}
-    assert bridge._pin_target(pin, set()) == targets[model]
+    packaged_model = next(model for model in spec["models"] if model in targets)
+    pin = {"group": "default", "provider": "local-codex", "model": packaged_model, "kind": "local_agent",
+           "tier": spec["tier"], "offered": list(spec["models"])}
+    assert bridge._pin_target(pin, set()) == targets[packaged_model]
     assert bridge._pin_target({**pin, "offered": []}, set()) is None
+
+    overlay_model, (overlay_target, _row) = next(iter(LOCAL_AGENT_OVERLAY_MODELS["local-codex"].items()))
+    overlay_pin = {
+        "group": "default", "provider": "local-codex", "model": overlay_model, "kind": "local_agent",
+        "tier": spec["tier"], "offered": list(spec["models"]), "target": overlay_target,
+    }
+    assert bridge._pin_target(overlay_pin, {overlay_target}) == overlay_target
+    assert bridge._pin_target(overlay_pin, set()) is None
+    assert bridge._pin_target({**overlay_pin, "offered": []}, {overlay_target}) is None
+
+    from nonoka_x.settings import GEMINI_OVERLAY_MODELS
+
+    gemini_model, (gemini_target, _row) = next(iter(GEMINI_OVERLAY_MODELS["gemini-paid"].items()))
+    gemini_pin = {
+        "group": "default", "provider": "gemini-paid", "model": gemini_model, "kind": "gemini",
+        "tier": "GEMINI_PAID", "target": gemini_target,
+    }
+    assert bridge._pin_target(gemini_pin, {gemini_target}) == gemini_target
+    assert bridge._pin_target(gemini_pin, set()) is None
 
 
 def test_inherited_finesub_variables_do_not_reach_an_engine(tmp_path):

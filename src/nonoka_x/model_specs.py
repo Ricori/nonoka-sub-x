@@ -120,12 +120,15 @@ UNKNOWN_MODEL_SPEC = ModelSpec(
 # its own, and a more specific family member wins over the generic rule.
 _MODEL_SPECS: tuple[tuple[str, ModelSpec], ...] = (
     # -- OpenAI -----------------------------------------------------------
-    # GPT-6 model pages (checked 2026-09-30) declare the same context/output
-    # envelope. All four accept the harness's high/medium/low effort words.
+    # GPT-6.2 (2026-11-17) and GPT-6 model pages declare the same context/output
+    # envelope. All accept the harness's high/medium/low effort words.
     # https://developers.openai.com/api/docs/models/gpt-6.1-sol
     # https://developers.openai.com/api/docs/models/gpt-6-sol
     # https://developers.openai.com/api/docs/models/gpt-6-astra
     # https://developers.openai.com/api/docs/models/gpt-6-luna
+    ("gpt-6.2-astra", ModelSpec("GPT-6.2 Astra", 1_050_000, 128_000)),
+    ("gpt-6.2-sol", ModelSpec("GPT-6.2 Sol", 1_050_000, 128_000)),
+    ("gpt-6.2", ModelSpec("GPT-6.2", 1_050_000, 128_000)),
     ("gpt-6.1-sol", ModelSpec("GPT-6.1 Sol", 1_050_000, 128_000)),
     # Not on the 2026-09-30 check: Terra is the Nonoka Cloud relay's default
     # since 2026-11-07 and is given its Sol sibling's envelope.
@@ -172,8 +175,15 @@ _MODEL_SPECS: tuple[tuple[str, ModelSpec], ...] = (
     ("deepseek-reasoner", ModelSpec("DeepSeek Reasoner", 128_000, 65_536, "max,high,low", 1.15, 75)),
     ("deepseek-chat", ModelSpec("DeepSeek Chat", 128_000, 8_192, "false", 1.15, 65)),
     # -- Qwen -------------------------------------------------------------
-    # DashScope spells the effort levels low/medium/xhigh -- "high" is not one
-    # of them, so identity would send a value the endpoint does not know.
+    # Qwen4 (DashScope / Bailian): 1M context, 262,144 combined reasoning +
+    # answer ceiling in thinking mode (131,072 non-thinking). Official
+    # reasoning_effort levels are low / high / xhigh (medium maps to high
+    # server-side), so high -> xhigh, medium -> high, low -> low sends native
+    # levels directly.
+    ("qwen4-max", ModelSpec("Qwen4-Max", 1_000_000, 262_144, "xhigh,high,low", 1.15, 85)),
+    ("qwen4", ModelSpec("Qwen4", 1_000_000, 131_072, "xhigh,high,low", 1.15, 75)),
+    # DashScope spells the Qwen3.x effort levels low/medium/xhigh -- "high" is
+    # not one of them, so identity would send a value the endpoint does not know.
     ("qwen3.8-max", ModelSpec("Qwen3.8-Max", 1_000_000, 131_072, "xhigh,medium,low", 1.15, 80)),
     ("qwen3.8", ModelSpec("Qwen3.8", 1_000_000, 65_536, "xhigh,medium,low", 1.15, 68)),
     ("qwen3.7-max", ModelSpec("Qwen3.7-Max", 1_000_000, 65_536, "xhigh,medium,low", 1.15, 78)),
@@ -196,6 +206,7 @@ _MODEL_SPECS: tuple[tuple[str, ModelSpec], ...] = (
     # The packaged Gemini providers have their own catalog rows; this only
     # covers a Gemini model reached through a third-party compat endpoint,
     # which cannot carry media whatever the model itself supports.
+    ("gemini-4", ModelSpec("Gemini 4", 1_000_000, 65_536, "true", 1.0, 80)),
     ("gemini-3", ModelSpec("Gemini 3", 1_000_000, 65_536, "true", 1.0, 75)),
     ("gemini-", ModelSpec("Gemini", 1_000_000, 65_536, "true", 1.0, 70)),
 )

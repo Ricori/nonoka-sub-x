@@ -470,11 +470,24 @@ def derive_llm_files(run: Path, llm: Mapping[str, Any]) -> None:
     call it while the file variables name files that are not there yet.
     """
 
+    install_gemini_overlay_policy()
     run.mkdir(parents=True, exist_ok=True)
     emitted: set[str] = set()
     tables = [CATALOG_HEADER]
     for endpoint in llm.get("endpoints") or ():
-        target = custom_target(str(endpoint["provider"]), str(endpoint["model"]))
+        explicit_target = str(endpoint.get("target") or "")
+        if explicit_target:
+            row = endpoint["row"]
+            tier = str(row.get("provider_tier") or "")
+            api_model_id = str(row.get("api_model_id") or "")
+            if tier and api_model_id and (
+                api_model_id in _packaged_local_agent_targets(tier)
+                or api_model_id in _packaged_gemini_targets(tier)
+            ):
+                continue
+            target = explicit_target
+        else:
+            target = custom_target(str(endpoint["provider"]), str(endpoint["model"]))
         emitted.add(target)
         tables.append(
             f"[models.{_toml_value(target)}]\n"
@@ -520,12 +533,20 @@ def _pin_target(pin: Mapping[str, Any], emitted: set[str]) -> str | None:
         return None
     kind = pin.get("kind")
     if kind == "gemini":
-        return gemini_targets(str(pin["tier"])).get(model)
+        packaged = _packaged_gemini_targets(str(pin["tier"])).get(model)
+        if packaged is not None:
+            return packaged
+        overlay_target = str(pin.get("target") or "")
+        return overlay_target if overlay_target and overlay_target in emitted else None
     if kind == "local_agent":
         offered = pin.get("offered")
         if offered is not None and model not in offered:
             return None
-        return {fact.api_model_id: target for fact, target in local_agent_targets(str(pin["tier"]))}.get(model)
+        packaged = _packaged_local_agent_targets(str(pin["tier"])).get(model)
+        if packaged is not None:
+            return packaged
+        overlay_target = str(pin.get("target") or "")
+        return overlay_target if overlay_target and overlay_target in emitted else None
     if kind == "http":
         # Only if its catalog row was written: a pin on a target the catalog
         # does not carry is worse than falling back.
@@ -543,6 +564,38 @@ def gemini_targets(tier: str) -> dict[str, str]:
         entry.api_model_id: entry.fact_id
         for entry in default_model_catalog()
         if entry.provider_tier == tier and not entry.self_reported
+    }
+
+
+def _packaged_gemini_targets(tier: str) -> dict[str, str]:
+    """`api_model_id -> fact id` of FineSub's packaged Gemini rows for `tier`.
+
+    Reads only the packaged `model_catalog.toml` (ignoring any override file on
+    disk), so repeated derivations into the same run directory stay deterministic.
+    """
+
+    from finesub.llm.routing.model_catalog import GEMINI_KIND, load_model_catalog
+
+    return {
+        entry.api_model_id: entry.fact_id
+        for entry in load_model_catalog()
+        if entry.provider_kind == GEMINI_KIND and entry.provider_tier == tier
+    }
+
+
+def _packaged_local_agent_targets(tier: str) -> dict[str, str]:
+    """`api_model_id -> fact id` of FineSub's packaged local-agent rows for `tier`.
+
+    Reads only the packaged `model_catalog.toml` (ignoring any override file on
+    disk), so repeated derivations into the same run directory stay deterministic.
+    """
+
+    from finesub.llm.routing.model_catalog import LOCAL_AGENT_KIND, load_model_catalog
+
+    return {
+        entry.api_model_id: entry.fact_id
+        for entry in load_model_catalog()
+        if entry.provider_kind == LOCAL_AGENT_KIND and entry.provider_tier == tier
     }
 
 
@@ -704,6 +757,63 @@ def install_region_policy() -> None:
     setattr(resolve_region, _INSTALLED_ATTRIBUTE, True)
     resolve_region.__doc__ = original.__doc__
     download_routes.resolve_region = resolve_region
+
+
+def install_gemini_overlay_policy() -> None:
+    """Enable Nonoka-declared Gemini 4 catalog rows without modifying locked FineSub files.
+
+    FineSub 0.7.0 only auto-wires unclaimed `local_agent` and custom HTTP rows
+    from an override `model_catalog.toml`, and only emits `thinkingLevel` for
+    `"gemini-3"` ids in `llm_runtime._thinking_config`. Both hooks are
+    idempotent and leave all packaged rows and Gemini 2.5 / 3.x ids unchanged.
+    """
+
+    try:
+        from finesub.llm.routing import model_catalog, model_routes
+    except ImportError:
+        model_catalog = None
+        model_routes = None
+    if model_catalog is not None and model_routes is not None:
+        original_wire = model_routes._wire_unclaimed_catalog_target
+        if not getattr(original_wire, _INSTALLED_ATTRIBUTE, False):
+            def _wire_unclaimed_catalog_target(targets: Any, fact: Any) -> None:
+                if (
+                    fact.provider_kind == model_catalog.GEMINI_KIND
+                    and fact.provider_tier in model_routes.BACKEND_PROVIDER_TIERS["gemini_rest"]
+                ):
+                    if fact.fact_id in targets:
+                        raise model_routes.ModelRouteConfigError(
+                            f"model_catalog {fact.fact_id!r}: its target would take the name of "
+                            "a declared target; rename the model"
+                        )
+                    targets[fact.fact_id] = model_routes.ExecutionTarget(
+                        id=fact.fact_id,
+                        backend="gemini_rest",
+                        fact_id=fact.fact_id,
+                        enabled_by=fact.provider_tier,
+                        native_search_tool=model_routes.target_search_tool(fact),
+                    )
+                    return
+                original_wire(targets, fact)
+
+            setattr(_wire_unclaimed_catalog_target, _INSTALLED_ATTRIBUTE, True)
+            model_routes._wire_unclaimed_catalog_target = _wire_unclaimed_catalog_target
+
+    try:
+        from finesub.llm import llm_runtime
+    except ImportError:
+        return
+    original_thinking = llm_runtime._thinking_config
+    if getattr(original_thinking, _INSTALLED_ATTRIBUTE, False):
+        return
+
+    def _thinking_config(model_name: str, budget: Any, level: Any = None) -> Any:
+        if "gemini-4" in (model_name or "").lower():
+            return original_thinking("gemini-3", budget, level)
+        return original_thinking(model_name, budget, level)
+
+    setattr(_thinking_config, _INSTALLED_ATTRIBUTE, True)
+    llm_runtime._thinking_config = _thinking_config
 
 
 # --- this run's LLM model pin -------------------------------------------------------------------------

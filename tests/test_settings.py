@@ -438,6 +438,104 @@ class FineSubSettingsTests(unittest.TestCase):
             self.assertEqual(providers["openai"]["groupId"], "")
             self.assertEqual(providers["local-agy"]["groupId"], "")
 
+    def test_gemini_free_and_paid_pools_include_gemini4_and_resolve_targets(self) -> None:
+        from finesub.llm import llm_runtime
+        from finesub.llm.routing.config import role_config_for
+        from finesub.llm.routing.model_router import ModelRouter
+        from finesub.llm.routing.model_routes import default_model_routes
+
+        with tempfile.TemporaryDirectory() as temporary, patch.dict(
+            os.environ, {"FINESUB_ENV_PROTECT": "0"}, clear=False
+        ):
+            settings = FineSubSettings(temporary)
+            settings.bind_environment()
+            providers = {
+                item["id"]: item
+                for item in settings.snapshot()["modelRouting"]["providers"]
+            }
+            free_ids = [item["id"] for item in providers["gemini-free"]["models"]]
+            paid_ids = [item["id"] for item in providers["gemini-paid"]["models"]]
+            self.assertEqual(
+                free_ids,
+                [
+                    "gemini/gemini-4-hydrogen",
+                    "gemini/gemini-3.8-flash",
+                    "gemini/gemini-3.6-flash",
+                    "gemini/gemini-3.5-flash-lite",
+                ],
+            )
+            self.assertEqual(providers["gemini-free"]["defaultModel"], "gemini/gemini-4-hydrogen")
+            self.assertEqual(
+                paid_ids,
+                [
+                    "gemini/gemini-4-hydrogen",
+                    "gemini/gemini-4-neon",
+                    "gemini/gemini-4-argon",
+                    "gemini/gemini-4-carbon",
+                    "gemini/gemini-3.8-flash",
+                    "gemini/gemini-3.5-flash-lite",
+                ],
+            )
+            self.assertEqual(providers["gemini-paid"]["defaultModel"], "gemini/gemini-4-hydrogen")
+            self.assertFalse(providers["gemini-free"]["models"][0]["supportsNativeSearch"])
+            for index in range(4):
+                self.assertTrue(providers["gemini-paid"]["models"][index]["supportsAudio"])
+                self.assertTrue(providers["gemini-paid"]["models"][index]["supportsVideo"])
+                self.assertTrue(providers["gemini-paid"]["models"][index]["supportsNativeSearch"])
+
+            settings.update_keys({"GEMINI_FREE": "gemini-secret"})
+            for retired in ("gemini/gemini-3.1-flash-lite", "gemini/gemini-2.5-flash", "gemini/gemma-4-31b-it"):
+                with self.assertRaisesRegex(ValueError, "not available in gemini-free"):
+                    settings.update_keys({
+                        "LLM_DEFAULT_PROVIDER": "gemini-free",
+                        "LLM_DEFAULT_MODEL": retired,
+                    })
+                from nonoka_x.settings import migrate_model_config
+
+                self.assertEqual(
+                    migrate_model_config({"default_provider": "gemini-free", "default_model": retired}),
+                    {"default_model": "gemini/gemini-3.5-flash-lite"},
+                )
+
+        cases = (
+            ("gemini-free", "GEMINI_FREE", "gemini/gemini-4-hydrogen", "gemini-free-4-hydrogen", 194_000, False),
+            ("gemini-paid", "GEMINI_PAID", "gemini/gemini-4-hydrogen", "gemini-paid-4-hydrogen", 1_048_576, True),
+            ("gemini-paid", "GEMINI_PAID", "gemini/gemini-4-neon", "gemini-paid-4-neon", 1_048_576, True),
+            ("gemini-paid", "GEMINI_PAID", "gemini/gemini-4-argon", "gemini-paid-4-argon", 1_048_576, True),
+            ("gemini-paid", "GEMINI_PAID", "gemini/gemini-4-carbon", "gemini-paid-4-carbon", 1_048_576, True),
+        )
+        for provider, key_name, model, target_id, max_in, native_search in cases:
+            with self.subTest(provider=provider, model=model), tempfile.TemporaryDirectory() as temporary, patch.dict(
+                os.environ, {"FINESUB_ENV_PROTECT": "0"}, clear=False
+            ):
+                settings = FineSubSettings(temporary)
+                settings.bind_environment()
+                snapshot = settings.update_keys({
+                    key_name: "gemini-secret",
+                    "LLM_DEFAULT_PROVIDER": provider,
+                    "LLM_DEFAULT_MODEL": model,
+                })
+                self.assertTrue(snapshot["llmReady"])
+                _derive(temporary)
+                _reset_engine_caches()
+                routes = default_model_routes()
+                binding, _ = routes.resolve_binding(routes.active_preset_id, "correction-mm", "quality")
+                self.assertEqual(binding.target_ids, (target_id,))
+                target = routes.targets[target_id]
+                fact = routes.facts[target.fact_id]
+                self.assertEqual(target.backend, "gemini_rest")
+                self.assertEqual(target.enabled_by, key_name)
+                self.assertEqual(fact.api_model_id, model)
+                self.assertEqual(fact.max_input_tokens, max_in)
+                self.assertTrue(fact.supports_audio)
+                self.assertTrue(fact.supports_video)
+                self.assertEqual(fact.supports_native_search, native_search)
+                plan = ModelRouter().plan(role_config_for("correction-mm", "quality"), native_search=native_search)
+                self.assertEqual(plan.candidates[0].endpoint.api_model_id, model)
+                self.assertEqual(bool(plan.candidates[0].endpoint.native_search_tool), native_search)
+                thinking = llm_runtime._thinking_config(model, None, level="medium")
+                self.assertEqual(thinking.get("thinkingLevel"), "medium")
+
     def test_llm_is_not_ready_until_a_global_model_is_saved(self) -> None:
         # A key on its own configures nothing: without a saved global model the
         # desktop must not offer 「最终字幕」.
@@ -531,11 +629,12 @@ class FineSubSettingsTests(unittest.TestCase):
             )
             self.assertFalse(codex["requiresKey"])
             self.assertEqual(codex["mode"], "select")
-            # The engine's two packaged rows, the newest Sol first.
+            # GPT-6.2 leads, with the packaged GPT-6.1 / 6 rows kept behind it.
             self.assertEqual(
-                [model["id"] for model in codex["models"]], ["gpt-6.1-sol", "gpt-6-luna"]
+                [model["id"] for model in codex["models"]],
+                ["gpt-6.2-sol", "gpt-6.2-astra", "gpt-6.1-sol", "gpt-6-luna"],
             )
-            self.assertEqual(codex["defaultModel"], "gpt-6.1-sol")
+            self.assertEqual(codex["defaultModel"], "gpt-6.2-sol")
             self.assertEqual(
                 snapshot["modelRouting"]["defaultRoute"],
                 {"provider": "local-codex", "model": "gpt-6-luna"},
@@ -569,11 +668,20 @@ class FineSubSettingsTests(unittest.TestCase):
         from finesub.llm.routing.model_routes import default_model_routes
 
         cases = (
+            ("local-codex", "gpt-6.2-sol", "local-codex-gpt-6_2-sol", False),
+            ("local-codex", "gpt-6.2-astra", "local-codex-gpt-6_2-astra", False),
             ("local-codex", "gpt-6.1-sol", "local-codex-gpt-6_1-sol", False),
             ("local-codex", "gpt-6-luna", "local-codex-gpt-6-luna", False),
+            ("local-agy", "gemini-4-hydrogen", "local-agy-gemini-4-hydrogen", True),
+            ("local-agy", "gemini-4-neon", "local-agy-gemini-4-neon", True),
+            ("local-agy", "gemini-4-argon", "local-agy-gemini-4-argon", True),
             ("local-agy", "gemini-3.8-flash", "local-agy-gemini-3_8-flash", True),
             ("local-agy", "claude-sonnet-5-5", "local-agy-sonnet-5_5", False),
+            ("local-codebuddy", "glm-5.3", "local-codebuddy-glm-5_3", False),
             ("local-codebuddy", "hy3", "local-codebuddy-hy3", False),
+            ("local-codebuddy", "hy4-preview", "local-codebuddy-hy4-preview", False),
+            ("local-codebuddy", "kimi-k3", "local-codebuddy-kimi-k3", False),
+            ("local-codebuddy", "minimax-m3", "local-codebuddy-minimax-m3", False),
         )
         for provider, model, target_id, media in cases:
             with self.subTest(provider=provider, model=model), tempfile.TemporaryDirectory() as temporary, patch.dict(
@@ -613,7 +721,7 @@ class FineSubSettingsTests(unittest.TestCase):
         ):
             settings = FineSubSettings(temporary)
             settings.bind_environment()
-            for model in ("gpt-6-luna", "gpt-6.1-sol", "gpt-6-luna"):
+            for model in ("gpt-6-luna", "gpt-6.2-sol", "gpt-6.1-sol", "gpt-6.2-sol", "gpt-6-luna"):
                 settings.update_keys({"LLM_DEFAULT_PROVIDER": "local-codex", "LLM_DEFAULT_MODEL": model})
                 _derive(temporary)
                 _reset_engine_caches()
@@ -675,16 +783,22 @@ class FineSubSettingsTests(unittest.TestCase):
             self.assertEqual(
                 [model["id"] for model in agy["models"]],
                 [
+                    "gemini-4-hydrogen",
+                    "gemini-4-neon",
+                    "gemini-4-argon",
                     "gemini-3.8-flash",
                     "claude-sonnet-5-5",
                     "claude-opus-5-5",
                 ],
             )
-            self.assertEqual(agy["defaultModel"], "gemini-3.8-flash")
-            # The multimodal model is why agy leads with it; the snapshot has
-            # to carry that through to the picker.
-            self.assertTrue(agy["models"][0]["supportsAudio"])
-            self.assertTrue(agy["models"][0]["supportsVideo"])
+            self.assertEqual(agy["defaultModel"], "gemini-4-hydrogen")
+            # All four Gemini rows on agy accept media; the Claude rows are text only.
+            for index in range(4):
+                self.assertTrue(agy["models"][index]["supportsAudio"])
+                self.assertTrue(agy["models"][index]["supportsVideo"])
+            for index in (4, 5):
+                self.assertFalse(agy["models"][index]["supportsAudio"])
+                self.assertFalse(agy["models"][index]["supportsVideo"])
             config = _derived(temporary, "finesub.toml").read_text(encoding="utf-8")
             # The media target, not the search-entitled twin: a pinned target
             # is prepended to the bound group, so `retrieval=native` has to
@@ -745,11 +859,20 @@ class FineSubSettingsTests(unittest.TestCase):
             self.assertEqual(codebuddy["mode"], "select")
             self.assertEqual(
                 [model["id"] for model in codebuddy["models"]],
-                ["glm-5.3-flash", "hy3", "deepseek-v4.1-flash", "deepseek-v4-pro"],
+                [
+                    "glm-5.3-flash",
+                    "glm-5.3",
+                    "hy3",
+                    "hy4-preview",
+                    "deepseek-v4.1-flash",
+                    "deepseek-v4-pro",
+                    "kimi-k3",
+                    "minimax-m3",
+                ],
             )
             self.assertEqual(codebuddy["defaultModel"], "glm-5.3-flash")
-            # None of the four takes a clip: the multimodal correction entry
-            # has to stay disabled on this provider rather than fail mid-run.
+            # None of the CodeBuddy rows takes a clip: the multimodal correction
+            # entry has to stay disabled on this provider rather than fail mid-run.
             self.assertFalse(any(model["supportsAudio"] for model in codebuddy["models"]))
             self.assertFalse(any(model["supportsVideo"] for model in codebuddy["models"]))
             config = _derived(temporary, "finesub.toml").read_text(encoding="utf-8")
@@ -827,7 +950,7 @@ class FineSubSettingsTests(unittest.TestCase):
             config_path.write_text(
                 "[nonoka_models]\n"
                 'default_provider = "local-workbuddy"\n'
-                'default_model = "hy4-preview"\n'
+                'default_model = "deepseek-v4-flash"\n'
                 'correction_provider = "local-codex"\n'
                 'correction_model = "gpt-5.6-terra"\n'
                 'planning_provider = "local-agy"\n'
@@ -846,7 +969,7 @@ class FineSubSettingsTests(unittest.TestCase):
             settings.bind_environment()
             # Read before startup has written anything: already the new meaning.
             routing = settings.snapshot()["modelRouting"]
-            self.assertEqual(routing["defaultRoute"], {"provider": "local-codebuddy", "model": "hy3"})
+            self.assertEqual(routing["defaultRoute"], {"provider": "local-codebuddy", "model": "deepseek-v4.1-flash"})
             routes = {item["id"]: item["route"] for item in routing["taskRoutes"]}
             self.assertEqual(set(routes), {"correction", "research", "knowledge"})
             self.assertEqual(routes["correction"], {"provider": "local-codex", "model": "gpt-6-luna"})
@@ -855,9 +978,9 @@ class FineSubSettingsTests(unittest.TestCase):
 
             settings.refresh_model_routes()
             config = _derived(temporary, "finesub.toml").read_text(encoding="utf-8")
-            for stale in ("planning", "search_judge", "workbuddy", "hy4", "gpt-5", "opus-4"):
+            for stale in ("planning", "search_judge", "workbuddy", "deepseek-v4-flash", "gpt-5", "opus-4"):
                 self.assertNotIn(stale, config)
-            self.assertIn('default = "local-codebuddy-hy3"', config)
+            self.assertIn('default = "local-codebuddy-deepseek-v4_1-flash"', config)
             self.assertIn('research = "local-agy-sonnet-5_5"', config)
 
             from finesub.llm.routing.model_routes import default_model_routes
@@ -1010,7 +1133,7 @@ class FineSubSettingsTests(unittest.TestCase):
     def test_gpt6_http_routes_carry_declared_limits_and_reasoning(self) -> None:
         from finesub.llm.routing.model_catalog import default_model_catalog
 
-        for model in ("gpt-6.1-sol", "gpt-6-sol", "gpt-6-astra", "gpt-6-luna"):
+        for model in ("gpt-6.2-astra", "gpt-6.2-sol", "gpt-6.2-2026-11-17", "gpt-6.1-sol", "gpt-6-sol", "gpt-6-astra", "gpt-6-luna"):
             with self.subTest(model=model), tempfile.TemporaryDirectory() as temporary, patch.dict(
                 os.environ, {"FINESUB_ENV_PROTECT": "0"}, clear=False
             ):
@@ -1028,6 +1151,40 @@ class FineSubSettingsTests(unittest.TestCase):
                 self.assertEqual(entry.max_input_tokens, 1_050_000)
                 self.assertEqual(entry.max_output_tokens, 128_000)
                 self.assertEqual(entry.thinking_levels, ("high", "medium", "low"))
+
+    def test_qwen4_bailian_routes_carry_declared_limits_and_reasoning(self) -> None:
+        from finesub.llm.routing.model_catalog import default_model_catalog
+
+        cases = (
+            ("qwen4-max", "Qwen4-Max", 1_000_000, 262_144),
+            ("qwen4-max-preview", "Qwen4-Max", 1_000_000, 262_144),
+            ("qwen4-plus", "Qwen4", 1_000_000, 131_072),
+            ("qwen4-flash", "Qwen4", 1_000_000, 131_072),
+        )
+        for model, display_name, max_in, max_out in cases:
+            with self.subTest(model=model), tempfile.TemporaryDirectory() as temporary, patch.dict(
+                os.environ, {"FINESUB_ENV_PROTECT": "0"}, clear=False
+            ):
+                settings = FineSubSettings(temporary)
+                settings.bind_environment()
+                settings.update_keys({
+                    "DASHSCOPE_API_KEY": "test-secret",
+                    "LLM_DEFAULT_PROVIDER": "aliyun-bailian",
+                    "LLM_DEFAULT_MODEL": model,
+                })
+                _derive(temporary)
+                _reset_engine_caches()
+                entry = next(
+                    item
+                    for item in default_model_catalog()
+                    if item.api_model_id == model and item.provider_tier == "NONOKA_DASHSCOPE"
+                )
+                self.assertEqual(entry.display_name, display_name)
+                self.assertEqual(entry.base_url, "https://dashscope.aliyuncs.com/compatible-mode/v1")
+                self.assertEqual(entry.max_input_tokens, max_in)
+                self.assertEqual(entry.max_output_tokens, max_out)
+                self.assertEqual(entry.thinking_levels, ("xhigh", "high", "low"))
+                self.assertAlmostEqual(entry.token_scale, 1.15)
 
     def test_known_model_row_carries_its_declared_limits(self) -> None:
         """A recognized model is described by its own facts, not a placeholder.

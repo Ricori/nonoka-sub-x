@@ -77,10 +77,15 @@ LOCAL_AGENT_PROVIDERS: Mapping[str, dict[str, Any]] = {
         "tier": "LOCAL_CODEX",
         "label": "本地 Codex",
         "command": "codex",
-        # Which of the tier's packaged models the desktop offers, in display
-        # order — the first is what selecting the provider fills in. The same
-        # two the engine packages (FineSub 0.6.0; Codex CLI 0.160.0 or newer).
-        "models": ("gpt-6.1-sol", "gpt-6-luna"),
+        # Which models the desktop offers on Codex, in display order -- the
+        # first is what selecting the provider fills in. GPT-6.2 rows are
+        # declared in `LOCAL_AGENT_OVERLAY_MODELS` until FineSub packages them.
+        "models": (
+            "gpt-6.2-sol",
+            "gpt-6.2-astra",
+            "gpt-6.1-sol",
+            "gpt-6-luna",
+        ),
         # The Codex app keeps its CLI in a content-hashed directory under
         # %LOCALAPPDATA% and never puts it on PATH, so `codex` is a name
         # nothing can resolve on a machine that has it installed. Windows only
@@ -91,10 +96,14 @@ LOCAL_AGENT_PROVIDERS: Mapping[str, dict[str, Any]] = {
         "tier": "LOCAL_AGY",
         "label": "本地 Antigravity",
         "command": "agy",
-        # Gemini 3.8 Flash is the only Flash left on agy (FineSub 0.7.0) and can
-        # take media; the two Claude rows are text only and share agy's Claude
-        # allowance (agy 1.2.16 or newer).
+        # Gemini 4 (Hydrogen, Neon, Argon) and Gemini 3.8 Flash all accept
+        # media; the two Claude rows are text only and share agy's Claude
+        # allowance. Hydrogen and Neon are declared in
+        # `LOCAL_AGENT_OVERLAY_MODELS` until FineSub packages them.
         "models": (
+            "gemini-4-hydrogen",
+            "gemini-4-neon",
+            "gemini-4-argon",
             "gemini-3.8-flash",
             "claude-sonnet-5-5",
             "claude-opus-5-5",
@@ -121,19 +130,150 @@ LOCAL_AGENT_PROVIDERS: Mapping[str, dict[str, Any]] = {
         #
         # ⚠ Which of these an account can actually reach is the account's
         # business, not the CLI version's: the vendor answers a wrong `--model`
-        # with the list that login is entitled to. These four are the rows the
-        # engine packages; a plan carrying others needs a catalog row.
+        # with the list that login is entitled to. Rows beyond the four
+        # FineSub 0.7.0 packages are declared in `LOCAL_AGENT_OVERLAY_MODELS`.
         "models": (
             "glm-5.3-flash",
+            "glm-5.3",
             "hy3",
+            "hy4-preview",
             "deepseek-v4.1-flash",
             "deepseek-v4-pro",
+            "kimi-k3",
+            "minimax-m3",
         ),
         "note": (
             "Hunyuan 3 每天有免费额度；用光之后会自动切到同一条线的付费额度"
-            "（hy3-x）把当次任务跑完，并在结束时提示切过。不想自动扣费就选 "
-            "GLM-5.3 Flash 或 DeepSeek 两行，它们本来就按积分计费。需要独立安装并"
-            "登录 CodeBuddy Code CLI（2.164.0 或更新），不再使用 WorkBuddy 桌面端。"
+            "（hy3-x）把当次任务跑完，并在结束时提示切过。其余模型均按积分计费。"
+            "需要独立安装并登录 CodeBuddy Code CLI（2.164.0 或更新），不再使用 WorkBuddy 桌面端。"
+        ),
+    },
+}
+
+#: Local-agent models Nonoka offers on top of FineSub 0.7.0's quality-locked
+#: `model_catalog.toml`. Each entry is `(fact_id, catalog_row)` in FineSub's
+#: `model_catalog.toml` schema; `FineSubSettings.llm_context` emits a row into
+#: the derived `model_catalog.toml` only when a saved route selects it, and
+#: FineSub's `load_effective_catalog` + `_wire_unclaimed_catalog_target` merge
+#: and wire it into a first-class `local_agent` target without modifying any
+#: locked engine file.
+LOCAL_AGENT_OVERLAY_MODELS: Mapping[str, Mapping[str, tuple[str, Mapping[str, Any]]]] = {
+    "local-codex": {
+        "gpt-6.2-sol": (
+            "local-codex-gpt-6_2-sol",
+            {
+                "provider_tier": "LOCAL_CODEX",
+                "display_name": "GPT-6.2 Sol via Codex",
+                "api_model_id": "gpt-6.2-sol",
+                "max_input_tokens": 272_000,
+                "context_window": 272_000,
+                "thinking": ["high", "high", "low"],
+                "capability": "high",
+            },
+        ),
+        "gpt-6.2-astra": (
+            "local-codex-gpt-6_2-astra",
+            {
+                "provider_tier": "LOCAL_CODEX",
+                "display_name": "GPT-6.2 Astra via Codex",
+                "api_model_id": "gpt-6.2-astra",
+                "max_input_tokens": 272_000,
+                "context_window": 272_000,
+                "thinking": ["high", "high", "low"],
+                "capability": "high",
+            },
+        ),
+    },
+    "local-agy": {
+        "gemini-4-hydrogen": (
+            "local-agy-gemini-4-hydrogen",
+            {
+                "provider_tier": "LOCAL_AGY",
+                "display_name": "Gemini 4 Hydrogen via agy",
+                "api_model_id": "gemini-4-hydrogen",
+                "max_input_tokens": 1_048_576,
+                "context_window": 1_048_576,
+                "supports_audio": True,
+                "supports_video": True,
+                "video_high_resolution_only": True,
+                "thinking": ["medium", "medium", "low"],
+                "capability": "medium",
+                "quota_pool": "AGY_HYDROGEN",
+            },
+        ),
+        "gemini-4-neon": (
+            "local-agy-gemini-4-neon",
+            {
+                "provider_tier": "LOCAL_AGY",
+                "display_name": "Gemini 4 Neon via agy",
+                "api_model_id": "gemini-4-neon",
+                "max_input_tokens": 1_048_576,
+                "context_window": 1_048_576,
+                "supports_audio": True,
+                "supports_video": True,
+                "video_high_resolution_only": True,
+                "thinking": ["medium", "medium", "low"],
+                "capability": "high",
+                "quota_pool": "AGY_NEON",
+            },
+        ),
+    },
+    "local-codebuddy": {
+        "glm-5.3": (
+            "local-codebuddy-glm-5_3",
+            {
+                "provider_tier": "LOCAL_CODEBUDDY",
+                "display_name": "GLM-5.3 via CodeBuddy",
+                "api_model_id": "glm-5.3",
+                "max_input_tokens": 300_000,
+                "max_output_tokens": 65_536,
+                "context_window": 300_000,
+                "thinking": ["high", "low", "low"],
+                "capability": "high",
+                "quota_pool": "CODEBUDDY_CREDITS",
+            },
+        ),
+        "hy4-preview": (
+            "local-codebuddy-hy4-preview",
+            {
+                "provider_tier": "LOCAL_CODEBUDDY",
+                "display_name": "Hunyuan 4 Preview via CodeBuddy",
+                "api_model_id": "hy4-preview",
+                "max_input_tokens": 300_000,
+                "max_output_tokens": 64_000,
+                "context_window": 300_000,
+                "thinking": ["high", "high", "low"],
+                "capability": "medium",
+                "quota_pool": "CODEBUDDY_CREDITS",
+            },
+        ),
+        "kimi-k3": (
+            "local-codebuddy-kimi-k3",
+            {
+                "provider_tier": "LOCAL_CODEBUDDY",
+                "display_name": "Kimi K3 via CodeBuddy",
+                "api_model_id": "kimi-k3",
+                "max_input_tokens": 256_000,
+                "max_output_tokens": 65_536,
+                "context_window": 256_000,
+                "thinking": ["high", "low", "low"],
+                "capability": "high",
+                "quota_pool": "CODEBUDDY_CREDITS",
+            },
+        ),
+        "minimax-m3": (
+            "local-codebuddy-minimax-m3",
+            {
+                "provider_tier": "LOCAL_CODEBUDDY",
+                "display_name": "MiniMax-M3 via CodeBuddy",
+                "api_model_id": "minimax-m3",
+                "max_input_tokens": 200_000,
+                "max_output_tokens": 65_536,
+                "context_window": 200_000,
+                "thinking": ["high", "low", "low"],
+                "capability": "medium",
+                "quota_pool": "CODEBUDDY_CREDITS",
+            },
         ),
     },
 }
@@ -157,7 +297,6 @@ LEGACY_LOCAL_MODELS: Mapping[str, Mapping[str, str]] = {
         "gemini-3.6-flash": "gemini-3.8-flash",
     },
     "local-codebuddy": {
-        "hy4-preview": "hy3",
         "deepseek-v4-flash": "deepseek-v4.1-flash",
     },
 }
@@ -263,6 +402,109 @@ CORRECTION_SECRET_NAMES: tuple[str, ...] = (
 
 #: The packaged catalog tier of each Gemini key pool.
 _GEMINI_TIERS: Mapping[str, str] = {"gemini-free": "GEMINI_FREE", "gemini-paid": "GEMINI_PAID"}
+
+#: Gemini API models Nonoka offers on top of FineSub 0.7.0's quality-locked
+#: `model_catalog.toml`. Each entry is `(fact_id, catalog_row)` in FineSub's
+#: `model_catalog.toml` schema, shown ahead of the packaged rows in each pool.
+#: `FineSubSettings.llm_context` emits a row into the derived
+#: `model_catalog.toml` only when a saved route selects it; `bridge.py` wires
+#: unclaimed Gemini rows as `gemini_rest` targets and enables `thinkingLevel`
+#: for Gemini 4 without modifying any locked engine file.
+GEMINI_OVERLAY_MODELS: Mapping[str, Mapping[str, tuple[str, Mapping[str, Any]]]] = {
+    "gemini-free": {
+        "gemini/gemini-4-hydrogen": (
+            "gemini-free-4-hydrogen",
+            {
+                "provider_tier": "GEMINI_FREE",
+                "display_name": "4 Hydrogen",
+                "api_model_id": "gemini/gemini-4-hydrogen",
+                "max_input_tokens": 194_000,
+                "supports_audio": True,
+                "supports_video": True,
+                "supports_native_search": False,
+                "thinking": ["medium", "medium", "low"],
+                "rpm": 5,
+                "tpm": 250_000,
+                "rpd": 20,
+                "is_free": True,
+                "capability": "medium",
+            },
+        ),
+    },
+    "gemini-paid": {
+        "gemini/gemini-4-hydrogen": (
+            "gemini-paid-4-hydrogen",
+            {
+                "provider_tier": "GEMINI_PAID",
+                "display_name": "4 Hydrogen",
+                "api_model_id": "gemini/gemini-4-hydrogen",
+                "max_input_tokens": 1_048_576,
+                "context_window": 1_048_576,
+                "supports_audio": True,
+                "supports_video": True,
+                "thinking": ["medium", "medium", "low"],
+                "rpm": 1000,
+                "capability": "medium",
+            },
+        ),
+        "gemini/gemini-4-neon": (
+            "gemini-paid-4-neon",
+            {
+                "provider_tier": "GEMINI_PAID",
+                "display_name": "4 Neon",
+                "api_model_id": "gemini/gemini-4-neon",
+                "max_input_tokens": 1_048_576,
+                "context_window": 1_048_576,
+                "supports_audio": True,
+                "supports_video": True,
+                "thinking": ["medium", "medium", "low"],
+                "rpm": 1000,
+                "capability": "high",
+            },
+        ),
+        "gemini/gemini-4-argon": (
+            "gemini-paid-4-argon",
+            {
+                "provider_tier": "GEMINI_PAID",
+                "display_name": "4 Argon",
+                "api_model_id": "gemini/gemini-4-argon",
+                "max_input_tokens": 1_048_576,
+                "context_window": 1_048_576,
+                "supports_audio": True,
+                "supports_video": True,
+                "thinking": ["medium", "medium", "low"],
+                "rpm": 1000,
+                "capability": "high",
+            },
+        ),
+        "gemini/gemini-4-carbon": (
+            "gemini-paid-4-carbon",
+            {
+                "provider_tier": "GEMINI_PAID",
+                "display_name": "4 Carbon",
+                "api_model_id": "gemini/gemini-4-carbon",
+                "max_input_tokens": 1_048_576,
+                "context_window": 1_048_576,
+                "supports_audio": True,
+                "supports_video": True,
+                "thinking": ["medium", "medium", "low"],
+                "rpm": 1000,
+                "capability": "high",
+            },
+        ),
+    },
+}
+
+#: Older packaged Gemini models removed from the desktop picker, and the model
+#: a saved route moves to. Their rows stay intact in FineSub's locked catalog
+#: for internal uses (Gemma search, media probe).
+LEGACY_GEMINI_MODELS: Mapping[str, Mapping[str, str]] = {
+    "gemini-free": {
+        "gemini/gemini-3.1-flash-lite": "gemini/gemini-3.5-flash-lite",
+        "gemini/gemini-2.5-flash": "gemini/gemini-3.5-flash-lite",
+        "gemini/gemma-4-31b-it": "gemini/gemini-3.5-flash-lite",
+    },
+}
 
 MODEL_PROVIDERS = frozenset(set(API_PROVIDER_BY_ID) | set(LOCAL_AGENT_PROVIDERS) | {CLOUD_PROVIDER_ID})
 MODEL_ROUTE_SPECS: tuple[dict[str, str], ...] = (
@@ -434,6 +676,19 @@ def _local_agent_targets(provider: str) -> tuple[tuple[Any, str], ...]:
         )
         for item in roster
     }
+    for api_model_id, (fact_id, row) in LOCAL_AGENT_OVERLAY_MODELS.get(provider, {}).items():
+        if api_model_id in by_model:
+            continue
+        by_model[api_model_id] = (
+            CatalogModel(
+                api_model_id=api_model_id,
+                display_name=str(row.get("display_name") or api_model_id),
+                supports_audio=bool(row.get("supports_audio", False)),
+                supports_video=bool(row.get("supports_video", False)),
+                supports_native_search=bool(row.get("supports_native_search", True)),
+            ),
+            fact_id,
+        )
     missing = [model for model in spec["models"] if model not in by_model]
     if missing:
         raise ValueError(
@@ -509,9 +764,12 @@ def _local_agent_detected(provider: str) -> bool:
 def _builtin_model_options() -> dict[str, list[dict[str, Any]]]:
     tiers = {"GEMINI_FREE": "gemini-free", "GEMINI_PAID": "gemini-paid"}
     result: dict[str, list[dict[str, Any]]] = {provider: [] for provider in MODEL_PROVIDERS}
-    for entry in engine_catalog().get("gemini") or ():
+    packaged_gemini = engine_catalog().get("gemini") or ()
+    for entry in packaged_gemini:
         provider = tiers.get(entry["provider_tier"])
         if provider is None or entry["self_reported"]:
+            continue
+        if entry["api_model_id"] in LEGACY_GEMINI_MODELS.get(provider, {}):
             continue
         result[provider].append(
             {
@@ -522,6 +780,21 @@ def _builtin_model_options() -> dict[str, list[dict[str, Any]]]:
                 "supportsNativeSearch": entry["supports_native_search"],
             }
         )
+    if packaged_gemini:
+        for provider, overlays in GEMINI_OVERLAY_MODELS.items():
+            existing = {item["id"] for item in result[provider]}
+            prepended = [
+                {
+                    "id": api_model_id,
+                    "label": str(row.get("display_name") or api_model_id),
+                    "supportsAudio": bool(row.get("supports_audio", False)),
+                    "supportsVideo": bool(row.get("supports_video", False)),
+                    "supportsNativeSearch": bool(row.get("supports_native_search", True)),
+                }
+                for api_model_id, (_fact_id, row) in overlays.items()
+                if api_model_id not in existing
+            ]
+            result[provider] = prepended + result[provider]
     result[CLOUD_PROVIDER_ID] = [
         {
             "id": model,
@@ -588,8 +861,14 @@ def migrate_model_config(config: Mapping[str, Any]) -> dict[str, str | None]:
         provider = LEGACY_PROVIDER_IDS.get(route["provider"], route["provider"])
         if provider != route["provider"]:
             updates[f"{prefix}_provider"] = provider
+        if not route["model"]:
+            continue
+        retired_gemini = LEGACY_GEMINI_MODELS.get(provider, {}).get(route["model"])
+        if retired_gemini is not None:
+            updates[f"{prefix}_model"] = retired_gemini
+            continue
         spec = CLOUD_PROVIDER if provider == CLOUD_PROVIDER_ID else LOCAL_AGENT_PROVIDERS.get(provider)
-        if spec is None or not route["model"]:
+        if spec is None:
             continue
         model = LEGACY_LOCAL_MODELS.get(provider, {}).get(route["model"], route["model"])
         if model not in spec["models"]:
@@ -1093,15 +1372,37 @@ class FineSubSettings:
                     "capability": spec.quality_score,
                 },
             })
+        overlay_models = {**LOCAL_AGENT_OVERLAY_MODELS, **GEMINI_OVERLAY_MODELS}
+        selected_overlays = sorted(
+            {
+                (route["provider"], route["model"])
+                for route in routes.values()
+                if route["model"] in overlay_models.get(route["provider"], {})
+            }
+        )
+        for provider, model in selected_overlays:
+            fact_id, row = overlay_models[provider][model]
+            endpoints.append({
+                "provider": provider,
+                "model": model,
+                "target": fact_id,
+                "row": dict(row),
+            })
 
         def pin(group: str, route: Mapping[str, str]) -> dict[str, Any]:
             provider = route.get("provider", "")
             entry: dict[str, Any] = {"group": group, "provider": provider, "model": route.get("model", "")}
             if provider in _GEMINI_TIERS:
                 entry.update(kind="gemini", tier=_GEMINI_TIERS[provider])
+                overlay = GEMINI_OVERLAY_MODELS.get(provider, {}).get(entry["model"])
+                if overlay is not None:
+                    entry["target"] = overlay[0]
             elif provider in LOCAL_AGENT_PROVIDERS:
                 spec = LOCAL_AGENT_PROVIDERS[provider]
                 entry.update(kind="local_agent", tier=spec["tier"], offered=list(spec["models"]))
+                overlay = LOCAL_AGENT_OVERLAY_MODELS.get(provider, {}).get(entry["model"])
+                if overlay is not None:
+                    entry["target"] = overlay[0]
             elif provider in _HTTP_TRANSPORTS:
                 entry.update(kind="http")
             return entry
