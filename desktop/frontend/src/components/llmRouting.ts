@@ -149,6 +149,7 @@ export function routeServesNativeSearch(routing: FineSubModelRoutingState, route
   const provider = routing.providers.find((item) => item.id === route.provider);
   if (!provider || !route.model) return false;
   if (provider.requiresKey ? !provider.keyConfigured : !provider.available) return false;
+  if (provider.mode === "input") return provider.supportsNativeSearch === true;
   return provider.models.find((item) => item.id === route.model)?.supportsNativeSearch === true;
 }
 

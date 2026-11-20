@@ -368,6 +368,65 @@ def _old_engine_reads(monkeypatch, environment: dict[str, str], names) -> dict[s
     return {name: [(entry.name, entry.key) for entry in api_keys.key_entries(name, dotenv)] for name in names}
 
 
+def test_derive_llm_files_serializes_nested_search_request_tables(tmp_path):
+    llm = {
+        "endpoints": [
+            {
+                "provider": "deepseek",
+                "model": "deepseek-flash",
+                "row": {
+                    "provider_tier": "NONOKA_DEEPSEEK",
+                    "provider_kind": "openai_compat",
+                    "base_url": "https://api.deepseek.com",
+                    "key_env": "DEEPSEEK_API_KEY",
+                    "display_name": "DeepSeek-V4.1-Flash",
+                    "api_model_id": "deepseek-flash",
+                    "max_input_tokens": 1_000_000,
+                    "max_output_tokens": 384_000,
+                    "supports_audio": False,
+                    "supports_video": False,
+                    "supports_native_search": True,
+                    "thinking": ["max", "high", "low"],
+                    "token_scale": 1.15,
+                    "capability": 70,
+                    "search_request": {"tools": [{"type": "deepseek_web_search"}]},
+                },
+            },
+            {
+                "provider": "aliyun-bailian",
+                "model": "qwen4-max",
+                "row": {
+                    "provider_tier": "NONOKA_DASHSCOPE",
+                    "provider_kind": "openai_compat",
+                    "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+                    "key_env": "DASHSCOPE_API_KEY",
+                    "display_name": "Qwen4-Max",
+                    "api_model_id": "qwen4-max",
+                    "max_input_tokens": 1_000_000,
+                    "max_output_tokens": 262_144,
+                    "supports_audio": False,
+                    "supports_video": False,
+                    "supports_native_search": True,
+                    "thinking": ["xhigh", "high", "low"],
+                    "token_scale": 1.15,
+                    "capability": 85,
+                    "search_request": {"enable_search": True},
+                },
+            },
+        ],
+        "routes": {},
+        "pins": [],
+    }
+    seen = apply(CORRECT, _correction(tmp_path, llm=llm, secrets={"DEEPSEEK_API_KEY": "sk-fake", "DASHSCOPE_API_KEY": "sk-fake"}))
+    models = tomllib.loads(seen["files"]["model_catalog.toml"])["models"]
+    assert models[bridge.custom_target("deepseek", "deepseek-flash")]["search_request"] == {
+        "tools": [{"type": "deepseek_web_search"}]
+    }
+    assert models[bridge.custom_target("aliyun-bailian", "qwen4-max")]["search_request"] == {
+        "enable_search": True
+    }
+
+
 @pytest.fixture(autouse=True)
 def _engine_caches():
     """The engine caches its config, catalog and routes per process; each in-process test starts and ends clean."""

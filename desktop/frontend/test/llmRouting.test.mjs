@@ -232,6 +232,25 @@ test("native search checks task overrides and model support instead of spare Gem
   assert.equal(routeServesNativeSearch(state, "correction"), false);
 });
 
+test("native search supports input-mode API providers that declare provider-level search", () => {
+  for (const id of ["deepseek", "anthropic", "aliyun-bailian"]) {
+    const provider = {
+      ...compat,
+      id,
+      customEndpoint: false,
+      keyConfigured: true,
+      supportsNativeSearch: true,
+    };
+    const state = { ...routing({ provider: id, model: "deepseek-flash" }), providers: [provider] };
+    assert.equal(routeServesNativeSearch(state, "correction"), true);
+    assert.equal(routeServesNativeSearch(state, "research"), true);
+    state.providers[0] = { ...provider, keyConfigured: false };
+    assert.equal(routeServesNativeSearch(state, "correction"), false);
+    state.providers[0] = { ...provider, supportsNativeSearch: false };
+    assert.equal(routeServesNativeSearch(state, "correction"), false);
+  }
+});
+
 test("the two Gemini pools fold into one provider row", () => {
   const rows = providerChoices([compat, gemini, geminiPaid, agy]);
   assert.deepEqual(rows.map((item) => item.id), ["openai-compat", "gemini", "local-agy"]);

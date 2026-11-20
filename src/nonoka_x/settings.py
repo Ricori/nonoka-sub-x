@@ -347,6 +347,23 @@ _HTTP_TRANSPORTS: Mapping[str, tuple[str, str]] = {
     "nonoka-cloud": ("openai_compat", "NONOKA_CLOUD"),
 }
 
+# Server-side single-turn web search payloads merged into the OpenAI-compat
+# `/chat/completions` body on `retrieval=native` (FineSub's `search_request`).
+# Providers whose search needs a multi-turn client tool-call loop (Kimi
+# `$web_search`) or a separate API surface (OpenAI Responses API) are left out,
+# as are arbitrary compat relays.
+_HTTP_NATIVE_SEARCH_REQUESTS: Mapping[str, Mapping[str, Any]] = {
+    "deepseek": {"tools": [{"type": "deepseek_web_search"}]},
+    "aliyun-bailian": {"enable_search": True},
+}
+# Official HTTP providers whose FineSub transport carries a server-side search
+# tool: Anthropic uses FineSub's built-in `ANTHROPIC_WEB_SEARCH_TOOL`
+# (`provider_kind=anthropic`, no `search_request`); the rest inject the
+# `search_request` fields above (`provider_kind=openai_compat`).
+_HTTP_NATIVE_SEARCH_PROVIDERS: frozenset[str] = frozenset(
+    {"anthropic", *_HTTP_NATIVE_SEARCH_REQUESTS}
+)
+
 # The free model a signed-in Nonoka Cloud account is served at `/v1/llm` on the
 # Tokyo server (nonoka-sub-cloud/tokyo_llm), an OpenAI-compatible relay that
 # checks the key against the backend. Nobody types its
@@ -1081,6 +1098,7 @@ class FineSubSettings:
                 "baseUrlName": "",
                 "customEndpoint": False,
                 "keyConfigured": False,
+                "supportsNativeSearch": False,
                 "groupId": "",
                 "groupLabel": "",
                 "tierLabel": "",
@@ -1105,6 +1123,9 @@ class FineSubSettings:
                     # its Base URL is part of configuring it.
                     "customEndpoint": spec["customEndpoint"],
                     "keyConfigured": bool(_entries(values.get(spec["keyName"], ""))),
+                    # Provider-level native search for `mode == "input"` API
+                    # providers; `select` providers declare it per model.
+                    "supportsNativeSearch": spec["id"] in _HTTP_NATIVE_SEARCH_PROVIDERS,
                     "groupId": spec.get("groupId", ""),
                     "groupLabel": spec.get("groupLabel", ""),
                     "tierLabel": spec.get("tierLabel", ""),
@@ -1128,6 +1149,7 @@ class FineSubSettings:
                     "baseUrlName": "",
                     "customEndpoint": False,
                     "keyConfigured": False,
+                    "supportsNativeSearch": False,
                     "groupId": "",
                     "groupLabel": "",
                     "tierLabel": "",
@@ -1352,25 +1374,29 @@ class FineSubSettings:
             # Audio and video stay false for every row here: the packaged HTTP
             # transports are text-only, and the catalog parser rejects a
             # compat-kind row that claims media support.
+            search_request = _HTTP_NATIVE_SEARCH_REQUESTS.get(provider)
+            row: dict[str, Any] = {
+                "provider_tier": tier,
+                "provider_kind": kind,
+                "base_url": base_url,
+                "key_env": key_env,
+                "display_name": spec.display_name or model,
+                "api_model_id": model,
+                "max_input_tokens": spec.max_input_tokens,
+                "max_output_tokens": spec.max_output_tokens,
+                "supports_audio": False,
+                "supports_video": False,
+                "supports_native_search": provider in _HTTP_NATIVE_SEARCH_PROVIDERS,
+                "thinking": _catalog_thinking(spec.thinking),
+                "token_scale": spec.token_scale,
+                "capability": spec.quality_score,
+            }
+            if search_request is not None:
+                row["search_request"] = search_request
             endpoints.append({
                 "provider": provider,
                 "model": model,
-                "row": {
-                    "provider_tier": tier,
-                    "provider_kind": kind,
-                    "base_url": base_url,
-                    "key_env": key_env,
-                    "display_name": spec.display_name or model,
-                    "api_model_id": model,
-                    "max_input_tokens": spec.max_input_tokens,
-                    "max_output_tokens": spec.max_output_tokens,
-                    "supports_audio": False,
-                    "supports_video": False,
-                    "supports_native_search": False,
-                    "thinking": _catalog_thinking(spec.thinking),
-                    "token_scale": spec.token_scale,
-                    "capability": spec.quality_score,
-                },
+                "row": row,
             })
         overlay_models = {**LOCAL_AGENT_OVERLAY_MODELS, **GEMINI_OVERLAY_MODELS}
         selected_overlays = sorted(

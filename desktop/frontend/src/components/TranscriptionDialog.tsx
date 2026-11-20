@@ -90,7 +90,7 @@ const MAX_KNOWLEDGE_SUBJECTS = 8;
 
 const LLM_KEY_HINT = "尚未配置模型提供商：请到设置里选择提供商与全局模型并保存，否则无法进行 LLM 纠错、翻译与知识处理。";
 const RETRIEVAL_KEY_HINT = "需要 Exa、Tavily 或 Gemini 免费池 Key 才能进行本地联网检索。";
-const NATIVE_SEARCH_HINT = "请在设置里将「纠错与翻译」和「背景准备与资料研究」设为支持原生检索的模型，并配置对应 Key 或本地 CLI；可使用本地 Codex、CodeBuddy、Antigravity 的 Gemini 模型或支持搜索的 Gemini API 模型。";
+const NATIVE_SEARCH_HINT = "请在设置里将「纠错与翻译」和「背景准备与资料研究」设为支持原生检索的模型，并配置对应 Key 或本地 CLI。";
 
 // 说话人分离。每次打开对话框都从关闭开始，不沿用上次的选择。
 // 与 `nonoka_x.model_install.DIARIZATION_MODEL_IDS` 一致：两个模型都就绪才能分离。

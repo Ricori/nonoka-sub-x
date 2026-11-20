@@ -41,6 +41,7 @@ import json
 import os
 from collections.abc import Mapping
 from pathlib import Path
+import re
 import sys
 from typing import Any
 
@@ -449,9 +450,21 @@ def _write_atomic(path: Path, text: str) -> None:
     os.replace(partial, path)
 
 
-def _toml_value(value: Any) -> str:
-    """One TOML value. JSON's string and array forms are valid TOML; a bool is `true` / `false` in both."""
+_TOML_BARE_KEY = re.compile(r"^[A-Za-z0-9_-]+$")
 
+
+def _toml_key(key: str) -> str:
+    return key if _TOML_BARE_KEY.fullmatch(key) else json.dumps(key, ensure_ascii=False)
+
+
+def _toml_value(value: Any) -> str:
+    """One TOML value: primitives, arrays, and inline tables."""
+
+    if isinstance(value, Mapping):
+        inner = ", ".join(f"{_toml_key(str(k))} = {_toml_value(v)}" for k, v in value.items())
+        return "{" + inner + "}"
+    if isinstance(value, (list, tuple)):
+        return "[" + ", ".join(_toml_value(item) for item in value) + "]"
     return json.dumps(value, ensure_ascii=False)
 
 

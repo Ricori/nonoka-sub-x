@@ -1440,6 +1440,76 @@ class FineSubSettingsTests(unittest.TestCase):
                     {"LLM_DEFAULT_PROVIDER": "openai", "LLM_DEFAULT_MODEL": "gpt-custom"}
                 )
 
+    def test_http_providers_with_native_search_wire_search_tool_and_pass_capability_check(self) -> None:
+        from finesub.llm.routing.capabilities import validate_profile_capabilities
+        from finesub.llm.routing.config import role_config_for
+        from finesub.llm.routing.model_catalog import default_model_catalog
+        from finesub.llm.routing.model_router import ModelRouter
+        from finesub.llm.routing.model_routes import default_model_routes
+        from finesub.llm.routing.profiles import resolve_profile
+
+        cases = (
+            ("deepseek", "DEEPSEEK_API_KEY", "deepseek-flash", "search_request", {"tools": [{"type": "deepseek_web_search"}]}),
+            ("deepseek", "DEEPSEEK_API_KEY", "deepseek-v4-pro", "search_request", {"tools": [{"type": "deepseek_web_search"}]}),
+            ("aliyun-bailian", "DASHSCOPE_API_KEY", "qwen4-max", "search_request", {"enable_search": True}),
+            ("anthropic", "ANTHROPIC_API_KEY", "claude-sonnet-5", "web_search", {}),
+        )
+        for provider, key_name, model, expected_tool, expected_body in cases:
+            with self.subTest(provider=provider, model=model), tempfile.TemporaryDirectory() as temporary, patch.dict(
+                os.environ, {"FINESUB_ENV_PROTECT": "0"}, clear=False
+            ):
+                settings = FineSubSettings(temporary)
+                settings.bind_environment()
+                snapshot = settings.update_keys({
+                    key_name: f"{provider}-secret",
+                    "LLM_DEFAULT_PROVIDER": provider,
+                    "LLM_DEFAULT_MODEL": model,
+                })
+                provider_state = next(
+                    item for item in snapshot["modelRouting"]["providers"] if item["id"] == provider
+                )
+                self.assertTrue(provider_state["supportsNativeSearch"])
+                _derive(temporary)
+                _reset_engine_caches()
+                target_id = custom_target(provider, model)
+                entry = next(item for item in default_model_catalog() if item.fact_id == target_id)
+                self.assertTrue(entry.supports_native_search)
+                self.assertEqual(entry.search_request_body, expected_body)
+                routes = default_model_routes()
+                self.assertEqual(routes.targets[target_id].native_search_tool, expected_tool)
+                for group_id in ("correction-text", "research"):
+                    plan = ModelRouter().plan(role_config_for(group_id, "quality"), native_search=True)
+                    self.assertEqual(plan.candidates[0].endpoint.native_search_tool, expected_tool)
+                validate_profile_capabilities(resolve_profile("text", "native", "quality", "parallel"))
+
+        for provider, key_name, model, extra in (
+            ("openai", "OPENAI_API_KEY", "gpt-6.2-sol", {}),
+            ("kimi", "KIMI_API_KEY", "kimi-k3", {}),
+            ("openai-compat", "OPENAI_COMPAT_API_KEY", "deepseek-flash", {"OPENAI_COMPAT_BASE_URL": "https://relay.example/v1"}),
+            ("anthropic-compat", "ANTHROPIC_COMPAT_API_KEY", "claude-sonnet-5", {"ANTHROPIC_COMPAT_BASE_URL": "https://relay.example"}),
+        ):
+            with self.subTest(unsupported=provider), tempfile.TemporaryDirectory() as temporary, patch.dict(
+                os.environ, {"FINESUB_ENV_PROTECT": "0"}, clear=False
+            ):
+                settings = FineSubSettings(temporary)
+                settings.bind_environment()
+                snapshot = settings.update_keys({
+                    key_name: f"{provider}-secret",
+                    **extra,
+                    "LLM_DEFAULT_PROVIDER": provider,
+                    "LLM_DEFAULT_MODEL": model,
+                })
+                provider_state = next(
+                    item for item in snapshot["modelRouting"]["providers"] if item["id"] == provider
+                )
+                self.assertFalse(provider_state["supportsNativeSearch"])
+                _derive(temporary)
+                _reset_engine_caches()
+                target_id = custom_target(provider, model)
+                entry = next(item for item in default_model_catalog() if item.fact_id == target_id)
+                self.assertFalse(entry.supports_native_search)
+                self.assertEqual(entry.search_request_body, {})
+
 
 if __name__ == "__main__":
     unittest.main()
