@@ -9,9 +9,16 @@ import type { AssStyle, Lang } from './types.ts';
 /** 一条 Style 行拆成「字段名 → 原文」，保留 AssStyle 里没有的字段（副色/描边样式/编码等） */
 export type StyleFields = Record<string, string>;
 
+/** 样式表注释里附带的扩展属性（标准 ASS 23 字段表达不了的项，例如行间距） */
+export type StyleExt = Record<string, string>;
+
+/** 样式扩展注释行前缀：以 `;` 开头，所有 ASS 播放器与 libass 自动忽略 */
+export const STYLE_EXT_PREFIX = "; NonokaStyleExt:";
+
 export interface Sheet {
   order: string[];
   fields: Record<string, StyleFields>;
+  ext: Record<string, StyleExt>;
   playRes: { x: number; y: number } | null;
 }
 
@@ -31,12 +38,38 @@ export const FIELD_FALLBACK: Record<string, string> = {
   bold: "0", italic: "0", underline: "0", strikeout: "0",
   scalex: "100", scaley: "100", spacing: "0", angle: "0",
   borderstyle: "1", outline: "2", shadow: "2", alignment: "2",
-  marginl: "10", marginr: "10", marginv: "30", encoding: "1",
+  marginl: "12", marginr: "12", marginv: "30", encoding: "1",
 };
 
-/** 只解析 Style 行 + PlayRes；Format 行决定字段顺序，缺省用标准 23 字段 */
+/** 解析一条 `; NonokaStyleExt: 样式名,linespacing=16` 注释行；格式不合则返回 null */
+export function parseStyleExtLine(raw: string): { name: string; ext: StyleExt } | null {
+  const m = /^\s*;\s*nonokastyleext\s*:(.*)$/i.exec(raw);
+  if (!m) return null;
+  const parts = m[1].split(",").map(s => s.trim()).filter(Boolean);
+  const name = parts.shift() || "";
+  if (!name) return null;
+  const ext: StyleExt = {};
+  for (const item of parts) {
+    const eq = item.indexOf("=");
+    if (eq <= 0) continue;
+    const key = item.slice(0, eq).trim().toLowerCase();
+    const val = item.slice(eq + 1).trim();
+    if (key && val) ext[key] = val;
+  }
+  return Object.keys(ext).length ? { name, ext } : null;
+}
+
+/** 拼出一条样式扩展注释行；没有任何非默认扩展属性时返回 null */
+export function formatStyleExtLine(name: string, ext: StyleExt | undefined): string | null {
+  if (!ext) return null;
+  const entries = Object.entries(ext).filter(([k, v]) => k && v && !(k === "linespacing" && Number(v) <= 0));
+  if (!entries.length) return null;
+  return `${STYLE_EXT_PREFIX} ${name},${entries.map(([k, v]) => `${k}=${v}`).join(",")}`;
+}
+
+/** 只解析 Style 行 + 扩展注释 + PlayRes；Format 行决定字段顺序，缺省用标准 23 字段 */
 export function parseSheet(text: string): Sheet {
-  const sheet: Sheet = { order: [], fields: {}, playRes: null };
+  const sheet: Sheet = { order: [], fields: {}, ext: {}, playRes: null };
   let fmtKeys = ASS_FMT_DEFAULT;
   for (const raw of (text || "").split(/\r?\n/)) {
     const line = raw.trim(), low = line.toLowerCase();
@@ -47,6 +80,11 @@ export function parseSheet(text: string): Sheet {
     }
     if (low.startsWith("playresy:")) {
       sheet.playRes = { x: sheet.playRes?.x || 1920, y: +line.slice(9).trim() || 1080 };
+      continue;
+    }
+    const ext = parseStyleExtLine(line);
+    if (ext) {
+      sheet.ext[ext.name] = { ...sheet.ext[ext.name], ...ext.ext };
       continue;
     }
     if (low.startsWith("format:")) { fmtKeys = low.slice(7).split(",").map(s => s.trim()); continue; }
@@ -65,7 +103,8 @@ export function parseSheet(text: string): Sheet {
 const num = (fields: StyleFields, key: string, fallback: number) =>
   +(fields[key] ?? FIELD_FALLBACK[key]) || fallback;
 
-function toStyle(name: string, f: StyleFields): AssStyle {
+function toStyle(name: string, f: StyleFields, ext?: StyleExt): AssStyle {
+  const lineSpacing = Math.max(0, Number(ext?.linespacing) || 0);
   return {
     name,
     font: f.fontname ?? FIELD_FALLBACK.fontname,
@@ -75,6 +114,7 @@ function toStyle(name: string, f: StyleFields): AssStyle {
     c4: f.backcolour ?? FIELD_FALLBACK.backcolour,
     bold: num(f, "bold", 0), italic: num(f, "italic", 0),
     scx: num(f, "scalex", 100), scy: num(f, "scaley", 100), sp: num(f, "spacing", 0),
+    lineSpacing,
     outline: num(f, "outline", 0), shadow: num(f, "shadow", 0),
     align: num(f, "alignment", 2),
     ml: num(f, "marginl", 0), mr: num(f, "marginr", 0), mv: num(f, "marginv", 0),
@@ -98,7 +138,7 @@ export function composeSheet(userText: string): StyleSheet {
   for (const name of [...builtin.order, ...user.order]) {
     if (styleMap[name]) continue;
     const fields = user.fields[name] ?? builtin.fields[name];
-    styleMap[name] = toStyle(name, fields);
+    styleMap[name] = toStyle(name, fields, user.ext[name] ?? builtin.ext[name]);
     styleNames.push(name);
     lines.push(styleLine(name, fields));
   }
@@ -121,18 +161,27 @@ export function mergeStyleText(current: string, incoming: string) {
   const updated: string[] = [];
   const lines: string[] = [];
   const seen = new Set<string>();
+  const extLines: string[] = [];
   for (const name of [...cur.order, ...inc.order]) {
     if (seen.has(name)) continue;
     seen.add(name);
     const from = inc.fields[name];
     if (from) (cur.fields[name] ? updated : added).push(name);
     lines.push(styleLine(name, from ?? cur.fields[name]));
+    const extLine = formatStyleExtLine(name, from ? inc.ext[name] : cur.ext[name]);
+    if (extLine) extLines.push(extLine);
+  }
+  // 内置样式（origin/cn）可能只挂了扩展注释而没写 Style 行，合并时也保留
+  for (const name of new Set([...Object.keys(cur.ext), ...Object.keys(inc.ext)])) {
+    if (seen.has(name)) continue;
+    const extLine = formatStyleExtLine(name, inc.ext[name] ?? cur.ext[name]);
+    if (extLine) extLines.push(extLine);
   }
   // 重排会把 Style 行以外的东西丢掉，PlayRes 是其中唯一还起作用的，单独接回去
   const info = cur.playRes
     ? `[Script Info]\nPlayResX: ${cur.playRes.x}\nPlayResY: ${cur.playRes.y}\n\n`
     : "";
-  const text = info + ["[V4+ Styles]", ASS_STYLE_FORMAT, ...lines, ""].join("\n");
+  const text = info + ["[V4+ Styles]", ASS_STYLE_FORMAT, ...lines, ...extLines, ""].join("\n");
   return { text, added, updated };
 }
 

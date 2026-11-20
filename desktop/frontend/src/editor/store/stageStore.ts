@@ -8,11 +8,11 @@ import type { Seg } from '../types';
  */
 export interface DragKind {
   kind: "move" | "resize" | "rotate";
-  /** resize 的柄：nw / n / ne / e / se / s / sw / w */
+  /** resize 的柄：左右调宽（w / e） */
   handle?: Handle;
 }
 
-export type Handle = "nw" | "n" | "ne" | "e" | "se" | "s" | "sw" | "w";
+export type Handle = "e" | "w";
 
 interface StageState {
   sel: LaneRef | null;

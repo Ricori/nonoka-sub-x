@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
-  cloneStyleText, patchStyleText, removeStyleText, safeStyleName, styleFieldsOf, uniqueStyleName,
+  cloneStyleText, patchStyleText, removeStyleText, safeStyleName, styleFieldsOf,
+  styleLineSpacingOf, uniqueStyleName,
 } from "../src/subtitles/styleEdit.ts";
 
 test("删样式只摘掉那一条 Style 行，其余字节不动", () => {
@@ -178,6 +179,29 @@ test("cloneStyleText copies every field under the new name", () => {
   for (const key of Object.keys(from)) {
     if (key !== "name") assert.equal(to[key], from[key], "克隆丢了 " + key);
   }
+});
+
+test("linespacing is persisted as an ASS comment, cloned, and removed cleanly", () => {
+  const { text: withGap, normalised } = patchStyleText(SHEET, "优花", { linespacing: 18 });
+  assert.equal(normalised, false, "写扩展行间距不该触发规范化");
+  assert.equal(styleLineSpacingOf(withGap, "优花"), 18);
+  assert.equal(composeSheet(withGap).styleMap["优花"].lineSpacing, 18);
+  assert.equal(styleLineOf(withGap, "优花"), styleLineOf(SHEET, "优花"), "标准 23 列 Style 行保持不变");
+  assert.ok(withGap.includes("; NonokaStyleExt: 优花,linespacing=18"));
+
+  // 克隆样式时一并带走扩展行间距
+  const { text: cloned } = cloneStyleText(withGap, "优花", "优花 副本");
+  assert.equal(styleLineSpacingOf(cloned, "优花 副本"), 18);
+
+  // 删除样式时同步删掉扩展注释
+  const removed = removeStyleText(cloned, "优花 副本");
+  assert.equal(styleLineSpacingOf(removed, "优花 副本"), 0);
+  assert.ok(!removed.includes("优花 副本"));
+
+  // 行间距调回 0 时清除注释行，保持样式表干净
+  const { text: reset } = patchStyleText(withGap, "优花", { linespacing: 0 });
+  assert.equal(styleLineSpacingOf(reset, "优花"), 0);
+  assert.ok(!reset.includes("NonokaStyleExt"));
 });
 
 test("uniqueStyleName avoids built-ins, existing names and stray commas", () => {

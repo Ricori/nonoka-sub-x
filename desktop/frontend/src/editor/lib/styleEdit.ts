@@ -3,7 +3,7 @@ import { lanesUsingStyle, segsUsingStyle } from '../../subtitles/build';
 import type { StyleBinding } from '../../subtitles/build';
 import { DEFAULT_EFFECT_TRACK_ID } from '../../subtitles/effects';
 import {
-  cloneStyleText, patchStyleText, removeStyleText, styleFieldsOf, uniqueStyleName,
+  cloneStyleText, patchStyleText, removeStyleText, styleFieldsOf, styleLineSpacingOf, uniqueStyleName,
 } from '../../subtitles/styleEdit';
 import type { StylePatch } from '../../subtitles/styleEdit';
 import { getStyleNames, getStyleSheet, resolveStyle, setStyleSheet } from '../ass';
@@ -56,6 +56,9 @@ export function patchStyleFromPanel(name: string, patch: StylePatch) {
 
 /** 某个样式当前的 23 字段原文（面板读值走它，绕开有损的 AssStyle） */
 export const styleFields = (name: string) => styleFieldsOf(docStore.get().styles, name);
+
+/** 某个样式当前的行间距（PlayRes 像素，>= 0） */
+export const styleLineSpacing = (name: string) => styleLineSpacingOf(docStore.get().styles, name);
 
 /**
  * 哪些 lane 正用着这个样式。大于一条就意味着拖一个会动一片，

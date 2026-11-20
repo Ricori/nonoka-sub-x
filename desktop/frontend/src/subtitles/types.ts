@@ -78,6 +78,8 @@ export interface AssStyle {
   scx: number;
   scy: number;
   sp: number;
+  /** 多行之间的额外行间距（PlayRes 像素，>= 0）；不在标准 ASS 23 字段内，存为样式表注释扩展 */
+  lineSpacing?: number;
   outline: number;
   shadow: number;
   align: number;

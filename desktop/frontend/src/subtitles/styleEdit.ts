@@ -1,6 +1,8 @@
 import { ASS_FMT_DEFAULT, ASS_STYLE_FORMAT, BUILTIN_ASS_STYLES } from './constants.ts';
-import { FIELD_FALLBACK, parseSheet, styleLine } from './styles.ts';
-import type { StyleFields } from './styles.ts';
+import {
+  FIELD_FALLBACK, formatStyleExtLine, parseSheet, parseStyleExtLine, styleLine,
+} from './styles.ts';
+import type { StyleExt, StyleFields } from './styles.ts';
 
 // 按字段改样式表。图形化面板和预览里的拖动都走这里，所以口径有两条硬要求：
 //
@@ -76,7 +78,16 @@ export function styleFieldsOf(sheetText: string, name: string): StyleFields {
   return out;
 }
 
-/** 规范化兜底：整份按标准 Format 重排（会丢注释，调用方要提示用户） */
+/** 不在标准 ASS 23 字段里的扩展属性键名（存为 `; NonokaStyleExt:` 注释） */
+const EXT_KEYS = new Set(["linespacing"]);
+
+/** 读取某样式的行间距（PlayRes 像素，>= 0，默认 0） */
+export function styleLineSpacingOf(sheetText: string, name: string): number {
+  const value = Number(parseSheet(sheetText).ext[name]?.linespacing);
+  return Number.isFinite(value) && value > 0 ? value : 0;
+}
+
+/** 规范化兜底：整份按标准 Format 重排（会丢普通注释，但保留 NonokaStyleExt 扩展注释） */
 function normalised(sheetText: string, name: string, patch: StylePatch): string {
   const sheet = parseSheet(sheetText);
   const order = sheet.fields[name] ? sheet.order : [...sheet.order, name];
@@ -86,54 +97,46 @@ function normalised(sheetText: string, name: string, patch: StylePatch): string 
   const lines = order.map(n => styleLine(n, n === name
     ? applyPatch(styleFieldsOf(sheetText, name), patch)
     : sheet.fields[n]));
-  return info + ["[V4+ Styles]", ASS_STYLE_FORMAT, ...lines, ""].join("\n");
+  const extLines = Object.entries(sheet.ext)
+    .map(([styleName, ext]) => formatStyleExtLine(styleName, ext))
+    .filter((line): line is string => !!line);
+  return info + ["[V4+ Styles]", ASS_STYLE_FORMAT, ...lines, ...extLines, ""].join("\n");
 }
 
-/**
- * 把 patch 写回样式表原文。命中就原地改那一行，其余字节不动；样式表里没有这个名字
- * 就现造一条（底子取写死的 origin/cn 或 Aegisub 默认值）插在 [Events] 之前。
- *
- * 文件自己的 Format 行装不下要改的字段时只能整份重排，此时 normalised 为 true，
- * 调用方应当告诉用户「样式表已按标准 Format 规范化」——那一步会丢注释。
- */
-export function patchStyleText(sheetText: string, rawName: string, patch: StylePatch):
-  { text: string; normalised: boolean } {
-  const name = safeStyleName(rawName);
-  if (!name) return { text: sheetText, normalised: false };
-
+/** 原地更新/插入/删除某样式的 `; NonokaStyleExt:` 注释行，不碰其余字节 */
+function patchStyleExt(sheetText: string, name: string, extPatch: StylePatch): string {
   const lines = (sheetText || "").split("\n");
   const limit = eventsAt(lines);
-  const keys = formatKeysBefore(lines, limit);
-  const patchKeys = Object.keys(patch).map(k => k.toLowerCase());
+  const cur: StyleExt = { ...parseSheet(sheetText).ext[name] };
+  for (const [rawKey, rawVal] of Object.entries(extPatch)) {
+    const key = rawKey.toLowerCase();
+    if (key === "linespacing") {
+      const n = Math.max(0, Math.round(Number(rawVal) || 0));
+      if (n > 0) cur.linespacing = String(n);
+      else delete cur.linespacing;
+    }
+  }
+  const formatted = formatStyleExtLine(name, cur);
 
-  // 文件的 Format 列不全，这一行表达不了要改的字段：只能整份按标准 Format 重排
-  if (patchKeys.some(k => !keys.includes(k))) {
-    return { text: normalised(sheetText, name, patch), normalised: true };
+  const matches: number[] = [];
+  for (let i = 0; i < limit; i++) {
+    const parsed = parseStyleExtLine(lines[i]);
+    if (parsed?.name === name) matches.push(i);
+  }
+  if (!formatted) {
+    if (!matches.length) return sheetText;
+    const drop = new Set(matches);
+    return lines.filter((_, i) => !drop.has(i)).join("\n");
+  }
+  if (matches.length) {
+    lines[matches[0]] = formatted;
+    const drop = new Set(matches.slice(1));
+    return (drop.size ? lines.filter((_, i) => !drop.has(i)) : lines).join("\n");
   }
 
-  const emit = (fields: StyleFields) =>
-    "Style: " + keys.map(k => (k === "name" ? name : fields[k] ?? FIELD_FALLBACK[k])).join(",");
-
-  const at = findStyleLine(lines, limit, name);
-  if (at >= 0) {
-    const parts = styleParts(lines[at]);
-    const fields: StyleFields = {};
-    keys.forEach((k, i) => { if (i < parts.length) fields[k] = parts[i]; });
-    lines[at] = emit(applyPatch(fields, patch));
-    return { text: lines.join("\n"), normalised: false };
-  }
-
-  // 没有这个样式：拿写死的 origin/cn 或默认值当底子现造一条
-  const seed: StyleFields = {};
-  const base = builtinOf(name);
-  for (const k of keys) seed[k] = base?.[k] ?? FIELD_FALLBACK[k] ?? "";
-  const line = emit(applyPatch(seed, patch));
-
-  // 插在 [Events] 之前的最后一条 Style 行之后；没有就跟在 Format 行后面；
-  // 连 [V4+ Styles] 段都没有就把整段补出来
   let insertAt = -1;
   for (let i = limit - 1; i >= 0; i--) {
-    if (isStyle(lines[i])) { insertAt = i + 1; break; }
+    if (isStyle(lines[i]) || parseStyleExtLine(lines[i])) { insertAt = i + 1; break; }
   }
   if (insertAt < 0) {
     for (let i = limit - 1; i >= 0; i--) {
@@ -141,30 +144,117 @@ export function patchStyleText(sheetText: string, rawName: string, patch: StyleP
     }
   }
   if (insertAt < 0) {
-    const head = ["[V4+ Styles]", ASS_STYLE_FORMAT, line];
-    // 段前留一个空行，除非文件本来就是空的或已经以空行收尾
+    const head = ["[V4+ Styles]", ASS_STYLE_FORMAT, formatted];
     const pad = limit > 0 && lines[limit - 1].trim() ? [""] : [];
     lines.splice(limit, 0, ...pad, ...head);
   } else {
-    lines.splice(insertAt, 0, line);
+    lines.splice(insertAt, 0, formatted);
   }
-  return { text: lines.join("\n"), normalised: false };
+  return lines.join("\n");
 }
 
-/** 复制一条样式（同一份字段，换个名字）。已存在同名则原样返回 */
+/**
+ * 把 patch 写回样式表原文。命中就原地改那一行，其余字节不动；样式表里没有这个名字
+ * 就现造一条（底子取写死的 origin/cn 或 Aegisub 默认值）插在 [Events] 之前。
+ *
+ * 扩展属性（例如 linespacing）单独写进 `; NonokaStyleExt:` 注释行，不污染标准 23 列，
+ * 也不会因为 Format 列不全触发整份重排。
+ *
+ * 文件自己的 Format 行装不下要改的标准字段时只能整份重排，此时 normalised 为 true，
+ * 调用方应当告诉用户「样式表已按标准 Format 规范化」——那一步会丢普通注释。
+ */
+export function patchStyleText(sheetText: string, rawName: string, patch: StylePatch):
+  { text: string; normalised: boolean } {
+  const name = safeStyleName(rawName);
+  if (!name) return { text: sheetText, normalised: false };
+
+  const assPatch: StylePatch = {};
+  const extPatch: StylePatch = {};
+  for (const [key, value] of Object.entries(patch)) {
+    if (EXT_KEYS.has(key.toLowerCase())) extPatch[key] = value;
+    else assPatch[key] = value;
+  }
+
+  let text = sheetText;
+  let didNormalise = false;
+
+  const patchKeys = Object.keys(assPatch).map(k => k.toLowerCase());
+  if (patchKeys.length) {
+    const lines = (text || "").split("\n");
+    const limit = eventsAt(lines);
+    const keys = formatKeysBefore(lines, limit);
+
+    // 文件的 Format 列不全，这一行表达不了要改的字段：只能整份按标准 Format 重排
+    if (patchKeys.some(k => !keys.includes(k))) {
+      text = normalised(text, name, assPatch);
+      didNormalise = true;
+    } else {
+      const emit = (fields: StyleFields) =>
+        "Style: " + keys.map(k => (k === "name" ? name : fields[k] ?? FIELD_FALLBACK[k])).join(",");
+
+      const at = findStyleLine(lines, limit, name);
+      if (at >= 0) {
+        const parts = styleParts(lines[at]);
+        const fields: StyleFields = {};
+        keys.forEach((k, i) => { if (i < parts.length) fields[k] = parts[i]; });
+        lines[at] = emit(applyPatch(fields, assPatch));
+        text = lines.join("\n");
+      } else {
+        // 没有这个样式：拿写死的 origin/cn 或默认值当底子现造一条
+        const seed: StyleFields = {};
+        const base = builtinOf(name);
+        for (const k of keys) seed[k] = base?.[k] ?? FIELD_FALLBACK[k] ?? "";
+        const line = emit(applyPatch(seed, assPatch));
+
+        // 插在 [Events] 之前的最后一条 Style 行之后；没有就跟在 Format 行后面；
+        // 连 [V4+ Styles] 段都没有就把整段补出来
+        let insertAt = -1;
+        for (let i = limit - 1; i >= 0; i--) {
+          if (isStyle(lines[i])) { insertAt = i + 1; break; }
+        }
+        if (insertAt < 0) {
+          for (let i = limit - 1; i >= 0; i--) {
+            if (isFormat(lines[i]) || isStylesHead(lines[i])) { insertAt = i + 1; break; }
+          }
+        }
+        if (insertAt < 0) {
+          const head = ["[V4+ Styles]", ASS_STYLE_FORMAT, line];
+          // 段前留一个空行，除非文件本来就是空的或已经以空行收尾
+          const pad = limit > 0 && lines[limit - 1].trim() ? [""] : [];
+          lines.splice(limit, 0, ...pad, ...head);
+        } else {
+          lines.splice(insertAt, 0, line);
+        }
+        text = lines.join("\n");
+      }
+    }
+  }
+
+  if (Object.keys(extPatch).length) text = patchStyleExt(text, name, extPatch);
+  return { text, normalised: didNormalise };
+}
+
+/** 复制一条样式（同一份字段与扩展属性，换个名字）。已存在同名则原样返回 */
 export function cloneStyleText(sheetText: string, from: string, to: string):
   { text: string; normalised: boolean } {
   const fields = styleFieldsOf(sheetText, from);
   const patch: StylePatch = {};
   for (const key of ASS_FMT_DEFAULT) if (key !== "name") patch[key] = fields[key];
+  const lineSpacing = styleLineSpacingOf(sheetText, from);
+  if (lineSpacing > 0) patch.linespacing = lineSpacing;
   return patchStyleText(sheetText, to, patch);
 }
 
-/** 删掉某个样式的 Style 行（同名的都删），其余字节不动 */
+/** 删掉某个样式的 Style 行及其扩展注释（同名的都删），其余字节不动 */
 export function removeStyleText(sheetText: string, name: string): string {
   const lines = (sheetText || "").split("\n");
   const limit = eventsAt(lines);
-  return lines.filter((line, i) => i >= limit || !isStyle(line) || styleParts(line)[0] !== name).join("\n");
+  return lines.filter((line, i) => {
+    if (i >= limit) return true;
+    if (isStyle(line) && styleParts(line)[0] === name) return false;
+    if (parseStyleExtLine(line)?.name === name) return false;
+    return true;
+  }).join("\n");
 }
 
 /** 不与 taken 里任何名字相撞的新名字：speaker1 → speaker1 2 → speaker1 3 … */

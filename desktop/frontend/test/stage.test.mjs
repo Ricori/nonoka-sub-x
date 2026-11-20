@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { getStyleSheet, setStyleSheet } from "../src/editor/ass.ts";
+import { buildAss } from "../src/editor/lib/assBuild.ts";
 import { docStore } from "../src/editor/store/docStore.ts";
 import { playStore } from "../src/editor/store/playStore.ts";
 import { selectLane, stageStore } from "../src/editor/store/stageStore.ts";
@@ -18,9 +19,9 @@ import { parseSheet } from "../src/subtitles/styles.ts";
 const SHEET = [
   "[V4+ Styles]",
   "Style: origin,方正准圆_GBK,70,&H00FFF9FD,&HF0000000,&H00EF9320,&H30633306,"
-  + "0,0,0,0,100,100,7,0,1,2,2,8,10,10,30,1",
+  + "0,0,0,0,100,100,7,0,1,2,2,8,12,12,30,1",
   "Style: cn,方正准圆_GBK,70,&H00FFF9FD,&HF0000000,&H00EF9320,&H30633306,"
-  + "0,0,0,0,100,100,7,0,1,2,2,2,10,10,30,1",
+  + "0,0,0,0,100,100,7,0,1,2,2,2,12,12,30,1",
 ].join("\n");
 
 const lane = (style) => ({ hidden: false, style });
@@ -72,17 +73,22 @@ test("nothing is reported outside the cue, and gaps fall back to a band", () => 
   assert.ok(band, "空隙里也要能继续选中这条轨");
   assert.equal(band.seg, null);
   assert.equal(band.text, "");
-  // 带宽就是可用带：左右各让出一个边距
-  assert.equal(band.block.left, 10);
-  assert.equal(band.block.width, getStyleSheet().playRes.x - 20);
+  // 带宽就是可用带：左右各让出 12px 安全边距
+  assert.equal(band.block.left, 12);
+  assert.equal(band.block.width, getStyleSheet().playRes.x - 24);
 });
 
-test("clicking inside a box finds it, and overlaps resolve to the top layer", () => {
+test("clicking inside a box hits the text area, leaving empty margins free for play/pause", () => {
   load();
   const boxes = subtitleBoxesAt(2);
   const [zh] = boxes;
+  // 容器默认是视频宽减去左右 12px 安全边距
+  assert.equal(zh.block.left, 12);
+  assert.equal(zh.block.width, getStyleSheet().playRes.x - 24);
   const centre = { x: zh.block.left + zh.block.width / 2, y: zh.block.top + zh.block.height / 2 };
   assert.equal(hitTest(boxes, centre.x, centre.y).lang, "zh");
+  // 点在容器左右空白处不命中字幕，留给舞台点击播放/暂停
+  assert.equal(hitTest(boxes, 30, centre.y), null, "短句两侧空白不该被全宽容器吞掉");
   assert.equal(hitTest(boxes, 5, 5), null, "画面角落没有字幕");
   // 把 JP 钉到 CN 的位置上。用上对齐 + 大 MarginV 而不是下对齐——同为下对齐会被碰撞
   // 避让推开（见下一条），跨组才会真重叠
@@ -92,6 +98,43 @@ test("clicking inside a box finds it, and overlaps resolve to the top layer", ()
   assert.equal(hit.lang, "ja", "重叠时取最上层");
   // Alt 轮换：给上一次命中的下标，就换到下面那条
   assert.equal(hitTest(stacked, centre.x, centre.y, hit.index).lang, "zh");
+});
+
+test("narrowing a style's horizontal margins wraps the text, grows box height, and emits \\N in ASS", () => {
+  const longText = "明明早就已经决定好了要说的话";
+  load({ segs: [{ t0: 1, t1: 3, ja: "こんにちは", zh: longText }] });
+  const wide = subtitleBoxesAt(2).find(b => b.lang === "zh");
+  assert.equal(wide.block.lines.length, 1);
+  assert.equal(wide.block.height, 70);
+  assert.ok(buildAss().includes(",," + longText + "\n"), "足够宽时不插入多余换行");
+
+  patchStyle("cn", { marginl: 600, marginr: 600 });   // 宽 = 720，放不下 14 个全角字
+  const narrow = subtitleBoxesAt(2).find(b => b.lang === "zh");
+  assert.equal(narrow.block.width, 720);
+  assert.ok(narrow.block.lines.length >= 2, "收窄后应当自动换行");
+  assert.equal(narrow.block.height, narrow.block.lines.length * 70, "框高随折行行数自动调整");
+  const expectedWrapped = narrow.block.lines.map(l => l.text).join("\\N");
+  assert.ok(buildAss().includes(",," + expectedWrapped + "\n"), "ASS 事件应输出与选中框一致的 \\N 折行");
+
+  // 拉宽回去后立即恢复单行，原始句子文本未被破坏
+  patchStyle("cn", { marginl: 12, marginr: 12 });
+  assert.equal(docStore.get().segs[0].zh, longText);
+  assert.ok(buildAss().includes(",," + longText + "\n"), "拉宽后应恢复单行");
+});
+
+test("linespacing expands multi-line box height and emits transparent ASS spacer lines", () => {
+  load({ segs: [{ t0: 1, t1: 3, ja: "単行", zh: "第一行\n第二行" }] });
+  patchStyle("cn", { linespacing: 22 });
+  const zh = subtitleBoxesAt(2).find(b => b.lang === "zh");
+  assert.equal(zh.block.height, 2 * 70 + 22);
+  const ass = buildAss();
+  assert.ok(
+    ass.includes(",,第一行\\N{\\fs22\\fscy100\\bord0\\shad0\\alpha&HFF&}\\h\\N{\\r}第二行\n"),
+    "多行字幕应插入全透明占位行撑开行距",
+  );
+  // 单行字幕（即使设了行间距）也不插入占位行
+  patchStyle("origin", { linespacing: 22 });
+  assert.ok(buildAss().includes(",,単行\n"), "单行字幕不该插入占位行");
 });
 
 test("two bottom-aligned lanes are stacked, not drawn on top of each other", () => {
@@ -105,12 +148,14 @@ test("two bottom-aligned lanes are stacked, not drawn on top of each other", () 
   assert.equal(ja.block.top + ja.block.height, zh.block.top, "顶到贴着前一条的上沿");
 });
 
-test("nudging writes the move back into this video's style sheet", () => {
+test("nudging writes the move back into this video's style sheet without changing box width", () => {
   load();
+  patchStyle("cn", { marginl: 100, marginr: 100 });
   selectLane({ trackId: "default", lang: "zh" });
   nudgeSelection(12, -20);
-  // CN 居中 + 下对齐：水平靠左右边距的差值表达，垂直加到 MarginV 上
-  assert.equal(Number(field("cn", "marginl")) - Number(field("cn", "marginr")), 24);
+  // 水平平移保持容器宽度不变（ml + mr = 200），垂直加到 MarginV 上
+  assert.equal(field("cn", "marginl"), "112");
+  assert.equal(field("cn", "marginr"), "88");
   assert.equal(field("cn", "marginv"), "50");
   // 别的样式一个字节都不该动
   assert.equal(field("origin", "marginv"), "30");
@@ -134,15 +179,16 @@ test("a nudge really moves the box, and Ctrl+Z puts it back", () => {
 
 test("a vertically centred style refuses the vertical half of a nudge", () => {
   load();
-  patchStyle("cn", { alignment: 5 });
+  patchStyle("cn", { alignment: 5, marginl: 100, marginr: 100 });
   selectLane({ trackId: "default", lang: "zh" });
   const before = subtitleBoxesAt(2).find(b => b.lang === "zh").block.top;
   nudgeSelection(0, 30);
   assert.equal(subtitleBoxesAt(2).find(b => b.lang === "zh").block.top, before);
   assert.equal(stageStore.get().hint, "middle-v", "得说一声为什么没动");
-  // 水平方向照常
+  // 水平方向照常，同时保持容器宽度不变
   nudgeSelection(25, 0);
-  assert.equal(Number(field("cn", "marginl")) - Number(field("cn", "marginr")), 50);
+  assert.equal(field("cn", "marginl"), "125");
+  assert.equal(field("cn", "marginr"), "75");
 });
 
 test("Angle is read from the raw fields, not from the lossy AssStyle", () => {

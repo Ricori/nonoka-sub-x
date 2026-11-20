@@ -405,15 +405,40 @@ export function segsUsingStyle(source: SubtitleSource, name: string): number {
   return count;
 }
 
+/**
+ * 按样式文本框宽度（[MarginL, PlayResX - MarginR]）自动折行后转成 ASS 文本。
+ *
+ * 不能指望 libass 自己折行：JASSUB 的 WASM 构建未带 libunibreak，遇到没有空格的
+ * 中日文整句根本不会折行；各平台 ffmpeg 的 libass 编法也不统一。统一由 layoutBlock
+ * 在拼 ASS 时插入 \N，配合 WrapStyle: 2，保证预览画面、选中框、逐字特效与导出压片
+ * 四处折行完全一致，且原始句子文本本身保持干净、拉宽框即刻还原。
+ */
+function wrappedAssText(raw: string, style: AssStyle | undefined, sheet: StyleSheet): string {
+  const trimmed = (raw || "").trim();
+  if (!trimmed || !style) return assTx(raw);
+  const block = layoutBlock(trimmed, style, sheet);
+  const gap = Math.max(0, Math.round(style.lineSpacing || 0));
+  if (block.lines.length <= 1 || gap <= 0) {
+    return assTx(block.lines.map(line => line.text).join("\n"));
+  }
+  // 用全透明、字号等于 gap 的占位行撑开行距；{\r} 放在换行后的下一行开头，
+  // 避免 libass 在占位行上恢复原字号把占位行撑高。单条 Dialogue 保留了碰撞避让、旋转与淡入淡出。
+  const sep = `\\N{\\fs${gap}\\fscy100\\bord0\\shad0\\alpha&HFF&}\\h\\N{\\r}`;
+  return block.lines
+    .map(line => (line.text || "").replace(/\{/g, "(").replace(/\}/g, ")"))
+    .join(sep);
+}
+
 export function buildAssFrom(source: SubtitleSource, sheet: StyleSheet): string {
   const evs: string[] = [];
   for (const L of outputLinesOf(source, sheet)) {
     const generator = generatorOf(L);
+    const prefix = transformTag(L);
     for (const e of cuesOf(L, sheet)) {
       const style = sheet.styleMap[e.style];
       const built = generator && style
         ? GENERATORS[generator.templateId](L, { ...e.segment, t0: e.t0, t1: e.t1 }, style, sheet, generator)
-        : [{ layer: 0, t0: e.t0, t1: e.t1, text: e.text }];
+        : [{ layer: 0, t0: e.t0, t1: e.t1, text: prefix + wrappedAssText(e.segment[L.lang], style, sheet) }];
       for (const event of built)
         evs.push(`Dialogue: ${event.layer},${assTs(event.t0)},${assTs(event.t1)},${e.style},${assNm(L.name)},0,0,0,,${event.text}`);
     }

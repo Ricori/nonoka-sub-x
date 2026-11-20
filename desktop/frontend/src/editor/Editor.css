@@ -671,70 +671,31 @@ body.ctx-open .professional-editor .topbar {
   pointer-events: none;
 }
 
+/* 左右调宽柄：竖向胶囊条 + 外扩透明热区，贴到画面边缘时也容易抓住 */
 .professional-editor .sel-handle {
   position: absolute;
-  width: 10px;
-  height: 10px;
-  margin: -5px 0 0 -5px;
-  border-radius: 2px;
+  top: 50%;
+  width: 6px;
+  height: 22px;
+  margin: -11px 0 0 -3px;
+  border-radius: 3px;
   background: var(--accent);
   border: 1px solid var(--on-accent);
   pointer-events: auto;
 }
 
-.professional-editor .sel-handle.h-nw {
-  left: 0;
-  top: 0;
-}
-
-.professional-editor .sel-handle.h-n {
-  left: 50%;
-  top: 0;
-}
-
-.professional-editor .sel-handle.h-ne {
-  left: 100%;
-  top: 0;
+.professional-editor .sel-handle::before {
+  content: "";
+  position: absolute;
+  inset: -6px;
 }
 
 .professional-editor .sel-handle.h-e {
   left: 100%;
-  top: 50%;
-}
-
-.professional-editor .sel-handle.h-se {
-  left: 100%;
-  top: 100%;
-}
-
-.professional-editor .sel-handle.h-s {
-  left: 50%;
-  top: 100%;
-}
-
-.professional-editor .sel-handle.h-sw {
-  left: 0;
-  top: 100%;
 }
 
 .professional-editor .sel-handle.h-w {
   left: 0;
-  top: 50%;
-}
-
-/* 边柄改 ScaleX/ScaleY，做成扁的，跟改字号的角柄区分开 */
-.professional-editor .sel-handle.h-n,
-.professional-editor .sel-handle.h-s {
-  width: 18px;
-  height: 6px;
-  margin: -3px 0 0 -9px;
-}
-
-.professional-editor .sel-handle.h-e,
-.professional-editor .sel-handle.h-w {
-  width: 6px;
-  height: 18px;
-  margin: -9px 0 0 -3px;
 }
 
 .professional-editor .sel-rotate {

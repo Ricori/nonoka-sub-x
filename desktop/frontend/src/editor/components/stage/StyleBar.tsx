@@ -9,7 +9,7 @@ import { boxForLane } from '../../lib/stageHit';
 import type { LaneRef } from '../../lib/stageHit';
 import {
   cloneStyleForLane, cloneStyleForSeg, detachSegStyle, followTrackStyle, materializeMissingStyle,
-  patchStyleFromPanel, segsUsingStyleCount, stylesInUse, styleFields,
+  patchStyleFromPanel, segsUsingStyleCount, stylesInUse, styleFields, styleLineSpacing,
 } from '../../lib/styleEdit';
 import { DEFAULT_EFFECT_TRACK_ID } from '../../../subtitles/effects';
 import { bindStyle } from '../../lib/edits';
@@ -63,6 +63,7 @@ export function StyleBar({ lane }: { lane: LaneRef }) {
   const box = trackId ? boxForLane({ trackId, lang }) : null;
   const name = box?.styleName ?? "";
   const fields = useMemo(() => (name ? styleFields(name) : null), [name, styles, version]);
+  const lineSpacing = useMemo(() => (name ? styleLineSpacing(name) : 0), [name, styles, version]);
 
   /** 这份样式表里出现过的所有颜色，给取色器当调色板 */
   const palette = useMemo(() => {
@@ -206,6 +207,8 @@ export function StyleBar({ lane }: { lane: LaneRef }) {
         </PropRow>
         <SliderField label="字号" value={num(fields, "fontsize", 70)} min={8} max={400} rangeMax={200}
           onInput={value => set({ fontsize: value })} />
+        <SliderField label="行间距" value={lineSpacing} min={0} max={200} rangeMax={80}
+          onInput={value => set({ linespacing: value })} />
         <PropRow label="样式">
           <span className="sd-chips">
             <ToggleChip label="B" title="粗体" on={flag(fields, "bold")}

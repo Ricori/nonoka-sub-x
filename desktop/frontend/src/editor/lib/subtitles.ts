@@ -1,5 +1,6 @@
 import { ASS_EVENTS_HEAD, ASS_SCRIPT_INFO } from '../constants';
 import { getPlayRes } from '../ass';
+import { bumpDoc } from '../store/docStore';
 import { playStore } from '../store/playStore';
 import { buildAss, usedFonts } from './assBuild';
 import { loadFontMetrics } from '../../subtitles/metrics';
@@ -127,8 +128,12 @@ export async function refreshFontMetrics() {
     loadFontMetrics(fonts, bundledFontUrl).catch(() => false),
     loadSystemFonts(fonts).catch(() => false),
   ]);
-  if (metricsChanged) syncSubs();
-  else if (fontsAdded) drawSubs();
+  if (metricsChanged) {
+    bumpDoc();   // 字体度量就绪后让选中框也按新折行重算
+    syncSubs();
+  } else if (fontsAdded) {
+    drawSubs();
+  }
 }
 
 /** 样式里用到的系统字体交给 libass；返回是否真加了新字体（加了要重画） */

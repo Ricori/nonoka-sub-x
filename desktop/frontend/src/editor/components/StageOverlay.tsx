@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef } from 'react';
 import { shallowEqual } from '../../home/lib/createStore';
 import { getPlayRes, getStyleSheet } from '../ass';
-import { anchorOf, beginDrag, nudgeSelection, styleAngle } from '../lib/stageDrag';
+import { anchorOf, beginDrag, nudgeSelection, openInlineEditForBox, styleAngle } from '../lib/stageDrag';
 import { boxForLane } from '../lib/stageHit';
 import type { SubtitleBox } from '../lib/stageHit';
 import { setSegText } from '../lib/edits';
@@ -23,8 +23,7 @@ import { hGroupOf, ignoresMarginV } from '../../subtitles/layout';
  * 框一律用百分比定位：拉窗口、拖侧栏时它自动跟着舞台走，不用重新测量。
  */
 
-const HANDLES: Handle[] = ["nw", "n", "ne", "e", "se", "s", "sw", "w"];
-const CORNER: Record<string, string> = { nw: "nwse", ne: "nesw", se: "nwse", sw: "nesw", n: "ns", s: "ns", e: "ew", w: "ew" };
+const HANDLES: Handle[] = ["w", "e"];
 
 const pct = (value: number, span: number) => (value / span) * 100 + "%";
 
@@ -135,21 +134,27 @@ export function StageOverlay({ stageRef }: { stageRef: React.RefObject<HTMLDivEl
             : "center",
         }}
         onPointerDown={grab("move")}
-        onClick={event => event.stopPropagation()}>
+        onClick={event => event.stopPropagation()}
+        onDoubleClick={event => {
+          event.stopPropagation();
+          if (openInlineEditForBox(box)) event.preventDefault();
+        }}>
 
         <span className="sel-tag">
           {box.trackName} · {laneNames()[box.lang]} · {box.styleName}
         </span>
 
         <span className="sel-rotate" title="拖动旋转（按住 Shift 吸附 15°）"
-          onPointerDown={grab("rotate")} onClick={event => event.stopPropagation()} />
+          onPointerDown={grab("rotate")} onClick={event => event.stopPropagation()}
+          onDoubleClick={event => event.stopPropagation()} />
 
         {HANDLES.map(handle => (
           <span key={handle} className={"sel-handle h-" + handle}
-            style={{ cursor: CORNER[handle] + "-resize" }}
-            title={handle.length === 2 ? "拖动改字号" : handle === "e" || handle === "w" ? "拖动改横向缩放" : "拖动改纵向缩放"}
+            style={{ cursor: "ew-resize" }}
+            title="拖动调整文本框宽度（按住 Alt 取消吸附）"
             onPointerDown={grab("resize", handle)}
-            onClick={event => event.stopPropagation()} />
+            onClick={event => event.stopPropagation()}
+            onDoubleClick={event => event.stopPropagation()} />
         ))}
       </div>
 
@@ -193,10 +198,10 @@ function InlineEditor({ box, seg, stage }: { box: SubtitleBox; seg: Seg; stage: 
     el.style.height = el.scrollHeight + "px";
   }, [value, fontPx]);
 
-  const minW = 32;   // 百分比：短句也留出能打字的宽度
-  const width = Math.min(96, Math.max(minW, (box.block.width / X) * 100 + 6));
-  const centre = ((box.block.left + box.block.width / 2) / X) * 100;
-  const left = Math.min(100 - width - 2, Math.max(2, centre - width / 2));
+  const width = Math.min(100, Math.max(12, (box.block.width / X) * 100));
+  const left = Math.min(100 - width, Math.max(0, (box.block.left / X) * 100));
+  const hGroup = hGroupOf(style?.align ?? 2);
+  const textAlign = hGroup === 1 ? "left" : hGroup === 3 ? "right" : "center";
   // 下半屏的字幕：框贴着字的下沿往上长、提示放上面，否则提示会被舞台的 overflow 裁掉
   const lower = box.block.top + box.block.height / 2 > Y / 2;
   const place = lower
@@ -211,7 +216,11 @@ function InlineEditor({ box, seg, stage }: { box: SubtitleBox; seg: Seg; stage: 
       onDoubleClick={event => event.stopPropagation()}>
       <textarea ref={ref} rows={1} spellCheck={false} value={value}
         className={box.lang === "ja" ? "ja" : undefined}
-        style={{ fontSize: fontPx + "px", fontFamily: style?.font ? `"${style.font}", var(--font-ui)` : undefined }}
+        style={{
+          fontSize: fontPx + "px",
+          fontFamily: style?.font ? `"${style.font}", var(--font-ui)` : undefined,
+          textAlign,
+        }}
         onFocus={armPending}
         onBlur={close}
         onChange={event => { commitPending(); setSegText(box.lang, event.target.value); }}

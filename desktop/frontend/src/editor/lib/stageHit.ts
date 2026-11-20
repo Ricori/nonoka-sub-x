@@ -70,6 +70,7 @@ const styleAlign = (box: SubtitleBox) => getStyleSheet().styleMap[box.styleName]
 
 function shift(box: SubtitleBox, dy: number) {
   box.block.top += dy;
+  box.block.content.top += dy;
   for (const line of box.block.lines) line.top += dy;
   box.shifted += dy;
 }
@@ -136,15 +137,17 @@ export function boxForLane(lane: LaneRef, t = playStore.get().t): SubtitleBox | 
   };
 }
 
+/** 命中测试只查文字紧致区域（content），避免默认全宽文本框拦截空白处的播放/暂停点击 */
 const inside = (box: SubtitleBox, x: number, y: number) =>
-  x >= box.block.left && x <= box.block.left + box.block.width
-  && y >= box.block.top && y <= box.block.top + box.block.height;
+  x >= box.block.content.left && x <= box.block.content.left + box.block.content.width
+  && y >= box.block.content.top && y <= box.block.content.top + box.block.content.height;
 
 /**
  * 点中了哪一块。命中多个时默认取最上层（数组末尾），`cycleFrom` 给的是上一次命中的
  * 下标，用来在重叠的块之间轮换（Alt+点击）。
  *
- * 命中测试用整块的外接矩形而不是逐行：短行之间留空档会让人觉得点不中。
+ * 命中测试用文字区域的外接矩形而不是整个容器宽：点击文字两侧空白处照常切播放/暂停，
+ * 命中选中后再展开完整宽度的文本框。
  */
 export function hitTest(boxes: SubtitleBox[], x: number, y: number, cycleFrom?: number): SubtitleBox | null {
   const hits = boxes.filter(box => inside(box, x, y));
