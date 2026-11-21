@@ -29,6 +29,7 @@ the same request, so the algorithms receive the same arguments
 
 from __future__ import annotations
 
+import gc
 import hashlib
 import json
 import logging
@@ -328,6 +329,310 @@ def mute_separator_onnx_warning() -> None:
             logger.addFilter(_SEPARATOR_FILTER)
 
 
+_MEMORY_POLICY_ATTR = "_nonoka_verification_memory_policy"
+#: Minimum free physical VRAM (GiB) required before placing Qwen3-ASR-0.6B bf16
+#: weights (~1.5 GiB) on CUDA. Below this on Windows WDDM, `model.to("cuda")`
+#: does not raise OOM and instead spills weights into shared system RAM over
+#: PCIe, stalling autoregressive decoding for tens of minutes.
+_MIN_REFEREE_WEIGHTS_VRAM_GIB = 1.6
+_CPU_EAGER_MAX_CLIPS = 4
+_CUDA_BATCH_VRAM_THRESHOLDS: tuple[tuple[float, int], ...] = (
+    (2.5, 16),
+    (1.5, 8),
+    (0.9, 4),
+    (0.45, 2),
+)
+
+
+def _cuda_free_gib(device: Any = None) -> float | None:
+    try:
+        import torch
+
+        if not torch.cuda.is_available():
+            return None
+        free_bytes, _total_bytes = (
+            torch.cuda.mem_get_info(device) if device is not None else torch.cuda.mem_get_info()
+        )
+        return float(free_bytes) / float(1024**3)
+    except Exception:  # noqa: BLE001 - unavailable CUDA query falls back cleanly
+        return None
+
+
+def _release_cuda_cache() -> None:
+    gc.collect()
+    try:
+        import torch
+
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+    except Exception:  # noqa: BLE001 - best-effort release
+        pass
+
+
+def _is_cuda_oom(exc: BaseException) -> bool:
+    name = type(exc).__name__
+    if name == "OutOfMemoryError":
+        return True
+    return isinstance(exc, RuntimeError) and "out of memory" in str(exc).lower()
+
+
+def _eager_batch_limit(default_max_clips: int, *, device: Any, free_gib: float | None) -> int:
+    """Safe clip count per eager batch given device and post-load free physical VRAM."""
+
+    cap = max(1, int(default_max_clips))
+    if not str(device).strip().lower().startswith("cuda"):
+        return min(cap, _CPU_EAGER_MAX_CLIPS)
+    if free_gib is None:
+        return cap
+    for threshold_gib, limit in _CUDA_BATCH_VRAM_THRESHOLDS:
+        if free_gib >= threshold_gib:
+            return min(cap, limit)
+    return 1
+
+
+def _install_whisper_pool_release() -> None:
+    """Release CTranslate2 Whisper weights/allocator when `FwRefineModelPool.close()` runs.
+
+    In locked `vad_asr_stage.run_vad_asr`, `with model_pool.lease() as model:`
+    leaves `model` bound in the function's local frame after the `with` block
+    exits. Clearing `self._idle` alone therefore never drops the refcount of
+    `RefinedWhisperModel` to zero, keeping 2.1-3.9 GiB of Whisper VRAM resident
+    throughout the Qwen verification pass. Explicitly unloading and detaching
+    `item.model` inside `close()` frees CTranslate2's GPU memory immediately.
+    """
+
+    try:
+        from finesub.speech.recognition import fw_refine_backend
+    except Exception:  # noqa: BLE001 - optional in stubbed / vocal-only tests
+        return
+    pool_cls = getattr(fw_refine_backend, "FwRefineModelPool", None)
+    original_close = getattr(pool_cls, "close", None)
+    if pool_cls is None or original_close is None or getattr(original_close, _MEMORY_POLICY_ATTR, False):
+        return
+
+    def close(self: Any) -> None:
+        with self._condition:
+            models, self._idle, self._loaded = self._idle, [], 0
+        for item in models:
+            encoder_cache = getattr(item, "_encoder_cache", None)
+            if hasattr(encoder_cache, "clear"):
+                try:
+                    encoder_cache.clear()
+                except Exception:  # noqa: BLE001
+                    pass
+            ct2_model = getattr(item, "model", None)
+            if ct2_model is not None:
+                unload = getattr(ct2_model, "unload_model", None)
+                if callable(unload):
+                    try:
+                        unload(to_cpu=False)
+                    except Exception:  # noqa: BLE001
+                        pass
+                try:
+                    item.model = None
+                except Exception:  # noqa: BLE001
+                    pass
+        models.clear()
+        _release_cuda_cache()
+
+    setattr(close, _MEMORY_POLICY_ATTR, True)
+    pool_cls.close = close
+
+
+def _wrap_audio_encoder_per_clip(model: Any) -> None:
+    """Encode multi-clip batches clip-by-clip with trailing zero-chunk trimming.
+
+    `Qwen3ASREncoder` processes each clip independently, so encoding one clip
+    at a time (mirroring `FixedShapeDecoder._prefill_embeddings`) produces the
+    same features while cutting the eager conv front-end peak from +1.73 GiB
+    (at B=16) down to ~0.12 GiB and skipping padded silence chunks.
+    """
+
+    inner = getattr(model, "model", None)
+    original_get = getattr(inner, "get_audio_features", None)
+    if inner is None or original_get is None or getattr(original_get, _MEMORY_POLICY_ATTR, False):
+        return
+
+    def get_audio_features(
+        input_features: Any,
+        input_features_mask: Any,
+        **kwargs: Any,
+    ) -> Any:
+        if (
+            input_features is None
+            or input_features_mask is None
+            or getattr(input_features, "ndim", 0) < 3
+            or int(input_features.shape[0]) <= 1
+            or kwargs.get("output_attentions")
+            or kwargs.get("output_hidden_states")
+            or kwargs.get("cu_seqlens") is not None
+        ):
+            return original_get(input_features, input_features_mask, **kwargs)
+
+        import torch
+
+        audio_tower = getattr(inner, "audio_tower", None)
+        n_window = int(getattr(audio_tower, "n_window", 50) or 50)
+        chunk_len = n_window * 2
+        padded_len = int(input_features.shape[-1])
+        return_dict = kwargs.get("return_dict", True)
+        call_kwargs = dict(kwargs)
+        call_kwargs["return_dict"] = True
+
+        hidden_parts = []
+        pooler_parts = []
+        for idx in range(int(input_features.shape[0])):
+            mask_row = input_features_mask[idx]
+            nonzero = mask_row.nonzero(as_tuple=False)
+            if nonzero.numel() > 0 and chunk_len > 0:
+                last_valid = int(nonzero[-1].item()) + 1
+                trimmed = ((last_valid + chunk_len - 1) // chunk_len) * chunk_len
+                trimmed = min(max(trimmed, chunk_len), padded_len)
+            else:
+                trimmed = padded_len
+            part = original_get(
+                input_features[idx : idx + 1, :, :trimmed],
+                input_features_mask[idx : idx + 1, :trimmed],
+                **call_kwargs,
+            )
+            hidden_parts.append(part.last_hidden_state)
+            pooler_parts.append(part.pooler_output)
+
+        last_hidden_state = torch.cat(hidden_parts, dim=0)
+        pooler_output = torch.cat(pooler_parts, dim=0)
+        if not return_dict:
+            return (last_hidden_state, pooler_output)
+        from transformers.modeling_outputs import BaseModelOutputWithPooling
+
+        return BaseModelOutputWithPooling(
+            last_hidden_state=last_hidden_state,
+            pooler_output=pooler_output,
+        )
+
+    setattr(get_audio_features, _MEMORY_POLICY_ATTR, True)
+    inner.get_audio_features = get_audio_features
+
+
+def _generate_batch_with_oom_split(referee: Any, clips: Any, batch: list[int], budget: int) -> list[Any]:
+    pending: list[list[int]] = [list(batch)]
+    out: list[Any] = []
+    while pending:
+        chunk = pending.pop(0)
+        inputs = referee._transcription_inputs([clips[i] for i in chunk], referee._processor)
+        try:
+            replies = referee._generate(inputs, budget, compiled=False)
+        except Exception as exc:
+            del inputs
+            if len(chunk) <= 1 or not _is_cuda_oom(exc):
+                raise
+            _release_cuda_cache()
+            mid = len(chunk) // 2
+            pending[0:0] = [chunk[:mid], chunk[mid:]]
+            continue
+        del inputs
+        out.extend(replies)
+    return out
+
+
+def _install_qwen_referee_memory_policy() -> None:
+    """Keep eager Qwen3-ASR verification inside physical VRAM without editing locked files."""
+
+    try:
+        from finesub.speech.verification import qwen_referee
+    except Exception:  # noqa: BLE001 - optional in stubbed / vocal-only tests
+        return
+    referee_cls = getattr(qwen_referee, "QwenReferee", None)
+    if referee_cls is None:
+        return
+
+    original_load = getattr(referee_cls, "_load_model", None)
+    if original_load is not None and not getattr(original_load, _MEMORY_POLICY_ATTR, False):
+        def _load_model(self: Any) -> Any:
+            requested = str(getattr(self, "_device", "cpu"))
+            if requested.startswith("cuda"):
+                _release_cuda_cache()
+                free_gib = _cuda_free_gib(requested)
+                if free_gib is not None and free_gib < _MIN_REFEREE_WEIGHTS_VRAM_GIB:
+                    try:
+                        from finesub.reporting import current_reporter
+
+                        current_reporter().warning(
+                            "cpu-fallback",
+                            f"Qwen referee falling back to CPU (only {free_gib:.2f} GiB free VRAM)",
+                            impact="第二模型校验会明显变慢",
+                        )
+                    except Exception:  # noqa: BLE001
+                        pass
+                    self._device = "cpu"
+                    try:
+                        model = original_load(self)
+                    finally:
+                        self._device = requested
+                    _wrap_audio_encoder_per_clip(model)
+                    return model
+            model = original_load(self)
+            _wrap_audio_encoder_per_clip(model)
+            return model
+
+        setattr(_load_model, _MEMORY_POLICY_ATTR, True)
+        referee_cls._load_model = _load_model
+
+    original_transcribe = getattr(referee_cls, "transcribe_batch", None)
+    if original_transcribe is not None and not getattr(original_transcribe, _MEMORY_POLICY_ATTR, False):
+        def transcribe_batch(
+            self: Any,
+            clips: Any,
+            *,
+            max_new_tokens: int | None = None,
+            on_batch: Any = None,
+        ) -> list[tuple[str, str | None]]:
+            if not clips:
+                return []
+            accel_off = (
+                getattr(self, "_accel", "auto") == "off"
+                or bool(getattr(self, "_accel_failed", False))
+                or os.environ.get(qwen_referee.ACCEL_ENV, "").strip() == "0"
+            )
+            if not accel_off:
+                return original_transcribe(
+                    self, clips, max_new_tokens=max_new_tokens, on_batch=on_batch
+                )
+            budget = int(max_new_tokens or qwen_referee.MAX_NEW_TOKENS)
+            results: list[tuple[str, str | None]] = [("", None)] * len(clips)
+            lengths = [len(clip) for clip in clips]
+            with self._lock, qwen_referee.phase_timing.phase("qwen.infer"):
+                self._ensure_model()
+                device = getattr(self._model, "device", self._device)
+                if str(device).startswith("cuda"):
+                    _release_cuda_cache()
+                    free_gib = _cuda_free_gib(device)
+                else:
+                    free_gib = None
+                max_clips = _eager_batch_limit(
+                    qwen_referee.BATCH_CLIPS, device=device, free_gib=free_gib
+                )
+                batches = qwen_referee.plan_batches(lengths, max_clips=max_clips)
+                done = 0
+                for batch in batches:
+                    replies = _generate_batch_with_oom_split(self, clips, batch, budget)
+                    for index, reply in zip(batch, replies):
+                        results[index] = reply
+                    done += len(batch)
+                    if on_batch is not None:
+                        on_batch(done, len(clips))
+            return results
+
+        setattr(transcribe_batch, _MEMORY_POLICY_ATTR, True)
+        referee_cls.transcribe_batch = transcribe_batch
+
+
+def install_verification_memory_policy() -> None:
+    """Install idempotent Whisper-release and eager-Qwen VRAM guards without touching locked FineSub files."""
+
+    _install_whisper_pool_release()
+    _install_qwen_referee_memory_policy()
+
+
 def transcribe(job: Mapping[str, Any], reporter: Any) -> dict[str, Any]:
     """Run the job under `reporter` (FineSub's protocol); the core's `TranscriptionResult` as JSON."""
 
@@ -339,6 +644,8 @@ def transcribe(job: Mapping[str, Any], reporter: Any) -> dict[str, Any]:
         os.environ["CUDA_VISIBLE_DEVICES"] = plan.cuda_visible_devices
     Path(plan.keywords["output_path"]).parent.mkdir(parents=True, exist_ok=True)
     mute_separator_onnx_warning()
+    if plan.stage in ("aligned", "stable"):
+        install_verification_memory_policy()
 
     from finesub.reporting import quieted_libraries, reporting_to
     from finesub.stages import run_transcription

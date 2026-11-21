@@ -453,5 +453,175 @@ class TranscribeTests(unittest.TestCase):
         self.assertIs(seen[0], reporter)
 
 
+class VerificationMemoryPolicyTests(unittest.TestCase):
+    """Whisper-pool release and eager Qwen3-ASR VRAM guards in `finesub_transcribe.engine`."""
+
+    def test_eager_batch_limit_scales_with_free_vram_and_caps_cpu(self) -> None:
+        self.assertEqual(engine_module._eager_batch_limit(16, device="cuda:0", free_gib=None), 16)
+        self.assertEqual(engine_module._eager_batch_limit(16, device="cuda:0", free_gib=3.0), 16)
+        self.assertEqual(engine_module._eager_batch_limit(16, device="cuda:0", free_gib=2.0), 8)
+        self.assertEqual(engine_module._eager_batch_limit(16, device="cuda:0", free_gib=1.1), 4)
+        self.assertEqual(engine_module._eager_batch_limit(16, device="cuda:0", free_gib=0.6), 2)
+        self.assertEqual(engine_module._eager_batch_limit(16, device="cuda:0", free_gib=0.2), 1)
+        self.assertEqual(engine_module._eager_batch_limit(16, device="cpu", free_gib=None), 4)
+
+    def test_whisper_pool_close_unloads_and_detaches_underlying_model_even_if_referenced(self) -> None:
+        import threading
+        import types
+
+        unloaded: list[bool] = []
+
+        class FakeCt2:
+            def unload_model(self, *, to_cpu: bool = False) -> None:
+                unloaded.append(to_cpu)
+
+        class FakeWrapper:
+            def __init__(self) -> None:
+                self.model = FakeCt2()
+                self._encoder_cache = {"k": "v"}
+
+        class FakePool:
+            def __init__(self, item: FakeWrapper) -> None:
+                self._condition = threading.Condition()
+                self._idle = [item]
+                self._loaded = 1
+
+            def close(self) -> None:
+                with self._condition:
+                    models, self._idle, self._loaded = self._idle, [], 0
+                models.clear()
+
+        fake_mod = types.SimpleNamespace(FwRefineModelPool=FakePool)
+        with mock.patch.dict(sys.modules, {"finesub.speech.recognition.fw_refine_backend": fake_mod}):
+            engine_module._install_whisper_pool_release()
+            leaked_local = FakeWrapper()
+            pool = FakePool(leaked_local)
+            pool.close()
+
+        self.assertEqual(unloaded, [False])
+        self.assertIsNone(leaked_local.model)
+        self.assertEqual(leaked_local._encoder_cache, {})
+        self.assertEqual(pool._idle, [])
+        self.assertEqual(pool._loaded, 0)
+
+    def test_generate_batch_with_oom_split_halves_on_cuda_oom(self) -> None:
+        seen_chunks: list[list[int]] = []
+
+        class FakeReferee:
+            _processor = object()
+
+            def _transcription_inputs(self, batch_clips: list[Any], _proc: Any) -> list[Any]:
+                return list(batch_clips)
+
+            def _generate(self, inputs: list[int], _budget: int, *, compiled: bool) -> list[tuple[str, str]]:
+                self.assert_not_compiled = compiled
+                seen_chunks.append(list(inputs))
+                if len(inputs) > 2:
+                    raise RuntimeError("CUDA out of memory.")
+                return [(f"t{x}", "Japanese") for x in inputs]
+
+        ref = FakeReferee()
+        clips = [10, 20, 30, 40]
+        with mock.patch.object(engine_module, "_release_cuda_cache") as release_cache:
+            out = engine_module._generate_batch_with_oom_split(ref, clips, [0, 1, 2, 3], 256)
+
+        self.assertEqual(out, [("t10", "Japanese"), ("t20", "Japanese"), ("t30", "Japanese"), ("t40", "Japanese")])
+        self.assertEqual(seen_chunks, [[10, 20, 30, 40], [10, 20], [30, 40]])
+        self.assertFalse(ref.assert_not_compiled)
+        release_cache.assert_called_once()
+
+    def test_qwen_referee_policy_falls_back_on_low_vram_and_batches_lazily(self) -> None:
+        import contextlib
+        import threading
+        import types
+
+        warnings: list[tuple[str, str]] = []
+        load_devices: list[str] = []
+        batch_sizes: list[int] = []
+        ticks: list[tuple[int, int]] = []
+
+        class FakeModel:
+            def __init__(self, device: str) -> None:
+                self.device = device
+                self.model = None
+
+        class FakeQwenReferee:
+            def __init__(self, device: str = "cuda") -> None:
+                self._device = device
+                self._model = None
+                self._processor = object()
+                self._accel = "auto"
+                self._accel_failed = False
+                self._lock = threading.RLock()
+
+            def _ensure_model(self) -> Any:
+                if self._model is None:
+                    self._model = self._load_model()
+                return self._model
+
+            def _load_model(self) -> Any:
+                load_devices.append(self._device)
+                return FakeModel(self._device)
+
+            def _transcription_inputs(self, batch_clips: list[Any], _proc: Any) -> list[Any]:
+                return list(batch_clips)
+
+            def _generate(self, inputs: list[Any], _budget: int, *, compiled: bool) -> list[tuple[str, str]]:
+                batch_sizes.append(len(inputs))
+                return [(f"len={len(c)}", "Japanese") for c in inputs]
+
+            def transcribe_batch(self, clips: Any, *, max_new_tokens: int | None = None, on_batch: Any = None) -> Any:
+                raise AssertionError("eager path should not delegate to original transcribe_batch")
+
+        def fake_plan_batches(lengths: list[int], *, max_clips: int = 16) -> list[list[int]]:
+            return [list(range(i, min(i + max_clips, len(lengths)))) for i in range(0, len(lengths), max_clips)]
+
+        fake_qwen_mod = types.SimpleNamespace(
+            QwenReferee=FakeQwenReferee,
+            ACCEL_ENV="FINESUB_REFEREE_ACCEL",
+            MAX_NEW_TOKENS=256,
+            BATCH_CLIPS=16,
+            plan_batches=fake_plan_batches,
+            phase_timing=types.SimpleNamespace(phase=lambda _name: contextlib.nullcontext()),
+        )
+        fake_reporter = types.SimpleNamespace(
+            warning=lambda code, msg, **_kw: warnings.append((code, msg)),
+        )
+        fake_reporting = types.SimpleNamespace(current_reporter=lambda: fake_reporter)
+
+        with (
+            mock.patch.dict(
+                sys.modules,
+                {
+                    "finesub.speech.verification.qwen_referee": fake_qwen_mod,
+                    "finesub.reporting": fake_reporting,
+                },
+            ),
+            mock.patch.dict(os.environ, {"FINESUB_REFEREE_ACCEL": "0"}, clear=False),
+            mock.patch.object(engine_module, "_release_cuda_cache"),
+        ):
+            engine_module._install_qwen_referee_memory_policy()
+
+            # 1) Low free VRAM before load triggers CPU fallback while keeping requested _device == "cuda".
+            ref_low = FakeQwenReferee(device="cuda")
+            with mock.patch.object(engine_module, "_cuda_free_gib", return_value=0.8):
+                loaded = ref_low._load_model()
+            self.assertEqual(loaded.device, "cpu")
+            self.assertEqual(ref_low._device, "cuda")
+            self.assertEqual(load_devices, ["cpu"])
+            self.assertEqual([code for code, _ in warnings], ["cpu-fallback"])
+
+            # 2) Eager transcribe_batch caps batch size to 4 when post-load free VRAM is 1.1 GiB.
+            ref_cuda = FakeQwenReferee(device="cuda")
+            clips = [[0] * (i + 1) for i in range(10)]
+            with mock.patch.object(engine_module, "_cuda_free_gib", side_effect=[3.0, 1.1]):
+                out = ref_cuda.transcribe_batch(clips, on_batch=lambda d, tot: ticks.append((d, tot)))
+            self.assertEqual(batch_sizes, [4, 4, 2])
+            self.assertEqual(ticks, [(4, 10), (8, 10), (10, 10)])
+            self.assertEqual(len(out), 10)
+            self.assertEqual(out[0], ("len=1", "Japanese"))
+            self.assertEqual(out[-1], ("len=10", "Japanese"))
+
+
 if __name__ == "__main__":
     unittest.main()
