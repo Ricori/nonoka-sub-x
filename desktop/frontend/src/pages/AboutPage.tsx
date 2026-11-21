@@ -74,7 +74,7 @@ export function AboutPage({ update }: { update?: SelfUpdate }) {
           <div className="about-heading">
             <span className="eyebrow">Nonoka Sub X</span>
             <h2>烤肉就交给 Nonoka</h2>
-            <p>领先的 AI 工作流字幕工作台</p>
+            <p>先进的 AI 工作流字幕工作台</p>
           </div>
           <div className="about-chips">
             <span className="about-chip about-chip-accent">{version ? `v${version}` : "读取版本…"}</span>
