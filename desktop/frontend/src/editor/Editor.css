@@ -3618,6 +3618,15 @@ body.ctx-open .professional-editor .topbar {
   background: color-mix(in srgb, var(--warn) 22%, transparent);
 }
 
+.professional-editor .ctxmenu button:disabled {
+  color: var(--faint);
+  cursor: default;
+}
+
+.professional-editor .ctxmenu button:disabled:hover {
+  background: none;
+}
+
 .professional-editor .ctxmenu .sep {
   height: 1px;
   margin: 4px 2px;

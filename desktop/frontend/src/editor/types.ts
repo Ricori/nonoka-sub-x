@@ -61,7 +61,7 @@ export type TrackPopTarget =
   | { kind: "track"; ti: number; lang: Lang }
   | { kind: "default"; lang: Lang };
 
-export type CtxItem = "-" | { label: string; onClick: () => void; danger?: boolean };
+export type CtxItem = "-" | { label: string; onClick: () => void; danger?: boolean; disabled?: boolean };
 
 /** 撤销/重做快照 */
 export interface Snapshot {

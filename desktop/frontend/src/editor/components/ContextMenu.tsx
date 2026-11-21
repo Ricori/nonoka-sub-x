@@ -57,7 +57,8 @@ export function ContextMenu() {
       {menu.items.map((it, i) => it === "-"
         ? <div className="sep" key={"sep" + i} />
         : <button key={it.label + i} className={it.danger ? "danger" : undefined}
-          onClick={() => { closeCtx(); it.onClick(); }}>{it.label}</button>)}
+          disabled={it.disabled}
+          onClick={() => { if (it.disabled) return; closeCtx(); it.onClick(); }}>{it.label}</button>)}
     </div>
   );
 }

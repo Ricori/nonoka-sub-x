@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import { copySegments, cutSegments, pasteSegments } from '../lib/clipboard';
 import {
   addSegmentAt, deleteSegment, extendCurrent, gotoNext, gotoPrev, nudgeToPlayhead, splitAtPlayhead,
 } from '../lib/edits';
@@ -10,6 +11,7 @@ import { video } from '../lib/media';
 import { cutAtPlayhead, deleteVsel } from '../lib/videoEdit';
 import { manualSave } from '../store/saveStore';
 import { playStore } from '../store/playStore';
+import { selStore } from '../store/selectionStore';
 
 /** 文本框里选中的那截字（用作 Ctrl+F 的初值），跨行的不要 */
 function selectedText(): string {
@@ -31,9 +33,10 @@ export function useShortcuts() {
       if ((e.ctrlKey || e.metaKey) && (e.key === "f" || e.key === "F")) {
         e.preventDefault(); openFind(selectedText()); return;
       }
-      const tag = document.activeElement?.tagName;
-      if (tag === "TEXTAREA" || tag === "INPUT") return;
-      // 撤销/重做：Ctrl+Z、Ctrl+Y、Ctrl+Shift+Z（Ctrl+C 保持复制）。放在文本框拦截之后，
+      const active = document.activeElement as HTMLElement | null;
+      const tag = active?.tagName;
+      if (tag === "TEXTAREA" || tag === "INPUT" || active?.isContentEditable) return;
+      // 撤销/重做：Ctrl+Z、Ctrl+Y、Ctrl+Shift+Z。放在文本框拦截之后，
       // 故在原文/译文输入框里 Ctrl+Z 仍是输入框自带撤销
       if ((e.ctrlKey || e.metaKey) && (e.key === "z" || e.key === "Z")) {
         e.preventDefault();
@@ -43,10 +46,32 @@ export function useShortcuts() {
       if ((e.ctrlKey || e.metaKey) && (e.key === "y" || e.key === "Y")) {
         e.preventDefault(); redo(); return;
       }
+      // 字幕轴复制/剪切/粘贴：Ctrl+C / Ctrl+X / Ctrl+V；页面上手动拖选了文字时 Ctrl+C 让给原生复制
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey) {
+        if (e.key === "c" || e.key === "C") {
+          if (window.getSelection?.()?.toString()) return;
+          if (!selStore.get().selSet.size) return;
+          e.preventDefault();
+          copySegments();
+          return;
+        }
+        if (e.key === "x" || e.key === "X") {
+          if (!selStore.get().selSet.size) return;
+          e.preventDefault();
+          cutSegments();
+          return;
+        }
+        if (e.key === "v" || e.key === "V") {
+          e.preventDefault();
+          pasteSegments();
+          return;
+        }
+      }
       // Ctrl+B 在播放头处切分视频轨（与剪映一致）
       if ((e.ctrlKey || e.metaKey) && (e.key === "b" || e.key === "B")) {
         e.preventDefault(); cutAtPlayhead(); return;
       }
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
       const t = playStore.get().t;
       const noVideo = isScrubbing() && !video()?.paused;
       if (e.code === "Space") { e.preventDefault(); setPlaying(!playStore.get().playing); }

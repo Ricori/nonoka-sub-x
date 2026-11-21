@@ -9,6 +9,7 @@ export function StatusBar() {
       <span><kbd>D</kbd>在当前位置拆分</span>
       <span><kbd>V</kbd>延长本句</span>
       <span><kbd>Del</kbd>删除选中句</span>
+      <span><kbd>Ctrl</kbd><kbd>C/X/V</kbd>复制/剪切/粘贴</span>
       <span><kbd>Ctrl</kbd><kbd>Enter</kbd>文本框内确认</span>
       <span><kbd>Ctrl</kbd>+滚轮 缩放时间轴</span>
       <span><kbd>Alt</kbd>+滚轮 纵向滚轨道</span>

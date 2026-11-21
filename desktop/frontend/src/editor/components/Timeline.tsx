@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { shallowEqual } from '../../home/lib/createStore';
 import { PAD_Y, RULER_H0 } from '../constants';
+import { clipboardCount, copySegments, cutSegments, pasteSegments } from '../lib/clipboard';
 import { addSegmentAt } from '../lib/edits';
 import { laneTiAt, startMarquee } from '../lib/laneDrag';
 import { buildRows, rowDisplayH } from '../lib/rows';
@@ -138,19 +139,44 @@ export function Timeline() {
     startMarquee(e, ti == null ? selStore.get().curTrack : ti);
   }
 
-  /** 时间轴空白处右键：新建字幕 / 按选中的字幕块剪视频轨（视频行有自己的菜单） */
+  /** 时间轴右键：字幕块上给复制/剪切/粘贴，空白处给新建/粘贴，外加按选区剪视频轨（视频行有自己的菜单） */
   function onInnerCtx(e: React.MouseEvent) {
     const items: CtxItem[] = [];
-    // 落在字幕轴（lane）内才给「新建字幕」，标尺/波形上不给
+    const onBlk = !!(e.target as HTMLElement).closest(".blk");
+    // 落在字幕轴（lane）内才给字幕编辑项，标尺/波形上不给
     const ti = laneTiAt(e.clientY);
+    const n = selStore.get().selSet.size;
+    const clipN = clipboardCount();
     if (ti != null) {
       const tc = tAtClientX(e.clientX);
-      items.push({
-        label: "在当前位置新建字幕",
-        onClick: () => { setActiveTrack(ti, { silent: true }); addSegmentAt(tc); },
-      });
+      const pasteItem: CtxItem = {
+        label: clipN > 1 ? `粘贴（${clipN} 句） (Ctrl+V)` : "粘贴 (Ctrl+V)",
+        disabled: !clipN,
+        onClick: () => pasteSegments({ ti, at: tc }),
+      };
+      if (onBlk) {
+        items.push(
+          { label: n > 1 ? `复制（${n} 句） (Ctrl+C)` : "复制 (Ctrl+C)", onClick: () => copySegments() },
+          { label: n > 1 ? `剪切（${n} 句） (Ctrl+X)` : "剪切 (Ctrl+X)", onClick: () => cutSegments() },
+          pasteItem,
+        );
+      } else {
+        items.push(
+          {
+            label: "在当前位置新建字幕",
+            onClick: () => { setActiveTrack(ti, { silent: true }); addSegmentAt(tc); },
+          },
+          pasteItem,
+        );
+        if (n) {
+          items.push(
+            "-",
+            { label: n > 1 ? `复制选中字幕（${n} 句） (Ctrl+C)` : "复制选中字幕 (Ctrl+C)", onClick: () => copySegments() },
+            { label: n > 1 ? `剪切选中字幕（${n} 句） (Ctrl+X)` : "剪切选中字幕 (Ctrl+X)", onClick: () => cutSegments() },
+          );
+        }
+      }
     }
-    const n = selStore.get().selSet.size;
     // 按选中字幕剪视频轨只在完整片里给：成片只供预览
     if (n && !isFocused()) {
       if (items.length) items.push("-");
