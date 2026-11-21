@@ -1,12 +1,12 @@
 {
 	"fixed": {
-		"file_version": "0.8.1",
-		"product_version": "0.8.1"
+		"file_version": "0.8.2",
+		"product_version": "0.8.2"
 	},
 	"info": {
 		"0409": {
-			"FileVersion": "0.8.1",
-			"ProductVersion": "0.8.1",
+			"FileVersion": "0.8.2",
+			"ProductVersion": "0.8.2",
 			"CompanyName": "Ricori",
 			"FileDescription": "Nonoka Sub X",
 			"LegalCopyright": "© 2026 Ricori",
