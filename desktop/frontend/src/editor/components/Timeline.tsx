@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { shallowEqual } from '../../home/lib/createStore';
 import { PAD_Y, RULER_H0 } from '../constants';
 import { clipboardCount, copySegments, cutSegments, pasteSegments } from '../lib/clipboard';
-import { addSegmentAt } from '../lib/edits';
+import { addSegmentAt, deleteSegment } from '../lib/edits';
 import { laneTiAt, startMarquee } from '../lib/laneDrag';
 import { buildRows, rowDisplayH } from '../lib/rows';
 import { splitHandler } from '../lib/split';
@@ -129,17 +129,17 @@ export function Timeline() {
    * 落在块上交给 lane 自己的选中/拖动，落在标尺/波形/视频行上交给它们自己。
    */
   function onInnerDown(e: React.PointerEvent) {
-    if (e.button !== 0) return;
     const el = e.target as HTMLElement;
-    // 视频轨之外的任何点击都放下视频轨上的选中，Delete 才不会删到看不见的东西
-    if (!el.closest("#videorow")) { clearVsel(); setVideoActive(false); }
+    // 视频轨之外的任何点击（左右键都算）都放下视频轨上的选中，Delete 才不会删到看不见的东西
+    if ((e.button === 0 || e.button === 2) && !el.closest("#videorow")) { clearVsel(); setVideoActive(false); }
+    if (e.button !== 0) return;
     if (el.closest(".blk")) return;
     if (el.closest("#ruler") || el.closest("#waverow") || el.closest("#videorow")) return;
     const ti = laneTiAt(e.clientY);
     startMarquee(e, ti == null ? selStore.get().curTrack : ti);
   }
 
-  /** 时间轴右键：字幕块上给复制/剪切/粘贴，空白处给新建/粘贴，外加按选区剪视频轨（视频行有自己的菜单） */
+  /** 时间轴右键：字幕块上给复制/剪切/粘贴/删除字幕，空白处给新建/粘贴，外加按选区剪视频轨（视频行有自己的菜单） */
   function onInnerCtx(e: React.MouseEvent) {
     const items: CtxItem[] = [];
     const onBlk = !!(e.target as HTMLElement).closest(".blk");
@@ -159,6 +159,7 @@ export function Timeline() {
           { label: n > 1 ? `复制（${n} 句） (Ctrl+C)` : "复制 (Ctrl+C)", onClick: () => copySegments() },
           { label: n > 1 ? `剪切（${n} 句） (Ctrl+X)` : "剪切 (Ctrl+X)", onClick: () => cutSegments() },
           pasteItem,
+          { label: n > 1 ? `删除字幕（${n} 句） (Delete)` : "删除字幕 (Delete)", danger: true, onClick: () => deleteSegment() },
         );
       } else {
         items.push(
@@ -173,6 +174,7 @@ export function Timeline() {
             "-",
             { label: n > 1 ? `复制选中字幕（${n} 句） (Ctrl+C)` : "复制选中字幕 (Ctrl+C)", onClick: () => copySegments() },
             { label: n > 1 ? `剪切选中字幕（${n} 句） (Ctrl+X)` : "剪切选中字幕 (Ctrl+X)", onClick: () => cutSegments() },
+            { label: n > 1 ? `删除选中字幕（${n} 句） (Delete)` : "删除选中字幕 (Delete)", danger: true, onClick: () => deleteSegment() },
           );
         }
       }
@@ -181,8 +183,8 @@ export function Timeline() {
     if (n && !isFocused()) {
       if (items.length) items.push("-");
       items.push(
-        { label: `只保留选中字幕的范围（${n} 句）`, onClick: keepSelectedSegs },
-        { label: `从成片中删掉选中字幕（${n} 句）`, danger: true, onClick: deleteSelectedSegs },
+        { label: `剪辑视频：只保留对应范围（${n} 句）`, onClick: keepSelectedSegs },
+        { label: `剪辑视频：剪掉对应片段（${n} 句）`, danger: true, onClick: deleteSelectedSegs },
       );
     }
     if (!items.length) return;

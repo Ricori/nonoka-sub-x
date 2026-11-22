@@ -154,7 +154,7 @@ function selectedSpans(): Piece[] {
 export function deleteSelectedSegs() {
   if (editLocked()) { toast(LOCKED_HINT); return; }
   const spans = selectedSpans();
-  if (!spans.length) { toast("先选中要删掉的字幕块"); return; }
+  if (!spans.length) { toast("先选中要剪掉视频片段对应的字幕块"); return; }
   let next = curPieces();
   for (const s of spans) next = subtractRange(next, s.t0, s.t1);
   setPieces(next);
@@ -163,7 +163,7 @@ export function deleteSelectedSegs() {
 export function keepSelectedSegs() {
   if (editLocked()) { toast(LOCKED_HINT); return; }
   const spans = selectedSpans();
-  if (!spans.length) { toast("先选中要保留的字幕块"); return; }
+  if (!spans.length) { toast("先选中要保留视频范围对应的字幕块"); return; }
   keepRange(spans[0].t0, spans[spans.length - 1].t1);
 }
 

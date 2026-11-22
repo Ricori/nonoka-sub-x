@@ -30,7 +30,7 @@ export function TimelineToolbar() {
     if (pieces) items.push({ label: focused ? "查看完整片" : "查看成片", onClick: toggleFocus });
     // 成片只供预览：剪辑类的一概不给
     if (focused) { showCtx(e, items); return; }
-    if (selStore.get().selSet.size) items.push({ label: "只保留选中字幕的范围", onClick: keepSelectedSegs });
+    if (selStore.get().selSet.size) items.push({ label: "只保留选中字幕对应的视频范围", onClick: keepSelectedSegs });
     items.push({ label: "在播放头处切分视频 (Ctrl+B)", onClick: cutAtPlayhead });
     if (pieces) {
       items.push("-");
