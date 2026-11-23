@@ -742,3 +742,52 @@ interface UploadedAudioSource {
 - **v1 内只允许新增可选字段**。任何字段的删除、重命名或枚举收窄都必须提升对应 schema 版本。
 - 新增 `features` 位时默认视为 `false`，老 Provider 无需改动即可继续工作。
 - 宿主在适配层对 `schema` 做强校验：版本不匹配时直接拒绝该 Provider，而不是尝试兼容执行。
+
+---
+
+## 14. 文字识别附加任务（Local Provider 扩展）
+
+Local Provider 额外提供两个仅限本机执行的文字识别任务目标（不上云、不走语音转写投影，详见 [screen-text.md](screen-text.md)）：
+
+| `target` | `TaskSnapshot.kind` | 用途 | 产物 |
+| :--- | :--- | :--- | :--- |
+| `screen-text` | `"screen-text"` | 调用 `flowocr` 识别视频文字，经纠错包 `llm.complete` 翻译（附 ±15s 默认轨语音上下文）；非试跑任务结束时通过 `DocumentStore.replace_generated_tracks` 追加为 `ocr*` 轨道（不触碰默认轨、用户轨与 `artifacts.json`） | `ocr_json`（`ocr.json`）、`screen_text_json`（`screen_text.json`） |
+| `screen-text-inpaint` | `"screen-text-inpaint"` | 按源时间轴底板 ASS 调用 FlowOCR LaMa 抹除画面原字，生成恒定帧率、保留色彩信息的无音轨中间成片，供 Go 端执行最终压制 | `cleaned_mp4`（`cleaned.mp4`） |
+
+### 14.1 并发与插件限制
+
+- `screen-text` 与 `screen-text-inpaint` 共用单槽互斥锁，已有任一任务在跑时返回 `409 screen_text_busy`。可与语音转写任务并行。
+- 桌面端插件宿主（`engine.run`）禁止发起 `screen-text` 与 `screen-text-inpaint` 目标。
+
+### 14.2 产物格式（`ocr.json` / `screen_text.json`，schema 1）
+
+```jsonc
+{
+  "schema": 1,
+  "engine": { "id": "flowocr", "version": "1.0.0", "commit": "fc813fc" },
+  "video": { "w": 1920, "h": 1080, "fps": 60.0, "duration": 120.0 },
+  "range": { "start": 0.0, "end": 120.0 },
+  "regions": [
+    { "id": "r00", "label": "misc", "name": "文字识别", "box": [0.1, 0.1, 0.4, 0.2], "skip": false }
+  ],
+  "cues": [
+    {
+      "id": "c0001", "region": "r00", "t0": 1.0, "t1": 3.0,
+      "lines": [{ "text": "タイトル", "box": [0.1, 0.1, 0.4, 0.18], "conf": 0.96 }],
+      "box": [0.1, 0.1, 0.4, 0.18], "an": 8, "fs": 0.05, "fill": "#1A1A1A",
+      "matched": null, "zh": "标题"
+    }
+  ]
+}
+```
+
+- 坐标一律归一化到 `0..1`，与 `PlayRes` 无关；`screen_text.json` 在 `ocr.json` 基础上补入每个 cue 的 `zh` 译文与本次运行的 `options`。
+
+### 14.3 Sidecar 附加 HTTP 路由
+
+| 方法与路径 | 说明 |
+| :--- | :--- |
+| `GET /v1/screen-text/check?device=auto` | 检查平台、`screen-text` 层、驱动（≥ R580）、显存、NVDEC 与模型/派生图标记，返回 `{ready, issues, warnings, busy, check}` |
+| `GET /v1/screen-text/result?task=<id>` | 读取已完成的 `screen-text` 任务将追加的轨道数组（供 1 分钟试跑临时预览） |
+| `GET /v1/screen-text/gametext` | 列出已导入 `<数据目录>/engines/flowocr/gametext/` 的 `gtd-bundle/1` 游戏剧本包 |
+| `POST /v1/screen-text/gametext` | 校验并复制本机 `.zip` 游戏剧本包进 `gametext/` 目录，同游戏旧包自动替换 |

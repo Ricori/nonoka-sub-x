@@ -10,8 +10,8 @@ export interface RuntimeItem {
 
 /** 每个目标对应它要的运行环境层（`nonoka_x.runtime_install.TARGET_LAYERS`）：装任何一个工具都是装整个工具层。
     `repair` 对已装的层做完整核对（逐文件 sha256），有问题的整层重新安装。 */
-export type RuntimeInstallTarget = "media" | "runtime" | "models" | "models-moss" | "all" | "optional-models" | "repair" | "yt-dlp" | "tokcount" | "aria2c" | "node" | "pot-provider" | "video-tools";
-export type RuntimeLayerId = "python" | "models" | "models-moss" | "tools";
+export type RuntimeInstallTarget = "media" | "runtime" | "models" | "models-moss" | "screen-text" | "all" | "optional-models" | "repair" | "yt-dlp" | "tokcount" | "aria2c" | "node" | "pot-provider" | "video-tools";
+export type RuntimeLayerId = "python" | "models" | "models-moss" | "tools" | "screen-text";
 
 export interface OfflineArchivePick {
   layer: string;
@@ -97,6 +97,8 @@ export interface RuntimeProvisionState {
   optional_models?: RuntimeItem[];
   /** 本地 MOSS 0.9B 的模型层条目。 */
   moss_models?: RuntimeItem[];
+  /** 文字识别层（编辑器「文字识别」用的独立层）；`available` 为 false 时这个版本没有发布它。 */
+  screen_text?: RuntimeItem & { available: boolean };
   /** 三层各自的状态；旧版 sidecar 没有这几个字段。 */
   layers?: RuntimeLayerOverview[];
   unused_layers?: RuntimeUnusedLayer[];
@@ -154,6 +156,7 @@ export const fineSubRuntime = {
   removeAll: () => ProviderService.RemoveRuntime() as Promise<unknown> as Promise<RuntimeProvisionState>,
   removeModels: () => ProviderService.RemoveModels() as Promise<unknown> as Promise<RuntimeProvisionState>,
   removeModelsMoss: () => ProviderService.RemoveModelsMoss() as Promise<unknown> as Promise<RuntimeProvisionState>,
+  removeScreenText: () => ProviderService.RemoveScreenText() as Promise<unknown> as Promise<RuntimeProvisionState>,
   /** 以当前转写引擎为准；sidecar 不认识的引擎只列旧版本。 */
   cleanupPlan: (engine: string) => ProviderService.UnusedRuntime(engine) as Promise<unknown> as Promise<RuntimeCleanupPlan>,
   /** 删旧版本；`layers` 是用户勾选、要整层删的层（默认不删整层）。 */

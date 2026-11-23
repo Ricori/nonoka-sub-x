@@ -9,6 +9,11 @@ import type {} from "../github.com/wailsapp/wails/v3/internal/eventdata.js";
 import "../github.com/wailsapp/wails/v3/internal/eventcreate.js";
 
 /**
+ * Name of the custom event "document:changed".
+ */
+export const DocumentChanged = "document:changed";
+
+/**
  * Name of the custom event "editor:request-close".
  */
 export const EditorRequestClose = "editor:request-close";
@@ -34,6 +39,11 @@ export const FilesDragging = "files:dragging";
 export const FilesDropped = "files:dropped";
 
 /**
+ * Name of the custom event "home:open-settings".
+ */
+export const HomeOpenSettings = "home:open-settings";
+
+/**
  * Name of the custom event "home:refresh".
  */
 export const HomeRefresh = "home:refresh";
@@ -57,6 +67,16 @@ export const PluginsChanged = "plugins:changed";
  * Name of the custom event "plugins:download-log".
  */
 export const PluginsDownloadLog = "plugins:download-log";
+
+/**
+ * Name of the custom event "runtime:changed".
+ */
+export const RuntimeChanged = "runtime:changed";
+
+/**
+ * Name of the custom event "screentext:progress".
+ */
+export const ScreentextProgress = "screentext:progress";
 
 /**
  * Name of the custom event "storage:progress".

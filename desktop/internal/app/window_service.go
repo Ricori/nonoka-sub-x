@@ -29,6 +29,8 @@ type WindowService struct {
 	export                 *application.WebviewWindow
 	exportDraft            VideoExportDraft
 	exportASS              string
+	exportASSNoPlates      string
+	exportPlatesASS        string
 	exportSerial           uint64
 	exportRunning          bool
 	exportClosing          bool

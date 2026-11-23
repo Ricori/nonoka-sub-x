@@ -172,22 +172,36 @@ def _client() -> Any:
                                                                write=30.0, pool=20.0))
 
 
-def remote_size(url: str) -> int:
+def remote_size(url: str) -> int | None:
     with _client() as client:
-        response = client.head(url)
+        response = client.head(url, headers={"Accept-Encoding": "identity"})
         response.raise_for_status()
         length = response.headers.get("content-length")
-    if length is None:
-        raise BuildError(f"no size for {url}")
-    return int(length)
+    return int(length) if length is not None else None
 
 
 def download(url: str, destination: Path, sha256: str, size: int | None = None) -> Path:
     """`url` into `destination`, resumable, size and sha256 checked (`nonoka_x.runtime.fetch`)."""
 
+    if destination.is_file() and (size is None or destination.stat().st_size == int(size)) and lm.sha256_file(destination) == sha256:
+        return destination
     if size is None:
         size = remote_size(url)
-    return fetch.download_file(fetch.DownloadAsset(url=url, size=int(size), sha256=sha256), destination)
+    if size is not None:
+        return fetch.download_file(fetch.DownloadAsset(url=url, size=int(size), sha256=sha256), destination)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    partial = destination.with_name(destination.name + ".part")
+    with _client() as client, client.stream("GET", url) as response:
+        response.raise_for_status()
+        with open(partial, "wb") as target:
+            for chunk in response.iter_bytes(1024 * 1024):
+                target.write(chunk)
+    actual = lm.sha256_file(partial)
+    if actual != sha256:
+        partial.unlink(missing_ok=True)
+        raise BuildError(f"{url}: sha256 {actual}, expected {sha256}")
+    os.replace(partial, destination)
+    return destination
 
 
 def git_blob_sha1(path: Path) -> str:
@@ -465,7 +479,12 @@ class Build:
         return executable
 
     def build_python(self) -> tuple[Path, dict[str, Any], list[dict[str, str]]]:
-        root = self.work / "python"
+        return self._build_interpreter("python", manifests.runtime_lock())
+
+    def _build_interpreter(self, layer: str, lock: dict[str, Any]) -> tuple[Path, dict[str, Any], list[dict[str, str]]]:
+        """The pinned interpreter at `work/<layer>`, `lock`'s packages installed into its own site-packages."""
+
+        root = self.work / layer
         timings: dict[str, float] = {}
         started = time.perf_counter()
         interpreter = manifests.interpreter()
@@ -480,7 +499,18 @@ class Build:
                     raise BuildError(f"interpreter archive member outside python/: {name}")
                 if member.issym() or member.islnk():
                     raise BuildError(f"interpreter archive link: {name}")
-            bundle.extractall(self.work, filter="data")
+            staging = self.work / f".{layer}-interpreter"
+            remove_tree(staging)
+            bundle.extractall(staging, filter="data")
+        for attempt in range(10):
+            try:
+                os.replace(staging / "python", root)
+                break
+            except PermissionError:
+                if attempt == 9:
+                    raise
+                time.sleep(0.5)
+        remove_tree(staging)
         bundled = interpreter_packages(root)
         for path in sorted(root.rglob("*")):
             if path.is_file():
@@ -498,7 +528,6 @@ class Build:
         timings["interpreter"] = time.perf_counter() - started
 
         started = time.perf_counter()
-        lock = manifests.runtime_lock()
         local: dict[str, Path] = {}
         for package, artefact in lock_artefacts(lock):
             filename = wheel_filename(artefact["url"])
@@ -511,7 +540,7 @@ class Build:
 
         started = time.perf_counter()
         uv = self.uv()
-        lock_path = self.tmp / "pylock.local.toml"
+        lock_path = self.tmp / f"pylock.{layer}-local.toml"
         lock_path.write_text(local_lock(lock, local), encoding="utf-8")
         python = root / "python.exe"
         uv_environment = {"UV_CACHE_DIR": str(self.cache / "uv-cache"), "UV_PYTHON_DOWNLOADS": "never",
@@ -525,7 +554,10 @@ class Build:
             log("  uv install failed (log uv-install.log); trying once more")
             os.replace(self.logs / "uv-install.log", self.logs / "uv-install.failed.log")
             run(self, install, log_name="uv-install.log", extra=uv_environment)
-        run(self, [str(uv), "--no-config", "pip", "uninstall", "--python", str(python), "pip"],
+        locked_names = {normalized(package["name"]) for package in lock["packages"]}
+        bundled_names = {re.sub(r"-[^-]+\.dist-info$", "", dist_name) for dist_name in bundled.values()}
+        extras = sorted({name for name in bundled_names if normalized(name) not in locked_names} | {"pip"})
+        run(self, [str(uv), "--no-config", "pip", "uninstall", "--python", str(python), *extras],
             log_name="uv-uninstall-pip.log", extra=uv_environment)
         timings["install"] = time.perf_counter() - started
 
@@ -681,6 +713,55 @@ class Build:
 
     def build_models_moss(self) -> tuple[Path, dict[str, Any], list[dict[str, str]]]:
         return self._build_model_layer("models-moss", lm.MOSS_MODEL_LAYER_IDS)
+
+    # -- the on-screen text layer -----------------------------------------------------------------------
+
+    def build_screen_text(self) -> tuple[Path, dict[str, Any], list[dict[str, str]]]:
+        """FlowOCR's interpreter and packages, its OCR and inpainting models, and their derived graphs.
+
+        The models are the ones the vendored FlowOCR pins (`flowocr.models.MODELS`: repo, revision and
+        sha256 of each file, under the package's quality lock). The graphs FlowOCR would otherwise derive
+        on first use (the rec model's fused argmax, LaMa's two inference windows) are made here with the
+        layer's own interpreter and ORT, so their source marks match at run time and nothing is ever
+        written into the installed layer.
+        """
+
+        root, built, exceptions = self._build_interpreter(lm.SCREEN_TEXT_LAYER, manifests.screen_text_lock())
+        timings = built["timings"]
+        started = time.perf_counter()
+        flowocr = _flowocr_models()
+        models_root = root / lm.SCREEN_TEXT_MODELS_DIR
+        sources: list[dict[str, Any]] = []
+        for key in SCREEN_TEXT_MODELS:
+            model = flowocr.MODELS[key]
+            name_of_repo = model.repo.split("/")[-1]
+            for name, sha256 in model.files.items():
+                url = f"{HF}/{model.repo}/resolve/{model.rev}/{quote(name)}"
+                cached = download(url, self.cache / "screen-text" / name_of_repo / model.rev / name, sha256)
+                copy_file(cached, models_root / name_of_repo / name)
+            sources.append({"id": key, "repo": model.repo, "revision": model.rev, "files": dict(model.files)})
+        timings["models"] = time.perf_counter() - started
+        started = time.perf_counter()
+        derive = (
+            "import sys\n"
+            f"sys.path.insert(0, {str(FLOWOCR_SRC)!r})\n"
+            "from flowocr import models\n"
+            "from flowocr.burn import inpaint, lamagraph\n"
+            "models.ensure(models.MODELS['rec'])\n"
+            "models.ensure(models.MODELS['det'])\n"
+            "for cfg in inpaint.PRESETS.values():\n"
+            "    lamagraph.path(cfg.win[0], cfg.win[1], cfg.act)\n"
+        )
+        run(self, [str(root / "python.exe"), "-I", "-B", "-c", derive], log_name="screen-text-derive.log",
+            extra={"FLOWOCR_MODELS": str(models_root), "FLOWOCR_DATA_ROOT": str(self.tmp / "flowocr-data"),
+                   "HF_ENDPOINT": HF})
+        strays = [lm.relative(root, path) for path in models_root.rglob("*.part-*")]
+        if strays:
+            raise BuildError("derived graphs left half written: " + ", ".join(strays))
+        timings["derive"] = time.perf_counter() - started
+        built["sources"]["models"] = sources
+        built["sources"]["flowocr"] = json.loads((FLOWOCR_PACKAGE / "UPSTREAM.json").read_text(encoding="utf-8"))
+        return root, built, exceptions
 
     def fixed_model(self, model_id: str, spec: dict[str, Any], root: Path) -> dict[str, Any]:
         directory = root / lm.SEPARATOR_DIR
@@ -906,7 +987,24 @@ BUILDERS = {
     "models": Build.build_models,
     "models-moss": Build.build_models_moss,
     "tools": Build.build_tools,
+    "screen-text": Build.build_screen_text,
 }
+
+#: The vendored FlowOCR whose models and code the screen-text layer is built for.
+FLOWOCR_PACKAGE = ROOT / "engines" / "flowocr"
+FLOWOCR_SRC = FLOWOCR_PACKAGE / "src"
+#: The models the layer carries, by `flowocr.models.MODELS` key: reading (det, rec) and erasing (lama).
+SCREEN_TEXT_MODELS = ("det", "rec", "lama")
+
+
+def _flowocr_models() -> Any:
+    """The vendored `flowocr.models` (standard library only at import), for its pins."""
+
+    import importlib
+
+    if str(FLOWOCR_SRC) not in sys.path:
+        sys.path.insert(0, str(FLOWOCR_SRC))
+    return importlib.import_module("flowocr.models")
 
 
 def build(args: argparse.Namespace) -> int:

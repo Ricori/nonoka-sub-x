@@ -52,13 +52,24 @@ export function OpenOnboarding(reopened: boolean): $CancellablePromise<void> {
 }
 
 /**
+ * OpenRuntimeSettings brings the home window to the front and navigates it to
+ * Settings -> Runtime so the user can install or repair optional layers such as
+ * the screen-text component from an open editor.
+ */
+export function OpenRuntimeSettings(): $CancellablePromise<void> {
+    return $Call.ByID(204230531);
+}
+
+/**
  * OpenVideoExport creates one modeless native export window. One window is
  * enough for now: while it exists a second request focuses it instead of
  * replacing the subtitle snapshot of a running encode. pieces are the source
- * ranges to join in order; ass is already in output time.
+ * ranges to join in order; ass is already in output time. When the document
+ * has on-screen text cover boxes, assNoPlates (output time, plates omitted)
+ * and platesAss (source time, plates only) enable the LaMa erase option.
  */
-export function OpenVideoExport(mediaID: string, defaultName: string, ass: string, pieces: library$0.Range[] | null, rangeLabel: string, missingFonts: string[] | null): $CancellablePromise<void> {
-    return $Call.ByID(4290372443, mediaID, defaultName, ass, pieces, rangeLabel, missingFonts);
+export function OpenVideoExport(mediaID: string, defaultName: string, ass: string, assNoPlates: string, platesAss: string, pieces: library$0.Range[] | null, rangeLabel: string, missingFonts: string[] | null): $CancellablePromise<void> {
+    return $Call.ByID(4290372443, mediaID, defaultName, ass, assNoPlates, platesAss, pieces, rangeLabel, missingFonts);
 }
 
 /**
@@ -66,8 +77,8 @@ export function OpenVideoExport(mediaID: string, defaultName: string, ass: strin
  * The source, subtitle text and output range come only from the stored draft;
  * the renderer can change encoding knobs but cannot silently swap the project.
  */
-export function RunVideoExport(jobID: string, crf: number, preset: string, scaleH: number, abr: string, container: string, gpu: boolean): $CancellablePromise<$models.VideoExportResult> {
-    return $Call.ByID(2182945304, jobID, crf, preset, scaleH, abr, container, gpu);
+export function RunVideoExport(jobID: string, crf: number, preset: string, scaleH: number, abr: string, container: string, gpu: boolean, erase: boolean): $CancellablePromise<$models.VideoExportResult> {
+    return $Call.ByID(2182945304, jobID, crf, preset, scaleH, abr, container, gpu, erase);
 }
 
 /**

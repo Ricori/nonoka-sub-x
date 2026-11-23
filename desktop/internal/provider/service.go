@@ -27,7 +27,10 @@ var validTaskID = regexp.MustCompile(`^[0-9a-f]{32}$`)
 // message is derived from it rather than written out again, because the two
 // drifted apart once already -- aria2c was added to the Python side and this
 // list still refused it, naming the old tools in the error.
-var runtimeTargets = []string{"media", "runtime", "models", "models-moss", "all", "optional-models", "repair", "yt-dlp", "tokcount", "aria2c", "node", "pot-provider", "video-tools"}
+var runtimeTargets = []string{"media", "runtime", "models", "models-moss", "screen-text", "all", "optional-models", "repair", "yt-dlp", "tokcount", "aria2c", "node", "pot-provider", "video-tools"}
+
+// taskIDPattern is the shape of a local task id (a uuid4 hex).
+var taskIDPattern = regexp.MustCompile(`^[0-9a-f]{1,64}$`)
 
 // engineID is the registry's id shape (`nonoka_x.transcription.check_id`).
 var engineID = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,63}$`)
@@ -151,6 +154,7 @@ var layerDialogLabels = map[string]string{
 	"python":      "Python 环境层",
 	"models":      "AI 模型层",
 	"models-moss": "MOSS 模型层",
+	"screen-text": "文字识别层",
 }
 
 func dialogDismissed(err error) bool {
@@ -253,6 +257,74 @@ func (s *Service) RemoveModelsMoss() (map[string]any, error) {
 	return result, err
 }
 
+// ScreenTextCheck says whether the editor's on-screen text add-on can run here, on which card,
+// and why not when it cannot (`GET /v1/screen-text/check`).
+func (s *Service) ScreenTextCheck(device string) (map[string]any, error) {
+	if device == "" {
+		device = "auto"
+	}
+	var result map[string]any
+	err := s.provider.DoJSON(context.Background(), http.MethodGet, "/v1/screen-text/check?device="+url.QueryEscape(device), nil, &result)
+	return result, err
+}
+
+// ScreenTextResult is a finished on-screen text task's tracks as they would be appended (a trial's preview).
+func (s *Service) ScreenTextResult(taskID string) (map[string]any, error) {
+	if !taskIDPattern.MatchString(taskID) {
+		return nil, fmt.Errorf("invalid task id: %q", taskID)
+	}
+	var result map[string]any
+	err := s.provider.DoJSON(context.Background(), http.MethodGet, "/v1/screen-text/result?task="+url.QueryEscape(taskID), nil, &result)
+	return result, err
+}
+
+// ScreenTextGameTexts lists the game-script bundles installed for FlowOCR matching.
+func (s *Service) ScreenTextGameTexts() (map[string]any, error) {
+	var result map[string]any
+	err := s.provider.DoJSON(context.Background(), http.MethodGet, "/v1/screen-text/gametext", nil, &result)
+	return result, err
+}
+
+// ImportScreenTextGameText opens a native file picker for a gtd-bundle/1 zip and installs it
+// into FlowOCR's gametext directory via the sidecar.
+func (s *Service) ImportScreenTextGameText() (map[string]any, error) {
+	s.mu.RLock()
+	app, window := s.app, s.window
+	s.mu.RUnlock()
+	if app == nil || window == nil {
+		return nil, errors.New("application window is not ready")
+	}
+	dialogOwner := application.Window(window)
+	if current := app.Window.Current(); current != nil {
+		dialogOwner = current
+	}
+	picked, err := app.Dialog.OpenFile().
+		SetTitle("选择游戏剧本包（.zip）").
+		AttachToWindow(dialogOwner).
+		AddFilter("游戏剧本包 (*.zip)", "*.zip").
+		PromptForSingleSelection()
+	if dialogDismissed(err) {
+		return map[string]any{"cancelled": true}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	picked = strings.TrimSpace(picked)
+	if picked == "" {
+		return map[string]any{"cancelled": true}, nil
+	}
+	var result map[string]any
+	err = s.provider.DoJSON(context.Background(), http.MethodPost, "/v1/screen-text/gametext", map[string]string{"path": picked}, &result)
+	return result, err
+}
+
+// RemoveScreenText removes only the on-screen text layer (FlowOCR's runtime and models).
+func (s *Service) RemoveScreenText() (map[string]any, error) {
+	var result map[string]any
+	err := s.provider.DoJSON(context.Background(), http.MethodDelete, "/v1/runtime/provision?layer=screen-text", nil, &result)
+	return result, err
+}
+
 // RuntimeCacheStatus measures the runtime's download caches: the uv package
 // cache, the runtime wheels and the resource archives under the install root.
 func (s *Service) RuntimeCacheStatus() (map[string]any, error) {
@@ -285,7 +357,7 @@ func (s *Service) UnusedRuntime(engine string) (map[string]any, error) {
 }
 
 // runtimeLayers are the layers a user may tick for removal as a whole.
-var runtimeLayers = []string{"tools", "python", "models", "models-moss"}
+var runtimeLayers = []string{"tools", "python", "models", "models-moss", "screen-text"}
 
 // RemoveUnusedRuntime deletes the old layer versions UnusedRuntime(engine)
 // lists, and of the whole layers it offers only those the user ticked

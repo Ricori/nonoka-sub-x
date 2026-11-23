@@ -113,6 +113,9 @@ func TestTheEnginePackagesAreStagedPrecompiledAndNothingElse(t *testing.T) {
 			switch parts[2] {
 			case "PACKAGE.json", "LICENSE", "LICENSES.json", "PROMPT_LICENSE.md", "UPSTREAM.json":
 			default:
+				if strings.HasPrefix(parts[2], "LICENSES/") {
+					break
+				}
 				t.Errorf("not a file an engine package ships: %s", file.Path)
 			}
 		}

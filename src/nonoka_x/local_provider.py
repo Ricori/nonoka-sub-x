@@ -66,6 +66,10 @@ _MAX_STYLES_BYTES = 1 << 20
 # changes the engine's stage list has to change this one; `tests/
 # test_vendor_contract.py` is where that pairing is checked.
 PIPELINE_TARGETS = ("vocal", "aligned", "stable", "raw-srt", "translated-srt", "final-srt")
+#: The editor's on-screen text add-on: its own kind of task, never projected (`nonoka_x.screen_text`).
+SCREEN_TEXT_TARGET = "screen-text"
+SCREEN_TEXT_INPAINT_TARGET = "screen-text-inpaint"
+SCREEN_TEXT_TARGETS = (SCREEN_TEXT_TARGET, SCREEN_TEXT_INPAINT_TARGET)
 # Which readiness stages of `runtime_report` a target has to clear. Everything
 # up to the raw SRT is ASR work; the two LLM stages need a configured model on
 # top of it, since a run from media has to recognise before it can correct.
@@ -528,6 +532,53 @@ def dropped_fields(value: Mapping[str, Any], validated: Mapping[str, Any]) -> li
     return [name for name in (*SEPARATION_FIELDS, *GPU_FIELDS) if name in value and name not in validated]
 
 
+def _validate_screen_text_request(request: dict[str, Any]) -> dict[str, Any]:
+    """A `screen-text` or `screen-text-inpaint` request: a local video, a device, its options.
+
+    It never becomes the video's document by projection (`projection` is always `none`): `screen-text`
+    appends its tracks when it ends (`LocalProvider._append_screen_text`), while `screen-text-inpaint`
+    produces a temporary cleaned intermediate video for video export.
+    """
+
+    from .screen_text import ScreenTextError, validate_inpaint_options, validate_options
+
+    source = request["source"]
+    if source.get("kind") != "local_file":
+        raise ProviderError("invalid_source", "文字识别只能处理本机视频")
+    target = request.get("target")
+    if target == SCREEN_TEXT_TARGET and not source.get("video_id"):
+        raise ProviderError("invalid_source", "文字识别需要 source.video_id")
+    device = str(request.setdefault("device", "cuda")).strip().lower()
+    if device not in {"cuda", "cpu", "auto"} and not (device.startswith("cuda:") and device[5:].isdigit()):
+        raise ProviderError("invalid_request", f"unsupported device: {device!r}")
+    request["device"] = device
+    request["projection"] = "none"
+    request.setdefault("correction", {})
+    try:
+        if target == SCREEN_TEXT_INPAINT_TARGET:
+            request["inpaint"] = validate_inpaint_options(request.get("inpaint"))
+        else:
+            request["screen_text"] = validate_options(request.get("screen_text"))
+    except ScreenTextError as error:
+        raise ProviderError("invalid_request", str(error)) from error
+    return request
+
+
+def _screen_text_skeleton(source: Mapping[str, Any]) -> dict[str, Any]:
+    """An empty document for a video that has none yet, so its on-screen text tracks have a place."""
+
+    return {
+        "schema": 1,
+        "title": str(source.get("title") or ""),
+        "source": str(source.get("path") or ""),
+        "fp": source.get("fingerprint"),
+        "subtitles": [],
+        "tracks": [],
+        "track_meta": {"name": "默认轨", "ja": {"hidden": False, "style": "origin"}, "zh": {"hidden": False, "style": "cn"}},
+        "effects": [],
+    }
+
+
 def validate_request(value: Mapping[str, Any], *, engines: Mapping[str, Any] | None = None) -> dict[str, Any]:
     """The TaskRequest, checked and normalized for this provider.
 
@@ -558,6 +609,8 @@ def validate_request(value: Mapping[str, Any], *, engines: Mapping[str, Any] | N
     video_id = source.get("video_id")
     if video_id is not None and not _safe_component(str(video_id)):
         raise ProviderError("invalid_source", "source.video_id is invalid")
+    if request.get("target") in SCREEN_TEXT_TARGETS:
+        return _validate_screen_text_request(request)
     if request.get("target") not in PIPELINE_TARGETS:
         raise ProviderError(
             "unsupported_target", "target must be one of: " + ", ".join(PIPELINE_TARGETS)
@@ -1173,12 +1226,14 @@ class LocalProvider:
         return environment
 
     def launch_contexts(self, packages: Mapping[str, Any] | None = None) -> Any:
-        """Launch contexts (and run directories) for `packages` (every installed one), as a worker builds them."""
+        """Launch contexts (and run directories) for `packages` (those a subtitle task uses), as a worker builds them."""
 
         from . import engine_contexts
 
+        if packages is None:
+            packages = {key: package for key, package in self.packages().items() if package.kind != "ocr"}
         return engine_contexts.build(
-            self.packages() if packages is None else packages,
+            packages,
             paths=self._paths(),
             settings=self._settings,
             provisioner=self._provisioner,
@@ -1454,6 +1509,8 @@ class LocalProvider:
         if self._issues_override and self._issues:
             issue = self._issues[0]
             raise ProviderError(issue["code"], issue["message"], http_status=503)
+        if validated["target"] in SCREEN_TEXT_TARGETS:
+            return self._start_screen_text(validated)
         if not self._issues_override:
             engine_id = requested_engine(validated)
             # A source-text axis replaces recognition the way a cloud stable.json
@@ -1563,6 +1620,242 @@ class LocalProvider:
         if "started_at" not in value:
             value["started_at"] = value.get("created_at")
         return value
+
+    # -- on-screen text (the editor's add-on) --------------------------------------------------------------
+
+    def _screen_text_issues(self, request: Mapping[str, Any]) -> list[dict[str, str]]:
+        """Why a screen-text task cannot start here, in the words the editor's tab shows."""
+
+        from . import engine_host
+
+        if sys.platform != "win32":
+            return [{"code": "unsupported_platform", "message": "文字识别只支持 Windows"}]
+        root_of = getattr(self._provisioner, "screen_text_root", None)
+        if root_of is None or root_of() is None:
+            return [{"code": "missing_screen_text", "message": "请先在「设置 → 运行环境」安装文字识别层"}]
+        if engine_host.ocr_package(self.packages()) is None:
+            return [{"code": "missing_engine", "message": "文字识别层不完整，请重新安装 Nonoka"}]
+        if (request.get("screen_text") or {}).get("translate") == "zh":
+            stage = next(
+                item for item in runtime_report(self._settings, self._provisioner, packages=self.packages())["stages"]
+                if item["id"] == "final-srt"
+            )
+            issues = [issue for issue in stage["issues"] if issue["code"] != "missing_knowledge_package"]
+            if issues:
+                return issues
+        return []
+
+    def _screen_text_busy(self) -> bool:
+        for snapshot_path in self.root.glob("*/snapshot.json"):
+            try:
+                snapshot = _read_json_when_free(snapshot_path)
+            except (OSError, ValueError):
+                continue
+            if snapshot.get("kind") in SCREEN_TEXT_TARGETS and snapshot.get("state") in {"queued", "running"}:
+                return True
+        return False
+
+    def _start_screen_text(self, validated: dict[str, Any]) -> dict[str, Any]:
+        target = str(validated["target"])
+        if not self._issues_override:
+            issues = self._screen_text_issues(validated)
+            if issues:
+                raise ProviderError(issues[0]["code"], issues[0]["message"], http_status=503)
+        with self._lock:
+            if self._screen_text_busy():
+                raise ProviderError("screen_text_busy", "已经有一个文字识别任务在跑，请等它结束", http_status=409)
+            if target == SCREEN_TEXT_TARGET:
+                from .screen_text import speech_lines
+
+                video_id = str(validated["source"]["video_id"])
+                try:
+                    document = self.documents.read(video_id) if _safe_component(video_id) else None
+                except (DocumentNotFound, DocumentError):
+                    document = None
+                validated["screen_text"]["speech"] = speech_lines(document)
+            task_id = uuid.uuid4().hex
+            now = utc_now()
+            upstream = {}
+            from . import engine_host
+
+            package = engine_host.ocr_package(self.packages())
+            if package is not None:
+                upstream = package.upstream
+            snapshot = {
+                "schema": 1,
+                "task_id": task_id,
+                "provider": "local",
+                "kind": target,
+                "state": "queued",
+                "stage": "",
+                "progress": None,
+                "engine": {"version": str(upstream.get("engine_version") or ""),
+                           "commit": str(upstream.get("commit") or "")},
+                "requested_capabilities": {"video_multimodal": False, "target": target},
+                "effective_capabilities": {"video_multimodal": False, "target": target},
+                "error": None,
+                "last_cursor": 0,
+                "created_at": now,
+                "started_at": now,
+                "updated_at": now,
+            }
+            task_dir = self._task_dir(task_id)
+            _atomic_json(task_dir / "request.json", validated)
+            _atomic_json(task_dir / "snapshot.json", snapshot)
+        self._spawn(task_id)
+        return self.status(task_id)
+
+    def _append_screen_text(self, task_id: str, request: Mapping[str, Any], manifest: Mapping[str, Any]) -> dict[str, Any] | None:
+        """A finished screen-text task's tracks, put in the video's document; what to tell the desktop."""
+
+        if request.get("target") != SCREEN_TEXT_TARGET:
+            return None
+
+        from .screen_text import TRACK_PREFIX, edited, tracks_from
+
+        options = request.get("screen_text") or {}
+        if options.get("trial"):
+            return {"trial": True}
+        entry = (manifest.get("artifacts") or {}).get("screen_text_json")
+        if not isinstance(entry, Mapping):
+            raise ProviderError("screen_text_failed", "文字识别没有产物")
+        parsed = urlparse(str(entry.get("uri") or ""))
+        path = Path(url2pathname(parsed.path))
+        result = json.loads(path.read_text(encoding="utf-8"))
+        tracks = tracks_from(result, task_id=task_id)
+        video_id = str(request["source"]["video_id"])
+        keep = edited if options.get("on_edited") == "keep" else None
+        document = self.documents.replace_generated_tracks(
+            video_id, TRACK_PREFIX, tracks, keep=keep,
+            skeleton=_screen_text_skeleton(request.get("source") or {}),
+        )
+        return {"document_rev": int(document.get("rev", 0)), "video_id": video_id, "tracks": len(tracks)}
+
+    def screen_text_result(self, task_id: str) -> dict[str, Any]:
+        """A finished screen-text task's tracks as they would be appended (the trial's preview)."""
+
+        from .screen_text import tracks_from
+
+        if not _safe_component(task_id):
+            raise ProviderError("invalid_request", "Invalid task id")
+        snapshot = self.status(task_id)
+        if snapshot.get("kind") != SCREEN_TEXT_TARGET:
+            raise ProviderError("invalid_request", "不是文字识别任务")
+        if snapshot.get("state") != "completed":
+            raise ProviderError("task_not_completed", "任务还没完成", http_status=409)
+        path = self._task_dir(task_id) / "screen_text.json"
+        try:
+            result = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as error:
+            raise ProviderError("screen_text_failed", "文字识别没有产物", http_status=404) from error
+        return {"schema": 1, "task_id": task_id, "tracks": tracks_from(result, task_id=task_id),
+                "range": result.get("range") or {}}
+
+    def _gametext_dir(self) -> Path:
+        return self._paths().engine("flowocr") / "gametext"
+
+    @staticmethod
+    def _inspect_gametext_zip(zip_path: Path) -> dict[str, Any]:
+        import zipfile
+
+        if not zip_path.is_file() or zip_path.suffix.lower() != ".zip":
+            raise ProviderError("invalid_gametext", "请选择 .zip 格式的游戏剧本包")
+        try:
+            with zipfile.ZipFile(zip_path, "r") as zf:
+                names = zf.namelist()
+                manifest_member = next(
+                    (name for name in names if name == "manifest.json"
+                     or (name.endswith("/manifest.json") and name.count("/") == 1)),
+                    None,
+                )
+                if manifest_member is None:
+                    raise ProviderError("invalid_gametext", "压缩包里找不到 manifest.json，不是有效的游戏剧本包")
+                manifest = json.loads(zf.read(manifest_member).decode("utf-8"))
+        except ProviderError:
+            raise
+        except (OSError, zipfile.BadZipFile, UnicodeDecodeError, ValueError) as error:
+            raise ProviderError("invalid_gametext", f"无法读取游戏剧本包：{error}") from error
+        if not isinstance(manifest, Mapping) or manifest.get("schema") != "gtd-bundle/1":
+            raise ProviderError("invalid_gametext", "不是受支持的游戏剧本包（需要 gtd-bundle/1）")
+        game = str(manifest.get("game") or "").strip()
+        if not game or not _safe_component(game):
+            raise ProviderError("invalid_gametext", "剧本包缺少有效的 game 字段")
+        upstream = manifest.get("upstream") if isinstance(manifest.get("upstream"), Mapping) else {}
+        return {
+            "game": game,
+            "version": str(upstream.get("version") or ""),
+            "fingerprint": str(manifest.get("fingerprint") or ""),
+            "file": zip_path.name,
+        }
+
+    def list_screen_text_gametexts(self) -> dict[str, Any]:
+        root = self._gametext_dir()
+        games: list[dict[str, Any]] = []
+        if root.is_dir():
+            for entry in sorted(root.glob("*.zip")):
+                try:
+                    games.append(self._inspect_gametext_zip(entry))
+                except ProviderError:
+                    continue
+        games.sort(key=lambda item: item["game"].lower())
+        return {"schema": 1, "games": games}
+
+    def import_screen_text_gametext(self, body: Mapping[str, Any]) -> dict[str, Any]:
+        raw = str(body.get("path") or "").strip() if isinstance(body, Mapping) else ""
+        if not raw:
+            raise ProviderError("invalid_request", "缺少剧本包路径")
+        source = Path(raw).expanduser().resolve()
+        info = self._inspect_gametext_zip(source)
+        root = self._gametext_dir()
+        root.mkdir(parents=True, exist_ok=True)
+        # Remove older zip bundles for the same game so FlowOCR never hits duplicate fingerprints.
+        for existing in list(root.glob("*.zip")):
+            if existing.resolve() == source:
+                continue
+            try:
+                old = self._inspect_gametext_zip(existing)
+            except ProviderError:
+                continue
+            if old["game"] == info["game"]:
+                existing.unlink(missing_ok=True)
+        dest = root / source.name
+        if dest.resolve() != source:
+            tmp = root / f".{source.name}.{uuid.uuid4().hex}.tmp"
+            try:
+                shutil.copy2(source, tmp)
+                os.replace(tmp, dest)
+            except BaseException:
+                tmp.unlink(missing_ok=True)
+                raise
+        return {"schema": 1, "imported": info, "games": self.list_screen_text_gametexts()["games"]}
+
+    def screen_text_check(self, device: str = "auto") -> dict[str, Any]:
+        """What the editor's tab shows before a run: installed or not, the card, and why it cannot run."""
+
+        from . import engine_host
+
+        issues = self._screen_text_issues({"screen_text": {"translate": "none"}})
+        report: dict[str, Any] = {"schema": 1, "ready": not issues, "issues": issues, "warnings": [],
+                                  "busy": self._screen_text_busy()}
+        if issues:
+            return report
+        from . import engine_contexts
+
+        package = engine_host.ocr_package(self.packages())
+        try:
+            with engine_contexts.build({package.id: package}, paths=self._paths(), settings=self._settings,
+                                       provisioner=self._provisioner, proxy=engine_contexts.proxy_context()) as built:
+                with engine_host.PackageProcess(package, built.contexts[package.id]) as process:
+                    checked = process.request("check", {"device": device})
+        except (engine_host.PackageError, engine_host.PackageUnavailable, OSError) as error:
+            report.update(ready=False, issues=[{"code": "screen_text_check_failed", "message": "文字识别层打不开，请到设置里修复",
+                                                "detail": str(error)}])
+            return report
+        report["check"] = checked
+        report["warnings"] = list(checked.get("warnings") or [])
+        if checked.get("issues"):
+            report.update(ready=False, issues=list(checked["issues"]))
+        return report
 
     def list_tasks(self, *, limit: int = 100) -> dict[str, Any]:
         if limit < 1 or limit > 500:
@@ -2071,7 +2364,12 @@ class LocalProvider:
                         self._update_progress(task_id, event_type, payload)
                     elif event_type == "completed":
                         manifest = payload.get("artifacts")
-                        if isinstance(manifest, dict):
+                        if isinstance(manifest, dict) and request.get("target") in SCREEN_TEXT_TARGETS:
+                            _atomic_json(task_dir / "artifacts.json", manifest)
+                            appended = self._append_screen_text(task_id, request, manifest)
+                            if appended is not None:
+                                payload = {**payload, **appended}
+                        elif isinstance(manifest, dict):
                             _atomic_json(task_dir / "artifacts.json", manifest)
                             video_id = str(request.get("source", {}).get("video_id") or "")
                             # `projection: none` runs the stages and stops: the

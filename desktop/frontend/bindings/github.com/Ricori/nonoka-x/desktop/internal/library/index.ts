@@ -10,6 +10,7 @@ export type {
     CacheStatus,
     Clip,
     Entry,
+    EraseOptions,
     ExportResult,
     ExportSource,
     FilmstripTileResult,

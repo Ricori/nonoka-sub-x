@@ -109,7 +109,11 @@ def _files(manifest: Any) -> dict[str, Any]:
     return manifest.by_path()
 
 
-def check_python(manifest: Any, root: Path | None, recorded: dict[str, Any]) -> list[str]:
+def check_python(manifest: Any, root: Path | None, recorded: dict[str, Any], *,
+                 other_files: tuple[str, ...] = ()) -> list[str]:
+    """The Python layer against the pins; `other_files` are path prefixes of the layer no package owns
+    (the on-screen text layer's `models/`), checked by the caller."""
+
     lm, build_layers = _modules()
     problems: list[str] = []
     sources = manifest.sources
@@ -169,7 +173,7 @@ def check_python(manifest: Any, root: Path | None, recorded: dict[str, Any]) -> 
     members = {item["path"]: item for item in interpreter.get("files", [])}
     exceptions = {item["path"] for item in manifest.exceptions}
     for path, item in sorted(files.items()):
-        if path in owned:
+        if path in owned or path.startswith(other_files):
             continue
         if path.endswith(".pyc"):
             source = build_layers.compiled_source(path)
@@ -294,11 +298,55 @@ def check_tools(manifest: Any, root: Path | None, recorded: dict[str, Any]) -> l
     return problems
 
 
+def check_screen_text(manifest: Any, root: Path | None, recorded: dict[str, Any]) -> list[str]:
+    """The on-screen text layer: an interpreter with its own lock (as the Python layer), and under
+    `models/` exactly the files the vendored FlowOCR pins, plus the graphs derived from them."""
+
+    lm, build_layers = _modules()
+    from nonoka_x.runtime import manifests
+
+    lock = manifests.screen_text_lock()
+    pinned = {
+        "interpreter": recorded["interpreter"],
+        "python": {"global": [
+            {"name": package["name"], "version": package["version"],
+             **({"marker": package["marker"]} if package.get("marker") else {}),
+             "wheels": [{"url": wheel["url"], "sha256": wheel["hashes"]["sha256"]} for wheel in package.get("wheels", [])],
+             **({"archive": package["archive"]} if package.get("archive") else {})}
+            for package in lock["packages"]
+        ]},
+    }
+    prefix = f"{lm.SCREEN_TEXT_MODELS_DIR}/"
+    problems = check_python(manifest, root, pinned, other_files=(prefix,))
+    models = build_layers._flowocr_models()
+    files = _files(manifest)
+    expected: set[str] = set()
+    for key in build_layers.SCREEN_TEXT_MODELS:
+        model = models.MODELS[key]
+        for name, sha256 in model.files.items():
+            path = f"{prefix}{model.repo.split('/')[-1]}/{name}"
+            expected.add(path)
+            item = files.get(path)
+            if item is None:
+                problems.append(f"model file missing: {path}")
+            elif item.sha256 != sha256:
+                problems.append(f"model file differs from FlowOCR's pin: {path}")
+    derived = {path for path in files if path.startswith(prefix) and path not in expected}
+    if not any(path.endswith(".onnx") and "argmax" in path for path in derived):
+        problems.append("the rec model's derived graph is missing")
+    if sum(1 for path in derived if path.rsplit("/", 1)[-1].startswith("lama_") and path.endswith(".onnx")) < 2:
+        problems.append("LaMa's derived graphs are missing")
+    problems += [f"model file without a source mark: {path}" for path in sorted(derived)
+                 if path.endswith(".onnx") and f"{path}.src-sha256" not in files]
+    return problems
+
+
 CHECKERS = {
     "python": check_python,
     "models": check_models,
     "models-moss": check_models,
     "tools": check_tools,
+    "screen-text": check_screen_text,
 }
 
 

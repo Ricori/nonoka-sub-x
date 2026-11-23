@@ -10,6 +10,7 @@ import { syncSubs } from './subtitles';
 import { restorePieces } from './videoEdit';
 import { viewStore } from '../store/viewStore';
 import type { Seg, Snapshot, Track } from '../types';
+import { cloneCover, clonePos } from '../../subtitles/position';
 
 /**
  * 撤销/重做历史。改动前存一份深拷贝快照，撤销即弹栈还原；文本编辑按「聚焦→首次输入」
@@ -27,13 +28,16 @@ export function resetHistory() {
   pendingSnap = null;
 }
 
-function cloneSegs(arr: Seg[]): Seg[] {
+export function cloneSegs(arr: Seg[]): Seg[] {
   return arr.map(s => {
     const o: Seg = { t0: s.t0, t1: s.t1, ja: s.ja, zh: s.zh };
     if (s.k) o.k = s.k;               // K 轴同样只被整体替换，浅引用即可
     if (s.words) o.words = s.words;   // words 只被整体替换、不原地改，浅引用即可
     if (s.low_conf) o.low_conf = true;
     if (s.style) o.style = { ...s.style };   // 改单句样式是就地写字段，得深一层
+    // Dragging and the inspector write pos/cover fields in place, so copy one level deep
+    if (s.pos) o.pos = clonePos(s.pos);
+    if (s.cover) o.cover = cloneCover(s.cover);
     return o;
   });
 }

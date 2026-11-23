@@ -13,6 +13,7 @@ import { syncSubs, syncSubsSoon } from './subtitles';
 import { removeEffectsForTrack } from './effects';
 import type { Lang, Seg } from '../types';
 import { CN_STYLE, ORIGIN_STYLE } from '../../subtitles/styles';
+import { cloneCover, clonePos, unionCover } from '../../subtitles/position';
 
 /**
  * 改了句子就必须带上 syncSubs：预览是 libass 按整份 ASS 渲染的，只重画当前帧
@@ -141,6 +142,9 @@ export function splitAtPlayhead() {
   if (zh) s.zh = zh[0];
   if (s.low_conf) b.low_conf = true;
   if (s.style) b.style = { ...s.style };   // 拆开的两半都还是这一句，样式一起带走
+  // Both halves still cover the same on-screen text
+  if (s.pos) b.pos = clonePos(s.pos);
+  if (s.cover) b.cover = cloneCover(s.cover);
   s.t1 = t;
   arr.splice(sel + 1, 0, b);
   refreshAll(); markDirty();
@@ -161,6 +165,10 @@ export function mergeNext() {
   if (a.k && b.k) a.k = a.k.concat(b.k);
   else delete a.k;
   if (b.low_conf) a.low_conf = true;
+  // Merged on-screen text covers both boxes; the first line keeps its placement
+  if (a.cover && b.cover) a.cover = unionCover(a.cover, b.cover);
+  else if (b.cover) a.cover = cloneCover(b.cover);
+  if (!a.pos && b.pos) a.pos = clonePos(b.pos);
   arr.splice(sel + 1, 1);
   refreshAll(); markDirty();
   toast("已与下一句合并");

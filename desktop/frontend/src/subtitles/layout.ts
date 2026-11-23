@@ -216,3 +216,72 @@ export function bandBlock(style: AssStyle, sheet: StyleSheet): BlockRect {
     lines: [{ text: "", glyphs: [], advances: [], left, top, width, height }],
   };
 }
+
+// ── Per-segment placement (`\pos`) ─────────────────────────────
+
+/** A positioned cue's text never shrinks below this share of its requested size */
+export const POS_MIN_FONT_SCALE = 0.6;
+/** Each shrink step multiplies the font size by this */
+const POS_SHRINK_STEP = 0.94;
+
+/** `pos` already converted to PlayRes units */
+export interface PlacedPos {
+  x: number;
+  y: number;
+  an: number;
+  /** wrap width */
+  width: number;
+  /** requested font size (ASS Fontsize, before shrinking) */
+  size: number;
+  /** height the block should fit in; 0 = no limit */
+  maxHeight: number;
+}
+
+export interface PositionedBlock {
+  block: BlockRect;
+  /** font size actually used (after shrinking) */
+  size: number;
+  /** true when even the minimum size did not fit; text overflows */
+  overflow: boolean;
+}
+
+/** Lay out at one font size, anchored at (place.x, place.y) the way libass anchors `\pos` */
+function placeAt(text: string, style: AssStyle, sheet: StyleSheet, place: PlacedPos, size: number): BlockRect {
+  // Reuse layoutBlock's wrapping with a box of exactly the wrap width; spacer lines for
+  // lineSpacing rely on {\r}, which would undo the \fs override, so positioned text has none
+  const X = sheet.playRes.x;
+  const width = Math.max(1, Math.min(X, place.width));
+  const temp: AssStyle = { ...style, size, lineSpacing: 0, ml: 0, mr: X - width, align: 7, mv: 0 };
+  const raw = layoutBlock(text, temp, sheet);
+  const contentWidth = Math.max(...raw.lines.map(line => line.width));
+  const h = hGroupOf(place.an), v = vGroupOf(place.an);
+  const left = place.x - (h === 1 ? 0 : h === 2 ? contentWidth / 2 : contentWidth);
+  const top = place.y - (v === 3 ? 0 : v === 2 ? raw.height / 2 : raw.height);
+  const lines: LineRect[] = raw.lines.map((line, index) => ({
+    ...line,
+    left: left + (h === 1 ? 0 : h === 2 ? (contentWidth - line.width) / 2 : contentWidth - line.width),
+    top: top + index * raw.lineHeight,
+  }));
+  const rect = { left, top, width: contentWidth, height: raw.height };
+  return { ...rect, content: { ...rect }, lineHeight: raw.lineHeight, lines };
+}
+
+/**
+ * Layout for a positioned cue: wrap to the requested width; if the block is wider than that
+ * (one unbreakable word) or taller than `maxHeight`, shrink the font step by step down to
+ * POS_MIN_FONT_SCALE of the requested size, and only then let it overflow.
+ */
+export function layoutPositioned(text: string, style: AssStyle, sheet: StyleSheet, place: PlacedPos): PositionedBlock {
+  const oneLine = lineHeightPx(place.size, style.scy);
+  const limit = place.maxHeight > 0 ? Math.max(place.maxHeight, oneLine) : 0;
+  const fits = (block: BlockRect) =>
+    block.width <= place.width + 0.5 && (!limit || block.height <= limit + 0.5);
+  const floor = place.size * POS_MIN_FONT_SCALE;
+  let size = place.size;
+  for (;;) {
+    const block = placeAt(text, style, sheet, place, size);
+    if (fits(block)) return { block, size, overflow: false };
+    if (size <= floor) return { block, size, overflow: true };
+    size = Math.max(floor, size * POS_SHRINK_STEP);
+  }
+}

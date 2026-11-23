@@ -1,4 +1,4 @@
-import { cuesOf, generatorOf } from '../../subtitles/build';
+import { cuesOf, generatorOf, positionedCueOf } from '../../subtitles/build';
 import { bandBlock, layoutBlock, vGroupOf } from '../../subtitles/layout';
 import type { BlockRect } from '../../subtitles/layout';
 import { getStyleSheet } from '../ass';
@@ -36,9 +36,17 @@ export interface SubtitleBox {
   shifted: number;
   /** 这条线绑了生成型特效，真实画面是逐字 \pos 事件，框只是近似 */
   approximate: boolean;
+  /** The seg carries its own `pos`: drawn with \pos, dragging writes seg.pos, not the style */
+  positioned: boolean;
+  /** Alignment that anchors this box: the seg's pos.an when positioned, else the style's */
+  align: number;
 }
 
-export interface LaneRef { trackId: string; lang: Lang }
+/**
+ * A lane on screen. Positioned segs (on-screen text) can show several at once on the same
+ * lane, so `seg` pins which one when the selection came from clicking a positioned box.
+ */
+export interface LaneRef { trackId: string; lang: Lang; seg?: Seg | null }
 
 export const sameLane = (a: LaneRef | null, b: LaneRef | null) =>
   !!a && !!b && a.trackId === b.trackId && a.lang === b.lang;
@@ -48,11 +56,13 @@ export const sameLane = (a: LaneRef | null, b: LaneRef | null) =>
  * 中间对齐那三个不动——libass 不像边对齐那样堆叠它们，硬堆会把框画到没有字的地方。
  *
  * 这里只处理本编辑器会发出的那种事件（全是 Layer 0、没有 \pos、默认碰撞模式）。
+ * Positioned boxes are skipped: libass never moves \pos events out of the way.
  */
 function avoidCollisions(boxes: SubtitleBox[], playResY: number) {
   let floor = playResY;      // 下对齐组：已占用区域的上沿
   let ceiling = 0;           // 上对齐组：已占用区域的下沿
   for (const box of boxes) {
+    if (box.positioned) continue;
     const group = vGroupOf(styleAlign(box));
     if (group === 1) {
       const overflow = box.block.top + box.block.height - floor;
@@ -79,29 +89,34 @@ function shift(box: SubtitleBox, dy: number) {
 export function subtitleBoxesAt(t = playStore.get().t): SubtitleBox[] {
   const sheet = getStyleSheet();
   const boxes: SubtitleBox[] = [];
-  outputLines().forEach((line, index) => {
-    // 时间口径必须与 buildAssFrom 一致：钳重叠会改出点，自己再算一遍就会选错句
-    const cue = cuesOf(line, sheet).find(c => t >= c.t0 && t < c.t1);
-    if (!cue) return;
-    const style = sheet.styleMap[cue.style];
-    if (!style) return;
-    // 取原始文本：assTx 会把换行转成 \N，layoutBlock 认的是 \n
-    const text = (cue.segment[line.lang] || "").trim();
-    if (!text) return;
-    boxes.push({
-      index,
-      trackId: line.trackId,
-      lang: line.lang,
-      styleName: cue.style,
-      boundStyle: line.meta.style,
-      ownStyle: cue.segment.style?.[line.lang] ?? null,
-      trackName: line.name,
-      seg: cue.segment as Seg,
-      text,
-      block: layoutBlock(text, style, sheet),
-      shifted: 0,
-      approximate: !!generatorOf(line),
-    });
+  const lines = outputLines();
+  lines.forEach((line, index) => {
+    // 时间口径必须与 buildAssFrom 一致：钳重叠会改出点，自己再算一遍就会选错句。
+    // Positioned cues are never clamped and may overlap, so a lane can show several at once
+    for (const cue of cuesOf(line, sheet).filter(c => t >= c.t0 && t < c.t1)) {
+      const style = sheet.styleMap[cue.style];
+      if (!style) continue;
+      // 取原始文本：assTx 会把换行转成 \N，layoutBlock 认的是 \n
+      const text = (cue.segment[line.lang] || "").trim();
+      if (!text) continue;
+      const placed = cue.segment.pos ? positionedCueOf(cue.segment, line, lines, sheet) : null;
+      boxes.push({
+        index,
+        trackId: line.trackId,
+        lang: line.lang,
+        styleName: cue.style,
+        boundStyle: line.meta.style,
+        ownStyle: cue.segment.style?.[line.lang] ?? null,
+        trackName: line.name,
+        seg: cue.segment as Seg,
+        text,
+        block: placed ? placed.block : layoutBlock(text, style, sheet),
+        shifted: 0,
+        approximate: !placed && !!generatorOf(line),
+        positioned: !!placed,
+        align: placed ? placed.an : style.align,
+      });
+    }
   });
   avoidCollisions(boxes, sheet.playRes.y);
   return boxes;
@@ -112,7 +127,11 @@ export function subtitleBoxesAt(t = playStore.get().t): SubtitleBox[] {
  * 选中会很难用，所以空隙里也要能继续选中和拖动。
  */
 export function boxForLane(lane: LaneRef, t = playStore.get().t): SubtitleBox | null {
-  const live = subtitleBoxesAt(t).find(box => sameLane(box, lane));
+  const onLane = subtitleBoxesAt(t).filter(box => sameLane(box, lane));
+  // A positioned pick stays on its own seg; while that seg is off screen there is no box
+  // (a margin band means nothing for text that carries its own position)
+  if (lane.seg?.pos) return onLane.find(box => box.seg === lane.seg) ?? null;
+  const live = onLane.find(box => !box.positioned) ?? onLane[0];
   if (live) return live;
 
   const sheet = getStyleSheet();
@@ -134,6 +153,8 @@ export function boxForLane(lane: LaneRef, t = playStore.get().t): SubtitleBox | 
     block: bandBlock(style, sheet),
     shifted: 0,
     approximate: !!generatorOf(line),
+    positioned: false,
+    align: style.align,
   };
 }
 
@@ -149,10 +170,19 @@ const inside = (box: SubtitleBox, x: number, y: number) =>
  * 命中测试用文字区域的外接矩形而不是整个容器宽：点击文字两侧空白处照常切播放/暂停，
  * 命中选中后再展开完整宽度的文本框。
  */
-export function hitTest(boxes: SubtitleBox[], x: number, y: number, cycleFrom?: number): SubtitleBox | null {
+export function hitTest(boxes: SubtitleBox[], x: number, y: number,
+  cycleFrom?: number | SubtitleBox): SubtitleBox | null {
   const hits = boxes.filter(box => inside(box, x, y));
   if (!hits.length) return null;
   if (cycleFrom === undefined) return hits[hits.length - 1];
-  const at = hits.findIndex(box => box.index === cycleFrom);
+  // Several boxes can share one outputLines index (positioned segs); a box pins its own seg
+  const at = typeof cycleFrom === "number"
+    ? hits.findIndex(box => box.index === cycleFrom)
+    : hits.findIndex(box => box.index === cycleFrom.index && box.seg === cycleFrom.seg);
   return hits[(at + hits.length - 1) % hits.length];
 }
+
+/** The selection a click on this box should make */
+export const laneOfBox = (box: SubtitleBox): LaneRef => (box.positioned
+  ? { trackId: box.trackId, lang: box.lang, seg: box.seg }
+  : { trackId: box.trackId, lang: box.lang });

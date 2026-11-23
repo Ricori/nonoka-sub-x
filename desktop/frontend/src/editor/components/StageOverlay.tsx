@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { shallowEqual } from '../../home/lib/createStore';
 import { getPlayRes, getStyleSheet } from '../ass';
 import { anchorOf, beginDrag, nudgeSelection, openInlineEditForBox, styleAngle } from '../lib/stageDrag';
@@ -9,6 +9,7 @@ import { armPending, commitPending, disarmPending, pushHistory } from '../lib/hi
 import { patchStyle } from '../lib/styleEdit';
 import { docStore, laneNames } from '../store/docStore';
 import { playStore } from '../store/playStore';
+import { patchScreenTextOptions, screenTextStore } from '../store/screenTextStore';
 import { clearStageSelection, stageStore } from '../store/stageStore';
 import { modalStore } from '../store/uiStore';
 import type { Handle } from '../store/stageStore';
@@ -30,9 +31,30 @@ const pct = (value: number, span: number) => (value / span) * 100 + "%";
 export function StageOverlay({ stageRef }: { stageRef: React.RefObject<HTMLDivElement | null> }) {
   const { sel, guides, hint, dragging, edit } = stageStore.use(
     s => ({ sel: s.sel, guides: s.guides, hint: s.hint, dragging: !!s.drag, edit: s.edit }), shallowEqual);
+  const { drawingRoi, roi } = screenTextStore.use(
+    s => ({ drawingRoi: s.drawingRoi, roi: s.options.roi }), shallowEqual);
+  const sideTab = modalStore.use(s => s.sideTab);
   const playing = playStore.use(s => s.playing);
   const t = playStore.use(s => s.t);   // 换了句子框要跟着换
   docStore.use(s => s.version);     // 改了样式/文本也要重算
+
+  // 切离「文字识别」页签时退出框选模式
+  useEffect(() => {
+    if (sideTab !== "screen-text" && drawingRoi) screenTextStore.set({ drawingRoi: false });
+  }, [sideTab, drawingRoi]);
+
+  useEffect(() => {
+    if (!drawingRoi) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        screenTextStore.set({ drawingRoi: false });
+      }
+    };
+    document.addEventListener("keydown", onKey, true);
+    return () => document.removeEventListener("keydown", onKey, true);
+  }, [drawingRoi]);
 
   // 点画面以外的地方就取消选中。舞台自己的点击由 onStagePointerDown 处理（点空白也会取消）；
   // 样式页和它弹出的下拉/取色器/弹窗算「还在编辑这条」，不取消
@@ -98,15 +120,25 @@ export function StageOverlay({ stageRef }: { stageRef: React.RefObject<HTMLDivEl
     </div>;
   }
 
+  // 文字识别 ROI 框选层：优先接管舞台拖拽
+  if (drawingRoi) {
+    return <RoiDrawLayer stageRef={stageRef} existing={roi} />;
+  }
+
   // 播放中不摆位置：框藏起来，也省掉每帧重算命中盒。
   // 播放头停在这条 lane 没字的空隙里也不画框——选中保留，走回有字的地方框再出来
   const box = sel && !playing ? boxForLane(sel) : null;
-  if (!box?.seg) return <div className="stage-edit" aria-hidden />;
+  const showRoi = sideTab === "screen-text" && roi;
+  if (!box?.seg) {
+    return <div className="stage-edit" aria-hidden={!showRoi}>
+      {showRoi && <RoiBox rect={roi} />}
+    </div>;
+  }
 
   const { x: X, y: Y } = getPlayRes();
   const style = getStyleSheet().styleMap[box.styleName];
   const angle = styleAngle(box.styleName);
-  const anchor = anchorOf(box.block, style?.align ?? 2);
+  const anchor = anchorOf(box.block, box.align);
   const grab = (kind: "move" | "resize" | "rotate", handle?: Handle) =>
     (event: React.PointerEvent) => {
       event.stopPropagation();
@@ -114,10 +146,12 @@ export function StageOverlay({ stageRef }: { stageRef: React.RefObject<HTMLDivEl
       if (stageRef.current) beginDrag(event, stageRef.current, box, kind, handle);
     };
 
-  const lockedVertically = !!style && ignoresMarginV(style.align);
+  // Positioned text moves by \pos, so MarginV and the margin handles do not apply
+  const lockedVertically = !box.positioned && !!style && ignoresMarginV(style.align);
 
   return (
     <div className="stage-edit">
+      {showRoi && <RoiBox rect={roi} />}
       {guides.x.map(x => <i key={"x" + x} className="stage-guide v" style={{ left: pct(x, X) }} />)}
       {guides.y.map(y => <i key={"y" + y} className="stage-guide h" style={{ top: pct(y, Y) }} />)}
 
@@ -144,11 +178,11 @@ export function StageOverlay({ stageRef }: { stageRef: React.RefObject<HTMLDivEl
           {box.trackName} · {laneNames()[box.lang]} · {box.styleName}
         </span>
 
-        <span className="sel-rotate" title="拖动旋转（按住 Shift 吸附 15°）"
+        {!box.positioned && <span className="sel-rotate" title="拖动旋转（按住 Shift 吸附 15°）"
           onPointerDown={grab("rotate")} onClick={event => event.stopPropagation()}
-          onDoubleClick={event => event.stopPropagation()} />
+          onDoubleClick={event => event.stopPropagation()} />}
 
-        {HANDLES.map(handle => (
+        {!box.positioned && HANDLES.map(handle => (
           <span key={handle} className={"sel-handle h-" + handle}
             style={{ cursor: "ew-resize" }}
             title="拖动调整文本框宽度（按住 Alt 取消吸附）"
@@ -180,7 +214,8 @@ function InlineEditor({ box, seg, stage }: { box: SubtitleBox; seg: Seg; stage: 
   const { x: X, y: Y } = getPlayRes();
   const style = getStyleSheet().styleMap[box.styleName];
   const scale = stage ? stage.clientHeight / Y : 0.5;
-  const fontPx = Math.max(12, Math.min(40, (style?.size ?? 60) * scale * 0.8));
+  const size = box.positioned ? box.block.lineHeight : (style?.size ?? 60);
+  const fontPx = Math.max(12, Math.min(40, size * scale * 0.8));
   const value = seg[box.lang];
   const close = () => { disarmPending(); stageStore.set({ edit: null }); };
 
@@ -200,7 +235,7 @@ function InlineEditor({ box, seg, stage }: { box: SubtitleBox; seg: Seg; stage: 
 
   const width = Math.min(100, Math.max(12, (box.block.width / X) * 100));
   const left = Math.min(100 - width, Math.max(0, (box.block.left / X) * 100));
-  const hGroup = hGroupOf(style?.align ?? 2);
+  const hGroup = hGroupOf(box.align);
   const textAlign = hGroup === 1 ? "left" : hGroup === 3 ? "right" : "center";
   // 下半屏的字幕：框贴着字的下沿往上长、提示放上面，否则提示会被舞台的 overflow 裁掉
   const lower = box.block.top + box.block.height / 2 > Y / 2;
@@ -254,6 +289,74 @@ function MiddleHint({ box, align, playResY }: { box: SubtitleBox; align: number;
     <div className="stage-note warn" style={{ top: pct(box.block.top + box.block.height, playResY) }}>
       纵向被锁定：中间对齐时 libass 忽略 MarginV
       <button onPointerDown={event => event.stopPropagation()} onClick={toBottom}>切到底部对齐</button>
+    </div>
+  );
+}
+
+function RoiBox({ rect }: { rect: [number, number, number, number] }) {
+  const [x0, y0, x1, y1] = rect;
+  return (
+    <div className="roi-box" style={{
+      left: `${x0 * 100}%`, top: `${y0 * 100}%`,
+      width: `${(x1 - x0) * 100}%`, height: `${(y1 - y0) * 100}%`,
+    }}>
+      <span className="roi-tag">识别区域</span>
+    </div>
+  );
+}
+
+function RoiDrawLayer({ stageRef, existing }: {
+  stageRef: React.RefObject<HTMLDivElement | null>;
+  existing: [number, number, number, number] | null;
+}) {
+  const [draft, setDraft] = useState<[number, number, number, number] | null>(null);
+  const originRef = useRef<[number, number] | null>(null);
+
+  const norm = (clientX: number, clientY: number): [number, number] | null => {
+    const el = stageRef.current;
+    if (!el) return null;
+    const rect = el.getBoundingClientRect();
+    if (!rect.width || !rect.height) return null;
+    const x = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
+    const y = Math.min(1, Math.max(0, (clientY - rect.top) / rect.height));
+    return [Math.round(x * 1000) / 1000, Math.round(y * 1000) / 1000];
+  };
+
+  const rectOf = (a: [number, number], b: [number, number]): [number, number, number, number] => [
+    Math.min(a[0], b[0]), Math.min(a[1], b[1]), Math.max(a[0], b[0]), Math.max(a[1], b[1]),
+  ];
+
+  return (
+    <div className="stage-edit roi-draw-layer"
+      onPointerDown={(event) => {
+        event.stopPropagation();
+        event.preventDefault();
+        const pt = norm(event.clientX, event.clientY);
+        if (!pt) return;
+        originRef.current = pt;
+        setDraft([pt[0], pt[1], pt[0], pt[1]]);
+        (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
+      }}
+      onPointerMove={(event) => {
+        if (!originRef.current) return;
+        event.stopPropagation();
+        const pt = norm(event.clientX, event.clientY);
+        if (pt) setDraft(rectOf(originRef.current, pt));
+      }}
+      onPointerUp={(event) => {
+        if (!originRef.current) return;
+        event.stopPropagation();
+        const pt = norm(event.clientX, event.clientY);
+        const finalRect = pt ? rectOf(originRef.current, pt) : draft;
+        originRef.current = null;
+        if (finalRect && (finalRect[2] - finalRect[0]) >= 0.02 && (finalRect[3] - finalRect[1]) >= 0.02) {
+          patchScreenTextOptions({ roi: finalRect });
+        }
+        screenTextStore.set({ drawingRoi: false });
+      }}
+      onClick={(event) => event.stopPropagation()}>
+      <div className="roi-banner">拖动框选识别区域 · 按 Esc 取消</div>
+      {(draft ?? existing) && <RoiBox rect={(draft ?? existing)!} />}
     </div>
   );
 }

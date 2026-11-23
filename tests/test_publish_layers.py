@@ -295,6 +295,8 @@ class PublishFlowTests(TempCase):
             "models-moss": {"huggingface/hub/models--m--d/snapshots/r/model.safetensors": b"moss-weights",
                             "huggingface/hub/models--m--d/.finesub-verified.json": "{\"ok\": true}\n"},
             "tools": {"ffmpeg/bin/ffmpeg.exe": b"\x01" * 500, "node/node.exe": b"\x02" * 200},
+            "screen-text": {"python.exe": b"MZ" + b"\x03" * 300, "Lib/site-packages/ocrdeps/__init__.py": "y = 2\n",
+                            "models/PP-OCRv6_medium_det_onnx/inference.onnx": b"det-weights"},
         }
         for layer, files in trees.items():
             root = builder.work / layer
@@ -328,7 +330,7 @@ class PublishFlowTests(TempCase):
                          (1, "windows-x64", "https://layers.nonoka.online/"))
         # The model files are not hosted one by one (owner 2026-11-13): the key stays, the list is empty.
         self.assertEqual(index["files"], {"layers": [], "path": "v1/files/{sha256}"})
-        self.assertEqual(list(index["layers"]), ["python", "models", "models-moss", "tools"])
+        self.assertEqual(list(index["layers"]), ["python", "models", "models-moss", "tools", "screen-text"])
         for layer, entry in index["layers"].items():
             directory = self.dist / layer / entry["version"]
             data = (directory / "manifest.json").read_bytes()
@@ -383,7 +385,7 @@ class PublishFlowTests(TempCase):
     def test_by_default_only_archives_and_manifests_are_published(self) -> None:
         index = self.index(pl.FILE_LAYERS)
         objects = pl.plan_objects(index, self.dist, self.work)
-        self.assertEqual(sorted(item.kind for item in objects), ["archive"] * 4 + ["manifest"] * 4)
+        self.assertEqual(sorted(item.kind for item in objects), ["archive"] * 5 + ["manifest"] * 5)
         self.assertFalse(self.work.exists())  # nothing unpacked
         smallest = min((entry for item in index["layers"].values() for entry in (item["manifest"], item["archive"])),
                        key=lambda entry: entry["size"])
@@ -392,14 +394,14 @@ class PublishFlowTests(TempCase):
         self.assertFalse(any(key.startswith("v1/files/") for key in self.fake.objects))
         with PublicServer(self.fake) as public:
             result = pl.verify(index, DIRECT, self.dir / "verify", base_url=public.base_url)
-        self.assertEqual((result.problems, len(result.checked)), ([], 4))
+        self.assertEqual((result.problems, len(result.checked)), ([], 5))
 
     def test_plan_lists_archives_manifests_and_each_model_file_once(self) -> None:
         index = self.index()
         objects = pl.plan_objects(index, self.dist, self.work)
         kinds = [item.kind for item in objects]
-        self.assertEqual(kinds.count("archive"), 4)
-        self.assertEqual(kinds.count("manifest"), 4)
+        self.assertEqual(kinds.count("archive"), 5)
+        self.assertEqual(kinds.count("manifest"), 5)
         models = lm.parse((self.dist / "models" / index["layers"]["models"]["version"] / "manifest.json").read_bytes())
         self.assertEqual(kinds.count("file"), len({item.sha256 for item in models.files}))
         self.assertEqual(kinds.count("file"), 4)  # the two identical files are one object
@@ -440,7 +442,7 @@ class PublishFlowTests(TempCase):
         with PublicServer(self.fake) as public:
             result = pl.verify(index, DIRECT, self.dir / "verify", base_url=public.base_url)
         self.assertEqual(result.problems, [])
-        self.assertEqual(len(result.checked), 5)
+        self.assertEqual(len(result.checked), 6)
         self.assertFalse((self.dir / "verify").exists())
 
     def test_verify_reports_a_damaged_object(self) -> None:

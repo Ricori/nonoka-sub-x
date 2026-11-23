@@ -1,0 +1,20 @@
+{
+  "components": [
+    {
+      "component": "FlowOCR",
+      "license": "GPL-3.0-or-later",
+      "path": "LICENSE"
+    },
+    {
+      "component": "PP-OCRv6 det / rec models (PaddlePaddle)",
+      "license": "Apache-2.0",
+      "path": "LICENSES/PP-OCRv6-NOTICE.md"
+    },
+    {
+      "component": "LaMa ONNX (Carve/LaMa-ONNX, big-lama)",
+      "license": "Apache-2.0",
+      "path": "LICENSES/LaMa-NOTICE.md"
+    }
+  ],
+  "schema": 1
+}

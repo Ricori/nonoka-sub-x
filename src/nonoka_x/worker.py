@@ -524,6 +524,17 @@ def engine_context(data_dir: Path | None, install_dir: Path | None, engines: Pat
     return {"store": _Deferred(store), "runtime": _Deferred(runtime)}
 
 
+def task_packages(packages: Mapping[str, Any], request: Mapping[str, Any]) -> dict[str, Any]:
+    """The packages a task's processes come from: the on-screen text package only for its own tasks,
+    and for those only it and the correction (its translation)."""
+
+    if request.get("target") == "screen-text":
+        return {key: package for key, package in packages.items() if package.kind in ("ocr", "correction")}
+    if request.get("target") == "screen-text-inpaint":
+        return {key: package for key, package in packages.items() if package.kind == "ocr"}
+    return {key: package for key, package in packages.items() if package.kind != "ocr"}
+
+
 def launch_contexts(packages: Mapping[str, Any], data_dir: Path | None, install_dir: Path | None, engines: Path) -> Any:
     """The launch contexts of this task's package processes (`nonoka_x.engine_contexts`), from the data directory."""
 
@@ -869,8 +880,24 @@ def main(argv: list[str] | None = None) -> int:
         args.task_dir.mkdir(parents=True, exist_ok=True)
         packages = engine_host.discover(engines_root)
         install_app_proxy_policy()
-        contexts = launch_contexts(packages, args.data_dir, args.install_dir, engines_root)
+        contexts = launch_contexts(task_packages(packages, request), args.data_dir, args.install_dir, engines_root)
         session.contexts = contexts.contexts
+        if request.get("target") in ("screen-text", "screen-text-inpaint"):
+            # The editor's on-screen text add-on: the ocr package (plus translation for recognize),
+            # nothing of the transcription pipeline (`nonoka_x.screen_text`).
+            from . import screen_text
+
+            runner = screen_text.run_inpaint if request.get("target") == "screen-text-inpaint" else screen_text.run
+            products = runner(request, args.task_dir, session=session, packages=packages, emit=emit,
+                              reporter=NonokaXReporter(announce_completion=False))
+            ocr = engine_host.ocr_package(packages)
+            emit("completed", {"artifacts": {
+                "schema": 1,
+                "task_id": args.task_id,
+                "engine_commit": ocr.engine_commit if ocr is not None else "",
+                "artifacts": {name: artifact(path) for name, path in products.items() if path.is_file()},
+            }})
+            return 0
         register_engines(**engine_context(args.data_dir, args.install_dir, engines_root),
                          packages=packages, session=session)
         requested_correction = corrections.requested_engine(request)

@@ -2,7 +2,7 @@ import { getVid } from '../session';
 import { docStore } from '../store/docStore';
 import { toast } from '../store/uiStore';
 import { errText } from '../utils';
-import { buildSrt, type SrtLang } from './srtBuild';
+import { buildSrt, type BuildSrtOptions, type SrtLang } from './srtBuild';
 import { EDIT_SUFFIX, exportPieces } from './videoEdit';
 import { mediaLibrary } from '../../bridge/library.ts';
 
@@ -34,17 +34,17 @@ function suffixOf(lang: SrtLang, content: string): string {
  * 导出 SRT：所有未隐藏轨道按时间摊平成一条流（轨道与样式要保留就走 ASS）。
  * 与导出 ASS 一样整片、剪辑成片都在本地拼，不占服务端资源（对照基准见 srtBuild）。
  */
-export async function exportSrt(lang: SrtLang) {
+export async function exportSrt(lang: SrtLang, options?: BuildSrtOptions) {
   try {
     const { title } = docStore.get();
     const pieces = exportPieces();
     let name = (title || getVid()).replace(/\.[a-z0-9]{2,4}$/i, "") || getVid();
     let content: string;
     if (pieces) {
-      content = buildSrt(lang, pieces);
+      content = buildSrt(lang, pieces, options);
       name += EDIT_SUFFIX;
     } else {
-      content = buildSrt(lang);
+      content = buildSrt(lang, undefined, options);
     }
     // 关了翻译的产物导「仅译文」会是空文件，与其存一个空壳不如直接说清楚
     if (!content.trim()) { toast("没有可导出的内容：可见轨道里该语言全是空的"); return; }

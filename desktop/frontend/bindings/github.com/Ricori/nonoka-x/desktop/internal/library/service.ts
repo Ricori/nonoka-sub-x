@@ -95,6 +95,14 @@ export function ExportVideoPieces(id: string, defaultName: string, ass: string, 
     return $Call.ByID(221216840, id, defaultName, ass, pieces, crf, preset, scaleH, abr, container, gpu);
 }
 
+/**
+ * ExportVideoPiecesWithErase extends ExportVideoPieces with an optional LaMa
+ * erase pass that removes original on-screen text before burning the subtitles.
+ */
+export function ExportVideoPiecesWithErase(id: string, defaultName: string, ass: string, pieces: $models.Range[] | null, crf: number, preset: string, scaleH: number, abr: string, container: string, gpu: boolean, erase: $models.EraseOptions): $CancellablePromise<$models.ExportResult> {
+    return $Call.ByID(3539222930, id, defaultName, ass, pieces, crf, preset, scaleH, abr, container, gpu, erase);
+}
+
 export function ExportVideoRange(id: string, defaultName: string, ass: string, t0: number, t1: number, crf: number, preset: string, scaleH: number, abr: string): $CancellablePromise<$models.ExportResult> {
     return $Call.ByID(1248896640, id, defaultName, ass, t0, t1, crf, preset, scaleH, abr);
 }

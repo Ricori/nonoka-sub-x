@@ -154,7 +154,7 @@ export interface TaskRequest {
   schema: 1;
   provider: ProviderID;
   source: LocalSource | CloudSource;
-  target: "raw-srt" | "final-srt";
+  target: "raw-srt" | "final-srt" | "screen-text" | "screen-text-inpaint";
   language: string;
   device: string;
   /**
@@ -219,6 +219,8 @@ export interface TaskSnapshot {
   schema: 1;
   task_id: string;
   provider: ProviderID;
+  /** 附加任务种类（例如 `screen-text` / `screen-text-inpaint`）；语音转写任务为空或 `"speech"`。 */
+  kind?: string;
   state: TaskState;
   stage: string;
   progress: TaskProgress | null;

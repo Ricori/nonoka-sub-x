@@ -921,6 +921,27 @@ export default function App() {
     }).catch(() => undefined);
   }), [loadCloud, loadLibrary, loadStorageStatus, refresh]);
 
+  useEffect(() => Events.On("home:open-settings", (event) => {
+    const target = typeof event.data === "string" && event.data ? event.data : "runtime";
+    openSettings(target as SettingsAnchor);
+  }), [openSettings]);
+
+  useEffect(() => Events.On("document:changed", (event) => {
+    const payload = event.data as { reason?: string } | undefined;
+    if (payload?.reason !== "screen-text") return;
+    setLibraryMessage(okNotice("文字识别已加入"));
+    void loadLibrary();
+  }), [loadLibrary]);
+
+  const screenTextLayerState = runtimeProvision?.screen_text?.state;
+  const lastScreenTextLayerState = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    if (lastScreenTextLayerState.current !== undefined && lastScreenTextLayerState.current !== screenTextLayerState) {
+      void Events.Emit("runtime:changed", true);
+    }
+    lastScreenTextLayerState.current = screenTextLayerState;
+  }, [screenTextLayerState]);
+
   const handleDroppedFiles = useCallback((paths: string[], ignored: number) => {
     setSection("library");
     const warning = ignored > 0 ? `已忽略 ${ignored} 个不支持的文件；支持视频 MP4 / M4V / MOV / MKV / WebM 与音频 MP3 / M4A / AAC / FLAC / WAV / OGG / Opus。` : "";
@@ -1727,6 +1748,18 @@ export default function App() {
     }
   }, [refresh]);
 
+  const removeScreenText = useCallback(async () => {
+    setProvisionMessage("");
+    setDismissedProvisionJobKey("");
+    try {
+      setRuntimeProvision(await fineSubRuntime.removeScreenText());
+      await refresh();
+    } catch (value) {
+      setProvisionMessage(value instanceof Error ? value.message : String(value));
+      await refresh({ silent: true });
+    }
+  }, [refresh]);
+
   const removeUnusedRuntime = useCallback(async (layers: string[]) => {
     setProvisionMessage("");
     try {
@@ -2286,6 +2319,7 @@ export default function App() {
                 onInstallPython: installPython,
                 onRemoveModels: removeModels,
                 onRemoveModelsMoss: removeModelsMoss,
+                onRemoveScreenText: removeScreenText,
                 onRemoveUnused: removeUnusedRuntime,
                 cleanup: cleanupPlan,
                 onOpenOnboarding: openOnboardingWizard,

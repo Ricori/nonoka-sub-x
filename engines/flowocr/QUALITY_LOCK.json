@@ -1,0 +1,564 @@
+{
+  "files": [
+    {
+      "bytes": 724,
+      "path": "flowocr/__init__.py",
+      "sha256": "7f8f0e5862e42bdd2e81df9bac96d5ce1445fda997617ecc2941afaf327630a2"
+    },
+    {
+      "bytes": 685,
+      "path": "flowocr/analyze/__init__.py",
+      "sha256": "44a449bbb6af17449efb3afd0014e364a769b7ef14e8092b8064f15e9a5640f6"
+    },
+    {
+      "bytes": 7130,
+      "path": "flowocr/analyze/align.py",
+      "sha256": "2fb7ed3dba0d595cbab3bd12afe96200ba2d8d1624f9a6385d4b9f645f15a833"
+    },
+    {
+      "bytes": 202315,
+      "path": "flowocr/analyze/build_tracks.py",
+      "sha256": "8251be068fd4c6ede59bd0423d85006412bdf6a0a5d324d4817c8707fe9d6b3a"
+    },
+    {
+      "bytes": 8439,
+      "path": "flowocr/analyze/cluster_layers.py",
+      "sha256": "48b0a97f6d7be9894d07010df5632fa9dfcd211ec73300f2ef715547eb3a613b"
+    },
+    {
+      "bytes": 14022,
+      "path": "flowocr/analyze/echo.py",
+      "sha256": "2c28389dee7ddccb935ad4e6ebc15c682ffcca6e771b7d566dc9f63d4bd9edb5"
+    },
+    {
+      "bytes": 57225,
+      "path": "flowocr/analyze/game_align.py",
+      "sha256": "5e2c3f65b0609037a203d610be3669f4065811bfd7e3e111608467b27aeb61f5"
+    },
+    {
+      "bytes": 89134,
+      "path": "flowocr/analyze/gamescript.py",
+      "sha256": "e44ba30b9069cd6fd610deb09e2cba2eebd89ea865f0c21f907f72e5fd2d7582"
+    },
+    {
+      "bytes": 16003,
+      "path": "flowocr/analyze/gtdbundle.py",
+      "sha256": "3a63d1033201bbbcfdd0cc3327fbc0c4d501784a7b6f8518158b80ed220defcf"
+    },
+    {
+      "bytes": 338,
+      "path": "flowocr/analyze/layouts/genshin.json",
+      "sha256": "0d5a93a9d666026244d2f6ad2f2e6c4ea1d643e3640e4973fd0cadd1586ed6eb"
+    },
+    {
+      "bytes": 334,
+      "path": "flowocr/analyze/layouts/mocai.json",
+      "sha256": "6b4c7310a02f78ee57414b905c2b23cdd28141d8273f6d5fbd0b5b02bf41283c"
+    },
+    {
+      "bytes": 324,
+      "path": "flowocr/analyze/layouts/starrail.json",
+      "sha256": "c76f28338d23a7d23f946e2f782d666243090a33ae7733d1013ca85f75596cc3"
+    },
+    {
+      "bytes": 302,
+      "path": "flowocr/analyze/layouts/zzz.json",
+      "sha256": "9020659805495a9a2a7c67ad985796e33b5ca31c81e9c7149e9e7725aba9c331"
+    },
+    {
+      "bytes": 5050,
+      "path": "flowocr/analyze/match.py",
+      "sha256": "73612a9bad71479ec00c3888ce5fe2c53af4afb2987dbd11e46879544cf1dd59"
+    },
+    {
+      "bytes": 420,
+      "path": "flowocr/analyze/matchers/__init__.py",
+      "sha256": "96fb40e4942af237bb77200cb67efc4b75f9d7550a57dc859414cb93ae7f7dee"
+    },
+    {
+      "bytes": 19453,
+      "path": "flowocr/analyze/matchers/gametext.py",
+      "sha256": "f1c557acfe1ecb33052af42e1ad0ed1956725a21d83f8f9bd76b892977712bb7"
+    },
+    {
+      "bytes": 37894,
+      "path": "flowocr/analyze/matchers/naninovel.py",
+      "sha256": "1e21af3761cebb3236d688070d56474f0678b7f97681c4699102b056095717c2"
+    },
+    {
+      "bytes": 10616,
+      "path": "flowocr/analyze/merge_nameplate.py",
+      "sha256": "cf3c00cd313bc8b729bc4ab78b18e04dbab9ef1d2a9a3990b751f425eb631bba"
+    },
+    {
+      "bytes": 2938,
+      "path": "flowocr/analyze/models/slot_pair.json",
+      "sha256": "374a66b902c3bec262fefbf352199571d7945e265a80274dea459bd216ec471f"
+    },
+    {
+      "bytes": 12168,
+      "path": "flowocr/analyze/nameink.py",
+      "sha256": "e87daf058e916565c9d333417f7c8d3274afef36a9d59b33637031827c3e4dd1"
+    },
+    {
+      "bytes": 8770,
+      "path": "flowocr/analyze/nameplate.py",
+      "sha256": "ae1bbed00dd48440cdd9495e6cf3f4d4c709b76cb3a7484f7de839474d84628d"
+    },
+    {
+      "bytes": 9497,
+      "path": "flowocr/analyze/pair_features.py",
+      "sha256": "577891cd3aa5786b4dc89dc53339b673e57c30b86320137d2d2f91520c192a5d"
+    },
+    {
+      "bytes": 6299,
+      "path": "flowocr/analyze/pair_model.py",
+      "sha256": "56fa07b0fbb3ad549fe1b1bf73877be71659ec7468f294305fd2c05a98d92a35"
+    },
+    {
+      "bytes": 33259,
+      "path": "flowocr/analyze/refine_boundaries.py",
+      "sha256": "e8ae570e7e4aa033819104ddcd92491562efe09a9d364468c9bda777f522f833"
+    },
+    {
+      "bytes": 42239,
+      "path": "flowocr/analyze/script_align.py",
+      "sha256": "7ce01a56b6e026f0219b9d68bde918c3f83cb7135d4ac9036f0291451e28b202"
+    },
+    {
+      "bytes": 133585,
+      "path": "flowocr/analyze/scriptmatch.py",
+      "sha256": "43de5219ab116890eb1b123ec6191400cb0b130b18c0e9fc0f13b676bd85c8a7"
+    },
+    {
+      "bytes": 18747,
+      "path": "flowocr/analyze/slot_learned.py",
+      "sha256": "cebbec4f02400eb2e1f9d312e5bad899eb9a0e90b00809b5bf570d8ceee176a1"
+    },
+    {
+      "bytes": 12294,
+      "path": "flowocr/analyze/slot_lines.py",
+      "sha256": "02c39cdec04f93181ec79627fc51cfe2b091cabf883fde56a898d9c24664becc"
+    },
+    {
+      "bytes": 7278,
+      "path": "flowocr/analyze/slot_modes.py",
+      "sha256": "9387b0745f026678638a9ac6fdd3e7bc12527fb5ce35ba37861c3f7529aae3b4"
+    },
+    {
+      "bytes": 32926,
+      "path": "flowocr/analyze/slot_pairs.py",
+      "sha256": "f13f00f6651229b5deca0a3888cf313de9403c87d39e03e17923c1a01f0c36ef"
+    },
+    {
+      "bytes": 5076,
+      "path": "flowocr/analyze/slot_veto.py",
+      "sha256": "c307ebdbfaf1f68289055200a8dcb65eb9e426a80a977ddf37d63ae547816750"
+    },
+    {
+      "bytes": 66696,
+      "path": "flowocr/analyze/textbox.py",
+      "sha256": "430ce19f9923eff17f5f994ea828cd4609d9bc6a72d92d42fe4f94b897926348"
+    },
+    {
+      "bytes": 20059,
+      "path": "flowocr/analyze/uigate.py",
+      "sha256": "a09df43b7cfad8bb16e018074a9d813fd6e075c745dc91921c27f92f00f3aa77"
+    },
+    {
+      "bytes": 320,
+      "path": "flowocr/artifacts/__init__.py",
+      "sha256": "59b8451bb1f074840d91117da4a2b74eb7771b83ffe7940d15251e1169b10bae"
+    },
+    {
+      "bytes": 5251,
+      "path": "flowocr/artifacts/evalkit.py",
+      "sha256": "6562503ee61e1b27899f527ef820a04cb555ece4d834d80a149896334e01c1e5"
+    },
+    {
+      "bytes": 21112,
+      "path": "flowocr/artifacts/matchedio.py",
+      "sha256": "24d364f4461bd2b87ead54bd5ecf9e2297cb43523d9d7c8e52c1056048641b3f"
+    },
+    {
+      "bytes": 1751,
+      "path": "flowocr/artifacts/obsio.py",
+      "sha256": "1ec6856dd6df3d84545c775bb31a67d9e0c518f5e6f06ea116983b97cced27f7"
+    },
+    {
+      "bytes": 6766,
+      "path": "flowocr/artifacts/srtio.py",
+      "sha256": "1dbd15e659678e7eefd6d0a443afe91f800cadaa96a20ef452059b49f2eeafe4"
+    },
+    {
+      "bytes": 37671,
+      "path": "flowocr/artifacts/tracksio.py",
+      "sha256": "9ebf461aa1f0a633f966aab433c5ed45106341267a33c30ef61a51d7db96d1ca"
+    },
+    {
+      "bytes": 657,
+      "path": "flowocr/burn/__init__.py",
+      "sha256": "fd940444d7d5f171ff70052cf93abe15e6ddb81b8010fe2f0800b3d83e5a8cf0"
+    },
+    {
+      "bytes": 2828,
+      "path": "flowocr/burn/__main__.py",
+      "sha256": "21d5b15c24067728042db3498436d5bca7bf1743c0418654eabb1b6fcb899557"
+    },
+    {
+      "bytes": 12135,
+      "path": "flowocr/burn/encode.py",
+      "sha256": "ef120bab38205dcd2f57a9a8384a6ef60e0aa71b654658a5d7d466b68ca76da7"
+    },
+    {
+      "bytes": 19896,
+      "path": "flowocr/burn/inpaint.py",
+      "sha256": "0f63de05bfa94bc25006282c01e4b6ae3f49467c2d0a65c2602702a1513ff397"
+    },
+    {
+      "bytes": 12400,
+      "path": "flowocr/burn/lamagraph.py",
+      "sha256": "877c0769ee66b3bebbe584ef785d89af192d807c490c82b573fd2d6af10175be"
+    },
+    {
+      "bytes": 20147,
+      "path": "flowocr/burn/pipeline.py",
+      "sha256": "52d21b180a247cffbe788be55d3cab146cd89eb09fda21674dd2a95823156aa6"
+    },
+    {
+      "bytes": 6040,
+      "path": "flowocr/burn/plates.py",
+      "sha256": "6b34a61c1945cb3ab657fa80406b2cfc2f791d6e0c11219d2940bd16cf8f7b33"
+    },
+    {
+      "bytes": 6351,
+      "path": "flowocr/extensions.py",
+      "sha256": "7f30842f158b3929fdaabe63c07ae165eea727d4d2d52590365135f0277888cb"
+    },
+    {
+      "bytes": 736,
+      "path": "flowocr/extract/__init__.py",
+      "sha256": "41a0d43dce36fe3119d00b4f3d42fdda7ac74a9a0c624a23aa747dd30c1e273a"
+    },
+    {
+      "bytes": 11831,
+      "path": "flowocr/extract/aux_transport.py",
+      "sha256": "d1ca484d31a6a99820104c5bf23b9817764a7b728d132752c4b1ab5ffaaeda6b"
+    },
+    {
+      "bytes": 5829,
+      "path": "flowocr/extract/childproc.py",
+      "sha256": "01d301d49d54bf644fe05b4816c20283e04212ccf7866ca6bf7c5082e359152a"
+    },
+    {
+      "bytes": 21571,
+      "path": "flowocr/extract/decode_proc.py",
+      "sha256": "d5819b44af6591a9d25489e1a24bbbc15d672cfaa56858a98156c12ca6dc8813"
+    },
+    {
+      "bytes": 35373,
+      "path": "flowocr/extract/decode_shards.py",
+      "sha256": "805f2999b7a13fe635f0366a6116ab5cc4b2e68dc10cb7489d3f3516c562098d"
+    },
+    {
+      "bytes": 11871,
+      "path": "flowocr/extract/detpost.py",
+      "sha256": "9155b8ee496252d21dc75dd35841575b466d59bbaafc8405fe91286b428cb899"
+    },
+    {
+      "bytes": 16713,
+      "path": "flowocr/extract/edge_proc.py",
+      "sha256": "97017ecdf7b0195f92c9efe0fe44a34ba4561bcdf8cde8a27948f116ee1dc9ca"
+    },
+    {
+      "bytes": 38711,
+      "path": "flowocr/extract/edge_refine.py",
+      "sha256": "0d27edcad21225ccc2da67e71473ea260d111d808650d566d01f970a3d26a1fe"
+    },
+    {
+      "bytes": 11819,
+      "path": "flowocr/extract/fast_det.py",
+      "sha256": "565516afb97555d5bfcb41d6b8d4b9377142454fd801293b5af3ccbfd1d857e1"
+    },
+    {
+      "bytes": 6077,
+      "path": "flowocr/extract/ffcheck.py",
+      "sha256": "500c7628fb3c6c805a30c1c066b4836284b498e01f7149a83cdb7ccbe336da21"
+    },
+    {
+      "bytes": 12930,
+      "path": "flowocr/extract/framegrid.py",
+      "sha256": "a5ad4b14a8b440a5c837c4a17a6cbac1267b0de15800333f0376f8f6ca6e2789"
+    },
+    {
+      "bytes": 77422,
+      "path": "flowocr/extract/framesource.py",
+      "sha256": "021c0c6f00d754c64a917d629ea007d1170ca6923b814da3d572e3ce7e5edcaf"
+    },
+    {
+      "bytes": 8885,
+      "path": "flowocr/extract/langprobe.py",
+      "sha256": "4edf763c1b0f61777731b2baa47d354ef881fe6ffc12e8330e32ccb83847a242"
+    },
+    {
+      "bytes": 84064,
+      "path": "flowocr/extract/ocr_args.py",
+      "sha256": "e4cd78094688909fc209be7180851481c3a2e7f483e4b34a816ff2708b8b0af7"
+    },
+    {
+      "bytes": 14520,
+      "path": "flowocr/extract/ocr_complete.py",
+      "sha256": "88a5e7a59af47a31f32fedd925dfd74c58b4d30896a37dc23d5847d34ece5097"
+    },
+    {
+      "bytes": 13661,
+      "path": "flowocr/extract/ocr_parallel.py",
+      "sha256": "4f31a12af8feae51528e0c3200272d71a5718166725c0a60f69a2b671a9fddc9"
+    },
+    {
+      "bytes": 48002,
+      "path": "flowocr/extract/ort_server.py",
+      "sha256": "4bae3002c03161ce76f697afa861f0399ec08b1a98d7799d9384c25494351cfc"
+    },
+    {
+      "bytes": 25400,
+      "path": "flowocr/extract/ortclient.py",
+      "sha256": "99f61fc9862c74f92a40b0d58bc3cbe3b73d2b1ba799f133fca70f41474bb27e"
+    },
+    {
+      "bytes": 7015,
+      "path": "flowocr/extract/ptsclock.py",
+      "sha256": "100034b04d5a3faab9e105496b4ccc6475c37a3d8843efd8b03a24158c4b8982"
+    },
+    {
+      "bytes": 4162,
+      "path": "flowocr/extract/recdecode.py",
+      "sha256": "0b0c9080b2e15d3c942d0f5d39d89727335848c8d601fde439adf9809805bf70"
+    },
+    {
+      "bytes": 10754,
+      "path": "flowocr/extract/recort.py",
+      "sha256": "8d2377463530cf42fecc6b2829799defa3531bf9cf6c1ebfff36b61977c55828"
+    },
+    {
+      "bytes": 4854,
+      "path": "flowocr/extract/recpack.py",
+      "sha256": "00db009e12576e62a6de1c75eecbf3b3f04b7bb76b1d88c41a8e8b1c4813b8a5"
+    },
+    {
+      "bytes": 16041,
+      "path": "flowocr/extract/recpool.py",
+      "sha256": "2b1b07299755abb89731d73065188d29d66430b00919791a4c731aa4e0df9737"
+    },
+    {
+      "bytes": 4203,
+      "path": "flowocr/extract/recprep.py",
+      "sha256": "d85ea1c852d31a4884afd896d19951a9b242708c3eb46a90bcaf3bf9934deb1c"
+    },
+    {
+      "bytes": 15274,
+      "path": "flowocr/extract/refine_video.py",
+      "sha256": "ed6006ff36e50f79c89a1aee49f86e8f56c94414c4a7aaa1cac5a20c54f8c166"
+    },
+    {
+      "bytes": 20146,
+      "path": "flowocr/extract/regions.py",
+      "sha256": "21116c069d8697ae64cbf9e1722f34b7812f993dec98e4ee4e14bec351e61a2e"
+    },
+    {
+      "bytes": 48087,
+      "path": "flowocr/extract/reuse_v2.py",
+      "sha256": "1560e82473e8a934aa945ee515c12a2c27c22d3bbc68d74b8d9c2f257693bd26"
+    },
+    {
+      "bytes": 15047,
+      "path": "flowocr/extract/run_groups.py",
+      "sha256": "a9e5a886d7e6ecfe44f977945286204b51fcff14c61452f4e146d26dbfc18fa5"
+    },
+    {
+      "bytes": 113812,
+      "path": "flowocr/extract/run_ocr2.py",
+      "sha256": "30b699264b19e4dc3e47a1a22fe5a966a6c42dbb28c71be30669839712fed2f9"
+    },
+    {
+      "bytes": 20039,
+      "path": "flowocr/extract/supervisor.py",
+      "sha256": "bb566733588718f612376789d03b18694f811696210cf8561ceb25087939231e"
+    },
+    {
+      "bytes": 3754,
+      "path": "flowocr/extract/timeline.py",
+      "sha256": "b595a3a2aa43e843e5d01984bd4c35dd9847dc7bc28f3fd8fe793aca2270c422"
+    },
+    {
+      "bytes": 35219,
+      "path": "flowocr/extract/trt_check.npz",
+      "sha256": "b18b273a26c977b2912e4000505e3f95a411c6552f27022437cc71e95e178126"
+    },
+    {
+      "bytes": 20965,
+      "path": "flowocr/extract/trt_engine.py",
+      "sha256": "a252ffdbd1da3aede0aedf6a67a33f04a400a9b7e5d75c8bf5e2d9d966c18b4e"
+    },
+    {
+      "bytes": 27776,
+      "path": "flowocr/extract/typewriter_fuse.py",
+      "sha256": "94394931341b2b72c737b63d3a86e761b7e6b42fd58dee387a6555da35bcebbe"
+    },
+    {
+      "bytes": 24158,
+      "path": "flowocr/models.py",
+      "sha256": "0258e1ebf86e27bc247b2f793777cf06a3719926d8d813fb8ee937629e400686"
+    },
+    {
+      "bytes": 260,
+      "path": "flowocr/output/__init__.py",
+      "sha256": "cffa3978828e29c9ac1cb7020028dd864a35b6efd931a78ab3c4ba9c9ff14cd7"
+    },
+    {
+      "bytes": 13721,
+      "path": "flowocr/output/export.py",
+      "sha256": "4e17cc54525b544a77b8c5300632c9334684281c5e544211e0d1b6d4300f68a2"
+    },
+    {
+      "bytes": 27601,
+      "path": "flowocr/output/layout.py",
+      "sha256": "9d5930036d3b0fe4b384525729373178df622fb2bfcbe6964419051a897ad122"
+    },
+    {
+      "bytes": 583,
+      "path": "flowocr/output/presets/__init__.py",
+      "sha256": "57dfd9d66ff19e156b6d131be4a6eb1f3066f89ce135951e196e1ca746730ec5"
+    },
+    {
+      "bytes": 3311,
+      "path": "flowocr/output/presets/_overlay.py",
+      "sha256": "83fb9ed302ce8752d79c6fe688c60bf2514b3196e55f9c1ae7a85385e0f79697"
+    },
+    {
+      "bytes": 1287,
+      "path": "flowocr/output/presets/default.py",
+      "sha256": "154d362d84279995192ebc891b81b01d91229d77aa7d89e9d0a905b0f4b4dd71"
+    },
+    {
+      "bytes": 1176,
+      "path": "flowocr/output/presets/default_all.py",
+      "sha256": "7c6a329ae005366e17e412e5c60e127a3ebb41ea1bf0fbb29e796137671a323c"
+    },
+    {
+      "bytes": 3792,
+      "path": "flowocr/output/presets/default_srt.py",
+      "sha256": "35b0d764c0a144c8adb30981c1206cb67dcd19685b29747c5b63bfde958e48e5"
+    },
+    {
+      "bytes": 1305,
+      "path": "flowocr/output/presets/dev.py",
+      "sha256": "46a3ef12e36fa0884fde7996b1bb498a93e25e85c7f630298fdaff58930dd7f0"
+    },
+    {
+      "bytes": 5032,
+      "path": "flowocr/output/presets/matched_srt.py",
+      "sha256": "9d0e21ddf4c66da055232e7dd61b77300d5f051fa7ef0d54fb1912f993a90ce3"
+    },
+    {
+      "bytes": 1044,
+      "path": "flowocr/output/presets/script.py",
+      "sha256": "aca563879da16b2f0e50f01d00aededa97f3aa7ccd0c2e2af1d64aba66ddac26"
+    },
+    {
+      "bytes": 8640,
+      "path": "flowocr/output/render.py",
+      "sha256": "56d13af5064e8eea10e02b3cc3b97b1317413e478f7e5de0bb225b593617892a"
+    },
+    {
+      "bytes": 5422,
+      "path": "flowocr/output/run_srt.py",
+      "sha256": "32ccafa1b9926b72f1d6559c5957358af3149c02a4b794e3003352d0b6b71a89"
+    },
+    {
+      "bytes": 88001,
+      "path": "flowocr/output/script.py",
+      "sha256": "6755eb8d5c8d16ffe5bc43f881c330ab8ab636e4435e5ad1493c43b9d8ea9cd2"
+    },
+    {
+      "bytes": 30741,
+      "path": "flowocr/output/timing_check.py",
+      "sha256": "8e4730a2931034c32aaab166bd6077da86401e6b6deb2cce9b9b8c632b73a8cd"
+    },
+    {
+      "bytes": 9130,
+      "path": "flowocr/paths.py",
+      "sha256": "f2dcf39a48865e05fe05a46bae0d1c184c57ef534048c3790a87c97cf285d82a"
+    },
+    {
+      "bytes": 10272,
+      "path": "flowocr/placeholders.py",
+      "sha256": "3c24948842557f9c77f5db5e5657d66ec7d9331487f1a74347c25482ed23c463"
+    },
+    {
+      "bytes": 6482,
+      "path": "flowocr/provenance.py",
+      "sha256": "b34294484fe486df6a81ac960656e8a1553d243525cb5ca9b11d2a51f648fd98"
+    },
+    {
+      "bytes": 14704,
+      "path": "flowocr/richtext.py",
+      "sha256": "c75298d47b0a44f079e98277f5904577887220fbb77ca029270051436b65f22b"
+    },
+    {
+      "bytes": 3938,
+      "path": "flowocr/textfold.py",
+      "sha256": "321865a0558c38036e5169bcbe9837cdd686a79122e2c3bc162e228be48bc296"
+    },
+    {
+      "bytes": 23606,
+      "path": "flowocr/trt.py",
+      "sha256": "092bc9a798869535c0309a29b41692eb95826a515d15d13f0ae3ff507ead3b9f"
+    },
+    {
+      "bytes": 706,
+      "path": "flowocr/typeset/__init__.py",
+      "sha256": "8fdf8853e32533e89944c70b7119b1fef6c83216b97726f0c3a1587e6459c65d"
+    },
+    {
+      "bytes": 2260,
+      "path": "flowocr/typeset/__main__.py",
+      "sha256": "f9a509ed138bd6d74a17552b9c6054d33fa4a368270e98ce08f09ca3d7d8f8c0"
+    },
+    {
+      "bytes": 9315,
+      "path": "flowocr/typeset/assfile.py",
+      "sha256": "45bf9bbd44ba10eda9a802a0f1e0e74f19f6bf2c3a589423607ae86dda0e847d"
+    },
+    {
+      "bytes": 75146,
+      "path": "flowocr/typeset/core.py",
+      "sha256": "a5319b7152a204dffeaf2144f92de409ce62cfc1c5e5968d2085984ace7060ab"
+    },
+    {
+      "bytes": 1063,
+      "path": "flowocr/typeset/fx/__init__.py",
+      "sha256": "c24ec9b73e85bc2f4f0572e2a56135d128a28d2d40467da30d969fe0dd90522e"
+    },
+    {
+      "bytes": 8974,
+      "path": "flowocr/typeset/grow.py",
+      "sha256": "22be0f2824a230f80c3d5dfc79e783c965b50466dcfc9b6f2752d9cd3d899992"
+    },
+    {
+      "bytes": 29569,
+      "path": "flowocr/typeset/platecolor.py",
+      "sha256": "7441ecf70d143c109e70128f669198e0800facd226ca4c1d122d1f8a57c0df8d"
+    },
+    {
+      "bytes": 8230,
+      "path": "flowocr/typeset/ruby.py",
+      "sha256": "c27a975b0a3a58e9f6839d333f0a76d70242b5524cd29a3386d78b38707176cc"
+    }
+  ],
+  "root": "engines/flowocr/src",
+  "rule": "Every file below root must match this list byte for byte, and no file may be added or removed. The list is upstream FlowOCR's src/ at UPSTREAM.json's commit. Updating it is an upstream upgrade the owner approves (LOCAL_CHANGES.md).",
+  "schema": 1,
+  "unlocked": [],
+  "upstream": "fc813fcc4f15ea69c7b0af76b6c0c48cee9893ae"
+}

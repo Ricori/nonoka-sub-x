@@ -1,12 +1,19 @@
 import { useEffect } from "react";
 import { Events } from "@wailsio/runtime";
+import { screenTextBridge } from "../../bridge/screenText.ts";
 import { desktopUpdate } from "../../bridge/update.ts";
 import { AUTOSAVE_MS } from "../constants";
 import { promptMandatoryUpdate } from "../lib/closeFlow";
+import {
+  handleDocumentChanged,
+  handleScreenTextProgress,
+  refreshScreenTextEnvironment,
+} from "../lib/screenTextMerge";
 import { proxyFailed, switchToProxy } from "../lib/videoSource";
 import { getVid, isLeaving, reportBootError } from "../session";
 import { flushLayout } from "../store/layoutStore";
 import { editDirty, saveStore, startAutosave } from "../store/saveStore";
+import { modalStore } from "../store/uiStore";
 import { videoStore } from "../store/videoStore";
 import { fmt } from "../utils";
 
@@ -72,4 +79,26 @@ export function useDesktopEvents() {
     if (result.ok) void switchToProxy().catch(() => videoStore.set({ badge: null }));
     else proxyFailed(result.error || "未知错误");
   }), []);
+
+  useEffect(() => screenTextBridge.onProgress((event) => {
+    void handleScreenTextProgress(event);
+  }), []);
+
+  useEffect(() => screenTextBridge.onDocumentChanged((event) => {
+    void handleDocumentChanged(event);
+  }), []);
+
+  useEffect(() => {
+    const offRuntime = Events.On("runtime:changed", () => {
+      if (modalStore.get().sideTab === "screen-text") void refreshScreenTextEnvironment();
+    });
+    const onFocus = () => {
+      if (modalStore.get().sideTab === "screen-text") void refreshScreenTextEnvironment();
+    };
+    addEventListener("focus", onFocus);
+    return () => {
+      offRuntime();
+      removeEventListener("focus", onFocus);
+    };
+  }, []);
 }

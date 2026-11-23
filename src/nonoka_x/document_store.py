@@ -235,6 +235,55 @@ class DocumentStore:
             _atomic_json(self.directory(video_id) / "document.json", updated)
             return updated
 
+    def replace_generated_tracks(
+        self,
+        video_id: str,
+        prefix: str,
+        tracks: list[dict[str, Any]],
+        *,
+        keep: Any = None,
+        skeleton: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Put `tracks` in place of the document's tracks whose id starts with `prefix`; nothing else changes.
+
+        An add-on's own tracks (the on-screen text's `ocr*`): the default track, the user's tracks,
+        the effects, the styles and `artifacts.json` stay as they are. `keep(track)` says which of
+        the old prefixed tracks to keep anyway (the user edited them): those get an id of the user's
+        kind (`t` + the old id) and lose their `source`, so a later run leaves them alone too.
+        Without a document yet, `skeleton` (an empty projection) is made the document first.
+        """
+
+        with self._lock(video_id):
+            directory = self.directory(video_id)
+            path = directory / "document.json"
+            if not path.exists():
+                if skeleton is None:
+                    raise DocumentNotFound(video_id)
+                self.create(video_id, skeleton)
+            current = self.read(video_id)
+            kept: list[dict[str, Any]] = []
+            taken = {str(track.get("id") or "") for track in current.get("tracks") or ()}
+            for track in copy.deepcopy(current.get("tracks") or []):
+                track_id = str(track.get("id") or "")
+                if not track_id.startswith(prefix):
+                    kept.append(track)
+                    continue
+                if keep is not None and keep(track):
+                    new_id = f"t{track_id}"
+                    while new_id in taken:
+                        new_id = f"t{new_id}"
+                    taken.add(new_id)
+                    track["id"] = new_id
+                    track.pop("source", None)
+                    kept.append(track)
+            self._snapshot(directory, current)
+            updated = copy.deepcopy(current)
+            updated["tracks"] = kept + copy.deepcopy(tracks)
+            updated["rev"] = int(current.get("rev", 0)) + 1
+            updated["updated_at"] = _timestamp()
+            _atomic_json(path, updated)
+            return updated
+
     def write_peaks(self, video_id: str, peaks: Mapping[str, Any]) -> None:
         with self._lock(video_id):
             _atomic_json(self.directory(video_id) / "peaks.json", dict(peaks))

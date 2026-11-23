@@ -123,6 +123,12 @@ export interface VideoExportDraft {
     "missingFonts": string[] | null;
 
     /**
+     * HasCoverBoxes is true when the subtitle snapshot contains on-screen text
+     * cover boxes that can be erased with LaMa before burning.
+     */
+    "hasCoverBoxes": boolean;
+
+    /**
      * Source lets the window estimate the output size as the knobs change.
      */
     "source": library$0.ExportSource;

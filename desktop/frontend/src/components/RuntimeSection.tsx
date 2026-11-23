@@ -33,6 +33,7 @@ interface RuntimeSectionProps {
   onCancelInstall: () => Promise<void>;
   onRemoveModels: () => Promise<void>;
   onRemoveModelsMoss?: () => Promise<void>;
+  onRemoveScreenText?: () => Promise<void>;
   onRemoveUnused: (layers: string[]) => Promise<void>;
   cleanup: RuntimeCleanupPlan | null;
   storage: StorageStatus | null;
@@ -81,7 +82,10 @@ const stageOrder: Record<string, number> = {
   completed: 4,
 };
 
-const KNOWN_LAYER_IDS = new Set<string>(["tools", "python", "models", "models-moss"]);
+const KNOWN_LAYER_IDS = new Set<string>(["tools", "python", "models", "models-moss", "screen-text"]);
+
+/** 文字识别层的说明（设置页的小问号）。 */
+const SCREEN_TEXT_TIP = "编辑器里「文字识别」要用它：识别画面上的字，翻译后盖在原处，也能抹掉原字再压制。\n只支持 Windows；有 NVIDIA 显卡（驱动 580 以上）会快很多。";
 
 function isRuntimeLayerId(value: string): value is RuntimeLayerId {
   return KNOWN_LAYER_IDS.has(value);
@@ -214,6 +218,7 @@ export function RuntimeSection(props: RuntimeSectionProps) {
     onInstallPython,
     onRemoveModels,
     onRemoveModelsMoss,
+    onRemoveScreenText,
     onRemoveUnused,
     cleanup,
     storage,
@@ -232,6 +237,7 @@ export function RuntimeSection(props: RuntimeSectionProps) {
 
   const [confirmRemoveModels, setConfirmRemoveModels] = useState(false);
   const [confirmRemoveModelsMoss, setConfirmRemoveModelsMoss] = useState(false);
+  const [confirmRemoveScreenText, setConfirmRemoveScreenText] = useState(false);
   const [confirmUnused, setConfirmUnused] = useState(false);
   const { pending, choosing, choose, clear } = useDestinationChoice(onChooseStorage);
 
@@ -251,6 +257,7 @@ export function RuntimeSection(props: RuntimeSectionProps) {
   const pythonLayer = layerById.get("python");
   const modelsLayer = layerById.get("models");
   const modelsMossLayer = layerById.get("models-moss");
+  const screenTextLayer = layerById.get("screen-text");
 
   const toolsState: RuntimeLayerOverview["state"] = toolsLayer?.state
     ?? (provision?.media_ready ? "ready" : "missing");
@@ -310,6 +317,18 @@ export function RuntimeSection(props: RuntimeSectionProps) {
     || (provision && pythonState !== "ready" ? "请先完成基础环境初始化后再下载模型。" : "");
   const removeModelsMossBlocked = migrationBlocked || connectionBlocked || jobBlocked || (!modelsMossInstalled ? "MOSS 模型层尚未安装。" : "");
 
+  const screenText = provision?.screen_text;
+  const screenTextAvailable = Boolean(screenTextLayer) || screenText?.available === true;
+  const screenTextReady = screenTextLayer ? screenTextLayer.state === "ready" : screenText?.state === "ready";
+  const screenTextInstalled = screenTextLayer ? screenTextLayer.current !== null : screenText?.state === "ready";
+  const screenTextNeedsUpdate = screenTextLayer?.state === "outdated";
+  const screenTextNeedsRepair = screenTextLayer?.state === "damaged";
+  const screenTextBlocked = migrationBlocked || connectionBlocked
+    || (provision && !provision.runtime_supported ? "只支持 Windows。" : "")
+    || (provision && !screenTextAvailable ? "这个版本还没有文字识别层。" : "")
+    || jobBlocked;
+  const removeScreenTextBlocked = migrationBlocked || connectionBlocked || jobBlocked || (!screenTextInstalled ? "还没安装。" : "");
+
   const installedLayers = (provision?.layers ?? []).filter((layer) => layer.current !== null);
   const repairBlocked = migrationBlocked || connectionBlocked || jobBlocked
     || (provision && provision.layers && installedLayers.length === 0 ? "还没有安装任何运行环境层。" : "");
@@ -346,6 +365,7 @@ export function RuntimeSection(props: RuntimeSectionProps) {
   const pythonWorking = migrationActive || (jobRunning && (job?.resource === "python" || job?.target === "offline:python" || job?.target === "runtime" || job?.target === "all"));
   const modelsWorking = migrationActive || (jobRunning && (job?.resource === "models" || job?.target === "offline:models" || job?.target === "models" || job?.target === "all"));
   const modelsMossWorking = migrationActive || (jobRunning && (job?.resource === "models-moss" || job?.target === "offline:models-moss" || job?.target === "models-moss"));
+  const screenTextWorking = jobRunning && (job?.resource === "screen-text" || job?.target === "offline:screen-text" || job?.target === "screen-text");
 
   const activeDownloadLayer: RuntimeLayerId | null = (() => {
     if (!jobRunning || !job || !onInstallOffline || !pythonSupported) return null;
@@ -354,6 +374,7 @@ export function RuntimeSection(props: RuntimeSectionProps) {
     if (job.target === "media") return "tools";
     if (job.target === "models" || job.target === "optional-models") return "models";
     if (job.target === "models-moss") return "models-moss";
+    if (job.target === "screen-text") return "screen-text";
     if (job.target === "runtime" || job.target === "all") return toolsState !== "ready" ? "tools" : pythonState !== "ready" ? "python" : null;
     return null;
   })();
@@ -366,6 +387,12 @@ export function RuntimeSection(props: RuntimeSectionProps) {
     ? formatStorageBytes(modelsLayer.bytes)
     : modelsLayer && modelsLayer.archive_bytes > 0
       ? `下载约 ${formatStorageBytes(modelsLayer.archive_bytes)}`
+      : "";
+  const screenTextActionLabel = screenTextNeedsRepair ? "修复" : screenTextNeedsUpdate ? "更新" : "下载";
+  const screenTextSizeText = screenTextLayer && screenTextLayer.bytes > 0
+    ? formatStorageBytes(screenTextLayer.bytes)
+    : screenTextLayer && screenTextLayer.archive_bytes > 0
+      ? `下载约 ${formatStorageBytes(screenTextLayer.archive_bytes)}`
       : "";
   const modelsMossSizeText = modelsMossLayer && modelsMossLayer.bytes > 0
     ? formatStorageBytes(modelsMossLayer.bytes)
@@ -669,6 +696,63 @@ export function RuntimeSection(props: RuntimeSectionProps) {
               {(modelsMossWorking || !modelsMossReady) && (
                 <Mark tone={modelsMossWorking ? "accent" : modelsMossNeedsUpdate || modelsMossNeedsRepair ? "caution" : "neutral"}>
                   {modelsMossWorking ? "处理中" : modelsMossNeedsUpdate ? "需更新" : modelsMossNeedsRepair ? "需修复" : "未安装"}
+                </Mark>
+              )}
+            </div>
+          </div>
+
+          <div className="runtime-layer-row">
+            <div className="runtime-layer-info">
+              <span className={screenTextReady ? "layer-dot ready" : "layer-dot"} aria-hidden="true">{screenTextReady ? "✓" : "↓"}</span>
+              <strong>文字识别层</strong>
+              <InfoTip text={SCREEN_TEXT_TIP} label="文字识别层" />
+            </div>
+            <div className="runtime-layer-actions">
+              {screenTextSizeText && <span className="runtime-layer-size">{screenTextSizeText}</span>}
+              {screenTextInstalled && !migrationActive && onRemoveScreenText && (
+                <button
+                  className={confirmRemoveScreenText ? "runtime-remove-button runtime-compact-btn confirming" : "runtime-remove-button runtime-compact-btn"}
+                  disabled={removeScreenTextBlocked !== ""}
+                  onBlur={() => setConfirmRemoveScreenText(false)}
+                  onClick={() => {
+                    if (!confirmRemoveScreenText) {
+                      setConfirmRemoveScreenText(true);
+                      return;
+                    }
+                    setConfirmRemoveScreenText(false);
+                    void onRemoveScreenText();
+                  }}
+                  title={removeScreenTextBlocked || "只删这个组件，字幕和设置不受影响"}
+                  type="button"
+                >
+                  {confirmRemoveScreenText ? "确认删除" : "删除"}
+                </button>
+              )}
+              {!screenTextReady && !migrationActive && screenTextAvailable && pythonSupported && onInstallOffline && (
+                <button
+                  type="button"
+                  className="quiet-button runtime-compact-btn"
+                  disabled={screenTextBlocked !== ""}
+                  title={offlineButtonTitle(screenTextLayer, screenTextBlocked)}
+                  onClick={() => void onInstallOffline("screen-text")}
+                >
+                  离线安装…
+                </button>
+              )}
+              {!screenTextReady && !migrationActive && screenTextAvailable && (
+                <button
+                  className="primary-button runtime-compact-btn"
+                  disabled={screenTextBlocked !== ""}
+                  onClick={() => void onInstall("screen-text")}
+                  title={screenTextBlocked || screenTextActionLabel}
+                  type="button"
+                >
+                  {screenTextWorking ? "下载中…" : screenTextActionLabel}
+                </button>
+              )}
+              {(screenTextWorking || !screenTextReady) && (
+                <Mark tone={screenTextWorking ? "accent" : screenTextNeedsUpdate || screenTextNeedsRepair ? "caution" : "neutral"}>
+                  {screenTextWorking ? "处理中" : !screenTextAvailable ? "暂未提供" : screenTextNeedsUpdate ? "需更新" : screenTextNeedsRepair ? "需修复" : "未安装"}
                 </Mark>
               )}
             </div>

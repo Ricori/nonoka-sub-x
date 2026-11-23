@@ -19,6 +19,9 @@ package's process; nothing here names an engine's variable or file.
   (with the provider id of Nonoka Cloud and the route -> task-group table the
   engine's pins use), the proxy;
 - the knowledge package: only the paths;
+- the on-screen text package (`ocr`): `runtime` (its own layer's interpreter
+  and model directory, its cache directory, the game-text directory) and the
+  proxy; no keys and no LLM routes;
 - every package: `runtime.tools`, the tool layer's directories its process
   finds ffmpeg, ffprobe and tokcount in; a correction package also
   `agent_cli.path`, the directories of the local agent CLIs Nonoka detects,
@@ -173,6 +176,10 @@ def package_context(
     if package.kind == "knowledge":
         context["runtime"] = {"tools": tools}
         return context
+    if package.kind == "ocr":
+        context["proxy"] = dict(proxy) if proxy is not None else {"policy": False, "url": None}
+        context["runtime"] = _ocr_runtime(package, paths, provisioner, tools)
+        return context
     context["secrets"] = dict(_call(settings, "engine_secrets", {}, package.secrets))
     context["llm"] = _llm(settings)
     context["proxy"] = dict(proxy) if proxy is not None else {"policy": False, "url": None}
@@ -191,6 +198,25 @@ def package_context(
         context["runtime"] = {"tools": tools}
         context["agent_cli"] = {"path": agent_cli_directories()}
     return context
+
+
+def _ocr_runtime(package: Package, paths: Any, provisioner: Any, tools: list[str]) -> dict[str, Any]:
+    """The on-screen text package's runtime: everything comes from its one layer, nothing from the Python layer."""
+
+    root_of = getattr(provisioner, "screen_text_root", None)
+    root = root_of() if root_of is not None else None
+    python_of = getattr(provisioner, "screen_text_python", None)
+    python = python_of() if python_of is not None else None
+    runtime: dict[str, Any] = {
+        "cache": str(paths.cache / package.id),
+        "gametext": str(paths.engine(package.id) / "gametext"),
+        "tools": tools,
+    }
+    if root is not None:
+        runtime["models"] = str(Path(root) / "models")
+    if python:
+        runtime["python"] = str(python)
+    return runtime
 
 
 class LaunchContexts:

@@ -42,9 +42,12 @@ OPTIONAL_MODELS = ("nemotron3", "speaker-embedding")
 OPTIONAL_MODELS_TARGET = "optional-models"
 MODELS_MOSS_TARGET = "models-moss"
 MOSS_MODELS = ("moss-transcribe-diarize", "speaker-embedding")
-USER_REMOVABLE_LAYERS = ("models", "models-moss")
+#: The on-screen text layer (FlowOCR's interpreter and models), an add-on of the editor.
+SCREEN_TEXT_LAYER = lm.SCREEN_TEXT_LAYER
+SCREEN_TEXT_TARGET = SCREEN_TEXT_LAYER
+USER_REMOVABLE_LAYERS = ("models", "models-moss", SCREEN_TEXT_LAYER)
 REPAIR_TARGET = "repair"
-TARGETS = {"media", "runtime", "models", MODELS_MOSS_TARGET, "all", OPTIONAL_MODELS_TARGET, REPAIR_TARGET,
+TARGETS = {"media", "runtime", "models", MODELS_MOSS_TARGET, SCREEN_TEXT_TARGET, "all", OPTIONAL_MODELS_TARGET, REPAIR_TARGET,
            *OPTIONAL_TOOLS, *REQUIRED_TOOLS, *TOOL_GROUPS}
 PIPELINE_MODELS = ("separator", "whisper", "qwen-referee")
 
@@ -54,6 +57,7 @@ START_MESSAGES = {
     "runtime": "正在准备安装运行时（不含模型）",
     "models": "正在准备下载模型层",
     MODELS_MOSS_TARGET: "正在准备下载 MOSS 模型层",
+    SCREEN_TEXT_TARGET: "正在准备下载文字识别层",
     "all": "正在准备安装运行时并下载模型",
     OPTIONAL_MODELS_TARGET: "正在准备下载模型层（含说话人分离模型）",
     REPAIR_TARGET: "正在准备完整核对运行环境",
@@ -69,6 +73,7 @@ DONE_MESSAGES = {
     "runtime": "运行时已就绪；模型仍需单独下载",
     "models": "模型层已下载并核对完成",
     MODELS_MOSS_TARGET: "MOSS 模型层已下载并核对完成",
+    SCREEN_TEXT_TARGET: "文字识别层已就绪",
     "all": "运行时与模型已全部准备就绪",
     OPTIONAL_MODELS_TARGET: "模型层已下载并核对完成（含说话人分离模型）",
     REPAIR_TARGET: "运行环境已完整核对，有问题的层已重新安装",
@@ -274,6 +279,7 @@ class RuntimeProvisioner:
                 "models": [{"id": model_id, "state": "missing"} for model_id in PIPELINE_MODELS],
                 "optional_models": [{"id": model_id, "state": "missing"} for model_id in OPTIONAL_MODELS],
                 "moss_models": [{"id": model_id, "state": "missing"} for model_id in MOSS_MODELS],
+                "screen_text": self._screen_text_item(None),
                 "layers": [],
                 "unused_layers": [],
                 "unused_bytes": 0,
@@ -306,11 +312,21 @@ class RuntimeProvisioner:
             "models": models,
             "optional_models": optional_models,
             "moss_models": moss_models,
+            "screen_text": self._screen_text_item(by_layer if self._runtime_supported else None),
             "layers": overview["layers"],
             "unused_layers": overview["unused"],
             "unused_bytes": overview["unused_bytes"],
             "job": job,
         }
+
+    def _screen_text_item(self, by_layer: dict[str, dict[str, Any]] | None) -> dict[str, Any]:
+        """The on-screen text layer's row: `available` says whether this build publishes it at all."""
+
+        available = by_layer is not None and self.layers is not None and SCREEN_TEXT_LAYER in self.layers.index.layers
+        if not available:
+            return {"id": SCREEN_TEXT_LAYER, "available": False, "state": "missing",
+                    "detail": "当前版本没有文字识别层" if self._runtime_supported else "只支持 Windows"}
+        return {"id": SCREEN_TEXT_LAYER, "available": True, **self._item_state(SCREEN_TEXT_LAYER, by_layer)}
 
     def _item_state(self, layer: str, by_layer: dict[str, dict[str, Any]]) -> dict[str, Any]:
         """A layer's state in the runtime page's words: ready / missing / outdated / failed (damaged)."""
@@ -350,7 +366,7 @@ class RuntimeProvisioner:
 
         if target not in TARGETS:
             raise RuntimeProvisionError(
-                f"target must be one of: media, runtime, models, {MODELS_MOSS_TARGET}, all, {OPTIONAL_MODELS_TARGET}, {REPAIR_TARGET}, "
+                f"target must be one of: media, runtime, models, {MODELS_MOSS_TARGET}, {SCREEN_TEXT_TARGET}, all, {OPTIONAL_MODELS_TARGET}, {REPAIR_TARGET}, "
                 + ", ".join((*OPTIONAL_TOOLS, *REQUIRED_TOOLS, *TOOL_GROUPS))
             )
         target_layers = layers_for(target)
@@ -364,6 +380,8 @@ class RuntimeProvisioner:
             raise RuntimeProvisionError("FineSub managed GPU runtime currently supports Windows x64 only")
         if self.layers is None:
             raise RuntimeProvisionError(f"运行环境层不可用：{self._bootstrap_error}")
+        if target == SCREEN_TEXT_TARGET and SCREEN_TEXT_LAYER not in self.layers.index.layers:
+            raise RuntimeProvisionError("当前版本没有文字识别层")
         with self._lock:
             if self._job["state"] == "running":
                 raise RuntimeProvisionError("FineSub runtime installation is already running")
@@ -543,6 +561,14 @@ class RuntimeProvisioner:
     def worker_python(self) -> Path | None:
         return self.layers.python_executable() if self.layers is not None else None
 
+    def screen_text_root(self) -> Path | None:
+        """The on-screen text layer's current directory (its own Python and models), or None when not ready."""
+
+        return self.layers.root(SCREEN_TEXT_LAYER) if self.layers is not None else None
+
+    def screen_text_python(self) -> Path | None:
+        return self.layers.python_executable(SCREEN_TEXT_LAYER) if self.layers is not None else None
+
     def tool_path(self, name: str) -> Path | None:
         if self.layers is None or name not in {"ffmpeg", "ffprobe", "tokcount"}:
             return None
@@ -622,7 +648,7 @@ class RuntimeProvisioner:
         return self.status()
 
     def remove_layer(self, layer: str) -> dict[str, Any]:
-        """Remove one user-removable model layer (`models` or `models-moss`); default layers stay."""
+        """Remove one user-removable layer (`models`, `models-moss` or `screen-text`); default layers stay."""
 
         from nonoka_x.runtime.layers import LABELS
 

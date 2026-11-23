@@ -10,6 +10,7 @@ import { refreshAll } from './edits';
 import { pushHistory } from './history';
 import { seek } from './playback';
 import type { Seg, Ti } from '../types';
+import { cloneCover, clonePos, trimLaneOverlaps } from '../../subtitles/position';
 
 const EPS = 1e-6;
 
@@ -67,6 +68,8 @@ function cloneSeg(s: Seg, dt = 0, clampLo?: number, clampHi?: number): Seg {
   if (s.words) out.words = s.words.map(w => cloneWord(w, dt));
   if (s.low_conf) out.low_conf = true;
   if (s.style) out.style = { ...s.style };
+  if (s.pos) out.pos = clonePos(s.pos);
+  if (s.cover) out.cover = cloneCover(s.cover);
   return out;
 }
 
@@ -313,9 +316,7 @@ export function pasteSegments(opts: { ti?: Ti; at?: number } = {}): number {
   for (const ti of touched) {
     const arr = segsOf(ti);
     arr.sort((a, b) => a.t0 - b.t0);
-    for (let k = 0; k < arr.length - 1; k++) {
-      if (arr[k].t1 > arr[k + 1].t0) arr[k].t1 = arr[k + 1].t0;
-    }
+    trimLaneOverlaps(arr);
   }
 
   setActiveTrack(order[basePos], { silent: true });

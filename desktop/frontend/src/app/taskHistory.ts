@@ -9,10 +9,13 @@ import { activeStates, taskHistoryLimit } from "./types.ts";
  */
 export function activeTasksByMedia(
   tasks: readonly TaskHistoryEntry[],
+  kind?: string,
 ): Map<string, TaskHistoryEntry> {
   const byMedia = new Map<string, TaskHistoryEntry>();
   for (const item of tasks) {
     if (!item.mediaId || !activeStates.has(item.snapshot.state)) continue;
+    const itemKind = item.kind ?? item.snapshot.kind ?? "speech";
+    if (kind ? itemKind !== kind : itemKind !== "speech") continue;
     if (!byMedia.has(item.mediaId)) byMedia.set(item.mediaId, item);
   }
   return byMedia;

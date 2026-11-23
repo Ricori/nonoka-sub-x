@@ -14,11 +14,12 @@ import { FindBar } from './FindBar';
 import { Inspector } from './Inspector';
 import { SegList } from './SegList';
 import { SideEffectsPanel } from './SideEffectsPanel';
+import { SideScreenTextPanel } from './SideScreenTextPanel';
 import { SideTrackPanel } from './SideTrackPanel';
 import { StyleBar } from './stage/StyleBar';
 
 const tabs = [
-  ["subtitle", "字幕"], ["style", "样式"], ["effects", "特效"], ["track", "轨道"],
+  ["subtitle", "字幕"], ["style", "样式"], ["effects", "特效"], ["track", "轨道"], ["screen-text", "文字识别"],
 ] as const;
 
 function laneRef(ti: number, lang: Lang) {
@@ -111,6 +112,7 @@ export function EditorSidebar() {
       {sideTab === "style" && <SideStylePanel />}
       {sideTab === "effects" && <SideEffectsPanel />}
       {sideTab === "track" && <SideTrackPanel />}
+      {sideTab === "screen-text" && <SideScreenTextPanel />}
     </div>
   </aside>;
 }

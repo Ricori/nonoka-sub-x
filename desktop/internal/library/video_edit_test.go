@@ -25,7 +25,7 @@ func TestNormalizePiecesMergesAndClamps(t *testing.T) {
 }
 
 func TestPiecesFilterGraph(t *testing.T) {
-	graph := piecesFilterGraph([]Range{{T0: 10, T1: 12}, {T0: 15, T1: 20}}, 10, 0, true, "subtitles=subtitle.ass")
+	graph := piecesFilterGraph([]Range{{T0: 10, T1: 12}, {T0: 15, T1: 20}}, 10, 10, 0, true, "subtitles=subtitle.ass")
 	for _, part := range []string{
 		"[0:v]trim=start=0.000:end=2.000,setpts=PTS-STARTPTS[v0];",
 		"[0:v]trim=start=5.000:end=10.000,setpts=PTS-STARTPTS[v1];",
@@ -36,7 +36,19 @@ func TestPiecesFilterGraph(t *testing.T) {
 			t.Fatalf("graph missing %q:\n%s", part, graph)
 		}
 	}
-	silent := piecesFilterGraph([]Range{{T0: 0, T1: 1}, {T0: 2, T1: 3}}, 0, 0, false, "null")
+	// Separate video and audio offsets (e.g. cleaned intermediate video starting at 10s, audio at 0s)
+	split := piecesFilterGraph([]Range{{T0: 10, T1: 12}, {T0: 15, T1: 20}}, 10, 0, 1, true, "subtitles=subtitle.ass")
+	for _, part := range []string{
+		"[0:v]trim=start=0.000:end=2.000,setpts=PTS-STARTPTS[v0];",
+		"[1:a]atrim=start=10.000:end=12.000,asetpts=PTS-STARTPTS",
+		"[0:v]trim=start=5.000:end=10.000,setpts=PTS-STARTPTS[v1];",
+		"[1:a]atrim=start=15.000:end=20.000,asetpts=PTS-STARTPTS",
+	} {
+		if !strings.Contains(split, part) {
+			t.Fatalf("split offset graph missing %q:\n%s", part, split)
+		}
+	}
+	silent := piecesFilterGraph([]Range{{T0: 0, T1: 1}, {T0: 2, T1: 3}}, 0, 0, 0, false, "null")
 	if strings.Contains(silent, "atrim") || !strings.Contains(silent, "[v0][v1]concat=n=2:v=1:a=0[vc];[vc]null[vo]") {
 		t.Fatalf("silent graph = %s", silent)
 	}

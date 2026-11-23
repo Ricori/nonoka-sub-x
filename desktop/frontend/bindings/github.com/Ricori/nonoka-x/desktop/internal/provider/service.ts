@@ -65,6 +65,14 @@ export function ImportDocument(payload: { [_ in string]?: any } | null): $Cancel
 }
 
 /**
+ * ImportScreenTextGameText opens a native file picker for a gtd-bundle/1 zip and installs it
+ * into FlowOCR's gametext directory via the sidecar.
+ */
+export function ImportScreenTextGameText(): $CancellablePromise<{ [_ in string]?: any } | null> {
+    return $Call.ByID(1270795127);
+}
+
+/**
  * InstallLayerOffline asks the sidecar to verify and install one prebuilt layer
  * directly from the local .tar.zst archive without touching the network.
  */
@@ -136,6 +144,13 @@ export function RemoveRuntime(): $CancellablePromise<{ [_ in string]?: any } | n
 }
 
 /**
+ * RemoveScreenText removes only the on-screen text layer (FlowOCR's runtime and models).
+ */
+export function RemoveScreenText(): $CancellablePromise<{ [_ in string]?: any } | null> {
+    return $Call.ByID(2107498147);
+}
+
+/**
  * RemoveUnusedRuntime deletes the old layer versions UnusedRuntime(engine)
  * lists, and of the whole layers it offers only those the user ticked
  * (layers), worked out again by the sidecar at that moment; it reports what
@@ -187,6 +202,28 @@ export function SaveDocument(videoID: string, document: { [_ in string]?: any } 
 
 export function SaveKeys(keys: { [_ in string]?: any } | null): $CancellablePromise<{ [_ in string]?: any } | null> {
     return $Call.ByID(585136301, keys);
+}
+
+/**
+ * ScreenTextCheck says whether the editor's on-screen text add-on can run here, on which card,
+ * and why not when it cannot (`GET /v1/screen-text/check`).
+ */
+export function ScreenTextCheck(device: string): $CancellablePromise<{ [_ in string]?: any } | null> {
+    return $Call.ByID(1053471149, device);
+}
+
+/**
+ * ScreenTextGameTexts lists the game-script bundles installed for FlowOCR matching.
+ */
+export function ScreenTextGameTexts(): $CancellablePromise<{ [_ in string]?: any } | null> {
+    return $Call.ByID(2888239915);
+}
+
+/**
+ * ScreenTextResult is a finished on-screen text task's tracks as they would be appended (a trial's preview).
+ */
+export function ScreenTextResult(taskID: string): $CancellablePromise<{ [_ in string]?: any } | null> {
+    return $Call.ByID(1006357554, taskID);
 }
 
 /**

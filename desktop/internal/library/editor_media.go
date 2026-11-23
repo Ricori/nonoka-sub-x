@@ -33,6 +33,9 @@ type ExportResult struct {
 type MediaProgress struct {
 	ID    string  `json:"id"`
 	Stage string  `json:"stage"`
+	// Phase distinguishes sub-steps of an export: "erase" during LaMa text
+	// removal and empty/"encode" during final ffmpeg encoding.
+	Phase string  `json:"phase,omitempty"`
 	Done  float64 `json:"done"`
 	Total float64 `json:"total"`
 	// Encoder labels the video encoder of an export; it changes when a GPU
@@ -41,6 +44,18 @@ type MediaProgress struct {
 	// Output is where a running export will land, once it has been chosen.
 	Output string `json:"output,omitempty"`
 }
+
+// EraseOptions asks ExportVideoPiecesWithErase to remove original on-screen
+// text with FlowOCR's LaMa inpainter into a temporary intermediate video before
+// running the normal final encode.
+type EraseOptions struct {
+	Enabled   bool   `json:"enabled"`
+	PlatesASS string `json:"platesAss,omitempty"`
+	Device    string `json:"device,omitempty"`
+	Preset    string `json:"preset,omitempty"`
+}
+
+var inpaintPollInterval = 500 * time.Millisecond
 
 type SpectrogramTileResult struct {
 	URL      string  `json:"url"`
@@ -103,6 +118,12 @@ func (s *Service) ExportVideoRange(id, defaultName, ass string, t0, t1 float64, 
 // which always re-encodes the audio. container is "mp4" or "mkv". gpu tries
 // the hardware H.264 encoders first and falls back to libx264 when none works.
 func (s *Service) ExportVideoPieces(id, defaultName, ass string, pieces []Range, crf int, preset string, scaleH int, abr, container string, gpu bool) (ExportResult, error) {
+	return s.ExportVideoPiecesWithErase(id, defaultName, ass, pieces, crf, preset, scaleH, abr, container, gpu, EraseOptions{})
+}
+
+// ExportVideoPiecesWithErase extends ExportVideoPieces with an optional LaMa
+// erase pass that removes original on-screen text before burning the subtitles.
+func (s *Service) ExportVideoPiecesWithErase(id, defaultName, ass string, pieces []Range, crf int, preset string, scaleH int, abr, container string, gpu bool, erase EraseOptions) (ExportResult, error) {
 	if !validID(id) || len(ass) > 64<<20 || len(pieces) == 0 {
 		return ExportResult{}, errors.New("invalid video export request")
 	}
@@ -211,8 +232,24 @@ func (s *Service) ExportVideoPieces(id, defaultName, ass string, pieces []Range,
 		filter += fmt.Sprintf(",scale=-2:%d", scaleH)
 	}
 	partial := output + ".part" + format.ext
+	jobID := "exp_" + id
+	videoInput := source
+	videoPreTrimmed := false
+	videoSpanStart := 0.0
+	if erase.Enabled && strings.TrimSpace(erase.PlatesASS) != "" {
+		spanStart := pieces[0].T0
+		spanEnd := pieces[len(pieces)-1].T1
+		cleanedPath, eraseErr := s.runEraseIntermediate(ctx, work, entry, source, spanStart, spanEnd, erase, jobID, output)
+		if eraseErr != nil {
+			return ExportResult{}, eraseErr
+		}
+		videoInput = cleanedPath
+		videoPreTrimmed = true
+		videoSpanStart = spanStart
+	}
 	job := editorExportJob{
-		video: source, audio: audioSource, pieces: pieces, filter: filter,
+		video: videoInput, audio: audioSource, pieces: pieces, filter: filter,
+		videoPreTrimmed: videoPreTrimmed, videoSpanStart: videoSpanStart,
 		crf: crf, preset: preset, audioArgs: audioArgs, container: format, output: partial,
 	}
 	if len(pieces) > 1 {
@@ -223,13 +260,16 @@ func (s *Service) ExportVideoPieces(id, defaultName, ass string, pieces []Range,
 			}
 		}
 		// Written to a file: a few hundred pieces overflow the Windows command line.
-		graph := piecesFilterGraph(pieces, pieces[0].T0, job.audioInput(), job.hasAudio, filter)
+		videoOffset := pieces[0].T0
+		if job.videoPreTrimmed {
+			videoOffset = math.Max(pieces[0].T0, job.videoSpanStart)
+		}
+		graph := piecesFilterGraph(pieces, videoOffset, pieces[0].T0, job.audioInput(), job.hasAudio, filter)
 		if err := os.WriteFile(filepath.Join(work, "graph.txt"), []byte(graph), 0o600); err != nil {
 			return ExportResult{}, err
 		}
 	}
 	duration := piecesDuration(pieces)
-	jobID := "exp_" + id
 	var used exportEncoder
 	var failures []string
 	for _, encoder := range s.exportEncoders(gpu) {
@@ -320,8 +360,10 @@ func exportAudioSource(entry Entry, video string) string {
 
 // editorExportJob is everything the export ffmpeg command line depends on.
 type editorExportJob struct {
-	video, audio string
-	pieces       []Range
+	video, audio    string
+	pieces          []Range
+	videoPreTrimmed bool
+	videoSpanStart  float64
 	// hasAudio is consulted only for joined pieces, whose filter graph must
 	// know; a single piece maps audio optionally instead.
 	hasAudio bool
@@ -347,12 +389,21 @@ func (job editorExportJob) audioInput() int {
 // doubling the subtitles that were just burned in.
 func buildEditorExportArgs(job editorExportJob) []string {
 	t0, t1 := job.pieces[0].T0, job.pieces[len(job.pieces)-1].T1
-	seek := []string{"-ss", formatFloat(t0), "-t", formatFloat(t1 - t0)}
-	args := append([]string{"-v", "error", "-y"}, seek...)
-	args = append(args, "-i", job.video)
+	span := t1 - t0
+	audioSeek := []string{"-ss", formatFloat(t0), "-t", formatFloat(span)}
+	args := []string{"-v", "error", "-y"}
+	if job.videoPreTrimmed {
+		if delta := t0 - job.videoSpanStart; delta > 0.0005 {
+			args = append(args, "-ss", formatFloat(delta))
+		}
+		args = append(args, "-t", formatFloat(span), "-i", job.video)
+	} else {
+		args = append(args, audioSeek...)
+		args = append(args, "-i", job.video)
+	}
 	audio := job.audioInput()
 	if audio == 1 {
-		args = append(args, seek...)
+		args = append(args, audioSeek...)
 		args = append(args, "-i", job.audio)
 	}
 	if len(job.pieces) == 1 {
@@ -492,6 +543,118 @@ func (s *Service) SpectrogramTile(id string, start, duration float64) (Spectrogr
 		URL:   "data:image/png;base64," + base64.StdEncoding.EncodeToString(data),
 		Start: start, Duration: duration, Width: spectrogramWidth, Height: spectrogramHeight,
 	}, nil
+}
+
+func estimateEraseBytes(spanSeconds float64) uint64 {
+	const minRequired uint64 = 256 << 20
+	if spanSeconds <= 0 {
+		return minRequired
+	}
+	// 1080p intermediate at cq 14 / crf 12 is roughly 2-4 GB per 20 min (~3.5 MB/s).
+	estimated := uint64(spanSeconds * 3.5 * float64(1<<20))
+	if estimated < minRequired {
+		return minRequired
+	}
+	return estimated
+}
+
+func (s *Service) runEraseIntermediate(ctx context.Context, work string, entry Entry, source string, spanStart, spanEnd float64, erase EraseOptions, jobID, output string) (string, error) {
+	s.mu.RLock()
+	engine := s.inpaintEngine
+	s.mu.RUnlock()
+	if engine == nil {
+		return "", errors.New("文字识别抹除服务不可用，请确认本地引擎正在运行")
+	}
+	spanDur := math.Max(0.1, spanEnd-spanStart)
+	required := estimateEraseBytes(spanDur)
+	if free, err := diskFreeBytes(work); err == nil && free < required {
+		return "", fmt.Errorf("临时目录磁盘剩余空间不足（需要约 %.1f GB，当前剩余 %.1f GB）",
+			float64(required)/float64(1<<30), float64(free)/float64(1<<30))
+	}
+	platesPath := filepath.Join(work, "plates.ass")
+	if err := os.WriteFile(platesPath, []byte(erase.PlatesASS), 0o600); err != nil {
+		return "", err
+	}
+	cleanedPath := filepath.Join(work, "cleaned.mp4")
+	device := strings.TrimSpace(erase.Device)
+	if device == "" {
+		device = "auto"
+	}
+	preset := strings.TrimSpace(erase.Preset)
+	if preset == "" {
+		preset = "default"
+	}
+	s.emitMediaProgress(MediaProgress{ID: jobID, Stage: "export", Phase: "erase", Done: 0, Total: spanDur, Output: output})
+	snapshot, err := engine.StartTask(map[string]any{
+		"schema":   1,
+		"provider": "local",
+		"target":   "screen-text-inpaint",
+		"device":   device,
+		"source": map[string]any{
+			"kind":        "local_file",
+			"path":        source,
+			"title":       entry.Title,
+			"fingerprint": entry.Fingerprint,
+			"video_id":    entry.ID,
+			"duration":    entry.Duration,
+		},
+		"inpaint": map[string]any{
+			"plates_path": platesPath,
+			"out_path":    cleanedPath,
+			"start":       spanStart,
+			"end":         spanEnd,
+			"preset":      preset,
+		},
+	})
+	if err != nil {
+		return "", fmt.Errorf("启动文字识别抹除失败：%w", err)
+	}
+	taskID, _ := snapshot["task_id"].(string)
+	if taskID == "" {
+		return "", errors.New("抹除任务没有返回 task_id")
+	}
+
+	ticker := time.NewTicker(inpaintPollInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			_, _ = engine.CancelTask(taskID)
+			return "", errors.New("已取消")
+		case <-ticker.C:
+			status, statusErr := engine.TaskStatus(taskID)
+			if statusErr != nil {
+				continue
+			}
+			if progress, ok := status["progress"].(map[string]any); ok {
+				done, _ := progress["completed"].(float64)
+				total, _ := progress["total"].(float64)
+				if total <= 0 {
+					total = spanDur
+				}
+				s.emitMediaProgress(MediaProgress{ID: jobID, Stage: "export", Phase: "erase", Done: done, Total: total, Output: output})
+			}
+			state, _ := status["state"].(string)
+			switch state {
+			case "completed":
+				if !fileExists(cleanedPath) {
+					return "", errors.New("文字识别抹除未生成中间视频")
+				}
+				s.emitMediaProgress(MediaProgress{ID: jobID, Stage: "export", Phase: "erase", Done: spanDur, Total: spanDur, Output: output})
+				return cleanedPath, nil
+			case "cancelled", "interrupted":
+				return "", errors.New("已取消")
+			case "failed":
+				msg := "文字识别抹除失败"
+				if errObj, ok := status["error"].(map[string]any); ok {
+					if text, _ := errObj["message"].(string); text != "" {
+						msg = text
+					}
+				}
+				return "", errors.New(msg)
+			}
+		}
+	}
 }
 
 func finite(value float64) bool {

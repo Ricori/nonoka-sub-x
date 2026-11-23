@@ -21,6 +21,8 @@ from nonoka_x.runtime_install import INSTALL_ORDER
 
 #: Kept whatever engine is current: tools and python are default base layers installed on first launch.
 CORE_LAYERS = ("tools", "python")
+#: Add-on layers no engine names: kept until the user removes them from their own row.
+ADDON_LAYERS = ("screen-text",)
 #: The other managed tools; each lives in the tool layer like ffmpeg (plan 4.2 item 14).
 _OTHER_TOOLS = ("yt-dlp", "aria2c", "node", "pot-provider")
 
@@ -101,7 +103,7 @@ def needed_layers(engine_layers: Iterable[str] | None, correction_layers: Iterab
 
     if engine_layers is None:
         return None
-    return {*engine_layers, *correction_layers, *CORE_LAYERS}
+    return {*engine_layers, *correction_layers, *CORE_LAYERS, *ADDON_LAYERS}
 
 
 def _row(item: dict[str, Any], reason: str) -> dict[str, Any]:

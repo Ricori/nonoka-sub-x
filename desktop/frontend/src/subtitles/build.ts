@@ -4,11 +4,12 @@ import { assColorFromHex, assNm, assSec, assTs, assTx, srtTs } from './format.ts
 import { srcToOut } from './pieces.ts';
 import type { Piece } from './pieces.ts';
 import { karaokeTimeline } from './karaoke.ts';
-import { layoutBlock } from './layout.ts';
+import { layoutBlock, layoutPositioned } from './layout.ts';
+import type { BlockRect, PlacedPos } from './layout.ts';
 import { assHeadOf, resolveStyleIn } from './styles.ts';
 import type { StyleSheet } from './styles.ts';
 import type {
-  AssStyle, Lang, LaneMeta, SubtitleEffectBinding, SubtitleSegment, SubtitleSource,
+  Align, AssStyle, Lang, LaneMeta, SubtitleEffectBinding, SubtitleSegment, SubtitleSource,
 } from './types.ts';
 
 /**
@@ -350,10 +351,144 @@ export function cuesOf(line: OutputLine, sheet: StyleSheet): BuiltCue[] {
     }))
     .sort((a, b) => a.t0 - b.t0 || a.t1 - b.t1);
   // 同一条线内相邻句的毫秒级重叠（ASR 数据自带）会被当成碰撞，
-  // 把后一句整句顶离贴边位——前句出点一律钳到后句入点
-  for (let i = 0; i < cues.length - 1; i++)
-    if (cues[i].t1 > cues[i + 1].t0) cues[i].t1 = cues[i + 1].t0;
+  // 把后一句整句顶离贴边位——前句出点一律钳到后句入点。
+  // Positioned cues are left alone: on-screen text overlaps on purpose and \pos never collides
+  let previous: BuiltCue | null = null;
+  for (const cue of cues) {
+    if (cue.segment.pos) continue;
+    if (previous && previous.t1 > cue.t0) previous.t1 = cue.t0;
+    previous = cue;
+  }
   return cues;
+}
+
+// ── Per-segment placement ──────────────────────────────────────
+
+/** A positioned cue, laid out in PlayRes units: what `\pos` will draw and where */
+export interface PositionedCue {
+  block: BlockRect;
+  /** font size actually written as `\fs` (may be shrunk to fit) */
+  size: number;
+  overflow: boolean;
+  /** `\pos` point, PlayRes units */
+  x: number;
+  y: number;
+  an: Align;
+}
+
+/** `pos` (frame fractions) → PlayRes placement request for this style */
+export function placedPosOf(segment: SubtitleSegment, style: AssStyle, sheet: StyleSheet): PlacedPos | null {
+  const pos = segment.pos;
+  if (!pos) return null;
+  const { x: X, y: Y } = sheet.playRes;
+  const box = segment.cover?.box;
+  return {
+    x: pos.x * X,
+    y: pos.y * Y,
+    an: pos.an,
+    width: pos.w ? pos.w * X : Math.max(1, X - style.ml - style.mr),
+    // fs is the glyph height; libass line height is Fontsize × ScaleY
+    size: pos.fs ? pos.fs * Y * 100 / (style.scy || 100) : style.size,
+    maxHeight: box ? (box[3] - box[1]) * Y : 0,
+  };
+}
+
+function layoutCue(segment: SubtitleSegment, lang: Lang, styleName: string, sheet: StyleSheet) {
+  const style = sheet.styleMap[styleName];
+  const text = (segment[lang] || "").trim();
+  const place = style ? placedPosOf(segment, style, sheet) : null;
+  if (!style || !place || !text) return null;
+  return { place, laid: layoutPositioned(text, style, sheet, place) };
+}
+
+/**
+ * Where a positioned cue lands. `pos` belongs to the segment, so both lanes share it; when the
+ * translation lane of the same track is also showing, the source text sits right above it.
+ * `lines` is the full outputLinesOf result (used to find that sibling lane).
+ */
+export function positionedCueOf(segment: SubtitleSegment, line: OutputLine,
+  lines: readonly OutputLine[], sheet: StyleSheet): PositionedCue | null {
+  const own = layoutCue(segment, line.lang, cueStyleIn(sheet, segment, line), sheet);
+  if (!own) return null;
+  const { place, laid } = own;
+  let dy = 0;
+  if (line.lang === "ja") {
+    const sibling = lines.find(other => other.trackId === line.trackId && other.lang === "zh");
+    const below = sibling ? layoutCue(segment, "zh", cueStyleIn(sheet, segment, sibling), sheet) : null;
+    if (below) dy = below.laid.block.top - (laid.block.top + laid.block.height);
+  }
+  const block = dy ? shiftBlock(laid.block, dy) : laid.block;
+  return { block, size: laid.size, overflow: laid.overflow, x: place.x, y: place.y + dy, an: place.an as Align };
+}
+
+function shiftBlock(block: BlockRect, dy: number): BlockRect {
+  return {
+    ...block,
+    top: block.top + dy,
+    content: { ...block.content, top: block.content.top + dy },
+    lines: block.lines.map(item => ({ ...item, top: item.top + dy })),
+  };
+}
+
+/** Up to two decimals, no trailing zeros (`\pos` / `\fs` values) */
+const num2 = (value: number) => String(Math.round(value * 100) / 100);
+
+/** ASS text for a positioned cue: `{\anN\pos(X,Y)\fsF}` + the wrapped lines joined by \N */
+export function positionedAssText(cue: PositionedCue): string {
+  const text = assTx(cue.block.lines.map(item => item.text).join("\n"));
+  return `{\\an${cue.an}\\pos(${num2(cue.x)},${num2(cue.y)})\\fs${num2(cue.size)}}${text}`;
+}
+
+// ── Plates (FlowOCR-compatible `fo-fx|plate` events) ───────────
+
+export type PlateMode = "draw" | "omit";
+
+export interface BuildAssOptions {
+  /** "draw" (default) puts opaque plates under positioned text; "omit" leaves them out */
+  plates?: PlateMode;
+}
+
+const fixed2 = (value: number) => value.toFixed(2);
+
+/** One plate, in the exact form FlowOCR's burn/plates.py reads (PlayRes px, two decimals) */
+export function plateDialogue(t0: number, t1: number, style: string, name: string,
+  box: readonly [number, number, number, number], color: string, sheet: StyleSheet): string {
+  const { x: X, y: Y } = sheet.playRes;
+  const W = fixed2((box[2] - box[0]) * X), H = fixed2((box[3] - box[1]) * Y);
+  return `Dialogue: 0,${assTs(t0)},${assTs(t1)},${style},${assNm(name)},0,0,0,fo-fx|plate,`
+    + `{\\an7\\pos(${fixed2(box[0] * X)},${fixed2(box[1] * Y)})\\p1\\bord0\\shad0\\1c${color}\\1a&H00&}`
+    + `m 0 0 l ${W} 0 ${W} ${H} 0 ${H}{\\p0}`;
+}
+
+/**
+ * Plate events for every segment on a showing lane that has a cover box, each segment once
+ * (both lanes share it). `requireFill`: only covers with a valid fill colour (drawn plates);
+ * otherwise every cover box (the inpainting mask), black where it has no fill.
+ */
+function plateEvents(lines: readonly OutputLine[], sheet: StyleSheet, requireFill: boolean): string[] {
+  const seen = new Set<SubtitleSegment>();
+  const out: string[] = [];
+  for (const line of lines) {
+    for (const segment of line.arr) {
+      const cover = segment.cover;
+      if (!cover || seen.has(segment)) continue;
+      const color = assColorFromHex(cover.fill);
+      if (requireFill && !color) continue;
+      seen.add(segment);
+      out.push(plateDialogue(segment.t0, segment.t1, cueStyleIn(sheet, segment, line), line.name,
+        cover.box, color ?? "&H000000&", sheet));
+    }
+  }
+  return out;
+}
+
+/**
+ * Plates only, for every cover box regardless of fill: the input of text removal (LaMa) at
+ * burn time. Contains no other `\p1` drawing — the particle generators never run here.
+ */
+export function buildPlatesAss(source: SubtitleSource, sheet: StyleSheet): string {
+  const plates = plateEvents(outputLinesOf(source, sheet), sheet, false);
+  return assHeadOf(sheet) + ASS_EVENTS_HEAD + plates.join("\n") + "\n";
 }
 
 export interface StyleBinding {
@@ -429,16 +564,25 @@ function wrappedAssText(raw: string, style: AssStyle | undefined, sheet: StyleSh
     .join(sep);
 }
 
-export function buildAssFrom(source: SubtitleSource, sheet: StyleSheet): string {
-  const evs: string[] = [];
-  for (const L of outputLinesOf(source, sheet)) {
+/**
+ * Plates come first, all on layer 0: libass draws events of one layer in file order, so they
+ * end up under every piece of text without renumbering any existing layer.
+ */
+export function buildAssFrom(source: SubtitleSource, sheet: StyleSheet, options: BuildAssOptions = {}): string {
+  const lines = outputLinesOf(source, sheet);
+  const evs: string[] = options.plates === "omit" ? [] : plateEvents(lines, sheet, true);
+  for (const L of lines) {
     const generator = generatorOf(L);
     const prefix = transformTag(L);
     for (const e of cuesOf(L, sheet)) {
       const style = sheet.styleMap[e.style];
-      const built = generator && style
-        ? GENERATORS[generator.templateId](L, { ...e.segment, t0: e.t0, t1: e.t1 }, style, sheet, generator)
-        : [{ layer: 0, t0: e.t0, t1: e.t1, text: prefix + wrappedAssText(e.segment[L.lang], style, sheet) }];
+      // Positioned cues skip the per-glyph generators for now (those lay glyphs out from margins)
+      const placed = style && e.segment.pos ? positionedCueOf(e.segment, L, lines, sheet) : null;
+      const built = placed
+        ? [{ layer: 0, t0: e.t0, t1: e.t1, text: prefix + positionedAssText(placed) }]
+        : generator && style && !e.segment.pos
+          ? GENERATORS[generator.templateId](L, { ...e.segment, t0: e.t0, t1: e.t1 }, style, sheet, generator)
+          : [{ layer: 0, t0: e.t0, t1: e.t1, text: prefix + wrappedAssText(e.segment[L.lang], style, sheet) }];
       for (const event of built)
         evs.push(`Dialogue: ${event.layer},${assTs(event.t0)},${assTs(event.t1)},${e.style},${assNm(L.name)},0,0,0,,${event.text}`);
     }
@@ -477,14 +621,26 @@ interface Cue { t0: number; t1: number; text: string }
 
 const VISIBLE: LaneMeta = { hidden: false, style: null };
 
+export interface BuildSrtOptions {
+  /** 是否包含「文字识别」轨（`source.kind === "screen-text"`）。默认 false，SRT 导出跳过它们。 */
+  includeScreenText?: boolean;
+}
+
 /**
  * lang: both=译文在上原文在下 / zh=只译文 / ja=只原文；被眼睛藏起来的 lane 不出
  * （与 ASS 导出同口径）。选中语言整条都空的句子跳过、序号按合并后的时间序重排——
  * 关掉翻译跑出来的产物译文全空，照原样出就是一份满是空块的坏 SRT。
  * pieces 给了就按片段映射到成片时间（见 piecesAss），整句都被删掉的不出。
+ * 文字识别轨（`source.kind === "screen-text"`）默认跳过，传入 `{ includeScreenText: true }` 才带上。
  */
-export function buildSrtFrom(source: SubtitleSource, lang: SrtLang, pieces?: readonly Piece[]): string {
+export function buildSrtFrom(
+  source: SubtitleSource,
+  lang: SrtLang,
+  pieces?: readonly Piece[],
+  options: BuildSrtOptions = {},
+): string {
   const cues: Cue[] = [];
+  const includeScreenText = options.includeScreenText === true;
 
   const collect = (arr: SubtitleSegment[], ja: LaneMeta, zh: LaneMeta) => {
     for (const s of arr) {
@@ -499,7 +655,10 @@ export function buildSrtFrom(source: SubtitleSource, lang: SrtLang, pieces?: rea
     }
   };
   collect(source.segs, source.trackMeta?.ja || VISIBLE, source.trackMeta?.zh || VISIBLE);
-  for (const tr of source.tracks) collect(tr.segs, tr.ja, tr.zh);
+  for (const tr of source.tracks) {
+    if (!includeScreenText && tr.source?.kind === "screen-text") continue;
+    collect(tr.segs, tr.ja, tr.zh);
+  }
 
   // 摊平成一条时间流。sort 是稳定的，同一时刻的多轨保持「默认轨在前」的收集顺序
   cues.sort((a, b) => a.t0 - b.t0 || a.t1 - b.t1);

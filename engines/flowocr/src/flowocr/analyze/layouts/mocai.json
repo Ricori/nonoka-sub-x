@@ -1,0 +1,24 @@
+{
+ "schema": "flowocr-layout/2",
+ "game": "mocai",
+ "aspect": 1.77778,
+ "boxes": [
+  {
+   "id": "box0",
+   "dx": -0.25778,
+   "cy": 0.824,
+   "em_h": 0.0324,
+   "pitch_em": 1.657,
+   "box_em": 30.76,
+   "valign": "top",
+   "align": "left",
+   "sources": [
+    "f1:r0",
+    "f2:r1",
+    "f3:r2",
+    "f4:r1",
+    "f5:r0"
+   ]
+  }
+ ]
+}

@@ -2,13 +2,14 @@ import type { RuntimeCleanupItem, RuntimeInstallTarget, RuntimeLayerOverview, Ru
 import type { EngineLayers } from "../providers/types.ts";
 
 /** 运行环境层的名字，按安装顺序（`nonoka_x.runtime_install.INSTALL_ORDER`）。 */
-export const LAYER_ORDER = ["tools", "python", "models", "models-moss"] as const;
+export const LAYER_ORDER = ["tools", "python", "models", "models-moss", "screen-text"] as const;
 
 export const LAYER_LABELS: Record<string, string> = {
   python: "Python 环境层",
   models: "模型层",
   "models-moss": "MOSS 模型层",
   tools: "工具层",
+  "screen-text": "文字识别层",
 };
 
 export const layerLabel = (layer: string) => LAYER_LABELS[layer] ?? layer;
@@ -63,6 +64,7 @@ export function installTargetFor(missing: string[]): RuntimeInstallTarget | null
   if (within(["tools", "python"])) return "runtime";
   if (within(["models"])) return "models";
   if (within(["models-moss"])) return "models-moss";
+  if (within(["screen-text"])) return "screen-text";
   return "all";
 }
 

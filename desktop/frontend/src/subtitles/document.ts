@@ -1,7 +1,7 @@
 import { DEFAULT_STYLE_SHEET } from './constants.ts';
 import { buildAssFrom, buildSrtFrom, clipAss } from './build.ts';
 import { normalizeEffectBindings } from './effects.ts';
-import type { SrtLang } from './build.ts';
+import type { BuildAssOptions, SrtLang } from './build.ts';
 import { composeSheet } from './styles.ts';
 import type { SubtitleSource } from './types.ts';
 import type { EditDocument } from '../documents/types.ts';
@@ -33,9 +33,10 @@ export interface SubtitleRange { t0: number; t1: number }
  * 文档 → ASS，与编辑器导出的那份逐字相同。
  * fallback 是「本机默认模板」，只在文档还没有自己那份样式表时才用得上。
  */
-export function documentAss(document: EditDocument, fallback?: string, range?: SubtitleRange): string {
+export function documentAss(document: EditDocument, fallback?: string, range?: SubtitleRange,
+  options: BuildAssOptions = {}): string {
   const sheet = composeSheet(styleSheetText(document.styles, fallback));
-  const full = buildAssFrom(sourceOfDocument(document), sheet);
+  const full = buildAssFrom(sourceOfDocument(document), sheet, options);
   return range ? clipAss(full, range.t0, range.t1) : full;
 }
 

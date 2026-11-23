@@ -245,6 +245,7 @@ nonoka-x/
 - 🏗️ **[系统架构与契约规范](docs/architecture.md)**：深入了解系统分层、引擎包与沙箱、EditDocument 投影规则、数据布局与云端同步契约。
 - 🎙️ **[转写引擎与纠错引擎](docs/transcription-engines.md)**：两层引擎契约、已注册引擎、FineSub 三个引擎包、密闭运行环境与新引擎接入指南。
 - 🔌 **[Nonoka Sub X Provider 接口规范](docs/provider-spec.md)**：自建执行后端的完整接口契约——数据模型、状态机、事件流、错误码、产物格式与一致性检查清单。
+- 🖼️ **[文字识别（FlowOCR 整合）说明](docs/screen-text.md)**：可选 `screen-text` 文字识别层安装、编辑器文字识别、按句定位与底板、LaMa 抹字压制导出与游戏剧本匹配。
 - ⚙️ **[FineSub 引擎集成、质量锁与上游对齐](docs/engine.md)**：质量红线、算法文件哈希锁、密闭启动规则、上游同步与 Patched CTranslate2 构建。
 
 ---
@@ -261,6 +262,9 @@ FineSub 算法代码采用 **GPL-3.0-or-later** 许可证（0.5.0 起，此前�
 | Nemotron-3-Diarization | [nvidia/Nemotron-3-Diarization](https://huggingface.co/nvidia/Nemotron-3-Diarization) | OpenMDW |
 | WeSpeaker ResNet34 | [pyannote/wespeaker-voxceleb-resnet34-LM](https://huggingface.co/pyannote/wespeaker-voxceleb-resnet34-LM) | CC BY 4.0 |
 | PLDA 参数 | [pyannote/speaker-diarization-community-1](https://huggingface.co/pyannote/speaker-diarization-community-1) | CC BY 4.0 |
+| FlowOCR（文字识别引擎） | `engines/flowocr/`（上游 v1.0.0 / `fc813fc`） | GPL-3.0-or-later |
+| PP-OCRv6（文本检测与识别模型） | PaddleOCR / PP-OCRv6 | Apache-2.0 |
+| LaMa（画面原字修补模型） | advimman/lama | Apache-2.0 |
 
 
 <div align="center">

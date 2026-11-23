@@ -36,10 +36,16 @@ SCHEMA = 1
 #: The manifest's name inside the layer's own root directory.
 MANIFEST_NAME = ".nonoka-layer.json"
 
-#: The four layers (4.2 item 14, plus the optional local-MOSS model layer). Windows only for now.
-LAYERS = ("python", "models", "models-moss", "tools")
-#: The three layers every `layers.json` since v0.7 carries; `models-moss` may be added once built.
+#: The layers (4.2 item 14, plus the optional local-MOSS model layer and the optional on-screen
+#: text layer). Windows only for now.
+LAYERS = ("python", "models", "models-moss", "tools", "screen-text")
+#: The three layers every `layers.json` since v0.7 carries; `models-moss` and `screen-text` may be
+#: added once built.
 REQUIRED_INDEX_LAYERS = ("python", "models", "tools")
+#: The on-screen text layer: its own interpreter with FlowOCR's libraries at the root (as the Python
+#: layer), and the OCR and inpainting models, with their derived graphs, under `models\`.
+SCREEN_TEXT_LAYER = "screen-text"
+SCREEN_TEXT_MODELS_DIR = "models"
 PLATFORM = "windows-x64"
 
 
@@ -355,6 +361,8 @@ __all__ = [
     "MOSS_SPEAKER_EMBEDDING_FILES",
     "PLATFORM",
     "REQUIRED_INDEX_LAYERS",
+    "SCREEN_TEXT_LAYER",
+    "SCREEN_TEXT_MODELS_DIR",
     "SCHEMA",
     "SEPARATOR_DIR",
     "TOOLS_LEFT_OUT",

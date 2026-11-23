@@ -20,7 +20,7 @@ export const PYTHON_RELEASES = "https://github.com/astral-sh/python-build-standa
 const ASTRAL_RELEASES = "https://releases.astral.sh/github/python-build-standalone/releases/download/";
 
 /** The layer kinds, in the order the layer manager installs them. */
-export const LAYERS = ["tools", "python", "models", "models-moss"];
+export const LAYERS = ["tools", "python", "models", "models-moss", "screen-text"];
 const REQUIRED_LAYERS = ["tools", "python", "models"];
 
 const SHA256 = /^[0-9a-f]{64}$/;

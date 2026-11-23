@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { Events } from '@wailsio/runtime';
 import { applyTheme, initialTheme } from '../app/theme.ts';
 import { mediaLibrary } from '../bridge/library.ts';
+import { screenTextBridge } from '../bridge/screenText.ts';
 import { installWindowsTitlebar } from '../bridge/window.ts';
 import { desktopWindows } from '../bridge/windows.ts';
 import { installScrollbarHover } from '../app/scrollbars.ts';
@@ -82,6 +83,10 @@ function ExportWindow() {
   const [abr, setAbr] = useState('192k');
   const [container, setContainer] = useState<'mp4' | 'mkv'>('mp4');
   const [gpu, setGpu] = useState(readGpu);
+  const [eraseMode, setEraseMode] = useState<'keep' | 'erase'>('keep');
+  const [eraseReady, setEraseReady] = useState(false);
+  const [eraseCpu, setEraseCpu] = useState(false);
+  const [exportPhase, setExportPhase] = useState<'erase' | 'encode'>('encode');
   // 本次导出实际在用的编码器与输出位置，由 Go 端随进度事件报上来
   const [encoder, setEncoder] = useState('');
   const [output, setOutput] = useState('');
@@ -105,6 +110,12 @@ function ExportWindow() {
       .then((value) => {
         setDraft(value);
         if ((value.pieces?.length ?? 0) > 1) setAbr((current) => current === 'copy' ? '192k' : current);
+        if (value.hasCoverBoxes) {
+          void screenTextBridge.check('auto').then((report) => {
+            setEraseReady(Boolean(report?.ready));
+            setEraseCpu(report?.check?.backend === 'cpu');
+          }).catch(() => setEraseReady(false));
+        }
         setPhase('ready');
         setMessage('选择参数后开始导出。压制期间可以继续编辑其它项目。');
       })
@@ -116,9 +127,17 @@ function ExportWindow() {
   }, [jobID]);
 
   useEffect(() => Events.On('media:progress', (event) => {
-    const progress = event.data as { id?: string; stage?: string; done?: number; total?: number; encoder?: string; output?: string };
+    const progress = event.data as { id?: string; stage?: string; phase?: string; done?: number; total?: number; encoder?: string; output?: string };
     if (progress.stage !== 'export' || progress.id !== draft?.progressId || !progress.total) return;
     if (progress.output) setOutput(progress.output);
+    const nextPhase = progress.phase === 'erase' ? 'erase' : 'encode';
+    setExportPhase((current) => {
+      if (current !== nextPhase) {
+        progressStart.current = null;
+        setRemaining(null);
+      }
+      return nextPhase;
+    });
     const done = progress.done || 0;
     if (progress.encoder) {
       setEncoder((current) => {
@@ -184,10 +203,14 @@ function ExportWindow() {
     setRemaining(null);
     setEncoder('');
     setOutput('');
+    setExportPhase(eraseMode === 'erase' && eraseReady ? 'erase' : 'encode');
     progressStart.current = null;
     setResult(null);
     try {
-      const value = await desktopWindows.runVideoExport(jobID, Number(crf), preset, Number(scale), abr, container, gpu);
+      const wantErase = eraseMode === 'erase' && eraseReady && Boolean(draft.hasCoverBoxes);
+      const value = await desktopWindows.runVideoExport(
+        jobID, Number(crf), preset, Number(scale), abr, container, gpu, wantErase,
+      );
       if (!value.path) {
         setPhase('ready');
         setMessage('未选择保存位置，导出尚未开始。');
@@ -231,8 +254,12 @@ function ExportWindow() {
     ? `${source.width}×${source.height}${source.fps > 0 ? ` · ${Number(source.fps.toFixed(3))} fps` : ''}`
     : '—';
   const encoderText = encoder || (gpu ? 'GPU 优先（开始时自动选择）' : CPU_ENCODER);
-  const runningText = phase === 'running' && encoder
-    ? (pct > 0 ? '正在压制字幕；你可以切换到主窗口继续工作。' : `正在启动 ${encoder}…`)
+  const runningText = phase === 'running'
+    ? (exportPhase === 'erase'
+      ? '正在抹除画面原字（LaMa）…'
+      : (encoder
+        ? (pct > 0 ? '正在压制字幕；你可以切换到主窗口继续工作。' : `正在启动 ${encoder}…`)
+        : message))
     : message;
   const audioOptions: SelectOption<string>[] = [
     { value: 'copy', label: joined ? '复制源音轨（多段拼接时不可用）' : '复制源音轨（不重新编码）', disabled: joined },
@@ -315,6 +342,22 @@ function ExportWindow() {
               </div>
               {gpu && (
                 <p className="notice">GPU 编码更快，但同样的 CRF 下细节通常不如 CPU（x264），文件也会变大</p>
+              )}
+              {draft?.hasCoverBoxes && eraseReady && (
+                <>
+                  <div className="sd-prop">
+                    <span className="sd-label" title="抹除会先用 LaMa 抹掉画面原字再压制译文，不画色块底板">画面原字</span>
+                    <div className="sp-seg">
+                      <button type="button" className={eraseMode === 'keep' ? 'on' : ''}
+                        disabled={busy} onClick={() => setEraseMode('keep')}>保留</button>
+                      <button type="button" className={eraseMode === 'erase' ? 'on' : ''}
+                        disabled={busy} onClick={() => setEraseMode('erase')}>抹除（LaMa）</button>
+                    </div>
+                  </div>
+                  {eraseMode === 'erase' && eraseCpu && (
+                    <p className="notice">当前使用 CPU 进行 LaMa 抹除，处理速度会非常慢</p>
+                  )}
+                </>
               )}
             </div>
           </div>

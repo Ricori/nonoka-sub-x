@@ -1,0 +1,22 @@
+{
+ "schema": "flowocr-layout/2",
+ "game": "starrail",
+ "aspect": 1.77778,
+ "boxes": [
+  {
+   "id": "box0",
+   "dx": -0.00356,
+   "cy": 0.808,
+   "em_h": 0.0243,
+   "pitch_em": 1.219,
+   "box_em": 55.0,
+   "chars": 55,
+   "valign": "top",
+   "align": "center",
+   "latin_em": 0.53,
+   "sources": [
+    "hsr:r1"
+   ]
+  }
+ ]
+}

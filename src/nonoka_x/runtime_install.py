@@ -18,7 +18,7 @@ from nonoka_x.runtime import layer_manifest as lm
 
 #: The order layers are installed in when a target needs several: the tools are small and serve the
 #: cloud engines as well, so they come first; the models last.
-INSTALL_ORDER = ("tools", "python", "models", "models-moss")
+INSTALL_ORDER = ("tools", "python", "models", "models-moss", "screen-text")
 
 #: What each install target of the runtime page needs, in layers. Every tool is in the one tool layer
 #: (4.2 item 14), so installing any tool installs them all.
@@ -27,6 +27,7 @@ TARGET_LAYERS: dict[str, tuple[str, ...]] = {
     "runtime": ("tools", "python"),
     "models": ("models",),
     "models-moss": ("models-moss",),
+    "screen-text": ("screen-text",),
     "optional-models": ("models",),
     "all": ("tools", "python", "models"),
     "repair": INSTALL_ORDER,
@@ -56,7 +57,7 @@ def vc_runtime_problem(layers: Iterable[str], *, platform: str | None = None,
     interpreter carry (plan 4.5 item 31). The words are `msvc_runtime`'s, unchanged.
     """
 
-    if "python" not in set(layers):
+    if not set(layers) & {"python", "screen-text"}:
         return None
     return (problem or msvc_runtime_problem)(platform=platform or sys.platform)
 

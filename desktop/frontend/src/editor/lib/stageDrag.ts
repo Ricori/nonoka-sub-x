@@ -9,10 +9,11 @@ import { select, setActiveTrack } from '../store/selectionStore';
 import { clearStageSelection, selectLane, stageStore } from '../store/stageStore';
 import type { Handle } from '../store/stageStore';
 import { pushHistory } from './history';
-import { boxForLane, hitTest, sameLane, subtitleBoxesAt } from './stageHit';
+import { boxForLane, hitTest, laneOfBox, sameLane, subtitleBoxesAt } from './stageHit';
 import type { SubtitleBox } from './stageHit';
 import { patchStyle, styleFields } from './styleEdit';
-import type { AssStyle } from '../types';
+import { writeSegPos } from './segPos';
+import type { AssStyle, Seg, SegmentPos } from '../types';
 
 /**
  * 预览画面里的拖动：移动改三个 Margin（保持文本框宽度不变）、拖左右柄改 MarginL/MarginR
@@ -45,6 +46,9 @@ interface Session {
   sy: number;
   rect: DOMRect;
   pushed: boolean;
+  /** Positioned seg being dragged: moves write seg.pos instead of the style's margins */
+  seg: Seg | null;
+  pos0: SegmentPos | null;
 }
 
 let session: Session | null = null;
@@ -88,11 +92,18 @@ const clamp = (value: number, lo: number, hi: number) => Math.min(hi, Math.max(l
 
 function snapTargets(session: Session) {
   const { x: X, y: Y } = getPlayRes();
-  const xs = [
-    0, X, DEFAULT_MARGIN_H, X - DEFAULT_MARGIN_H, X / 2, X * 0.1, X * 0.9,
-    session.style0.ml, X - session.style0.mr,
-  ];
+  const xs = [0, X, DEFAULT_MARGIN_H, X - DEFAULT_MARGIN_H, X / 2, X * 0.1, X * 0.9];
   const ys = [Y / 2, Y * 0.1, Y * 0.9, session.block0.top, session.block0.top + session.block0.height];
+  const cover = session.seg?.cover?.box;
+  if (session.seg) {
+    // Positioned text snaps back onto the original text's box (edges and centre)
+    if (cover) {
+      xs.push(cover[0] * X, (cover[0] + cover[2]) / 2 * X, cover[2] * X);
+      ys.push(cover[1] * Y, (cover[1] + cover[3]) / 2 * Y, cover[3] * Y);
+    }
+  } else {
+    xs.push(session.style0.ml, X - session.style0.mr);
+  }
   for (const box of session.others) {
     xs.push(box.block.left, box.block.left + box.block.width / 2, box.block.left + box.block.width);
     ys.push(box.block.top, box.block.top + box.block.height / 2, box.block.top + box.block.height);
@@ -129,7 +140,24 @@ function applySnap(session: Session, want: Rect, off: boolean): Rect {
 
 // ── 各种拖动 ──────────────────────────────────────────────────
 
+/** Positioned seg: translate its \pos by the snapped block offset */
+function movePosTo(session: Session, point: { x: number; y: number }, alt: boolean) {
+  const { seg, pos0 } = session;
+  if (!seg || !pos0) return;
+  const want = applySnap(session, {
+    left: session.block0.left + point.x - session.origin.x,
+    top: session.block0.top + point.y - session.origin.y,
+    width: session.block0.width, height: session.block0.height,
+  }, alt);
+  const { x: X, y: Y } = getPlayRes();
+  writeSegPos(seg, {
+    x: pos0.x + (want.left - session.block0.left) / X,
+    y: pos0.y + (want.top - session.block0.top) / Y,
+  });
+}
+
 function moveTo(session: Session, point: { x: number; y: number }, alt: boolean) {
+  if (session.seg) { movePosTo(session, point, alt); return; }
   const dx = point.x - session.origin.x;
   // 垂直居中时 libass 忽略 MarginV：锁死 Y 轴，并在框上挂个一键切换的提示
   const locked = ignoresMarginV(session.style0.align);
@@ -205,6 +233,9 @@ export function beginDrag(
   const sheet = getStyleSheet();
   const style0 = sheet.styleMap[box.styleName];
   if (!style0) return;
+  const seg = box.positioned && box.seg?.pos ? box.seg : null;
+  // Positioned text has no margins to resize or style angle of its own: move only
+  if (seg && kind !== "move") return;
   const rect = stage.getBoundingClientRect();
   const sx = rect.width / sheet.playRes.x, sy = rect.height / sheet.playRes.y;
   const origin = toPlayRes(rect, sx, sy, event.clientX, event.clientY);
@@ -213,14 +244,17 @@ export function beginDrag(
     ? { ...box.block, top: box.block.top - box.shifted }
     : box.block;
 
-  const pivot = anchorOf(block0, style0.align);
+  const pivot = anchorOf(block0, box.align);
 
   session = {
     kind, handle, styleName: box.styleName, style0, block0, pivot,
     angle0: styleAngle(box.styleName),
     screenAngle0: screenAngleAt(pivot, origin.x, origin.y),
     origin, sx, sy, rect, pushed: false,
-    others: subtitleBoxesAt().filter(other => !sameLane(other, box)),
+    seg, pos0: seg?.pos ? { ...seg.pos } : null,
+    // Other positioned boxes on the same lane are separate pieces of text and still snap targets
+    others: subtitleBoxesAt().filter(other =>
+      !(sameLane(other, box) && (!box.positioned || other.seg === box.seg))),
   };
   stageStore.set({ drag: { kind, handle } });
   swallowClick = true;
@@ -268,7 +302,7 @@ export function onStagePointerDown(event: React.PointerEvent, stage: HTMLElement
   const boxes = subtitleBoxesAt();
   const current = stageStore.get().sel;
   const cycleFrom = event.altKey && current
-    ? boxes.find(box => sameLane(box, current))?.index
+    ? boxes.find(box => sameLane(box, current) && (!current.seg || box.seg === current.seg))
     : undefined;
   const hit = hitTest(boxes, point.x, point.y, cycleFrom);
   if (!hit) {
@@ -277,7 +311,7 @@ export function onStagePointerDown(event: React.PointerEvent, stage: HTMLElement
     return false;
   }
   event.preventDefault();
-  selectLane({ trackId: hit.trackId, lang: hit.lang });
+  selectLane(laneOfBox(hit));
   beginDrag(event, stage, hit, "move");
   return true;
 }
@@ -289,7 +323,7 @@ export function openInlineEditForBox(box: SubtitleBox): boolean {
   if (!at) return false;
   setActiveTrack(at.ti, { silent: true });
   select(at.i, { scroll: true });
-  selectLane({ trackId: box.trackId, lang: box.lang });
+  selectLane(laneOfBox(box));
   stageStore.set({ edit: { trackId: box.trackId, lang: box.lang, seg: box.seg } });
   return true;
 }
@@ -324,6 +358,18 @@ export function nudgeSelection(dx: number, dy: number) {
   const style = box && sheet.styleMap[box.styleName];
   // 空隙里没字、也不画框，不该被看不见地挪动
   if (!box?.seg || !style) return;
+  if (box.positioned && box.seg.pos) {
+    if (!dx && !dy) return;
+    const now = Date.now();
+    const previous = stageStore.get().nudgeAt;
+    if (!previous || now - previous > NUDGE_COALESCE_MS) pushHistory();
+    stageStore.set({ nudgeAt: now });
+    writeSegPos(box.seg, {
+      x: box.seg.pos.x + dx / sheet.playRes.x,
+      y: box.seg.pos.y + dy / sheet.playRes.y,
+    });
+    return;
+  }
   if (ignoresMarginV(style.align) && dy) {
     stageStore.set({ hint: "middle-v" });
     dy = 0;

@@ -118,6 +118,13 @@ type thumbnailer interface {
 	Generate(context.Context, string, string, float64) error
 }
 
+// InpaintEngine is the narrow provider surface used by erase-then-burn video export.
+type InpaintEngine interface {
+	StartTask(request map[string]any) (map[string]any, error)
+	TaskStatus(taskID string) (map[string]any, error)
+	CancelTask(taskID string) (map[string]any, error)
+}
+
 type Service struct {
 	mu           sync.RWMutex
 	indexPath    string
@@ -138,6 +145,7 @@ type Service struct {
 	exportWindow     *application.WebviewWindow
 	media            *loopbackMediaServer
 	bundledFonts     map[string][]byte
+	inpaintEngine    InpaintEngine
 	cacheMu          sync.Mutex
 	cacheConfig      CacheConfig
 	activeMedia      string
@@ -154,6 +162,13 @@ type Service struct {
 	// tileMu serialises filmstrip and spectrogram renders. Reading a tile that
 	// is already on disk never takes it.
 	tileMu sync.Mutex
+}
+
+// SetInpaintEngine attaches the local provider used for LaMa erase-then-burn exports.
+func SetInpaintEngine(s *Service, engine InpaintEngine) {
+	s.mu.Lock()
+	s.inpaintEngine = engine
+	s.mu.Unlock()
 }
 
 func New(dataDirectory string) (*Service, error) {

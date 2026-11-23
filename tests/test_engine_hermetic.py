@@ -47,16 +47,17 @@ PACKAGES = {
     "finesub-transcribe": ("finesub_transcribe", "transcription"),
     "finesub-correct": ("finesub_correct", "correction"),
     "finesub-knowledge": ("finesub_knowledge_host", "knowledge"),
+    "flowocr": ("flowocr_host", "ocr"),
 }
 ENTRY_KINDS = {entry: kind for entry, kind in PACKAGES.values()}
 CATEGORIES = {"system", "nonoka", "absent"}
 
 
-def load_bridge() -> Any:
-    """The packages' bridge (the three copies are the same bytes, `tests/test_engine_packages.py`)."""
+def load_bridge(path: Path | None = None, name: str = "wp_h_bridge") -> Any:
+    """The FineSub packages' bridge (the three copies are the same bytes, `tests/test_engine_packages.py`)."""
 
-    path = ENGINES / "finesub-transcribe" / "adapter" / "finesub_transcribe" / "bridge.py"
-    spec = importlib.util.spec_from_file_location("wp_h_bridge", path)
+    path = path or ENGINES / "finesub-transcribe" / "adapter" / "finesub_transcribe" / "bridge.py"
+    spec = importlib.util.spec_from_file_location(name, path)
     module = importlib.util.module_from_spec(spec)
     assert spec.loader is not None
     spec.loader.exec_module(module)
@@ -64,6 +65,9 @@ def load_bridge() -> Any:
 
 
 BRIDGE = load_bridge()
+#: The on-screen text package's own bridge: its half of the table, for the `ocr` process.
+OCR_BRIDGE = load_bridge(ENGINES / "flowocr" / "adapter" / "flowocr_host" / "bridge.py", "wp_h_ocr_bridge")
+BRIDGES = (BRIDGE, OCR_BRIDGE)
 
 
 def _key(name: str) -> str:
@@ -74,14 +78,15 @@ def classified(kind: str) -> dict[str, str]:
     """Name -> category for one process kind on this platform: the neutral half, then the package's."""
 
     table = {_key(name): row.category for name, row in engine_host.classification_for(kind).items()}
-    for name, (category, _reason) in BRIDGE.classification_for(kind).items():
-        table.setdefault(_key(name), category)
+    for bridge in BRIDGES:
+        for name, (category, _reason) in bridge.classification_for(kind).items():
+            table.setdefault(_key(name), category)
     return table
 
 
 def every_classified_name() -> set[str]:
     names = {_key(row.name) for row in engine_host.CLASSIFICATION}
-    return names | {_key(row[0]) for row in BRIDGE.CLASSIFICATION}
+    return names | {_key(row[0]) for bridge in BRIDGES for row in bridge.CLASSIFICATION}
 
 
 # --- the table -------------------------------------------------------------------------------------------------
@@ -93,7 +98,7 @@ class TableTests(unittest.TestCase):
             self.assertIn(row.category, CATEGORIES, row)
             self.assertTrue(row.processes and row.processes <= engine_host.ALL_PROCESSES, row)
             self.assertTrue(row.reason.strip(), row)
-        for name, category, processes, reason in BRIDGE.CLASSIFICATION:
+        for name, category, processes, reason in (row for bridge in BRIDGES for row in bridge.CLASSIFICATION):
             self.assertIn(category, CATEGORIES - {"system"}, name)
             self.assertTrue(processes and processes <= engine_host.ALL_PROCESSES, name)
             self.assertTrue(reason.strip(), name)
@@ -107,7 +112,7 @@ class TableTests(unittest.TestCase):
                         previous = seen.setdefault(row.name, row.category)
                         self.assertEqual(previous, row.category, (platform, kind, row.name))
                 bridge_seen: dict[str, str] = {}
-                for name, category, processes, _reason in BRIDGE.CLASSIFICATION:
+                for name, category, processes, _reason in (row for bridge in BRIDGES for row in bridge.CLASSIFICATION):
                     if kind in processes:
                         previous = bridge_seen.setdefault(name, category)
                         self.assertEqual(previous, category, (platform, kind, name))
@@ -127,6 +132,7 @@ class TableTests(unittest.TestCase):
         self.assertEqual(tuple(manifests["finesub-transcribe"]["secrets"]), BRIDGE.TRANSCRIPTION_SECRETS)
         self.assertEqual(tuple(manifests["finesub-correct"]["secrets"]), BRIDGE.CORRECTION_SECRETS)
         self.assertEqual(manifests["finesub-knowledge"]["secrets"], [])
+        self.assertEqual(manifests["flowocr"]["secrets"], [])
 
 
 # --- 1. the coverage scan ------------------------------------------------------------------------------------------
@@ -358,7 +364,8 @@ class HandedEnvironmentTests(unittest.TestCase):
                 "runtime": {"tools": [str(self.temp / "tools" / "ffmpeg")]},
                 "agent_cli": {"path": [str(self.temp / "agents")]},
             }
-            sandbox = engine_host.SandboxTemp(engine_host.sandbox_root(context)) if kind == "transcription" else None
+            sandbox = (engine_host.SandboxTemp(engine_host.sandbox_root(context))
+                       if kind in ("transcription", "ocr") else None)
             try:
                 environment = engine_host.package_environment(package, context, parent, sandbox=sandbox)
             finally:

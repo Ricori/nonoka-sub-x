@@ -1,0 +1,23 @@
+{
+ "schema": "flowocr-layout/2",
+ "game": "genshin",
+ "aspect": 1.77778,
+ "boxes": [
+  {
+   "id": "box0",
+   "dx": -0.00356,
+   "cy": 0.856,
+   "em_h": 0.02843,
+   "pitch_em": 1.238,
+   "box_em": 41.0,
+   "chars": 41,
+   "valign": "top",
+   "align": "center",
+   "latin_em": 0.56,
+   "sources": [
+    "gi1:r0",
+    "gi2:r0"
+   ]
+  }
+ ]
+}

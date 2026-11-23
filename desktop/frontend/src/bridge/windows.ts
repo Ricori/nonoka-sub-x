@@ -10,4 +10,5 @@ export const desktopWindows = {
   openOnboarding: WindowService.OpenOnboarding,
   completeOnboarding: WindowService.CompleteOnboarding,
   showHome: WindowService.ShowHome,
+  openRuntimeSettings: WindowService.OpenRuntimeSettings,
 };

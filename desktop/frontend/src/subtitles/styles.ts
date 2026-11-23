@@ -188,6 +188,18 @@ export function mergeStyleText(current: string, incoming: string) {
 /** 写死的两个默认样式名：原文 / 译文 */
 export const ORIGIN_STYLE = "origin";
 export const CN_STYLE = "cn";
+/** 文字识别轨默认绑定的样式名 */
+export const SCREEN_TEXT_STYLE = "文字识别";
+/** 没有「文字识别」样式时补进文档样式表的默认定义 */
+export const DEFAULT_SCREEN_TEXT_STYLE =
+  "Style: 文字识别,思源黑体 Heavy,54,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,2,0,5,12,12,12,1";
+
+/** 如果文档样式表里还没有「文字识别」样式，补上一份默认定义；已有则原样不动 */
+export function ensureScreenTextStyle(current: string): string {
+  const sheet = parseSheet(current);
+  if (sheet.fields[SCREEN_TEXT_STYLE]) return current;
+  return mergeStyleText(current, `[V4+ Styles]\n${ASS_STYLE_FORMAT}\n${DEFAULT_SCREEN_TEXT_STYLE}\n`).text;
+}
 
 /** 样式表里没有的绑定回退到写死的 origin/cn——云端同步下来的文档常绑着本机没有的样式 */
 export const resolveStyleIn = (sheet: StyleSheet, name: string, lang: Lang): string =>

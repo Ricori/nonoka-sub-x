@@ -1,0 +1,23 @@
+# The screen-text layer's Python packages: FlowOCR v1.0.0's `[nvidia]` runtime, at the versions its own
+# uv.lock resolved (engines/flowocr/UPSTREAM.json). Compiled for Windows into
+# src/nonoka_x/resources/pylock.screen-text-win-py312.toml:
+#   uv pip compile scripts/screen-text-requirements.txt --python-platform x86_64-pc-windows-msvc --python-version 3.12 --format pylock.toml --output-file src/nonoka_x/resources/pylock.screen-text-win-py312.toml
+numpy==2.3.5
+opencv-contrib-python==4.10.0.84
+pillow==12.3.0
+psutil==7.2.2
+pyclipper==1.4.0
+pyyaml==6.0.2
+zstandard==0.25.0
+onnxruntime-gpu==1.29.0
+onnx==1.17.0
+protobuf==7.36.2
+flatbuffers==25.12.19
+packaging==26.3
+nvidia-cuda-runtime==13.0.88
+nvidia-cudnn-cu13==9.13.0.50
+nvidia-cublas==13.0.2.14
+nvidia-cufft==12.0.0.61
+nvidia-curand==10.4.0.35
+nvidia-cuda-nvrtc==13.0.88
+nvidia-nvjitlink==13.0.88

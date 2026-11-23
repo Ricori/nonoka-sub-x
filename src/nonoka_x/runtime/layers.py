@@ -108,7 +108,8 @@ SYSTEM_TAR = _default_tar()
 #: How long a quick check's answer is reused within one process.
 QUICK_CHECK_SECONDS = 30.0
 
-LABELS = {"python": "Python 运行环境", "models": "模型", "models-moss": "MOSS 模型", "tools": "工具"}
+LABELS = {"python": "Python 运行环境", "models": "模型", "models-moss": "MOSS 模型", "tools": "工具",
+          "screen-text": "文字识别层"}
 
 
 class LayerIndexError(lm.LayerError):
@@ -856,8 +857,10 @@ class LayerManager:
 
     # -- what is in the layers ---------------------------------------------------------------------------------
 
-    def python_executable(self) -> Path | None:
-        root = self.root("python")
+    def python_executable(self, layer: str = "python") -> Path | None:
+        """The interpreter of a Python layer (`python`, or `screen-text`, which carries its own)."""
+
+        root = self.root(layer)
         if root is None:
             return None
         executable = root / ("python.exe" if os.name == "nt" else "bin/python3")

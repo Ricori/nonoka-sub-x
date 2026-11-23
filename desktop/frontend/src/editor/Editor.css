@@ -2928,6 +2928,32 @@ body.ctx-open .professional-editor .topbar {
   flex: 1 1 0;
 }
 
+/* Placement of on-screen text (segments with their own pos / cover) */
+.professional-editor .insp-pos {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.professional-editor .insp-pos-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.professional-editor .insp-pos-row .sp-field {
+  justify-content: space-between;
+}
+
+.professional-editor .insp-pos-row .sp-control input {
+  width: 58px;
+}
+
+.professional-editor .insp-pos .sd-control .side-text-btn {
+  margin-left: auto;
+}
+
 /* 字幕列表：CapCut 那种扁平行，序号 + 文本，时间码靠右 */
 .professional-editor .seg-list {
   padding: 6px 0;
@@ -4343,4 +4369,189 @@ html.wails-fullscreen .professional-editor .topbar {
   .professional-editor .toast {
     transition: none;
   }
+}
+
+/* ── 文字识别（SideScreenTextPanel） ─────────────────────────── */
+.professional-editor .st-empty {
+  padding: 20px 14px;
+  background: var(--raised);
+  border: 1px solid var(--line-soft);
+  border-radius: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.professional-editor .st-empty-title {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.professional-editor .st-empty-desc,
+.professional-editor .st-hint {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--mut);
+}
+
+.professional-editor .st-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.professional-editor .st-actions.vertical {
+  flex-direction: column;
+}
+
+.professional-editor .st-progress-card,
+.professional-editor .st-trial-card,
+.professional-editor .st-warn-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  background: var(--raised);
+  border: 1px solid var(--line-soft);
+  border-radius: 6px;
+}
+
+.professional-editor .st-progress-head,
+.professional-editor .st-trial-summary,
+.professional-editor .st-hw-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.professional-editor .st-hw-bar {
+  padding: 6px 10px;
+  background: var(--raised);
+  border: 1px solid var(--line-soft);
+  border-radius: 5px;
+  color: var(--mut);
+}
+
+.professional-editor .st-mono {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--mut);
+}
+
+.professional-editor .st-bar {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--bg);
+  overflow: hidden;
+}
+
+.professional-editor .st-bar > i {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  border-radius: 3px;
+  transition: width .2s ease;
+}
+
+.professional-editor .st-bar.indeterminate > i {
+  animation: st-indeterminate 1.4s ease-in-out infinite;
+}
+
+@keyframes st-indeterminate {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(260%); }
+}
+
+.professional-editor .st-notice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 5px;
+  font-size: 12px;
+  line-height: 1.45;
+  background: var(--raised);
+  border: 1px solid var(--line-soft);
+  border-left: 3px solid var(--accent);
+}
+
+.professional-editor .st-notice.bad {
+  border-left-color: var(--warn);
+}
+
+.professional-editor .st-notice.warn {
+  border-left-color: #e6b450;
+}
+
+.professional-editor .st-notice.ok {
+  border-left-color: var(--ok);
+}
+
+.professional-editor .st-range-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.professional-editor .st-foot {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.professional-editor .st-foot .btn.wide {
+  width: 100%;
+  justify-content: center;
+}
+
+.professional-editor .st-roi-ctl {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.professional-editor .roi-draw-layer {
+  pointer-events: auto;
+  cursor: crosshair;
+  background: rgba(15, 17, 27, 0.25);
+}
+
+.professional-editor .roi-banner {
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 4px 10px;
+  border-radius: 4px;
+  background: var(--raised);
+  border: 1px solid var(--accent-border);
+  font-size: 12px;
+  color: var(--text);
+  pointer-events: none;
+}
+
+.professional-editor .roi-box {
+  position: absolute;
+  border: 2px dashed var(--accent);
+  background: var(--accent-dim);
+  pointer-events: none;
+}
+
+.professional-editor .roi-tag {
+  position: absolute;
+  top: -22px;
+  left: -2px;
+  padding: 1px 6px;
+  border-radius: 3px;
+  background: var(--accent);
+  color: var(--on-accent);
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
 }

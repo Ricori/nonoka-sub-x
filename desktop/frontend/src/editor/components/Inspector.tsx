@@ -9,6 +9,7 @@ import { curSegs, select, selStore } from '../store/selectionStore';
 import { toast } from '../store/uiStore';
 import { /* fmtView, */ viewStore } from '../store/viewStore';
 import type { Lang } from '../types';
+import { SegPosFields } from './SegPosFields';
 
 export function Inspector() {
   docStore.use(s => s.version);
@@ -93,6 +94,7 @@ export function Inspector() {
           onKeyDown={e => onKeyDown(e, "zh")}
           onChange={e => onInput("zh", e.target.value)} />
       </div>
+      {s && <SegPosFields seg={s} ti={curTrack} />}
       <div className="insp-actions">
         <button type="button" className="side-text-btn" id="btn-merge" disabled={!s} onClick={mergeNext}>
           <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 3v4a2 2 0 0 0 2 2h8M10 6l3 3-3 3" /></svg>与下句合并

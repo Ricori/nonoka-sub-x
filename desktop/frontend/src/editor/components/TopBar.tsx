@@ -21,6 +21,8 @@ export function TopBar() {
     s => ({ stateText: s.stateText, stateCls: s.stateCls }), shallowEqual);
   const audioOnly = videoStore.use(s => s.audioOnly);
   const [expBusy, setExpBusy] = useState(false);
+  const [srtIncludeScreenText, setSrtIncludeScreenText] = useState(false);
+  const hasScreenText = docStore.use(s => s.tracks.some(tr => tr.source?.kind === "screen-text"));
 
   // 导出期间按钮置灰，别让人连点出两次保存对话框
   const runExport = async (fn: () => Promise<void>) => {
@@ -28,7 +30,7 @@ export function TopBar() {
     try { await fn(); } finally { setExpBusy(false); }
   };
   const srtItem = (label: string, lang: SrtLang) =>
-    ({ label, onClick: () => void runExport(() => exportSrt(lang)) });
+    ({ label, onClick: () => void runExport(() => exportSrt(lang, { includeScreenText: srtIncludeScreenText })) });
 
   return (
     <header className="topbar">
@@ -50,6 +52,10 @@ export function TopBar() {
               srtItem(`导出 SRT（${laneNames().both}）`, "both"),
               srtItem(`导出 SRT（仅${laneNames().zh}）`, "zh"),
               srtItem(`导出 SRT（仅${laneNames().ja}）`, "ja"),
+              ...(hasScreenText ? [{
+                label: (srtIncludeScreenText ? "☑ " : "☐ ") + "SRT 包含文字识别",
+                onClick: () => setSrtIncludeScreenText(v => !v),
+              }] : []),
               // 纯音频没有画面可以压字幕
               ...(audioOnly ? [] : ["-" as const, { label: "导出视频（内嵌字幕）", onClick: () => void openExport() }]),
             ], e.currentTarget)}>导出 ▾</button>

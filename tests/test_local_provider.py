@@ -1537,19 +1537,20 @@ class EngineSelectionTests(ProviderFixture):
 
     def test_cleanup_keeps_what_the_current_engine_and_the_correction_need(self) -> None:
         provider, calls = self.cleanup_provider()
-        for engine, needed in (("mai2", {"tools", "python"}), ("finesub-cloud", {"tools", "python"}),
-                               ("finesub", {"tools", "python", "models"}), ("no-such-engine", None), (None, None)):
+        # The on-screen text layer is an add-on no engine names: kept whatever the engine.
+        for engine, needed in (("mai2", {"tools", "python", "screen-text"}), ("finesub-cloud", {"tools", "python", "screen-text"}),
+                               ("finesub", {"tools", "python", "models", "screen-text"}), ("no-such-engine", None), (None, None)):
             with self.subTest(engine=engine):
                 plan = provider.runtime_cleanup_plan(engine)
                 self.assertEqual(calls[-1], ("plan", needed, set()))
                 self.assertEqual(plan["engine_available"], needed is not None)
                 self.assertEqual(plan["needed"], None if needed is None else [
-                    layer for layer in ("tools", "python", "models") if layer in needed])
+                    layer for layer in ("tools", "python", "models", "screen-text") if layer in needed])
         # Only old versions unless the user ticked whole layers (2026-11-19).
         provider.remove_unused_runtime("mai2")
-        self.assertEqual(calls[-1], ("cleanup", {"tools", "python"}, set(), ()))
+        self.assertEqual(calls[-1], ("cleanup", {"tools", "python", "screen-text"}, set(), ()))
         provider.remove_unused_runtime("mai2", ["models", "python", "models"])
-        self.assertEqual(calls[-1], ("cleanup", {"tools", "python"}, set(), ("models", "python")))
+        self.assertEqual(calls[-1], ("cleanup", {"tools", "python", "screen-text"}, set(), ("models", "python")))
         with self.assertRaises(ProviderError) as caught:
             provider.runtime_cleanup_plan("Not An Id")
         self.assertEqual(caught.exception.code, "invalid_request")
@@ -1587,11 +1588,11 @@ class EngineSelectionTests(ProviderFixture):
 
         try:
             self.assertEqual(call("GET", "?engine=mai2")["engine"], "mai2")
-            self.assertEqual(calls[-1], ("plan", {"tools", "python"}, set()))
-            self.assertEqual(call("DELETE", "?engine=finesub")["needed"], ["tools", "python", "models"])
+            self.assertEqual(calls[-1], ("plan", {"tools", "python", "screen-text"}, set()))
+            self.assertEqual(call("DELETE", "?engine=finesub")["needed"], ["tools", "python", "models", "screen-text"])
             self.assertEqual(calls[-1][0], "cleanup")
             call("DELETE", "?engine=mai2&layers=python,models")
-            self.assertEqual(calls[-1], ("cleanup", {"tools", "python"}, set(), ("python", "models")))
+            self.assertEqual(calls[-1], ("cleanup", {"tools", "python", "screen-text"}, set(), ("python", "models")))
             # A desktop from before WP-UI names no engine: old versions only.
             self.assertIsNone(call("DELETE")["needed"])
             self.assertEqual(calls[-1], ("cleanup", None, set(), ()))

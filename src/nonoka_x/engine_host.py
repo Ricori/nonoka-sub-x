@@ -46,7 +46,7 @@ from .runtime import fsops
 
 PACKAGE_FILE = "PACKAGE.json"
 PACKAGE_SCHEMA = 1
-KINDS = ("transcription", "correction", "knowledge")
+KINDS = ("transcription", "correction", "knowledge", "ocr")
 INTERPRETERS = ("python-layer", "launcher")
 #: Overrides where the packages are looked for (tests, a development checkout elsewhere).
 ENGINES_ENVIRONMENT = "NONOKA_X_ENGINES"
@@ -154,6 +154,8 @@ def _check_manifest(manifest: Any, root: Path) -> Mapping[str, Any]:
         raise ValueError(f"{root / PACKAGE_FILE}: interpreter {manifest.get('interpreter')!r} is unknown")
     if manifest["kind"] in ("transcription", "correction") and not isinstance(manifest.get("engine"), Mapping):
         raise ValueError(f"{root / PACKAGE_FILE}: a {manifest['kind']} package declares its `engine`")
+    if manifest["kind"] == "ocr" and not isinstance(manifest.get("ocr"), Mapping):
+        raise ValueError(f"{root / PACKAGE_FILE}: an ocr package declares its `ocr` mapping (the layer it runs on)")
     if manifest["id"] != root.name:
         raise ValueError(f"{root / PACKAGE_FILE}: id {manifest['id']!r} is not the directory's name {root.name!r}")
     return manifest
@@ -221,6 +223,13 @@ def transcription_package(packages: Mapping[str, Package], engine_id: str) -> Pa
         if package.manifest["engine"].get("id") == engine_id:
             return package
     return None
+
+
+def ocr_package(packages: Mapping[str, Package]) -> Package | None:
+    """The on-screen text package (FlowOCR), when installed."""
+
+    found = of_kind(packages, "ocr")
+    return found[0] if found else None
 
 
 # --- run directories ----------------------------------------------------------------------------------
@@ -319,12 +328,15 @@ def sweep_runs(package_dirs: Iterable[Path]) -> list[Path]:
 # Which process gets what is said per entry: `transcription` (sandboxed,
 # plan 4.5 item 28), `correction` (not sandboxed, the local agent CLIs'
 # variables, item 29), `knowledge` (as the correction, without the agent
-# CLIs': owner 2026-11-18, WP-H question H2).
+# CLIs': owner 2026-11-18, WP-H question H2), `ocr` (the on-screen text
+# package: sandboxed like the transcription, no secrets, no agent CLIs).
 
 #: Process kinds, as a package's `kind`.
-TRANSCRIPTION, CORRECTION, KNOWLEDGE = "transcription", "correction", "knowledge"
+TRANSCRIPTION, CORRECTION, KNOWLEDGE, OCR = "transcription", "correction", "knowledge", "ocr"
 ALL_PROCESSES = frozenset(KINDS)
 LAUNCHER_PROCESSES = frozenset((CORRECTION, KNOWLEDGE))
+#: The kinds that run in the process-level sandbox.
+SANDBOXED_PROCESSES = frozenset((TRANSCRIPTION, OCR))
 
 
 @dataclass(frozen=True)
@@ -410,33 +422,39 @@ CLASSIFICATION: tuple[Variable, ...] = (
     *_rows("nonoka", ALL_PROCESSES,
            "`*` for a direct route, else the local hosts: written either way, so neither Python nor a library "
            "falls back to the Windows system proxy (D17)", *NO_PROXY_NAMES),
-    Variable("CUDA_VISIBLE_DEVICES", "nonoka", frozenset((TRANSCRIPTION,)),
-             "the card a `cuda:N` request names, set unconditionally by the transcription package's adapter "
+    Variable("CUDA_VISIBLE_DEVICES", "nonoka", SANDBOXED_PROCESSES,
+             "the card a `cuda:N` request names, set unconditionally by the transcription (or ocr) package's adapter "
              "before anything loads CUDA (owner H6: where it always was, so no baseline moves); no restriction "
              "(absent) for `cuda` and `cpu`. Never handed in from here"),
     *_rows("absent", LAUNCHER_PROCESSES, "no card: the correction and the knowledge process load no CUDA",
            "CUDA_VISIBLE_DEVICES"),
-    *_rows("nonoka", frozenset((TRANSCRIPTION,)),
+    *_rows("nonoka", SANDBOXED_PROCESSES,
            "the sandbox's home (shared between runs: the CUDA and torch kernel caches stay warm, plan 4.5 item 28)",
            "USERPROFILE", "HOME", "APPDATA", "LOCALAPPDATA"),
-    *_rows("nonoka", frozenset((TRANSCRIPTION,)),
+    *_rows("nonoka", SANDBOXED_PROCESSES,
            "the sandbox's home split into drive and path, like USERPROFILE (owner 2026-11-18, appendix C item 2, "
            "WP-H question H8: measured to change nothing, kept consistent with the rest of the profile)",
            "HOMEDRIVE", "HOMEPATH", platforms=("win32",)),
-    *_rows("nonoka", frozenset((TRANSCRIPTION,)),
+    *_rows("nonoka", SANDBOXED_PROCESSES,
            "the sandbox's temporary directory of this one process, with its anchor held open (item 28)",
            "TEMP", "TMP"),
-    *_rows("nonoka", frozenset((TRANSCRIPTION,)), "the sandbox's temporary directory of this one process",
+    *_rows("nonoka", SANDBOXED_PROCESSES, "the sandbox's temporary directory of this one process",
            "TMPDIR", platforms=("darwin",)),
+    Variable("PYTHONDONTWRITEBYTECODE", "nonoka", frozenset((OCR,)),
+             "1: FlowOCR starts its own children as `python -m` without -B; they must not write bytecode into "
+             "the verified layer or the package"),
     # -- absent: read by something in a package's process, kept out -------------------------------------------
     *_rows("absent", ALL_PROCESSES,
            "the interpreter's own switches: the process starts with -I, and its children must not inherit them",
-           "PYTHONHOME", "PYTHONSTARTUP", "PYTHONDONTWRITEBYTECODE", "PYTHONPYCACHEPREFIX", "PYTHONSAFEPATH",
+           "PYTHONHOME", "PYTHONSTARTUP", "PYTHONPYCACHEPREFIX", "PYTHONSAFEPATH",
            "PYTHONWARNINGS", "PYTHONINSPECT", "PYTHONVERBOSE", "PYTHONOPTIMIZE", "PYTHONDEBUG",
            "PYTHONCASEOK", "PYTHONHASHSEED", "PYTHONEXECUTABLE", "PYTHONLEGACYWINDOWSSTDIO",
            "PYTHONPLATLIBDIR", "PYTHONUSERBASE", "PYTHONBREAKPOINT", "PYTHONFAULTHANDLER",
            "PYTHONTRACEMALLOC", "PYTHONMALLOC", "PYTHONDEVMODE", "PYTHONINTMAXSTRDIGITS",
            "PYTHONWARNDEFAULTENCODING", "VIRTUAL_ENV", "CONDA_PREFIX", "SETUPTOOLS_USE_DISTUTILS"),
+    *_rows("absent", ALL_PROCESSES - {OCR},
+           "the interpreter's bytecode switch: the process starts with -I (and -B when sandboxed)",
+           "PYTHONDONTWRITEBYTECODE"),
     *_rows("absent", ALL_PROCESSES,
            "the standard library's own look-ups (zoneinfo's time zone path, sysconfig's build directory): "
            "their defaults are the interpreter's own",
@@ -464,7 +482,7 @@ CLASSIFICATION: tuple[Variable, ...] = (
     *_rows("absent", ALL_PROCESSES,
            "would make a program lookup skip the working directory; Windows' default (unset) is kept",
            "NoDefaultCurrentDirectoryInExePath", platforms=("win32",)),
-    *_rows("absent", frozenset((TRANSCRIPTION, KNOWLEDGE)),
+    *_rows("absent", frozenset((TRANSCRIPTION, KNOWLEDGE, OCR)),
            "the local agent CLIs' variables: only the correction runs an agent CLI (D16)", *AGENT_CLI_NAMES),
     *_rows("absent", ALL_PROCESSES,
            "Python's `tempfile` reads TMPDIR before TEMP on every platform: on Windows it would bypass the "
@@ -483,13 +501,19 @@ def system_names(kind: str, platform: str | None = None) -> tuple[str, ...]:
 
 
 def _process_kind(package: Package) -> str:
-    return package.kind if package.kind in KINDS else CORRECTION
+    """The package's process kind. An unknown kind is refused: falling back to another kind's rows
+    would hand it that kind's variables."""
+
+    if package.kind not in KINDS:
+        raise PackageUnavailable(f"引擎包 {package.id} 的种类 {package.kind!r} 未知")
+    return package.kind
 
 
 def sandboxed(package: Package) -> bool:
-    """Whether a package's process runs in the process-level sandbox: the transcription's (plan 4.5 item 28)."""
+    """Whether a package's process runs in the process-level sandbox: the transcription's
+    (plan 4.5 item 28) and the on-screen text package's."""
 
-    return package.kind == TRANSCRIPTION
+    return package.kind in SANDBOXED_PROCESSES
 
 
 def _system_directories(parent: Mapping[str, str]) -> list[str]:
@@ -576,6 +600,8 @@ def package_environment(
     environment["PYTHONIOENCODING"] = "utf-8"
     environment["PYTHONUTF8"] = "0"
     environment.update(proxy_variables(context))
+    if kind == OCR:
+        environment["PYTHONDONTWRITEBYTECODE"] = "1"
     if sandboxed(package):
         if sandbox is None:
             raise PackageUnavailable(f"引擎包 {package.id} 只在沙箱里运行，但没有为它准备沙箱")
@@ -748,6 +774,9 @@ def interpreter_for(package: Package, context: Mapping[str, Any] | None) -> str:
     runtime = (context or {}).get("runtime") or {}
     if package.interpreter == "python-layer" and runtime.get("python"):
         return str(runtime["python"])
+    if package.kind == OCR:
+        # Its own layer or nothing: the launcher has none of its libraries.
+        raise PackageUnavailable("文字识别层未安装")
     launcher = (context or {}).get("launcher")
     return str(launcher or sys.executable)
 

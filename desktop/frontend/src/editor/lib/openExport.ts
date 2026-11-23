@@ -1,11 +1,17 @@
 import { desktopWindows } from '../../bridge/windows.ts';
-import { buildPiecesAss, missingFonts } from './assBuild.ts';
+import { buildPiecesAss, buildPlates, docSource, missingFonts } from './assBuild.ts';
 import { EDIT_SUFFIX, editSummary, exportPieces } from './videoEdit.ts';
 import { getVid } from '../session.ts';
 import { docStore } from '../store/docStore.ts';
 import { toast } from '../store/uiStore.ts';
 import { viewStore } from '../store/viewStore.ts';
 import { errText } from '../utils.ts';
+
+function hasCoverBoxes(): boolean {
+  const src = docSource();
+  if (src.segs.some(seg => !!seg.cover?.box)) return true;
+  return src.tracks.some(tr => !(tr.ja.hidden && tr.zh.hidden) && tr.segs.some(seg => !!seg.cover?.box));
+}
 
 /**
  * Snapshot the current document and video track and hand video export to a
@@ -22,9 +28,12 @@ export async function openExport(): Promise<void> {
 
   try {
     const ass = buildPiecesAss(pieces);
+    const hasCover = hasCoverBoxes();
+    const assNoPlates = hasCover ? buildPiecesAss(pieces, { plates: 'omit' }) : '';
+    const platesAss = hasCover ? buildPlates() : '';
     const missing = await missingFonts();
     await desktopWindows.openVideoExport(
-      mediaID, baseName + suffix + '.mp4', ass, pieces, editSummary(), missing,
+      mediaID, baseName + suffix + '.mp4', ass, assNoPlates, platesAss, pieces, editSummary(), missing,
     );
   } catch (error) {
     toast('无法打开视频导出窗口：' + errText(error), true);

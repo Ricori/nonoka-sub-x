@@ -23,14 +23,15 @@ type stagedFile struct {
 }
 
 // enginePackages are the engine packages shipped with the sidecar (plan 4.6 item 33), under `engines/`.
-var enginePackages = []string{"finesub-transcribe", "finesub-correct", "finesub-knowledge"}
+var enginePackages = []string{"finesub-transcribe", "finesub-correct", "finesub-knowledge", "flowocr"}
 
 // packageFiles are what an engine package ships: its manifest, its code and the files that
 // vouch for its FineSub sources. Its quality lock and change log are the repository's.
-var packageFiles = []string{"PACKAGE.json", "adapter", "src", "LICENSE", "LICENSES.json", "UPSTREAM.json", "PROMPT_LICENSE.md"}
+var packageFiles = []string{"PACKAGE.json", "adapter", "src", "LICENSE", "LICENSES.json", "UPSTREAM.json", "PROMPT_LICENSE.md", "LICENSES"}
 
-// optionalPackageFiles may be missing from a package: only one carrying the prompt templates has their licence.
-var optionalPackageFiles = map[string]bool{"PROMPT_LICENSE.md": true}
+// optionalPackageFiles may be missing from a package: only one carrying the prompt templates has their licence,
+// and only the on-screen text package carries its models' notices (`LICENSES/`).
+var optionalPackageFiles = map[string]bool{"PROMPT_LICENSE.md": true, "LICENSES": true}
 
 // coreEntries are the rest of the sidecar resources, relative to the repository root.
 var coreEntries = []string{

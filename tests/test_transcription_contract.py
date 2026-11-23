@@ -330,7 +330,7 @@ def test_capability_layers_come_from_the_environment() -> None:
     }
     assert environment_layers({"components": ["ffmpeg", "yt-dlp"]}) == {"required": ["tools"], "optional": []}
     # A component nobody knows keeps every layer: nothing it might need is ever offered for cleaning.
-    assert set(component_layers("something-new")) == {"python", "models", "models-moss", "tools"}
+    assert set(component_layers("something-new")) == {"python", "models", "models-moss", "tools", "screen-text"}
 
 
 def test_native_artifacts_are_namespaced_and_opaque(tmp_path: Path) -> None:

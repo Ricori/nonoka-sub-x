@@ -61,6 +61,10 @@ const LAYER_META: Record<RuntimeLayerId, { label: string; description: string }>
     label: "MOSS 0.9B 模型层",
     description: "MOSS-Transcribe-Diarize 语音识别与说话人声纹模型",
   },
+  "screen-text": {
+    label: "文字识别层",
+    description: "识别画面上的字、抹掉原字用的运行环境与模型（按需安装）",
+  },
 };
 
 export function layerOverviewOf(provision: RuntimeProvisionState | null, id: RuntimeLayerId): RuntimeLayerOverview | undefined {

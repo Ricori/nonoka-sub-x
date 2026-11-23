@@ -29,6 +29,8 @@ from typing import Any
 RESOURCES = Path(__file__).resolve().parents[1] / "resources"
 
 RUNTIME_LOCK = RESOURCES / "pylock.win-py312.toml"
+#: The on-screen text layer's packages: FlowOCR's runtime (`scripts/screen-text-requirements.txt`).
+SCREEN_TEXT_LOCK = RESOURCES / "pylock.screen-text-win-py312.toml"
 TOOL_MANIFEST = RESOURCES / "runtime-manifest.windows-x64.json"
 MODEL_MANIFEST = RESOURCES / "model-manifest.json"
 
@@ -37,6 +39,12 @@ def runtime_lock() -> dict[str, Any]:
     """The runtime lock, as parsed TOML (PEP 751 `pylock.toml`)."""
 
     return tomllib.loads(RUNTIME_LOCK.read_text(encoding="utf-8"))
+
+
+def screen_text_lock() -> dict[str, Any]:
+    """The on-screen text layer's lock, as parsed TOML (PEP 751 `pylock.toml`)."""
+
+    return tomllib.loads(SCREEN_TEXT_LOCK.read_text(encoding="utf-8"))
 
 
 def tool_manifest() -> dict[str, Any]:

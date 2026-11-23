@@ -39,6 +39,7 @@ export interface TaskHistoryEntry {
   provider: ExecutionMode;
   mediaId: string;
   title: string;
+  kind?: string;
   snapshot: TaskSnapshot;
 }
 

@@ -300,6 +300,18 @@ func TestReadEngineTasksSurvivesACorruptList(t *testing.T) {
 	}
 }
 
+func TestPluginCannotStartScreenTextTargets(t *testing.T) {
+	service, engine, _ := engineService(t, `"engine.run"`)
+	for _, target := range []string{"screen-text", "screen-text-inpaint"} {
+		if _, err := service.StartEngineTask("dev.nonoka.hello", EngineTaskRequest{MediaID: "media-1", Target: target}); err == nil {
+			t.Fatalf("plugin should not be allowed to start %q", target)
+		}
+	}
+	if engine.taskRequest != nil {
+		t.Fatalf("refused screen-text target reached engine: %#v", engine.taskRequest)
+	}
+}
+
 func fileURI(path string) string {
 	absolute, err := filepath.Abs(path)
 	if err != nil {

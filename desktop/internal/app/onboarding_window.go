@@ -42,6 +42,19 @@ func (s *WindowService) ShowHome() {
 	home.Focus()
 }
 
+// OpenRuntimeSettings brings the home window to the front and navigates it to
+// Settings -> Runtime so the user can install or repair optional layers such as
+// the screen-text component from an open editor.
+func (s *WindowService) OpenRuntimeSettings() {
+	s.ShowHome()
+	s.mu.Lock()
+	app := s.app
+	s.mu.Unlock()
+	if app != nil {
+		app.Event.Emit("home:open-settings", "runtime")
+	}
+}
+
 // OpenOnboarding opens the dedicated setup/migration window and hides home
 // once it is painted. When reopened is true (opened manually from Settings),
 // closing the window restores home; otherwise closing it exits the app.

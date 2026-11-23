@@ -21,16 +21,20 @@ import type * as selfupdate$0 from "../../../../Ricori/nonoka-x/desktop/internal
 declare module "@wailsio/runtime" {
     namespace Events {
         interface CustomEvents {
+            "document:changed": { [_ in string]?: any } | null;
             "editor:request-close": string;
             "export:ready": string;
             "export:request-close": string;
             "files:dragging": boolean;
             "files:dropped": string[] | null;
+            "home:open-settings": string;
             "home:refresh": boolean;
             "library:changed": library$0.Entry[] | null;
             "onboarding:ready": boolean;
             "plugins:changed": plugins$0.Change;
             "plugins:download-log": plugins$0.DownloadLog;
+            "runtime:changed": boolean;
+            "screentext:progress": { [_ in string]?: any } | null;
             "storage:progress": app$0.RelocationProgress;
             "update:ready": { [_ in string]?: string } | null;
             "update:status": selfupdate$0.Status;

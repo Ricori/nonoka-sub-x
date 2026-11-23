@@ -48,6 +48,18 @@ export interface Entry {
     "videoEdit"?: VideoEdit | null;
 }
 
+/**
+ * EraseOptions asks ExportVideoPiecesWithErase to remove original on-screen
+ * text with FlowOCR's LaMa inpainter into a temporary intermediate video before
+ * running the normal final encode.
+ */
+export interface EraseOptions {
+    "enabled": boolean;
+    "platesAss"?: string;
+    "device"?: string;
+    "preset"?: string;
+}
+
 export interface ExportResult {
     "path": string;
     "size": number;

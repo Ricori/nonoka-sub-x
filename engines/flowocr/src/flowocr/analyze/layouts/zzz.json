@@ -1,0 +1,21 @@
+{
+ "schema": "flowocr-layout/2",
+ "game": "zzz",
+ "aspect": 1.77778,
+ "boxes": [
+  {
+   "id": "box0",
+   "dx": -0.00991,
+   "cy": 0.8302,
+   "em_h": 0.02643,
+   "pitch_em": 1.379,
+   "box_em": 34.0,
+   "chars": 34,
+   "valign": "center",
+   "latin_em": 0.66,
+   "sources": [
+    "zzz:r1"
+   ]
+  }
+ ]
+}

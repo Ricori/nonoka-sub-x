@@ -107,13 +107,14 @@ TaskRequest
 
 ## 4. 引擎包
 
-### 4.1 三个包
+### 4.1 四个包
 
 | 包 | `kind` | 解释器 | 入口模块 | 要的密钥 |
 | :--- | :--- | :--- | :--- | :--- |
 | `finesub-transcribe` | `transcription` | `python-layer`（Python 环境层） | `finesub_transcribe` | `HF_TOKEN` |
 | `finesub-correct` | `correction` | `launcher`（启动器） | `finesub_correct` | LLM 与检索的 Key、`NONOKA_CLOUD_KEY` |
 | `finesub-knowledge` | `knowledge` | `launcher` | `finesub_knowledge_host` | 无 |
+| `flowocr` | `ocr` | `python-layer`（`screen-text` 可选层） | `flowocr_host` | 无（严禁注入任何 LLM 密钥） |
 
 每个包的形状：`PACKAGE.json`、`adapter/`（包自己的代码：协议入口、桥接、产物转换）、`src/`（FineSub 文件，逐字节等于分包前的上锁文件）、许可文件、`UPSTREAM.json`、`QUALITY_LOCK.json`、`LOCAL_CHANGES.md`；没有 `pyproject.toml`。详见 [engine.md](engine.md) 2.1。
 
@@ -123,7 +124,7 @@ TaskRequest
 | :--- | :--- |
 | `schema` | 固定为 1 |
 | `id`、`label` | 包的标识（也是它私有目录与附件目录的名字）与显示名 |
-| `kind` | `transcription` / `correction` / `knowledge` |
+| `kind` | `transcription` / `correction` / `knowledge` / `ocr`（`ocr` 包须声明 `ocr: {layer: "screen-text"}`，未知 `kind` 直接报错，绝不回退到 `correction`） |
 | `entry`、`paths` | 入口模块；导入根（都是 `["adapter", "src"]`），相对包目录 |
 | `interpreter` | `python-layer` 或 `launcher` |
 | `secrets` | 包要的密钥名；核心只把这些交给它的进程 |
@@ -162,6 +163,7 @@ TaskRequest
 | 转写包 | `transcribe`（跑到 stable 并写 `transcript.json`）、`transcript_json`（从已有的 stable 写 `transcript.json`，一次性转换用）、`knowledge`（告诉它知识库进程的地址） |
 | 纠错包 | `begin`、`check`、`run`、`axis`（日文轴）、`describe`（投影时为 FineSub 自己的 stable 写 `stable` 模式的 `correction.json`）、`correction_json`（一次性转换用）、`catalog`、`product_rows`、`task_mode`、`knowledge`；sidecar 里常驻一个纠错进程，回答模型路由与目录这类要问 FineSub 的事 |
 | 知识库包 | `prepare_subjects`、`serve`（成为本任务的知识库进程，回答连接地址）、`manage`（知识库页的列表、读、存） |
+| 文字识别包（`flowocr`） | `check`（检查驱动/显卡/模型与派生图标记）、`recognize`（识别视频文字并输出归一化的 `ocr.json`）、`inpaint`（按底板 ASS 用 LaMa 抹除画面原字并输出视频中间成片 `cleaned.mp4`） |
 
 一个任务读写知识库时，worker 为它起**一个**知识库进程，地址写进之后每个包进程的启动上下文；转写与纠错两半都经它访问知识库，只有知识库包碰知识库数据。
 
@@ -173,10 +175,11 @@ TaskRequest
 - 转写包：`runtime.models`（模型层当前版本）、`runtime.cache`、`runtime.python`，它声明的密钥，LLM 路由，代理；
 - 纠错包：它声明的密钥，LLM 路由、端点与钉住的模型，代理，`agent_cli.path`（本机探测到的本地 Agent CLI 的目录）；
 - 知识库包：只有路径。
+- 文字识别包（`ocr`）：不调 `engine_secrets`，不传入任何 API Key；`runtime` 填入 `screen-text` 层的 `python.exe`、`models\`、工具层 `tools`、缓存目录 `runtime/cache/flowocr` 以及游戏剧本目录 `engines/flowocr/gametext`。
 
 ## 5. 运行环境
 
-四层预制包装在大文件根 `runtime/layers/<层>/<版本>/`，由层管理器（`src/nonoka_x/runtime/`）从 R2 下载（或由用户在界面上按层选择与 R2 完全一致的本地 `.tar.zst` 离线包导入）、核对、切换：
+五层预制包装在大文件根 `runtime/layers/<层>/<版本>/`，由层管理器（`src/nonoka_x/runtime/`）从 R2 下载（或由用户在界面上按层选择与 R2 完全一致的本地 `.tar.zst` 离线包导入）、核对、切换：
 
 | 层 | 内容 | 谁要 |
 | :--- | :--- | :--- |
@@ -184,6 +187,7 @@ TaskRequest
 | `models` | 模型清单里 FineSub 默认路径要的 5 个模型（不含编译加速产物） | FineSub 转写 |
 | `models-moss` | `moss-transcribe-diarize` 与裁剪后的 `speaker-embedding`（`wespeaker-cpu.ts` + `plda/*`，约 26 MB） | MOSS 0.9B |
 | `tools` | ffmpeg、ffprobe、tokcount、yt-dlp、aria2c、node、pot-provider | 所有引擎；桌面自己的导出与下载器 |
+| `screen-text` | 可选层（仅 Windows）：独立 Python 3.12 + FlowOCR 依赖（ORT-GPU/CUDA 13/cuDNN 9.13/OpenCV）+ PP-OCRv6 与 LaMa 模型及预生成派生图 | 文字识别层（编辑器「文字识别」功能，`flowocr` 包） |
 
 引擎在 `EngineEnvironment` 里用组件 ID 声明要什么（`nonoka_x.runtime`）：`asr-runtime` = Python 环境层；`media` = 工具层的 ffmpeg 加 ffprobe；单个工具按它自己的 ID；层按 `python` / `models` / `models-moss` / `tools`；模型按模型清单里的 ID（`separator`、`whisper`、`qwen-referee`、`moss-transcribe-diarize`，可选的 `nemotron3`、`speaker-embedding`）。就绪 = 要的组件在、当前版本与清单相符；**工具只认工具层**，用户 PATH 上的 ffmpeg 不算，核心自己的 `media` 档也一样。工具层与 Python 环境层属于默认基础层，安装后支持更新与完整核对、不提供整层删除；`models` 与 `models-moss` 两个模型层均支持按需下载、按层离线安装与单层删除（`DELETE /v1/runtime/provision?layer=models|models-moss`）；存在旧版本残留时可在设置页一键清理。
 
@@ -193,7 +197,7 @@ FineSub 引擎的代码不进层，随桌面安装包下发，与核心同步升
 
 - 包进程的环境从零构建：每个变量要么是按名从父进程带的系统必需项，要么由 Nonoka 无条件写入（`engine_host.CLASSIFICATION` 加各包桥接里的分类表），其余一律不存在。解释器 `-I` 启动（转写进程另加 `-B`），`PATH` 只有工具层与系统目录（纠错进程另加本地 Agent CLI 的目录，脚本 CLI 再加 node 的目录）。代理总是显式写。
 - 所以机器上的外部环境变量（代理、HF 镜像、`CUDA_VISIBLE_DEVICES`、线程数……）和外部配置文件不再影响引擎；要生效只能先成为 Nonoka 的设置。
-- 转写进程在沙箱里：用户目录指向 `engines/finesub-transcribe/sandbox/home/`（跨运行共用，NVIDIA 与 torch 的内核缓存留在里面），临时目录指向 `sandbox/temp/<进程>/`（每进程一份，结束即删），当前目录是任务目录，`HF_HUB_OFFLINE=1`，缺模型时报错而不是下载。`cuda:N` 时由转写适配器设 `CUDA_VISIBLE_DEVICES`。
+- 转写与文字识别进程（`kind ∈ {transcription, ocr}`）都在沙箱里：用户目录指向各自包的 `sandbox/home/`，临时目录指向 `sandbox/temp/<进程>/`（每进程一份，结束即删），当前目录是任务目录，`HF_HUB_OFFLINE=1`，缺模型时报错而不是下载。`ocr` 进程额外写入 `PYTHONDONTWRITEBYTECODE=1`（防止子进程向只读层写 `.pyc`），且在启动子进程前将适配器绑定到带 `KILL_ON_JOB_CLOSE` 的 Windows Job Object，防止监督者/ORT/解码子进程残留。`cuda:N` 时由适配器设 `CUDA_VISIBLE_DEVICES`。
 - 纠错与知识库进程不进沙箱，用真实的用户目录；本地 Agent CLI 的配置与证书变量只带给纠错进程。
 - 桌面关闭全部编译加速（`FINESUB_SEPARATOR_ACCEL=0`、`FINESUB_REFEREE_ACCEL=0`）：人声分离与 qwen 裁判都走 eager。
 

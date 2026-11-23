@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestEditorExportAudioArgs(t *testing.T) {
@@ -158,5 +159,74 @@ func TestCancelExport(t *testing.T) {
 	}
 	if !cancelled {
 		t.Fatal("expected cancel func to be called")
+	}
+}
+
+func TestBuildEditorExportArgsWithPreTrimmedCleanedVideo(t *testing.T) {
+	args := buildEditorExportArgs(editorExportJob{
+		video:           "cleaned.mp4",
+		audio:           "original.mp4",
+		pieces:          []Range{{T0: 10, T1: 25}},
+		videoPreTrimmed: true,
+		videoSpanStart:  10,
+		filter:          "subtitles=subtitle.ass",
+		crf:             21,
+		preset:          "medium",
+		audioArgs:       []string{"-c:a", "copy", "-copypriorss", "0"},
+		container:       exportContainers["mp4"],
+		output:          "out.mp4.part.mp4",
+	})
+	joined := strings.Join(args, " ")
+	if strings.Contains(joined, "-ss 10.000 -t 15.000 -i cleaned.mp4") {
+		t.Fatalf("pre-trimmed cleaned video must not seek by span start: %s", joined)
+	}
+	if !strings.Contains(joined, "-t 15.000 -i cleaned.mp4 -ss 10.000 -t 15.000 -i original.mp4") {
+		t.Fatalf("unexpected pre-trimmed export args: %s", joined)
+	}
+}
+
+type fakeInpaintEngine struct {
+	cancelledID string
+	startedReq  map[string]any
+}
+
+func (f *fakeInpaintEngine) StartTask(req map[string]any) (map[string]any, error) {
+	f.startedReq = req
+	return map[string]any{"task_id": "inpaint-1", "state": "running"}, nil
+}
+
+func (f *fakeInpaintEngine) TaskStatus(string) (map[string]any, error) {
+	return map[string]any{"task_id": "inpaint-1", "state": "running"}, nil
+}
+
+func (f *fakeInpaintEngine) CancelTask(taskID string) (map[string]any, error) {
+	f.cancelledID = taskID
+	return map[string]any{"task_id": taskID, "state": "cancelled"}, nil
+}
+
+func TestRunEraseIntermediateCancelsTask(t *testing.T) {
+	prev := inpaintPollInterval
+	inpaintPollInterval = time.Millisecond
+	t.Cleanup(func() { inpaintPollInterval = prev })
+
+	engine := &fakeInpaintEngine{}
+	service := &Service{inpaintEngine: engine}
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		time.Sleep(15 * time.Millisecond)
+		cancel()
+	}()
+	_, err := service.runEraseIntermediate(
+		ctx, t.TempDir(), Entry{ID: "loc_0123456789ab", Title: "demo.mp4", Duration: 30},
+		"demo.mp4", 5, 15, EraseOptions{Enabled: true, PlatesASS: "[Events]\n"}, "exp_1", "out.mp4",
+	)
+	if err == nil || !strings.Contains(err.Error(), "已取消") {
+		t.Fatalf("expected cancellation error, got %v", err)
+	}
+	if engine.cancelledID != "inpaint-1" {
+		t.Fatalf("expected provider CancelTask(inpaint-1), got %q", engine.cancelledID)
+	}
+	if engine.startedReq["target"] != "screen-text-inpaint" {
+		t.Fatalf("unexpected target: %v", engine.startedReq["target"])
 	}
 }

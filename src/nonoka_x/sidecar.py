@@ -157,6 +157,16 @@ class SidecarHandler(BaseHTTPRequestHandler):
             self._json(200, provider.list_tasks(limit=limit))
         elif self.command == "POST" and parts == ["v1", "tasks"]:
             self._json(202, provider.start(self._body()))
+        elif self.command == "GET" and parts == ["v1", "screen-text", "check"]:
+            device = parse_qs(parsed.query).get("device", ["auto"])[0]
+            self._json(200, provider.screen_text_check(device))
+        elif self.command == "GET" and parts == ["v1", "screen-text", "result"]:
+            task_id = parse_qs(parsed.query).get("task", [""])[0]
+            self._json(200, provider.screen_text_result(task_id))
+        elif self.command == "GET" and parts == ["v1", "screen-text", "gametext"]:
+            self._json(200, provider.list_screen_text_gametexts())
+        elif self.command == "POST" and parts == ["v1", "screen-text", "gametext"]:
+            self._json(200, provider.import_screen_text_gametext(self._body()))
         elif self.command == "POST" and parts == ["v1", "llm", "complete"]:
             self._json(200, provider.llm_complete(self._body()))
         elif self.command == "POST" and parts == ["v1", "documents", "project"]:

@@ -284,7 +284,8 @@ def test_remove_layer_removes_only_models_and_keeps_default_layers(tmp_path, ind
     status = page.remove_layer("models")
     assert status["job"]["target"] == "remove-models" and status["job"]["state"] == "completed"
     layers = {item["id"]: item["state"] for item in status["layers"]}
-    assert layers == {"python": "ready", "models": "missing", "models-moss": "missing", "tools": "ready"}
+    assert layers == {"python": "ready", "models": "missing", "models-moss": "missing", "tools": "ready",
+                      "screen-text": "missing"}
 
 
 def test_cache_usage_and_clear_cache_cover_the_downloads(tmp_path, index):

@@ -157,25 +157,29 @@ func piecesDuration(pieces []Range) float64 {
 	return total
 }
 
-// piecesFilterGraph trims every piece out of an input that was opened with
-// -ss offset, concatenates them, and burns the subtitles onto the joined
-// stream. The subtitle file is already in output time; subtitles is the whole
-// post-concat video chain (subtitles filter, fonts dir, scaling). audioInput is
-// the ffmpeg input the audio comes from (1 when it is read from the original).
-func piecesFilterGraph(pieces []Range, offset float64, audioInput int, hasAudio bool, subtitles string) string {
+// piecesFilterGraph trims every piece out of the video and audio inputs,
+// concatenates them, and burns the subtitles onto the joined stream. The
+// subtitle file is already in output time; subtitles is the whole post-concat
+// video chain (subtitles filter, fonts dir, scaling). videoOffset and
+// audioOffset are the source timestamps corresponding to t=0 of the video and
+// audio inputs respectively (they differ when video comes from a pre-trimmed
+// inpainted intermediate clip while audio comes from the original file).
+func piecesFilterGraph(pieces []Range, videoOffset, audioOffset float64, audioInput int, hasAudio bool, subtitles string) string {
 	var graph strings.Builder
 	inputs := strings.Builder{}
 	for index, piece := range pieces {
-		start := formatFloat(piece.T0 - offset)
-		end := formatFloat(piece.T1 - offset)
-		fmt.Fprintf(&graph, "[0:v]trim=start=%s:end=%s,setpts=PTS-STARTPTS[v%d];", start, end, index)
+		vStart := formatFloat(math.Max(0, piece.T0-videoOffset))
+		vEnd := formatFloat(math.Max(0, piece.T1-videoOffset))
+		fmt.Fprintf(&graph, "[0:v]trim=start=%s:end=%s,setpts=PTS-STARTPTS[v%d];", vStart, vEnd, index)
 		fmt.Fprintf(&inputs, "[v%d]", index)
 		if hasAudio {
+			aStart := formatFloat(math.Max(0, piece.T0-audioOffset))
+			aEnd := formatFloat(math.Max(0, piece.T1-audioOffset))
 			length := piece.T1 - piece.T0
 			fade := math.Min(joinFadeSeconds, length/4)
 			fmt.Fprintf(&graph,
 				"[%d:a]atrim=start=%s:end=%s,asetpts=PTS-STARTPTS,afade=t=in:d=%s,afade=t=out:st=%s:d=%s[a%d];",
-				audioInput, start, end, formatFloat(fade), formatFloat(length-fade), formatFloat(fade), index)
+				audioInput, aStart, aEnd, formatFloat(fade), formatFloat(length-fade), formatFloat(fade), index)
 			fmt.Fprintf(&inputs, "[a%d]", index)
 		}
 	}

@@ -4,6 +4,7 @@
 export type Lang = "ja" | "zh";
 
 export type {
+  Align, CoverBox, SegmentCover, SegmentPos, TrackSource,
   KaraokeUnit, SubtitleEffectBinding, SubtitleEffectParam, SubtitleEffectTarget,
 } from '../subtitles/types.ts';
 
@@ -18,6 +19,10 @@ export interface Seg {
   low_conf?: boolean;
   /** 这一句单独绑的样式（按 lane）；没写的跟随轨道样式，见 src/subtitles/build.ts::cueStyleIn */
   style?: import('../subtitles/types.ts').SegmentStyle;
+  /** Per-segment placement; see src/subtitles/position.ts */
+  pos?: import('../subtitles/types.ts').SegmentPos;
+  /** Original on-screen text box (plates / inpainting) */
+  cover?: import('../subtitles/types.ts').SegmentCover;
 }
 
 /** 一条 lane（原文/译文）的展示元数据 */
@@ -30,6 +35,7 @@ export interface LaneMeta {
 export interface Track {
   id: string;
   name: string;
+  source?: import('../subtitles/types.ts').TrackSource;
   ja: LaneMeta;
   zh: LaneMeta;
   hja: number;

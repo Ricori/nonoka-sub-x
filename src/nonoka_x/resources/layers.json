@@ -54,6 +54,19 @@
         "size": 260283489,
         "sha256": "bf01e8fcf4fd999f09b1b279e56c23bed02db478127dc7ab9c5eeb00773c212f"
       }
+    },
+    "screen-text": {
+      "version": "a967bb5725b9b3f7",
+      "manifest": {
+        "path": "v1/screen-text/a967bb5725b9b3f7707d10a1b64fcdebd9d7fc48c4c9b880bd78dc6889521137.json",
+        "size": 3049610,
+        "sha256": "a967bb5725b9b3f7707d10a1b64fcdebd9d7fc48c4c9b880bd78dc6889521137"
+      },
+      "archive": {
+        "path": "v1/screen-text/bc68f4afb91ef538d3c46ec6a76ce6c88d50f654366529d386affc4448a98926.tar.zst",
+        "size": 2071076270,
+        "sha256": "bc68f4afb91ef538d3c46ec6a76ce6c88d50f654366529d386affc4448a98926"
+      }
     }
   },
   "files": {

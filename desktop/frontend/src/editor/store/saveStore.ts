@@ -3,12 +3,18 @@ import { ROW_H0 } from '../constants';
 import { getLoadedDocument, getVid, notifySaved, setLoadedDocument } from '../session';
 import { documents } from '../../bridge/documents.ts';
 import { mediaLibrary } from '../../bridge/library.ts';
+import type { EditDocument } from '../../documents/types.ts';
+import { setStyleSheet } from '../ass';
+import { mapDocumentTracks, mergeOcrTracks, nonOcrHash } from '../lib/screenTextDoc';
+import { syncSubs } from '../lib/subtitles';
 import { errText, p2, round3 } from '../utils';
-import { docStore } from './docStore';
+import { bumpDoc, docStore } from './docStore';
+import { restoreSelection, selStore } from './selectionStore';
 import { toast } from './uiStore';
 import { viewStore } from './viewStore';
 import type { Seg } from '../types';
-import { CN_STYLE, ORIGIN_STYLE } from '../../subtitles/styles';
+import { CN_STYLE, ORIGIN_STYLE, ensureScreenTextStyle } from '../../subtitles/styles';
+import { cloneCover, clonePos } from '../../subtitles/position';
 
 // 保存：手动（Ctrl+S / 保存按钮）+ 每 5 分钟自动一次（rev 乐观锁）。
 // 视频轨剪辑是另一条线：存本地 library.json，不吃 rev 乐观锁，也不会和别人的编辑撞车。
@@ -38,12 +44,14 @@ export function markDirty() {
   setSaveState("有未保存更改 · Ctrl+S 保存", "dirty");
 }
 
-const packSeg = (s: Seg, _i: number): Seg => {
+export const packSeg = (s: Seg, _i: number): Seg => {
   const o: Seg = { t0: round3(s.t0), t1: round3(s.t1), ja: s.ja, zh: s.zh };
   if (s.k?.length) o.k = s.k.map(u => ({ t0: round3(u.t0), t1: round3(u.t1), text: u.text }));
   if (s.words) o.words = s.words;
   if (s.low_conf) o.low_conf = true;
   if (s.style?.ja || s.style?.zh) o.style = { ...s.style };
+  if (s.pos) o.pos = clonePos(s.pos);
+  if (s.cover) o.cover = cloneCover(s.cover);
   return o;
 };
 
@@ -62,6 +70,7 @@ function savePayload() {
     subtitles: d.segs.map(packSeg),
     tracks: d.tracks.map(tr => ({
       id: tr.id, name: tr.name,
+      ...(tr.source ? { source: { ...tr.source } } : {}),
       ja: packLane(tr.ja),
       zh: packLane(tr.zh),
       hja: tr.hja || ROW_H0, hzh: tr.hzh || ROW_H0,
@@ -80,40 +89,133 @@ function savePayload() {
   };
 }
 
+export interface SaveBaseline {
+  rev: number;
+  nonOcrHash: string;
+}
+
+export interface SaveDocumentIO {
+  read(videoId: string): Promise<EditDocument>;
+  save(videoId: string, doc: EditDocument): Promise<EditDocument | null>;
+}
+
+const defaultSaveIO: SaveDocumentIO = {
+  read: (videoId) => documents.read(videoId),
+  save: (videoId, doc) => documents.save(videoId, doc),
+};
+
+let saveBaseline: SaveBaseline | null = null;
+let afterSaveCallbacks: Array<() => void> = [];
+
+/** 记下最近一次与服务端对齐时的基线，供 409 冲突时判断非 ocr 部分是否被他人改过 */
+export function setSaveBaseline(doc: EditDocument | null) {
+  saveBaseline = doc ? { rev: Number(doc.rev) || 0, nonOcrHash: nonOcrHash(doc) } : null;
+}
+
+export function getSaveBaseline(): SaveBaseline | null {
+  return saveBaseline;
+}
+
+/** 正在保存时收到后台事件（如 document:changed）先排队，等本次保存收尾后再执行 */
+export function runAfterSave(fn: () => void) {
+  if (!saveStore.get().saving) {
+    fn();
+    return;
+  }
+  afterSaveCallbacks.push(fn);
+}
+
 let queued = false;
 let saveTimer: ReturnType<typeof setInterval> | undefined;
 
-export async function doSave() {
+function applyRebaseFromServer(latest: EditDocument) {
+  const d = docStore.get();
+  const incomingTracks = mapDocumentTracks(latest.tracks);
+  const { tracks, ocrCount } = mergeOcrTracks(d.tracks, incomingTracks);
+  const styles = ocrCount > 0 ? ensureScreenTextStyle(d.styles) : d.styles;
+  setLoadedDocument(latest);
+  setSaveBaseline(latest);
+  docStore.set({ rev: Number(latest.rev) || 0, tracks, styles });
+  if (styles !== d.styles) setStyleSheet(styles);
+  const curTrack = selStore.get().curTrack;
+  if (curTrack >= tracks.length) restoreSelection(tracks.length - 1, -1);
+  bumpDoc();
+  syncSubs();
+}
+
+async function tryRebaseAndRetry(videoId: string, io: SaveDocumentIO): Promise<EditDocument | null> {
+  if (!saveBaseline) return null;
+  let latest: EditDocument;
+  try {
+    latest = await io.read(videoId);
+  } catch {
+    return null;
+  }
+  if (nonOcrHash(latest) !== saveBaseline.nonOcrHash) return null;
+  applyRebaseFromServer(latest);
+  try {
+    return await io.save(videoId, savePayload());
+  } catch {
+    return null;
+  }
+}
+
+export async function doSave(io: SaveDocumentIO = defaultSaveIO) {
   const st = saveStore.get();
   if (st.saving) { queued = true; return; }
   if (!st.dirty || st.conflicted) return;
   saveStore.set({ saving: true, dirty: false });
   setSaveState("保存中…", "dirty");
+  const videoId = getVid();
+  const markConflicted = (msg: string) => {
+    saveStore.set({ conflicted: true });
+    setSaveState("版本冲突，已停止保存", "bad");
+    toast(msg, true);
+  };
   try {
-    const saved = await documents.save(getVid(), savePayload());
+    let saved: EditDocument | null = null;
+    let rebased = false;
+    try {
+      saved = await io.save(videoId, savePayload());
+    } catch (error) {
+      if (errText(error).includes("revision conflict")) {
+        saved = await tryRebaseAndRetry(videoId, io);
+        if (saved) {
+          rebased = true;
+        } else {
+          saveStore.set({ dirty: true });
+          markConflicted("其他窗口已保存过这个视频，请关闭编辑器后重新打开");
+          return;
+        }
+      } else {
+        throw error;
+      }
+    }
     if (!saved) {
-      saveStore.set({ conflicted: true });
-      setSaveState("版本冲突，已停止保存", "bad");
-      toast("文档版本冲突，请关闭编辑器后重新打开", true);
-      return;
+      saved = await tryRebaseAndRetry(videoId, io);
+      if (saved) {
+        rebased = true;
+      } else {
+        markConflicted("文档版本冲突，请关闭编辑器后重新打开");
+        return;
+      }
     }
     setLoadedDocument(saved);
+    setSaveBaseline(saved);
     docStore.set({ rev: saved.rev });
     notifySaved();
     const dd = new Date();
     setSaveState("已保存 " + p2(dd.getHours()) + ":" + p2(dd.getMinutes()));
-  } catch (error) {
+    if (rebased) toast("已自动合并后台新增的文字识别并保存");
+  } catch {
     saveStore.set({ dirty: true });
-    if (errText(error).includes("revision conflict")) {
-      saveStore.set({ conflicted: true });
-      setSaveState("版本冲突，已停止保存", "bad");
-      toast("其他窗口已保存过这个视频，请关闭编辑器后重新打开", true);
-    } else {
-      setSaveState("保存失败 · Ctrl+S 重试", "bad");
-    }
+    setSaveState("保存失败 · Ctrl+S 重试", "bad");
   } finally {
     saveStore.set({ saving: false });
-    if (queued) { queued = false; void doSave(); }
+    const pending = afterSaveCallbacks;
+    afterSaveCallbacks = [];
+    for (const cb of pending) cb();
+    if (queued) { queued = false; void doSave(io); }
   }
 }
 

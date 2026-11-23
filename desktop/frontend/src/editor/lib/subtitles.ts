@@ -2,7 +2,7 @@ import { ASS_EVENTS_HEAD, ASS_SCRIPT_INFO } from '../constants';
 import { getPlayRes } from '../ass';
 import { bumpDoc } from '../store/docStore';
 import { playStore } from '../store/playStore';
-import { buildAss, usedFonts } from './assBuild';
+import { buildPreviewAss, usedFonts } from './assBuild';
 import { loadFontMetrics } from '../../subtitles/metrics';
 import { subCanvas, video } from './media';
 import { systemFontFile } from '../../bridge/systemFonts';
@@ -91,7 +91,7 @@ export async function initSubtitles(setBusy: (text: string | null) => void) {
   const showBusy = setTimeout(() => setBusy("字幕预览加载中…"), 300);
   try {
     const inst = await preloadSubtitles();
-    const ass = buildAss();
+    const ass = buildPreviewAss();
     if (ass !== lastAss) {
       lastAss = ass;
       await inst.renderer.setTrack(ass);
@@ -110,7 +110,7 @@ export async function initSubtitles(setBusy: (text: string | null) => void) {
 /** 字幕内容或模板变了：重建 track（libass 要重新解析整份 ASS） */
 export function syncSubs() {
   if (!jassub) return;
-  const ass = buildAss();
+  const ass = buildPreviewAss();
   if (ass !== lastAss) {
     lastAss = ass;
     jassub.renderer.setTrack(ass).catch(() => { });

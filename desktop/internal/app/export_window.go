@@ -24,6 +24,9 @@ type VideoExportDraft struct {
 	Pieces       []library.Range `json:"pieces"`
 	RangeLabel   string          `json:"rangeLabel"`
 	MissingFonts []string        `json:"missingFonts"`
+	// HasCoverBoxes is true when the subtitle snapshot contains on-screen text
+	// cover boxes that can be erased with LaMa before burning.
+	HasCoverBoxes bool `json:"hasCoverBoxes"`
 	// Source lets the window estimate the output size as the knobs change.
 	Source library.ExportSource `json:"source"`
 }
@@ -37,8 +40,10 @@ type VideoExportResult struct {
 // OpenVideoExport creates one modeless native export window. One window is
 // enough for now: while it exists a second request focuses it instead of
 // replacing the subtitle snapshot of a running encode. pieces are the source
-// ranges to join in order; ass is already in output time.
-func (s *WindowService) OpenVideoExport(mediaID, defaultName, ass string, pieces []library.Range, rangeLabel string, missingFonts []string) error {
+// ranges to join in order; ass is already in output time. When the document
+// has on-screen text cover boxes, assNoPlates (output time, plates omitted)
+// and platesAss (source time, plates only) enable the LaMa erase option.
+func (s *WindowService) OpenVideoExport(mediaID, defaultName, ass, assNoPlates, platesAss string, pieces []library.Range, rangeLabel string, missingFonts []string) error {
 	if strings.TrimSpace(mediaID) == "" || strings.TrimSpace(ass) == "" || len(pieces) == 0 {
 		return errors.New("invalid video export draft")
 	}
@@ -66,18 +71,22 @@ func (s *WindowService) OpenVideoExport(mediaID, defaultName, ass string, pieces
 
 	s.exportSerial++
 	jobID := fmt.Sprintf("video_export_%d", s.exportSerial)
+	hasCover := strings.TrimSpace(platesAss) != "" && strings.TrimSpace(assNoPlates) != ""
 	draft := VideoExportDraft{
 		JobID: jobID, ProgressID: "exp_" + mediaID,
 		MediaID: mediaID, DefaultName: defaultName,
 		Pieces: append([]library.Range(nil), pieces...), RangeLabel: rangeLabel,
-		MissingFonts: append([]string(nil), missingFonts...),
-		Source:       source,
+		MissingFonts:  append([]string(nil), missingFonts...),
+		HasCoverBoxes: hasCover,
+		Source:        source,
 	}
 	options, deferredState := deferWindowStart(exportWindowOptions(s.preferences, jobID, defaultName))
 	window := s.app.Window.NewWithOptions(options)
 	s.export = window
 	s.exportDraft = draft
 	s.exportASS = ass
+	s.exportASSNoPlates = assNoPlates
+	s.exportPlatesASS = platesAss
 	s.exportRunning = false
 	s.exportClosing = false
 	s.exportVisible = false
@@ -158,7 +167,7 @@ func (s *WindowService) VideoExportDraft(jobID string) (VideoExportDraft, error)
 // RunVideoExport owns the long-running call on behalf of the export window.
 // The source, subtitle text and output range come only from the stored draft;
 // the renderer can change encoding knobs but cannot silently swap the project.
-func (s *WindowService) RunVideoExport(jobID string, crf int, preset string, scaleH int, abr, container string, gpu bool) (VideoExportResult, error) {
+func (s *WindowService) RunVideoExport(jobID string, crf int, preset string, scaleH int, abr, container string, gpu, erase bool) (VideoExportResult, error) {
 	s.mu.Lock()
 	if s.export == nil || s.exportDraft.JobID != jobID {
 		s.mu.Unlock()
@@ -170,6 +179,11 @@ func (s *WindowService) RunVideoExport(jobID string, crf int, preset string, sca
 	}
 	draft := s.exportDraft
 	ass := s.exportASS
+	eraseOpts := library.EraseOptions{}
+	if erase && draft.HasCoverBoxes {
+		ass = s.exportASSNoPlates
+		eraseOpts = library.EraseOptions{Enabled: true, PlatesASS: s.exportPlatesASS}
+	}
 	s.exportRunning = true
 	s.mu.Unlock()
 
@@ -180,9 +194,9 @@ func (s *WindowService) RunVideoExport(jobID string, crf int, preset string, sca
 		}
 		s.mu.Unlock()
 	}()
-	result, err := s.library.ExportVideoPieces(
+	result, err := s.library.ExportVideoPiecesWithErase(
 		draft.MediaID, draft.DefaultName, ass, draft.Pieces,
-		crf, preset, scaleH, abr, container, gpu,
+		crf, preset, scaleH, abr, container, gpu, eraseOpts,
 	)
 	return VideoExportResult{Path: result.Path, Size: result.Size, Encoder: result.Encoder}, err
 }
@@ -233,6 +247,8 @@ func (s *WindowService) installExportHooks(window *application.WebviewWindow) {
 		s.export = nil
 		s.exportDraft = VideoExportDraft{}
 		s.exportASS = ""
+		s.exportASSNoPlates = ""
+		s.exportPlatesASS = ""
 		s.exportRunning = false
 		s.exportClosing = false
 		s.exportVisible = false

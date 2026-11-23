@@ -43,6 +43,48 @@ export interface SubtitleSegment {
   words?: unknown[];
   /** 这一句单独绑的样式，按 lane 分；没写（或样式表里没有）的 lane 跟随轨道样式 */
   style?: SegmentStyle;
+  /** Per-segment placement (on-screen text). Present = this cue ignores style margins */
+  pos?: SegmentPos;
+  /** The original on-screen text box this cue covers; drives plates and inpainting */
+  cover?: SegmentCover;
+}
+
+/** ASS numpad alignment */
+export type Align = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9;
+
+/**
+ * Per-segment placement. Coordinates are fractions (0..1) of the video frame, independent
+ * of PlayRes, so a document survives a PlayRes change.
+ */
+export interface SegmentPos {
+  /** anchor point, fraction of frame width */
+  x: number;
+  /** anchor point, fraction of frame height */
+  y: number;
+  /** which point of the text block sits on (x, y) */
+  an: Align;
+  /** wrap width, fraction of frame width; omitted = the style's text box width */
+  w?: number;
+  /** glyph height, fraction of frame height; omitted = the style's font size */
+  fs?: number;
+}
+
+/** The original text's box, fractions of the frame: [x0, y0, x1, y1] */
+export type CoverBox = [number, number, number, number];
+
+export interface SegmentCover {
+  box: CoverBox;
+  /** plate colour `#rrggbb`; null/omitted = no plate drawn, but the box is still erased */
+  fill?: string | null;
+}
+
+/** Where an auto-generated track came from (e.g. a screen-text OCR run) */
+export interface TrackSource {
+  kind: "screen-text";
+  task: string;
+  region: string;
+  label: string;
+  hash: string;
 }
 
 /** 字幕句自己的样式覆盖：只存设了的那条 lane */
@@ -52,6 +94,7 @@ export type SegmentStyle = Partial<Record<Lang, string>>;
 export interface SubtitleTrack {
   id?: string;
   name: string;
+  source?: TrackSource;
   ja: LaneMeta;
   zh: LaneMeta;
   segs: SubtitleSegment[];

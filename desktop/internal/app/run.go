@@ -17,6 +17,7 @@ import (
 	"github.com/Ricori/nonoka-x/desktop/internal/plugins"
 	"github.com/Ricori/nonoka-x/desktop/internal/preferences"
 	"github.com/Ricori/nonoka-x/desktop/internal/provider"
+	"github.com/Ricori/nonoka-x/desktop/internal/screentext"
 	"github.com/Ricori/nonoka-x/desktop/internal/selfupdate"
 	"github.com/Ricori/nonoka-x/desktop/internal/sidecar"
 	"github.com/Ricori/nonoka-x/desktop/internal/sysfonts"
@@ -39,9 +40,13 @@ func init() {
 	application.RegisterEvent[string]("export:request-close")
 	application.RegisterEvent[bool]("onboarding:ready")
 	application.RegisterEvent[bool]("home:refresh")
+	application.RegisterEvent[string]("home:open-settings")
+	application.RegisterEvent[bool]("runtime:changed")
 	application.RegisterEvent[selfupdate.Status]("update:status")
 	application.RegisterEvent[map[string]string]("update:ready")
 	application.RegisterEvent[RelocationProgress]("storage:progress")
+	application.RegisterEvent[map[string]any](screentext.ProgressEvent)
+	application.RegisterEvent[map[string]any](screentext.DocumentChangedEvent)
 }
 
 // Run owns the desktop lifecycle. Sidecar startup failure is intentionally
@@ -135,6 +140,9 @@ func Run(assets fs.FS) error {
 	// leaves behind. Same provider, granted separately, because it is a much
 	// wider surface than the document one and the call site should say so.
 	plugins.SetEngine(pluginService, providerService)
+	// The editor's on-screen text add-on: its tasks run on the same provider.
+	screenTextService := screentext.New(providerService, libraryService)
+	library.SetInpaintEngine(libraryService, providerService)
 	cloudService, err := cloud.New(dataDirectory, manager, libraryService)
 	if err != nil {
 		return err
@@ -170,6 +178,7 @@ func Run(assets fs.FS) error {
 			application.NewService(windowService),
 			application.NewService(storageService),
 			application.NewService(updateService),
+			application.NewService(screenTextService),
 		},
 		Assets: application.AssetOptions{
 			Handler: application.AssetFileServerFS(assets),
@@ -211,6 +220,7 @@ func Run(assets fs.FS) error {
 	storageService.attach(applicationInstance, home)
 	provider.Attach(providerService, applicationInstance, home)
 	plugins.Attach(pluginService, applicationInstance, home)
+	screentext.Attach(screenTextService, applicationInstance)
 	// A missing or unreachable manifest must not block startup: the shell
 	// simply stays on the current build.
 	if err := selfupdate.Attach(updateService, applicationInstance); err != nil {
