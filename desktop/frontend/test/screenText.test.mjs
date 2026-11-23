@@ -2,8 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
-  buildAssFrom, buildPlatesAss, cuesOf, outputLinesOf, plateDialogue, positionedAssText, positionedCueOf,
+  buildAssFrom, buildPlatesAss, cuesOf, fontSizeForFs, fsForFontSize, outputLinesOf, plateBox, plateDialogue,
+  positionedAssEvents, positionedAssText, positionedCueOf,
 } from "../src/subtitles/build.ts";
+import { inkMetricsOf } from "../src/subtitles/metrics.ts";
 import { layoutPositioned, POS_MIN_FONT_SCALE } from "../src/subtitles/layout.ts";
 import { documentAss } from "../src/subtitles/document.ts";
 import {
@@ -49,9 +51,18 @@ const source = (segs, over = {}) => ({
   ...over,
 });
 
+// The box [192,216]–[576,270] grown by PLATE_PAD × glyph height (0.2 × 54 = 10.8 px) on every side
 const PLATE = "Dialogue: 0,0:00:01.00,0:00:03.00,cn,文字识别,0,0,0,fo-fx|plate,"
-  + "{\\an7\\pos(192.00,216.00)\\p1\\bord0\\shad0\\1c&H332211&\\1a&H00&}"
-  + "m 0 0 l 384.00 0 384.00 54.00 0 54.00{\\p0}";
+  + "{\\an7\\pos(181.20,205.20)\\p1\\bord0\\shad0\\1c&H332211&\\1a&H00&}"
+  + "m 0 0 l 405.60 0 405.60 75.60 0 75.60{\\p0}";
+
+// No canvas under node: every font gets the bundled 方正准圆's fixed ink metrics
+const INK = inkMetricsOf("方正准圆");
+/** Fontsize whose ink is fs = 0.05 (54 px) tall */
+const SIZE = 0.05 * Y / INK.ink;
+const n2 = (value) => String(Math.round(value * 100) / 100);
+/** \pos y of an an4-6 cue anchored at y: the ink's middle, not the line box's, sits there */
+const midY = (y) => y + (INK.bottom - INK.top) / 2 * SIZE;
 
 const events = (ass) => ass.split("\n").filter(line => line.startsWith("Dialogue:"));
 
@@ -60,7 +71,43 @@ const events = (ass) => ass.split("\n").filter(line => line.startsWith("Dialogue
 test("a positioned cue is written with \\an, \\pos and \\fs in PlayRes units", () => {
   const ass = buildAssFrom(source([ocrSeg()]), sheet);
   const text = events(ass).find(line => !line.includes("fo-fx|plate"));
-  assert.equal(text, "Dialogue: 0,0:00:01.00,0:00:03.00,cn,文字识别,0,0,0,,{\\an5\\pos(384,243)\\fs54}你好");
+  assert.equal(text, "Dialogue: 0,0:00:01.00,0:00:03.00,cn,文字识别,0,0,0,,"
+    + `{\\an5\\pos(384,${n2(midY(243))})\\fs${n2(SIZE)}}你好`);
+});
+
+test("fs is the glyph height: the Fontsize is scaled by the font's ink share, and back", () => {
+  const style = sheet.styleMap.cn;
+  assert.ok(Math.abs(fontSizeForFs(0.05, style, sheet) - SIZE) < 1e-9);
+  assert.ok(Math.abs(fsForFontSize(SIZE, style, sheet) - 0.05) < 1e-12);
+  assert.ok(SIZE > 54, "a line box is taller than the ink it holds");
+});
+
+test("lines at the original's own pitch go out one event each, top-anchored on that pitch", () => {
+  const seg = ocrSeg({
+    zh: "第一行\n第二行",
+    pos: { x: 0.1, y: 0.2, an: 7, w: 0.5, fs: 0.05, lh: 0.07 },
+    cover: { box: [0.1, 0.2, 0.6, 0.32], fill: "#112233" },
+  });
+  const lines = outputLinesOf(source([seg]), sheet);
+  const cue = positionedCueOf(seg, lines[2], lines, sheet);
+  const top = 0.2 * Y - INK.top * SIZE;
+  assert.deepEqual(positionedAssEvents(cue), [
+    `{\\an7\\pos(192,${n2(top)})\\fs${n2(SIZE)}}第一行`,
+    `{\\an7\\pos(192,${n2(top + 0.07 * Y)})\\fs${n2(SIZE)}}第二行`,
+  ]);
+  const ass = events(buildAssFrom(source([seg]), sheet)).filter(line => !line.includes("fo-fx"));
+  assert.equal(ass.length, 2);
+  // without a pitch of its own it stays one event, lines joined by \N
+  delete seg.pos.lh;
+  const one = positionedCueOf(seg, lines[2], lines, sheet);
+  assert.equal(positionedAssEvents(one).length, 1);
+});
+
+test("plates reach past the OCR box so outlines and shadows stay hidden", () => {
+  const box = plateBox(ocrSeg(), sheet);
+  assert.deepEqual(box.map(v => Math.round(v * 1e6) / 1e6), [0.094375, 0.19, 0.305625, 0.26]);
+  const big = plateBox(ocrSeg({ pos: { x: 0, y: 0, an: 7, fs: 0.2 }, cover: { box: [0, 0, 1, 1] } }), sheet);
+  assert.deepEqual(big, [0, 0, 1, 1], "clamped to the frame");
 });
 
 test("positioned text wraps to w × PlayResX and shrinks before it overflows the box", () => {
@@ -76,11 +123,11 @@ test("positioned text wraps to w × PlayResX and shrinks before it overflows the
 
   const cue = positionedCueOf(seg, outputLinesOf(source([seg]), sheet)[2], outputLinesOf(source([seg]), sheet), sheet);
   const text = positionedAssText(cue);
-  assert.match(text, /^\{\\an5\\pos\(384,243\)\\fs[\d.]+\}/);
+  assert.ok(text.startsWith(`{\\an5\\pos(384,${n2(midY(243))})\\fs`), text);
   assert.equal(text.split("\\N").length, laid.block.lines.length, "breaks are explicit \\N");
   // the block is centred on the anchor (an5)
   assert.ok(Math.abs(cue.block.left + cue.block.width / 2 - 384) < 1e-6);
-  assert.ok(Math.abs(cue.block.top + cue.block.height / 2 - 243) < 1e-6);
+  assert.ok(Math.abs(cue.block.top + cue.block.height / 2 - midY(243)) < 1e-6);
 });
 
 test("short text that fits keeps the requested size", () => {
@@ -97,7 +144,7 @@ test("plates come first, on layer 0, in the exact FlowOCR form", () => {
   const lines = events(ass);
   assert.equal(lines[0], PLATE);
   assert.equal(lines.length, 2);
-  assert.equal(plateDialogue(1, 3, "cn", "文字识别", [0.1, 0.2, 0.3, 0.25], "&H332211&", sheet), PLATE);
+  assert.equal(plateDialogue(1, 3, "cn", "文字识别", plateBox(ocrSeg(), sheet), "&H332211&", sheet), PLATE);
 });
 
 test("plates: 'omit' leaves them out, and fill null draws none but still masks for inpainting", () => {
@@ -116,9 +163,9 @@ test("a segment shared by two showing lanes gets one plate, and the source text 
   assert.equal(lines.filter(line => line.includes("fo-fx|plate")).length, 1);
   const zh = lines.find(line => line.includes("你好"));
   const ja = lines.find(line => line.includes("こんにちは"));
-  assert.match(zh, /\\pos\(384,243\)/);
-  // translation block is 54 high centred on 243 → its top is 216; source sits right above
-  assert.match(ja, /\\an5\\pos\(384,189\)/);
+  assert.ok(zh.includes(`\\pos(384,${n2(midY(243))})`), zh);
+  // the translation block is SIZE high, centred on midY(243); the source sits right above it
+  assert.ok(ja.includes(`\\an5\\pos(384,${n2(midY(243) - SIZE)})`), ja);
 });
 
 test("buildPlatesAss contains no other \\p1 drawing, even with particle effects bound", () => {
@@ -131,7 +178,7 @@ test("buildPlatesAss contains no other \\p1 drawing, even with particle effects 
   assert.ok(events(full).filter(line => line.includes("\\p1")).length > 1, "particles do draw in the full ASS");
   const positioned = events(full).filter(line => line.includes("你好"));
   assert.equal(positioned.length, 1, "positioned cues bypass the particle generator");
-  assert.match(positioned[0], /\\pos\(384,243\)/);
+  assert.ok(positioned[0].includes(`\\pos(384,${n2(midY(243))})`));
   const plates = events(buildPlatesAss(src, sheet));
   assert.deepEqual(plates, [PLATE]);
 });
@@ -259,7 +306,8 @@ test("positioned boxes sit at their \\pos and are not pushed by collision avoida
   assert.equal(positioned.length, 2, "both overlapping positioned segs show on the same lane");
   const low = positioned.find(box => box.seg === near);
   assert.equal(low.shifted, 0);
-  assert.ok(Math.abs(low.block.top + low.block.height - 0.97 * Y) < 1e-6, "an2: bottom edge on y");
+  assert.ok(Math.abs(low.block.top + low.block.height - (0.97 * Y + INK.bottom * SIZE)) < 1e-6,
+    "an2: the ink's bottom edge on y");
   assert.ok(Math.abs(low.block.left + low.block.width / 2 - X / 2) < 1e-6);
   assert.equal(low.align, 2);
 
@@ -301,8 +349,8 @@ test("dragging a positioned box writes seg.pos and snaps to the cover box", () =
   const box = subtitleBoxesAt(2).find(b => b.positioned);
   const at = { x: box.block.left + 5, y: box.block.top + 5 };
   beginDrag({ clientX: at.x, clientY: at.y, pointerId: 1 }, stage, box, "move");
-  // drop the block's top-left a few px off the cover box's top-left → snaps onto it
-  const dx = 0.1 * X + 3 - box.block.left, dy = 0.2 * Y + 1 - box.block.top;
+  // drop the ink's top-left a few px off the cover box's top-left → snaps onto it
+  const dx = 0.1 * X + 3 - box.block.left, dy = 0.2 * Y - INK.top * SIZE + 1 - box.block.top;
   listeners.pointermove({ clientX: at.x + dx, clientY: at.y + dy, altKey: false });
   listeners.pointerup({});
   const pos = docStore.get().tracks[0].segs[0].pos;
@@ -320,6 +368,6 @@ test("inspector writes: pos patch, plate colour / off, back to the original spot
   assert.ok(buildPlates().includes("fo-fx|plate"), "still erased");
   resetSegPos(seg);
   assert.deepEqual(seg.pos, { x: 0.1, y: 0.2, an: 7, w: 0.3 - 0.1, fs: 0.05 });
-  assert.match(buildAss(), /\\an7\\pos\(192,216\)\\fs54\}你好/);
+  assert.ok(buildAss().includes(`\\an7\\pos(192,${n2(216 - INK.top * SIZE)})\\fs${n2(SIZE)}}你好`));
   assert.equal(getStyleSheet().playRes.x, X);
 });

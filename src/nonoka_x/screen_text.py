@@ -9,7 +9,7 @@ are never touched (`DocumentStore.replace_generated_tracks`).
 
 The request (`TaskRequest.screen_text`):
 
-    {range: {start, end} | null, roi: null, skip_main: true,
+    {range: {start, end} | null, roi: [x0, y0, x1, y1] | null, skip_main: false,
      translate: "zh" | "none", cover: "plate" | "none",
      match: {game} | null, trial: false, on_edited: "replace" | "keep",
      speech: [{t0, t1, text}]}       # added by the provider: the default track, as translation context
@@ -84,12 +84,12 @@ def validate_options(value: Any) -> dict[str, Any]:
                 and 0 <= roi[0] < roi[2] <= 1 and 0 <= roi[1] < roi[3] <= 1):
             raise ScreenTextError("screen_text.roi must be [x0, y0, x1, y1] within 0..1")
     options.setdefault("roi", None)
-    for name, allowed, default in (("translate", TRANSLATE, "zh"), ("cover", COVER, "none"),
+    for name, allowed, default in (("translate", TRANSLATE, "zh"), ("cover", COVER, "plate"),
                                    ("on_edited", ON_EDITED, "replace")):
         options.setdefault(name, default)
         if options[name] not in allowed:
             raise ScreenTextError(f"screen_text.{name} must be one of: {', '.join(allowed)}")
-    for name, default in (("skip_main", True), ("trial", False)):
+    for name, default in (("skip_main", False), ("trial", False)):
         options.setdefault(name, default)
         if not isinstance(options[name], bool):
             raise ScreenTextError(f"screen_text.{name} must be a boolean")
@@ -347,7 +347,14 @@ def translate(document: dict[str, Any], speech: list[Mapping[str, Any]], complet
             _log(f"第 {batch_idx}/{batches} 批有 {len(missing)} 条未返回，正在补翻")
             answers.update(parse_answer(complete(batch_messages(missing, speech, names))))
         for cue in chunk:
-            cue["zh"] = answers.get(str(cue["id"]), "").strip()
+            key = str(cue["id"])
+            if key in answers:
+                # An empty answer is the model calling the text unreadable (see the prompt)
+                cue["zh"] = answers[key].strip()
+            else:
+                # Still unanswered after asking again: show what was read rather than nothing
+                cue["zh"] = "\n".join(str(line["text"]) for line in cue["lines"])
+                cue["untranslated"] = True
         done += len(chunk)
         elapsed = time.monotonic() - started
         if reporter is not None:
@@ -369,6 +376,8 @@ _ZONE_LABELS = {
     (0, 2): "左下", (1, 2): "下方", (2, 2): "右下",
 }
 _DEFAULT_PLAY_RES = (1920, 1080)
+#: Ink height of a CJK glyph in 思源黑体 Heavy as a share of its ASS Fontsize (libass sizes asc+desc)
+_STYLE_INK = 0.666
 
 
 def _zone_of(box: Iterable[float]) -> str:
@@ -432,7 +441,8 @@ def _position_groups(document: Mapping[str, Any], *,
         an = Counter(ans).most_common(1)[0][0]
         fs_values = [float(c.get("fs") or 0.0) for c in cues if float(c.get("fs") or 0.0) > 0]
         median_fs = statistics.median(fs_values) if fs_values else (54.0 / res_y)
-        fontsize = max(20, min(140, int(round(median_fs * res_y))))
+        # fs is the glyph height; the style's 思源黑体 Heavy inks only _STYLE_INK of its Fontsize
+        fontsize = max(20, min(200, int(round(median_fs * res_y / _STYLE_INK))))
         style_fs[name] = fontsize / float(res_y)
 
         x0 = min(float(c["box"][0]) for c in cues)
@@ -499,28 +509,47 @@ def merge_missing_styles(existing: str, incoming: str) -> str:
     return existing_text + sep + "\n".join(to_add) + "\n"
 
 
-def _pos(cue: Mapping[str, Any], *, base_fs: float | None = None) -> dict[str, Any]:
+def _line_pitch(cue: Mapping[str, Any]) -> float:
+    """Top-to-top distance of the cue's stacked lines (fraction of frame height); 0 for one line."""
+
+    fs = float(cue.get("fs") or 0.0)
+    tops = sorted(float(line["box"][1]) for line in cue.get("lines") or () if len(line.get("box") or ()) == 4)
+    steps = [b - a for a, b in zip(tops, tops[1:]) if b - a > fs * 0.5]
+    return statistics.median(steps) if steps else 0.0
+
+
+def _pos(cue: Mapping[str, Any]) -> dict[str, Any]:
+    """Where the original text's ink is: the translation is laid out to land on it.
+
+    `fs` (glyph height) and `lh` (line pitch) are always the cue's own, so the editor can size
+    and space the translation like the original whatever font the style picks.
+    """
+
     x0, y0, x1, y1 = (float(v) for v in cue["box"])
     an = int(cue.get("an") or 8)
+    if len(cue.get("lines") or ()) <= 1 and an in (7, 8, 9):
+        # One line sits mid-box: whatever margin the box has above and below (a decoration, a
+        # padding the ink fit could not shed) then splits evenly instead of all landing below
+        an -= 3
     x = x0 if an in (1, 4, 7) else x1 if an in (3, 6, 9) else (x0 + x1) / 2
     y = y0 if an in (7, 8, 9) else y1 if an in (1, 2, 3) else (y0 + y1) / 2
     out: dict[str, Any] = {"x": round(x, 5), "y": round(y, 5), "an": an, "w": round(x1 - x0, 5)}
     cue_fs = float(cue.get("fs") or 0.0)
-    if base_fs is None:
-        out["fs"] = cue_fs
-    elif cue_fs > 0 and abs(cue_fs - base_fs) / max(base_fs, 1e-6) > 0.15:
-        out["fs"] = cue_fs
+    if cue_fs > 0:
+        out["fs"] = round(cue_fs, 5)
+    pitch = _line_pitch(cue)
+    if pitch > 0:
+        out["lh"] = round(pitch, 5)
     return out
 
 
-def segment_of(cue: Mapping[str, Any], *, cover: str, style_name: str | None = None,
-               base_fs: float | None = None) -> dict[str, Any]:
+def segment_of(cue: Mapping[str, Any], *, cover: str, style_name: str | None = None) -> dict[str, Any]:
     seg: dict[str, Any] = {
         "t0": float(cue["t0"]),
         "t1": max(float(cue["t1"]), float(cue["t0"]) + 0.04),
         "ja": "\n".join(str(line["text"]) for line in cue["lines"]),
         "zh": str(cue.get("zh") or ""),
-        "pos": _pos(cue, base_fs=base_fs),
+        "pos": _pos(cue),
         "cover": {"box": [float(v) for v in cue["box"]], "fill": cue.get("fill") if cover == "plate" else None},
     }
     if style_name and style_name != STYLE_NAME:
@@ -557,12 +586,16 @@ def segments_hash(segments: Iterable[Mapping[str, Any]]) -> str:
 def tracks_from(document: Mapping[str, Any], *, task_id: str = "") -> list[dict[str, Any]]:
     """All recognized on-screen text on one single track, with distinct per-position styles when positions differ."""
 
-    cover = str((document.get("options") or {}).get("cover") or "none")
+    options = document.get("options") or {}
+    cover = str(options.get("cover") or "none")
+    translated = options.get("translate") == "zh"
     skipped = {str(region["id"]) for region in document.get("regions") or () if region.get("skip")}
-    key_to_style, _, style_fs = _position_groups(document)
+    key_to_style, _, _ = _position_groups(document)
     cues = [
         cue for cue in (document.get("cues") or ())
         if str(cue.get("region") or "") not in skipped
+        # translated, yet empty: the model read it as noise
+        and not (translated and "zh" in cue and not str(cue.get("zh") or "").strip())
     ]
     if not cues:
         return []
@@ -571,12 +604,13 @@ def tracks_from(document: Mapping[str, Any], *, task_id: str = "") -> list[dict[
     for cue in cues:
         key = (str(cue.get("region") or ""), _zone_of(cue["box"]))
         style_name = key_to_style.get(key, STYLE_NAME)
-        segments.append(segment_of(cue, cover=cover, style_name=style_name, base_fs=style_fs.get(style_name)))
+        segments.append(segment_of(cue, cover=cover, style_name=style_name))
     return [{
         "id": TRACK_PREFIX,
         "name": STYLE_NAME,
-        "ja": {"hidden": True, "style": STYLE_NAME},
-        "zh": {"hidden": False, "style": STYLE_NAME},
+        # Untranslated runs show what was read; translated ones show the translation over it
+        "ja": {"hidden": options.get("translate") != "none", "style": STYLE_NAME},
+        "zh": {"hidden": options.get("translate") == "none", "style": STYLE_NAME},
         "hja": 44,
         "hzh": 44,
         "segs": segments,

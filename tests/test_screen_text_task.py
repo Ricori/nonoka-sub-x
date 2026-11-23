@@ -52,8 +52,8 @@ def ocr_document() -> dict[str, Any]:
 class OptionsTests(unittest.TestCase):
     def test_defaults(self) -> None:
         options = screen_text.validate_options(None)
-        self.assertEqual((options["translate"], options["cover"], options["on_edited"]), ("zh", "none", "replace"))
-        self.assertTrue(options["skip_main"])
+        self.assertEqual((options["translate"], options["cover"], options["on_edited"]), ("zh", "plate", "replace"))
+        self.assertFalse(options["skip_main"])
         self.assertFalse(options["trial"])
         self.assertIsNone(options["range"])
 
@@ -114,7 +114,8 @@ class TrackTests(unittest.TestCase):
         self.assertEqual(first["zh"]["style"], screen_text.STYLE_NAME)
         self.assertEqual(first["source"]["kind"], "screen-text")
         seg = first["segs"][0]
-        self.assertEqual(seg["pos"], {"x": 0.9, "y": 0.1, "an": 9, "w": 0.2})
+        # one line: anchored mid-box on the same side
+        self.assertEqual(seg["pos"], {"x": 0.9, "y": 0.125, "an": 6, "w": 0.2, "fs": 0.05})
         self.assertEqual(seg["cover"], {"box": [0.7, 0.1, 0.9, 0.15], "fill": "#102030"})
         # Single position group uses the base style without per-segment override
         self.assertNotIn("style", seg)
@@ -146,6 +147,37 @@ class TrackTests(unittest.TestCase):
         self.assertIn("微软雅黑,88", merged)
         self.assertIn(f"Style: {screen_text.STYLE_NAME}-左下,", merged)
         self.assertEqual(merged.count(f"Style: {screen_text.STYLE_NAME}-右上,"), 1)
+
+    def test_stacked_lines_carry_the_original_pitch(self) -> None:
+        document = ocr_document()
+        cue = document["cues"][0]
+        cue["lines"] = [{"text": "一行目", "box": [0.2, 0.80, 0.5, 0.84], "conf": 0.9},
+                        {"text": "二行目", "box": [0.2, 0.854, 0.45, 0.894], "conf": 0.9}]
+        cue["box"], cue["an"], cue["fs"] = [0.2, 0.80, 0.5, 0.894], 7, 0.04
+        seg = screen_text.tracks_from(document)[0]["segs"][0]
+        self.assertEqual(seg["pos"], {"x": 0.2, "y": 0.8, "an": 7, "w": 0.3, "fs": 0.04, "lh": 0.054})
+
+    def test_noise_answers_are_dropped_and_unanswered_ones_show_the_source(self) -> None:
+        document = ocr_document()
+        document["options"]["translate"] = "zh"
+
+        def complete(messages: list[dict[str, str]]) -> str:
+            return json.dumps({"a": ""})
+
+        screen_text.translate(document, [], complete)
+        by_id = {cue["id"]: cue for cue in document["cues"]}
+        self.assertEqual(by_id["a"]["zh"], "")
+        self.assertEqual(by_id["b"]["zh"], "本日まで")
+        self.assertTrue(by_id["b"]["untranslated"])
+        segs = screen_text.tracks_from(document)[0]["segs"]
+        self.assertEqual([seg["ja"] for seg in segs], ["本日まで", "ありがとう"])
+
+    def test_untranslated_runs_show_the_source_lane(self) -> None:
+        document = ocr_document()
+        document["options"]["translate"] = "none"
+        track = screen_text.tracks_from(document)[0]
+        self.assertFalse(track["ja"]["hidden"])
+        self.assertTrue(track["zh"]["hidden"])
 
     def test_no_plate_keeps_the_box_for_erasing(self) -> None:
         document = ocr_document()

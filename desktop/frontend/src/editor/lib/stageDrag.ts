@@ -1,6 +1,7 @@
 import { DEFAULT_MARGIN_H } from '../../subtitles/constants';
 import { hGroupOf, ignoresMarginV, marginsForBlock, vGroupOf } from '../../subtitles/layout';
 import type { BlockRect, Rect } from '../../subtitles/layout';
+import { inkMetricsOf } from '../../subtitles/metrics';
 import { getPlayRes, getStyleSheet } from '../ass';
 import { layoutStore } from '../store/layoutStore';
 import { playStore } from '../store/playStore';
@@ -96,10 +97,14 @@ function snapTargets(session: Session) {
   const ys = [Y / 2, Y * 0.1, Y * 0.9, session.block0.top, session.block0.top + session.block0.height];
   const cover = session.seg?.cover?.box;
   if (session.seg) {
-    // Positioned text snaps back onto the original text's box (edges and centre)
+    // Positioned text snaps back onto the original text's box (edges and centre). The box bounds
+    // ink while the block is libass's line boxes, so vertical targets make room for the font's
+    // own gap above and below the glyphs: the ink, not the line box, lands on the original
     if (cover) {
+      const ink = inkMetricsOf(session.style0.font);
+      const above = ink.top * session.block0.lineHeight, below = ink.bottom * session.block0.lineHeight;
       xs.push(cover[0] * X, (cover[0] + cover[2]) / 2 * X, cover[2] * X);
-      ys.push(cover[1] * Y, (cover[1] + cover[3]) / 2 * Y, cover[3] * Y);
+      ys.push(cover[1] * Y - above, (cover[1] + cover[3]) / 2 * Y + (below - above) / 2, cover[3] * Y + below);
     }
   } else {
     xs.push(session.style0.ml, X - session.style0.mr);

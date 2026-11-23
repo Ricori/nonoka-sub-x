@@ -58,7 +58,7 @@ type Options struct {
 	SkipMain bool `json:"skipMain"`
 	// Translate is "zh" or "none".
 	Translate string `json:"translate"`
-	// Cover is "plate" (an opaque plate over the original text) or "none".
+	// Cover is "plate" (an opaque plate over the original text, the default) or "none".
 	Cover string `json:"cover"`
 	// Game names a game-script bundle to match against ("" for none).
 	Game string `json:"game"`
@@ -124,7 +124,7 @@ func payload(entry library.Entry, options Options) (map[string]any, error) {
 	}
 	cover := options.Cover
 	if cover == "" {
-		cover = "none"
+		cover = "plate"
 	}
 	onEdited := options.OnEdited
 	if onEdited == "" {

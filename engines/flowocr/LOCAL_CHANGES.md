@@ -11,7 +11,7 @@
 
 - `__main__.py`：引擎包协议（`wire.py`，与其他包逐字相同）。
 - `bridge.py`：把启动上下文写成 FlowOCR 读的环境变量（数据根、模型目录、TensorRT 缓存、游戏文本包目录），并列出它读的全部变量。
-- `ops.py`：`check`、`recognize`；`recognize` 调 FlowOCR 自己的命令行入口，产物只经 `flowocr.artifacts.tracksio` 读，转成 Nonoka 的 `ocr.json`。
+- `ops.py`：`check`、`recognize`；`recognize` 调 FlowOCR 自己的命令行入口，产物只经 `flowocr.artifacts.tracksio` 读，转成 Nonoka 的 `ocr.json`。转换时还做这几件 FlowOCR 本身不做的事：按「识别区域」（ROI）筛行；按各行实际对齐的边定锚点（`align_of`）；把读得出整词的「杂字」区域找回来；在取底板色的那一帧上把每行框的上下收紧到字形（`_tighten_lines`），译文才能按原字的大小和位置摆。
 - `jobobject.py`：Windows 上把本进程放进 `KILL_ON_JOB_CLOSE` 的 Job Object，进程被杀时 FlowOCR 的子进程一起退出。
 
 升级上游：换掉 `src/flowocr/`，重写 `QUALITY_LOCK.json`，改 `UPSTREAM.json` 与 `PACKAGE.json` 的 `upstream`，重建 `screen-text` 层（派生图要用新版本重新生成）。

@@ -264,7 +264,8 @@ def recognize(request: Mapping[str, Any], reporter: Any) -> dict[str, Any]:
     doc = tracksio.load(tracks_json)
     video = _video_info(source)
     document = to_ocr_document(doc, video=video, start=start, end=end,
-                               skip_main=bool(request.get("skip_main", True)), engine=request.get("engine") or {})
+                               skip_main=bool(request.get("skip_main", False)), roi=request.get("roi"),
+                               engine=request.get("engine") or {})
     if request.get("measure_fill", True):
         reporter.progress("screen-tracks", completed=1, total=2, unit="steps",
                           detail=f"正在采样 {len(document['cues'])} 处背景色…")
@@ -333,9 +334,67 @@ def _names(regions: list[dict[str, Any]]) -> dict[int, str]:
     return names
 
 
+#: A "noise" region still gets read when one of its cues is at least this sure of real words.
+RESCUE_CONF = 0.85
+_WORD_CHAR = re.compile(r"[A-Za-z぀-ヿ㐀-鿿가-힯]")
+
+
+def _readable(cue: Mapping[str, Any]) -> bool:
+    """Words read with confidence, not a stray glyph or a row of digits (timestamps, counters)."""
+
+    text = "".join(str(line["text"]) for line in cue["lines"])
+    letters = len(_WORD_CHAR.findall(text))
+    confident = min(float(line.get("conf") or 0.0) for line in cue["lines"]) >= RESCUE_CONF
+    return confident and letters >= 2 and letters * 2 >= len(text.replace(" ", ""))
+
+
+#: Two line edges this close (fraction of frame width, ~15 px at 1080p) count as lined up.
+ALIGN_TOLERANCE = 0.008
+
+
+def align_of(boxes: list[list[float]], fallback: str) -> str:
+    """"left" / "center" / "right": the edge most of a region's lines share.
+
+    A region often holds strays too (an "OK" button, a choice), so this counts lines rather than
+    averaging them: the edge with the biggest group of lines lined up wins, when that group has
+    at least three lines and clearly beats the other two. Otherwise FlowOCR's own call stands.
+    """
+
+    fallback = fallback if fallback in ALIGN_AN else "center"
+    if len(boxes) < 3:
+        return fallback
+
+    def biggest(values: list[float]) -> int:
+        return max(sum(1 for other in values if abs(other - value) <= ALIGN_TOLERANCE) for value in values)
+
+    counts = {
+        "left": biggest([b[0] for b in boxes]),
+        "center": biggest([(b[0] + b[2]) / 2 for b in boxes]),
+        "right": biggest([b[2] for b in boxes]),
+    }
+    ranked = sorted(counts, key=counts.__getitem__, reverse=True)
+    best, runner_up = counts[ranked[0]], counts[ranked[1]]
+    if best < 3 or best < runner_up + 2:
+        return fallback
+    return ranked[0]
+
+
+def _inside(box: list[float], roi: list[float] | None) -> bool:
+    if not roi:
+        return True
+    cx, cy = (box[0] + box[2]) / 2, (box[1] + box[3]) / 2
+    return roi[0] <= cx <= roi[2] and roi[1] <= cy <= roi[3]
+
+
 def to_ocr_document(doc: Mapping[str, Any], *, video: Mapping[str, Any] | None = None, start: float = 0.0,
-                    end: float = 0.0, skip_main: bool = True, engine: Mapping[str, Any] | None = None) -> dict[str, Any]:
-    """A `tracks.json` (FlowOCR's, as `tracksio.load` returns it) as Nonoka's `ocr.json`."""
+                    end: float = 0.0, skip_main: bool = False, roi: list[float] | None = None,
+                    engine: Mapping[str, Any] | None = None) -> dict[str, Any]:
+    """A `tracks.json` (FlowOCR's, as `tracksio.load` returns it) as Nonoka's `ocr.json`.
+
+    `roi` ([x0, y0, x1, y1], frame fractions) keeps only the lines centred inside it. FlowOCR's
+    classifier calls some real text "noise" (a menu's "Options", a one-off line of dialogue);
+    such a region is kept when one of its cues reads as confident words (`_readable`).
+    """
 
     from flowocr.artifacts import tracksio
 
@@ -353,6 +412,7 @@ def to_ocr_document(doc: Mapping[str, Any], *, video: Mapping[str, Any] | None =
             "name": names[index],
             "align": str(region.get("align") or "center"),
             "skip": label in SKIPPED_LABELS or index in main,
+            "rescuable": label == "noise" and index not in main,
             "boxes": [],
         }
     cues: list[dict[str, Any]] = []
@@ -373,8 +433,10 @@ def to_ocr_document(doc: Mapping[str, Any], *, video: Mapping[str, Any] | None =
                 if not text:
                     continue
                 confs = [float(e.get("conf") or 0.0) for e in line["events"]]
-                lines.append({"text": text, "box": _norm(line["box"], w, h),
-                              "conf": round(min(confs) if confs else 0.0, 3)})
+                box = _norm(line["box"], w, h)
+                if not _inside(box, roi):
+                    continue
+                lines.append({"text": text, "box": box, "conf": round(min(confs) if confs else 0.0, 3)})
             if not lines:
                 continue
             box = _union([line["box"] for line in lines])
@@ -392,8 +454,21 @@ def to_ocr_document(doc: Mapping[str, Any], *, video: Mapping[str, Any] | None =
                 "fill": None,
             })
     cues.sort(key=lambda cue: (cue["t0"], cue["region"], cue["box"][1]))
+    # The anchor follows how the region's lines actually line up (an ADV dialogue box reads
+    # left-aligned even where FlowOCR's stats call it centred): the translation then starts or
+    # ends where the original does instead of floating on the box's middle
+    by_region: dict[str, list[list[float]]] = {}
+    for cue in cues:
+        by_region.setdefault(cue["region"], []).extend(line["box"] for line in cue["lines"])
+    anchors = {row["id"]: ALIGN_AN[align_of(by_region.get(row["id"], []), row["align"])]
+               for row in region_rows.values()}
+    for cue in cues:
+        cue["an"] = anchors[cue["region"]]
+    rescued = {cue["region"] for cue in cues if _readable(cue)}
     out_regions = []
     for row in region_rows.values():
+        if row.pop("rescuable") and row["id"] in rescued:
+            row["skip"] = False
         boxes = row.pop("boxes")
         row["box"] = _union(boxes) if boxes else [0.0, 0.0, 0.0, 0.0]
         row.pop("align")
@@ -413,12 +488,15 @@ def to_ocr_document(doc: Mapping[str, Any], *, video: Mapping[str, Any] | None =
 # --- the background colour around the text --------------------------------------------------------------------
 
 
-#: How far around the text box the background is sampled, as a fraction of the line height.
-FILL_RING = 0.35
+#: The background is sampled in a ring around the text box, from FILL_GAP to FILL_RING line
+#: heights out: the band right at the box holds the glyphs' outline and shadow (and the editor's
+#: plate reaches 0.2 line heights past the box to hide them), so it would tint the plate.
+FILL_GAP = 0.25
+FILL_RING = 0.5
 
 
 def _measure_fills(document: dict[str, Any], source: Path) -> None:
-    """Each cue's `fill`: the median colour of a ring just outside its box, at the cue's middle frame.
+    """Each cue's `fill`: the median colour of a ring a little outside its box, at the cue's middle frame.
 
     Read in time order with one decoder; a cue whose frame cannot be read keeps `fill` None.
     """
@@ -446,16 +524,60 @@ def _measure_fills(document: dict[str, Any], source: Path) -> None:
                 continue
             patch = frame[ay0:ay1, ax0:ax1]
             mask = np.ones(patch.shape[:2], dtype=bool)
-            ix0, iy0 = int(x0 * fw) - ax0, int(y0 * fh) - ay0
-            ix1, iy1 = int(x1 * fw) - ax0, int(y1 * fh) - ay0
+            gap = int(round(cue["fs"] * fh * FILL_GAP))
+            ix0, iy0 = int(x0 * fw) - gap - ax0, int(y0 * fh) - gap - ay0
+            ix1, iy1 = int(x1 * fw) + gap - ax0, int(y1 * fh) + gap - ay0
             mask[max(0, iy0):max(0, iy1), max(0, ix0):max(0, ix1)] = False
             ring = patch[mask]
             if ring.size == 0:
                 continue
             b, g, r = (int(v) for v in np.median(ring.reshape(-1, 3), axis=0))
             cue["fill"] = f"#{r:02X}{g:02X}{b:02X}"
+            _tighten_lines(cue, frame, (b, g, r), np)
     finally:
         capture.release()
+
+
+#: A pixel is ink when its colour is at least this far (RGB distance) from the background around it
+INK_DISTANCE = 60.0
+#: A row holds ink when at least this share of its pixels (and 2 px) are ink
+INK_SHARE = 0.02
+#: A tightened line shorter than this share of the detector's box is not trusted (half-typed text, a cut)
+INK_MIN_SHARE = 0.45
+
+
+def _tighten_lines(cue: dict[str, Any], frame: Any, background: tuple[int, int, int], np: Any) -> None:
+    """Fit each line box's top and bottom to the ink on the frame, then the cue's box and `fs`.
+
+    The detector's boxes carry a margin (about a third of the glyph height), so a translation sized
+    and placed by them comes out too big and too high. Only the vertical extent is fitted: at the
+    cue's middle frame typewriter text may be half typed, which a horizontal fit would cut off.
+    """
+
+    fh, fw = frame.shape[:2]
+    reference = np.array(background, dtype=np.int32)
+    changed = False
+    for line in cue["lines"]:
+        x0, y0, x1, y1 = line["box"]
+        px0, py0 = max(0, int(x0 * fw)), max(0, int(y0 * fh))
+        px1, py1 = min(fw, int(round(x1 * fw))), min(fh, int(round(y1 * fh)))
+        if px1 - px0 < 2 or py1 - py0 < 4:
+            continue
+        patch = frame[py0:py1, px0:px1].astype(np.int32)
+        ink = np.sqrt(((patch - reference) ** 2).sum(axis=2)) > INK_DISTANCE
+        counts = ink.sum(axis=1)
+        rows = np.flatnonzero((counts >= 2) & (counts >= INK_SHARE * (px1 - px0)))
+        if rows.size == 0:
+            continue
+        top, bottom = py0 + int(rows[0]), py0 + int(rows[-1]) + 1
+        if bottom - top < INK_MIN_SHARE * (py1 - py0):
+            continue
+        line["box"] = [x0, round(top / fh, 5), x1, round(bottom / fh, 5)]
+        changed = True
+    if changed:
+        cue["box"] = _union([line["box"] for line in cue["lines"]])
+        heights = sorted(line["box"][3] - line["box"][1] for line in cue["lines"])
+        cue["fs"] = round(heights[len(heights) // 2], 5)
 
 
 def _intermediate_encoder(device: str) -> tuple[str, list[str]]:

@@ -65,8 +65,13 @@ export interface SegmentPos {
   an: Align;
   /** wrap width, fraction of frame width; omitted = the style's text box width */
   w?: number;
-  /** glyph height, fraction of frame height; omitted = the style's font size */
+  /**
+   * Ink height of one (CJK) glyph, fraction of frame height; omitted = the style's font size.
+   * The (x, y) anchor is likewise where the ink sits, not libass's line box (see InkMetrics).
+   */
   fs?: number;
+  /** line pitch (top of one line to the next), fraction of frame height; omitted = the font's own */
+  lh?: number;
 }
 
 /** The original text's box, fractions of the frame: [x0, y0, x1, y1] */

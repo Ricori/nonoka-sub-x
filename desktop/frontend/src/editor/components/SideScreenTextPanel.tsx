@@ -602,9 +602,9 @@ export function SideScreenTextPanel() {
               options={[{ value: "zh", label: "简体中文" }, { value: "none", label: "仅原文" }]}
               onPick={(translate) => patchScreenTextOptions({ translate })} />
           </PropRow>
-          <PropRow label="遮盖方式" title="默认不画底板，由样式控制外观；导出压制时可选 LaMa 抹除画面原字">
+          <PropRow label="遮盖方式" title="纯色底板盖住原字，译文按原字的位置和大小摆放；导出压制时也可用 LaMa 抹掉原字">
             <Segmented value={options.cover}
-              options={[{ value: "none", label: "不画底板" }, { value: "plate", label: "纯色底板" }]}
+              options={[{ value: "plate", label: "纯色底板" }, { value: "none", label: "不画底板" }]}
               onPick={(cover) => patchScreenTextOptions({ cover })} />
           </PropRow>
           <PropRow label="游戏剧本" title="导入 gtd-bundle/1 游戏剧本包后，识别到的游戏台词会直接匹配官方中文译文">

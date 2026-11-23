@@ -20,6 +20,8 @@ interface VideoState {
   transcodePct: string;
   /** 播放失败（多半是编码不支持）时才给转码按钮 */
   canTranscode: boolean;
+  /** 占位卡是因为已挂上的视频播放出错（而不是没有视频）才出来的 */
+  playError: boolean;
   /** 占位卡当前的说明文案（折叠/展开时复用，不被默认文案覆盖） */
   fbMsg: string;
   warn: string;
@@ -34,6 +36,6 @@ interface VideoState {
 
 export const videoStore = createStore<VideoState>({
   src: "", fallbackOpen: false, collapsed: false, retrieving: false, retrievePct: "",
-  transcoding: false, transcodePct: "", canTranscode: false,
+  transcoding: false, transcodePct: "", canTranscode: false, playError: false,
   fbMsg: "", warn: "", usePath: null, badge: null, subBusy: null, audioOnly: false,
 });

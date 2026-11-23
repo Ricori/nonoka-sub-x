@@ -15,6 +15,14 @@ import { relayout, setDuration, syncZoomRange } from '../store/viewStore';
 import { videoStore } from '../store/videoStore';
 import { fmt } from '../utils';
 
+/** HTMLMediaElement 的 MediaError.code → 给人看的原因 */
+const MEDIA_ERRORS: Record<number, string> = {
+  1: "读取被中止", 2: "读取视频出错", 3: "解码失败", 4: "格式不受支持",
+};
+/** 读取、解码出错多半是一时的（显卡被识别任务占满、连接断了一下）：一分钟内先自己重载这么多次 */
+const RECOVER_TRIES = 2;
+const RECOVER_WINDOW_MS = 60_000;
+
 export function VideoStage() {
   const wrapRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
@@ -61,12 +69,16 @@ export function VideoStage() {
   function bindVideoEvents(v: HTMLVideoElement) {
     const smoke = isSmokeMode();
     const mine = (fn: () => void) => () => { if (isActiveVideo(v)) fn(); };
+    // 出错后正在重载：重载期间的暂停不是用户停的，加载好后回到这里接着放
+    let recovering: { t: number; play: boolean } | null = null;
+    let tries: number[] = [];
 
     const onPlay = () => {
       if (isScrubbing()) return;   // 擦洗音起播：不进播放态，播放头由 seek 说了算
       onPlayUI();
     };
     const onPause = () => {
+      if (recovering) return;
       // 擦洗中的暂停是跟随逻辑自己的节奏（等播放头追上来），别当成停止播放，
       // 更不能把 t 改成 video.currentTime——播放头是跟着鼠标走的
       if (isScrubbing()) return;
@@ -79,29 +91,59 @@ export function VideoStage() {
       fitStage();
       relayout();
       if (syncZoomRange()) saveLayout();   // 时长变了，全览这一档跟着变
-      if (smoke) v.currentTime = Math.min(v.duration * .75, v.duration - .25);
+      if (recovering) {
+        const { t, play } = recovering;
+        recovering = null;
+        v.currentTime = Math.min(t, v.duration);
+        v.playbackRate = playStore.get().rate;
+        if (play) v.play().catch(() => undefined);
+      }
+      else if (smoke) v.currentTime = Math.min(v.duration * .75, v.duration - .25);
       // 换了源（原片 → 预览代理、转码副本）新 video 从 0 开始：对回播放头，别让画面和播放头错开
       else if (playStore.get().t > 0) v.currentTime = Math.min(playStore.get().t, v.duration);
     };
     const onSeeked = () => {
       if (!smoke) return;
     };
+    /** 同一个地址重新拉一遍；一分钟内次数用完了返回 false */
+    const reload = (resume: { t: number; play: boolean } | null) => {
+      const now = Date.now();
+      tries = tries.filter(at => now - at < RECOVER_WINDOW_MS);
+      if (tries.length >= RECOVER_TRIES) return false;
+      tries.push(now);
+      recovering = resume;
+      v.load();
+      return true;
+    };
     const onError = () => {
       if (!v.src) return;   // 还没挂视频，占位卡已经在管了
+      const error = v.error;
+      const code = error?.code ?? 0;
+      console.warn("[video] playback error", code, error?.message || "", isActiveVideo(v) ? "active" : "standby");
+      // 待命的那个出错没人看得见：悄悄重载，别等接力时才发现它是坏的
+      if (!isActiveVideo(v)) { reload(null); return; }
+      if ((code === 2 || code === 3) && reload({ t: playStore.get().t, play: playStore.get().playing })) {
+        playStore.set({ playing: false });   // 先停住播放头，别让它跟着重载中的 0 秒跑
+        return;
+      }
+      recovering = null;
+      const reason = MEDIA_ERRORS[code] || "未知错误";
+      const detail = `（${reason}${error?.message ? "：" + error.message : ""}）`;
       // 纯音频转 H.264 无从谈起，只给改选文件
       if (videoStore.get().audioOnly) {
-        showVideoFallback(false, "音频无法播放，文件可能已损坏或编码不受支持。可以改选其它文件：");
+        showVideoFallback(false, `音频无法播放${detail}，文件可能已损坏或编码不受支持。可以改选其它文件：`);
+        videoStore.set({ playError: true });
         return;
       }
       // 本机文件播不出来多半不是文件缺失而是编码问题：Chromium 的 HEVC/H.265 依赖系统
       // 解码器，Win11 要装 HEVC 视频扩展才行。此时缩略图正常（ffmpeg 截的）但 video 报错。
-      showPlaybackError("视频无法播放——若是 HEVC/H.265 编码，需要系统解码器支持"
-        + "（Win11 可装「HEVC 视频扩展」）。也可以一键转码成 H.264，或改选其它文件：");
+      showPlaybackError(`视频播放出错${detail}，重试后仍不行。若是 HEVC/H.265 编码，需要系统解码器`
+        + "（Win11 可装「HEVC 视频扩展」）。也可以转码成 H.264，或改选其它文件：");
     };
 
     const handlers: [string, () => void][] = [
       ["play", mine(onPlay)], ["pause", mine(onPause)], ["loadedmetadata", mine(onMeta)],
-      ["seeked", mine(onSeeked)], ["error", mine(onError)],
+      ["seeked", mine(onSeeked)], ["error", onError],
     ];
     for (const [type, fn] of handlers) v.addEventListener(type, fn);
     return () => { for (const [type, fn] of handlers) v.removeEventListener(type, fn); };
@@ -116,7 +158,8 @@ export function VideoStage() {
       ? busyMsg(vs.retrievePct, "已取回")
       : (vs.fbMsg || "本地没有该视频，云端也未保留原视频。请选择本地原视频文件：");
   const cardTitle = vs.transcoding ? "正在转码成 H.264"
-    : vs.retrieving ? "正在从云端取回视频" : "未加载视频";
+    : vs.retrieving ? "正在从云端取回视频"
+      : vs.playError ? "视频播放出错" : "未加载视频";
 
   return (
     <div className="stage-wrap" ref={wrapRef}>
@@ -163,7 +206,8 @@ export function VideoStage() {
               </div>
             </div>
             <div className="vf-mini" id="vf-mini" onClick={() => showVideoFallback(false)}>
-              {vs.retrieving ? "正在从云端取回视频…" : "未加载视频 · 点击选择文件"}
+              {vs.retrieving ? "正在从云端取回视频…"
+                : vs.playError ? "视频播放出错 · 点击查看" : "未加载视频 · 点击选择文件"}
             </div>
           </div>
         </div>

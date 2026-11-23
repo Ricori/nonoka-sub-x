@@ -162,6 +162,51 @@ class ConversionTests(unittest.TestCase):
         document = self.ops.to_ocr_document(tracks)
         self.assertEqual([region["name"] for region in document["regions"]], ["画面·对白", "画面·对白 2"])
 
+    def test_the_main_band_is_kept_by_default(self) -> None:
+        tracks = _tracks()
+        tracks["provenance"]["main_track"] = "r00"
+        regions = {region["id"]: region for region in self.ops.to_ocr_document(tracks)["regions"]}
+        self.assertFalse(regions["r00"]["skip"])
+
+    def test_the_roi_keeps_only_lines_centred_inside(self) -> None:
+        document = self.ops.to_ocr_document(_tracks(), roi=[0.5, 0.0, 1.0, 0.25])
+        caption = next(cue for cue in document["cues"] if cue["region"] == "r00")
+        self.assertEqual([line["text"] for line in caption["lines"]], ["限定ガチャ"])
+        self.assertFalse(any(cue["region"] == "r01" for cue in document["cues"]), "the clock is outside")
+
+    def test_noise_with_confident_words_is_read_and_digits_are_not(self) -> None:
+        tracks = _tracks()
+        tracks["regions"][1]["label"] = "noise"
+        tracks["tracks"][1]["label"] = "noise"
+        regions = {region["id"]: region for region in self.ops.to_ocr_document(tracks)["regions"]}
+        self.assertTrue(regions["r01"]["skip"], "12:00 is not words")
+        tracks["events"][2]["text"] = "Options"
+        regions = {region["id"]: region for region in self.ops.to_ocr_document(tracks)["regions"]}
+        self.assertFalse(regions["r01"]["skip"])
+
+    def test_line_boxes_are_fitted_to_the_ink_vertically_only(self) -> None:
+        import numpy as np
+
+        frame = np.full((100, 200, 3), (40, 20, 30), dtype=np.uint8)
+        frame[30:50, 20:120] = (250, 250, 250)                 # the glyphs of a line
+        cue = {"lines": [{"text": "x", "box": [0.05, 0.25, 0.75, 0.55]}], "box": [0.05, 0.25, 0.75, 0.55], "fs": 0.3}
+        self.ops._tighten_lines(cue, frame, (40, 20, 30), np)
+        self.assertEqual(cue["lines"][0]["box"], [0.05, 0.3, 0.75, 0.5], "top and bottom on the ink, sides kept")
+        self.assertEqual(cue["fs"], 0.2)
+        half_typed = {"lines": [{"text": "x", "box": [0.05, 0.0, 0.75, 1.0]}], "box": [0.05, 0.0, 0.75, 1.0], "fs": 1.0}
+        self.ops._tighten_lines(half_typed, frame, (40, 20, 30), np)
+        self.assertEqual(half_typed["lines"][0]["box"], [0.05, 0.0, 0.75, 1.0], "too little ink: not trusted")
+
+    def test_the_anchor_follows_the_edge_the_lines_share(self) -> None:
+        dialogue = [[0.217, 0.80, 0.322, 0.84], [0.217, 0.85, 0.487, 0.89], [0.218, 0.80, 0.672, 0.84],
+                    [0.219, 0.80, 0.411, 0.83], [0.484, 0.77, 0.516, 0.81], [0.542, 0.79, 0.575, 0.81]]
+        self.assertEqual(self.ops.align_of(dialogue, "center"), "left", "strays do not outvote the dialogue")
+        mirrored = [[1 - b[2], b[1], 1 - b[0], b[3]] for b in dialogue]
+        self.assertEqual(self.ops.align_of(mirrored, "center"), "right")
+        self.assertEqual(self.ops.align_of(dialogue[:2], "right"), "right", "too few lines: FlowOCR's call")
+        alike = [[0.2, 0.1 * i, 0.4, 0.1 * i + 0.05] for i in range(4)]
+        self.assertEqual(self.ops.align_of(alike, "left"), "left", "all edges agree: FlowOCR's call")
+
     def test_the_device_names_map_onto_flowocrs(self) -> None:
         self.assertEqual(self.ops._device_arg("cpu"), "cpu")
         self.assertEqual(self.ops._device_arg("cuda:1"), "gpu:1")

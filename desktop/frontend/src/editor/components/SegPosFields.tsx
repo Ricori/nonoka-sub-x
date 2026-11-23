@@ -4,6 +4,7 @@ import { docStore } from '../store/docStore';
 import { AlignGrid, NumField, PropRow, Switch } from './ui/fields';
 import { ColorField } from './ui/ColorField';
 import { formatAssColor, hexOf, parseAssColor, parseCssHex } from '../../subtitles/color';
+import { fontSizeForFs, fsForFontSize } from '../../subtitles/build';
 import { resolveStyleIn } from '../../subtitles/styles';
 import type { Align, Seg, Ti } from '../types';
 
@@ -24,6 +25,7 @@ function styleDefaults(ti: Ti, seg: Seg) {
   const style = sheet.styleMap[resolveStyleIn(sheet, styleName, "zh")];
   const X = sheet.playRes.x;
   return {
+    style, sheet,
     size: style?.size ?? 70,
     width: style ? Math.max(1, X - style.ml - style.mr) / X : 1,
   };
@@ -35,6 +37,7 @@ export function SegPosFields({ seg, ti }: { seg: Seg; ti: Ti }) {
   if (!pos && !cover) return null;
   const { y: Y } = getPlayRes();
   const fallback = styleDefaults(ti, seg);
+  const { style, sheet } = fallback;
   const plate = plateOn(seg);
   const fill = typeof cover?.fill === "string" ? parseCssHex(cover.fill) : null;
 
@@ -50,8 +53,11 @@ export function SegPosFields({ seg, ti }: { seg: Seg; ti: Ti }) {
         <div className="insp-pos-row">
           <NumField label="宽" value={pct(pos.w ?? fallback.width)} min={1} max={100} step={0.1} suffix="%"
             title="超过这个宽度就换行" onInput={value => setSegPos(seg, { w: value / 100 })} />
-          <NumField label="字号" value={Math.round(pos.fs ? pos.fs * Y : fallback.size)} min={4} max={400}
-            title="放不下时会自动缩小一点" onInput={value => setSegPos(seg, { fs: value / Y })} />
+          {/* pos.fs is the glyph height; the field shows and takes the style's own unit, Fontsize */}
+          <NumField label="字号" min={4} max={400}
+            value={Math.round(pos.fs ? (style ? fontSizeForFs(pos.fs, style, sheet) : pos.fs * Y) : fallback.size)}
+            title="放不下时会自动缩小一点"
+            onInput={value => setSegPos(seg, { fs: style ? fsForFontSize(value, style, sheet) : value / Y })} />
         </div>
         <PropRow label="对齐">
           <AlignGrid value={pos.an} onPick={value => setSegPos(seg, { an: value as Align })} />

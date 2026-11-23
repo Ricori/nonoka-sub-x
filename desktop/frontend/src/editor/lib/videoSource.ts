@@ -6,7 +6,7 @@ import { videoStore } from "../store/videoStore";
 import { errText } from "../utils";
 
 export const mountVideo = (url: string) =>
-  videoStore.set({ src: url, fallbackOpen: false, badge: null });
+  videoStore.set({ src: url, fallbackOpen: false, badge: null, playError: false });
 
 export function showRetrieving(pctText = "") {
   videoStore.set({ retrieving: true, retrievePct: pctText, collapsed: false, fallbackOpen: true });
@@ -19,13 +19,13 @@ export function showVideoFallback(collapsed: boolean, msgText?: string) {
     fallbackOpen: true,
     warn: "",
     usePath: null,
-    ...(msgText != null ? { fbMsg: msgText, canTranscode: false } : {}),
+    ...(msgText != null ? { fbMsg: msgText, canTranscode: false, playError: false } : {}),
   });
 }
 
 export function showPlaybackError(message: string) {
   showVideoFallback(false, message);
-  videoStore.set({ canTranscode: true });
+  videoStore.set({ canTranscode: true, playError: true });
 }
 
 /**

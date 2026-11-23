@@ -221,6 +221,8 @@ export function bandBlock(style: AssStyle, sheet: StyleSheet): BlockRect {
 
 /** A positioned cue's text never shrinks below this share of its requested size */
 export const POS_MIN_FONT_SCALE = 0.6;
+/** At the smallest size, a single line may run this much wider than the box rather than wrap */
+export const POS_WIDE_OVERFLOW = 1.3;
 /** Each shrink step multiplies the font size by this */
 const POS_SHRINK_STEP = 0.94;
 
@@ -235,6 +237,8 @@ export interface PlacedPos {
   size: number;
   /** height the block should fit in; 0 = no limit */
   maxHeight: number;
+  /** line pitch, kept when the text shrinks; omitted = the line height */
+  step?: number;
 }
 
 export interface PositionedBlock {
@@ -254,15 +258,19 @@ function placeAt(text: string, style: AssStyle, sheet: StyleSheet, place: Placed
   const temp: AssStyle = { ...style, size, lineSpacing: 0, ml: 0, mr: X - width, align: 7, mv: 0 };
   const raw = layoutBlock(text, temp, sheet);
   const contentWidth = Math.max(...raw.lines.map(line => line.width));
+  // A pitch of its own (the original text's) is drawn one event per line, see positionedAssEvents.
+  // It stays put when the text shrinks to fit: the lines keep landing on the original's lines
+  const step = place.step ? Math.max(place.step, raw.lineHeight * 0.7) : raw.lineHeight;
+  const height = raw.lineHeight + (raw.lines.length - 1) * step;
   const h = hGroupOf(place.an), v = vGroupOf(place.an);
   const left = place.x - (h === 1 ? 0 : h === 2 ? contentWidth / 2 : contentWidth);
-  const top = place.y - (v === 3 ? 0 : v === 2 ? raw.height / 2 : raw.height);
+  const top = place.y - (v === 3 ? 0 : v === 2 ? height / 2 : height);
   const lines: LineRect[] = raw.lines.map((line, index) => ({
     ...line,
     left: left + (h === 1 ? 0 : h === 2 ? (contentWidth - line.width) / 2 : contentWidth - line.width),
-    top: top + index * raw.lineHeight,
+    top: top + index * step,
   }));
-  const rect = { left, top, width: contentWidth, height: raw.height };
+  const rect = { left, top, width: contentWidth, height };
   return { ...rect, content: { ...rect }, lineHeight: raw.lineHeight, lines };
 }
 
@@ -281,7 +289,13 @@ export function layoutPositioned(text: string, style: AssStyle, sheet: StyleShee
   for (;;) {
     const block = placeAt(text, style, sheet, place, size);
     if (fits(block)) return { block, size, overflow: false };
-    if (size <= floor) return { block, size, overflow: true };
+    if (size <= floor) {
+      // A short text that still won't fit (a name, a title) reads better as one line a little
+      // wider than the box than wrapped and spilling below it
+      const wide = placeAt(text, style, sheet, { ...place, width: sheet.playRes.x }, size);
+      const mild = wide.width <= place.width * POS_WIDE_OVERFLOW && (!limit || wide.height <= limit + 0.5);
+      return { block: mild ? wide : block, size, overflow: true };
+    }
     size = Math.max(floor, size * POS_SHRINK_STEP);
   }
 }

@@ -45,7 +45,7 @@ function resetTransientState() {
   playStore.set({ t: 0, playing: false, rate: 1 });
   videoStore.set({
     src: "", fallbackOpen: false, collapsed: false, retrieving: false, retrievePct: "",
-    transcoding: false, transcodePct: "", canTranscode: false, fbMsg: "", warn: "",
+    transcoding: false, transcodePct: "", canTranscode: false, playError: false, fbMsg: "", warn: "",
     usePath: null, badge: null, subBusy: null, audioOnly: false,
   });
   viewStore.set({ duration: 60, t0: 0, t1: 60, pieces: null, focus: false, blkWin: null });

@@ -114,7 +114,7 @@ func TestStartSendsAScreenTextRequestAndAnnouncesTheDocument(t *testing.T) {
 		t.Fatalf("request = %v", request)
 	}
 	options := request["screen_text"].(map[string]any)
-	if options["translate"] != "zh" || options["cover"] != "none" || options["on_edited"] != "replace" || options["skip_main"] != true {
+	if options["translate"] != "zh" || options["cover"] != "plate" || options["on_edited"] != "replace" || options["skip_main"] != true {
 		t.Fatalf("options = %v", options)
 	}
 	changed := events.wait(t, DocumentChangedEvent).(map[string]any)

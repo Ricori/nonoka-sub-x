@@ -117,8 +117,54 @@ export async function loadFontMetrics(fonts: Iterable<string>,
   return changed;
 }
 
+/**
+ * Where a CJK glyph's ink sits inside a libass line (all as fractions of Fontsize, i.e. of
+ * asc+desc): `ink` is the ink height, `top` the gap from the line top to the ink top,
+ * `bottom` the gap from the ink bottom to the line bottom. Screen text uses it to make the
+ * translation's ink land on the original's: 思源黑体 Heavy inks only 67% of its line and
+ * starts 20% below the line top, so "Fontsize = original glyph height" draws a third too
+ * small and visibly low.
+ */
+export interface InkMetrics { ink: number; top: number; bottom: number }
+
+/** Bundled 方正准圆 (upem 256, asc 230, desc -63), measured from the font file */
+const FALLBACK_INK: InkMetrics = { ink: .843, top: .051, bottom: .106 };
+const INK_PROBE = "国字語あ";
+
+const inks = new Map<string, InkMetrics>();
+
+export function inkMetricsOf(font: string): InkMetrics {
+  const key = familyKey(font);
+  if (!measured.has(key)) return FALLBACK_INK;
+  const cached = inks.get(key);
+  if (cached) return cached;
+  const value = measureInk(font) ?? FALLBACK_INK;
+  inks.set(key, value);
+  return value;
+}
+
+function measureInk(font: string): InkMetrics | null {
+  const ctx = probeContext();
+  if (!ctx) return null;
+  ctx.font = `${PROBE_SIZE}px ${cssFamily(font)}`;
+  let ascent = 0, descent = -Infinity, lineAscent = 0, lineDescent = 0;
+  for (const glyph of INK_PROBE) {
+    const m = ctx.measureText(glyph);
+    if (!Number.isFinite(m.actualBoundingBoxAscent) || !Number.isFinite(m.fontBoundingBoxAscent)) return null;
+    ascent = Math.max(ascent, m.actualBoundingBoxAscent);
+    descent = Math.max(descent, m.actualBoundingBoxDescent);
+    lineAscent = m.fontBoundingBoxAscent;
+    lineDescent = m.fontBoundingBoxDescent;
+  }
+  const line = lineAscent + lineDescent;
+  const ink = ascent + descent;
+  if (!(line > 0) || !(ink > 0) || ink > line * 1.2) return null;
+  return { ink: ink / line, top: (lineAscent - ascent) / line, bottom: (lineDescent - descent) / line };
+}
+
 /** 测试用：清空实测缓存，回到兜底比例 */
 export function resetFontMetrics() {
   ratios.clear();
+  inks.clear();
   measured.clear();
 }

@@ -22,6 +22,7 @@ export function normalizeSegPos(raw: unknown): SegmentPos | undefined {
   };
   if (finite(value.w) && value.w > 0) out.w = Math.min(1, value.w);
   if (finite(value.fs) && value.fs > 0) out.fs = Math.min(1, value.fs);
+  if (finite(value.lh) && value.lh > 0) out.lh = Math.min(1, value.lh);
   return out;
 }
 
@@ -80,6 +81,7 @@ export function posFromCover(cover: SegmentCover, current?: SegmentPos): Segment
   const point = anchorOnBox(cover.box, an);
   const out: SegmentPos = { x: point.x, y: point.y, an, w: cover.box[2] - cover.box[0] };
   if (current?.fs) out.fs = current.fs;
+  if (current?.lh) out.lh = current.lh;
   return out;
 }
 

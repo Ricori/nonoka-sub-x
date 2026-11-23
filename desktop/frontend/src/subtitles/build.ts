@@ -5,11 +5,12 @@ import { srcToOut } from './pieces.ts';
 import type { Piece } from './pieces.ts';
 import { karaokeTimeline } from './karaoke.ts';
 import { layoutBlock, layoutPositioned } from './layout.ts';
+import { inkMetricsOf } from './metrics.ts';
 import type { BlockRect, PlacedPos } from './layout.ts';
 import { assHeadOf, resolveStyleIn } from './styles.ts';
 import type { StyleSheet } from './styles.ts';
 import type {
-  Align, AssStyle, Lang, LaneMeta, SubtitleEffectBinding, SubtitleSegment, SubtitleSource,
+  Align, AssStyle, CoverBox, Lang, LaneMeta, SubtitleEffectBinding, SubtitleSegment, SubtitleSource,
 } from './types.ts';
 
 /**
@@ -376,20 +377,42 @@ export interface PositionedCue {
   an: Align;
 }
 
-/** `pos` (frame fractions) → PlayRes placement request for this style */
+/** ASS Fontsize whose CJK ink is `fs` (fraction of frame height) tall in this style's font */
+export function fontSizeForFs(fs: number, style: AssStyle, sheet: StyleSheet): number {
+  return fs * sheet.playRes.y / inkMetricsOf(style.font).ink * 100 / (style.scy || 100);
+}
+
+/** Inverse of fontSizeForFs: the `fs` a typed-in Fontsize stands for */
+export function fsForFontSize(size: number, style: AssStyle, sheet: StyleSheet): number {
+  return size * (style.scy || 100) / 100 * inkMetricsOf(style.font).ink / sheet.playRes.y;
+}
+
+/**
+ * `pos` (frame fractions) → PlayRes placement request for this style. `pos` describes the
+ * original text's ink (anchor point, glyph height, line pitch) while libass places line boxes,
+ * so the anchor moves by the gap between line box and ink: the translation's glyphs land where
+ * the original's were, at the same height.
+ */
 export function placedPosOf(segment: SubtitleSegment, style: AssStyle, sheet: StyleSheet): PlacedPos | null {
   const pos = segment.pos;
   if (!pos) return null;
   const { x: X, y: Y } = sheet.playRes;
   const box = segment.cover?.box;
+  const size = pos.fs ? fontSizeForFs(pos.fs, style, sheet) : style.size;
+  const line = size * (style.scy || 100) / 100;
+  const ink = inkMetricsOf(style.font);
+  const v = Math.ceil(pos.an / 3);
+  const shift = v === 3 ? -ink.top : v === 1 ? ink.bottom : (ink.bottom - ink.top) / 2;
+  const step = pos.lh ? pos.lh * Y : 0;
   return {
     x: pos.x * X,
-    y: pos.y * Y,
+    y: pos.y * Y + shift * line,
     an: pos.an,
     width: pos.w ? pos.w * X : Math.max(1, X - style.ml - style.mr),
-    // fs is the glyph height; libass line height is Fontsize × ScaleY
-    size: pos.fs ? pos.fs * Y * 100 / (style.scy || 100) : style.size,
-    maxHeight: box ? (box[3] - box[1]) * Y : 0,
+    size,
+    // the box bounds ink; the line boxes around it stick out by the font's top/bottom gaps
+    maxHeight: box ? (box[3] - box[1]) * Y + (ink.top + ink.bottom) * line : 0,
+    ...(step ? { step } : {}),
   };
 }
 
@@ -439,6 +462,21 @@ export function positionedAssText(cue: PositionedCue): string {
   return `{\\an${cue.an}\\pos(${num2(cue.x)},${num2(cue.y)})\\fs${num2(cue.size)}}${text}`;
 }
 
+/**
+ * ASS texts for a positioned cue. Lines at the font's own pitch go out as one event; a pitch of
+ * its own (the original text's, `pos.lh`) can't be told to libass, so then every line is an
+ * event of its own, top-anchored at its line top on the same horizontal anchor.
+ */
+export function positionedAssEvents(cue: PositionedCue): string[] {
+  const { lines, lineHeight } = cue.block;
+  if (lines.length < 2 || Math.abs(lines[1].top - lines[0].top - lineHeight) < 0.01) {
+    return [positionedAssText(cue)];
+  }
+  const an = 6 + (((cue.an - 1) % 3) + 1);
+  return lines.map(line =>
+    `{\\an${an}\\pos(${num2(cue.x)},${num2(line.top)})\\fs${num2(cue.size)}}${assTx(line.text)}`);
+}
+
 // ── Plates (FlowOCR-compatible `fo-fx|plate` events) ───────────
 
 export type PlateMode = "draw" | "omit";
@@ -460,6 +498,25 @@ export function plateDialogue(t0: number, t1: number, style: string, name: strin
     + `m 0 0 l ${W} 0 ${W} ${H} 0 ${H}{\\p0}`;
 }
 
+/** How far a plate reaches past the OCR box, as a share of the glyph height */
+export const PLATE_PAD = 0.2;
+/** …but never more than this share of the frame height */
+const PLATE_PAD_MAX = 0.015;
+
+/**
+ * The cover box grown on every side: OCR boxes hug the glyphs, while the original's outline,
+ * shadow and anti-aliasing reach a few pixels further and would peek out from an exact plate.
+ * The same box is the inpainting mask, which wants that margin just as much.
+ */
+export function plateBox(segment: SubtitleSegment, sheet: StyleSheet): CoverBox {
+  const box = segment.cover!.box;
+  const glyph = segment.pos?.fs ?? (box[3] - box[1]);
+  const padY = Math.min(PLATE_PAD_MAX, glyph * PLATE_PAD);
+  const padX = padY * sheet.playRes.y / sheet.playRes.x;
+  return [Math.max(0, box[0] - padX), Math.max(0, box[1] - padY),
+    Math.min(1, box[2] + padX), Math.min(1, box[3] + padY)];
+}
+
 /**
  * Plate events for every segment on a showing lane that has a cover box, each segment once
  * (both lanes share it). `requireFill`: only covers with a valid fill colour (drawn plates);
@@ -476,7 +533,7 @@ function plateEvents(lines: readonly OutputLine[], sheet: StyleSheet, requireFil
       if (requireFill && !color) continue;
       seen.add(segment);
       out.push(plateDialogue(segment.t0, segment.t1, cueStyleIn(sheet, segment, line), line.name,
-        cover.box, color ?? "&H000000&", sheet));
+        plateBox(segment, sheet), color ?? "&H000000&", sheet));
     }
   }
   return out;
@@ -579,7 +636,7 @@ export function buildAssFrom(source: SubtitleSource, sheet: StyleSheet, options:
       // Positioned cues skip the per-glyph generators for now (those lay glyphs out from margins)
       const placed = style && e.segment.pos ? positionedCueOf(e.segment, L, lines, sheet) : null;
       const built = placed
-        ? [{ layer: 0, t0: e.t0, t1: e.t1, text: prefix + positionedAssText(placed) }]
+        ? positionedAssEvents(placed).map(text => ({ layer: 0, t0: e.t0, t1: e.t1, text: prefix + text }))
         : generator && style && !e.segment.pos
           ? GENERATORS[generator.templateId](L, { ...e.segment, t0: e.t0, t1: e.t1 }, style, sheet, generator)
           : [{ layer: 0, t0: e.t0, t1: e.t1, text: prefix + wrappedAssText(e.segment[L.lang], style, sheet) }];
