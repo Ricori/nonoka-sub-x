@@ -202,17 +202,31 @@ export function ensureScreenTextStyle(current: string): string {
 }
 
 /**
- * 把 `incoming` 里尚未出现在 `current` 中的文字识别样式（`文字识别` 或 `文字识别-*`）补进文档样式表，
- * 绝不覆盖用户已经自定义过的同名样式；同时兜底保证基础「文字识别」样式存在。
+ * 文字识别生成的样式名：基础的 `文字识别`、每条识别轨各自的 `文字识别 2`、`文字识别 3`…，
+ * 以及老版本按画面位置拆出来的 `文字识别-*`。
  */
-export function ensureScreenTextStyles(current: string, incoming?: string | null): string {
+export const isScreenTextStyleName = (name: string): boolean =>
+  name === SCREEN_TEXT_STYLE || name.startsWith(`${SCREEN_TEXT_STYLE}-`) || /^文字识别 \d+$/.test(name);
+
+/**
+ * 把 `incoming` 里尚未出现在 `current` 中的文字识别样式补进文档样式表，再补上 `names`
+ * 里点名要有、却哪儿都没有的那些。绝不覆盖用户已经自定义过的同名样式；新加的
+ * 「文字识别 N」以文档里现有的「文字识别」为底复制——用户调好的外观沿用到新轨上。
+ * 同时兜底保证基础「文字识别」样式存在。
+ */
+export function ensureScreenTextStyles(current: string, incoming?: string | null, names: readonly string[] = []): string {
   const cur = parseSheet(current);
   const inc = parseSheet(incoming || "");
+  const base = cur.fields[SCREEN_TEXT_STYLE];
   const missing: string[] = [];
-  for (const name of inc.order) {
-    if (name !== SCREEN_TEXT_STYLE && !name.startsWith(`${SCREEN_TEXT_STYLE}-`)) continue;
-    if (cur.fields[name]) continue;
-    missing.push(styleLine(name, inc.fields[name]));
+  const seen = new Set<string>();
+  for (const name of [...inc.order, ...names]) {
+    if (!isScreenTextStyleName(name) || cur.fields[name] || seen.has(name)) continue;
+    seen.add(name);
+    const fields = name !== SCREEN_TEXT_STYLE && base && !name.startsWith(`${SCREEN_TEXT_STYLE}-`)
+      ? base : inc.fields[name] ?? base;
+    missing.push(fields ? styleLine(name, fields)
+      : DEFAULT_SCREEN_TEXT_STYLE.replace(`Style: ${SCREEN_TEXT_STYLE},`, `Style: ${name},`));
   }
   let merged = current;
   if (missing.length > 0) {

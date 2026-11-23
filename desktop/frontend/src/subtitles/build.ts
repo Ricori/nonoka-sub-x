@@ -6,6 +6,7 @@ import type { Piece } from './pieces.ts';
 import { karaokeTimeline } from './karaoke.ts';
 import { layoutBlock, layoutPositioned } from './layout.ts';
 import { inkMetricsOf } from './metrics.ts';
+import { anchorOnBox } from './position.ts';
 import type { BlockRect, PlacedPos } from './layout.ts';
 import { assHeadOf, resolveStyleIn } from './styles.ts';
 import type { StyleSheet } from './styles.ts';
@@ -377,41 +378,41 @@ export interface PositionedCue {
   an: Align;
 }
 
-/** ASS Fontsize whose CJK ink is `fs` (fraction of frame height) tall in this style's font */
+/**
+ * ASS Fontsize whose CJK ink is `fs` (fraction of frame height) tall in this style's font, at
+ * the style's own 100% scale: ScaleX/ScaleY then size positioned text up or down as a whole.
+ */
 export function fontSizeForFs(fs: number, style: AssStyle, sheet: StyleSheet): number {
-  return fs * sheet.playRes.y / inkMetricsOf(style.font).ink * 100 / (style.scy || 100);
-}
-
-/** Inverse of fontSizeForFs: the `fs` a typed-in Fontsize stands for */
-export function fsForFontSize(size: number, style: AssStyle, sheet: StyleSheet): number {
-  return size * (style.scy || 100) / 100 * inkMetricsOf(style.font).ink / sheet.playRes.y;
+  return fs * sheet.playRes.y / inkMetricsOf(style.font).ink;
 }
 
 /**
  * `pos` (frame fractions) → PlayRes placement request for this style. `pos` describes the
  * original text's ink (anchor point, glyph height, line pitch) while libass places line boxes,
  * so the anchor moves by the gap between line box and ink: the translation's glyphs land where
- * the original's were, at the same height.
+ * the original's were, at the same height. The style's ScaleX/ScaleY (the style panel's 大小)
+ * grow or shrink that as a whole, room to wrap and fit included.
  */
 export function placedPosOf(segment: SubtitleSegment, style: AssStyle, sheet: StyleSheet): PlacedPos | null {
   const pos = segment.pos;
   if (!pos) return null;
   const { x: X, y: Y } = sheet.playRes;
   const box = segment.cover?.box;
+  const sx = (style.scx || 100) / 100, sy = (style.scy || 100) / 100;
   const size = pos.fs ? fontSizeForFs(pos.fs, style, sheet) : style.size;
-  const line = size * (style.scy || 100) / 100;
+  const line = size * sy;
   const ink = inkMetricsOf(style.font);
   const v = Math.ceil(pos.an / 3);
   const shift = v === 3 ? -ink.top : v === 1 ? ink.bottom : (ink.bottom - ink.top) / 2;
-  const step = pos.lh ? pos.lh * Y : 0;
+  const step = pos.lh ? pos.lh * Y * sy : 0;
   return {
     x: pos.x * X,
     y: pos.y * Y + shift * line,
     an: pos.an,
-    width: pos.w ? pos.w * X : Math.max(1, X - style.ml - style.mr),
+    width: pos.w ? pos.w * X * sx : Math.max(1, X - style.ml - style.mr),
     size,
     // the box bounds ink; the line boxes around it stick out by the font's top/bottom gaps
-    maxHeight: box ? (box[3] - box[1]) * Y + (ink.top + ink.bottom) * line : 0,
+    maxHeight: box ? (box[3] - box[1]) * Y * sy + (ink.top + ink.bottom) * line : 0,
     ...(step ? { step } : {}),
   };
 }
@@ -507,14 +508,21 @@ const PLATE_PAD_MAX = 0.015;
  * The cover box grown on every side: OCR boxes hug the glyphs, while the original's outline,
  * shadow and anti-aliasing reach a few pixels further and would peek out from an exact plate.
  * The same box is the inpainting mask, which wants that margin just as much.
+ *
+ * `follow`: a drawn plate is the translation's backing, so it moves with it — by however far the
+ * translation was dragged from the spot it started on (its anchor on the cover box). The
+ * inpainting mask does not follow: what is erased is the original text, which stays where it is.
  */
-export function plateBox(segment: SubtitleSegment, sheet: StyleSheet): CoverBox {
+export function plateBox(segment: SubtitleSegment, sheet: StyleSheet, follow = false): CoverBox {
   const box = segment.cover!.box;
   const glyph = segment.pos?.fs ?? (box[3] - box[1]);
   const padY = Math.min(PLATE_PAD_MAX, glyph * PLATE_PAD);
   const padX = padY * sheet.playRes.y / sheet.playRes.x;
-  return [Math.max(0, box[0] - padX), Math.max(0, box[1] - padY),
-    Math.min(1, box[2] + padX), Math.min(1, box[3] + padY)];
+  const pos = segment.pos;
+  const from = follow && pos ? anchorOnBox(box, pos.an) : null;
+  const dx = from && pos ? pos.x - from.x : 0, dy = from && pos ? pos.y - from.y : 0;
+  return [Math.max(0, box[0] + dx - padX), Math.max(0, box[1] + dy - padY),
+    Math.min(1, box[2] + dx + padX), Math.min(1, box[3] + dy + padY)];
 }
 
 /**
@@ -533,7 +541,7 @@ function plateEvents(lines: readonly OutputLine[], sheet: StyleSheet, requireFil
       if (requireFill && !color) continue;
       seen.add(segment);
       out.push(plateDialogue(segment.t0, segment.t1, cueStyleIn(sheet, segment, line), line.name,
-        plateBox(segment, sheet), color ?? "&H000000&", sheet));
+        plateBox(segment, sheet, requireFill), color ?? "&H000000&", sheet));
     }
   }
   return out;

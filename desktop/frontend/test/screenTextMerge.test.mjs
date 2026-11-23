@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { setStyleSheet } from "../src/editor/ass.ts";
-import { buildAss, buildPreviewAss } from "../src/editor/lib/assBuild.ts";
+import { buildAss } from "../src/editor/lib/assBuild.ts";
+import { buildRows } from "../src/editor/lib/rows.ts";
 import { resetHistory, undo } from "../src/editor/lib/history.ts";
 import {
   hasEditedOcrTracks,
@@ -11,13 +12,16 @@ import {
   nonOcrHash,
   segmentsHash,
 } from "../src/editor/lib/screenTextDoc.ts";
-import { handleDocumentChanged, mergeServerScreenText } from "../src/editor/lib/screenTextMerge.ts";
+import {
+  applyTrialResult, handleDocumentChanged, mergeServerScreenText, mergeTrialTracks, undoTrial,
+} from "../src/editor/lib/screenTextMerge.ts";
 import { configureEditorSession, setLoadedDocument } from "../src/editor/session.ts";
 import { docStore } from "../src/editor/store/docStore.ts";
 import { doSave, markDirty, saveStore, setSaveBaseline } from "../src/editor/store/saveStore.ts";
 import { resetScreenTextStore, screenTextStore } from "../src/editor/store/screenTextStore.ts";
 import { selStore } from "../src/editor/store/selectionStore.ts";
 import { SCREEN_TEXT_STYLE, parseSheet } from "../src/subtitles/styles.ts";
+import { ASS_STYLE_FORMAT } from "../src/subtitles/constants.ts";
 import { buildSrtFrom } from "../src/subtitles/build.ts";
 
 const lane = (style, hidden = false) => ({ hidden, style });
@@ -259,17 +263,68 @@ test("document:changed arriving mid-save waits until save finishes before mergin
   assert.equal(docStore.get().tracks.filter(isOcrTrack).length, 1);
 });
 
-test("trial overlay renders in preview ASS without touching docStore or buildAss", () => {
-  bootEditor();
-  const trialTracks = mapDocumentTracks([makeOcrTrack("ocr-trial", "试跑译文")]);
-  screenTextStore.set({
-    trial: { taskId: "t-trial", tracks: trialTracks, cueCount: 1, start: 5, end: 65 },
-  });
+test("a trial goes straight into the document and 撤销 puts the screen-text tracks back", () => {
+  const seg = (t0, t1, zh) => ({ t0, t1, ja: "", zh, pos: { x: 0.5, y: 0.5, an: 5 } });
+  const existing = { ...makeOcrTrack("ocr", "整片"), segs: [seg(1, 3, "前"), seg(10, 12, "段内"), seg(80, 82, "后")] };
+  bootEditor(makeServerDoc({ tracks: [...makeServerDoc().tracks, existing] }));
+  const before = structuredClone(docStore.get().tracks.filter(isOcrTrack));
 
-  assert.equal(docStore.get().tracks.filter(isOcrTrack).length, 0, "document untouched");
-  assert.ok(!buildAss().includes("试跑译文"), "export ASS does not include trial");
-  assert.ok(buildPreviewAss().includes("试跑译文"), "preview ASS includes trial overlay");
-  assert.ok(buildPreviewAss().includes("Style: 文字识别"), "preview ensures screen-text style");
+  // the trial covers 5–65: two texts at once at 20 s, so its result has two tracks
+  const trial = mapDocumentTracks([
+    { ...makeOcrTrack("ocr", "x"), segs: [seg(20, 22, "名字")] },
+    { ...makeOcrTrack("ocr2", "x"), segs: [seg(20, 25, "台词")] },
+  ]);
+  assert.equal(applyTrialResult(trial, "", 5, 65), 2);
+  const ocr = docStore.get().tracks.filter(isOcrTrack);
+  assert.deepEqual(ocr.map(track => track.id), ["ocr", "ocr2"]);
+  assert.deepEqual(ocr.map(track => track.segs.map(s => s.zh)), [["前", "名字", "后"], ["台词"]],
+    "what was inside the range is gone, the rest stays");
+  assert.ok(buildAss().includes("名字"), "it is part of the document, not an overlay");
+  assert.equal(saveStore.get().dirty, true);
+  assert.equal(screenTextStore.get().trialUndo.cueCount, 2);
+
+  undoTrial();
+  assert.deepEqual(structuredClone(docStore.get().tracks.filter(isOcrTrack)), before);
+  assert.equal(screenTextStore.get().trialUndo, null);
+  assert.ok(!buildAss().includes("名字"));
+});
+
+test("a screen-text track has only its translation lane", () => {
+  const shown = { ...makeOcrTrack("ocr", "译文"), ja: lane(SCREEN_TEXT_STYLE, false) };
+  bootEditor(makeServerDoc({ tracks: [...makeServerDoc().tracks, shown] }));
+  const keys = buildRows().map(row => row.key);
+  assert.ok(keys.includes("ocr-zh") && !keys.includes("ocr-ja"), keys.join(","));
+  assert.equal(docStore.get().tracks.find(isOcrTrack).ja.hidden, true, "an older run's source lane no longer draws");
+  assert.ok(!buildAss().includes("タイトル"));
+});
+
+test("trial lines take a free track, else a new one; emptied tracks go", () => {
+  const seg = (t0, t1, zh) => ({ t0, t1, ja: "", zh });
+  const local = mapDocumentTracks([
+    { ...makeOcrTrack("ocr", "x"), segs: [seg(0, 2, "a"), seg(6, 8, "b")] },
+    { ...makeOcrTrack("ocr2", "x"), segs: [seg(6, 7, "inside only")] },
+  ]);
+  const trial = mapDocumentTracks([{ ...makeOcrTrack("ocr", "x"), segs: [seg(5, 9, "t1"), seg(1, 3, "clash")] }]);
+  const { tracks, cueCount } = mergeTrialTracks(local, trial, 5, 9);
+  assert.equal(cueCount, 2);
+  assert.deepEqual(tracks.map(track => [track.id, track.segs.map(s => s.zh)]),
+    [["ocr", ["a", "t1"]], ["ocr2", ["clash"]]],
+    "ocr2 lost its only line to the range, then took the line that clashes on ocr");
+});
+
+test("a track a trial adds gets a style of its own, copied from the user's 文字识别", () => {
+  const seg = (t0, t1, zh) => ({ t0, t1, ja: "", zh, pos: { x: 0.5, y: 0.5, an: 5 } });
+  const look = "Style: 文字识别,微软雅黑,88,&H0000FFFF,&H000000FF,&H00000000,&H00000000,1,0,0,0,100,100,0,0,1,2,0,9,12,12,12,1";
+  const styles = `[V4+ Styles]\n${ASS_STYLE_FORMAT}\n${look}\n`;
+  bootEditor(makeServerDoc({ styles, tracks: [...makeServerDoc().tracks,
+    { ...makeOcrTrack("ocr", "x"), segs: [seg(20, 30, "已有")] }] }));
+  applyTrialResult(mapDocumentTracks([{ ...makeOcrTrack("ocr", "x"), segs: [seg(22, 24, "同时")] }]), "", 0, 10);
+  const added = docStore.get().tracks.find(track => track.id === "ocr2");
+  assert.equal(added.name, "文字识别 2");
+  assert.equal(added.zh.style, "文字识别 2");
+  const fields = parseSheet(docStore.get().styles).fields["文字识别 2"];
+  assert.equal(fields.fontname, "微软雅黑", "starts with the look the user gave the screen text");
+  assert.equal(fields.fontsize, "88");
 });
 
 test("segmentsHash detects whether an ocr* track was edited", async () => {

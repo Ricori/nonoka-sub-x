@@ -15,10 +15,10 @@ export interface ScreenTextFormOptions {
   roi: [number, number, number, number] | null;
 }
 
-export interface ScreenTextTrialState {
-  taskId: string;
-  tracks: Track[];
-  styles: string;
+/** A 1-minute trial written straight into the document, and what to put back to undo it */
+export interface ScreenTextTrialUndo {
+  /** the document's screen-text tracks before the trial went in */
+  before: Track[];
   cueCount: number;
   start: number;
   end: number;
@@ -38,12 +38,10 @@ export interface ScreenTextState {
   task: TaskSnapshot | null;
   /** Whether the currently tracked task is a 1-minute trial run. */
   taskIsTrial: boolean;
-  /** Temporary overlay tracks from a finished 1-minute trial (never written to docStore). */
-  trial: ScreenTextTrialState | null;
+  /** The last trial run, already in the document; the panel offers to undo it. */
+  trialUndo: ScreenTextTrialUndo | null;
   /** Whether a full run completed during this editor session. */
   lastCompletedTracks: number | null;
-  /** Pending confirmation when re-running over manually edited `ocr*` tracks. */
-  editedPrompt: boolean;
   /** Installed game-script bundles (`gtd-bundle/1`). */
   games: GameTextBundle[];
   /** Drawing a region of interest (ROI) box on the video stage (Phase 6). */
@@ -73,9 +71,8 @@ export const INITIAL_SCREEN_TEXT_STATE: ScreenTextState = {
   options: { ...DEFAULT_SCREEN_TEXT_OPTIONS },
   task: null,
   taskIsTrial: false,
-  trial: null,
+  trialUndo: null,
   lastCompletedTracks: null,
-  editedPrompt: false,
   games: [],
   drawingRoi: false,
   busy: false,

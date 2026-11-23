@@ -3,6 +3,7 @@ import { bumpDoc, docStore } from '../store/docStore';
 import { layoutStore, saveLayout, setRowH } from '../store/layoutStore';
 import { markDirty } from '../store/saveStore';
 import { foldJa } from './edits';
+import { laneLangsOf } from './screenTextDoc';
 import type { RowSpec } from '../types';
 
 /**
@@ -32,7 +33,7 @@ export function buildRows(): RowSpec[] {
     },
   ];
   tracks.forEach((tr, ti) => {
-    rows.push({
+    if (laneLangsOf(tr).includes("ja")) rows.push({
       key: tr.id + "-ja", kind: "lane", ti, lang: "ja", fold, vis: !tr.ja.hidden, local: false,
       height: tr.hja || ROW_H0, setHeight: v => { tr.hja = v; bumpDoc(); },
     });

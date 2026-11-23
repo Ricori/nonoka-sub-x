@@ -1,10 +1,18 @@
 import type { EditDocument, EditTrack } from "../../documents/types.ts";
 import { normalizeKaraoke } from "../../subtitles/karaoke.ts";
 import { normalizeSegCover, normalizeSegPos, trimLaneOverlaps } from "../../subtitles/position.ts";
-import { SCREEN_TEXT_STYLE, parseSheet, styleLine } from "../../subtitles/styles.ts";
+import { isScreenTextStyleName, parseSheet, styleLine } from "../../subtitles/styles.ts";
 import { ROW_H0, ROW_MAX, ROW_MIN } from "../constants.ts";
 import type { Lang, Seg, Track } from "../types.ts";
 import { clampN } from "../utils.ts";
+
+/**
+ * The lanes a track shows. On-screen text tracks have just the translation: what was read stays in
+ * `ja` for reference, but there is no source lane to show, select or style.
+ */
+export function laneLangsOf(track: Parameters<typeof isOcrTrack>[0]): Lang[] {
+  return isOcrTrack(track) ? ["zh"] : ["ja", "zh"];
+}
 
 /** Whether a track belongs to the on-screen text add-on (`ocr*` id or `source.kind === "screen-text"`). */
 export function isOcrTrack(track: { id?: string; source?: { kind?: string } | null } | null | undefined): boolean {
@@ -70,6 +78,8 @@ export function mapDocumentTracks(rawTracks: readonly EditTrack[] | null | undef
     };
     const source = normalizeTrackSource(track.source);
     if (source) out.source = source;
+    // Older runs left the source lane showing; it has no row any more, so it must not draw either
+    if (isOcrTrack(out)) out.ja.hidden = true;
     return out;
   });
 }
@@ -103,7 +113,7 @@ function nonOcrStylesFingerprint(styles: string | undefined): string {
   const sheet = parseSheet(styles ?? "");
   const lines: string[] = [];
   for (const name of sheet.order) {
-    if (name === SCREEN_TEXT_STYLE || name.startsWith(`${SCREEN_TEXT_STYLE}-`)) continue;
+    if (isScreenTextStyleName(name)) continue;
     lines.push(styleLine(name, sheet.fields[name]));
   }
   return canonicalJson({ playRes: sheet.playRes, lines, ext: sheet.ext });

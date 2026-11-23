@@ -20,6 +20,8 @@ import { PropRow, Segmented, SideSection, SliderField, Switch, ToggleChip } from
 import { ColorField } from '../ui/ColorField';
 import { StyleSelect } from '../SideTrackPanel';
 import { ignoresMarginV } from '../../../subtitles/layout';
+import { isOcrTrack } from '../../lib/screenTextDoc';
+import { plateOn, plateSegsOfStyle, setPlates } from '../../lib/segPos';
 
 /**
  * 右栏「样式」页：覆盖 ASS 的全部 23 个字段，按 CapCut 的分节排版
@@ -120,6 +122,13 @@ export function StyleBar({ lane }: { lane: LaneRef }) {
   const vAlign = Math.floor((align - 1) / 3);
   const play = getPlayRes();
   const media = video();
+  // 文字识别这类逐句定位的文字：位置、字号、对齐跟着画面原文走（seg.pos），样式只管长相和整体大小
+  const positioned = box.positioned || isOcrTrack(docStore.get().tracks
+    .find((track, index) => (track.id || `track-${index + 1}`) === box.trackId));
+  const scale = Math.round((num(fields, "scalex", 100) + num(fields, "scaley", 100)) / 2);
+  // 底板跟着样式走：跟随轨道时管整个样式下的字，用专属样式时只管这一句
+  const plateSegs = positioned ? plateSegsOfStyle(name, box.ownStyle === name ? box.seg : null) : [];
+  const plated = plateSegs.length > 0 && plateSegs.every(plateOn);
   // 画面上这一块用的是它自己绑的样式（不是轨道样式）：下面的改动改的就是那个样式
   const ownActive = !!box.ownStyle && box.ownStyle === name;
   // 绑定写的名字这份样式表里没有：轨道的按 origin/cn 顶着用，句子的跟随轨道
@@ -128,14 +137,12 @@ export function StyleBar({ lane }: { lane: LaneRef }) {
     ? box.boundStyle : null;
   // 用着这个样式的轨道 lane 和单独绑了它的字幕块，加起来不止一处就是共用
   const users = bindings.length + blockUses;
-  const shared = bindings.filter(binding => binding.direct).length + blockUses > 1
-    || bindings.some(binding => !binding.direct);
   const sharedTitle = [
     ...bindings.map(b => `${b.trackName} · ${laneNames()[b.lang]}`),
     ...(blockUses ? [`${blockUses} 个字幕块单独绑了它`] : []),
   ].join("\n");
-  const sharedText = [bindings.length ? `${bindings.length} 条轨` : "", blockUses ? `${blockUses} 个字幕块` : ""]
-    .filter(Boolean).join(" + ");
+  const sharedText = [bindings.length ? `${bindings.length} 条轨` : "", blockUses ? `${blockUses} 句字幕` : ""]
+    .filter(Boolean).join("和");
 
   // 这条 lane 在绑定上对应哪个目标：默认轨存在 trackMeta 里，自定义轨按 id 找下标
   const laneTarget = box.trackId === DEFAULT_EFFECT_TRACK_ID
@@ -169,8 +176,8 @@ export function StyleBar({ lane }: { lane: LaneRef }) {
             }} />
         </PropRow>
         {users > 1 && (
-          <div className={"sd-shared" + (shared ? " warn" : "")}>
-            <span title={sharedTitle}>{sharedText}共用样式，改动会一起生效</span>
+          <div className="sd-shared">
+            <span title={sharedTitle}>{sharedText}在用这个样式，改了会一起变</span>
             <button type="button" className="side-text-btn"
               title={ownActive ? "复制一份只给这一句用" : "改成只作用于这条轨道，之后拖动不再影响别人"}
               onClick={() => {
@@ -205,10 +212,23 @@ export function StyleBar({ lane }: { lane: LaneRef }) {
             value={fontName} options={fontOptions} menuMaxHeight={320} searchable
             onChange={value => set({ fontname: value })} />
         </PropRow>
-        <SliderField label="字号" value={num(fields, "fontsize", 70)} min={8} max={400} rangeMax={200}
-          onInput={value => set({ fontsize: value })} />
-        <SliderField label="行间距" value={lineSpacing} min={0} max={200} rangeMax={80}
-          onInput={value => set({ linespacing: value })} />
+        {positioned
+          ? <>
+            <SliderField label="大小" value={scale} min={20} max={400} rangeMax={250} suffix="%"
+              title="按原文大小的百分比，所有用这个样式的文字一起变"
+              onInput={value => set({ scalex: value, scaley: value })} />
+            <PropRow label="底板" title="盖住画面原文的色块，颜色取自原文周围；关掉后不画，导出时仍可抹掉原文">
+              <Switch on={plated} disabled={!plateSegs.length}
+                title={!plateSegs.length ? "这个样式下没有带原文位置的字" : plated ? "不画底板" : "画底板"}
+                onToggle={on => setPlates(plateSegs, on)} />
+            </PropRow>
+          </>
+          : <>
+            <SliderField label="字号" value={num(fields, "fontsize", 70)} min={8} max={400} rangeMax={200}
+              onInput={value => set({ fontsize: value })} />
+            <SliderField label="行间距" value={lineSpacing} min={0} max={200} rangeMax={80}
+              onInput={value => set({ linespacing: value })} />
+          </>}
         <PropRow label="样式">
           <span className="sd-chips">
             <ToggleChip label="B" title="粗体" on={flag(fields, "bold")}
@@ -221,14 +241,14 @@ export function StyleBar({ lane }: { lane: LaneRef }) {
               onToggle={on => set({ strikeout: flagValue(on) })} />
           </span>
         </PropRow>
-        <PropRow label="对齐方式">
+        {!positioned && <PropRow label="对齐方式">
           <span className="sd-align">
             <Segmented value={hAlign} options={H_ALIGN}
               onPick={value => set({ alignment: vAlign * 3 + value + 1 })} />
             <Segmented value={vAlign} options={V_ALIGN}
               onPick={value => set({ alignment: value * 3 + hAlign + 1 })} />
           </span>
-        </PropRow>
+        </PropRow>}
       </SideSection>
 
       <SideSection title="颜色">
@@ -279,7 +299,7 @@ export function StyleBar({ lane }: { lane: LaneRef }) {
           onInput={value => set({ angle: value })} />
       </SideSection>
 
-      <SideSection title="边距" collapsible defaultOpen={false}>
+      {!positioned && <SideSection title="边距" collapsible defaultOpen={false}>
         <SliderField label="左边距" value={num(fields, "marginl")} min={0} max={play.x - 1}
           onInput={value => set({ marginl: value })} />
         <SliderField label="右边距" value={num(fields, "marginr")} min={0} max={play.x - 1}
@@ -288,7 +308,7 @@ export function StyleBar({ lane }: { lane: LaneRef }) {
           disabled={ignoresMarginV(align)}
           title={ignoresMarginV(align) ? "垂直居中时 libass 忽略 MarginV" : undefined}
           onInput={value => set({ marginv: value })} />
-      </SideSection>
+      </SideSection>}
 
       <div className="sd-foot">
         <span className="sb-meta">

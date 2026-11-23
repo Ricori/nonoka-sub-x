@@ -168,11 +168,16 @@ class ConversionTests(unittest.TestCase):
         regions = {region["id"]: region for region in self.ops.to_ocr_document(tracks)["regions"]}
         self.assertFalse(regions["r00"]["skip"])
 
-    def test_the_roi_keeps_only_lines_centred_inside(self) -> None:
+    def test_the_roi_keeps_only_lines_wholly_inside(self) -> None:
+        # 限定ガチャ spans x 0.729–0.938, y 0.185–0.241; 本日まで reaches down to y 0.306
         document = self.ops.to_ocr_document(_tracks(), roi=[0.5, 0.0, 1.0, 0.25])
         caption = next(cue for cue in document["cues"] if cue["region"] == "r00")
         self.assertEqual([line["text"] for line in caption["lines"]], ["限定ガチャ"])
         self.assertFalse(any(cue["region"] == "r01" for cue in document["cues"]), "the clock is outside")
+        straddling = self.ops.to_ocr_document(_tracks(), roi=[0.8, 0.0, 1.0, 0.4])
+        self.assertEqual(straddling["cues"], [], "middles inside, left ends outside: not in the box")
+        hugging = self.ops.to_ocr_document(_tracks(), roi=[0.731, 0.0, 1.0, 0.4])
+        self.assertEqual(len(hugging["cues"]), 1, "a line a pixel or two over the drawn edge still counts")
 
     def test_noise_with_confident_words_is_read_and_digits_are_not(self) -> None:
         tracks = _tracks()

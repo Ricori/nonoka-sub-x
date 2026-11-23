@@ -3,13 +3,13 @@ import { shallowEqual } from '../../home/lib/createStore';
 // 出入点微调暂时下线，时间轴上拖边缘更顺手；要恢复时把 nudge / fmtView 连同下面的 tc-row 一起放回来
 import { deleteSegment, mergeNext, /* nudge, */ setSegText } from '../lib/edits';
 import { armPending, commitPending, disarmPending } from '../lib/history';
+import { laneLangsOf } from '../lib/screenTextDoc';
 import { seek } from '../lib/playback';
 import { docStore, laneNames } from '../store/docStore';
 import { curSegs, select, selStore } from '../store/selectionStore';
 import { toast } from '../store/uiStore';
 import { /* fmtView, */ viewStore } from '../store/viewStore';
 import type { Lang } from '../types';
-import { SegPosFields } from './SegPosFields';
 
 export function Inspector() {
   docStore.use(s => s.version);
@@ -80,13 +80,16 @@ export function Inspector() {
         </div>
       </div>
       */}
-      <div className="textfield lang-ja">
-        <label><i></i>{laneNames().ja}</label>
-        <textarea id="insp-ja" ref={jaRef} spellCheck={false} value={s ? s.ja : ""}
-          onFocus={armPending} onBlur={disarmPending}
-          onKeyDown={e => onKeyDown(e, "ja")}
-          onChange={e => onInput("ja", e.target.value)} />
-      </div>
+      {/* 文字识别轨只有译文这一行：识别出的原文留在数据里，不再给编辑框 */}
+      {laneLangsOf(curTrack < 0 ? null : docStore.get().tracks[curTrack]).includes("ja") && (
+        <div className="textfield lang-ja">
+          <label><i></i>{laneNames().ja}</label>
+          <textarea id="insp-ja" ref={jaRef} spellCheck={false} value={s ? s.ja : ""}
+            onFocus={armPending} onBlur={disarmPending}
+            onKeyDown={e => onKeyDown(e, "ja")}
+            onChange={e => onInput("ja", e.target.value)} />
+        </div>
+      )}
       <div className="textfield lang-zh">
         <label><i></i>{laneNames().zh}</label>
         <textarea id="insp-zh" ref={zhRef} spellCheck={false} value={s ? s.zh : ""}
@@ -94,7 +97,6 @@ export function Inspector() {
           onKeyDown={e => onKeyDown(e, "zh")}
           onChange={e => onInput("zh", e.target.value)} />
       </div>
-      {s && <SegPosFields seg={s} ti={curTrack} />}
       <div className="insp-actions">
         <button type="button" className="side-text-btn" id="btn-merge" disabled={!s} onClick={mergeNext}>
           <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 3v4a2 2 0 0 0 2 2h8M10 6l3 3-3 3" /></svg>与下句合并

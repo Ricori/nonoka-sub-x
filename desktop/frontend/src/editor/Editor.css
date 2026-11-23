@@ -2597,10 +2597,6 @@ body.ctx-open .professional-editor .topbar {
   line-height: 1.5;
 }
 
-.professional-editor .sd-shared.warn>span {
-  color: var(--warn);
-}
-
 .professional-editor .side .sb-note {
   display: flex;
   flex-direction: column;
@@ -2926,32 +2922,6 @@ body.ctx-open .professional-editor .topbar {
 
 .professional-editor .insp-actions .side-text-btn {
   flex: 1 1 0;
-}
-
-/* Placement of on-screen text (segments with their own pos / cover) */
-.professional-editor .insp-pos {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  font-size: 12px;
-}
-
-.professional-editor .insp-pos-row {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px;
-}
-
-.professional-editor .insp-pos-row .sp-field {
-  justify-content: space-between;
-}
-
-.professional-editor .insp-pos-row .sp-control input {
-  width: 58px;
-}
-
-.professional-editor .insp-pos .sd-control .side-text-btn {
-  margin-left: auto;
 }
 
 /* 字幕列表：CapCut 那种扁平行，序号 + 文本，时间码靠右 */

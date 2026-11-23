@@ -1,13 +1,11 @@
 import { fontsMissing, getStyleMap, getStyleSheet } from '../ass';
 import { docStore } from '../store/docStore';
-import { screenTextStore } from '../store/screenTextStore';
 import {
   buildAssFrom, buildPlatesAss, outputLinesOf, piecesAss, unknownStylesOf, usedStylesOf,
 } from '../../subtitles/build';
 import type { BuildAssOptions } from '../../subtitles/build';
 import type { Piece } from '../../subtitles/pieces.ts';
 import type { OutputLine } from '../../subtitles/build';
-import { composeSheet, ensureScreenTextStyles } from '../../subtitles/styles';
 import type { SubtitleSource } from '../../subtitles/types';
 
 /**
@@ -32,14 +30,8 @@ export const unknownStyles = (): string[] => unknownStylesOf(docSource(), getSty
 export const buildAss = (options: BuildAssOptions = {}): string =>
   buildAssFrom(docSource(), getStyleSheet(), options);
 
-/** 预览画布用的 ASS：除了文档本身，还叠加「试 1 分钟」的临时文字识别（不写进文档） */
-export function buildPreviewAss(): string {
-  const trial = screenTextStore.get().trial;
-  if (!trial?.tracks.length) return buildAss();
-  const base = docSource();
-  const sheet = composeSheet(ensureScreenTextStyles(docStore.get().styles, trial.styles));
-  return buildAssFrom({ ...base, tracks: [...base.tracks, ...trial.tracks] }, sheet);
-}
+/** 预览画布用的 ASS：试跑结果直接写进文档，所以就是文档本身 */
+export const buildPreviewAss = (): string => buildAss();
 
 /** Plates for every cover box (fill or not): the text-removal mask for burn export */
 export const buildPlates = (): string => buildPlatesAss(docSource(), getStyleSheet());

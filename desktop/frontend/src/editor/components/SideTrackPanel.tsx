@@ -4,6 +4,7 @@ import {
   bindStyle, deleteTrack, newTrack, renameTarget, toggleDefaultHidden, toggleTrackHidden,
 } from '../lib/edits';
 import { docStore, laneNames, segsOf } from '../store/docStore';
+import { laneLangsOf } from '../lib/screenTextDoc';
 import { selStore, setActiveTrack } from '../store/selectionStore';
 import { modalStore } from '../store/uiStore';
 import type { Lang } from '../types';
@@ -61,7 +62,7 @@ export function SideTrackPanel() {
               onClick={() => setActiveTrack(ti, { silent: true })}>
               <span className="trk-name">{label}</span>
               <span className="trk-count">{segsOf(ti).length} 句</span>
-              {(["ja", "zh"] as Lang[]).map(lang => {
+              {laneLangsOf(ti < 0 ? null : tracks[ti]).map(lang => {
                 const hidden = !!laneOf(ti, lang)?.hidden;
                 return <button key={lang} type="button" className={"trk-eye lang-" + lang + (hidden ? " off" : "")}
                   title={names[lang] + (hidden ? "：已隐藏，点击显示" : "：点击隐藏")}
@@ -82,7 +83,7 @@ export function SideTrackPanel() {
         </PropRow>
       </SideSection>
 
-      {(["ja", "zh"] as Lang[]).map(lang => {
+      {laneLangsOf(curTrack < 0 ? null : tracks[curTrack]).map(lang => {
         const meta = lane(lang);
         return <SideSection key={lang} title={names[lang]}
           extra={<Switch on={!meta?.hidden} title={meta?.hidden ? "显示这一行" : "隐藏这一行"}

@@ -37,6 +37,7 @@ export function normalizeSegCover(raw: unknown): SegmentCover | undefined {
   const out: SegmentCover = { box: [x0, y0, x1, y1] };
   if (value.fill === null) out.fill = null;
   else if (typeof value.fill === "string" && value.fill.trim()) out.fill = value.fill.trim();
+  if (typeof value.bg === "string" && value.bg.trim()) out.bg = value.bg.trim();
   return out;
 }
 
@@ -45,6 +46,7 @@ export const clonePos = (pos: SegmentPos): SegmentPos => ({ ...pos });
 export const cloneCover = (cover: SegmentCover): SegmentCover => {
   const out: SegmentCover = { box: [...cover.box] as CoverBox };
   if (cover.fill !== undefined) out.fill = cover.fill;
+  if (cover.bg) out.bg = cover.bg;
   return out;
 };
 
@@ -59,6 +61,8 @@ export function unionCover(a: SegmentCover, b: SegmentCover): SegmentCover {
   // The first segment's plate choice wins; if it had none, take the other's
   const fill = a.fill !== undefined ? a.fill : b.fill;
   if (fill !== undefined) out.fill = fill;
+  const bg = a.bg ?? b.bg;
+  if (bg) out.bg = bg;
   return out;
 }
 

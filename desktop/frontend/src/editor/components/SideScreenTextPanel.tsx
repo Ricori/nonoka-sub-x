@@ -4,17 +4,14 @@ import { screenTextBridge } from "../../bridge/screenText.ts";
 import { desktopWindows } from "../../bridge/windows.ts";
 import { CustomSelect } from "../../components/CustomSelect.tsx";
 import type { TaskEvent, TaskProgress } from "../../providers/types.ts";
-import { seek } from "../lib/playback.ts";
 import { isOcrTrack } from "../lib/screenTextDoc.ts";
 import {
-  applyTrialPreview,
   cancelScreenText,
-  discardTrialPreview,
   importGameTextBundle,
   refreshScreenTextEnvironment,
   requestStartScreenText,
   restoreScreenTextTask,
-  startScreenText,
+  undoTrial,
 } from "../lib/screenTextMerge.ts";
 import { docStore } from "../store/docStore.ts";
 import { playStore } from "../store/playStore.ts";
@@ -446,62 +443,21 @@ export function SideScreenTextPanel() {
           </SideSection>
         )}
 
-        {/* 5. 试 1 分钟预览结果 */}
-        {!running && state.trial && (
-          <SideSection title="试跑预览">
+        {/* 5. 试 1 分钟：结果已直接写进轨道，这里只给撤销 */}
+        {!running && state.trialUndo && (
+          <SideSection title="试跑结果">
             <div className="st-trial-card">
               <div className="st-trial-summary">
-                <strong>{state.trial.cueCount} 处文字识别结果</strong>
-                <span className="st-mono">{fmt(state.trial.start)} – {fmt(state.trial.end)}</span>
+                <strong>已写入 {state.trialUndo.cueCount} 处文字</strong>
+                <span className="st-mono">{fmt(state.trialUndo.start)} – {fmt(state.trialUndo.end)}</span>
               </div>
-              <p className="st-hint">
-                试跑默认不写入轨道，仅以临时叠加层显示在预览画面里。点击「采用并全跑」识别整片，或点击「仅写入这段」将试跑结果直接生成轨道。
-              </p>
               <div className="st-actions">
-                <button type="button" className="btn" onClick={() => seek(state.trial!.start)}>
-                  跳到试用段
-                </button>
-                <button type="button" className="btn primary" disabled={state.busy}
-                  onClick={() => void requestStartScreenText(false)}>
-                  采用并全跑
-                </button>
-                {state.trial.tracks.length > 0 && (
-                  <button type="button" className="btn" onClick={() => applyTrialPreview()}>
-                    仅写入这段
-                  </button>
-                )}
-                <button type="button" className="btn" onClick={discardTrialPreview}>
-                  丢弃
-                </button>
+                <button type="button" className="btn" onClick={undoTrial}>撤销</button>
               </div>
             </div>
           </SideSection>
         )}
 
-        {/* 已有手动修改的 ocr* 轨：重新识别前先问策略 */}
-        {state.editedPrompt && (
-          <SideSection title="已有手动修改的文字识别轨">
-            <div className="st-warn-card">
-              <p className="st-hint">
-                检测到现有文字识别轨已被手动修改。重新识别时要如何处理已改过的轨道？
-              </p>
-              <div className="st-actions vertical">
-                <button type="button" className="btn primary" disabled={state.busy}
-                  onClick={() => void startScreenText(false, "replace")}>
-                  替换现有文字识别轨
-                </button>
-                <button type="button" className="btn" disabled={state.busy}
-                  onClick={() => void startScreenText(false, "keep")}>
-                  保留已改过的为普通轨，再追加新结果
-                </button>
-                <button type="button" className="btn"
-                  onClick={() => screenTextStore.set({ editedPrompt: false })}>
-                  取消
-                </button>
-              </div>
-            </div>
-          </SideSection>
-        )}
 
         {/* 引擎就绪状态 */}
         <div className="st-hw-bar">
@@ -645,7 +601,7 @@ export function SideScreenTextPanel() {
             </button>
             <button type="button" className="btn wide"
               disabled={state.busy || blocked}
-              title="从当前播放头起识别 1 分钟，仅临时预览，不改动文档"
+              title="从当前播放头起识别 1 分钟，结果直接写进轨道，可撤销"
               onClick={() => void requestStartScreenText(true)}>
               从当前位置试 1 分钟
             </button>

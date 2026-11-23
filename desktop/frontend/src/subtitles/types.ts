@@ -81,6 +81,8 @@ export interface SegmentCover {
   box: CoverBox;
   /** plate colour `#rrggbb`; null/omitted = no plate drawn, but the box is still erased */
   fill?: string | null;
+  /** the background sampled around the original text: the colour a plate gets when switched on */
+  bg?: string;
 }
 
 /** Where an auto-generated track came from (e.g. a screen-text OCR run) */

@@ -3,6 +3,7 @@ import { shallowEqual } from '../../home/lib/createStore';
 import { DEFAULT_EFFECT_TRACK_ID } from '../../subtitles/effects';
 import { CustomSelect } from '../../components/CustomSelect';
 import { toggleFind } from '../lib/find';
+import { laneLangsOf } from '../lib/screenTextDoc';
 import { docStore, laneNames, trackName } from '../store/docStore';
 import { findStore } from '../store/findStore';
 import { curSegs, selStore, setActiveTrack } from '../store/selectionStore';
@@ -82,15 +83,18 @@ function SideStylePanel() {
   }, [curTrack]);
 
   const names = laneNames();
+  // 文字识别轨只有译文一行：没有原文可切
+  const langs = laneLangsOf(curTrack < 0 ? null : docStore.get().tracks[curTrack]);
+  const shown = langs.includes(lang) ? lang : langs[0];
   return <div className="side-page side-style-page">
     <div className="side-head">
       <TrackSelect />
-      <div className="side-segmented" role="group" aria-label="样式语言轴">
-        <button type="button" className={lang === "ja" ? "on" : ""} onClick={() => pickLang("ja")}>{names.ja}</button>
-        <button type="button" className={lang === "zh" ? "on" : ""} onClick={() => pickLang("zh")}>{names.zh}</button>
-      </div>
+      {langs.length > 1 && <div className="side-segmented" role="group" aria-label="样式语言轴">
+        {langs.map(item => <button key={item} type="button" className={shown === item ? "on" : ""}
+          onClick={() => pickLang(item)}>{names[item]}</button>)}
+      </div>}
     </div>
-    <div className="side-panel"><StyleBar lane={laneRef(curTrack, lang)} /></div>
+    <div className="side-panel"><StyleBar lane={laneRef(curTrack, shown)} /></div>
   </div>;
 }
 

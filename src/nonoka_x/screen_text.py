@@ -27,7 +27,6 @@ import json
 import re
 import statistics
 import time
-from collections import Counter
 from collections.abc import Callable, Iterable, Mapping
 from pathlib import Path
 from typing import Any
@@ -363,30 +362,15 @@ def translate(document: dict[str, Any], speech: list[Mapping[str, Any]], complet
         _log(f"翻译第 {batch_idx}/{batches} 批完成（{done}/{total} 条，耗时 {elapsed:.1f}s）")
 
 
-# --- tracks & per-position styles ----------------------------------------------------------------------------
+# --- tracks & the style ----------------------------------------------------------------------------------
 
 ASS_STYLE_FORMAT = (
     "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, "
     "Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, "
     "Shadow, Alignment, MarginL, MarginR, MarginV, Encoding"
 )
-_ZONE_LABELS = {
-    (0, 0): "左上", (1, 0): "上方", (2, 0): "右上",
-    (0, 1): "左侧", (1, 1): "居中", (2, 1): "右侧",
-    (0, 2): "左下", (1, 2): "下方", (2, 2): "右下",
-}
-_DEFAULT_PLAY_RES = (1920, 1080)
-#: Ink height of a CJK glyph in 思源黑体 Heavy as a share of its ASS Fontsize (libass sizes asc+desc)
-_STYLE_INK = 0.666
-
-
-def _zone_of(box: Iterable[float]) -> str:
-    x0, y0, x1, y1 = (float(v) for v in list(box)[:4])
-    cx = (x0 + x1) / 2.0
-    cy = (y0 + y1) / 2.0
-    hx = 0 if cx < 0.35 else (2 if cx > 0.65 else 1)
-    vy = 0 if cy < 0.35 else (2 if cy > 0.65 else 1)
-    return _ZONE_LABELS[(hx, vy)]
+#: Consecutive cues of one track may overlap this much (OCR timing jitter): the earlier one is trimmed.
+TRACK_OVERLAP_SLACK = 0.15
 
 
 def _style_line(name: str, *, fontsize: int = 54, an: int = 5, ml: int = 12, mr: int = 12, mv: int = 12) -> str:
@@ -396,91 +380,37 @@ def _style_line(name: str, *, fontsize: int = 54, an: int = 5, ml: int = 12, mr:
     )
 
 
-def _position_groups(document: Mapping[str, Any], *,
-                     play_res: tuple[int, int] = _DEFAULT_PLAY_RES) -> tuple[dict[tuple[str, str], str], list[str], dict[str, float]]:
-    """Group non-skipped cues by (region, screen zone) into per-position styles.
+def track_style_name(number: int) -> str:
+    """The style of screen-text track `number` (1-based): `文字识别`, `文字识别 2`, ... like the tracks' names."""
 
-    Returns (group_key -> style_name, ASS Style lines, style_name -> representative fs fraction).
+    return STYLE_NAME if number == 1 else f"{STYLE_NAME} {number}"
+
+
+def styles_from(document: Mapping[str, Any]) -> str:
+    """ASS `[V4+ Styles]` block with one style of its own for each screen-text track.
+
+    Where each text sits and how big it is belongs to the segment (`pos`), so a track's style says
+    how that track's text looks: names can be restyled apart from lines, say, in the style panel.
     """
 
-    skipped = {str(region["id"]) for region in document.get("regions") or () if region.get("skip")}
-    region_order = {str(region["id"]): idx for idx, region in enumerate(document.get("regions") or ())}
-    grouped: dict[tuple[str, str], list[Mapping[str, Any]]] = {}
-    for cue in document.get("cues") or ():
-        region_id = str(cue.get("region") or "")
-        if region_id in skipped:
-            continue
-        zone = _zone_of(cue["box"])
-        grouped.setdefault((region_id, zone), []).append(cue)
-    if not grouped:
-        return {}, [], {}
-
-    ordered_keys = sorted(
-        grouped.keys(),
-        key=lambda key: (region_order.get(key[0], 10**9), min(float(c["t0"]) for c in grouped[key])),
-    )
-    res_x, res_y = play_res
-    single = len(ordered_keys) == 1
-    zone_counts: dict[str, int] = {}
-    key_to_style: dict[tuple[str, str], str] = {}
-    style_lines: list[str] = []
-    style_fs: dict[str, float] = {}
-
-    for key in ordered_keys:
-        _, zone = key
-        cues = grouped[key]
-        if single:
-            name = STYLE_NAME
-        else:
-            zone_counts[zone] = zone_counts.get(zone, 0) + 1
-            count = zone_counts[zone]
-            name = f"{STYLE_NAME}-{zone}" if count == 1 else f"{STYLE_NAME}-{zone} {count}"
-        key_to_style[key] = name
-
-        ans = [int(c.get("an") or 8) for c in cues]
-        an = Counter(ans).most_common(1)[0][0]
-        fs_values = [float(c.get("fs") or 0.0) for c in cues if float(c.get("fs") or 0.0) > 0]
-        median_fs = statistics.median(fs_values) if fs_values else (54.0 / res_y)
-        # fs is the glyph height; the style's 思源黑体 Heavy inks only _STYLE_INK of its Fontsize
-        fontsize = max(20, min(200, int(round(median_fs * res_y / _STYLE_INK))))
-        style_fs[name] = fontsize / float(res_y)
-
-        x0 = min(float(c["box"][0]) for c in cues)
-        y0 = min(float(c["box"][1]) for c in cues)
-        x1 = max(float(c["box"][2]) for c in cues)
-        y1 = max(float(c["box"][3]) for c in cues)
-        ml = max(12, min(res_x - 40, int(round(x0 * res_x))))
-        mr = max(12, min(res_x - 40, int(round((1.0 - x1) * res_x))))
-        if an in (7, 8, 9):
-            mv = max(12, int(round(y0 * res_y)))
-        elif an in (1, 2, 3):
-            mv = max(12, int(round((1.0 - y1) * res_y)))
-        else:
-            mv = 12
-        style_lines.append(_style_line(name, fontsize=fontsize, an=an, ml=ml, mr=mr, mv=mv))
-
-    if not single:
-        # Always include the base track style first so the track's default binding resolves cleanly.
-        style_lines.insert(0, _style_line(STYLE_NAME))
-    return key_to_style, style_lines, style_fs
-
-
-def styles_from(document: Mapping[str, Any], *, play_res: tuple[int, int] = _DEFAULT_PLAY_RES) -> str:
-    """ASS `[V4+ Styles]` block holding the base style and one style per distinct screen position."""
-
-    _, lines, _ = _position_groups(document, play_res=play_res)
-    if not lines:
+    names = [track["zh"]["style"] for track in tracks_from(document)]
+    if not names:
         return ""
-    return "[V4+ Styles]\n" + ASS_STYLE_FORMAT + "\n" + "\n".join(lines) + "\n"
+    return "[V4+ Styles]\n" + ASS_STYLE_FORMAT + "\n" + "\n".join(_style_line(name) for name in names) + "\n"
 
 
 def merge_missing_styles(existing: str, incoming: str) -> str:
-    """Append styles from `incoming` whose names are not yet defined in `existing` (never overwrite user styles)."""
+    """Append styles from `incoming` whose names are not yet defined in `existing` (never overwrite user styles).
+
+    A new track's style (`文字识别 3`) starts as a copy of the document's `文字识别` when there is one,
+    so a look the user already gave the screen text carries over to the tracks a later run adds.
+    """
 
     if not incoming or not incoming.strip():
         return existing or ""
     existing_text = existing or ""
     existing_names: set[str] = set()
+    base_fields: str | None = None
     for raw in existing_text.splitlines():
         line = raw.strip()
         if line.lower().startswith("style:"):
@@ -489,6 +419,8 @@ def merge_missing_styles(existing: str, incoming: str) -> str:
                 name = parts[0].strip()
                 if name:
                     existing_names.add(name)
+                if name == STYLE_NAME:
+                    base_fields = ",".join(parts[1:])
     to_add: list[str] = []
     for raw in incoming.splitlines():
         line = raw.strip()
@@ -498,6 +430,8 @@ def merge_missing_styles(existing: str, incoming: str) -> str:
         name = parts[0].strip() if parts else ""
         if name and name not in existing_names:
             existing_names.add(name)
+            if base_fields is not None and name.startswith(f"{STYLE_NAME} "):
+                line = f"Style: {name},{base_fields}"
             to_add.append(line)
     if not to_add:
         return existing_text
@@ -543,18 +477,27 @@ def _pos(cue: Mapping[str, Any]) -> dict[str, Any]:
     return out
 
 
-def segment_of(cue: Mapping[str, Any], *, cover: str, style_name: str | None = None) -> dict[str, Any]:
-    seg: dict[str, Any] = {
+def segment_of(cue: Mapping[str, Any], *, cover: str, translated: bool = True) -> dict[str, Any]:
+    source = "\n".join(str(line["text"]) for line in cue["lines"])
+    return {
         "t0": float(cue["t0"]),
         "t1": max(float(cue["t1"]), float(cue["t0"]) + 0.04),
-        "ja": "\n".join(str(line["text"]) for line in cue["lines"]),
-        "zh": str(cue.get("zh") or ""),
+        "ja": source,
+        # The track shows only this lane: an untranslated run puts what was read here
+        "zh": str(cue.get("zh") or "") if translated else source,
         "pos": _pos(cue),
-        "cover": {"box": [float(v) for v in cue["box"]], "fill": cue.get("fill") if cover == "plate" else None},
+        "cover": _cover(cue, cover),
     }
-    if style_name and style_name != STYLE_NAME:
-        seg["style"] = {"ja": style_name, "zh": style_name}
-    return seg
+
+
+def _cover(cue: Mapping[str, Any], cover: str) -> dict[str, Any]:
+    """The original text's box, its plate colour when plates are on, and the sampled background
+    (`bg`) either way: the colour a plate gets when the user switches it on later."""
+
+    out: dict[str, Any] = {"box": [float(v) for v in cue["box"]], "fill": cue.get("fill") if cover == "plate" else None}
+    if cue.get("fill"):
+        out["bg"] = cue["fill"]
+    return out
 
 
 def _round(value: Any, places: int) -> float:
@@ -583,45 +526,69 @@ def segments_hash(segments: Iterable[Mapping[str, Any]]) -> str:
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
+def _layers(cues: list[Mapping[str, Any]]) -> list[list[Mapping[str, Any]]]:
+    """Cues dealt onto as few tracks as keep every track free of overlaps.
+
+    Texts on screen at once (a name over its line, a menu's items) go to tracks of their own. A free
+    track whose last cue came from the same region is preferred, so one place on screen tends to
+    stay on one track. Overlaps up to TRACK_OVERLAP_SLACK are timing jitter, not two texts at once.
+    """
+
+    layers: list[list[Mapping[str, Any]]] = []
+    for cue in sorted(cues, key=lambda item: (float(item["t0"]), float(item["t1"]))):
+        t0 = float(cue["t0"])
+        free = [layer for layer in layers if float(layer[-1]["t1"]) <= t0 + TRACK_OVERLAP_SLACK]
+        region = str(cue.get("region") or "")
+        pick = next((layer for layer in free if str(layer[-1].get("region") or "") == region),
+                    free[0] if free else None)
+        if pick is None:
+            layers.append([cue])
+        else:
+            pick.append(cue)
+    return layers
+
+
 def tracks_from(document: Mapping[str, Any], *, task_id: str = "") -> list[dict[str, Any]]:
-    """All recognized on-screen text on one single track, with distinct per-position styles when positions differ."""
+    """The recognized on-screen text as tracks `ocr`, `ocr2`, ...: one more for each text shown at once.
+
+    Only a track's translation lane is used; the text as read stays in `ja` for reference.
+    """
 
     options = document.get("options") or {}
     cover = str(options.get("cover") or "none")
-    translated = options.get("translate") == "zh"
+    translated = options.get("translate") != "none"
     skipped = {str(region["id"]) for region in document.get("regions") or () if region.get("skip")}
-    key_to_style, _, _ = _position_groups(document)
     cues = [
         cue for cue in (document.get("cues") or ())
         if str(cue.get("region") or "") not in skipped
         # translated, yet empty: the model read it as noise
-        and not (translated and "zh" in cue and not str(cue.get("zh") or "").strip())
+        and not (options.get("translate") == "zh" and "zh" in cue and not str(cue.get("zh") or "").strip())
     ]
-    if not cues:
-        return []
-    cues.sort(key=lambda item: (float(item["t0"]), float(item["t1"])))
-    segments: list[dict[str, Any]] = []
-    for cue in cues:
-        key = (str(cue.get("region") or ""), _zone_of(cue["box"]))
-        style_name = key_to_style.get(key, STYLE_NAME)
-        segments.append(segment_of(cue, cover=cover, style_name=style_name))
-    return [{
-        "id": TRACK_PREFIX,
-        "name": STYLE_NAME,
-        # Untranslated runs show what was read; translated ones show the translation over it
-        "ja": {"hidden": options.get("translate") != "none", "style": STYLE_NAME},
-        "zh": {"hidden": options.get("translate") == "none", "style": STYLE_NAME},
-        "hja": 44,
-        "hzh": 44,
-        "segs": segments,
-        "source": {
-            "kind": SOURCE_KIND,
-            "task": task_id,
-            "region": "all",
-            "label": "screen-text",
-            "hash": segments_hash(segments),
-        },
-    }]
+    tracks: list[dict[str, Any]] = []
+    for index, layer in enumerate(_layers(cues)):
+        segments = [segment_of(cue, cover=cover, translated=translated) for cue in layer]
+        for before, after in zip(segments, segments[1:]):
+            before["t1"] = max(before["t0"] + 0.04, min(before["t1"], after["t0"]))
+        number = index + 1
+        style = track_style_name(number)
+        tracks.append({
+            "id": TRACK_PREFIX if number == 1 else f"{TRACK_PREFIX}{number}",
+            "name": style,
+            # each track its own style, so one kind of text (names, lines, menus) is restyled alone
+            "ja": {"hidden": True, "style": style},
+            "zh": {"hidden": False, "style": style},
+            "hja": 44,
+            "hzh": 44,
+            "segs": segments,
+            "source": {
+                "kind": SOURCE_KIND,
+                "task": task_id,
+                "region": "all",
+                "label": "screen-text",
+                "hash": segments_hash(segments),
+            },
+        })
+    return tracks
 
 
 def edited(track: Mapping[str, Any]) -> bool:
@@ -635,5 +602,5 @@ __all__ = [
     "ASS_STYLE_FORMAT", "CLEANED_VIDEO_FILENAME", "INPAINT_PRESETS", "INPAINT_TARGET", "ON_EDITED", "SOURCE_KIND",
     "STYLE_NAME", "TARGET", "TRACK_PREFIX", "ScreenTextError", "batch_messages", "edited", "merge_missing_styles",
     "parse_answer", "run", "run_inpaint", "segment_of", "segments_hash", "speech_lines", "styles_from",
-    "tracks_from", "translate", "validate_inpaint_options", "validate_options",
+    "track_style_name", "tracks_from", "translate", "validate_inpaint_options", "validate_options",
 ]

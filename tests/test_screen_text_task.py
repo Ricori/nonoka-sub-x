@@ -101,52 +101,61 @@ class TranslationTests(unittest.TestCase):
 
 
 class TrackTests(unittest.TestCase):
-    def test_single_track_holds_all_cues_including_overlaps(self) -> None:
+    def test_texts_shown_at_once_go_to_tracks_of_their_own(self) -> None:
         document = ocr_document()
         for cue in document["cues"]:
             cue.setdefault("zh", "译")
         tracks = screen_text.tracks_from(document, task_id="t1")
-        self.assertEqual([track["id"] for track in tracks], ["ocr"])
-        self.assertEqual([len(track["segs"]) for track in tracks], [3])
+        # a (1–3) and b (2–4) overlap; c (5–6) fits after a again on the first track
+        self.assertEqual([track["id"] for track in tracks], ["ocr", "ocr2"])
+        self.assertEqual([track["name"] for track in tracks], [screen_text.STYLE_NAME, f"{screen_text.STYLE_NAME} 2"])
+        self.assertEqual([[seg["ja"] for seg in track["segs"]] for track in tracks],
+                         [["限定ガチャ", "ありがとう"], ["本日まで"]])
         first = tracks[0]
-        self.assertEqual(first["name"], screen_text.STYLE_NAME)
         self.assertTrue(first["ja"]["hidden"])
+        self.assertFalse(first["zh"]["hidden"])
         self.assertEqual(first["zh"]["style"], screen_text.STYLE_NAME)
         self.assertEqual(first["source"]["kind"], "screen-text")
+        self.assertEqual(first["source"]["hash"], screen_text.segments_hash(first["segs"]))
         seg = first["segs"][0]
         # one line: anchored mid-box on the same side
         self.assertEqual(seg["pos"], {"x": 0.9, "y": 0.125, "an": 6, "w": 0.2, "fs": 0.05})
-        self.assertEqual(seg["cover"], {"box": [0.7, 0.1, 0.9, 0.15], "fill": "#102030"})
-        # Single position group uses the base style without per-segment override
-        self.assertNotIn("style", seg)
+        self.assertEqual(seg["cover"], {"box": [0.7, 0.1, 0.9, 0.15], "fill": "#102030", "bg": "#102030"})
+        self.assertNotIn("style", seg, "every screen-text line uses the track's one style")
 
-    def test_different_positions_stay_on_one_track_with_distinct_styles(self) -> None:
+    def test_a_free_track_of_the_same_region_is_preferred_and_jitter_is_trimmed(self) -> None:
+        def cue(cid: str, region: str, t0: float, t1: float) -> dict:
+            return {"id": cid, "region": region, "t0": t0, "t1": t1, "zh": cid,
+                    "lines": [{"text": cid, "box": [0.1, 0.1, 0.2, 0.15], "conf": 0.9}],
+                    "box": [0.1, 0.1, 0.2, 0.15], "an": 8, "fs": 0.05, "fill": None}
+
+        document = {"regions": [], "options": {"translate": "zh"}, "cues": [
+            cue("name", "rA", 0.0, 4.0), cue("line1", "rB", 0.0, 2.05), cue("line2", "rB", 2.0, 4.0),
+            cue("line3", "rB", 4.0, 6.0), cue("name2", "rA", 4.0, 6.0),
+        ]}
+        tracks = screen_text.tracks_from(document)
+        self.assertEqual([[seg["zh"] for seg in track["segs"]] for track in tracks],
+                         [["line1", "line2", "line3"], ["name", "name2"]])
+        self.assertEqual(tracks[0]["segs"][0]["t1"], 2.0, "a 0.05 s overlap is jitter, trimmed")
+
+    def test_each_track_has_a_style_of_its_own(self) -> None:
         document = ocr_document()
-        document["regions"].append(
-            {"id": "r02", "label": "misc", "name": "画面·文字识别", "box": [0.05, 0.78, 0.35, 0.9], "skip": False},
-        )
-        document["cues"].append(
-            {"id": "e", "region": "r02", "t0": 1.5, "t1": 3.5, "lines": [{"text": "左下角", "box": [0.05, 0.8, 0.3, 0.88], "conf": 0.95}],
-             "box": [0.05, 0.8, 0.3, 0.88], "an": 7, "fs": 0.04, "fill": "#000000", "zh": "左下角"},
-        )
-        tracks = screen_text.tracks_from(document, task_id="t2")
-        self.assertEqual([track["id"] for track in tracks], ["ocr"])
-        self.assertEqual(len(tracks[0]["segs"]), 4)
-        styles_by_ja = {seg["ja"]: seg.get("style", {}).get("zh") for seg in tracks[0]["segs"]}
-        self.assertEqual(styles_by_ja["限定ガチャ"], f"{screen_text.STYLE_NAME}-右上")
-        self.assertEqual(styles_by_ja["左下角"], f"{screen_text.STYLE_NAME}-左下")
-
+        tracks = screen_text.tracks_from(document)
+        name = screen_text.STYLE_NAME
+        self.assertEqual([(track["zh"]["style"], track["ja"]["style"]) for track in tracks],
+                         [(name, name), (f"{name} 2", f"{name} 2")])
         styles_text = screen_text.styles_from(document)
-        self.assertIn(f"Style: {screen_text.STYLE_NAME},", styles_text)
-        self.assertIn(f"Style: {screen_text.STYLE_NAME}-右上,", styles_text)
-        self.assertIn(f"Style: {screen_text.STYLE_NAME}-左下,", styles_text)
+        self.assertEqual([line.split(",")[0] for line in styles_text.splitlines() if line.startswith("Style:")],
+                         [f"Style: {name}", f"Style: {name} 2"])
+        self.assertEqual(screen_text.styles_from({"cues": []}), "")
 
-        # Merging never overwrites an existing user-customized style
-        custom = f"[V4+ Styles]\n{screen_text.ASS_STYLE_FORMAT}\nStyle: {screen_text.STYLE_NAME}-右上,微软雅黑,88,&H0000FFFF,&H000000FF,&H00000000,&H00000000,1,0,0,0,100,100,0,0,1,2,0,9,12,12,12,1\n"
-        merged = screen_text.merge_missing_styles(custom, styles_text)
-        self.assertIn("微软雅黑,88", merged)
-        self.assertIn(f"Style: {screen_text.STYLE_NAME}-左下,", merged)
-        self.assertEqual(merged.count(f"Style: {screen_text.STYLE_NAME}-右上,"), 1)
+    def test_merging_keeps_user_styles_and_new_track_styles_copy_the_base(self) -> None:
+        name = screen_text.STYLE_NAME
+        custom_fields = "微软雅黑,88,&H0000FFFF,&H000000FF,&H00000000,&H00000000,1,0,0,0,100,100,0,0,1,2,0,9,12,12,12,1"
+        custom = f"[V4+ Styles]\n{screen_text.ASS_STYLE_FORMAT}\nStyle: {name},{custom_fields}\n"
+        merged = screen_text.merge_missing_styles(custom, screen_text.styles_from(ocr_document()))
+        self.assertTrue(merged.startswith(custom), "the user's 文字识别 is never overwritten")
+        self.assertIn(f"Style: {name} 2,{custom_fields}", merged, "a new track's style starts as their look")
 
     def test_stacked_lines_carry_the_original_pitch(self) -> None:
         document = ocr_document()
@@ -176,14 +185,15 @@ class TrackTests(unittest.TestCase):
         document = ocr_document()
         document["options"]["translate"] = "none"
         track = screen_text.tracks_from(document)[0]
-        self.assertFalse(track["ja"]["hidden"])
-        self.assertTrue(track["zh"]["hidden"])
+        self.assertTrue(track["ja"]["hidden"])
+        self.assertFalse(track["zh"]["hidden"])
+        self.assertEqual(track["segs"][0]["zh"], "限定ガチャ", "the one lane shows what was read")
 
     def test_no_plate_keeps_the_box_for_erasing(self) -> None:
         document = ocr_document()
         document["options"]["cover"] = "none"
         seg = screen_text.tracks_from(document)[0]["segs"][0]
-        self.assertEqual(seg["cover"], {"box": [0.7, 0.1, 0.9, 0.15], "fill": None})
+        self.assertEqual(seg["cover"], {"box": [0.7, 0.1, 0.9, 0.15], "fill": None, "bg": "#102030"})
 
     def test_an_edit_is_seen_and_a_round_trip_is_not(self) -> None:
         track = screen_text.tracks_from(ocr_document())[0]
@@ -212,7 +222,7 @@ class DocumentTests(unittest.TestCase):
         self.store.create("v1", self.document(), artifacts={"artifacts": {"transcript_json": {}}})
         tracks = screen_text.tracks_from(ocr_document())
         updated = self.store.replace_generated_tracks("v1", "ocr", tracks)
-        self.assertEqual([t["id"] for t in updated["tracks"]], ["t1", "diar1", "ocr"])
+        self.assertEqual([t["id"] for t in updated["tracks"]], ["t1", "diar1", "ocr", "ocr2"])
         self.assertEqual(updated["subtitles"], self.document()["subtitles"])
         self.assertEqual((updated["effects"], updated["styles"]), ([{"x": 1}], "[V4+ Styles]"))
         self.assertEqual(updated["rev"], 1)
@@ -220,7 +230,7 @@ class DocumentTests(unittest.TestCase):
         self.assertEqual(artifacts, {"artifacts": {"transcript_json": {}}}, "the cloud's view is untouched")
 
         again = self.store.replace_generated_tracks("v1", "ocr", tracks)
-        self.assertEqual([t["id"] for t in again["tracks"]], ["t1", "diar1", "ocr"], "a re-run replaces them")
+        self.assertEqual([t["id"] for t in again["tracks"]], ["t1", "diar1", "ocr", "ocr2"], "a re-run replaces them")
 
     def test_edited_tracks_are_kept_as_the_users_when_asked(self) -> None:
         self.store.create("v1", self.document())
@@ -230,14 +240,14 @@ class DocumentTests(unittest.TestCase):
         self.store.save("v1", expected_rev=current["rev"], subtitles=current["subtitles"], tracks=current["tracks"])
         updated = self.store.replace_generated_tracks("v1", "ocr", tracks, keep=screen_text.edited)
         ids = [t["id"] for t in updated["tracks"]]
-        self.assertEqual(ids, ["t1", "diar1", "tocr", "ocr"])
+        self.assertEqual(ids, ["t1", "diar1", "tocr", "ocr", "ocr2"])
         self.assertNotIn("source", updated["tracks"][2])
 
     def test_a_video_without_a_document_gets_one(self) -> None:
         updated = self.store.replace_generated_tracks("v2", "ocr", screen_text.tracks_from(ocr_document()),
                                                       skeleton={"schema": 1, "subtitles": [], "tracks": []})
         self.assertEqual(updated["subtitles"], [])
-        self.assertEqual(len(updated["tracks"]), 1)
+        self.assertEqual(len(updated["tracks"]), 2)
 
     def test_a_later_transcription_keeps_them(self) -> None:
         from nonoka_x.axis import GENERATED_TRACK_PREFIXES
@@ -246,7 +256,7 @@ class DocumentTests(unittest.TestCase):
         self.store.replace_generated_tracks("v1", "ocr", screen_text.tracks_from(ocr_document()))
         projected = self.store.create("v1", {"schema": 1, "subtitles": [], "tracks": [{"id": "diar1", "segs": []}]},
                                       replace_default=True, generated_track_prefixes=GENERATED_TRACK_PREFIXES)
-        self.assertEqual([t["id"] for t in projected["tracks"]], ["t1", "ocr", "diar1"])
+        self.assertEqual([t["id"] for t in projected["tracks"]], ["t1", "ocr", "ocr2", "diar1"])
 
 
 FAKE_WORKER = textwrap.dedent('''
@@ -312,7 +322,7 @@ class ProviderTests(unittest.TestCase):
         done = wait(self.provider, task["task_id"], {"completed", "failed"})
         self.assertEqual(done["state"], "completed", done.get("error"))
         document = self.provider.document("vid")
-        self.assertEqual([t["id"] for t in document["tracks"]], ["t1", "ocr"])
+        self.assertEqual([t["id"] for t in document["tracks"]], ["t1", "ocr", "ocr2"])
         self.assertIn(f"Style: {screen_text.STYLE_NAME},", document.get("styles", ""))
         self.assertEqual(document["subtitles"], [{"t0": 1, "t1": 2, "ja": "あ", "zh": "啊"}])
         seen = json.loads((self.provider._task_dir(task["task_id"]) / "seen-request.json").read_text(encoding="utf-8"))
@@ -320,7 +330,7 @@ class ProviderTests(unittest.TestCase):
         completed = [event for event in self.provider.events(task["task_id"])["events"] if event["type"] == "completed"]
         self.assertEqual(completed[-1]["payload"]["document_rev"], document["rev"])
         preview = self.provider.screen_text_result(task["task_id"])
-        self.assertEqual([t["id"] for t in preview["tracks"]], ["ocr"])
+        self.assertEqual([t["id"] for t in preview["tracks"]], ["ocr", "ocr2"])
         self.assertIn(f"Style: {screen_text.STYLE_NAME},", preview["styles"])
 
     def test_a_trial_appends_nothing(self) -> None:
@@ -328,7 +338,7 @@ class ProviderTests(unittest.TestCase):
         task = self.provider.start(self.request(trial=True))
         self.assertEqual(wait(self.provider, task["task_id"], {"completed", "failed"})["state"], "completed")
         self.assertEqual(self.provider.document("vid")["tracks"], [])
-        self.assertEqual(len(self.provider.screen_text_result(task["task_id"])["tracks"]), 1)
+        self.assertEqual(len(self.provider.screen_text_result(task["task_id"])["tracks"]), 2)
 
     def test_one_screen_text_task_at_a_time(self) -> None:
         busy = self.provider._task_dir("beef")

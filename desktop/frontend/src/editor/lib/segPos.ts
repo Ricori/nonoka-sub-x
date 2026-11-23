@@ -1,6 +1,8 @@
-import { bumpDoc } from '../store/docStore';
+import { DEFAULT_EFFECT_TRACK_ID } from '../../subtitles/effects';
+import { bumpDoc, docStore } from '../store/docStore';
 import { markDirty } from '../store/saveStore';
 import { pushHistory } from './history';
+import { stylesInUse } from './styleEdit';
 import { syncSubs } from './subtitles';
 import { DEFAULT_PLATE_FILL, posFromCover } from '../../subtitles/position';
 import type { Seg, SegmentPos } from '../types';
@@ -53,14 +55,56 @@ export function setSegPos(seg: Seg, patch: Partial<SegmentPos>) {
 export function setSegFill(seg: Seg, fill: string | null) {
   if (!seg.cover) return;
   remember(seg);
-  seg.cover.fill = fill;
+  writeFill(seg, fill);
   refreshSegPos();
+}
+
+/** Set the plate colour; switching one off keeps its colour as `bg` so switching it back on restores it */
+function writeFill(seg: Seg, fill: string | null) {
+  const cover = seg.cover!;
+  if (fill === null && typeof cover.fill === "string" && !cover.bg) cover.bg = cover.fill;
+  cover.fill = fill;
 }
 
 export const plateOn = (seg: Seg) => typeof seg.cover?.fill === "string";
 
+/** The colour a plate gets when switched on: the sampled background, else whatever it had, else black */
+const plateColourOf = (seg: Seg) =>
+  seg.cover?.bg ?? (typeof seg.cover?.fill === "string" ? seg.cover.fill : DEFAULT_PLATE_FILL);
+
 export function togglePlate(seg: Seg, on: boolean) {
-  setSegFill(seg, on ? DEFAULT_PLATE_FILL : null);
+  setSegFill(seg, on ? plateColourOf(seg) : null);
+}
+
+/**
+ * What the style panel's 底板 switch acts on: the segments with a cover box drawn in style `name`,
+ * i.e. on the lanes bound to it, minus those carrying an own style other than `name`. With
+ * `only`, just that segment (the panel is editing its own style).
+ */
+export function plateSegsOfStyle(name: string, only?: Seg | null): Seg[] {
+  if (only) return only.cover ? [only] : [];
+  const { segs, tracks } = docStore.get();
+  const out: Seg[] = [];
+  for (const binding of stylesInUse(name)) {
+    const arr = binding.trackId === DEFAULT_EFFECT_TRACK_ID
+      ? segs
+      : tracks.find((track, index) => (track.id || `track-${index + 1}`) === binding.trackId)?.segs ?? [];
+    for (const seg of arr) {
+      const own = seg.style?.[binding.lang];
+      if (seg.cover && (!own || own === name) && !out.includes(seg)) out.push(seg);
+    }
+  }
+  return out;
+}
+
+/** Switch the plates of these segments on or off together, one undo step */
+export function setPlates(segs: readonly Seg[], on: boolean) {
+  const changing = segs.filter(seg => seg.cover && plateOn(seg) !== on);
+  if (!changing.length) return;
+  pushHistory();
+  lastEdit = { seg: null, at: 0 };
+  for (const seg of changing) writeFill(seg, on ? plateColourOf(seg) : null);
+  refreshSegPos();
 }
 
 /** "Back to the original spot": anchor on the cover box again, at its width */

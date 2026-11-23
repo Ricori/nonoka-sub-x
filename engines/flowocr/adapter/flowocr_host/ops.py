@@ -379,11 +379,19 @@ def align_of(boxes: list[list[float]], fallback: str) -> str:
     return ranked[0]
 
 
+#: How far (fraction of the frame) a line may poke out of the drawn ROI and still count as inside it:
+#: the box is drawn by hand and rounded to 0.1%, a line hugging its edge should not fall off.
+ROI_TOLERANCE = 0.004
+
+
 def _inside(box: list[float], roi: list[float] | None) -> bool:
+    """Whether a line lies within the ROI: all of it, not just its middle. Text straddling the
+    box's edge belongs to what the user drew the box to leave out (a menu beside the dialogue)."""
+
     if not roi:
         return True
-    cx, cy = (box[0] + box[2]) / 2, (box[1] + box[3]) / 2
-    return roi[0] <= cx <= roi[2] and roi[1] <= cy <= roi[3]
+    return (box[0] >= roi[0] - ROI_TOLERANCE and box[1] >= roi[1] - ROI_TOLERANCE
+            and box[2] <= roi[2] + ROI_TOLERANCE and box[3] <= roi[3] + ROI_TOLERANCE)
 
 
 def to_ocr_document(doc: Mapping[str, Any], *, video: Mapping[str, Any] | None = None, start: float = 0.0,
@@ -391,7 +399,7 @@ def to_ocr_document(doc: Mapping[str, Any], *, video: Mapping[str, Any] | None =
                     engine: Mapping[str, Any] | None = None) -> dict[str, Any]:
     """A `tracks.json` (FlowOCR's, as `tracksio.load` returns it) as Nonoka's `ocr.json`.
 
-    `roi` ([x0, y0, x1, y1], frame fractions) keeps only the lines centred inside it. FlowOCR's
+    `roi` ([x0, y0, x1, y1], frame fractions) keeps only the lines wholly inside it. FlowOCR's
     classifier calls some real text "noise" (a menu's "Options", a one-off line of dialogue);
     such a region is kept when one of its cues reads as confident words (`_readable`).
     """

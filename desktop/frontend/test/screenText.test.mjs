@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
-  buildAssFrom, buildPlatesAss, cuesOf, fontSizeForFs, fsForFontSize, outputLinesOf, plateBox, plateDialogue,
+  buildAssFrom, buildPlatesAss, cuesOf, fontSizeForFs, outputLinesOf, placedPosOf, plateBox, plateDialogue,
   positionedAssEvents, positionedAssText, positionedCueOf,
 } from "../src/subtitles/build.ts";
 import { inkMetricsOf } from "../src/subtitles/metrics.ts";
@@ -17,7 +17,7 @@ import { buildAss, buildPiecesAss, buildPlates } from "../src/editor/lib/assBuil
 import { mapSegs } from "../src/editor/lib/boot.ts";
 import { mergeNext, splitAtPlayhead } from "../src/editor/lib/edits.ts";
 import { cloneSegs, resetHistory, undo } from "../src/editor/lib/history.ts";
-import { resetSegPos, setSegFill, setSegPos } from "../src/editor/lib/segPos.ts";
+import { plateOn, plateSegsOfStyle, resetSegPos, setPlates, setSegFill, setSegPos } from "../src/editor/lib/segPos.ts";
 import { beginDrag, nudgeSelection } from "../src/editor/lib/stageDrag.ts";
 import { boxForLane, hitTest, laneOfBox, subtitleBoxesAt } from "../src/editor/lib/stageHit.ts";
 import { docStore } from "../src/editor/store/docStore.ts";
@@ -75,11 +75,21 @@ test("a positioned cue is written with \\an, \\pos and \\fs in PlayRes units", (
     + `{\\an5\\pos(384,${n2(midY(243))})\\fs${n2(SIZE)}}你好`);
 });
 
-test("fs is the glyph height: the Fontsize is scaled by the font's ink share, and back", () => {
+test("fs is the glyph height: the Fontsize is scaled by the font's ink share", () => {
   const style = sheet.styleMap.cn;
   assert.ok(Math.abs(fontSizeForFs(0.05, style, sheet) - SIZE) < 1e-9);
-  assert.ok(Math.abs(fsForFontSize(SIZE, style, sheet) - 0.05) < 1e-12);
   assert.ok(SIZE > 54, "a line box is taller than the ink it holds");
+});
+
+test("the style's scale sizes positioned text as a whole, room to fit included", () => {
+  const seg = ocrSeg({ pos: { x: 0.1, y: 0.2, an: 7, w: 0.2, fs: 0.05, lh: 0.07 } });
+  const plain = placedPosOf(seg, sheet.styleMap.cn, sheet);
+  const big = placedPosOf(seg, { ...sheet.styleMap.cn, scx: 150, scy: 150 }, sheet);
+  assert.equal(big.size, plain.size, "Fontsize stays; libass applies ScaleX/ScaleY on top");
+  assert.ok(Math.abs(big.width - plain.width * 1.5) < 1e-9);
+  assert.ok(Math.abs(big.step - plain.step * 1.5) < 1e-9);
+  assert.ok(Math.abs(big.maxHeight - plain.maxHeight * 1.5) < 1e-9);
+  assert.ok(big.y < plain.y, "the ink's top stays on the box top: the bigger line box starts higher");
 });
 
 test("lines at the original's own pitch go out one event each, top-anchored on that pitch", () => {
@@ -370,4 +380,38 @@ test("inspector writes: pos patch, plate colour / off, back to the original spot
   assert.deepEqual(seg.pos, { x: 0.1, y: 0.2, an: 7, w: 0.3 - 0.1, fs: 0.05 });
   assert.ok(buildAss().includes(`\\an7\\pos(192,${n2(216 - INK.top * SIZE)})\\fs${n2(SIZE)}}你好`));
   assert.equal(getStyleSheet().playRes.x, X);
+});
+
+test("the style panel's 底板 switch turns a style's plates on and off together, keeping their colours", () => {
+  const sampled = ocrSeg({ cover: { box: [0.1, 0.2, 0.3, 0.25], fill: null, bg: "#445566" } });
+  const old = ocrSeg({ t0: 4, t1: 5, cover: { box: [0.1, 0.2, 0.3, 0.25], fill: "#112233" } });
+  const own = ocrSeg({ t0: 6, t1: 7, style: { zh: "origin" } });
+  load([], [sampled, old, own]);
+  const segs = plateSegsOfStyle("cn");
+  assert.deepEqual(segs, [sampled, old], "a line on its own style is not this style's");
+  assert.deepEqual(plateSegsOfStyle("cn", own), [own], "with an own style, only that line");
+
+  setPlates(segs, true);
+  assert.equal(sampled.cover.fill, "#445566", "switched on in the colour sampled around the original");
+  setPlates(segs, false);
+  assert.ok(segs.every(seg => !plateOn(seg)));
+  assert.equal(events(buildAss()).filter(line => line.includes("fo-fx|plate")).length, 1,
+    "only the line on its own style keeps its plate");
+  setPlates(segs, true);
+  assert.equal(old.cover.fill, "#112233", "an older line without a sample gets its own colour back, not black");
+  undo();
+  const [first, second] = docStore.get().tracks[0].segs;
+  assert.ok(!plateOn(first) && !plateOn(second), "one switch, one undo step");
+});
+
+test("a drawn plate moves with its translation; the erase mask stays on the original text", () => {
+  // dragged 0.1 right and 0.05 down from where it started (the middle of its cover box)
+  const moved = ocrSeg({ pos: { x: 0.3, y: 0.275, an: 5, w: 0.2, fs: 0.05 } });
+  const drawn = events(buildAssFrom(source([moved]), sheet)).find(line => line.includes("fo-fx|plate"));
+  // the PLATE box [181.2,205.2] shifted by (192, 54) px
+  assert.ok(drawn.includes("\pos(373.20,259.20)"), drawn);
+  assert.ok(drawn.includes("m 0 0 l 405.60 0 405.60 75.60 0 75.60"), "same size, only moved");
+  const mask = events(buildPlatesAss(source([moved]), sheet));
+  assert.deepEqual(mask, [PLATE], "LaMa still erases where the original text is");
+  assert.deepEqual(plateBox(ocrSeg(), sheet, true), plateBox(ocrSeg(), sheet), "not dragged: nothing moves");
 });

@@ -27,7 +27,7 @@ export interface Options {
     "translate": string;
 
     /**
-     * Cover is "plate" (an opaque plate over the original text) or "none".
+     * Cover is "plate" (an opaque plate over the original text, the default) or "none".
      */
     "cover": string;
 
