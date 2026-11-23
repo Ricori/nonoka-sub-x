@@ -128,12 +128,7 @@ export function StageOverlay({ stageRef }: { stageRef: React.RefObject<HTMLDivEl
   // 播放中不摆位置：框藏起来，也省掉每帧重算命中盒。
   // 播放头停在这条 lane 没字的空隙里也不画框——选中保留，走回有字的地方框再出来
   const box = sel && !playing ? boxForLane(sel) : null;
-  const showRoi = sideTab === "screen-text" && roi;
-  if (!box?.seg) {
-    return <div className="stage-edit" aria-hidden={!showRoi}>
-      {showRoi && <RoiBox rect={roi} />}
-    </div>;
-  }
+  if (!box?.seg) return <div className="stage-edit" aria-hidden="true" />;
 
   const { x: X, y: Y } = getPlayRes();
   const style = getStyleSheet().styleMap[box.styleName];
@@ -151,7 +146,6 @@ export function StageOverlay({ stageRef }: { stageRef: React.RefObject<HTMLDivEl
 
   return (
     <div className="stage-edit">
-      {showRoi && <RoiBox rect={roi} />}
       {guides.x.map(x => <i key={"x" + x} className="stage-guide v" style={{ left: pct(x, X) }} />)}
       {guides.y.map(y => <i key={"y" + y} className="stage-guide h" style={{ top: pct(y, Y) }} />)}
 

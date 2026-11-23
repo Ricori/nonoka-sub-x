@@ -1711,7 +1711,7 @@ class LocalProvider:
         if request.get("target") != SCREEN_TEXT_TARGET:
             return None
 
-        from .screen_text import TRACK_PREFIX, edited, tracks_from
+        from .screen_text import TRACK_PREFIX, edited, styles_from, tracks_from
 
         options = request.get("screen_text") or {}
         if options.get("trial"):
@@ -1723,18 +1723,20 @@ class LocalProvider:
         path = Path(url2pathname(parsed.path))
         result = json.loads(path.read_text(encoding="utf-8"))
         tracks = tracks_from(result, task_id=task_id)
+        extra_styles = styles_from(result)
         video_id = str(request["source"]["video_id"])
         keep = edited if options.get("on_edited") == "keep" else None
         document = self.documents.replace_generated_tracks(
             video_id, TRACK_PREFIX, tracks, keep=keep,
             skeleton=_screen_text_skeleton(request.get("source") or {}),
+            extra_styles=extra_styles,
         )
         return {"document_rev": int(document.get("rev", 0)), "video_id": video_id, "tracks": len(tracks)}
 
     def screen_text_result(self, task_id: str) -> dict[str, Any]:
         """A finished screen-text task's tracks as they would be appended (the trial's preview)."""
 
-        from .screen_text import tracks_from
+        from .screen_text import styles_from, tracks_from
 
         if not _safe_component(task_id):
             raise ProviderError("invalid_request", "Invalid task id")
@@ -1749,7 +1751,7 @@ class LocalProvider:
         except (OSError, ValueError) as error:
             raise ProviderError("screen_text_failed", "文字识别没有产物", http_status=404) from error
         return {"schema": 1, "task_id": task_id, "tracks": tracks_from(result, task_id=task_id),
-                "range": result.get("range") or {}}
+                "styles": styles_from(result), "range": result.get("range") or {}}
 
     def _gametext_dir(self) -> Path:
         return self._paths().engine("flowocr") / "gametext"

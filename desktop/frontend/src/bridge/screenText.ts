@@ -3,7 +3,7 @@ import * as ScreenTextService from "../../bindings/github.com/Ricori/nonoka-x/de
 import type { Options as ScreenTextOptions } from "../../bindings/github.com/Ricori/nonoka-x/desktop/internal/screentext/models.js";
 import * as ProviderService from "../../bindings/github.com/Ricori/nonoka-x/desktop/internal/provider/service.js";
 import type { EditTrack } from "../documents/types.ts";
-import type { ReadinessIssue, TaskSnapshot } from "../providers/types.ts";
+import type { ReadinessIssue, TaskEventPage, TaskSnapshot } from "../providers/types.ts";
 
 export type { ScreenTextOptions };
 
@@ -45,6 +45,7 @@ export interface ScreenTextTrialResult {
   schema: 1;
   task_id: string;
   tracks: EditTrack[];
+  styles?: string;
   range: { start?: number; end?: number };
 }
 
@@ -81,6 +82,8 @@ export const screenTextBridge = {
     ScreenTextService.Status(mediaId) as Promise<unknown> as Promise<TaskSnapshot | null>,
   cancel: (mediaId: string) =>
     ScreenTextService.Cancel(mediaId) as Promise<unknown> as Promise<TaskSnapshot>,
+  taskEvents: (taskId: string, afterCursor = 0) =>
+    ProviderService.TaskEvents(taskId, afterCursor) as Promise<unknown> as Promise<TaskEventPage>,
   onProgress: (handler: (event: ScreenTextProgressEvent) => void) =>
     Events.On("screentext:progress", (event) => {
       if (event.data) handler(event.data as ScreenTextProgressEvent);

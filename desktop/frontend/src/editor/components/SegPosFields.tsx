@@ -15,12 +15,13 @@ import type { Align, Seg, Ti } from '../types';
 
 const pct = (value: number) => Math.round(value * 1000) / 10;
 
-/** What the track's translation style gives when pos has no w / fs of its own */
-function styleDefaults(ti: Ti) {
+/** What the segment's (or track's) translation style gives when pos has no w / fs of its own */
+function styleDefaults(ti: Ti, seg: Seg) {
   const { tracks, trackMeta } = docStore.get();
   const lane = ti < 0 ? trackMeta?.zh : tracks[ti]?.zh;
   const sheet = getStyleSheet();
-  const style = sheet.styleMap[resolveStyleIn(sheet, lane?.style || "", "zh")];
+  const styleName = seg.style?.zh || lane?.style || "";
+  const style = sheet.styleMap[resolveStyleIn(sheet, styleName, "zh")];
   const X = sheet.playRes.x;
   return {
     size: style?.size ?? 70,
@@ -33,7 +34,7 @@ export function SegPosFields({ seg, ti }: { seg: Seg; ti: Ti }) {
   const cover = seg.cover;
   if (!pos && !cover) return null;
   const { y: Y } = getPlayRes();
-  const fallback = styleDefaults(ti);
+  const fallback = styleDefaults(ti, seg);
   const plate = plateOn(seg);
   const fill = typeof cover?.fill === "string" ? parseCssHex(cover.fill) : null;
 

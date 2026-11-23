@@ -3,7 +3,7 @@ import { fineSubRuntime } from "../../bridge/runtime.ts";
 import { screenTextBridge } from "../../bridge/screenText.ts";
 import type { DocumentChangedEvent, ScreenTextOptions, ScreenTextProgressEvent } from "../../bridge/screenText.ts";
 import type { EditDocument } from "../../documents/types.ts";
-import { ensureScreenTextStyle } from "../../subtitles/styles.ts";
+import { ensureScreenTextStyles } from "../../subtitles/styles.ts";
 import { setStyleSheet } from "../ass.ts";
 import { getVid, setLoadedDocument } from "../session.ts";
 import { bumpDoc, docStore } from "../store/docStore.ts";
@@ -34,7 +34,7 @@ export function mergeServerScreenText(serverDoc: EditDocument): { ocrCount: numb
   const d = docStore.get();
   const incomingTracks = mapDocumentTracks(serverDoc.tracks);
   const { tracks, ocrCount } = mergeOcrTracks(d.tracks, incomingTracks);
-  const styles = ocrCount > 0 ? ensureScreenTextStyle(d.styles) : d.styles;
+  const styles = ocrCount > 0 ? ensureScreenTextStyles(d.styles, serverDoc.styles) : d.styles;
   const rebased = saveState.dirty;
 
   pushHistory();
@@ -161,6 +161,8 @@ export async function restoreScreenTextTask() {
     if (!snapshot) return;
     if (ACTIVE_STATES.has(snapshot.state)) {
       screenTextStore.set({ task: snapshot, error: "" });
+    } else if (!screenTextStore.get().task) {
+      screenTextStore.set({ task: snapshot });
     }
   } catch {
     // Sidecar may be down; tab check will show the exact issue.
@@ -184,6 +186,7 @@ export async function handleScreenTextProgress(event: ScreenTextProgressEvent) {
         trial: {
           taskId: event.taskId,
           tracks,
+          styles: result.styles || "",
           cueCount,
           start: Number(result.range?.start) || 0,
           end: Number(result.range?.end) || 0,
@@ -280,4 +283,27 @@ export async function cancelScreenText() {
 export function discardTrialPreview() {
   screenTextStore.set({ trial: null });
   syncSubs();
+}
+
+/**
+ * Commit the 1-minute trial tracks directly into the open document as editable `ocr*` tracks
+ * (undoable via Ctrl+Z, marked dirty for autosave / Ctrl+S).
+ */
+export function applyTrialPreview(): number {
+  const trial = screenTextStore.get().trial;
+  if (!trial || trial.tracks.length === 0) return 0;
+  const d = docStore.get();
+  const { tracks, ocrCount } = mergeOcrTracks(d.tracks, trial.tracks);
+  const styles = ocrCount > 0 ? ensureScreenTextStyles(d.styles, trial.styles) : d.styles;
+
+  pushHistory();
+  docStore.set({ tracks, styles });
+  if (styles !== d.styles) setStyleSheet(styles);
+  screenTextStore.set({ trial: null, lastCompletedTracks: ocrCount });
+
+  bumpDoc();
+  syncSubs();
+  markDirty();
+  toast(`已将试跑段的 ${ocrCount} 条文字识别轨写入时间轴（Ctrl+Z 可撤销）`, false, null, 3200, true);
+  return ocrCount;
 }

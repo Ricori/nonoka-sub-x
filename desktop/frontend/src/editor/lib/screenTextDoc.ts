@@ -1,6 +1,7 @@
 import type { EditDocument, EditTrack } from "../../documents/types.ts";
 import { normalizeKaraoke } from "../../subtitles/karaoke.ts";
 import { normalizeSegCover, normalizeSegPos, trimLaneOverlaps } from "../../subtitles/position.ts";
+import { SCREEN_TEXT_STYLE, parseSheet, styleLine } from "../../subtitles/styles.ts";
 import { ROW_H0, ROW_MAX, ROW_MIN } from "../constants.ts";
 import type { Lang, Seg, Track } from "../types.ts";
 import { clampN } from "../utils.ts";
@@ -98,10 +99,21 @@ function canonicalJson(value: unknown): string {
   return "{" + keys.map((k) => `${JSON.stringify(k)}:${canonicalJson(record[k])}`).join(",") + "}";
 }
 
+function nonOcrStylesFingerprint(styles: string | undefined): string {
+  const sheet = parseSheet(styles ?? "");
+  const lines: string[] = [];
+  for (const name of sheet.order) {
+    if (name === SCREEN_TEXT_STYLE || name.startsWith(`${SCREEN_TEXT_STYLE}-`)) continue;
+    lines.push(styleLine(name, sheet.fields[name]));
+  }
+  return canonicalJson({ playRes: sheet.playRes, lines, ext: sheet.ext });
+}
+
 /**
- * Fingerprint of everything in a server document EXCEPT `ocr*` tracks (and `rev`).
- * Used on 409 save conflict: if the server's non-OCR content matches our baseline, only a
- * background screen-text run moved the document and we can safely rebase and retry once.
+ * Fingerprint of everything in a server document EXCEPT `ocr*` tracks, auto-generated `文字识别*`
+ * styles (and `rev`). Used on 409 save conflict: if the server's non-OCR content matches our
+ * baseline, only a background screen-text run moved the document and we can safely rebase and
+ * retry once.
  */
 export function nonOcrHash(doc: Partial<EditDocument> | null | undefined): string {
   if (!doc) return "";
@@ -112,7 +124,7 @@ export function nonOcrHash(doc: Partial<EditDocument> | null | undefined): strin
     tracks: nonOcrTracks,
     track_meta: doc.track_meta ?? null,
     effects: doc.effects ?? [],
-    styles: doc.styles ?? "",
+    styles: nonOcrStylesFingerprint(doc.styles),
   });
 }
 

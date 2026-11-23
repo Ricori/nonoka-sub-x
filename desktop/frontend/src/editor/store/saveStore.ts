@@ -13,7 +13,7 @@ import { restoreSelection, selStore } from './selectionStore';
 import { toast } from './uiStore';
 import { viewStore } from './viewStore';
 import type { Seg } from '../types';
-import { CN_STYLE, ORIGIN_STYLE, ensureScreenTextStyle } from '../../subtitles/styles';
+import { CN_STYLE, ORIGIN_STYLE, ensureScreenTextStyles } from '../../subtitles/styles';
 import { cloneCover, clonePos } from '../../subtitles/position';
 
 // 保存：手动（Ctrl+S / 保存按钮）+ 每 5 分钟自动一次（rev 乐观锁）。
@@ -132,7 +132,7 @@ function applyRebaseFromServer(latest: EditDocument) {
   const d = docStore.get();
   const incomingTracks = mapDocumentTracks(latest.tracks);
   const { tracks, ocrCount } = mergeOcrTracks(d.tracks, incomingTracks);
-  const styles = ocrCount > 0 ? ensureScreenTextStyle(d.styles) : d.styles;
+  const styles = ocrCount > 0 ? ensureScreenTextStyles(d.styles, latest.styles) : d.styles;
   setLoadedDocument(latest);
   setSaveBaseline(latest);
   docStore.set({ rev: Number(latest.rev) || 0, tracks, styles });

@@ -25,6 +25,9 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import statistics
+import time
+from collections import Counter
 from collections.abc import Callable, Iterable, Mapping
 from pathlib import Path
 from typing import Any
@@ -81,7 +84,7 @@ def validate_options(value: Any) -> dict[str, Any]:
                 and 0 <= roi[0] < roi[2] <= 1 and 0 <= roi[1] < roi[3] <= 1):
             raise ScreenTextError("screen_text.roi must be [x0, y0, x1, y1] within 0..1")
     options.setdefault("roi", None)
-    for name, allowed, default in (("translate", TRANSLATE, "zh"), ("cover", COVER, "plate"),
+    for name, allowed, default in (("translate", TRANSLATE, "zh"), ("cover", COVER, "none"),
                                    ("on_edited", ON_EDITED, "replace")):
         options.setdefault(name, default)
         if options[name] not in allowed:
@@ -200,6 +203,9 @@ def run(request: Mapping[str, Any], task_dir: Path, *, session: Any, packages: M
     out_dir = task_dir / "native" / package.id
     out_dir.mkdir(parents=True, exist_ok=True)
     span = options.get("range") or {}
+    span_desc = (f"{float(span.get('start') or 0.0):.1f}s–{float(span.get('end') or 0.0):.1f}s"
+                 if float(span.get("end") or 0.0) > 0 else "整片")
+    emit("log", {"message": f"开始文字识别（范围：{span_desc}，设备：{request.get('device') or 'auto'}）"})
     session.reporter = reporter
     process = session.start(package, task_dir=task_dir)
     result = process.request("recognize", {"job": {
@@ -314,41 +320,212 @@ def translate(document: dict[str, Any], speech: list[Mapping[str, Any]], complet
             pending.append(cue)
     total = len(pending)
     done = 0
-    if reporter is not None and total:
-        reporter.stage_started("screen-translate")
-    for offset in range(0, total, batch):
+    if not total:
+        return
+    batches = (total + batch - 1) // batch
+
+    def _log(message: str) -> None:
+        if reporter is not None and hasattr(reporter, "debug"):
+            reporter.debug(message)
+
+    if reporter is not None:
+        reporter.stage_started("screen-translate", detail=f"共 {total} 条待翻译（分 {batches} 批）")
+    _log(f"开始翻译文字：共 {total} 条，分 {batches} 批")
+    for batch_idx, offset in enumerate(range(0, total, batch), start=1):
         chunk = pending[offset:offset + batch]
+        started = time.monotonic()
+        if reporter is not None:
+            reporter.progress("screen-translate", completed=done, total=total, unit="items",
+                              detail=f"正在翻译第 {batch_idx}/{batches} 批（{done}/{total} 条）…")
+        _log(f"翻译第 {batch_idx}/{batches} 批：请求模型翻译 {len(chunk)} 条")
         answers = parse_answer(complete(batch_messages(chunk, speech, names)))
         missing = [cue for cue in chunk if not answers.get(str(cue["id"]), "").strip()]
         if missing:
+            if reporter is not None:
+                reporter.progress("screen-translate", completed=done, total=total, unit="items",
+                                  detail=f"第 {batch_idx}/{batches} 批补翻 {len(missing)} 条…")
+            _log(f"第 {batch_idx}/{batches} 批有 {len(missing)} 条未返回，正在补翻")
             answers.update(parse_answer(complete(batch_messages(missing, speech, names))))
         for cue in chunk:
             cue["zh"] = answers.get(str(cue["id"]), "").strip()
         done += len(chunk)
+        elapsed = time.monotonic() - started
         if reporter is not None:
-            reporter.progress("screen-translate", completed=done, total=total, unit="items")
+            reporter.progress("screen-translate", completed=done, total=total, unit="items",
+                              detail=f"已完成 {done}/{total} 条")
+        _log(f"翻译第 {batch_idx}/{batches} 批完成（{done}/{total} 条，耗时 {elapsed:.1f}s）")
 
 
-# --- tracks ------------------------------------------------------------------------------------------------
+# --- tracks & per-position styles ----------------------------------------------------------------------------
+
+ASS_STYLE_FORMAT = (
+    "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, "
+    "Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, "
+    "Shadow, Alignment, MarginL, MarginR, MarginV, Encoding"
+)
+_ZONE_LABELS = {
+    (0, 0): "左上", (1, 0): "上方", (2, 0): "右上",
+    (0, 1): "左侧", (1, 1): "居中", (2, 1): "右侧",
+    (0, 2): "左下", (1, 2): "下方", (2, 2): "右下",
+}
+_DEFAULT_PLAY_RES = (1920, 1080)
 
 
-def _pos(cue: Mapping[str, Any]) -> dict[str, Any]:
+def _zone_of(box: Iterable[float]) -> str:
+    x0, y0, x1, y1 = (float(v) for v in list(box)[:4])
+    cx = (x0 + x1) / 2.0
+    cy = (y0 + y1) / 2.0
+    hx = 0 if cx < 0.35 else (2 if cx > 0.65 else 1)
+    vy = 0 if cy < 0.35 else (2 if cy > 0.65 else 1)
+    return _ZONE_LABELS[(hx, vy)]
+
+
+def _style_line(name: str, *, fontsize: int = 54, an: int = 5, ml: int = 12, mr: int = 12, mv: int = 12) -> str:
+    return (
+        f"Style: {name},思源黑体 Heavy,{fontsize},&H00FFFFFF,&H000000FF,&H00000000,&H00000000,"
+        f"0,0,0,0,100,100,0,0,1,2,0,{an},{ml},{mr},{mv},1"
+    )
+
+
+def _position_groups(document: Mapping[str, Any], *,
+                     play_res: tuple[int, int] = _DEFAULT_PLAY_RES) -> tuple[dict[tuple[str, str], str], list[str], dict[str, float]]:
+    """Group non-skipped cues by (region, screen zone) into per-position styles.
+
+    Returns (group_key -> style_name, ASS Style lines, style_name -> representative fs fraction).
+    """
+
+    skipped = {str(region["id"]) for region in document.get("regions") or () if region.get("skip")}
+    region_order = {str(region["id"]): idx for idx, region in enumerate(document.get("regions") or ())}
+    grouped: dict[tuple[str, str], list[Mapping[str, Any]]] = {}
+    for cue in document.get("cues") or ():
+        region_id = str(cue.get("region") or "")
+        if region_id in skipped:
+            continue
+        zone = _zone_of(cue["box"])
+        grouped.setdefault((region_id, zone), []).append(cue)
+    if not grouped:
+        return {}, [], {}
+
+    ordered_keys = sorted(
+        grouped.keys(),
+        key=lambda key: (region_order.get(key[0], 10**9), min(float(c["t0"]) for c in grouped[key])),
+    )
+    res_x, res_y = play_res
+    single = len(ordered_keys) == 1
+    zone_counts: dict[str, int] = {}
+    key_to_style: dict[tuple[str, str], str] = {}
+    style_lines: list[str] = []
+    style_fs: dict[str, float] = {}
+
+    for key in ordered_keys:
+        _, zone = key
+        cues = grouped[key]
+        if single:
+            name = STYLE_NAME
+        else:
+            zone_counts[zone] = zone_counts.get(zone, 0) + 1
+            count = zone_counts[zone]
+            name = f"{STYLE_NAME}-{zone}" if count == 1 else f"{STYLE_NAME}-{zone} {count}"
+        key_to_style[key] = name
+
+        ans = [int(c.get("an") or 8) for c in cues]
+        an = Counter(ans).most_common(1)[0][0]
+        fs_values = [float(c.get("fs") or 0.0) for c in cues if float(c.get("fs") or 0.0) > 0]
+        median_fs = statistics.median(fs_values) if fs_values else (54.0 / res_y)
+        fontsize = max(20, min(140, int(round(median_fs * res_y))))
+        style_fs[name] = fontsize / float(res_y)
+
+        x0 = min(float(c["box"][0]) for c in cues)
+        y0 = min(float(c["box"][1]) for c in cues)
+        x1 = max(float(c["box"][2]) for c in cues)
+        y1 = max(float(c["box"][3]) for c in cues)
+        ml = max(12, min(res_x - 40, int(round(x0 * res_x))))
+        mr = max(12, min(res_x - 40, int(round((1.0 - x1) * res_x))))
+        if an in (7, 8, 9):
+            mv = max(12, int(round(y0 * res_y)))
+        elif an in (1, 2, 3):
+            mv = max(12, int(round((1.0 - y1) * res_y)))
+        else:
+            mv = 12
+        style_lines.append(_style_line(name, fontsize=fontsize, an=an, ml=ml, mr=mr, mv=mv))
+
+    if not single:
+        # Always include the base track style first so the track's default binding resolves cleanly.
+        style_lines.insert(0, _style_line(STYLE_NAME))
+    return key_to_style, style_lines, style_fs
+
+
+def styles_from(document: Mapping[str, Any], *, play_res: tuple[int, int] = _DEFAULT_PLAY_RES) -> str:
+    """ASS `[V4+ Styles]` block holding the base style and one style per distinct screen position."""
+
+    _, lines, _ = _position_groups(document, play_res=play_res)
+    if not lines:
+        return ""
+    return "[V4+ Styles]\n" + ASS_STYLE_FORMAT + "\n" + "\n".join(lines) + "\n"
+
+
+def merge_missing_styles(existing: str, incoming: str) -> str:
+    """Append styles from `incoming` whose names are not yet defined in `existing` (never overwrite user styles)."""
+
+    if not incoming or not incoming.strip():
+        return existing or ""
+    existing_text = existing or ""
+    existing_names: set[str] = set()
+    for raw in existing_text.splitlines():
+        line = raw.strip()
+        if line.lower().startswith("style:"):
+            parts = line[6:].split(",")
+            if parts:
+                name = parts[0].strip()
+                if name:
+                    existing_names.add(name)
+    to_add: list[str] = []
+    for raw in incoming.splitlines():
+        line = raw.strip()
+        if not line.lower().startswith("style:"):
+            continue
+        parts = line[6:].split(",")
+        name = parts[0].strip() if parts else ""
+        if name and name not in existing_names:
+            existing_names.add(name)
+            to_add.append(line)
+    if not to_add:
+        return existing_text
+    if not existing_text.strip():
+        return "[V4+ Styles]\n" + ASS_STYLE_FORMAT + "\n" + "\n".join(to_add) + "\n"
+    sep = "" if existing_text.endswith("\n") else "\n"
+    if "[v4+ styles]" not in existing_text.lower():
+        return existing_text + sep + "\n[V4+ Styles]\n" + ASS_STYLE_FORMAT + "\n" + "\n".join(to_add) + "\n"
+    return existing_text + sep + "\n".join(to_add) + "\n"
+
+
+def _pos(cue: Mapping[str, Any], *, base_fs: float | None = None) -> dict[str, Any]:
     x0, y0, x1, y1 = (float(v) for v in cue["box"])
     an = int(cue.get("an") or 8)
     x = x0 if an in (1, 4, 7) else x1 if an in (3, 6, 9) else (x0 + x1) / 2
     y = y0 if an in (7, 8, 9) else y1 if an in (1, 2, 3) else (y0 + y1) / 2
-    return {"x": round(x, 5), "y": round(y, 5), "an": an, "w": round(x1 - x0, 5), "fs": float(cue.get("fs") or 0.0)}
+    out: dict[str, Any] = {"x": round(x, 5), "y": round(y, 5), "an": an, "w": round(x1 - x0, 5)}
+    cue_fs = float(cue.get("fs") or 0.0)
+    if base_fs is None:
+        out["fs"] = cue_fs
+    elif cue_fs > 0 and abs(cue_fs - base_fs) / max(base_fs, 1e-6) > 0.15:
+        out["fs"] = cue_fs
+    return out
 
 
-def segment_of(cue: Mapping[str, Any], *, cover: str) -> dict[str, Any]:
-    return {
+def segment_of(cue: Mapping[str, Any], *, cover: str, style_name: str | None = None,
+               base_fs: float | None = None) -> dict[str, Any]:
+    seg: dict[str, Any] = {
         "t0": float(cue["t0"]),
         "t1": max(float(cue["t1"]), float(cue["t0"]) + 0.04),
         "ja": "\n".join(str(line["text"]) for line in cue["lines"]),
         "zh": str(cue.get("zh") or ""),
-        "pos": _pos(cue),
+        "pos": _pos(cue, base_fs=base_fs),
         "cover": {"box": [float(v) for v in cue["box"]], "fill": cue.get("fill") if cover == "plate" else None},
     }
+    if style_name and style_name != STYLE_NAME:
+        seg["style"] = {"ja": style_name, "zh": style_name}
+    return seg
 
 
 def _round(value: Any, places: int) -> float:
@@ -377,48 +554,40 @@ def segments_hash(segments: Iterable[Mapping[str, Any]]) -> str:
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
-def _lanes(cues: list[Mapping[str, Any]]) -> list[list[Mapping[str, Any]]]:
-    """Cues of one region in lanes no two of whose cues overlap in time (first lane that is free)."""
-
-    lanes: list[list[Mapping[str, Any]]] = []
-    for cue in sorted(cues, key=lambda item: (float(item["t0"]), float(item["t1"]))):
-        lane = next((lane for lane in lanes if float(lane[-1]["t1"]) <= float(cue["t0"]) + 1e-6), None)
-        if lane is None:
-            lanes.append([cue])
-        else:
-            lane.append(cue)
-    return lanes
-
-
 def tracks_from(document: Mapping[str, Any], *, task_id: str = "") -> list[dict[str, Any]]:
-    """The extra tracks a finished run adds: one per region that is translated (more when its cues overlap)."""
+    """All recognized on-screen text on one single track, with distinct per-position styles when positions differ."""
 
-    cover = str((document.get("options") or {}).get("cover") or "plate")
-    by_region: dict[str, list[Mapping[str, Any]]] = {}
-    for cue in document.get("cues") or ():
-        by_region.setdefault(str(cue["region"]), []).append(cue)
-    tracks: list[dict[str, Any]] = []
-    for region in document.get("regions") or ():
-        if region.get("skip"):
-            continue
-        cues = by_region.get(str(region["id"])) or []
-        if not cues:
-            continue
-        for index, lane in enumerate(_lanes(cues)):
-            segments = [segment_of(cue, cover=cover) for cue in lane]
-            suffix = "" if index == 0 else f"-{index + 1}"
-            tracks.append({
-                "id": f"{TRACK_PREFIX}-{region['id']}{suffix}",
-                "name": str(region.get("name") or "文字识别") + ("" if index == 0 else f"（{index + 1}）"),
-                "ja": {"hidden": True, "style": STYLE_NAME},
-                "zh": {"hidden": False, "style": STYLE_NAME},
-                "hja": 44,
-                "hzh": 44,
-                "segs": segments,
-                "source": {"kind": SOURCE_KIND, "task": task_id, "region": str(region["id"]),
-                           "label": str(region.get("label") or ""), "hash": segments_hash(segments)},
-            })
-    return tracks
+    cover = str((document.get("options") or {}).get("cover") or "none")
+    skipped = {str(region["id"]) for region in document.get("regions") or () if region.get("skip")}
+    key_to_style, _, style_fs = _position_groups(document)
+    cues = [
+        cue for cue in (document.get("cues") or ())
+        if str(cue.get("region") or "") not in skipped
+    ]
+    if not cues:
+        return []
+    cues.sort(key=lambda item: (float(item["t0"]), float(item["t1"])))
+    segments: list[dict[str, Any]] = []
+    for cue in cues:
+        key = (str(cue.get("region") or ""), _zone_of(cue["box"]))
+        style_name = key_to_style.get(key, STYLE_NAME)
+        segments.append(segment_of(cue, cover=cover, style_name=style_name, base_fs=style_fs.get(style_name)))
+    return [{
+        "id": TRACK_PREFIX,
+        "name": STYLE_NAME,
+        "ja": {"hidden": True, "style": STYLE_NAME},
+        "zh": {"hidden": False, "style": STYLE_NAME},
+        "hja": 44,
+        "hzh": 44,
+        "segs": segments,
+        "source": {
+            "kind": SOURCE_KIND,
+            "task": task_id,
+            "region": "all",
+            "label": "screen-text",
+            "hash": segments_hash(segments),
+        },
+    }]
 
 
 def edited(track: Mapping[str, Any]) -> bool:
@@ -429,8 +598,8 @@ def edited(track: Mapping[str, Any]) -> bool:
 
 
 __all__ = [
-    "CLEANED_VIDEO_FILENAME", "INPAINT_PRESETS", "INPAINT_TARGET", "ON_EDITED", "SOURCE_KIND", "STYLE_NAME",
-    "TARGET", "TRACK_PREFIX", "ScreenTextError", "batch_messages", "edited", "parse_answer", "run",
-    "run_inpaint", "segment_of", "segments_hash", "speech_lines", "tracks_from", "translate",
-    "validate_inpaint_options", "validate_options",
+    "ASS_STYLE_FORMAT", "CLEANED_VIDEO_FILENAME", "INPAINT_PRESETS", "INPAINT_TARGET", "ON_EDITED", "SOURCE_KIND",
+    "STYLE_NAME", "TARGET", "TRACK_PREFIX", "ScreenTextError", "batch_messages", "edited", "merge_missing_styles",
+    "parse_answer", "run", "run_inpaint", "segment_of", "segments_hash", "speech_lines", "styles_from",
+    "tracks_from", "translate", "validate_inpaint_options", "validate_options",
 ]

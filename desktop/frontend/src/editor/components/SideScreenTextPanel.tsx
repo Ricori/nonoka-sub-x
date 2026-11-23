@@ -1,9 +1,13 @@
-import { useEffect } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import { screenTextBridge } from "../../bridge/screenText.ts";
 import { desktopWindows } from "../../bridge/windows.ts";
 import { CustomSelect } from "../../components/CustomSelect.tsx";
+import type { TaskEvent, TaskProgress } from "../../providers/types.ts";
 import { seek } from "../lib/playback.ts";
 import { isOcrTrack } from "../lib/screenTextDoc.ts";
 import {
+  applyTrialPreview,
   cancelScreenText,
   discardTrialPreview,
   importGameTextBundle,
@@ -31,13 +35,28 @@ const INSTALL_ISSUE_CODES = new Set([
   "ocr_package_missing",
 ]);
 
+const LOG_POLL_MS = 1500;
+const LOG_LINE_LIMIT = 400;
+const LOG_TYPE_LABELS: Record<string, string> = {
+  started: "启动",
+  stage: "阶段",
+  progress: "进度",
+  warning: "警告",
+  log: "日志",
+  completed: "完成",
+  failed: "失败",
+  cancelled: "取消",
+};
+
 function stageLabel(stage: string, state: string): string {
   if (state === "queued") return "排队中…";
   switch (stage) {
+    case "screen-read":
     case "extract":
     case "screen-extract":
     case "recognize":
-      return "正在识别文字…";
+      return "正在识别画面文字…";
+    case "screen-tracks":
     case "tracks":
     case "build-tracks":
       return "正在整理文字区域…";
@@ -46,9 +65,261 @@ function stageLabel(stage: string, state: string): string {
     case "screen-translate":
     case "translate":
       return "正在翻译文字…";
+    case "erase":
+      return "正在抹除画面原字…";
     default:
       return stage ? `处理中（${stage}）…` : "正在处理文字识别…";
   }
+}
+
+function progressNumbers(progress: TaskProgress | null | undefined): { pct: number | null; text: string } {
+  if (!progress || !progress.total || progress.total <= 0) {
+    return { pct: null, text: "" };
+  }
+  const completed = Math.max(0, Number(progress.completed) || 0);
+  const total = Number(progress.total);
+  const ratio = Math.max(0, Math.min(1, completed / total));
+  const pct = Math.round(ratio * 100);
+  if (progress.unit === "permille" && total === 1000) {
+    return { pct, text: `${(completed / 10).toFixed(1)}%` };
+  }
+  const unitLabel = progress.unit === "items"
+    ? "条"
+    : progress.unit === "steps"
+      ? "步"
+      : progress.unit === "seconds"
+        ? "秒"
+        : progress.unit;
+  const counter = unitLabel ? `${completed}/${total} ${unitLabel}` : `${completed}/${total}`;
+  return { pct, text: `${pct}% · ${counter}` };
+}
+
+function formatElapsed(startedIso: string | undefined, nowMs: number): string {
+  if (!startedIso) return "";
+  const startMs = Date.parse(startedIso);
+  if (Number.isNaN(startMs)) return "";
+  const secs = Math.max(0, Math.floor((nowMs - startMs) / 1000));
+  const mm = String(Math.floor(secs / 60)).padStart(2, "0");
+  const ss = String(secs % 60).padStart(2, "0");
+  return `${mm}:${ss}`;
+}
+
+function logEventTime(value: string): string {
+  const parsed = Date.parse(value);
+  if (Number.isNaN(parsed)) return "--:--:--";
+  return new Date(parsed).toLocaleTimeString("zh-CN", { hour12: false });
+}
+
+function logEventText(event: TaskEvent): string {
+  const payload = event.payload ?? {};
+  const str = (v: unknown) => (typeof v === "string" ? v : "");
+  const stage = str(payload.stage);
+  const message = str(payload.message) || str(payload.detail);
+  if (event.type === "progress") {
+    const completed = Number(payload.completed ?? 0);
+    const total = Number(payload.total ?? 0);
+    const unit = str(payload.unit);
+    let counter = "";
+    if (unit === "permille" && total === 1000) {
+      counter = `${(completed / 10).toFixed(1)}%`;
+    } else if (total > 0) {
+      const u = unit === "items" ? "条" : unit === "steps" ? "步" : unit === "seconds" ? "秒" : unit;
+      counter = `${completed}/${total} ${u}`.trim();
+    }
+    return [stage, counter, message].filter(Boolean).join(" · ");
+  }
+  return [stage, str(payload.code), message].filter(Boolean).join(" · ") || LOG_TYPE_LABELS[event.type] || event.type;
+}
+
+function taskStateMeta(state: string): { label: string; cls: string } {
+  switch (state) {
+    case "queued":
+      return { label: "排队中", cls: "active" };
+    case "running":
+      return { label: "进行中", cls: "active" };
+    case "completed":
+      return { label: "已完成", cls: "ok" };
+    case "failed":
+      return { label: "失败", cls: "bad" };
+    case "cancelled":
+      return { label: "已取消", cls: "muted" };
+    case "interrupted":
+      return { label: "已中断", cls: "bad" };
+    default:
+      return { label: state || "未知", cls: "muted" };
+  }
+}
+
+function ScreenTextLogPopover({
+  taskId,
+  taskState,
+  active,
+  onClose,
+}: {
+  taskId: string;
+  taskState: string;
+  active: boolean;
+  onClose: () => void;
+}) {
+  const [events, setEvents] = useState<TaskEvent[]>([]);
+  const [error, setError] = useState("");
+  const [copied, setCopied] = useState(false);
+  const [follow, setFollow] = useState(true);
+  const [pos, setPos] = useState<{ left: number; top: number } | null>(null);
+  const [dragging, setDragging] = useState(false);
+  const boxRef = useRef<HTMLDivElement | null>(null);
+  const dragRef = useRef<{ dx: number; dy: number; w: number; h: number } | null>(null);
+  const bodyRef = useRef<HTMLDivElement | null>(null);
+  const cursorRef = useRef(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    let inFlight = false;
+    cursorRef.current = 0;
+    setEvents([]);
+    setError("");
+    const pull = async () => {
+      if (inFlight) return;
+      inFlight = true;
+      try {
+        const page = await screenTextBridge.taskEvents(taskId, cursorRef.current);
+        if (cancelled) return;
+        setError("");
+        const fresh = (page?.events ?? []).filter((ev) => ev.cursor > cursorRef.current);
+        if (fresh.length === 0) return;
+        cursorRef.current = fresh[fresh.length - 1].cursor;
+        setEvents((curr) => [...curr, ...fresh].slice(-LOG_LINE_LIMIT));
+      } catch (err) {
+        if (!cancelled) setError(err instanceof Error ? err.message : String(err));
+      } finally {
+        inFlight = false;
+      }
+    };
+    void pull();
+    if (!active) return () => { cancelled = true; };
+    const timer = window.setInterval(() => void pull(), LOG_POLL_MS);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [active, taskId]);
+
+  useEffect(() => {
+    const body = bodyRef.current;
+    if (body && follow) body.scrollTop = body.scrollHeight;
+  }, [events, follow]);
+
+  const lines = useMemo(
+    () => events.map((ev) => `${logEventTime(ev.timestamp)} [${LOG_TYPE_LABELS[ev.type] ?? ev.type}] ${logEventText(ev)}`),
+    [events],
+  );
+
+  const copy = useCallback(() => {
+    navigator.clipboard.writeText(lines.join("\n")).then(() => {
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1500);
+    }).catch(() => setCopied(false));
+  }, [lines]);
+
+  const onHeadPointerDown = useCallback((ev: React.PointerEvent<HTMLDivElement>) => {
+    if (ev.button !== 0 || (ev.target as HTMLElement).closest("button")) return;
+    const box = boxRef.current;
+    if (!box) return;
+    const rect = box.getBoundingClientRect();
+    dragRef.current = { dx: ev.clientX - rect.left, dy: ev.clientY - rect.top, w: rect.width, h: rect.height };
+    setPos({ left: rect.left, top: rect.top });
+    setDragging(true);
+    ev.currentTarget.setPointerCapture(ev.pointerId);
+    ev.preventDefault();
+  }, []);
+
+  const onHeadPointerMove = useCallback((ev: React.PointerEvent<HTMLDivElement>) => {
+    const d = dragRef.current;
+    if (!d) return;
+    const pad = 8;
+    const maxLeft = Math.max(pad, window.innerWidth - d.w - pad);
+    const maxTop = Math.max(pad, window.innerHeight - d.h - pad);
+    setPos({
+      left: Math.min(maxLeft, Math.max(pad, ev.clientX - d.dx)),
+      top: Math.min(maxTop, Math.max(pad, ev.clientY - d.dy)),
+    });
+  }, []);
+
+  const onHeadPointerUp = useCallback((ev: React.PointerEvent<HTMLDivElement>) => {
+    if (!dragRef.current) return;
+    dragRef.current = null;
+    setDragging(false);
+    if (ev.currentTarget.hasPointerCapture(ev.pointerId)) {
+      ev.currentTarget.releasePointerCapture(ev.pointerId);
+    }
+  }, []);
+
+  const status = taskStateMeta(taskState);
+  const host = typeof document !== "undefined"
+    ? (document.querySelector(".professional-editor") ?? document.body)
+    : null;
+  if (!host) return null;
+
+  const floatStyle = pos ? { left: `${pos.left}px`, top: `${pos.top}px`, right: "auto", bottom: "auto" } : undefined;
+
+  return createPortal(
+    <div
+      ref={boxRef}
+      className={"st-log-float" + (dragging ? " dragging" : "")}
+      style={floatStyle}
+      role="dialog"
+      aria-label="文字识别日志"
+    >
+      <div
+        className="st-log-head"
+        onPointerDown={onHeadPointerDown}
+        onPointerMove={onHeadPointerMove}
+        onPointerUp={onHeadPointerUp}
+        onPointerCancel={onHeadPointerUp}
+      >
+        <div className="st-log-title">
+          <strong>文字识别日志</strong>
+          <span className={`st-log-badge is-${status.cls}`}>{status.label}</span>
+          <span className="st-log-count">{events.length} 条</span>
+        </div>
+        <div className="st-log-head-actions">
+          <button type="button" className="side-text-btn" disabled={lines.length === 0} onClick={copy}>
+            {copied ? "已复制" : "复制"}
+          </button>
+          <button type="button" className="st-log-close" title="关闭日志" aria-label="关闭日志" onClick={onClose}>
+            ×
+          </button>
+        </div>
+      </div>
+      <div
+        className="st-log-body"
+        ref={bodyRef}
+        onScroll={(ev) => {
+          const el = ev.currentTarget;
+          setFollow(el.scrollHeight - el.scrollTop - el.clientHeight <= 24);
+        }}
+      >
+        {events.length === 0 ? (
+          <p className="st-log-empty">{error || (active ? "等待引擎输出…" : "该任务没有日志记录。")}</p>
+        ) : (
+          events.map((ev) => (
+            <p key={ev.cursor} className={`st-log-line is-${ev.type}`}>
+              <time>{logEventTime(ev.timestamp)}</time>
+              <b>{LOG_TYPE_LABELS[ev.type] ?? ev.type}</b>
+              <span>{logEventText(ev)}</span>
+            </p>
+          ))
+        )}
+      </div>
+      {error && events.length > 0 && <div className="st-log-err">{error}</div>}
+      {!follow && active && (
+        <button type="button" className="st-log-follow" onClick={() => setFollow(true)}>
+          回到底部 ↓
+        </button>
+      )}
+    </div>,
+    host,
+  );
 }
 
 export function SideScreenTextPanel() {
@@ -57,6 +328,10 @@ export function SideScreenTextPanel() {
   const duration = viewStore.use((s) => s.duration);
   docStore.use((s) => s.version);
 
+  const [showLog, setShowLog] = useState(false);
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  const running = Boolean(state.task && ACTIVE_STATES.has(state.task.state));
+
   const ocrTracks = docStore.get().tracks.filter(isOcrTrack);
   const ocrCueCount = ocrTracks.reduce((sum, track) => sum + track.segs.length, 0);
 
@@ -64,6 +339,13 @@ export function SideScreenTextPanel() {
     void refreshScreenTextEnvironment();
     void restoreScreenTextTask();
   }, []);
+
+  useEffect(() => {
+    if (!running) return;
+    setNowMs(Date.now());
+    const timer = window.setInterval(() => setNowMs(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [running]);
 
   // 1. 音频文件没有视频画面
   if (audioOnly) {
@@ -124,15 +406,14 @@ export function SideScreenTextPanel() {
     );
   }
 
-  const running = Boolean(state.task && ACTIVE_STATES.has(state.task.state));
   const progress = state.task?.progress;
-  const pct = progress && progress.total && progress.total > 0
-    ? Math.max(0, Math.min(100, Math.round((progress.completed / progress.total) * 100)))
-    : null;
-  const hw = state.check?.check;
+  const { pct, text: progressText } = progressNumbers(progress);
+  const indeterminate = pct === null || pct === 0;
+  const elapsed = running ? formatElapsed(state.task?.created_at, nowMs) : "";
   const checkIssues = state.check?.issues ?? [];
   const checkWarnings = state.check?.warnings ?? [];
   const blocked = Boolean(state.check && !state.check.ready);
+  const engineReady = Boolean(state.check?.ready);
   const { options } = state;
 
   return (
@@ -144,18 +425,21 @@ export function SideScreenTextPanel() {
             <div className="st-progress-card">
               <div className="st-progress-head">
                 <span>{stageLabel(state.task.stage, state.task.state)}</span>
-                {pct !== null && <span className="st-mono">{pct}%</span>}
+                {progressText && <span className="st-mono">{progressText}</span>}
               </div>
-              <div className={"st-bar" + (pct === null ? " indeterminate" : "")}>
-                <i style={{ width: pct !== null ? `${pct}%` : "40%" }} />
+              <div className={"st-bar" + (indeterminate ? " indeterminate" : "")}>
+                <i style={{ width: indeterminate ? "40%" : `${pct}%` }} />
               </div>
-              {progress?.message && <div className="st-hint">{progress.message}</div>}
-              <div className="st-hint">
-                可继续编辑语音字幕；如果同时在跑语音转写，两边会争抢显卡资源。
+              <div className="st-progress-meta">
+                <span>{progress?.message || "正在处理…"}</span>
+                {elapsed && <span className="st-mono">已用 {elapsed}</span>}
               </div>
               <div className="st-actions">
                 <button type="button" className="btn" disabled={state.busy} onClick={() => void cancelScreenText()}>
                   取消任务
+                </button>
+                <button type="button" className="btn" onClick={() => setShowLog((v) => !v)}>
+                  {showLog ? "关闭日志" : "查看日志"}
                 </button>
               </div>
             </div>
@@ -171,7 +455,7 @@ export function SideScreenTextPanel() {
                 <span className="st-mono">{fmt(state.trial.start)} – {fmt(state.trial.end)}</span>
               </div>
               <p className="st-hint">
-                当前仅以临时叠加层显示在预览画面里，尚未写进字幕文档。
+                试跑默认不写入轨道，仅以临时叠加层显示在预览画面里。点击「采用并全跑」识别整片，或点击「仅写入这段」将试跑结果直接生成轨道。
               </p>
               <div className="st-actions">
                 <button type="button" className="btn" onClick={() => seek(state.trial!.start)}>
@@ -181,6 +465,11 @@ export function SideScreenTextPanel() {
                   onClick={() => void requestStartScreenText(false)}>
                   采用并全跑
                 </button>
+                {state.trial.tracks.length > 0 && (
+                  <button type="button" className="btn" onClick={() => applyTrialPreview()}>
+                    仅写入这段
+                  </button>
+                )}
                 <button type="button" className="btn" onClick={discardTrialPreview}>
                   丢弃
                 </button>
@@ -214,19 +503,30 @@ export function SideScreenTextPanel() {
           </SideSection>
         )}
 
-        {/* 硬件 / 就绪提示 */}
-        {hw && (
-          <div className="st-hw-bar">
-            <span>
-              后端：{hw.backend === "cuda" ? "GPU (CUDA)" : hw.backend === "cpu" ? "CPU（较慢）" : (hw.backend || "自动")}
-              {hw.vram_mb ? ` · ${Math.round(hw.vram_mb / 1024)} GB` : ""}
-            </span>
+        {/* 引擎就绪状态 */}
+        <div className="st-hw-bar">
+          <span className="st-engine-status">
+            <i className={"st-dot" + (state.check ? (engineReady ? " ok" : " bad") : "")} />
+            {state.checking && !state.check
+              ? "正在检查引擎…"
+              : engineReady
+                ? "引擎已就绪"
+                : state.check
+                  ? "引擎未就绪"
+                  : "引擎状态未知"}
+          </span>
+          <div className="st-hw-actions">
+            {state.task?.task_id && (
+              <button type="button" className="side-text-btn" onClick={() => setShowLog((v) => !v)}>
+                {showLog ? "关闭日志" : "日志"}
+              </button>
+            )}
             <button type="button" className="side-text-btn" disabled={state.checking}
               onClick={() => void refreshScreenTextEnvironment()}>
               {state.checking ? "检查中…" : "刷新"}
             </button>
           </div>
-        )}
+        </div>
 
         {checkIssues.map((issue, idx) => (
           <div key={issue.code + idx} className="st-notice bad">{issue.message}</div>
@@ -302,9 +602,9 @@ export function SideScreenTextPanel() {
               options={[{ value: "zh", label: "简体中文" }, { value: "none", label: "仅原文" }]}
               onPick={(translate) => patchScreenTextOptions({ translate })} />
           </PropRow>
-          <PropRow label="遮盖方式" title="底板会用原字周围的背景色盖住原字；导出压制时还可选 LaMa 抹除原字">
+          <PropRow label="遮盖方式" title="默认不画底板，由样式控制外观；导出压制时可选 LaMa 抹除画面原字">
             <Segmented value={options.cover}
-              options={[{ value: "plate", label: "纯色底板" }, { value: "none", label: "不画底板" }]}
+              options={[{ value: "none", label: "不画底板" }, { value: "plate", label: "纯色底板" }]}
               onPick={(cover) => patchScreenTextOptions({ cover })} />
           </PropRow>
           <PropRow label="游戏剧本" title="导入 gtd-bundle/1 游戏剧本包后，识别到的游戏台词会直接匹配官方中文译文">
@@ -352,6 +652,14 @@ export function SideScreenTextPanel() {
           </div>
         )}
       </div>
+      {showLog && state.task?.task_id && (
+        <ScreenTextLogPopover
+          taskId={state.task.task_id}
+          taskState={state.task.state}
+          active={running}
+          onClose={() => setShowLog(false)}
+        />
+      )}
     </div>
   );
 }

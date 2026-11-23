@@ -7,7 +7,7 @@ import {
 import type { BuildAssOptions } from '../../subtitles/build';
 import type { Piece } from '../../subtitles/pieces.ts';
 import type { OutputLine } from '../../subtitles/build';
-import { composeSheet, ensureScreenTextStyle } from '../../subtitles/styles';
+import { composeSheet, ensureScreenTextStyles } from '../../subtitles/styles';
 import type { SubtitleSource } from '../../subtitles/types';
 
 /**
@@ -37,7 +37,7 @@ export function buildPreviewAss(): string {
   const trial = screenTextStore.get().trial;
   if (!trial?.tracks.length) return buildAss();
   const base = docSource();
-  const sheet = composeSheet(ensureScreenTextStyle(docStore.get().styles));
+  const sheet = composeSheet(ensureScreenTextStyles(docStore.get().styles, trial.styles));
   return buildAssFrom({ ...base, tracks: [...base.tracks, ...trial.tracks] }, sheet);
 }
 

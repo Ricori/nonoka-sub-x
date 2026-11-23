@@ -124,7 +124,7 @@ func payload(entry library.Entry, options Options) (map[string]any, error) {
 	}
 	cover := options.Cover
 	if cover == "" {
-		cover = "plate"
+		cover = "none"
 	}
 	onEdited := options.OnEdited
 	if onEdited == "" {

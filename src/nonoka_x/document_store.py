@@ -243,14 +243,17 @@ class DocumentStore:
         *,
         keep: Any = None,
         skeleton: Mapping[str, Any] | None = None,
+        extra_styles: str | None = None,
     ) -> dict[str, Any]:
         """Put `tracks` in place of the document's tracks whose id starts with `prefix`; nothing else changes.
 
         An add-on's own tracks (the on-screen text's `ocr*`): the default track, the user's tracks,
-        the effects, the styles and `artifacts.json` stay as they are. `keep(track)` says which of
-        the old prefixed tracks to keep anyway (the user edited them): those get an id of the user's
-        kind (`t` + the old id) and lose their `source`, so a later run leaves them alone too.
-        Without a document yet, `skeleton` (an empty projection) is made the document first.
+        the effects, existing styles and `artifacts.json` stay as they are. When `extra_styles` is
+        provided, any style names not yet present in `styles` are appended without overwriting user
+        styles. `keep(track)` says which of the old prefixed tracks to keep anyway (the user edited
+        them): those get an id of the user's kind (`t` + the old id) and lose their `source`, so a
+        later run leaves them alone too. Without a document yet, `skeleton` (an empty projection)
+        is made the document first.
         """
 
         with self._lock(video_id):
@@ -279,6 +282,10 @@ class DocumentStore:
             self._snapshot(directory, current)
             updated = copy.deepcopy(current)
             updated["tracks"] = kept + copy.deepcopy(tracks)
+            if extra_styles:
+                from .screen_text import merge_missing_styles
+
+                updated["styles"] = merge_missing_styles(str(updated.get("styles") or ""), extra_styles)
             updated["rev"] = int(current.get("rev", 0)) + 1
             updated["updated_at"] = _timestamp()
             _atomic_json(path, updated)

@@ -201,6 +201,26 @@ export function ensureScreenTextStyle(current: string): string {
   return mergeStyleText(current, `[V4+ Styles]\n${ASS_STYLE_FORMAT}\n${DEFAULT_SCREEN_TEXT_STYLE}\n`).text;
 }
 
+/**
+ * 把 `incoming` 里尚未出现在 `current` 中的文字识别样式（`文字识别` 或 `文字识别-*`）补进文档样式表，
+ * 绝不覆盖用户已经自定义过的同名样式；同时兜底保证基础「文字识别」样式存在。
+ */
+export function ensureScreenTextStyles(current: string, incoming?: string | null): string {
+  const cur = parseSheet(current);
+  const inc = parseSheet(incoming || "");
+  const missing: string[] = [];
+  for (const name of inc.order) {
+    if (name !== SCREEN_TEXT_STYLE && !name.startsWith(`${SCREEN_TEXT_STYLE}-`)) continue;
+    if (cur.fields[name]) continue;
+    missing.push(styleLine(name, inc.fields[name]));
+  }
+  let merged = current;
+  if (missing.length > 0) {
+    merged = mergeStyleText(merged, `[V4+ Styles]\n${ASS_STYLE_FORMAT}\n${missing.join("\n")}\n`).text;
+  }
+  return ensureScreenTextStyle(merged);
+}
+
 /** 样式表里没有的绑定回退到写死的 origin/cn——云端同步下来的文档常绑着本机没有的样式 */
 export const resolveStyleIn = (sheet: StyleSheet, name: string, lang: Lang): string =>
   sheet.styleMap[name] ? name : (lang === "ja" ? ORIGIN_STYLE : CN_STYLE);

@@ -220,7 +220,8 @@ def recognize(request: Mapping[str, Any], reporter: Any) -> dict[str, Any]:
     obs = out_dir / "obs.jsonl"
     reporter.planned(["screen-read", "screen-tracks"])
 
-    reporter.stage_started("screen-read")
+    reporter.stage_started("screen-read", detail="正在初始化文字识别引擎…")
+    reporter.progress("screen-read", completed=0, total=1000, unit="permille", detail="正在初始化 OCR 模型并扫描视频帧…")
     command = [*_python(), "-m", "flowocr.extract.supervisor", str(source), "--out", str(obs),
                "--device", _device_arg(str(request.get("device") or "auto"))]
     if start > 0:
@@ -237,7 +238,8 @@ def recognize(request: Mapping[str, Any], reporter: Any) -> dict[str, Any]:
         now = time.monotonic()
         if value >= 100.0 or now - last[0] >= 1.0:
             last[0] = now
-            reporter.progress("screen-read", completed=int(value * 10), total=1000, unit="permille")
+            reporter.progress("screen-read", completed=int(value * 10), total=1000, unit="permille",
+                              detail=f"画面扫描 {value:.1f}%")
 
     started = time.monotonic()
     code, tail = _run(command, cwd=out_dir, on_line=progress)
@@ -247,9 +249,10 @@ def recognize(request: Mapping[str, Any], reporter: Any) -> dict[str, Any]:
         raise OcrFailure("bad_timestamps", "这个视频的时间戳有问题，识别不了", "\n".join(tail))
     if code != 0 or not obs.is_file():
         raise OcrFailure("read_failed", "识别失败", "\n".join(tail))
-    reporter.progress("screen-read", completed=1000, total=1000, unit="permille")
+    reporter.progress("screen-read", completed=1000, total=1000, unit="permille", detail="画面扫描完成")
 
-    reporter.stage_started("screen-tracks")
+    reporter.stage_started("screen-tracks", detail="正在聚合文字区域…")
+    reporter.progress("screen-tracks", completed=0, total=2, unit="steps", detail="正在聚合文字区域与去重…")
     code, tail = _run([*_python(), "-m", "flowocr.analyze.build_tracks", str(obs), "--outdir", str(out_dir),
                        "--tag", "v"], cwd=out_dir)
     tracks_json = out_dir / "v-tracks.json"
@@ -263,7 +266,11 @@ def recognize(request: Mapping[str, Any], reporter: Any) -> dict[str, Any]:
     document = to_ocr_document(doc, video=video, start=start, end=end,
                                skip_main=bool(request.get("skip_main", True)), engine=request.get("engine") or {})
     if request.get("measure_fill", True):
+        reporter.progress("screen-tracks", completed=1, total=2, unit="steps",
+                          detail=f"正在采样 {len(document['cues'])} 处背景色…")
         _measure_fills(document, source)
+    reporter.progress("screen-tracks", completed=2, total=2, unit="steps",
+                      detail=f"已整理 {len(document['cues'])} 处文字")
     ocr_json = out_dir / "ocr.json"
     ocr_json.write_text(json.dumps(document, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
     cues = document["cues"]

@@ -18,6 +18,7 @@ export interface ScreenTextFormOptions {
 export interface ScreenTextTrialState {
   taskId: string;
   tracks: Track[];
+  styles: string;
   cueCount: number;
   start: number;
   end: number;
@@ -57,7 +58,7 @@ export const DEFAULT_SCREEN_TEXT_OPTIONS: ScreenTextFormOptions = {
   end: 0,
   skipMain: true,
   translate: "zh",
-  cover: "plate",
+  cover: "none",
   device: "auto",
   game: "",
   roi: null,
