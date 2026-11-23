@@ -350,6 +350,50 @@ class CompatibilityPackageTests(unittest.TestCase):
         self.assertTrue((original / "model_ensure.py").is_file())
         self.assertTrue((original / "download_routes.py").is_file())
 
+    def test_mcp_server_child_recovers_package_data_and_validates_proofread(self) -> None:
+        script = (
+            "import json, os\n"
+            "from pathlib import Path\n"
+            "from finesub_bootstrap import paths\n"
+            "pkg = Path(sys.argv[1]).resolve()\n"
+            "results = {}\n"
+            "for key, env in [\n"
+            "    ('no_session', {'FINESUB_MCP_ROOT': str(pkg / 'agent-capsules' / 'assignments' / 'call-1')}),\n"
+            "    ('outside', {'FINESUB_MCP_SESSION': 's1', 'FINESUB_MCP_ROOT': str(pkg / 'other' / 'call-1')}),\n"
+            "]:\n"
+            "    for name in ('FINESUB_MCP_SESSION', 'FINESUB_MCP_ROOT', 'FINESUB_KNOWLEDGE_ROOT'):\n"
+            "        os.environ.pop(name, None)\n"
+            "    os.environ.update(env)\n"
+            "    try:\n"
+            "        paths.default_data_root()\n"
+            "        results[key] = 'answered'\n"
+            "    except RuntimeError as error:\n"
+            "        results[key] = str(error)\n"
+            "os.environ['FINESUB_MCP_SESSION'] = 's1'\n"
+            "os.environ['FINESUB_MCP_ROOT'] = str(pkg / 'agent-capsules' / '.codex-parent-mcp')\n"
+            "results['codex_parent'] = str(paths.default_data_root())\n"
+            "os.environ['FINESUB_MCP_ROOT'] = str(pkg / 'agent-capsules' / 'assignments' / 'call-1')\n"
+            "results['assignment'] = str(paths.default_data_root())\n"
+            "from finesub.llm.agent.agent_validators import build_validator\n"
+            "proofread = build_validator('proofread-window', {'metadata': {'validator': {'count': 2}}})\n"
+            "verdict = proofread('<proofread>\\n1|2|原文|译文|理由\\n</proofread>', {})\n"
+            "results['proofread_status'] = verdict.status\n"
+            "judge = build_validator('speaker-judge', {'metadata': {'validator': {'ids': ['1'], 'tracks': [1]}}})\n"
+            "results['speaker_judge_callable'] = callable(judge)\n"
+            "print(json.dumps(results))\n"
+        )
+        with tempfile.TemporaryDirectory() as temp:
+            data = (Path(temp) / "engines" / "finesub-correct").resolve()
+            completed = _package_python("finesub-correct", script, str(data))
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            found = json.loads(completed.stdout.strip().splitlines()[-1])
+            self.assertIn("no package data directory was bound", found["no_session"])
+            self.assertIn("no package data directory was bound", found["outside"])
+            self.assertEqual(Path(found["codex_parent"]), data)
+            self.assertEqual(Path(found["assignment"]), data)
+            self.assertEqual(found["proofread_status"], "accepted")
+            self.assertTrue(found["speaker_judge_callable"])
+
 
 def _gate(only: str, engines: Path, *extra: str) -> subprocess.CompletedProcess:
     environment = {**os.environ, "NONOKA_QUALITY_ENGINES": str(engines), "PYTHONIOENCODING": "utf-8"}
