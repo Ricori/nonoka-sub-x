@@ -281,7 +281,7 @@ func (s *Service) MediaURL(id string) (string, error) {
 		}
 		s.media = server
 	}
-	return s.media.URL(id), nil
+	return s.media.URL(id) + mediaVersionParam(path), nil
 }
 
 func (s *Service) SaveSubtitle(defaultName, content string) (string, error) {

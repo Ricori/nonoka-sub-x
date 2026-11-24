@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -48,6 +49,19 @@ func newLoopbackMediaServer(source func(id string, proxy bool) string) (*loopbac
 }
 
 func (s *loopbackMediaServer) URL(id string) string { return s.baseURL + "?id=" + id }
+
+// mediaVersionParam tags a media address with the file it serves right now
+// ("&v=<mtime>-<size>"; the server ignores it). The address of an id
+// otherwise stays the same when another file takes its place -- an erased copy,
+// the original back, a rebuilt proxy -- and the player would keep showing what
+// it buffered from the old one instead of loading the new file.
+func mediaVersionParam(path string) string {
+	stat, err := os.Stat(path)
+	if err != nil {
+		return ""
+	}
+	return "&v=" + strconv.FormatInt(stat.ModTime().UnixNano(), 36) + "-" + strconv.FormatInt(stat.Size(), 36)
+}
 
 // ProxyURL differs from URL so a player never sees one file swapped for the
 // other under an address it already has open.

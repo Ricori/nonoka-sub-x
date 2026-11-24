@@ -1,6 +1,8 @@
 package library
 
 import (
+	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -145,5 +147,48 @@ func TestEraseScreenTextRejectsEmptyPlates(t *testing.T) {
 	service := &Service{}
 	if _, err := service.EraseScreenText("loc_0123456789ab", "  ", "auto", "default"); err == nil {
 		t.Fatal("expected an error without cover boxes")
+	}
+}
+
+// The player keeps what it buffered from an address: when another file takes
+// the id's place, the address must change with it.
+func TestMediaURLChangesWhenTheServedFileChanges(t *testing.T) {
+	root := t.TempDir()
+	id := "loc_0123456789ab"
+	first := filepath.Join(root, "first.mp4")
+	second := filepath.Join(root, "second.mp4")
+	if err := os.WriteFile(first, []byte("original picture"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(second, []byte("erased"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	service := &Service{root: root, cacheDir: filepath.Join(root, "videos"), indexPath: filepath.Join(root, "library.json"),
+		entries: []Entry{{ID: id, SourcePath: first}}}
+	defer service.Close()
+	before, err := service.MediaURL(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	again, _ := service.MediaURL(id)
+	if again != before {
+		t.Fatalf("the same file must keep its address: %q then %q", before, again)
+	}
+	service.entries[0].SourcePath = second
+	after, err := service.MediaURL(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after == before {
+		t.Fatal("a different file under the same id kept the old address")
+	}
+	response, err := http.Get(after)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	body, _ := io.ReadAll(response.Body)
+	if response.StatusCode != http.StatusOK || string(body) != "erased" {
+		t.Fatalf("versioned address served %d %q", response.StatusCode, body)
 	}
 }

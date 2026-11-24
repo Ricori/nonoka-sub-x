@@ -74,7 +74,7 @@ func (s *Service) PreviewURL(id string, original bool) (PreviewSource, error) {
 		media := s.media
 		s.mu.RUnlock()
 		if media != nil {
-			result.URL, result.Proxy = media.ProxyURL(id), true
+			result.URL, result.Proxy = media.ProxyURL(id)+mediaVersionParam(s.readyProxy(id)), true
 		}
 	}
 	return result, nil
