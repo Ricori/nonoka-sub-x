@@ -41,6 +41,13 @@ export function CacheStatus(): $CancellablePromise<$models.CacheStatus> {
     return $Call.ByID(128211322);
 }
 
+/**
+ * CancelEraseScreenText stops a running EraseScreenText, LaMa task included.
+ */
+export function CancelEraseScreenText(id: string): $CancellablePromise<void> {
+    return $Call.ByID(3315983749, id);
+}
+
 export function CancelExport(id: string): $CancellablePromise<void> {
     return $Call.ByID(1471401806, id);
 }
@@ -78,6 +85,16 @@ export function DeleteDocument(id: string): $CancellablePromise<void> {
  */
 export function EnsureThumbnail(id: string, dataURL: string): $CancellablePromise<void> {
     return $Call.ByID(2989886528, id, dataURL);
+}
+
+/**
+ * EraseScreenText removes the original on-screen text under every cover box in
+ * platesASS from the whole video with FlowOCR's LaMa inpainter, and writes the
+ * result, with the original's audio, to the video cache (<cache>/erased/).
+ * The original file is left untouched.
+ */
+export function EraseScreenText(id: string, platesASS: string, device: string, preset: string): $CancellablePromise<$models.EraseResult> {
+    return $Call.ByID(2906724099, id, platesASS, device, preset);
 }
 
 export function ExportVideo(id: string, ass: string): $CancellablePromise<string> {
@@ -173,6 +190,14 @@ export function ResolveMedia(id: string): $CancellablePromise<[string, string, s
     return $Call.ByID(1407258682, id);
 }
 
+/**
+ * RestoreOriginalVideo switches the entry back from the erased copy to the
+ * original video and deletes the erased copies from the cache.
+ */
+export function RestoreOriginalVideo(id: string): $CancellablePromise<$models.Entry> {
+    return $Call.ByID(4264383794, id);
+}
+
 export function RevealInFolder(path: string): $CancellablePromise<void> {
     return $Call.ByID(2253827920, path);
 }
@@ -207,4 +232,12 @@ export function ThumbnailDataURL(id: string): $CancellablePromise<string> {
  */
 export function TranscodeToH264(id: string): $CancellablePromise<$models.TranscodeResult> {
     return $Call.ByID(268918164, id);
+}
+
+/**
+ * UseErasedVideo makes the entry play the erased copy EraseScreenText wrote,
+ * remembering the original. The caller must have closed the player first.
+ */
+export function UseErasedVideo(id: string, path: string): $CancellablePromise<$models.Entry> {
+    return $Call.ByID(885936902, id, path);
 }

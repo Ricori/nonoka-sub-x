@@ -5,6 +5,7 @@ import { desktopWindows } from "../../bridge/windows.ts";
 import { CustomSelect } from "../../components/CustomSelect.tsx";
 import type { TaskEvent, TaskProgress } from "../../providers/types.ts";
 import { isOcrTrack } from "../lib/screenTextDoc.ts";
+import { canErase, cancelErase, restoreOriginalVideo, revealErasedVideo, startErase } from "../lib/screenTextErase.ts";
 import {
   cancelScreenText,
   importGameTextBundle,
@@ -67,6 +68,16 @@ function stageLabel(stage: string, state: string): string {
     default:
       return stage ? `处理中（${stage}）…` : "正在处理文字识别…";
   }
+}
+
+const ERASE_PHASE_LABELS = {
+  erase: "正在抹除原字…",
+  mux: "正在合回音轨…",
+  apply: "正在换上新视频…",
+} as const;
+
+function formatSince(startMs: number, nowMs: number): string {
+  return startMs ? formatElapsed(new Date(startMs).toISOString(), nowMs) : "";
 }
 
 function progressNumbers(progress: TaskProgress | null | undefined): { pct: number | null; text: string } {
@@ -148,11 +159,13 @@ function taskStateMeta(state: string): { label: string; cls: string } {
 }
 
 function ScreenTextLogPopover({
+  title,
   taskId,
   taskState,
   active,
   onClose,
 }: {
+  title: string;
   taskId: string;
   taskState: string;
   active: boolean;
@@ -265,7 +278,7 @@ function ScreenTextLogPopover({
       className={"st-log-float" + (dragging ? " dragging" : "")}
       style={floatStyle}
       role="dialog"
-      aria-label="文字识别日志"
+      aria-label={title}
     >
       <div
         className="st-log-head"
@@ -275,7 +288,7 @@ function ScreenTextLogPopover({
         onPointerCancel={onHeadPointerUp}
       >
         <div className="st-log-title">
-          <strong>文字识别日志</strong>
+          <strong>{title}</strong>
           <span className={`st-log-badge is-${status.cls}`}>{status.label}</span>
           <span className="st-log-count">{events.length} 条</span>
         </div>
@@ -322,12 +335,16 @@ function ScreenTextLogPopover({
 export function SideScreenTextPanel() {
   const state = screenTextStore.use((s) => s);
   const audioOnly = videoStore.use((s) => s.audioOnly);
+  const erasedFrom = videoStore.use((s) => s.erasedFrom);
   const duration = viewStore.use((s) => s.duration);
   docStore.use((s) => s.version);
 
-  const [showLog, setShowLog] = useState(false);
+  /** 日志框看的是哪个任务：文字识别，还是抹除原字的 LaMa 任务 */
+  const [showLog, setShowLog] = useState<"ocr" | "erase" | null>(null);
+  const toggleLog = (which: "ocr" | "erase") => setShowLog((v) => (v === which ? null : which));
   const [nowMs, setNowMs] = useState(() => Date.now());
   const running = Boolean(state.task && ACTIVE_STATES.has(state.task.state));
+  const erasing = state.erase.running;
 
   const ocrTracks = docStore.get().tracks.filter(isOcrTrack);
   const ocrCueCount = ocrTracks.reduce((sum, track) => sum + track.segs.length, 0);
@@ -338,11 +355,11 @@ export function SideScreenTextPanel() {
   }, []);
 
   useEffect(() => {
-    if (!running) return;
+    if (!running && !erasing) return;
     setNowMs(Date.now());
     const timer = window.setInterval(() => setNowMs(Date.now()), 1000);
     return () => window.clearInterval(timer);
-  }, [running]);
+  }, [running, erasing]);
 
   // 1. 音频文件没有视频画面
   if (audioOnly) {
@@ -412,6 +429,9 @@ export function SideScreenTextPanel() {
   const blocked = Boolean(state.check && !state.check.ready);
   const engineReady = Boolean(state.check?.ready);
   const { options } = state;
+  const erasable = canErase();
+  const { erase } = state;
+  const eraseElapsed = erasing ? formatSince(erase.startedAt, nowMs) : "";
 
   return (
     <div className="side-page side-screentext-page">
@@ -435,8 +455,8 @@ export function SideScreenTextPanel() {
                 <button type="button" className="btn" disabled={state.busy} onClick={() => void cancelScreenText()}>
                   取消任务
                 </button>
-                <button type="button" className="btn" onClick={() => setShowLog((v) => !v)}>
-                  {showLog ? "关闭日志" : "查看日志"}
+                <button type="button" className="btn" onClick={() => toggleLog("ocr")}>
+                  {showLog === "ocr" ? "关闭日志" : "查看日志"}
                 </button>
               </div>
             </div>
@@ -473,8 +493,8 @@ export function SideScreenTextPanel() {
           </span>
           <div className="st-hw-actions">
             {state.task?.task_id && (
-              <button type="button" className="side-text-btn" onClick={() => setShowLog((v) => !v)}>
-                {showLog ? "关闭日志" : "日志"}
+              <button type="button" className="side-text-btn" onClick={() => toggleLog("ocr")}>
+                {showLog === "ocr" ? "关闭日志" : "日志"}
               </button>
             )}
             <button type="button" className="side-text-btn" disabled={state.checking}
@@ -558,7 +578,7 @@ export function SideScreenTextPanel() {
               options={[{ value: "zh", label: "简体中文" }, { value: "none", label: "仅原文" }]}
               onPick={(translate) => patchScreenTextOptions({ translate })} />
           </PropRow>
-          <PropRow label="遮盖方式" title="纯色底板盖住原字，译文按原字的位置和大小摆放；导出压制时也可用 LaMa 抹掉原字">
+          <PropRow label="遮盖方式" title="纯色底板盖住原字，译文按原字的位置和大小摆放；也可以在下方用 LaMa 直接抹掉原字">
             <Segmented value={options.cover}
               options={[{ value: "plate", label: "纯色底板" }, { value: "none", label: "不画底板" }]}
               onPick={(cover) => patchScreenTextOptions({ cover })} />
@@ -595,25 +615,96 @@ export function SideScreenTextPanel() {
         {!running && (
           <div className="sd-foot st-foot">
             <button type="button" className="btn primary wide"
-              disabled={state.busy || blocked}
+              disabled={state.busy || blocked || erasing}
               onClick={() => void requestStartScreenText(false)}>
               {ocrTracks.length > 0 ? "重新识别整片" : "开始文字识别"}
             </button>
             <button type="button" className="btn wide"
-              disabled={state.busy || blocked}
+              disabled={state.busy || blocked || erasing}
               title="从当前播放头起识别 1 分钟，结果直接写进轨道，可撤销"
               onClick={() => void requestStartScreenText(true)}>
               从当前位置试 1 分钟
             </button>
           </div>
         )}
+
+        {/* 抹除原字：LaMa 抹掉整片原字，换成新视频（原视频不动） */}
+        <SideSection title="抹除原字">
+          {erasing ? (
+            <div className="st-progress-card">
+              <div className="st-progress-head">
+                <span>{erase.cancelling ? "正在取消…" : ERASE_PHASE_LABELS[erase.phase]}</span>
+                {erase.pct !== null && <span className="st-mono">{erase.pct}%</span>}
+              </div>
+              <div className={"st-bar" + (erase.pct === null || erase.pct === 0 ? " indeterminate" : "")}>
+                <i style={{ width: erase.pct === null || erase.pct === 0 ? "40%" : `${erase.pct}%` }} />
+              </div>
+              <div className="st-progress-meta">
+                <span>可以继续编辑字幕</span>
+                {eraseElapsed && <span className="st-mono">已用 {eraseElapsed}</span>}
+              </div>
+              <div className="st-actions">
+                <button type="button" className="btn" disabled={erase.cancelling || erase.phase === "apply"}
+                  onClick={cancelErase}>
+                  取消
+                </button>
+                <button type="button" className="btn" disabled={!state.eraseLog} onClick={() => toggleLog("erase")}>
+                  {showLog === "erase" ? "关闭日志" : "查看日志"}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <>
+              {erasedFrom ? (
+                <div className="st-notice ok">
+                  <span>正在用抹字后的视频，底板已隐藏。</span>
+                </div>
+              ) : (
+                <div className="st-hint">
+                  {erasable
+                    ? "抹掉画面里的原字。建议先确认好各处蒙版位置后再抹除。"
+                    : "先做文字识别后才能抹除。"}
+                </div>
+              )}
+              <div className="st-actions">
+                <button type="button" className={"btn" + (erasedFrom ? "" : " primary")}
+                  disabled={!erasable || running || state.busy || blocked}
+                  title={erasedFrom ? "按当前的原字框，从原视频重新抹一遍" : undefined}
+                  onClick={() => void startErase()}>
+                  {erasedFrom ? "重新抹除" : "开始抹除"}
+                </button>
+                {erasedFrom && (
+                  <>
+                    <button type="button" className="btn" onClick={revealErasedVideo}>打开所在文件夹</button>
+                    <button type="button" className="btn" onClick={() => void restoreOriginalVideo()}>换回原视频</button>
+                  </>
+                )}
+                {state.eraseLog && (
+                  <button type="button" className="btn" onClick={() => toggleLog("erase")}>
+                    {showLog === "erase" ? "关闭日志" : "日志"}
+                  </button>
+                )}
+              </div>
+            </>
+          )}
+        </SideSection>
       </div>
-      {showLog && state.task?.task_id && (
+      {showLog === "ocr" && state.task?.task_id && (
         <ScreenTextLogPopover
+          title="文字识别日志"
           taskId={state.task.task_id}
           taskState={state.task.state}
           active={running}
-          onClose={() => setShowLog(false)}
+          onClose={() => setShowLog(null)}
+        />
+      )}
+      {showLog === "erase" && state.eraseLog && (
+        <ScreenTextLogPopover
+          title="抹除原字日志"
+          taskId={state.eraseLog.taskId}
+          taskState={state.eraseLog.state}
+          active={state.eraseLog.state === "running"}
+          onClose={() => setShowLog(null)}
         />
       )}
     </div>

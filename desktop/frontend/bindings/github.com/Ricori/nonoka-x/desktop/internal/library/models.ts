@@ -46,6 +46,13 @@ export interface Entry {
      */
     "clips"?: Clip[] | null;
     "videoEdit"?: VideoEdit | null;
+
+    /**
+     * ErasedFrom is the original video when SourcePath is a copy with the
+     * on-screen text erased by LaMa (see screen_text_erase.go). Text
+     * recognition still reads the original, and the editor can switch back.
+     */
+    "erasedFrom"?: string;
 }
 
 /**
@@ -58,6 +65,21 @@ export interface EraseOptions {
     "platesAss"?: string;
     "device"?: string;
     "preset"?: string;
+}
+
+/**
+ * EraseResult is the video EraseScreenText wrote.
+ */
+export interface EraseResult {
+    "path": string;
+    "size": number;
+
+    /**
+     * Applied reports that the library entry already plays the new file. It is
+     * false while the editor has the video open: the player still holds the
+     * old file, so the editor lets go of it and calls UseErasedVideo.
+     */
+    "applied": boolean;
 }
 
 export interface ExportResult {

@@ -63,6 +63,10 @@ type Entry struct {
 	// is kept so an older library.json survives a round trip untouched.
 	Clips     []Clip     `json:"clips,omitempty"`
 	VideoEdit *VideoEdit `json:"videoEdit,omitempty"`
+	// ErasedFrom is the original video when SourcePath is a copy with the
+	// on-screen text erased by LaMa (see screen_text_erase.go). Text
+	// recognition still reads the original, and the editor can switch back.
+	ErasedFrom string `json:"erasedFrom,omitempty"`
 }
 
 type Clip struct {
@@ -151,6 +155,7 @@ type Service struct {
 	activeMedia      string
 	exportCancels    map[string]context.CancelFunc
 	transcodeCancels map[string]context.CancelFunc
+	eraseCancels     map[string]context.CancelFunc
 	proxyCancels     map[string]context.CancelFunc
 	// proxySlot admits one proxy build at a time; proxyPipeline names the
 	// encoder pipeline that last succeeded (see proxy.go).
@@ -192,6 +197,7 @@ func newService(dataDirectory string, tools commandMediaTools) (*Service, error)
 		cacheConfig:      defaultCacheConfig(),
 		exportCancels:    map[string]context.CancelFunc{},
 		transcodeCancels: map[string]context.CancelFunc{},
+		eraseCancels:     map[string]context.CancelFunc{},
 		proxyCancels:     map[string]context.CancelFunc{},
 		proxySlot:        make(chan struct{}, 1),
 	}
@@ -264,8 +270,10 @@ func SetCacheDirectory(s *Service, directory string) error {
 		return err
 	}
 	s.cachePathMu.Lock()
+	previous := s.cacheDir
 	s.cacheDir = resolved
 	s.cachePathMu.Unlock()
+	s.rebaseErasedSources(previous)
 	return s.convergeCache()
 }
 
@@ -563,6 +571,7 @@ func (s *Service) importOne(path string) (Entry, bool, error) {
 			s.entries[index].Duration = metadata.Duration
 			s.entries[index].Width, s.entries[index].Height = metadata.Width, metadata.Height
 			s.entries[index].AudioOnly = !metadata.HasVideo
+			s.entries[index].ErasedFrom = ""
 			s.entries[index].LastAccess = time.Now().UnixMilli()
 			if err := s.saveLocked(); err != nil {
 				s.entries[index] = previous

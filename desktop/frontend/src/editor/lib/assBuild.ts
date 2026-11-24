@@ -1,5 +1,6 @@
 import { fontsMissing, getStyleMap, getStyleSheet } from '../ass';
 import { docStore } from '../store/docStore';
+import { videoStore } from '../store/videoStore';
 import {
   buildAssFrom, buildPlatesAss, outputLinesOf, piecesAss, unknownStylesOf, usedStylesOf,
 } from '../../subtitles/build';
@@ -30,8 +31,11 @@ export const unknownStyles = (): string[] => unknownStylesOf(docSource(), getSty
 export const buildAss = (options: BuildAssOptions = {}): string =>
   buildAssFrom(docSource(), getStyleSheet(), options);
 
-/** 预览画布用的 ASS：试跑结果直接写进文档，所以就是文档本身 */
-export const buildPreviewAss = (): string => buildAss();
+/** 画面里的原字已经被 LaMa 抹掉了：底板没有要盖的东西 */
+export const videoErased = (): boolean => !!videoStore.get().erasedFrom;
+
+/** 预览画布用的 ASS：试跑结果直接写进文档，所以就是文档本身（抹过字的视频不画底板） */
+export const buildPreviewAss = (): string => buildAss(videoErased() ? { plates: 'omit' } : {});
 
 /** Plates for every cover box (fill or not): the text-removal mask for burn export */
 export const buildPlates = (): string => buildPlatesAss(docSource(), getStyleSheet());

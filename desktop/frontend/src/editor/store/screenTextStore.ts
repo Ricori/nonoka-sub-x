@@ -24,6 +24,26 @@ export interface ScreenTextTrialUndo {
   end: number;
 }
 
+/** 在面板里用 LaMa 抹掉原字、换掉视频的那一趟 */
+export interface ScreenTextErase {
+  running: boolean;
+  /** erase = LaMa 抹字；mux = 合回音轨；apply = 换上新视频 */
+  phase: "erase" | "mux" | "apply";
+  /** 0..100；还没有进度时 null */
+  pct: number | null;
+  startedAt: number;
+  cancelling: boolean;
+}
+
+/** 最近一次抹除的 LaMa 任务，给日志框用；抹除结束后仍保留，便于回看 */
+export interface ScreenTextEraseLog {
+  taskId: string;
+  /** running | completed | failed | cancelled（与任务快照的 state 同名） */
+  state: string;
+}
+
+export const IDLE_ERASE: ScreenTextErase = { running: false, phase: "erase", pct: null, startedAt: 0, cancelling: false };
+
 export interface ScreenTextState {
   /** Platform reported by runtime provision (`windows`, `darwin`, `linux`, ...). */
   platform: string;
@@ -46,6 +66,8 @@ export interface ScreenTextState {
   games: GameTextBundle[];
   /** Drawing a region of interest (ROI) box on the video stage (Phase 6). */
   drawingRoi: boolean;
+  erase: ScreenTextErase;
+  eraseLog: ScreenTextEraseLog | null;
   busy: boolean;
   error: string;
 }
@@ -75,6 +97,8 @@ export const INITIAL_SCREEN_TEXT_STATE: ScreenTextState = {
   lastCompletedTracks: null,
   games: [],
   drawingRoi: false,
+  erase: { ...IDLE_ERASE },
+  eraseLog: null,
   busy: false,
   error: "",
 };

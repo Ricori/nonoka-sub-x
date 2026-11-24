@@ -9,6 +9,7 @@ import {
   handleScreenTextProgress,
   refreshScreenTextEnvironment,
 } from "../lib/screenTextMerge";
+import { handleEraseProgress } from "../lib/screenTextErase";
 import { proxyFailed, switchToProxy } from "../lib/videoSource";
 import { getVid, isLeaving, reportBootError } from "../session";
 import { flushLayout } from "../store/layoutStore";
@@ -59,13 +60,16 @@ export function useDesktopEvents() {
   useEffect(() => startAutosave(AUTOSAVE_MS), []);
 
   useEffect(() => Events.On("media:progress", (event) => {
-    const progress = event.data as { id?: string; stage?: string; done?: number; total?: number };
+    const progress = event.data as { id?: string; stage?: string; phase?: string; done?: number; total?: number };
     if (progress.stage === "transcode" && progress.id === getVid() && progress.total) {
       const pct = Math.max(0, Math.min(100, Math.round((progress.done || 0) / progress.total * 100)));
       videoStore.set({
         badge: `转码 ${pct}%`,
         transcodePct: `${pct}%（${fmt(progress.done || 0)} / ${fmt(progress.total)}）`,
       });
+    }
+    if (progress.stage === "erase" && progress.id === "erase_" + getVid()) {
+      handleEraseProgress(progress);
     }
     if (progress.stage === "proxy" && progress.id === getVid() && progress.total) {
       const pct = Math.max(0, Math.min(100, Math.round((progress.done || 0) / progress.total * 100)));

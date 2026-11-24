@@ -2,6 +2,8 @@ package screentext
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -172,5 +174,21 @@ func TestStatusFindsTheLatestTaskAfterARestart(t *testing.T) {
 	}
 	if service.tasks["vid"] != "new" {
 		t.Fatalf("latest = %q", service.tasks["vid"])
+	}
+}
+
+func TestRecognitionReadsTheOriginalOfAnErasedVideo(t *testing.T) {
+	dir := t.TempDir()
+	original := filepath.Join(dir, "show.mp4")
+	if err := os.WriteFile(original, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	erased := library.Entry{SourcePath: filepath.Join(dir, "show - 抹字.mp4"), ErasedFrom: original}
+	if got := recognitionSource(erased); got != original {
+		t.Fatalf("recognition source = %q, want the original", got)
+	}
+	erased.ErasedFrom = filepath.Join(dir, "gone.mp4")
+	if got := recognitionSource(erased); got != erased.SourcePath {
+		t.Fatalf("a missing original must fall back to the source, got %q", got)
 	}
 }

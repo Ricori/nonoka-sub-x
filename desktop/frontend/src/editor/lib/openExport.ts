@@ -1,5 +1,5 @@
 import { desktopWindows } from '../../bridge/windows.ts';
-import { buildPiecesAss, buildPlates, docSource, missingFonts } from './assBuild.ts';
+import { buildPiecesAss, buildPlates, docSource, missingFonts, videoErased } from './assBuild.ts';
 import { EDIT_SUFFIX, editSummary, exportPieces } from './videoEdit.ts';
 import { getVid } from '../session.ts';
 import { docStore } from '../store/docStore.ts';
@@ -7,7 +7,7 @@ import { toast } from '../store/uiStore.ts';
 import { viewStore } from '../store/viewStore.ts';
 import { errText } from '../utils.ts';
 
-function hasCoverBoxes(): boolean {
+export function hasCoverBoxes(): boolean {
   const src = docSource();
   if (src.segs.some(seg => !!seg.cover?.box)) return true;
   return src.tracks.some(tr => !(tr.ja.hidden && tr.zh.hidden) && tr.segs.some(seg => !!seg.cover?.box));
@@ -27,8 +27,10 @@ export async function openExport(): Promise<void> {
   const suffix = edited ? EDIT_SUFFIX : '';
 
   try {
-    const ass = buildPiecesAss(pieces);
-    const hasCover = hasCoverBoxes();
+    // 视频已经抹过字：不画底板，也不再给导出窗口「抹除原字」的选项
+    const erased = videoErased();
+    const ass = buildPiecesAss(pieces, erased ? { plates: 'omit' } : {});
+    const hasCover = !erased && hasCoverBoxes();
     const assNoPlates = hasCover ? buildPiecesAss(pieces, { plates: 'omit' }) : '';
     const platesAss = hasCover ? buildPlates() : '';
     const missing = await missingFonts();

@@ -30,6 +30,12 @@ export const mediaLibrary = {
   cancelExport: LibraryService.CancelExport,
   transcodeToH264: LibraryService.TranscodeToH264,
   cancelTranscode: LibraryService.CancelTranscode,
+  /** LaMa 抹掉画面原字，整片另存到原视频旁边（原视频不动） */
+  eraseScreenText: LibraryService.EraseScreenText,
+  cancelEraseScreenText: LibraryService.CancelEraseScreenText,
+  /** 播放器松开旧文件后，把媒体换成抹字后的视频 */
+  useErasedVideo: LibraryService.UseErasedVideo,
+  restoreOriginalVideo: LibraryService.RestoreOriginalVideo,
   spectrogramTile: LibraryService.SpectrogramTile,
   filmstripTile: LibraryService.FilmstripTile,
   revealInFolder: LibraryService.RevealInFolder,

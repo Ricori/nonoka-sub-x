@@ -1,9 +1,25 @@
 import { mediaLibrary } from "../../bridge/library.ts";
 import { getVid } from "../session";
+import { standbyVideo, video } from "./media";
+import { syncSubs } from "./subtitles";
 import { playStore } from "../store/playStore";
 import { toast } from "../store/uiStore";
 import { videoStore } from "../store/videoStore";
 import { errText } from "../utils";
+
+/**
+ * 让播放器彻底松开当前文件：只去掉 src 属性不会断开正在进行的读取，Windows 上文件就删不掉、换不了。
+ */
+export function releaseVideo() {
+  playStore.set({ playing: false });
+  videoStore.set({ src: "" });
+  for (const el of [video(), standbyVideo()]) {
+    if (!el) continue;
+    el.pause();
+    el.removeAttribute("src");
+    el.load();
+  }
+}
 
 export const mountVideo = (url: string) =>
   videoStore.set({ src: url, fallbackOpen: false, badge: null, playError: false });
@@ -80,7 +96,8 @@ export async function pickVideoFile() {
     // player as it was rather than claiming a relink that never happened.
     const relinked = await mediaLibrary.relink(getVid());
     if (!relinked?.id) return;
-    videoStore.set({ audioOnly: !!relinked.audioOnly });
+    videoStore.set({ audioOnly: !!relinked.audioOnly, erasedFrom: relinked.erasedFrom ?? "" });
+    syncSubs();
     await setupVideo();
     toast("已重新关联本地视频");
   } catch (error) {

@@ -79,6 +79,11 @@ func (s *Service) CacheMedia(id string) (string, error) {
 		s.touchEntry(id)
 		return cached, nil
 	}
+	// An erased copy already lives in the cache; a second copy would only double it.
+	if entry.ErasedFrom != "" && fileExists(entry.SourcePath) {
+		s.touchEntry(id)
+		return entry.SourcePath, nil
+	}
 	if !fileExists(entry.SourcePath) {
 		return "", errors.New("local media is missing; relink it first")
 	}
@@ -266,6 +271,17 @@ func (s *Service) cacheStatusLocked() CacheStatus {
 	}
 	for _, path := range s.proxyFiles() {
 		if info, err := os.Stat(path); err == nil {
+			status.Bytes += info.Size()
+			status.Files++
+		}
+	}
+	// Erased copies take room in the cache too, though nothing evicts them.
+	erased, _ := os.ReadDir(filepath.Join(s.cacheDirectory(), erasedDirName))
+	for _, entry := range erased {
+		if entry.IsDir() || erasedFileID(entry.Name()) == "" {
+			continue
+		}
+		if info, err := entry.Info(); err == nil {
 			status.Bytes += info.Size()
 			status.Files++
 		}

@@ -46,7 +46,7 @@ function resetTransientState() {
   videoStore.set({
     src: "", fallbackOpen: false, collapsed: false, retrieving: false, retrievePct: "",
     transcoding: false, transcodePct: "", canTranscode: false, playError: false, fbMsg: "", warn: "",
-    usePath: null, badge: null, subBusy: null, audioOnly: false,
+    usePath: null, badge: null, subBusy: null, audioOnly: false, erasedFrom: "",
   });
   viewStore.set({ duration: 60, t0: 0, t1: 60, pieces: null, focus: false, blkWin: null });
   vselStore.set({ vsel: null, videoActive: false });
@@ -114,7 +114,7 @@ export async function runBootSequence() {
     setDocStyles(styles, { dirty: false });
     resetAutoGain();
     const entry = await mediaLibrary.get(videoID).catch(() => null);
-    videoStore.set({ audioOnly: !!entry?.audioOnly });
+    videoStore.set({ audioOnly: !!entry?.audioOnly, erasedFrom: entry?.erasedFrom ?? "" });
     // 视频轨片段存在本地媒体库里。打开时总是完整片：剪辑都在完整片里做，成片只供预览，要看再切过去
     const stored = normalizePieces(await mediaLibrary.getVideoEdit(videoID).catch(() => []));
     viewStore.set({ pieces: stored.length ? stored : null, focus: false });

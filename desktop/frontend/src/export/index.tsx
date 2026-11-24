@@ -351,11 +351,11 @@ function ExportWindow() {
                       <button type="button" className={eraseMode === 'keep' ? 'on' : ''}
                         disabled={busy} onClick={() => setEraseMode('keep')}>保留</button>
                       <button type="button" className={eraseMode === 'erase' ? 'on' : ''}
-                        disabled={busy} onClick={() => setEraseMode('erase')}>抹除（LaMa）</button>
+                        disabled={busy} onClick={() => setEraseMode('erase')}>抹除</button>
                     </div>
                   </div>
                   {eraseMode === 'erase' && eraseCpu && (
-                    <p className="notice">当前使用 CPU 进行 LaMa 抹除，处理速度会非常慢</p>
+                    <p className="notice">当前使用 CPU 进行文字抹除，处理速度会非常慢</p>
                   )}
                 </>
               )}

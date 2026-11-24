@@ -13,6 +13,7 @@ package screentext
 import (
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -164,7 +165,7 @@ func payload(entry library.Entry, options Options) (map[string]any, error) {
 		"device":   device,
 		"source": map[string]any{
 			"kind":        "local_file",
-			"path":        entry.SourcePath,
+			"path":        recognitionSource(entry),
 			"title":       entry.Title,
 			"fingerprint": entry.Fingerprint,
 			"video_id":    entry.ID,
@@ -172,6 +173,17 @@ func payload(entry library.Entry, options Options) (map[string]any, error) {
 		},
 		"screen_text": screenText,
 	}, nil
+}
+
+// recognitionSource is the file to read the text from: the original video,
+// also once the entry plays a copy with that text erased.
+func recognitionSource(entry library.Entry) string {
+	if entry.ErasedFrom != "" {
+		if stat, err := os.Stat(entry.ErasedFrom); err == nil && stat.Mode().IsRegular() {
+			return entry.ErasedFrom
+		}
+	}
+	return entry.SourcePath
 }
 
 // Start runs the add-on on a library video and follows the task.

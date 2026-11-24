@@ -43,6 +43,8 @@ type MediaProgress struct {
 	Encoder string `json:"encoder,omitempty"`
 	// Output is where a running export will land, once it has been chosen.
 	Output string `json:"output,omitempty"`
+	// TaskID is the sidecar task of the LaMa erase phase, for reading its log.
+	TaskID string `json:"taskId,omitempty"`
 }
 
 // EraseOptions asks ExportVideoPiecesWithErase to remove original on-screen
@@ -239,7 +241,7 @@ func (s *Service) ExportVideoPiecesWithErase(id, defaultName, ass string, pieces
 	if erase.Enabled && strings.TrimSpace(erase.PlatesASS) != "" {
 		spanStart := pieces[0].T0
 		spanEnd := pieces[len(pieces)-1].T1
-		cleanedPath, eraseErr := s.runEraseIntermediate(ctx, work, entry, source, spanStart, spanEnd, erase, jobID, output)
+		cleanedPath, eraseErr := s.runEraseIntermediate(ctx, work, entry, source, spanStart, spanEnd, erase, "export", jobID, output)
 		if eraseErr != nil {
 			return ExportResult{}, eraseErr
 		}
@@ -558,7 +560,7 @@ func estimateEraseBytes(spanSeconds float64) uint64 {
 	return estimated
 }
 
-func (s *Service) runEraseIntermediate(ctx context.Context, work string, entry Entry, source string, spanStart, spanEnd float64, erase EraseOptions, jobID, output string) (string, error) {
+func (s *Service) runEraseIntermediate(ctx context.Context, work string, entry Entry, source string, spanStart, spanEnd float64, erase EraseOptions, stage, jobID, output string) (string, error) {
 	s.mu.RLock()
 	engine := s.inpaintEngine
 	s.mu.RUnlock()
@@ -584,7 +586,7 @@ func (s *Service) runEraseIntermediate(ctx context.Context, work string, entry E
 	if preset == "" {
 		preset = "default"
 	}
-	s.emitMediaProgress(MediaProgress{ID: jobID, Stage: "export", Phase: "erase", Done: 0, Total: spanDur, Output: output})
+	s.emitMediaProgress(MediaProgress{ID: jobID, Stage: stage, Phase: "erase", Done: 0, Total: spanDur, Output: output})
 	snapshot, err := engine.StartTask(map[string]any{
 		"schema":   1,
 		"provider": "local",
@@ -613,6 +615,7 @@ func (s *Service) runEraseIntermediate(ctx context.Context, work string, entry E
 	if taskID == "" {
 		return "", errors.New("抹除任务没有返回 task_id")
 	}
+	s.emitMediaProgress(MediaProgress{ID: jobID, Stage: stage, Phase: "erase", Total: spanDur, Output: output, TaskID: taskID})
 
 	ticker := time.NewTicker(inpaintPollInterval)
 	defer ticker.Stop()
@@ -632,7 +635,7 @@ func (s *Service) runEraseIntermediate(ctx context.Context, work string, entry E
 				if total <= 0 {
 					total = spanDur
 				}
-				s.emitMediaProgress(MediaProgress{ID: jobID, Stage: "export", Phase: "erase", Done: done, Total: total, Output: output})
+				s.emitMediaProgress(MediaProgress{ID: jobID, Stage: stage, Phase: "erase", Done: done, Total: total, Output: output, TaskID: taskID})
 			}
 			state, _ := status["state"].(string)
 			switch state {
@@ -640,7 +643,7 @@ func (s *Service) runEraseIntermediate(ctx context.Context, work string, entry E
 				if !fileExists(cleanedPath) {
 					return "", errors.New("文字识别抹除未生成中间视频")
 				}
-				s.emitMediaProgress(MediaProgress{ID: jobID, Stage: "export", Phase: "erase", Done: spanDur, Total: spanDur, Output: output})
+				s.emitMediaProgress(MediaProgress{ID: jobID, Stage: stage, Phase: "erase", Done: spanDur, Total: spanDur, Output: output, TaskID: taskID})
 				return cleanedPath, nil
 			case "cancelled", "interrupted":
 				return "", errors.New("已取消")

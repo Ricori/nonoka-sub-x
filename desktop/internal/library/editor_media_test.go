@@ -218,7 +218,7 @@ func TestRunEraseIntermediateCancelsTask(t *testing.T) {
 	}()
 	_, err := service.runEraseIntermediate(
 		ctx, t.TempDir(), Entry{ID: "loc_0123456789ab", Title: "demo.mp4", Duration: 30},
-		"demo.mp4", 5, 15, EraseOptions{Enabled: true, PlatesASS: "[Events]\n"}, "exp_1", "out.mp4",
+		"demo.mp4", 5, 15, EraseOptions{Enabled: true, PlatesASS: "[Events]\n"}, "export", "exp_1", "out.mp4",
 	)
 	if err == nil || !strings.Contains(err.Error(), "已取消") {
 		t.Fatalf("expected cancellation error, got %v", err)

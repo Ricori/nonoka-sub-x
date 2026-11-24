@@ -32,10 +32,12 @@ interface VideoState {
   subBusy: string | null;
   /** 纯音频素材：舞台只有字幕没有画面，缩略图条和内嵌字幕导出都不可用 */
   audioOnly: boolean;
+  /** 当前播的是 LaMa 抹字后的视频时，原视频的路径；空串 = 原视频。抹过字就不再画底板 */
+  erasedFrom: string;
 }
 
 export const videoStore = createStore<VideoState>({
   src: "", fallbackOpen: false, collapsed: false, retrieving: false, retrievePct: "",
   transcoding: false, transcodePct: "", canTranscode: false, playError: false,
-  fbMsg: "", warn: "", usePath: null, badge: null, subBusy: null, audioOnly: false,
+  fbMsg: "", warn: "", usePath: null, badge: null, subBusy: null, audioOnly: false, erasedFrom: "",
 });

@@ -85,6 +85,7 @@ func (s *Service) Remove(id string, deleteDocument bool) error {
 	}
 	s.mu.Unlock()
 	_ = os.Remove(s.thumbnailPath(id))
+	s.removeErasedFiles(id, "")
 	if err := s.removeCachedMedia(id); err != nil {
 		return err
 	}
@@ -170,6 +171,12 @@ func (s *Service) PickRelink(id string) (Entry, error) {
 }
 
 func (s *Service) Relink(id, path string) (Entry, error) {
+	return s.relink(id, path, "")
+}
+
+// relink points the entry at another file; erasedFrom is recorded as the
+// entry's ErasedFrom (empty for an ordinary relink, which forgets it).
+func (s *Service) relink(id, path, erasedFrom string) (Entry, error) {
 	if !validID(id) {
 		return Entry{}, errors.New("invalid media id")
 	}
@@ -213,6 +220,7 @@ func (s *Service) Relink(id, path string) (Entry, error) {
 		if !fileExists(filepath.Join(s.root, "documents", id, "document.json")) {
 			s.entries[index].Fingerprint = fingerprint
 		}
+		s.entries[index].ErasedFrom = erasedFrom
 		s.entries[index].LastAccess = time.Now().UnixMilli()
 		s.entries[index].Available = true
 		if err := s.saveLocked(); err != nil {

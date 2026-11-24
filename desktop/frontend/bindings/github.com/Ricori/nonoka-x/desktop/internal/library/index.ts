@@ -11,6 +11,7 @@ export type {
     Clip,
     Entry,
     EraseOptions,
+    EraseResult,
     ExportResult,
     ExportSource,
     FilmstripTileResult,
