@@ -18,6 +18,7 @@
           "extra_info": "",
           "extra_style": "",
           "fast": "auto",
+          "inline_proofread": "auto",
           "knowledge": "none",
           "knowledge_root": null,
           "knowledge_subjects": null,
@@ -146,7 +147,7 @@
         "sha256": "fc9d97db829272a8b05dbbb04a7a322cd2f838122fb6c7c45c2fdd9fc6a1e782"
       }
     },
-    "engine_commit": "7123055da0cd6e037d8e37feb53b82f9e428c5cb"
+    "engine_commit": "e977f5220415fda4e1b8385ede66bbd1141c3b16"
   },
   "request": {
     "axis": {

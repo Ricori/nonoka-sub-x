@@ -20,6 +20,7 @@
           "extra_info": "【本任务指定的知识主体（用户明确选择）】\n- 主播 / 频道：猫又おかゆ（别名 / 常用译名：Okayu、おかゆ）；Hololive 所属\n请将本次确认的新名称、关系和事实归入上述主体中最贴切的一个；不属于任何一个时再按常规新建条目，不要与同名主体混淆。\n\n【其他背景信息】\n轴的背景",
           "extra_style": "简洁",
           "fast": "auto",
+          "inline_proofread": "auto",
           "knowledge": "update",
           "knowledge_root": null,
           "knowledge_subjects": [
@@ -161,7 +162,7 @@
         "sha256": "fc9d97db829272a8b05dbbb04a7a322cd2f838122fb6c7c45c2fdd9fc6a1e782"
       }
     },
-    "engine_commit": "7123055da0cd6e037d8e37feb53b82f9e428c5cb"
+    "engine_commit": "e977f5220415fda4e1b8385ede66bbd1141c3b16"
   },
   "request": {
     "axis": {

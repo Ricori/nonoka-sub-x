@@ -65,6 +65,7 @@
           "extra_info": "",
           "extra_style": "",
           "fast": "auto",
+          "inline_proofread": "auto",
           "knowledge": "none",
           "knowledge_root": null,
           "knowledge_subjects": null,
@@ -192,7 +193,7 @@
         "sha256": "936da1f4c5005bf81dc82c4effa07c6902efa8cc87519dc9ca4e73159c7a9a5d"
       }
     },
-    "engine_commit": "7123055da0cd6e037d8e37feb53b82f9e428c5cb"
+    "engine_commit": "e977f5220415fda4e1b8385ede66bbd1141c3b16"
   },
   "request": {
     "cleanup_intermediate": false,

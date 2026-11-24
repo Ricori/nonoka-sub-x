@@ -51,6 +51,9 @@
         "run_metadata_path": {
           "path": "$ROOT/data/tasks/gate-task/workspace/节目-metadata.json"
         },
+        "separated_from": {
+          "path": "$ROOT/media/节目.m4a"
+        },
         "split_length_scale": null,
         "vad_prefix_path": {
           "path": "$ROOT/data/tasks/gate-task/workspace/节目-vad.json"
@@ -79,12 +82,17 @@
     {
       "CUDA_VISIBLE_DEVICES": null,
       "arguments": {},
-      "entry": "device.cuda_device_present"
+      "entry": "device.gpu_device"
     },
     {
       "CUDA_VISIBLE_DEVICES": null,
       "arguments": {},
       "entry": "device.total_vram_gib"
+    },
+    {
+      "CUDA_VISIBLE_DEVICES": null,
+      "arguments": {},
+      "entry": "device.gpu_device"
     },
     {
       "CUDA_VISIBLE_DEVICES": null,
@@ -181,6 +189,7 @@
           "extra_info": "",
           "extra_style": "",
           "fast": "auto",
+          "inline_proofread": "auto",
           "knowledge": "none",
           "knowledge_root": null,
           "knowledge_subjects": null,
@@ -311,7 +320,7 @@
         "sha256": "032d78d2d34b73fe50502f2bdfa3f15b4e267885545e62bba48368a700212ff5"
       }
     },
-    "engine_commit": "7123055da0cd6e037d8e37feb53b82f9e428c5cb"
+    "engine_commit": "e977f5220415fda4e1b8385ede66bbd1141c3b16"
   },
   "request": {
     "cleanup_intermediate": false,
