@@ -392,6 +392,7 @@ TRANSCRIPTION_ENGINES: tuple[str, ...] = (
     "nonoka_x.transcription.engines.mai2:Mai2Engine",
     "nonoka_x.transcription.engines.gemini:GeminiEngine",
     "nonoka_x.transcription.engines.moss_pro:MossProEngine",
+    "nonoka_x.transcription.engines.scribe:ScribeEngine",
 )
 CORRECTION_ENGINES: tuple[str, ...] = ()
 

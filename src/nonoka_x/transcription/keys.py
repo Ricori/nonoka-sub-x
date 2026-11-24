@@ -8,9 +8,10 @@ environment or FineSub's `.env` (plan 4.5 item 30). Pool names:
 - `GEMINI_FREE` (35t and its Live repair) -- the first `POOL_LIMITS` of them, as FineSub's `recommended_max`
   cut its pool; FineSub's `[pools]` / `[providers]` selection is not read;
 - `MOSS_PRO` -- the first 3;
-- `OPENROUTER_STT_KEY`, or `AZURE_SPEECH_KEY` with `AZURE_SPEECH_ENDPOINT` (MAI2) -- the first entry.
+- `OPENROUTER_STT_KEY`, or `AZURE_SPEECH_KEY` with `AZURE_SPEECH_ENDPOINT` (MAI2) -- the first entry;
+- `ELEVENLABS` (Scribe, from FineSub 0.7.1) -- the first 3, front to back, the last taken as the paid one.
 
-The last four are not settings keys yet; they are registered with `config.register_key_spec` on first use and
+The last five are not settings keys yet; they are registered with `config.register_key_spec` on first use and
 read as empty until Nonoka's secret store holds them (WP-R4, WP5). Their names in FineSub's `.env`, for the
 migration of old installs (WP-R4's `config/migrate.py`): `FINESUB_KEY_OPENROUTER_STT` -> `OPENROUTER_STT_KEY`,
 `FINESUB_KEY_AZURE_SPEECH` -> `AZURE_SPEECH_KEY`, `FINESUB_AZURE_SPEECH_ENDPOINT` -> `AZURE_SPEECH_ENDPOINT`;
@@ -42,9 +43,10 @@ MOSS_PRO = "MOSS_PRO"
 OPENROUTER_STT_KEY = "OPENROUTER_STT_KEY"
 AZURE_SPEECH_KEY = "AZURE_SPEECH_KEY"
 AZURE_SPEECH_ENDPOINT = "AZURE_SPEECH_ENDPOINT"
+ELEVENLABS = "ELEVENLABS"
 
 #: How many keys of a pool are used, in order (FineSub `api_keys.POOL_SPECS[...].recommended_max`).
-POOL_LIMITS = {GEMINI_FREE: 2, MOSS_PRO: 3}
+POOL_LIMITS = {GEMINI_FREE: 2, MOSS_PRO: 3, ELEVENLABS: 3}
 
 #: The keys these engines need that the settings do not know yet (registered on first use).
 KEY_SPECS = (
@@ -52,6 +54,7 @@ KEY_SPECS = (
     config.KeySpec(AZURE_SPEECH_KEY, "Azure Speech", "MAI-Transcribe-2 经自己的 Azure Speech 资源"),
     config.KeySpec(AZURE_SPEECH_ENDPOINT, "Azure Speech 端点", "Azure Speech 资源的地址（不是密钥）"),
     config.KeySpec(MOSS_PRO, "MOSS Pro 池", "MOSS Pro 转写"),
+    config.KeySpec(ELEVENLABS, "ElevenLabs 池", "ElevenLabs Scribe 转写"),
 )
 
 #: The state file of the ledger (`ConfigStore.state_file`).

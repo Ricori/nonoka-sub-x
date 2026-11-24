@@ -1653,7 +1653,7 @@ class EngineSelectionTests(ProviderFixture):
         with self.no_gpu_no_harness_probe(), patch("nonoka_x.local_provider.sys.platform", "win32"):
             capabilities = provider.get_capabilities()
         engines = {item["id"]: item for item in capabilities["transcription_engines"]}
-        self.assertEqual(list(engines), ["finesub", "moss-local", "mai2", "gemini-transcribe", "moss-pro"])
+        self.assertEqual(list(engines), ["finesub", "moss-local", "mai2", "gemini-transcribe", "moss-pro", "scribe"])
         self.assertEqual(engines["moss-local"]["label"], "MOSS 0.9B")
         self.assertEqual(engines["moss-local"]["kind"], "local-gpu")
         self.assertEqual(engines["mai2"]["kind"], "cloud-api")
@@ -1665,7 +1665,7 @@ class EngineSelectionTests(ProviderFixture):
         # The layers each engine needs, for the engine list's missing layers and sizes (WP-UI).
         self.assertEqual(engines["finesub"]["layers"], {"required": ["tools", "python", "models"], "optional": []})
         self.assertEqual(engines["moss-local"]["layers"], {"required": ["tools", "python", "models-moss"], "optional": []})
-        for engine in ("mai2", "gemini-transcribe", "moss-pro"):
+        for engine in ("mai2", "gemini-transcribe", "moss-pro", "scribe"):
             self.assertEqual(engines[engine]["layers"], {"required": ["tools"], "optional": []}, engine)
         # The stages keep their ids, and FineSub's tier is still the one the desktop greys out on.
         self.assertEqual([stage["id"] for stage in capabilities["runtime"]["stages"]],
@@ -1743,7 +1743,7 @@ class EngineSelectionTests(ProviderFixture):
             context = worker.engine_context(self.root, None, ROOT / "engines")
             transcription_engines, correction_engines = worker.build_engines(**context)
             self.assertEqual([engine.spec.id for engine in transcription_engines],
-                             ["finesub", "moss-local", "mai2", "gemini-transcribe", "moss-pro"])
+                             ["finesub", "moss-local", "mai2", "gemini-transcribe", "moss-pro", "scribe"])
             self.assertEqual([engine.spec.id for engine in correction_engines], ["finesub"])
             # Nothing is opened until an engine asks.
             self.assertEqual(opened, [])

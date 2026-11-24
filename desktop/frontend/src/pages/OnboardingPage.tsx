@@ -55,6 +55,7 @@ const HIDDEN_ADVANCED_KEYS = new Set(["HF_TOKEN"]);
 
 const ENGINE_KEY_LINKS: Record<string, { label: string; href: string }> = {
   "moss-pro": { label: "获取免费额度 ↗", href: "https://platform.moss.cn/app/api-keys" },
+  scribe: { label: "获取 key ↗", href: "https://elevenlabs.io/app/settings/api-keys" },
 };
 
 const INSTALL_PHASES = [

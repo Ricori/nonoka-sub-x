@@ -273,16 +273,18 @@ def word_lines(units: Iterable[dict], *, duration: float, params: seg.SplitParam
     return lines, vad
 
 
-def widened(lines: Sequence[dict], *, pad: float, duration: float) -> list[dict]:
-    """MAI2: `lines` (by start, none overlapping) with every start `pad` s earlier and every end `pad` s later,
-    never onto a neighbour or past the audio: an end takes the gap up to the next line's start first, a start only
-    what the previous line's new end left. The first word's start and the last word's end move with the line."""
+def widened(lines: Sequence[dict], *, pad: float, duration: float, end_pad: float | None = None) -> list[dict]:
+    """MAI2 and Scribe: `lines` (by start, none overlapping) with every start `pad` s earlier and every end
+    `end_pad` (default `pad`) s later, never onto a neighbour or past the audio: an end takes the gap up to the next
+    line's start first, a start only what the previous line's new end left. The first word's start and the last
+    word's end move with the line."""
+    end_pad = pad if end_pad is None else end_pad
     out: list[dict] = []
     for k, line in enumerate(lines):
         before = out[-1]["end"] if out else 0.0
         after = lines[k + 1]["start"] if k + 1 < len(lines) else duration
         start = round(max(line["start"] - pad, min(before, line["start"])), 3)
-        end = round(min(line["end"] + pad, max(after, line["end"])), 3)
+        end = round(min(line["end"] + end_pad, max(after, line["end"])), 3)
         words = [dict(w) for w in line.get("words") or []]
         if words:
             words[0]["start"] = min(words[0]["start"], start)

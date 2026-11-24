@@ -1,0 +1,1505 @@
+{
+ "language_code": "jpn",
+ "text": "",
+ "words": [
+  {
+   "type": "word",
+   "text": "ど",
+   "start": 0.4,
+   "end": 0.52,
+   "speaker_id": "speaker_0",
+   "characters": [
+    {
+     "text": "ど",
+     "start": 0.4,
+     "end": 0.52
+    }
+   ]
+  },
+  {
+   "type": "word",
+   "text": "う",
+   "start": 0.53,
+   "end": 0.65,
+   "speaker_id": "speaker_0",
+   "characters": [
+    {
+     "text": "う",
+     "start": 0.53,
+     "end": 0.65
+    }
+   ]
+  },
+  {
+   "type": "word",
+   "text": "も",
+   "start": 0.66,
+   "end": 0.78,
+   "speaker_id": "speaker_0",
+   "characters": [
+    {
+     "text": "も",
+     "start": 0.66,
+     "end": 0.78
+    }
+   ]
+  },
+  {
+   "type": "word",
+   "text": "こ",
+   "start": 0.79,
+   "end": 0.91,
+   "speaker_id": "speaker_0",
+   "characters": [
+    {
+     "text": "こ",
+     "start": 0.79,
+     "end": 0.91
+    }
+   ]
+  },
+  {
+   "type": "word",
+   "text": "ん",
+   "start": 0.92,
+   "end": 1.04,
+   "speaker_id": "speaker_0",
+   "characters": [
+    {
+     "text": "ん",
+     "start": 0.92,
+     "end": 1.04
+    }
+   ]
+  },
+  {
+   "type": "word",
+   "text": "に",
+   "start": 1.05,
+   "end": 1.17,
+   "speaker_id": "speaker_0",
+   "characters": [
+    {
+     "text": "に",
+     "start": 1.05,
+     "end": 1.17
+    }
+   ]
+  },
+  {
+   "type": "word",
+   "text": "ち",
+   "start": 1.18,
+   "end": 1.3,
+   "speaker_id": "speaker_0",
+   "characters": [
+    {
+     "text": "ち",
+     "start": 1.18,
+     "end": 1.3
+    }
+   ]
+  },
+  {
+   "type": "word",
+   "text": "は",
+   "start": 1.31,
+   "end": 1.43,
+   "speaker_id": "speaker_0",
+   "characters": [
+    {
+     "text": "は",
+     "start": 1.31,
+     "end": 1.43
+    }
+   ]
+  },
+  {
+   "type": "word",
+   "text": "今",
+   "start": 1.44,
+   "end": 1.56,
+   "speaker_id": "speaker_0",
+   "characters": [
+    {
+     "text": "今",
+     "start": 1.44,
+     "end": 1.56
+    }
+   ]
+  },
+  {
+   "type": "word",
+   "text": "日",
+   "start": 1.57,
+   "end": 1.69,
+   "speaker_id": "speaker_0",
+   "characters": [
+    {
+     "text": "日",
+     "start": 1.57,
+     "end": 1.69
+    }
+   ]
+  },
+  {
+   "type": "word",
+   "text": "は",
+   "start": 1.7,
+   "end": 1.82,
+   "speaker_id": "speaker_0",
+   "characters": [
+    {
+     "text": "は",
+     "start": 1.7,
+     "end": 1.82
+    }
+   ]
+  },
+  {
+   "type": "word",
+   "text": "よ",
+   "start": 1.83,
+   "end": 1.95,
+   "speaker_id": "speaker_0",
+   "characters": [
+    {
+     "text": "よ",
+     "start": 1.83,
+     "end": 1.95
+    }
+   ]
+  },
+  {
+   "type": "word",
+   "text": "ろ",
+   "start": 1.96,
+   "end": 2.08,
+   "speaker_id": "speaker_0",
+   "characters": [
+    {
+     "text": "ろ",
+     "start": 1.96,
+     "end": 2.08
+    }
+   ]
+  },
+  {
+   "type": "word",
+   "text": "し",
+   "start": 2.09,
+   "end": 2.21,
+   "speaker_id": "speaker_0",
+   "characters": [
+    {
+     "text": "し",
+     "start": 2.09,
+     "end": 2.21
+    }
+   ]
+  },
+  {
+   "type": "word",
+   "text": "く",
+   "start": 2.22,
+   "end": 2.34,
+   "speaker_id": "speaker_0",
+   "characters": [
+    {
+     "text": "く",
+     "start": 2.22,
+     "end": 2.34
+    }
+   ]
+  },
+  {
+   "type": "word",
+   "text": "お",
+   "start": 2.35,
+   "end": 2.47,
+   "speaker_id": "speaker_0",
+   "characters": [
+    {
+     "text": "お",
+     "start": 2.35,
+     "end": 2.47
+    }
+   ]
+  },
+  {
+   "type": "word",
+   "text": "願",
+   "start": 2.48,
+   "end": 2.6,
+   "speaker_id": "speaker_0",
+   "characters": [
+    {
+     "text": "願",
+     "start": 2.48,
+     "end": 2.6
+    }
+   ]
+  },
+  {
+   "type": "word",
+   "text": "い",
+   "start": 2.61,
+   "end": 2.73,
+   "speaker_id": "speaker_0",
+   "characters": [
+    {
+     "text": "い",
+     "start": 2.61,
+     "end": 2.73
+    }
+   ]
+  },
+  {
+   "type": "word",
+   "text": "し",
+   "start": 2.74,
+   "end": 2.86,
+   "speaker_id": "speaker_0",
+   "characters": [
+    {
+     "text": "し",
+     "start": 2.74,
+     "end": 2.86
+    }
+   ]
+  },
+  {
+   "type": "word",
+   "text": "ま",
+   "start": 2.87,
+   "end": 2.99,
+   "speaker_id": "speaker_0",
+   "characters": [
+    {
+     "text": "ま",
+     "start": 2.87,
+     "end": 2.99
+    }
+   ]
+  },
+  {
+   "type": "word",
+   "text": "す",
+   "start": 3.0,
+   "end": 3.12,
+   "speaker_id": "speaker_0",
+   "characters": [
+    {
+     "text": "す",
+     "start": 3.0,
+     "end": 3.12
+    }
+   ]
+  },
+  {
+   "type": "word",
+   "text": "。",
+   "start": 3.13,
+   "end": 3.14,
+   "speaker_id": "speaker_0",
+   "characters": [
+    {
+     "text": "。",
+     "start": 3.13,
+     "end": 3.14
+    }
+   ]
+  },
+  {
+   "type": "spacing",
+   "text": " ",
+   "start": 3.73,
+   "end": 3.73,
+   "speaker_id": "speaker_0"
+  },
+  {
+   "type": "word",
+   "text": "は",
+   "start": 3.73,
+   "end": 3.85,
+   "speaker_id": "speaker_1",
+   "characters": [
+    {
+     "text": "は",
+     "start": 3.73,
+     "end": 3.85
+    }
+   ]
+  },
+  {
+   "type": "word",
+   "text": "い",
+   "start": 3.86,
+   "end": 3.98,
+   "speaker_id": "speaker_1",
+   "characters": [
+    {
+     "text": "い",
+     "start": 3.86,
+     "end": 3.98
+    }
+   ]
+  },
+  {
+   "type": "word",
+   "text": "よ",
+   "start": 3.99,
+   "end": 4.11,
+   "speaker_id": "speaker_1",
+   "characters": [
+    {
+     "text": "よ",
+     "start": 3.99,
+     "end": 4.11
+    }
+   ]
+  },
+  {
+   "type": "word",
+   "text": "ろ",
+   "start": 4.12,
+   "end": 4.24,
+   "speaker_id": "speaker_1",
+   "characters": [
+    {
+     "text": "ろ",
+     "start": 4.12,
+     "end": 4.24
+    }
+   ]
+  },
+  {
+   "type": "word",
+   "text": "し",
+   "start": 4.25,
+   "end": 4.37,
+   "speaker_id": "speaker_1",
+   "characters": [
+    {
+     "text": "し",
+     "start": 4.25,
+     "end": 4.37
+    }
+   ]
+  },
+  {
+   "type": "word",
+   "text": "く",
+   "start": 4.38,
+   "end": 4.5,
+   "speaker_id": "speaker_1",
+   "characters": [
+    {
+     "text": "く",
+     "start": 4.38,
+     "end": 4.5
+    }
+   ]
+  },
+  {
+   "type": "word",
+   "text": "お",
+   "start": 4.51,
+   "end": 4.63,
+   "speaker_id": "speaker_1",
+   "characters": [
+    {
+     "text": "お",
+     "start": 4.51,
+     "end": 4.63
+    }
+   ]
+  },
+  {
+   "type": "word",
+   "text": "願",
+   "start": 4.64,
+   "end": 4.76,
+   "speaker_id": "speaker_1",
+   "characters": [
+    {
+     "text": "願",
+     "start": 4.64,
+     "end": 4.76
+    }
+   ]
+  },
+  {
+   "type": "word",
+   "text": "い",
+   "start": 4.77,
+   "end": 4.89,
+   "speaker_id": "speaker_1",
+   "characters": [
+    {
+     "text": "い",
+     "start": 4.77,
+     "end": 4.89
+    }
+   ]
+  },
+  {
+   "type": "word",
+   "text": "し",
+   "start": 4.9,
+   "end": 5.02,
+   "speaker_id": "speaker_1",
+   "characters": [
+    {
+     "text": "し",
+     "start": 4.9,
+     "end": 5.02
+    }
+   ]
+  },
+  {
+   "type": "word",
+   "text": "ま",
+   "start": 5.03,
+   "end": 5.15,
+   "speaker_id": "speaker_1",
+   "characters": [
+    {
+     "text": "ま",
+     "start": 5.03,
+     "end": 5.15
+    }
+   ]
+  },
+  {
+   "type": "word",
+   "text": "す",
+   "start": 5.16,
+   "end": 5.28,
+   "speaker_id": "speaker_1",
+   "characters": [
+    {
+     "text": "す",
+     "start": 5.16,
+     "end": 5.28
+    }
+   ]
+  },
+  {
+   "type": "word",
+   "text": "ま",
+   "start": 5.29,
+   "end": 5.41,
+   "speaker_id": "speaker_1",
+   "characters": [
+    {
+     "text": "ま",
+     "start": 5.29,
+     "end": 5.41
+    }
+   ]
+  },
+  {
+   "type": "word",
+   "text": "ず",
+   "start": 5.42,
+   "end": 5.54,
+   "speaker_id": "speaker_1",
+   "characters": [
+    {
+     "text": "ず",
+     "start": 5.42,
+     "end": 5.54
+    }
+   ]
+  },
+  {
+   "type": "word",
+   "text": "は",
+   "start": 5.55,
+   "end": 5.67,
+   "speaker_id": "speaker_1",
+   "characters": [
+    {
+     "text": "は",
+     "start": 5.55,
+     "end": 5.67
+    }
+   ]
+  },
+  {
+   "type": "word",
+   "text": "自",
+   "start": 5.68,
+   "end": 5.8,
+   "speaker_id": "speaker_1",
+   "characters": [
+    {
+     "text": "自",
+     "start": 5.68,
+     "end": 5.8
+    }
+   ]
+  },
+  {
+   "type": "word",
+   "text": "己",
+   "start": 5.81,
+   "end": 5.93,
+   "speaker_id": "speaker_1",
+   "characters": [
+    {
+     "text": "己",
+     "start": 5.81,
+     "end": 5.93
+    }
+   ]
+  },
+  {
+   "type": "word",
+   "text": "紹",
+   "start": 5.94,
+   "end": 6.06,
+   "speaker_id": "speaker_1",
+   "characters": [
+    {
+     "text": "紹",
+     "start": 5.94,
+     "end": 6.06
+    }
+   ]
+  },
+  {
+   "type": "word",
+   "text": "介",
+   "start": 6.07,
+   "end": 6.19,
+   "speaker_id": "speaker_1",
+   "characters": [
+    {
+     "text": "介",
+     "start": 6.07,
+     "end": 6.19
+    }
+   ]
+  },
+  {
+   "type": "word",
+   "text": "か",
+   "start": 6.2,
+   "end": 6.32,
+   "speaker_id": "speaker_1",
+   "characters": [
+    {
+     "text": "か",
+     "start": 6.2,
+     "end": 6.32
+    }
+   ]
+  },
+  {
+   "type": "word",
+   "text": "ら",
+   "start": 6.33,
+   "end": 6.45,
+   "speaker_id": "speaker_1",
+   "characters": [
+    {
+     "text": "ら",
+     "start": 6.33,
+     "end": 6.45
+    }
+   ]
+  },
+  {
+   "type": "word",
+   "text": "。",
+   "start": 6.46,
+   "end": 6.47,
+   "speaker_id": "speaker_1",
+   "characters": [
+    {
+     "text": "。",
+     "start": 6.46,
+     "end": 6.47
+    }
+   ]
+  },
+  {
+   "type": "spacing",
+   "text": " ",
+   "start": 7.06,
+   "end": 7.06,
+   "speaker_id": "speaker_1"
+  },
+  {
+   "type": "word",
+   "text": "わ",
+   "start": 7.06,
+   "end": 7.18,
+   "speaker_id": "speaker_0",
+   "characters": [
+    {
+     "text": "わ",
+     "start": 7.06,
+     "end": 7.18
+    }
+   ]
+  },
+  {
+   "type": "word",
+   "text": "か",
+   "start": 7.19,
+   "end": 7.31,
+   "speaker_id": "speaker_0",
+   "characters": [
+    {
+     "text": "か",
+     "start": 7.19,
+     "end": 7.31
+    }
+   ]
+  },
+  {
+   "type": "word",
+   "text": "り",
+   "start": 7.32,
+   "end": 7.44,
+   "speaker_id": "speaker_0",
+   "characters": [
+    {
+     "text": "り",
+     "start": 7.32,
+     "end": 7.44
+    }
+   ]
+  },
+  {
+   "type": "word",
+   "text": "ま",
+   "start": 7.45,
+   "end": 7.57,
+   "speaker_id": "speaker_0",
+   "characters": [
+    {
+     "text": "ま",
+     "start": 7.45,
+     "end": 7.57
+    }
+   ]
+  },
+  {
+   "type": "word",
+   "text": "し",
+   "start": 7.58,
+   "end": 7.7,
+   "speaker_id": "speaker_0",
+   "characters": [
+    {
+     "text": "し",
+     "start": 7.58,
+     "end": 7.7
+    }
+   ]
+  },
+  {
+   "type": "word",
+   "text": "た",
+   "start": 7.71,
+   "end": 7.83,
+   "speaker_id": "speaker_0",
+   "characters": [
+    {
+     "text": "た",
+     "start": 7.71,
+     "end": 7.83
+    }
+   ]
+  },
+  {
+   "type": "word",
+   "text": "じ",
+   "start": 7.84,
+   "end": 7.96,
+   "speaker_id": "speaker_0",
+   "characters": [
+    {
+     "text": "じ",
+     "start": 7.84,
+     "end": 7.96
+    }
+   ]
+  },
+  {
+   "type": "word",
+   "text": "ゃ",
+   "start": 7.97,
+   "end": 8.09,
+   "speaker_id": "speaker_0",
+   "characters": [
+    {
+     "text": "ゃ",
+     "start": 7.97,
+     "end": 8.09
+    }
+   ]
+  },
+  {
+   "type": "word",
+   "text": "あ",
+   "start": 8.1,
+   "end": 8.22,
+   "speaker_id": "speaker_0",
+   "characters": [
+    {
+     "text": "あ",
+     "start": 8.1,
+     "end": 8.22
+    }
+   ]
+  },
+  {
+   "type": "word",
+   "text": "私",
+   "start": 8.23,
+   "end": 8.35,
+   "speaker_id": "speaker_0",
+   "characters": [
+    {
+     "text": "私",
+     "start": 8.23,
+     "end": 8.35
+    }
+   ]
+  },
+  {
+   "type": "word",
+   "text": "か",
+   "start": 8.36,
+   "end": 8.48,
+   "speaker_id": "speaker_0",
+   "characters": [
+    {
+     "text": "か",
+     "start": 8.36,
+     "end": 8.48
+    }
+   ]
+  },
+  {
+   "type": "word",
+   "text": "ら",
+   "start": 8.49,
+   "end": 8.61,
+   "speaker_id": "speaker_0",
+   "characters": [
+    {
+     "text": "ら",
+     "start": 8.49,
+     "end": 8.61
+    }
+   ]
+  },
+  {
+   "type": "word",
+   "text": "話",
+   "start": 8.62,
+   "end": 8.74,
+   "speaker_id": "speaker_0",
+   "characters": [
+    {
+     "text": "話",
+     "start": 8.62,
+     "end": 8.74
+    }
+   ]
+  },
+  {
+   "type": "word",
+   "text": "し",
+   "start": 8.75,
+   "end": 8.87,
+   "speaker_id": "speaker_0",
+   "characters": [
+    {
+     "text": "し",
+     "start": 8.75,
+     "end": 8.87
+    }
+   ]
+  },
+  {
+   "type": "word",
+   "text": "ま",
+   "start": 8.88,
+   "end": 9.0,
+   "speaker_id": "speaker_0",
+   "characters": [
+    {
+     "text": "ま",
+     "start": 8.88,
+     "end": 9.0
+    }
+   ]
+  },
+  {
+   "type": "word",
+   "text": "す",
+   "start": 9.01,
+   "end": 9.13,
+   "speaker_id": "speaker_0",
+   "characters": [
+    {
+     "text": "す",
+     "start": 9.01,
+     "end": 9.13
+    }
+   ]
+  },
+  {
+   "type": "word",
+   "text": "ね",
+   "start": 9.14,
+   "end": 9.26,
+   "speaker_id": "speaker_0",
+   "characters": [
+    {
+     "text": "ね",
+     "start": 9.14,
+     "end": 9.26
+    }
+   ]
+  },
+  {
+   "type": "word",
+   "text": "。",
+   "start": 9.27,
+   "end": 9.28,
+   "speaker_id": "speaker_0",
+   "characters": [
+    {
+     "text": "。",
+     "start": 9.27,
+     "end": 9.28
+    }
+   ]
+  },
+  {
+   "type": "spacing",
+   "text": " ",
+   "start": 9.87,
+   "end": 9.87,
+   "speaker_id": "speaker_0"
+  },
+  {
+   "type": "word",
+   "text": "。次",
+   "start": 9.87,
+   "end": 10.11,
+   "speaker_id": "speaker_1",
+   "characters": [
+    {
+     "text": "。",
+     "start": 9.87,
+     "end": 9.99
+    },
+    {
+     "text": "次",
+     "start": 9.99,
+     "end": 10.11
+    }
+   ]
+  },
+  {
+   "type": "word",
+   "text": "（",
+   "start": 10.27,
+   "end": 10.32,
+   "speaker_id": "speaker_1",
+   "characters": [
+    {
+     "text": "（",
+     "start": 10.27,
+     "end": 10.32
+    }
+   ]
+  },
+  {
+   "type": "word",
+   "text": "聞",
+   "start": 10.33,
+   "end": 10.38,
+   "speaker_id": "speaker_1",
+   "characters": [
+    {
+     "text": "聞",
+     "start": 10.33,
+     "end": 10.38
+    }
+   ]
+  },
+  {
+   "type": "word",
+   "text": "き",
+   "start": 10.39,
+   "end": 10.44,
+   "speaker_id": "speaker_1",
+   "characters": [
+    {
+     "text": "き",
+     "start": 10.39,
+     "end": 10.44
+    }
+   ]
+  },
+  {
+   "type": "word",
+   "text": "取",
+   "start": 10.45,
+   "end": 10.5,
+   "speaker_id": "speaker_1",
+   "characters": [
+    {
+     "text": "取",
+     "start": 10.45,
+     "end": 10.5
+    }
+   ]
+  },
+  {
+   "type": "word",
+   "text": "り",
+   "start": 10.51,
+   "end": 10.56,
+   "speaker_id": "speaker_1",
+   "characters": [
+    {
+     "text": "り",
+     "start": 10.51,
+     "end": 10.56
+    }
+   ]
+  },
+  {
+   "type": "word",
+   "text": "不",
+   "start": 10.57,
+   "end": 10.62,
+   "speaker_id": "speaker_1",
+   "characters": [
+    {
+     "text": "不",
+     "start": 10.57,
+     "end": 10.62
+    }
+   ]
+  },
+  {
+   "type": "word",
+   "text": "能",
+   "start": 10.63,
+   "end": 10.68,
+   "speaker_id": "speaker_1",
+   "characters": [
+    {
+     "text": "能",
+     "start": 10.63,
+     "end": 10.68
+    }
+   ]
+  },
+  {
+   "type": "word",
+   "text": "）",
+   "start": 10.69,
+   "end": 10.74,
+   "speaker_id": "speaker_1",
+   "characters": [
+    {
+     "text": "）",
+     "start": 10.69,
+     "end": 10.74
+    }
+   ]
+  },
+  {
+   "type": "audio_event",
+   "text": "(笑い)",
+   "start": 10.75,
+   "end": 11.75,
+   "speaker_id": "speaker_1"
+  },
+  {
+   "type": "word",
+   "text": "それでは本題に入りますが最近始めた配信の話をしたいと思います。毎週土曜日の夜にやっています。皆さんぜひ見に来てください",
+   "start": 11.95,
+   "end": 18.44,
+   "speaker_id": "speaker_0",
+   "characters": [
+    {
+     "text": "そ",
+     "start": 11.95,
+     "end": 12.06
+    },
+    {
+     "text": "れ",
+     "start": 12.06,
+     "end": 12.17
+    },
+    {
+     "text": "で",
+     "start": 12.17,
+     "end": 12.28
+    },
+    {
+     "text": "は",
+     "start": 12.28,
+     "end": 12.39
+    },
+    {
+     "text": "本",
+     "start": 12.39,
+     "end": 12.5
+    },
+    {
+     "text": "題",
+     "start": 12.5,
+     "end": 12.61
+    },
+    {
+     "text": "に",
+     "start": 12.61,
+     "end": 12.72
+    },
+    {
+     "text": "入",
+     "start": 12.72,
+     "end": 12.83
+    },
+    {
+     "text": "り",
+     "start": 12.83,
+     "end": 12.94
+    },
+    {
+     "text": "ま",
+     "start": 12.94,
+     "end": 13.05
+    },
+    {
+     "text": "す",
+     "start": 13.05,
+     "end": 13.16
+    },
+    {
+     "text": "が",
+     "start": 13.16,
+     "end": 13.27
+    },
+    {
+     "text": "最",
+     "start": 13.27,
+     "end": 13.38
+    },
+    {
+     "text": "近",
+     "start": 13.38,
+     "end": 13.49
+    },
+    {
+     "text": "始",
+     "start": 13.49,
+     "end": 13.6
+    },
+    {
+     "text": "め",
+     "start": 13.6,
+     "end": 13.71
+    },
+    {
+     "text": "た",
+     "start": 13.71,
+     "end": 13.82
+    },
+    {
+     "text": "配",
+     "start": 13.82,
+     "end": 13.93
+    },
+    {
+     "text": "信",
+     "start": 13.93,
+     "end": 14.04
+    },
+    {
+     "text": "の",
+     "start": 14.04,
+     "end": 14.15
+    },
+    {
+     "text": "話",
+     "start": 14.15,
+     "end": 14.26
+    },
+    {
+     "text": "を",
+     "start": 14.26,
+     "end": 14.37
+    },
+    {
+     "text": "し",
+     "start": 14.37,
+     "end": 14.48
+    },
+    {
+     "text": "た",
+     "start": 14.48,
+     "end": 14.59
+    },
+    {
+     "text": "い",
+     "start": 14.59,
+     "end": 14.7
+    },
+    {
+     "text": "と",
+     "start": 14.7,
+     "end": 14.81
+    },
+    {
+     "text": "思",
+     "start": 14.81,
+     "end": 14.92
+    },
+    {
+     "text": "い",
+     "start": 14.92,
+     "end": 15.03
+    },
+    {
+     "text": "ま",
+     "start": 15.03,
+     "end": 15.14
+    },
+    {
+     "text": "す",
+     "start": 15.14,
+     "end": 15.25
+    },
+    {
+     "text": "。",
+     "start": 15.25,
+     "end": 15.36
+    },
+    {
+     "text": "毎",
+     "start": 15.36,
+     "end": 15.47
+    },
+    {
+     "text": "週",
+     "start": 15.47,
+     "end": 15.58
+    },
+    {
+     "text": "土",
+     "start": 15.58,
+     "end": 15.69
+    },
+    {
+     "text": "曜",
+     "start": 15.69,
+     "end": 15.8
+    },
+    {
+     "text": "日",
+     "start": 15.8,
+     "end": 15.91
+    },
+    {
+     "text": "の",
+     "start": 15.91,
+     "end": 16.02
+    },
+    {
+     "text": "夜",
+     "start": 16.02,
+     "end": 16.13
+    },
+    {
+     "text": "に",
+     "start": 16.13,
+     "end": 16.24
+    },
+    {
+     "text": "や",
+     "start": 16.24,
+     "end": 16.35
+    },
+    {
+     "text": "っ",
+     "start": 16.35,
+     "end": 16.46
+    },
+    {
+     "text": "て",
+     "start": 16.46,
+     "end": 16.57
+    },
+    {
+     "text": "い",
+     "start": 16.57,
+     "end": 16.68
+    },
+    {
+     "text": "ま",
+     "start": 16.68,
+     "end": 16.79
+    },
+    {
+     "text": "す",
+     "start": 16.79,
+     "end": 16.9
+    },
+    {
+     "text": "。",
+     "start": 16.9,
+     "end": 17.01
+    },
+    {
+     "text": "皆",
+     "start": 17.01,
+     "end": 17.12
+    },
+    {
+     "text": "さ",
+     "start": 17.12,
+     "end": 17.23
+    },
+    {
+     "text": "ん",
+     "start": 17.23,
+     "end": 17.34
+    },
+    {
+     "text": "ぜ",
+     "start": 17.34,
+     "end": 17.45
+    },
+    {
+     "text": "ひ",
+     "start": 17.45,
+     "end": 17.56
+    },
+    {
+     "text": "見",
+     "start": 17.56,
+     "end": 17.67
+    },
+    {
+     "text": "に",
+     "start": 17.67,
+     "end": 17.78
+    },
+    {
+     "text": "来",
+     "start": 17.78,
+     "end": 17.89
+    },
+    {
+     "text": "て",
+     "start": 17.89,
+     "end": 18.0
+    },
+    {
+     "text": "く",
+     "start": 18.0,
+     "end": 18.11
+    },
+    {
+     "text": "だ",
+     "start": 18.11,
+     "end": 18.22
+    },
+    {
+     "text": "さ",
+     "start": 18.22,
+     "end": 18.33
+    },
+    {
+     "text": "い",
+     "start": 18.33,
+     "end": 18.44
+    }
+   ]
+  },
+  {
+   "type": "word",
+   "text": "あ",
+   "start": 18.94,
+   "end": 19.06,
+   "speaker_id": "speaker_1",
+   "characters": [
+    {
+     "text": "あ",
+     "start": 18.94,
+     "end": 19.06
+    }
+   ]
+  },
+  {
+   "type": "word",
+   "text": "り",
+   "start": 19.07,
+   "end": 19.19,
+   "speaker_id": "speaker_1",
+   "characters": [
+    {
+     "text": "り",
+     "start": 19.07,
+     "end": 19.19
+    }
+   ]
+  },
+  {
+   "type": "word",
+   "text": "が",
+   "start": 19.2,
+   "end": 19.32,
+   "speaker_id": "speaker_1",
+   "characters": [
+    {
+     "text": "が",
+     "start": 19.2,
+     "end": 19.32
+    }
+   ]
+  },
+  {
+   "type": "word",
+   "text": "と",
+   "start": 19.33,
+   "end": 19.45,
+   "speaker_id": "speaker_1",
+   "characters": [
+    {
+     "text": "と",
+     "start": 19.33,
+     "end": 19.45
+    }
+   ]
+  },
+  {
+   "type": "word",
+   "text": "う",
+   "start": 19.46,
+   "end": 19.58,
+   "speaker_id": "speaker_1",
+   "characters": [
+    {
+     "text": "う",
+     "start": 19.46,
+     "end": 19.58
+    }
+   ]
+  },
+  {
+   "type": "word",
+   "text": "ご",
+   "start": 19.59,
+   "end": 19.71,
+   "speaker_id": "speaker_1",
+   "characters": [
+    {
+     "text": "ご",
+     "start": 19.59,
+     "end": 19.71
+    }
+   ]
+  },
+  {
+   "type": "word",
+   "text": "ざ",
+   "start": 19.72,
+   "end": 19.84,
+   "speaker_id": "speaker_1",
+   "characters": [
+    {
+     "text": "ざ",
+     "start": 19.72,
+     "end": 19.84
+    }
+   ]
+  },
+  {
+   "type": "word",
+   "text": "い",
+   "start": 19.85,
+   "end": 19.97,
+   "speaker_id": "speaker_1",
+   "characters": [
+    {
+     "text": "い",
+     "start": 19.85,
+     "end": 19.97
+    }
+   ]
+  },
+  {
+   "type": "word",
+   "text": "ま",
+   "start": 19.98,
+   "end": 20.1,
+   "speaker_id": "speaker_1",
+   "characters": [
+    {
+     "text": "ま",
+     "start": 19.98,
+     "end": 20.1
+    }
+   ]
+  },
+  {
+   "type": "word",
+   "text": "し",
+   "start": 20.11,
+   "end": 20.23,
+   "speaker_id": "speaker_1",
+   "characters": [
+    {
+     "text": "し",
+     "start": 20.11,
+     "end": 20.23
+    }
+   ]
+  },
+  {
+   "type": "word",
+   "text": "た",
+   "start": 20.24,
+   "end": 20.36,
+   "speaker_id": "speaker_1",
+   "characters": [
+    {
+     "text": "た",
+     "start": 20.24,
+     "end": 20.36
+    }
+   ]
+  },
+  {
+   "type": "word",
+   "text": "！",
+   "start": 20.37,
+   "end": 20.38,
+   "speaker_id": "speaker_1",
+   "characters": [
+    {
+     "text": "！",
+     "start": 20.37,
+     "end": 20.38
+    }
+   ]
+  }
+ ]
+}

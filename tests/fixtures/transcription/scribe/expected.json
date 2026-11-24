@@ -1,0 +1,1658 @@
+{
+ "recorded_with": "FineSub v0.7.1 (e977f52), speech/joint/scribe.py and lines.py unmodified; no sentence-boundary model, no repair",
+ "language": "ja",
+ "duration": 22.37,
+ "units": [
+  {
+   "start": 0.4,
+   "end": 0.52,
+   "text": "ど",
+   "speaker": "speaker_0"
+  },
+  {
+   "start": 0.53,
+   "end": 0.65,
+   "text": "う",
+   "speaker": "speaker_0"
+  },
+  {
+   "start": 0.66,
+   "end": 0.78,
+   "text": "も",
+   "speaker": "speaker_0"
+  },
+  {
+   "start": 0.79,
+   "end": 0.91,
+   "text": "こ",
+   "speaker": "speaker_0"
+  },
+  {
+   "start": 0.92,
+   "end": 1.04,
+   "text": "ん",
+   "speaker": "speaker_0"
+  },
+  {
+   "start": 1.05,
+   "end": 1.17,
+   "text": "に",
+   "speaker": "speaker_0"
+  },
+  {
+   "start": 1.18,
+   "end": 1.3,
+   "text": "ち",
+   "speaker": "speaker_0"
+  },
+  {
+   "start": 1.31,
+   "end": 1.43,
+   "text": "は",
+   "speaker": "speaker_0"
+  },
+  {
+   "start": 1.44,
+   "end": 1.56,
+   "text": "今",
+   "speaker": "speaker_0"
+  },
+  {
+   "start": 1.57,
+   "end": 1.69,
+   "text": "日",
+   "speaker": "speaker_0"
+  },
+  {
+   "start": 1.7,
+   "end": 1.82,
+   "text": "は",
+   "speaker": "speaker_0"
+  },
+  {
+   "start": 1.83,
+   "end": 1.95,
+   "text": "よ",
+   "speaker": "speaker_0"
+  },
+  {
+   "start": 1.96,
+   "end": 2.08,
+   "text": "ろ",
+   "speaker": "speaker_0"
+  },
+  {
+   "start": 2.09,
+   "end": 2.21,
+   "text": "し",
+   "speaker": "speaker_0"
+  },
+  {
+   "start": 2.22,
+   "end": 2.34,
+   "text": "く",
+   "speaker": "speaker_0"
+  },
+  {
+   "start": 2.35,
+   "end": 2.47,
+   "text": "お",
+   "speaker": "speaker_0"
+  },
+  {
+   "start": 2.48,
+   "end": 2.6,
+   "text": "願",
+   "speaker": "speaker_0"
+  },
+  {
+   "start": 2.61,
+   "end": 2.73,
+   "text": "い",
+   "speaker": "speaker_0"
+  },
+  {
+   "start": 2.74,
+   "end": 2.86,
+   "text": "し",
+   "speaker": "speaker_0"
+  },
+  {
+   "start": 2.87,
+   "end": 2.99,
+   "text": "ま",
+   "speaker": "speaker_0"
+  },
+  {
+   "start": 3.0,
+   "end": 3.12,
+   "text": "す",
+   "speaker": "speaker_0"
+  },
+  {
+   "start": 3.13,
+   "end": 3.14,
+   "text": "。",
+   "speaker": "speaker_0"
+  },
+  {
+   "start": 3.73,
+   "end": 3.85,
+   "text": "は",
+   "speaker": "speaker_1"
+  },
+  {
+   "start": 3.86,
+   "end": 3.98,
+   "text": "い",
+   "speaker": "speaker_1"
+  },
+  {
+   "start": 3.99,
+   "end": 4.11,
+   "text": "よ",
+   "speaker": "speaker_1"
+  },
+  {
+   "start": 4.12,
+   "end": 4.24,
+   "text": "ろ",
+   "speaker": "speaker_1"
+  },
+  {
+   "start": 4.25,
+   "end": 4.37,
+   "text": "し",
+   "speaker": "speaker_1"
+  },
+  {
+   "start": 4.38,
+   "end": 4.5,
+   "text": "く",
+   "speaker": "speaker_1"
+  },
+  {
+   "start": 4.51,
+   "end": 4.63,
+   "text": "お",
+   "speaker": "speaker_1"
+  },
+  {
+   "start": 4.64,
+   "end": 4.76,
+   "text": "願",
+   "speaker": "speaker_1"
+  },
+  {
+   "start": 4.77,
+   "end": 4.89,
+   "text": "い",
+   "speaker": "speaker_1"
+  },
+  {
+   "start": 4.9,
+   "end": 5.02,
+   "text": "し",
+   "speaker": "speaker_1"
+  },
+  {
+   "start": 5.03,
+   "end": 5.15,
+   "text": "ま",
+   "speaker": "speaker_1"
+  },
+  {
+   "start": 5.16,
+   "end": 5.28,
+   "text": "す",
+   "speaker": "speaker_1"
+  },
+  {
+   "start": 5.29,
+   "end": 5.41,
+   "text": "ま",
+   "speaker": "speaker_1"
+  },
+  {
+   "start": 5.42,
+   "end": 5.54,
+   "text": "ず",
+   "speaker": "speaker_1"
+  },
+  {
+   "start": 5.55,
+   "end": 5.67,
+   "text": "は",
+   "speaker": "speaker_1"
+  },
+  {
+   "start": 5.68,
+   "end": 5.8,
+   "text": "自",
+   "speaker": "speaker_1"
+  },
+  {
+   "start": 5.81,
+   "end": 5.93,
+   "text": "己",
+   "speaker": "speaker_1"
+  },
+  {
+   "start": 5.94,
+   "end": 6.06,
+   "text": "紹",
+   "speaker": "speaker_1"
+  },
+  {
+   "start": 6.07,
+   "end": 6.19,
+   "text": "介",
+   "speaker": "speaker_1"
+  },
+  {
+   "start": 6.2,
+   "end": 6.32,
+   "text": "か",
+   "speaker": "speaker_1"
+  },
+  {
+   "start": 6.33,
+   "end": 6.45,
+   "text": "ら",
+   "speaker": "speaker_1"
+  },
+  {
+   "start": 6.46,
+   "end": 6.47,
+   "text": "。",
+   "speaker": "speaker_1"
+  },
+  {
+   "start": 7.06,
+   "end": 7.18,
+   "text": "わ",
+   "speaker": "speaker_0"
+  },
+  {
+   "start": 7.19,
+   "end": 7.31,
+   "text": "か",
+   "speaker": "speaker_0"
+  },
+  {
+   "start": 7.32,
+   "end": 7.44,
+   "text": "り",
+   "speaker": "speaker_0"
+  },
+  {
+   "start": 7.45,
+   "end": 7.57,
+   "text": "ま",
+   "speaker": "speaker_0"
+  },
+  {
+   "start": 7.58,
+   "end": 7.7,
+   "text": "し",
+   "speaker": "speaker_0"
+  },
+  {
+   "start": 7.71,
+   "end": 7.83,
+   "text": "た",
+   "speaker": "speaker_0"
+  },
+  {
+   "start": 7.84,
+   "end": 7.96,
+   "text": "じ",
+   "speaker": "speaker_0"
+  },
+  {
+   "start": 7.97,
+   "end": 8.09,
+   "text": "ゃ",
+   "speaker": "speaker_0"
+  },
+  {
+   "start": 8.1,
+   "end": 8.22,
+   "text": "あ",
+   "speaker": "speaker_0"
+  },
+  {
+   "start": 8.23,
+   "end": 8.35,
+   "text": "私",
+   "speaker": "speaker_0"
+  },
+  {
+   "start": 8.36,
+   "end": 8.48,
+   "text": "か",
+   "speaker": "speaker_0"
+  },
+  {
+   "start": 8.49,
+   "end": 8.61,
+   "text": "ら",
+   "speaker": "speaker_0"
+  },
+  {
+   "start": 8.62,
+   "end": 8.74,
+   "text": "話",
+   "speaker": "speaker_0"
+  },
+  {
+   "start": 8.75,
+   "end": 8.87,
+   "text": "し",
+   "speaker": "speaker_0"
+  },
+  {
+   "start": 8.88,
+   "end": 9.0,
+   "text": "ま",
+   "speaker": "speaker_0"
+  },
+  {
+   "start": 9.01,
+   "end": 9.13,
+   "text": "す",
+   "speaker": "speaker_0"
+  },
+  {
+   "start": 9.14,
+   "end": 9.26,
+   "text": "ね",
+   "speaker": "speaker_0"
+  },
+  {
+   "start": 9.27,
+   "end": 9.28,
+   "text": "。",
+   "speaker": "speaker_0"
+  },
+  {
+   "start": 9.87,
+   "end": 9.87,
+   "text": "。",
+   "speaker": "speaker_1"
+  },
+  {
+   "start": 9.99,
+   "end": 10.11,
+   "text": "次",
+   "speaker": "speaker_1"
+  },
+  {
+   "start": 11.95,
+   "end": 12.06,
+   "text": "そ",
+   "speaker": "speaker_0"
+  },
+  {
+   "start": 12.06,
+   "end": 12.17,
+   "text": "れ",
+   "speaker": "speaker_0"
+  },
+  {
+   "start": 12.17,
+   "end": 12.28,
+   "text": "で",
+   "speaker": "speaker_0"
+  },
+  {
+   "start": 12.28,
+   "end": 12.39,
+   "text": "は",
+   "speaker": "speaker_0"
+  },
+  {
+   "start": 12.39,
+   "end": 12.5,
+   "text": "本",
+   "speaker": "speaker_0"
+  },
+  {
+   "start": 12.5,
+   "end": 12.61,
+   "text": "題",
+   "speaker": "speaker_0"
+  },
+  {
+   "start": 12.61,
+   "end": 12.72,
+   "text": "に",
+   "speaker": "speaker_0"
+  },
+  {
+   "start": 12.72,
+   "end": 12.83,
+   "text": "入",
+   "speaker": "speaker_0"
+  },
+  {
+   "start": 12.83,
+   "end": 12.94,
+   "text": "り",
+   "speaker": "speaker_0"
+  },
+  {
+   "start": 12.94,
+   "end": 13.05,
+   "text": "ま",
+   "speaker": "speaker_0"
+  },
+  {
+   "start": 13.05,
+   "end": 13.16,
+   "text": "す",
+   "speaker": "speaker_0"
+  },
+  {
+   "start": 13.16,
+   "end": 13.27,
+   "text": "が",
+   "speaker": "speaker_0"
+  },
+  {
+   "start": 13.27,
+   "end": 13.38,
+   "text": "最",
+   "speaker": "speaker_0"
+  },
+  {
+   "start": 13.38,
+   "end": 13.49,
+   "text": "近",
+   "speaker": "speaker_0"
+  },
+  {
+   "start": 13.49,
+   "end": 13.6,
+   "text": "始",
+   "speaker": "speaker_0"
+  },
+  {
+   "start": 13.6,
+   "end": 13.71,
+   "text": "め",
+   "speaker": "speaker_0"
+  },
+  {
+   "start": 13.71,
+   "end": 13.82,
+   "text": "た",
+   "speaker": "speaker_0"
+  },
+  {
+   "start": 13.82,
+   "end": 13.93,
+   "text": "配",
+   "speaker": "speaker_0"
+  },
+  {
+   "start": 13.93,
+   "end": 14.04,
+   "text": "信",
+   "speaker": "speaker_0"
+  },
+  {
+   "start": 14.04,
+   "end": 14.15,
+   "text": "の",
+   "speaker": "speaker_0"
+  },
+  {
+   "start": 14.15,
+   "end": 14.26,
+   "text": "話",
+   "speaker": "speaker_0"
+  },
+  {
+   "start": 14.26,
+   "end": 14.37,
+   "text": "を",
+   "speaker": "speaker_0"
+  },
+  {
+   "start": 14.37,
+   "end": 14.48,
+   "text": "し",
+   "speaker": "speaker_0"
+  },
+  {
+   "start": 14.48,
+   "end": 14.59,
+   "text": "た",
+   "speaker": "speaker_0"
+  },
+  {
+   "start": 14.59,
+   "end": 14.7,
+   "text": "い",
+   "speaker": "speaker_0"
+  },
+  {
+   "start": 14.7,
+   "end": 14.81,
+   "text": "と",
+   "speaker": "speaker_0"
+  },
+  {
+   "start": 14.81,
+   "end": 14.92,
+   "text": "思",
+   "speaker": "speaker_0"
+  },
+  {
+   "start": 14.92,
+   "end": 15.03,
+   "text": "い",
+   "speaker": "speaker_0"
+  },
+  {
+   "start": 15.03,
+   "end": 15.14,
+   "text": "ま",
+   "speaker": "speaker_0"
+  },
+  {
+   "start": 15.14,
+   "end": 15.25,
+   "text": "す",
+   "speaker": "speaker_0"
+  },
+  {
+   "start": 15.25,
+   "end": 15.25,
+   "text": "。",
+   "speaker": "speaker_0"
+  },
+  {
+   "start": 15.36,
+   "end": 15.47,
+   "text": "毎",
+   "speaker": "speaker_0"
+  },
+  {
+   "start": 15.47,
+   "end": 15.58,
+   "text": "週",
+   "speaker": "speaker_0"
+  },
+  {
+   "start": 15.58,
+   "end": 15.69,
+   "text": "土",
+   "speaker": "speaker_0"
+  },
+  {
+   "start": 15.69,
+   "end": 15.8,
+   "text": "曜",
+   "speaker": "speaker_0"
+  },
+  {
+   "start": 15.8,
+   "end": 15.91,
+   "text": "日",
+   "speaker": "speaker_0"
+  },
+  {
+   "start": 15.91,
+   "end": 16.02,
+   "text": "の",
+   "speaker": "speaker_0"
+  },
+  {
+   "start": 16.02,
+   "end": 16.13,
+   "text": "夜",
+   "speaker": "speaker_0"
+  },
+  {
+   "start": 16.13,
+   "end": 16.24,
+   "text": "に",
+   "speaker": "speaker_0"
+  },
+  {
+   "start": 16.24,
+   "end": 16.35,
+   "text": "や",
+   "speaker": "speaker_0"
+  },
+  {
+   "start": 16.35,
+   "end": 16.46,
+   "text": "っ",
+   "speaker": "speaker_0"
+  },
+  {
+   "start": 16.46,
+   "end": 16.57,
+   "text": "て",
+   "speaker": "speaker_0"
+  },
+  {
+   "start": 16.57,
+   "end": 16.68,
+   "text": "い",
+   "speaker": "speaker_0"
+  },
+  {
+   "start": 16.68,
+   "end": 16.79,
+   "text": "ま",
+   "speaker": "speaker_0"
+  },
+  {
+   "start": 16.79,
+   "end": 16.9,
+   "text": "す",
+   "speaker": "speaker_0"
+  },
+  {
+   "start": 16.9,
+   "end": 16.9,
+   "text": "。",
+   "speaker": "speaker_0"
+  },
+  {
+   "start": 17.01,
+   "end": 17.12,
+   "text": "皆",
+   "speaker": "speaker_0"
+  },
+  {
+   "start": 17.12,
+   "end": 17.23,
+   "text": "さ",
+   "speaker": "speaker_0"
+  },
+  {
+   "start": 17.23,
+   "end": 17.34,
+   "text": "ん",
+   "speaker": "speaker_0"
+  },
+  {
+   "start": 17.34,
+   "end": 17.45,
+   "text": "ぜ",
+   "speaker": "speaker_0"
+  },
+  {
+   "start": 17.45,
+   "end": 17.56,
+   "text": "ひ",
+   "speaker": "speaker_0"
+  },
+  {
+   "start": 17.56,
+   "end": 17.67,
+   "text": "見",
+   "speaker": "speaker_0"
+  },
+  {
+   "start": 17.67,
+   "end": 17.78,
+   "text": "に",
+   "speaker": "speaker_0"
+  },
+  {
+   "start": 17.78,
+   "end": 17.89,
+   "text": "来",
+   "speaker": "speaker_0"
+  },
+  {
+   "start": 17.89,
+   "end": 18.0,
+   "text": "て",
+   "speaker": "speaker_0"
+  },
+  {
+   "start": 18.0,
+   "end": 18.11,
+   "text": "く",
+   "speaker": "speaker_0"
+  },
+  {
+   "start": 18.11,
+   "end": 18.22,
+   "text": "だ",
+   "speaker": "speaker_0"
+  },
+  {
+   "start": 18.22,
+   "end": 18.33,
+   "text": "さ",
+   "speaker": "speaker_0"
+  },
+  {
+   "start": 18.33,
+   "end": 18.44,
+   "text": "い",
+   "speaker": "speaker_0"
+  },
+  {
+   "start": 18.94,
+   "end": 19.06,
+   "text": "あ",
+   "speaker": "speaker_1"
+  },
+  {
+   "start": 19.07,
+   "end": 19.19,
+   "text": "り",
+   "speaker": "speaker_1"
+  },
+  {
+   "start": 19.2,
+   "end": 19.32,
+   "text": "が",
+   "speaker": "speaker_1"
+  },
+  {
+   "start": 19.33,
+   "end": 19.45,
+   "text": "と",
+   "speaker": "speaker_1"
+  },
+  {
+   "start": 19.46,
+   "end": 19.58,
+   "text": "う",
+   "speaker": "speaker_1"
+  },
+  {
+   "start": 19.59,
+   "end": 19.71,
+   "text": "ご",
+   "speaker": "speaker_1"
+  },
+  {
+   "start": 19.72,
+   "end": 19.84,
+   "text": "ざ",
+   "speaker": "speaker_1"
+  },
+  {
+   "start": 19.85,
+   "end": 19.97,
+   "text": "い",
+   "speaker": "speaker_1"
+  },
+  {
+   "start": 19.98,
+   "end": 20.1,
+   "text": "ま",
+   "speaker": "speaker_1"
+  },
+  {
+   "start": 20.11,
+   "end": 20.23,
+   "text": "し",
+   "speaker": "speaker_1"
+  },
+  {
+   "start": 20.24,
+   "end": 20.36,
+   "text": "た",
+   "speaker": "speaker_1"
+  },
+  {
+   "start": 20.37,
+   "end": 20.38,
+   "text": "！",
+   "speaker": "speaker_1"
+  }
+ ],
+ "audio_events_dropped": 1,
+ "glued": [
+  [
+   11.95,
+   18.33,
+   59
+  ]
+ ],
+ "collapses": [],
+ "lines": [
+  {
+   "start": 0.23,
+   "end": 3.12,
+   "text": "どうもこんにちは今日はよろしくお願いします。",
+   "line_speaker": "speaker_0",
+   "words": [
+    {
+     "start": 0.23,
+     "end": 0.52,
+     "word": "ど",
+     "space_before": false,
+     "whisper_segment_start": true
+    },
+    {
+     "start": 0.53,
+     "end": 0.65,
+     "word": "う",
+     "space_before": false
+    },
+    {
+     "start": 0.66,
+     "end": 0.78,
+     "word": "も",
+     "space_before": false
+    },
+    {
+     "start": 0.79,
+     "end": 0.91,
+     "word": "こ",
+     "space_before": false
+    },
+    {
+     "start": 0.92,
+     "end": 1.04,
+     "word": "ん",
+     "space_before": false
+    },
+    {
+     "start": 1.05,
+     "end": 1.17,
+     "word": "に",
+     "space_before": false
+    },
+    {
+     "start": 1.18,
+     "end": 1.3,
+     "word": "ち",
+     "space_before": false
+    },
+    {
+     "start": 1.31,
+     "end": 1.43,
+     "word": "は",
+     "space_before": false
+    },
+    {
+     "start": 1.44,
+     "end": 1.56,
+     "word": "今",
+     "space_before": false
+    },
+    {
+     "start": 1.57,
+     "end": 1.69,
+     "word": "日",
+     "space_before": false
+    },
+    {
+     "start": 1.7,
+     "end": 1.82,
+     "word": "は",
+     "space_before": false
+    },
+    {
+     "start": 1.83,
+     "end": 1.95,
+     "word": "よ",
+     "space_before": false
+    },
+    {
+     "start": 1.96,
+     "end": 2.08,
+     "word": "ろ",
+     "space_before": false
+    },
+    {
+     "start": 2.09,
+     "end": 2.21,
+     "word": "し",
+     "space_before": false
+    },
+    {
+     "start": 2.22,
+     "end": 2.34,
+     "word": "く",
+     "space_before": false
+    },
+    {
+     "start": 2.35,
+     "end": 2.47,
+     "word": "お",
+     "space_before": false
+    },
+    {
+     "start": 2.48,
+     "end": 2.6,
+     "word": "願",
+     "space_before": false
+    },
+    {
+     "start": 2.61,
+     "end": 2.73,
+     "word": "い",
+     "space_before": false
+    },
+    {
+     "start": 2.74,
+     "end": 2.86,
+     "word": "し",
+     "space_before": false
+    },
+    {
+     "start": 2.87,
+     "end": 2.99,
+     "word": "ま",
+     "space_before": false
+    },
+    {
+     "start": 3.0,
+     "end": 3.12,
+     "word": "す。",
+     "space_before": false
+    }
+   ]
+  },
+  {
+   "start": 3.56,
+   "end": 6.45,
+   "text": "はいよろしくお願いしますまずは自己紹介から。",
+   "line_speaker": "speaker_1",
+   "words": [
+    {
+     "start": 3.56,
+     "end": 3.85,
+     "word": "は",
+     "space_before": false,
+     "whisper_segment_start": true
+    },
+    {
+     "start": 3.86,
+     "end": 3.98,
+     "word": "い",
+     "space_before": false
+    },
+    {
+     "start": 3.99,
+     "end": 4.11,
+     "word": "よ",
+     "space_before": false
+    },
+    {
+     "start": 4.12,
+     "end": 4.24,
+     "word": "ろ",
+     "space_before": false
+    },
+    {
+     "start": 4.25,
+     "end": 4.37,
+     "word": "し",
+     "space_before": false
+    },
+    {
+     "start": 4.38,
+     "end": 4.5,
+     "word": "く",
+     "space_before": false
+    },
+    {
+     "start": 4.51,
+     "end": 4.63,
+     "word": "お",
+     "space_before": false
+    },
+    {
+     "start": 4.64,
+     "end": 4.76,
+     "word": "願",
+     "space_before": false
+    },
+    {
+     "start": 4.77,
+     "end": 4.89,
+     "word": "い",
+     "space_before": false
+    },
+    {
+     "start": 4.9,
+     "end": 5.02,
+     "word": "し",
+     "space_before": false
+    },
+    {
+     "start": 5.03,
+     "end": 5.15,
+     "word": "ま",
+     "space_before": false
+    },
+    {
+     "start": 5.16,
+     "end": 5.28,
+     "word": "す",
+     "space_before": false
+    },
+    {
+     "start": 5.29,
+     "end": 5.41,
+     "word": "ま",
+     "space_before": false
+    },
+    {
+     "start": 5.42,
+     "end": 5.54,
+     "word": "ず",
+     "space_before": false
+    },
+    {
+     "start": 5.55,
+     "end": 5.67,
+     "word": "は",
+     "space_before": false
+    },
+    {
+     "start": 5.68,
+     "end": 5.8,
+     "word": "自",
+     "space_before": false
+    },
+    {
+     "start": 5.81,
+     "end": 5.93,
+     "word": "己",
+     "space_before": false
+    },
+    {
+     "start": 5.94,
+     "end": 6.06,
+     "word": "紹",
+     "space_before": false
+    },
+    {
+     "start": 6.07,
+     "end": 6.19,
+     "word": "介",
+     "space_before": false
+    },
+    {
+     "start": 6.2,
+     "end": 6.32,
+     "word": "か",
+     "space_before": false
+    },
+    {
+     "start": 6.33,
+     "end": 6.45,
+     "word": "ら。",
+     "space_before": false
+    }
+   ]
+  },
+  {
+   "start": 6.89,
+   "end": 9.26,
+   "text": "わかりましたじゃあ私から話しますね。。",
+   "line_speaker": "speaker_0",
+   "words": [
+    {
+     "start": 6.89,
+     "end": 7.18,
+     "word": "わ",
+     "space_before": false,
+     "whisper_segment_start": true
+    },
+    {
+     "start": 7.19,
+     "end": 7.31,
+     "word": "か",
+     "space_before": false
+    },
+    {
+     "start": 7.32,
+     "end": 7.44,
+     "word": "り",
+     "space_before": false
+    },
+    {
+     "start": 7.45,
+     "end": 7.57,
+     "word": "ま",
+     "space_before": false
+    },
+    {
+     "start": 7.58,
+     "end": 7.7,
+     "word": "し",
+     "space_before": false
+    },
+    {
+     "start": 7.71,
+     "end": 7.83,
+     "word": "た",
+     "space_before": false
+    },
+    {
+     "start": 7.84,
+     "end": 7.96,
+     "word": "じ",
+     "space_before": false
+    },
+    {
+     "start": 7.97,
+     "end": 8.09,
+     "word": "ゃ",
+     "space_before": false
+    },
+    {
+     "start": 8.1,
+     "end": 8.22,
+     "word": "あ",
+     "space_before": false
+    },
+    {
+     "start": 8.23,
+     "end": 8.35,
+     "word": "私",
+     "space_before": false
+    },
+    {
+     "start": 8.36,
+     "end": 8.48,
+     "word": "か",
+     "space_before": false
+    },
+    {
+     "start": 8.49,
+     "end": 8.61,
+     "word": "ら",
+     "space_before": false
+    },
+    {
+     "start": 8.62,
+     "end": 8.74,
+     "word": "話",
+     "space_before": false
+    },
+    {
+     "start": 8.75,
+     "end": 8.87,
+     "word": "し",
+     "space_before": false
+    },
+    {
+     "start": 8.88,
+     "end": 9.0,
+     "word": "ま",
+     "space_before": false
+    },
+    {
+     "start": 9.01,
+     "end": 9.13,
+     "word": "す",
+     "space_before": false
+    },
+    {
+     "start": 9.14,
+     "end": 9.26,
+     "word": "ね。。",
+     "space_before": false
+    }
+   ]
+  },
+  {
+   "start": 9.82,
+   "end": 10.11,
+   "text": "次",
+   "line_speaker": "speaker_1",
+   "words": [
+    {
+     "start": 9.82,
+     "end": 10.11,
+     "word": "次",
+     "space_before": false,
+     "whisper_segment_start": true
+    }
+   ]
+  },
+  {
+   "start": 11.78,
+   "end": 15.25,
+   "text": "それでは本題に入りますが最近始めた配信の話をしたいと思います。",
+   "line_speaker": "speaker_0",
+   "words": [
+    {
+     "start": 11.78,
+     "end": 12.06,
+     "word": "そ",
+     "space_before": false,
+     "whisper_segment_start": true
+    },
+    {
+     "start": 12.06,
+     "end": 12.17,
+     "word": "れ",
+     "space_before": false
+    },
+    {
+     "start": 12.17,
+     "end": 12.28,
+     "word": "で",
+     "space_before": false
+    },
+    {
+     "start": 12.28,
+     "end": 12.39,
+     "word": "は",
+     "space_before": false
+    },
+    {
+     "start": 12.39,
+     "end": 12.5,
+     "word": "本",
+     "space_before": false
+    },
+    {
+     "start": 12.5,
+     "end": 12.61,
+     "word": "題",
+     "space_before": false
+    },
+    {
+     "start": 12.61,
+     "end": 12.72,
+     "word": "に",
+     "space_before": false
+    },
+    {
+     "start": 12.72,
+     "end": 12.83,
+     "word": "入",
+     "space_before": false
+    },
+    {
+     "start": 12.83,
+     "end": 12.94,
+     "word": "り",
+     "space_before": false
+    },
+    {
+     "start": 12.94,
+     "end": 13.05,
+     "word": "ま",
+     "space_before": false
+    },
+    {
+     "start": 13.05,
+     "end": 13.16,
+     "word": "す",
+     "space_before": false
+    },
+    {
+     "start": 13.16,
+     "end": 13.27,
+     "word": "が",
+     "space_before": false
+    },
+    {
+     "start": 13.27,
+     "end": 13.38,
+     "word": "最",
+     "space_before": false
+    },
+    {
+     "start": 13.38,
+     "end": 13.49,
+     "word": "近",
+     "space_before": false
+    },
+    {
+     "start": 13.49,
+     "end": 13.6,
+     "word": "始",
+     "space_before": false
+    },
+    {
+     "start": 13.6,
+     "end": 13.71,
+     "word": "め",
+     "space_before": false
+    },
+    {
+     "start": 13.71,
+     "end": 13.82,
+     "word": "た",
+     "space_before": false
+    },
+    {
+     "start": 13.82,
+     "end": 13.93,
+     "word": "配",
+     "space_before": false
+    },
+    {
+     "start": 13.93,
+     "end": 14.04,
+     "word": "信",
+     "space_before": false
+    },
+    {
+     "start": 14.04,
+     "end": 14.15,
+     "word": "の",
+     "space_before": false
+    },
+    {
+     "start": 14.15,
+     "end": 14.26,
+     "word": "話",
+     "space_before": false
+    },
+    {
+     "start": 14.26,
+     "end": 14.37,
+     "word": "を",
+     "space_before": false
+    },
+    {
+     "start": 14.37,
+     "end": 14.48,
+     "word": "し",
+     "space_before": false
+    },
+    {
+     "start": 14.48,
+     "end": 14.59,
+     "word": "た",
+     "space_before": false
+    },
+    {
+     "start": 14.59,
+     "end": 14.7,
+     "word": "い",
+     "space_before": false
+    },
+    {
+     "start": 14.7,
+     "end": 14.81,
+     "word": "と",
+     "space_before": false
+    },
+    {
+     "start": 14.81,
+     "end": 14.92,
+     "word": "思",
+     "space_before": false
+    },
+    {
+     "start": 14.92,
+     "end": 15.03,
+     "word": "い",
+     "space_before": false
+    },
+    {
+     "start": 15.03,
+     "end": 15.14,
+     "word": "ま",
+     "space_before": false
+    },
+    {
+     "start": 15.14,
+     "end": 15.25,
+     "word": "す。",
+     "space_before": false
+    }
+   ]
+  },
+  {
+   "start": 15.25,
+   "end": 18.44,
+   "text": "毎週土曜日の夜にやっています。皆さんぜひ見に来てください",
+   "line_speaker": "speaker_0",
+   "words": [
+    {
+     "start": 15.25,
+     "end": 15.47,
+     "word": "毎",
+     "space_before": false
+    },
+    {
+     "start": 15.47,
+     "end": 15.58,
+     "word": "週",
+     "space_before": false
+    },
+    {
+     "start": 15.58,
+     "end": 15.69,
+     "word": "土",
+     "space_before": false
+    },
+    {
+     "start": 15.69,
+     "end": 15.8,
+     "word": "曜",
+     "space_before": false
+    },
+    {
+     "start": 15.8,
+     "end": 15.91,
+     "word": "日",
+     "space_before": false
+    },
+    {
+     "start": 15.91,
+     "end": 16.02,
+     "word": "の",
+     "space_before": false
+    },
+    {
+     "start": 16.02,
+     "end": 16.13,
+     "word": "夜",
+     "space_before": false
+    },
+    {
+     "start": 16.13,
+     "end": 16.24,
+     "word": "に",
+     "space_before": false
+    },
+    {
+     "start": 16.24,
+     "end": 16.35,
+     "word": "や",
+     "space_before": false
+    },
+    {
+     "start": 16.35,
+     "end": 16.46,
+     "word": "っ",
+     "space_before": false
+    },
+    {
+     "start": 16.46,
+     "end": 16.57,
+     "word": "て",
+     "space_before": false
+    },
+    {
+     "start": 16.57,
+     "end": 16.68,
+     "word": "い",
+     "space_before": false
+    },
+    {
+     "start": 16.68,
+     "end": 16.79,
+     "word": "ま",
+     "space_before": false
+    },
+    {
+     "start": 16.79,
+     "end": 16.9,
+     "word": "す。",
+     "space_before": false
+    },
+    {
+     "start": 17.01,
+     "end": 17.12,
+     "word": "皆",
+     "space_before": false
+    },
+    {
+     "start": 17.12,
+     "end": 17.23,
+     "word": "さ",
+     "space_before": false
+    },
+    {
+     "start": 17.23,
+     "end": 17.34,
+     "word": "ん",
+     "space_before": false
+    },
+    {
+     "start": 17.34,
+     "end": 17.45,
+     "word": "ぜ",
+     "space_before": false
+    },
+    {
+     "start": 17.45,
+     "end": 17.56,
+     "word": "ひ",
+     "space_before": false
+    },
+    {
+     "start": 17.56,
+     "end": 17.67,
+     "word": "見",
+     "space_before": false
+    },
+    {
+     "start": 17.67,
+     "end": 17.78,
+     "word": "に",
+     "space_before": false
+    },
+    {
+     "start": 17.78,
+     "end": 17.89,
+     "word": "来",
+     "space_before": false
+    },
+    {
+     "start": 17.89,
+     "end": 18.0,
+     "word": "て",
+     "space_before": false
+    },
+    {
+     "start": 18.0,
+     "end": 18.11,
+     "word": "く",
+     "space_before": false
+    },
+    {
+     "start": 18.11,
+     "end": 18.22,
+     "word": "だ",
+     "space_before": false
+    },
+    {
+     "start": 18.22,
+     "end": 18.33,
+     "word": "さ",
+     "space_before": false
+    },
+    {
+     "start": 18.33,
+     "end": 18.44,
+     "word": "い",
+     "space_before": false
+    }
+   ]
+  },
+  {
+   "start": 18.77,
+   "end": 20.36,
+   "text": "ありがとうございました！",
+   "line_speaker": "speaker_1",
+   "words": [
+    {
+     "start": 18.77,
+     "end": 19.06,
+     "word": "あ",
+     "space_before": false,
+     "whisper_segment_start": true
+    },
+    {
+     "start": 19.07,
+     "end": 19.19,
+     "word": "り",
+     "space_before": false
+    },
+    {
+     "start": 19.2,
+     "end": 19.32,
+     "word": "が",
+     "space_before": false
+    },
+    {
+     "start": 19.33,
+     "end": 19.45,
+     "word": "と",
+     "space_before": false
+    },
+    {
+     "start": 19.46,
+     "end": 19.58,
+     "word": "う",
+     "space_before": false
+    },
+    {
+     "start": 19.59,
+     "end": 19.71,
+     "word": "ご",
+     "space_before": false
+    },
+    {
+     "start": 19.72,
+     "end": 19.84,
+     "word": "ざ",
+     "space_before": false
+    },
+    {
+     "start": 19.85,
+     "end": 19.97,
+     "word": "い",
+     "space_before": false
+    },
+    {
+     "start": 19.98,
+     "end": 20.1,
+     "word": "ま",
+     "space_before": false
+    },
+    {
+     "start": 20.11,
+     "end": 20.23,
+     "word": "し",
+     "space_before": false
+    },
+    {
+     "start": 20.24,
+     "end": 20.36,
+     "word": "た！",
+     "space_before": false
+    }
+   ]
+  }
+ ]
+}

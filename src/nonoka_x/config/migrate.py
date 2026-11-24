@@ -74,7 +74,7 @@ KEYRING_NAME = legacy.KEYRING_NAME
 LEGACY_RENAMES: Mapping[str, str] = legacy.LEGACY_KEY_RENAMES
 
 #: The cloud ASR engines' keys (`transcription.keys.KEY_SPECS`; a test keeps the two lists equal).
-ENGINE_KEY_NAMES = ("MOSS_PRO", "OPENROUTER_STT_KEY", "AZURE_SPEECH_KEY", "AZURE_SPEECH_ENDPOINT")
+ENGINE_KEY_NAMES = ("MOSS_PRO", "OPENROUTER_STT_KEY", "AZURE_SPEECH_KEY", "AZURE_SPEECH_ENDPOINT", "ELEVENLABS")
 
 #: Task groups `[llm.preferred_targets]` pins, now or before (`settings.TASK_GROUPS_BY_ROUTE`, `LEGACY_ROUTES`).
 DERIVED_PREFERRED_GROUPS = frozenset(

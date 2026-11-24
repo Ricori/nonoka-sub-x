@@ -4,6 +4,8 @@
 - `mai2` (MAI-Transcribe-2), `gemini` (Gemini 3.5 Transcribe, "35t"), `moss_pro` (MOSS Pro): the three cloud API
   engines Nonoka maintains (WP3), each a backend moved out of FineSub's `speech/joint/` (WP1) plus its
   `TranscriptionEngine`; what they share is `cloud.py`. They run in the launcher's environment only.
+- `scribe` (ElevenLabs Scribe v3): a fourth, ported the same way from FineSub 0.7.1's `speech/joint/scribe.py`
+  and `scribe_keys.py`.
 - `moss_local`: local MOSS, moved with them; not registered, not an engine yet (plan 4.1 item 8).
 
 Each backend turns the source audio into a `units.Transcript` -- the provider's words (or, for the two MOSS, its
@@ -23,6 +25,7 @@ from __future__ import annotations
 MAI2 = "mai2"
 GEMINI_35T = "gemini-35t"
 MOSS_PRO = "moss-pro"
+SCRIBE = "scribe"
 MOSS_LOCAL = "moss-local"
 
 

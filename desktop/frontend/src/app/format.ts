@@ -56,6 +56,7 @@ const TRANSCRIPTION_ENGINE_LABELS: Record<string, string> = {
   mai2: "MAI-Transcribe-2",
   "gemini-transcribe": "Gemini 3.5 Transcribe",
   "moss-pro": "MOSS Pro",
+  scribe: "ElevenLabs Scribe",
 };
 
 /**

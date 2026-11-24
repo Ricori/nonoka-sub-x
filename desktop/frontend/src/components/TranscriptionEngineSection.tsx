@@ -26,6 +26,7 @@ const KIND_NOTES: Record<EngineChoice["kind"], string> = {
 
 const ENGINE_KEY_LINKS: Record<string, { label: string; href: string }> = {
   "moss-pro": { label: "白嫖点此", href: "https://platform.moss.cn/app/api-keys" },
+  scribe: { label: "获取 key", href: "https://elevenlabs.io/app/settings/api-keys" },
 };
 
 interface TranscriptionEngineSectionProps {
