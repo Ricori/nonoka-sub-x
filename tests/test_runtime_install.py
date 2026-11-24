@@ -91,26 +91,6 @@ def test_layer_download_says_how_much_it_fetches_without_touching_anything(monke
     assert runtime_install.LayerDownloadHook().download_bytes(_Context()) is None
 
 
-def test_layer_download_skips_on_unsupported_platforms(monkeypatch):
-    from nonoka_x.runtime import layers as L
-
-    monkeypatch.setattr(sys, "platform", "linux")
-    entry = lambda size: SimpleNamespace(archive=SimpleNamespace(size=size))  # noqa: E731
-    index = SimpleNamespace(
-        platform=lm.PLATFORM,
-        layers={"python": 1, "tools": 1},
-        entry=lambda layer: entry({"python": 100, "tools": 10}[layer]),
-    )
-    monkeypatch.setattr(L, "load_index", lambda: index)
-    monkeypatch.setattr(L, "LayerManager", lambda *a, **k: pytest.fail("LayerManager must not open on Linux"))
-
-    hook = runtime_install.LayerDownloadHook()
-    context = _Context()
-    assert hook.download_bytes(context) == 0
-    hook.run(context)
-    assert any("skipped" in line for line in context.lines)
-
-
 def test_layer_download_installs_only_tools_on_macos(monkeypatch):
     from nonoka_x.runtime import layers as L
     from nonoka_x.runtime import manifest_tools

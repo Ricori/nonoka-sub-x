@@ -121,18 +121,17 @@ def split_choice(paths: "PipelinePaths", diarize_split: bool) -> bool:
 
 def default_diarize(stage: str, profile: Any) -> str:
     """`--diarize` for a run that leaves it unset (owner 2026-10-17): a run that reaches the LLM stage at
-    `quality` (`DEFAULT_JUDGE_DIFFICULTIES`) gets the speaker judge in the correction's modality -- `judge-text` on
-    text, `judge-audio` otherwise, which judges the rows when no model in the group hears -- and every other
-    run `off`, so a run that stops at raw-srt downloads no model and its SRT is unchanged. There is no
+    `quality` (`DEFAULT_JUDGE_DIFFICULTIES`) gets the text speaker judge whatever the correction's modality --
+    hearing the audio judged no better than reading and sometimes worse (owner 2026-11-15,
+    docs/llm_design_notes.md「说话人裁判默认纯文本的决策记录」) -- and every other run `off`, so a run that stops at
+    raw-srt downloads no model and its SRT is unchanged. There is no
     one-speaker step down to `acoustics`: the acoustic layer splits one voice into several tracks (one
     streamer with game audio came out as three), and the judge is what can hear it is one."""
     if PIPELINE_STAGE_ORDER[stage] < PIPELINE_STAGE_ORDER["translated-srt"]:
         return "off"
     from .llm.correction_mode import DEFAULT_JUDGE_DIFFICULTIES
 
-    if profile.difficulty not in DEFAULT_JUDGE_DIFFICULTIES:
-        return "off"
-    return "judge-text" if profile.correction_media == "text" else "judge-audio"
+    return "judge-text" if profile.difficulty in DEFAULT_JUDGE_DIFFICULTIES else "off"
 
 
 def task_diarize(paths: "PipelinePaths", diarize: str | None, default: str, *, resume: bool = True) -> str:
@@ -177,25 +176,19 @@ _VIDEO_EXTENSIONS = frozenset({
 })
 
 
-def profile_asr_workers(items: Sequence[Mapping[str, Any]]) -> int:
-    """One ASR task at a time; the file itself supplies the parallelism.
-
-    Concurrency used to come from the asr bin running ``wt_instances`` files
-    side by side, each pinned to one shard. That kept the GPU busy but put N
-    files' worth of non-model state in one process at once, and the 8GB profile
-    was already measured over its RAM budget with a single file. Running one
-    file with full shard and separator width bounds the live state to that file
-    while keeping the same number of models resident.
-
-    Reverses an earlier file-level design; docs/wt-parallelism.md records that
-    trade, and the intra-file sharding it refers to has since been removed too
-    (ASR is single-worker).
-
-    ``items`` is unused: the answer no longer depends on the profile mix. It
-    stays in the signature because callers pass the merged rows.
-    """
-
-    return 1
+#: One ASR task at a time; the file itself supplies the parallelism.
+#:
+#: Concurrency used to come from the asr bin running ``wt_instances`` files
+#: side by side, each pinned to one shard. That kept the GPU busy but put N
+#: files' worth of non-model state in one process at once, and the 8GB profile
+#: was already measured over its RAM budget with a single file. Running one
+#: file with full shard and separator width bounds the live state to that file
+#: while keeping the same number of models resident.
+#:
+#: Reverses an earlier file-level design; docs/wt-parallelism.md records that
+#: trade, and the intra-file sharding it refers to has since been removed too
+#: (ASR is single-worker).
+ASR_WORKERS = 1
 
 
 def default_output_path(input_path: Path) -> Path:
@@ -210,14 +203,19 @@ def resolve_llm_media_for_source(
     stage: str,
     llm_media: str,
     llm_video: str | Path | None,
+    downloaded: bool = False,
 ) -> tuple[str, str | Path | None, str]:
-    """Pick the effective LLM media switch / video file for a local input.
+    """Pick the effective LLM media switch / video file for the source.
 
-    A video switch needs a video track: a local video file becomes the default
-    ``llm_video``. When the input is audio-only, ``--llm-media video``
-    downgrades to audio with a notice. Only meaningful once an LLM stage
-    actually runs, so earlier stages are left untouched. Returns
-    ``(llm_media, llm_video, notice)``; an empty notice means silence.
+    A video switch needs a video track: a video source -- local, or what a URL
+    downloaded -- becomes the default ``llm_video``; other switches leave it
+    unset, so keeping a downloaded video never shows it to a text or audio
+    switch. When the source is audio-only, ``--llm-media video`` downgrades to
+    audio with a notice, except a ``downloaded`` one: a URL fetched as audio
+    under a video switch fails instead (docs/manual/tuning.md「输入与下载」).
+    Only meaningful once an LLM stage actually runs, so earlier stages are
+    left untouched. Returns ``(llm_media, llm_video, notice)``; an empty
+    notice means silence.
     """
     if PIPELINE_STAGE_ORDER[stage] < PIPELINE_STAGE_ORDER["translated-srt"]:
         return llm_media, llm_video, ""
@@ -230,6 +228,8 @@ def resolve_llm_media_for_source(
         # -- that is exactly what --llm-video is for (transcribe the .wav,
         # show the .mp4 to the LLM). Availability is about the video *source*,
         # not about the ASR input's suffix.
+        return llm_media, llm_video, ""
+    if downloaded:
         return llm_media, llm_video, ""
     return (
         "audio",
@@ -465,16 +465,18 @@ def _validate_llm_configuration(
 
 
 def _refuse_judge_without_split(paths: PipelinePaths, profile: Any, speaker_judge: str, *, resume: bool) -> None:
-    """A speaker judge the correction cannot run the three-pass split for (`three_pass.refuse_judge`), refused
-    before diarization spends GPU time and model downloads on it. Only for a run that reaches the LLM stage:
-    the correction routing it reads is never loaded for one that stops at raw-srt (a batch item's ASR half
-    included). A resume whose recorded judge is this one passes, as the correction task does."""
+    """A speaker judge the correction can run neither folded into its single pass nor as the three-pass split
+    (`three_pass.refuse_judge`), or a folded one that would overwrite another judge's sidecar, refused before
+    diarization spends GPU time and model downloads on it. Only for a run that reaches the LLM stage: the
+    correction routing it reads is never loaded for one that stops at raw-srt (a batch item's ASR half included).
+    A resume whose recorded judge is this one passes the first check, as the correction task does."""
     if speaker_judge == "off":
         return
     from finesub.llm.correction_mode import recorded_choice
     from finesub.llm.stages.three_pass import refuse_judge
 
-    refuse_judge(profile, speaker_judge, recorded_choice(paths.task_artifact_dir) if resume else None)
+    refuse_judge(profile, speaker_judge, recorded_choice(paths.task_artifact_dir) if resume else None,
+                 paths.stable_json)
 
 
 def _correction_request(
@@ -694,14 +696,21 @@ def _diarization_device(device: str | None, gpu_tier: str) -> str:
     NeMo on the GPU by 0.19% of frames. Said on stderr, because an hour of audio then costs about
     twelve minutes. (DiariZen, research only: RTF 0.86.)
     """
-    from .speech.runtime.device import resolve_device
+    from .speech.runtime.device import device_type, is_gpu_device, resolve_device
     from .speech.runtime.resources import get_resource_profile
 
     requested = device or "cuda"
     if not get_resource_profile(gpu_tier).gpu:
         requested = "cpu"
     chosen = resolve_device(requested, context="speaker diarization")
-    if not str(chosen).startswith("cuda"):
+    # CUDA is the only card this stage has been accepted on. An Intel GPU is not
+    # a backend any of these chains ship for it, so putting the timeline there
+    # would be an unmeasured algorithm change -- exactly what an execution-form
+    # port must not do -- and the honest answer is the CPU one. The rest of the
+    # run still resolves to `xpu`; only the labels stay here.
+    if is_gpu_device(chosen) and device_type(chosen) != "cuda":
+        chosen = "cpu"
+    if not is_gpu_device(chosen):
         current_reporter().warning(
             "diarization-on-cpu",
             "说话人分离在 CPU 上跑：约为音频时长的五分之一（1 小时音频约 12 分钟）",
@@ -1102,6 +1111,7 @@ def run_pipeline(
     llm_parallel_windows: int | None = None,
     llm_fast: str = "auto",
     llm_proofread: str = "auto",
+    llm_proofread_inline: str = "auto",
     llm_output_scale: float = 1.0,
     llm_video: str | Path | None = None,
     extra_info: str = "",
@@ -1290,7 +1300,7 @@ def _prepare_run(
         # Wall only, no CPU: a download is network wait by construction, so a
         # wall:CPU ratio here would be a large number that means nothing.
         download_t0 = time.perf_counter()
-        source_path, paths, run.llm_video, source_extra_info = prepare_url_input(
+        source_path, paths, source_extra_info = prepare_url_input(
             source_arg,
             output_path=run.output_path,
             llm_video=run.llm_video,
@@ -1312,22 +1322,18 @@ def _prepare_run(
         if not source_path.exists():
             raise FileNotFoundError(f"Input not found: {source_path}")
         paths = default_pipeline_paths(source_path, run.output_path)
-        run.llm_media, run.llm_video, media_notice = resolve_llm_media_for_source(
-            source_path,
-            stage=stage,
-            llm_media=run.llm_media,
-            llm_video=run.llm_video,
-        )
-        if media_notice:
-            # Says the LLM stage will not get the video it was asked for, which
-            # changes the result rather than merely describing the run.
-            current_reporter().warning("media-downgraded", media_notice)
         # A video source goes on to the stages as it is, like the URL branch
         # above. Separation decodes its own lossless copy when soundfile cannot
         # read the container, and the LLM clip cutter runs ffmpeg either way;
         # narrowing the audio here used to cost a lossy generation and a mono
         # 16 kHz downmix before separation -- which runs a 44.1 kHz stereo
         # model -- for an artifact nothing needed.
+    run.llm_media, run.llm_video, media_notice = resolve_llm_media_for_source(
+        source_path, stage=stage, llm_media=run.llm_media, llm_video=run.llm_video, downloaded=input_is_url)
+    if media_notice:
+        # Says the LLM stage will not get the video it was asked for, which
+        # changes the result rather than merely describing the run.
+        current_reporter().warning("media-downgraded", media_notice)
     if scope == "post-stable" and not paths.stable_json.exists():
         raise FileNotFoundError(f"run_post_stable continues from {paths.stable_json}, which is not there")
     paths.final_srt.parent.mkdir(parents=True, exist_ok=True)
@@ -1361,7 +1367,8 @@ def _prepare_run(
             task_id=run.task_id, task_summary=run.task_summary, postprocess_profile=run.postprocess_profile,
             max_retries_per_window=run.max_retries_per_window,
             max_replacements_per_window=run.max_replacements_per_window,
-            speaker_judge=judge_of(run.diarize), proofread=run.llm_proofread, resume=run.resume,
+            speaker_judge=judge_of(run.diarize), proofread=run.llm_proofread,
+            inline_proofread=run.llm_proofread_inline, resume=run.resume,
             test_profile=run.test_profile, split_length_scale=run.split_length_scale, judge_audio=judge_audio,
         )
 
@@ -1428,6 +1435,16 @@ def _run_transcription_stages(run: _Run) -> None:
         target_order >= PIPELINE_STAGE_ORDER["stable"]
         and not paths.stable_json.exists()
     )
+    if stage in ("vocal", "aligned") or not paths.stable_json.exists():
+        # Refused here, once, before separation -- the heaviest stage -- rather
+        # than by the first resolver that happens to see the string: `--device
+        # cuda:0` used to run the whole separation pass on the card and only then
+        # raise (2026-10-22). Not in `_prepare_run`, where upstream has it: a run
+        # continuing from a stable on disk never imports torch (local change 0006),
+        # and the correction package checks whole requests there without it.
+        from .speech.runtime.device import validate_device_token
+
+        validate_device_token(run.device)
     _run_vocal_stage(
         paths,
         stage=stage,
@@ -1483,6 +1500,7 @@ def _run_transcription_stages(run: _Run) -> None:
                 asr_context=asr_context_text,
                 run_metadata_path=paths.metadata_json,
                 vad_prefix_path=paths.vad_json,
+                separated_from=run.source_path if run.separate else None,
             ),
         )
         _record_stage_time(
@@ -1876,8 +1894,8 @@ def prepare_url_input(
     llm_video: str | Path | None,
     download_video_source: bool = True,
     on_destination: Callable[[PipelinePaths], None] | None = None,
-) -> tuple[Path, PipelinePaths, str | Path | None, str]:
-    """Resolve a media URL into (audio_path, paths, llm_video, extra_info).
+) -> tuple[Path, PipelinePaths, str]:
+    """Resolve a media URL into (source_path, paths, extra_info).
 
     Public so the batch runner's download stage can reuse it; derives the
     artifact paths from the resolved video id.
@@ -1895,6 +1913,8 @@ def prepare_url_input(
     resolving the same URL a second time, which is exactly what an id map
     exists to avoid. ``download_video_source=False`` (``--no-download-video``)
     takes the audio-only path for a run that really only wants a transcript.
+    The downloaded video is the source and nothing more: the caller decides
+    from the media switch whether the LLM sees it (`resolve_llm_media_for_source`).
     """
     from .media.source import (
         download_audio,
@@ -1921,19 +1941,14 @@ def prepare_url_input(
         if resolved_id != video_id:
             paths = default_pipeline_paths(Path(resolved_id), output_path)
             claim(paths)
-        return (
-            video_path.resolve(),
-            paths,
-            video_path,
-            "媒体文件: " + str(video_path) + "\nLLM 视频文件: " + str(video_path),
-        )
+        return video_path.resolve(), paths, "媒体文件: " + str(video_path)
     resolved_id, audio_path = download_audio(
         url, map_dir, video_id=video_id, target_dir=media_dir
     )
     if resolved_id != video_id:
         paths = default_pipeline_paths(Path(resolved_id), output_path)
         claim(paths)
-    return audio_path.resolve(), paths, llm_video, "媒体文件: " + str(audio_path)
+    return audio_path.resolve(), paths, "媒体文件: " + str(audio_path)
 
 
 def _stage_output(paths: PipelinePaths, stage: str) -> Path:

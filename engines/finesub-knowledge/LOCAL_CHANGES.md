@@ -1,6 +1,6 @@
 # FineSub 本地改动
 
-FineSub 相对 `UPSTREAM.json` 记录的上游版本（`v0.7.0`，`7123055`）改过的地方都记在这里：改了什么、为什么、何时可以去掉。WP-P1 之前 FineSub 整个在 `third_party/finesub/src`；之后分在三个引擎包的 `src/` 里（见 0013），三个包各带一份本文件，内容相同，下面的路径都相对包目录。
+FineSub 相对 `UPSTREAM.json` 记录的上游版本（`v0.7.1`，`e977f52`）改过的地方都记在这里：改了什么、为什么、何时可以去掉。WP-P1 之前 FineSub 整个在 `third_party/finesub/src`；之后分在三个引擎包的 `src/` 里（见 0013），三个包各带一份本文件，内容相同，下面的路径都相对包目录。
 
 规则（见 `docs/transcription-engines-plan.md` 第 0 节与第 3 节）：
 
@@ -68,7 +68,7 @@ FineSub 相对 `UPSTREAM.json` 记录的上游版本（`v0.7.0`，`7123055`）�
 
 原补丁：`0005-agy-compatibility.patch`（影响模块 `src/finesub/llm/agent`）
 
-**改了什么、为什么**：agy 1.3 起，`--project` 指向一个它已不认识的 id（`~/.gemini/config/projects` 下的记录没了）时会静默改开 `default-cli-project`，退出码仍为 0、仍列出 cwd 的 hooks。引擎的 `/hooks` 项目检查因此一直通过，缓存的 `finesub-project.json` 永不失效，每次工具调用都死在 `_grant_permissions`。本补丁让 `_check_project` 从本次日志读出 agy 实际打开的项目（`Conversation using project ID:`），不一致即视为不可用，交给既有的快速路径重新注册；刚注册完仍不一致则直接失败。agy 1.4 的 `/hooks` 日志不再输出这一行，所以检查还要求缓存 id 在 `~/.gemini/config/projects` 下有记录，缺失同样重新注册；记录目录整个不存在时不做判断。守卫编码部分上游 0.7.0 已移植
+**改了什么、为什么**：agy 1.3 起，`--project` 指向一个它已不认识的 id（`~/.gemini/config/projects` 下的记录没了）时会静默改开 `default-cli-project`，退出码仍为 0、仍列出 cwd 的 hooks。引擎的 `/hooks` 项目检查因此一直通过，缓存的 `finesub-project.json` 永不失效，每次工具调用都死在 `_grant_permissions`。本补丁让 `_check_project` 从本次日志读出 agy 实际打开的项目（`Conversation using project ID:`），不一致即视为不可用，交给既有的快速路径重新注册；刚注册完仍不一致则直接失败。agy 1.4 的 `/hooks` 日志不再输出这一行，所以检查还要求缓存 id 在 `~/.gemini/config/projects` 下有记录，缺失同样重新注册；记录目录整个不存在时不做判断。守卫编码部分上游 0.7.0 已移植；agy 1.5.7 把读文件工具 `view_file` 改名为 `read_file`，上游 0.7.1 已跟，与本补丁无关
 
 **何时可以去掉**：上游自行核对实际打开的项目，或 agy 对未知 `--project` 改为报错
 
@@ -136,6 +136,8 @@ FineSub 相对 `UPSTREAM.json` 记录的上游版本（`v0.7.0`，`7123055`）�
 
 **何时可以去掉**：分包（WP-P1）之后这两个文件随转写包走；上游若自己在 stable 处拆开编排，改为跟上游
 
+**同步 0.7.1（2026-11-24）**：上游对 `stages.py` 的改动搬进拆开后的结构：`default_diarize` 不论纠错听不听音频都用 `judge-text`；`profile_asr_workers` 换成常量 `ASR_WORKERS`；`resolve_llm_media_for_source` 多了 `downloaded`，本地与 URL 两条路都在 `_prepare_run` 里调它，`prepare_url_input` 不再交回 `llm_video`；`_refuse_judge_without_split` 把 stable 路径交给 `three_pass.refuse_judge`；`_diarization_device` 遇到非 CUDA 的显卡留在 CPU；`validate_device_token` 拒掉 `cuda:0` 这类写法，但放在 `_run_transcription_stages` 里、只在真要跑转写阶段时调，不像上游放在准备阶段：`device.py` 顶层 import torch，从 stable 续跑与纠错包的预检查都不能碰它（0006）；`run_pipeline` 多了 `llm_proofread_inline`（纠错请求的 `inline_proofread`）；识别阶段多传 `separated_from`。联合 ASR 的几段（`_note_task_backend`、`_backend_diarize`、`_run_joint_aligned`，`run_pipeline` 的 `asr_aligner` 改成三态、新增 `asr_speaker_merge`）随本节与 0010 不跟
+
 **文件**：
 - `src/finesub/pipeline.py`
 - `src/finesub/stages.py`
@@ -158,6 +160,8 @@ FineSub 相对 `UPSTREAM.json` 记录的上游版本（`v0.7.0`，`7123055`）�
 
 **何时可以去掉**：不会还原；以后升级上游时 `speech/joint/` 不再跟（第 3.2 节）
 
+**同步 0.7.1（2026-11-24）**：上游在 `speech/joint/` 新增了 ElevenLabs Scribe 后端（`scribe.py`、`scribe_keys.py`、`fill.py`），还改了 MAI2（Vercel 线路、119 分钟一窗、分句模型）、MOSS Pro（免费额度装箱、按声纹合并说话人）和强制对齐器的默认值，`finesub_bootstrap` 也为对齐器与分句模型加了模型条目。按本节都不跟；要不要搬进 `nonoka_x.transcription` 另议
+
 **文件**：
 - `src/finesub/speech/joint/`（已删除，迁到 `src/nonoka_x/transcription/`）
 
@@ -178,6 +182,8 @@ FineSub 相对 `UPSTREAM.json` 记录的上游版本（`v0.7.0`，`7123055`）�
 **测试**：改之前在未改动的代码上补录了知识库基线 K1–K8（`tests/fixtures/quality/knowledge/cases/`，闸门的 `knowledge` 一项），改后与其余各项一起逐字节一致。`tests/test_knowledge_protocol.py` 用审计钩子证明两半的进程不打开知识库下的任何文件、不 `sqlite3.connect`，并覆盖知识库包不在时的就绪检查与协议本身。
 
 **何时可以去掉**：不会还原；WP-P1 把 `finesub_knowledge` 分进三个包后，这里的 import 来源随包走
+
+**同步 0.7.1（2026-11-24）**：新增的游戏专名列表（`llm/glossary_store.py`）放在知识库根目录下的 `glossary/`、不在 sqlite 里，纠错进程直接读，没有改走协议。原因：专名表只能用 FineSub 命令行 `knowledge glossary fetch` 装，这条命令不在任何包里，所以在 Nonoka 里专名表永远是没装，纠错进程只做 `is_file()` 检查，不打开知识库下的任何文件（`tests/test_knowledge_protocol.py` 的审计照旧通过）。`scripts/engine_packages.py` 因此报出 1 个访问点（`glossary_store.directory` 调 `knowledge_root_path`，只算路径）。Nonoka 以后要支持专名表时，安装和读取都要改走知识库包
 
 **文件**：
 - `src/finesub/stages.py`
@@ -226,7 +232,7 @@ FineSub 相对 `UPSTREAM.json` 记录的上游版本（`v0.7.0`，`7123055`）�
 
 工作包：WP-P1（`docs/transcription-engines-plan.md` 第 6 节，4.6 第 33–35a 条），2026-11-17；按开工时向用户问的几项的答复（附录 B，全部推荐项）。不是原补丁栈里的补丁，上锁文件一个字节没动
 
-**改了什么、为什么**：转写、纠错和知识库各在自己的进程里跑，各自只带自己那一半的 FineSub。`third_party/finesub/src` 按 `docs/engine-packages/` 的清单（`scripts/engine_packages.py` 从各包自己的代码算出）分进 `engines/finesub-transcribe/src`、`engines/finesub-correct/src`、`engines/finesub-knowledge/src`：一个文件先 `git mv` 进第一个要它的包，其余要它的包放逐字节相同的副本。每个包的 `QUALITY_LOCK.json` 就是分包前那份锁里本包文件的条目（分包前的锁存为 `docs/engine-packages/vendor-quality-lock.json`）。
+**改了什么、为什么**：转写、纠错和知识库各在自己的进程里跑，各自只带自己那一半的 FineSub。`third_party/finesub/src` 按 `docs/engine-packages/` 的清单（`scripts/engine_packages.py` 从各包自己的代码算出）分进 `engines/finesub-transcribe/src`、`engines/finesub-correct/src`、`engines/finesub-knowledge/src`：一个文件先 `git mv` 进第一个要它的包，其余要它的包放逐字节相同的副本。每个包的 `QUALITY_LOCK.json` 就是分包前那份锁里本包文件的条目（分包前的锁存为 `docs/engine-packages/vendor-quality-lock.json`）。同步 0.7.1 时这份锁按「0.7.1 加上本文件各节改动」重写：550 个文件变成 582 个（上游删了 `llm/token_measure.py`，加了 33 个，`speech/joint/` 下的不算），不进任何包的文件在 `not-carried.json` 里记的是 0.7.1 的哈希，新增的 `quota_command.py`（`finesub quota` 命令）也记在那里。
 
 - **不带的文件**：FineSub 的批处理命令行 `finesub/pipeline.py` 和只有它、或只有 FineSub 维护工具用到的 40 个上锁文件（`batch_state.py`、`scheduler.py`、`llm/agent/agent_cleanup.py`、`llm/knowledge/share/` 等）不进任何包；每个文件为什么不带、分包前的 sha256，记在 `docs/engine-packages/not-carried.json`。Nonoka 从不运行它们。
 - **`finesub_bootstrap/`**：转写包带原件（只有 0012 的改动）。纠错包和知识库包带兼容包：只有本包 FineSub 代码 import 的那些名字（`__all__` 恰为名单），定义从原件逐段复制、不改；`paths.default_data_root` 与 `load_app_paths` 是新写的，位置取自启动上下文的 `paths.package_data`（`engines\<包>\`，R0 文档 D21），不再回落到 `%LOCALAPPDATA%\FineSub`，`locations.json` 的大文件根记录不再读（包里没有）。

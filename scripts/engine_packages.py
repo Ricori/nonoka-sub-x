@@ -291,6 +291,7 @@ DATA_READERS: list[tuple[str, list[tuple[str, str]]]] = [
     ("finesub/llm/routing/model_catalog.toml", [("finesub.llm.routing.model_catalog", "finesub/llm/routing/model_catalog.py:514")]),
     ("finesub/llm/routing/model_routes.toml", [("finesub.llm.routing.model_routes", "finesub/llm/routing/model_routes.py:948")]),
     ("finesub/llm/knowledge/node/presets/", [("finesub.llm.knowledge.node.presets", "finesub/llm/knowledge/node/presets.py:549")]),
+    ("finesub/llm/glossary-manifest.json", [("finesub.llm.glossary_store", "finesub/llm/glossary_store.py:155")]),
 ]
 
 # Runtime import records: (name, interpreter, what runs, package it evidences).
@@ -663,7 +664,10 @@ def entry_node(graph: Graph, spec: str) -> str:
     if attr in {"<module>", "<main>"}:
         return f"{module}:{attr}"
     node = graph.symbol_node(module, attr)
-    if node is None or node.endswith(":<module>") and attr not in graph.modules[module].module_vars:
+    # Falling back to the module's own import-time node means the name was not
+    # found; landing on another module's is a submodule it imports
+    # (`qwen_referee.phase_timing`), which is defined.
+    if node is None or node == graph.module_node(module) and attr not in graph.modules[module].module_vars:
         raise SystemExit(f"entry {spec}: {attr} is not defined in {module}")
     return node
 

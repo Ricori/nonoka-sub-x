@@ -18,12 +18,24 @@
    "used_at": "engines/finesub-transcribe/adapter/finesub_knowledge/client.py:187"
   },
   {
+   "symbol": "finesub.llm.routing.model_catalog:GEMINI_KIND",
+   "used_at": "engines/finesub-transcribe/adapter/finesub_transcribe/bridge.py:591"
+  },
+  {
+   "symbol": "finesub.llm.routing.model_catalog:LOCAL_AGENT_KIND",
+   "used_at": "engines/finesub-transcribe/adapter/finesub_transcribe/bridge.py:607"
+  },
+  {
    "symbol": "finesub.llm.routing.model_catalog:default_model_catalog",
-   "used_at": "engines/finesub-transcribe/adapter/finesub_transcribe/bridge.py:244"
+   "used_at": "engines/finesub-transcribe/adapter/finesub_transcribe/bridge.py:575"
+  },
+  {
+   "symbol": "finesub.llm.routing.model_catalog:load_model_catalog",
+   "used_at": "engines/finesub-transcribe/adapter/finesub_transcribe/bridge.py:591, engines/finesub-transcribe/adapter/finesub_transcribe/bridge.py:607"
   },
   {
    "symbol": "finesub.llm.routing.model_routes:load_model_routes",
-   "used_at": "engines/finesub-transcribe/adapter/finesub_transcribe/bridge.py:256"
+   "used_at": "engines/finesub-transcribe/adapter/finesub_transcribe/bridge.py:619"
   },
   {
    "symbol": "finesub.reporting:current_reporter",
@@ -31,7 +43,7 @@
   },
   {
    "symbol": "finesub.reporting:quieted_libraries",
-   "used_at": "engines/finesub-transcribe/adapter/finesub_transcribe/engine.py:340"
+   "used_at": "engines/finesub-transcribe/adapter/finesub_transcribe/engine.py:650"
   },
   {
    "symbol": "finesub.reporting:reporter_delivers",
@@ -39,7 +51,7 @@
   },
   {
    "symbol": "finesub.reporting:reporting_to",
-   "used_at": "engines/finesub-transcribe/adapter/finesub_transcribe/engine.py:340"
+   "used_at": "engines/finesub-transcribe/adapter/finesub_transcribe/engine.py:650"
   },
   {
    "symbol": "finesub.speech.runtime.resources:gpu_tier_cli_choices",
@@ -47,28 +59,28 @@
   },
   {
    "symbol": "finesub.stages:run_transcription",
-   "used_at": "engines/finesub-transcribe/adapter/finesub_transcribe/engine.py:341"
+   "used_at": "engines/finesub-transcribe/adapter/finesub_transcribe/engine.py:651"
   }
  ],
  "optional": [
   {
    "symbol": "finesub.api_http:<module>",
-   "used_at": "engines/finesub-transcribe/adapter/finesub_transcribe/bridge.py:361",
+   "used_at": "engines/finesub-transcribe/adapter/finesub_transcribe/bridge.py:723",
    "present": false
   },
   {
    "symbol": "finesub.api_http:DIRECT",
-   "used_at": "engines/finesub-transcribe/adapter/finesub_transcribe/bridge.py:382, engines/finesub-transcribe/adapter/finesub_transcribe/bridge.py:383",
+   "used_at": "engines/finesub-transcribe/adapter/finesub_transcribe/bridge.py:744, engines/finesub-transcribe/adapter/finesub_transcribe/bridge.py:745",
    "present": false
   },
   {
    "symbol": "finesub.api_http:configured_proxy",
-   "used_at": "engines/finesub-transcribe/adapter/finesub_transcribe/bridge.py:364, engines/finesub-transcribe/adapter/finesub_transcribe/bridge.py:386",
+   "used_at": "engines/finesub-transcribe/adapter/finesub_transcribe/bridge.py:726, engines/finesub-transcribe/adapter/finesub_transcribe/bridge.py:748",
    "present": false
   },
   {
    "symbol": "finesub.config:clear_config_cache",
-   "used_at": "engines/finesub-transcribe/adapter/finesub_transcribe/bridge.py:278",
+   "used_at": "engines/finesub-transcribe/adapter/finesub_transcribe/bridge.py:641",
    "present": true
   },
   {
@@ -77,56 +89,136 @@
    "present": false
   },
   {
+   "symbol": "finesub.llm.llm_runtime:<module>",
+   "used_at": "engines/finesub-transcribe/adapter/finesub_transcribe/bridge.py:817",
+   "present": false
+  },
+  {
+   "symbol": "finesub.llm.llm_runtime:_thinking_config",
+   "used_at": "engines/finesub-transcribe/adapter/finesub_transcribe/bridge.py:820, engines/finesub-transcribe/adapter/finesub_transcribe/bridge.py:830",
+   "present": false
+  },
+  {
+   "symbol": "finesub.llm.routing.model_catalog:<module>",
+   "used_at": "engines/finesub-transcribe/adapter/finesub_transcribe/bridge.py:786",
+   "present": true
+  },
+  {
+   "symbol": "finesub.llm.routing.model_routes:<module>",
+   "used_at": "engines/finesub-transcribe/adapter/finesub_transcribe/bridge.py:786",
+   "present": true
+  },
+  {
+   "symbol": "finesub.llm.routing.model_routes:BACKEND_PROVIDER_TIERS",
+   "used_at": "engines/finesub-transcribe/adapter/finesub_transcribe/bridge.py:796",
+   "present": true
+  },
+  {
+   "symbol": "finesub.llm.routing.model_routes:ExecutionTarget",
+   "used_at": "engines/finesub-transcribe/adapter/finesub_transcribe/bridge.py:803",
+   "present": true
+  },
+  {
+   "symbol": "finesub.llm.routing.model_routes:ModelRouteConfigError",
+   "used_at": "engines/finesub-transcribe/adapter/finesub_transcribe/bridge.py:799",
+   "present": true
+  },
+  {
+   "symbol": "finesub.llm.routing.model_routes:_wire_unclaimed_catalog_target",
+   "used_at": "engines/finesub-transcribe/adapter/finesub_transcribe/bridge.py:791, engines/finesub-transcribe/adapter/finesub_transcribe/bridge.py:814",
+   "present": true
+  },
+  {
    "symbol": "finesub.llm.routing.model_routes:default_model_routes",
-   "used_at": "engines/finesub-transcribe/adapter/finesub_transcribe/bridge.py:280",
+   "used_at": "engines/finesub-transcribe/adapter/finesub_transcribe/bridge.py:643",
    "present": true
   },
   {
    "symbol": "finesub.llm.routing.model_routes:install_runtime_preferred",
-   "used_at": "engines/finesub-transcribe/adapter/finesub_transcribe/bridge.py:430",
+   "used_at": "engines/finesub-transcribe/adapter/finesub_transcribe/bridge.py:849",
    "present": true
   },
   {
    "symbol": "finesub.llm.routing.model_routes:parse_llm_model_args",
-   "used_at": "engines/finesub-transcribe/adapter/finesub_transcribe/bridge.py:430",
+   "used_at": "engines/finesub-transcribe/adapter/finesub_transcribe/bridge.py:849",
+   "present": true
+  },
+  {
+   "symbol": "finesub.llm.routing.model_routes:target_search_tool",
+   "used_at": "engines/finesub-transcribe/adapter/finesub_transcribe/bridge.py:808",
+   "present": true
+  },
+  {
+   "symbol": "finesub.speech.recognition.fw_refine_backend:<module>",
+   "used_at": "engines/finesub-transcribe/adapter/finesub_transcribe/engine.py:405",
+   "present": true
+  },
+  {
+   "symbol": "finesub.speech.verification.qwen_referee:<module>",
+   "used_at": "engines/finesub-transcribe/adapter/finesub_transcribe/engine.py:541",
+   "present": true
+  },
+  {
+   "symbol": "finesub.speech.verification.qwen_referee:ACCEL_ENV",
+   "used_at": "engines/finesub-transcribe/adapter/finesub_transcribe/engine.py:594",
+   "present": true
+  },
+  {
+   "symbol": "finesub.speech.verification.qwen_referee:BATCH_CLIPS",
+   "used_at": "engines/finesub-transcribe/adapter/finesub_transcribe/engine.py:612",
+   "present": true
+  },
+  {
+   "symbol": "finesub.speech.verification.qwen_referee:MAX_NEW_TOKENS",
+   "used_at": "engines/finesub-transcribe/adapter/finesub_transcribe/engine.py:600",
+   "present": true
+  },
+  {
+   "symbol": "finesub.speech.verification.qwen_referee:phase_timing",
+   "used_at": "engines/finesub-transcribe/adapter/finesub_transcribe/engine.py:603",
+   "present": true
+  },
+  {
+   "symbol": "finesub.speech.verification.qwen_referee:plan_batches",
+   "used_at": "engines/finesub-transcribe/adapter/finesub_transcribe/engine.py:614",
    "present": true
   },
   {
    "symbol": "finesub_bootstrap.download_routes:<module>",
-   "used_at": "engines/finesub-transcribe/adapter/finesub_transcribe/bridge.py:398",
+   "used_at": "engines/finesub-transcribe/adapter/finesub_transcribe/bridge.py:760",
    "present": true
   },
   {
    "symbol": "finesub_bootstrap.download_routes:RouteDecision",
-   "used_at": "engines/finesub-transcribe/adapter/finesub_transcribe/bridge.py:407",
+   "used_at": "engines/finesub-transcribe/adapter/finesub_transcribe/bridge.py:769",
    "present": true
   },
   {
    "symbol": "finesub_bootstrap.download_routes:resolve_region",
-   "used_at": "engines/finesub-transcribe/adapter/finesub_transcribe/bridge.py:402, engines/finesub-transcribe/adapter/finesub_transcribe/bridge.py:411",
+   "used_at": "engines/finesub-transcribe/adapter/finesub_transcribe/bridge.py:764, engines/finesub-transcribe/adapter/finesub_transcribe/bridge.py:773",
    "present": true
   },
   {
    "symbol": "finesub_bootstrap.http_client:<module>",
-   "used_at": "engines/finesub-transcribe/adapter/finesub_transcribe/bridge.py:342",
+   "used_at": "engines/finesub-transcribe/adapter/finesub_transcribe/bridge.py:704",
    "present": true
   },
   {
    "symbol": "finesub_bootstrap.http_client:_environment_proxies",
-   "used_at": "engines/finesub-transcribe/adapter/finesub_transcribe/bridge.py:354",
+   "used_at": "engines/finesub-transcribe/adapter/finesub_transcribe/bridge.py:716",
    "present": true
   },
   {
    "symbol": "finesub_bootstrap.http_client:_windows_proxy",
-   "used_at": "engines/finesub-transcribe/adapter/finesub_transcribe/bridge.py:353",
+   "used_at": "engines/finesub-transcribe/adapter/finesub_transcribe/bridge.py:715",
    "present": true
   }
  ],
  "counts": {
-  "files": 158,
-  "py": 146,
+  "files": 159,
+  "py": 147,
   "data": 12,
-  "locked": 115
+  "locked": 116
  },
  "files": [
   {
@@ -183,7 +275,7 @@
    "why": [
     "static"
    ],
-   "sha256": "c7b26d8f71f364976aa02e8716c02ebe1644599b6a88eb383f2e59523de8d36c",
+   "sha256": "e0f868f4e8c4bc604e11514f30a18c6f2b6e3238abd3d3cfa51c91eab82d4cfd",
    "locked": true
   },
   {
@@ -192,7 +284,7 @@
    "why": [
     "static"
    ],
-   "sha256": "6e2b418cc352c641cf1b3f3934448d60b2328c677031a0f49cb07d0e1b803862",
+   "sha256": "fc4690150617a9b7a75c4925bc2cd3cd782dde346b698f25f07256efa01b3e42",
    "locked": true
   },
   {
@@ -310,7 +402,7 @@
    "why": [
     "static"
    ],
-   "sha256": "5a00a0d520a50d0a3d8ae28321abe2628d0cd13fa2b8698d1ce4d131c954d412",
+   "sha256": "fbc946c52fd3079f6c1c6e57afa026a948f138e0d1a2c60a0ab8c2c1bba2cb6c",
    "locked": true
   },
   {
@@ -319,7 +411,7 @@
    "why": [
     "static"
    ],
-   "sha256": "d2fbb28333863d550b762d2d4f04c3aa9e06c5305f538b4d80c0b5d0d905868b",
+   "sha256": "b76326ef6ee78b4f225a2fe38a76fb36eb98212f1e0645b759f16a02cbe32f18",
    "locked": true
   },
   {
@@ -328,7 +420,7 @@
    "why": [
     "static"
    ],
-   "sha256": "352df82da0c31811242be8da97bbdc32f2493976c24a5e0735c3d90d3cc918ef",
+   "sha256": "ecc08175e919669c0b9ca6d11903bdeee165e8f8ddcd680c516e200d443e3b7c",
    "locked": true
   },
   {
@@ -339,7 +431,7 @@
    "why": [
     "data"
    ],
-   "sha256": "d6b4835122f31cf356dc2916357cf2342942623ed83e74c216dd2a1a50197480",
+   "sha256": "c1bc6952d0ebff1430e55eaed4ef50b461ab189ea4c21cecceb229a3e9922286",
    "locked": true
   },
   {
@@ -348,7 +440,7 @@
    "why": [
     "static"
    ],
-   "sha256": "5e4467368715b174db934f57c4b291c7d2430d62adb19fe980361c3432102448",
+   "sha256": "6e44c396f3fa744449df6b42532a23d3512f3d9896dd0fbea4f230bae5c0edd9",
    "locked": true
   },
   {
@@ -359,7 +451,7 @@
    "why": [
     "data"
    ],
-   "sha256": "4fa7a86062d9fbd21fde3b25b989d5829993cc7d33b66c143363b77e52d336dd",
+   "sha256": "8f80f389ba13c80c4804418e0bc457588fd00fdbf171f9a689cd33e6528407b7",
    "locked": true
   },
   {
@@ -386,7 +478,7 @@
    "why": [
     "static"
    ],
-   "sha256": "66edaae69c9be359677de9f24e033db0d59902ced3106a0cc429a6f7ccf5f2b4",
+   "sha256": "e405b5b2342cb6c940905d395a4909f295582ca6a0ee451ed95dae42f5d0d3c1",
    "locked": true
   },
   {
@@ -405,7 +497,7 @@
     "static",
     "runtime"
    ],
-   "sha256": "a0769a39c1eac20ae65427971bcf4351e299ba9f8ad1538d35c23ee14c58305c",
+   "sha256": "8d02106288740ae746e53d6e949ff274a9eb3d5f905f47bc2b63e531737a4850",
    "locked": true
   },
   {
@@ -415,7 +507,7 @@
     "static",
     "runtime"
    ],
-   "sha256": "7b754127c23b7f8f98297feeed5aa1fe8e4cf2280fecf50844d455eaf7ca6862",
+   "sha256": "c02a4a530fc030e4a6a19e0272ab9658cabbff368fb8068adb398d6d59c8b68d",
    "locked": true
   },
   {
@@ -435,7 +527,7 @@
     "static",
     "runtime"
    ],
-   "sha256": "6de92ec76a081749af0309f4c1e5f802e166441b14a06dc2d3cd24a29bd75256",
+   "sha256": "013dc79bb8153e01e8b1bf1b33b970079ab6efef528293071d96fd5976a9b520",
    "locked": true
   },
   {
@@ -500,7 +592,7 @@
    "why": [
     "static"
    ],
-   "sha256": "b0c8e928b9eae3805f3093c95897af2b330f5e9341e044586cd69beaeafa5718",
+   "sha256": "71c9aff0a7a2afd4e4943030ee7e93064bc15b3dfb4512dabd2d27ff7c02d1a4",
    "locked": true
   },
   {
@@ -609,7 +701,7 @@
    "why": [
     "static"
    ],
-   "sha256": "297de0820eccdec96c388ea7ed2e19f5e2715419d430d34a96f6cc853b132570",
+   "sha256": "72414f586d23cc8ba53edf94c0b822cc71e4d0fe3a19b9884530bf047bb36e50",
    "locked": true
   },
   {
@@ -691,7 +783,7 @@
    "why": [
     "static"
    ],
-   "sha256": "c730e95478e2dbad773287933d19ea68795aa3e384a349d5756d641208fcc83f",
+   "sha256": "7c3a9c9faf14bc7d5c2cbfb43a27f418662ec94f179cdbd73adf14238c5a36ca",
    "locked": true
   },
   {
@@ -739,7 +831,7 @@
     "static",
     "runtime"
    ],
-   "sha256": "2298e67d4191096a04bd82415f9409d09d91a1abf624d2bfb64dff60b32b4b0f",
+   "sha256": "f18bfce487647be138f803a8dd3ae7cc2c972e71e1ae6194dcd2ac8451b3faec",
    "locked": true
   },
   {
@@ -784,7 +876,7 @@
    "why": [
     "static"
    ],
-   "sha256": "e46ac41b46c563b86b382ce84bfc70e3c27b5e1e9991ba44d30642cb8e96b584",
+   "sha256": "456f8a8fe53cdc16803e8910721f2deeb2b65553c3944f83a6f59aeddafb3a7e",
    "locked": true
   },
   {
@@ -811,7 +903,7 @@
    "why": [
     "static"
    ],
-   "sha256": "e1628311e00daad70de0e6f482f9b3334ae05c9febade4a925f3190234c8af31",
+   "sha256": "52353efc51848c714aa026be0676a710b5f5273aa9a92c9dd59d2b88ceb7559b",
    "locked": true
   },
   {
@@ -820,7 +912,7 @@
    "why": [
     "static"
    ],
-   "sha256": "2c38a11b51a16487e3c54e3489f64705b7e01a51de22f012329a2dfcbdef5a04",
+   "sha256": "31a6c63ca9d7fd3e425d08f660f6fd822a971f9d95e03c26803a6d34d2273d39",
    "locked": true
   },
   {
@@ -829,7 +921,7 @@
    "why": [
     "static"
    ],
-   "sha256": "ecd00f919567077369808926f723320bd2a4cefba861da0101f6f55ff342ba78",
+   "sha256": "3610a08bbfb6e56ab681847b0b9d5400a694c5aed5aa0b21d5b071ed2efb3f5d",
    "locked": true
   },
   {
@@ -930,7 +1022,7 @@
    "why": [
     "static"
    ],
-   "sha256": "0e44691c387c793045502de1647ada280ae201d07685ff352f168191f2a687d4",
+   "sha256": "c21c8d399601aef1190ddc4634fc107002db98cf44ae7baca1fbce2d41ad5cac",
    "locked": true
   },
   {
@@ -949,7 +1041,7 @@
    "why": [
     "static"
    ],
-   "sha256": "d5d71a931361f3c4cd1088a9e0812b98ffb81287fcd42c69ef3b5ba6bdafc684",
+   "sha256": "6dab77de65bf25bda440ef04f81783c6283eae1f359003bece94aa4416779d0f",
    "locked": true
   },
   {
@@ -958,7 +1050,7 @@
    "why": [
     "static"
    ],
-   "sha256": "56329a755e46c83fd00387c0be997c85335678f6d58ae78f430707ad54f7fef2",
+   "sha256": "12ba76b05e9e1bb9cd54031582a3322bc74c4f882e629551652e2d4d240d4da7",
    "locked": true
   },
   {
@@ -967,7 +1059,7 @@
    "why": [
     "static"
    ],
-   "sha256": "c6f00764a7c226a6854521181b4d638b1b9edcb1eba34c794b7e456bd6114abf",
+   "sha256": "cdb224507100e80291e26eba94b9354387e16f8c1c2d604d02d30199f4195f51",
    "locked": true
   },
   {
@@ -986,7 +1078,7 @@
    "why": [
     "static"
    ],
-   "sha256": "249776a9332710abeee421dc4981ad6e4f306ea4fe58ddda5b9dd88bda2f2fde",
+   "sha256": "79af0c7a715b8c3a0e53c68556175869ae0a0519426cb6959575377e2e122d41",
    "locked": true
   },
   {
@@ -995,7 +1087,7 @@
    "why": [
     "static"
    ],
-   "sha256": "57327d704f7832448448efa8628cdc77fca01bdeae95d43f2a4ccc0ec34cbdda",
+   "sha256": "2f03114d828b54945d7b4b64eb31f4881f88fc4ddb51a1a2ec7d84eb96a5459b",
    "locked": true
   },
   {
@@ -1040,7 +1132,7 @@
    "why": [
     "static"
    ],
-   "sha256": "9e5f6fccdcab9028d6fcef2ad32bd4f799c5e211f0da1f363277f80eae26bf53",
+   "sha256": "674d6488522904d48a56c6f673958f7c681792e74b21a5ec9d8039cd3cb2d7e2",
    "locked": true
   },
   {
@@ -1050,7 +1142,7 @@
     "static",
     "runtime"
    ],
-   "sha256": "0a29cb5d63eaa5592fe1528b008377a01790559cd25697b72b8a3247a30373b3",
+   "sha256": "72a59ddf2e24af3bd9ddfb054cab24153d5f61f2ce5c6f412ac55d60baeda846",
    "locked": true
   },
   {
@@ -1068,7 +1160,7 @@
    "why": [
     "static"
    ],
-   "sha256": "a2e96abfdd959695263dbc8032900d5ae39432927fd81ff9218f9bb329cea201",
+   "sha256": "1196acf9cc4e2e0cbcb549d809fb8a69a3eeec619c083ba1ef5a4f0ed83c8a25",
    "locked": true
   },
   {
@@ -1077,7 +1169,7 @@
    "why": [
     "static"
    ],
-   "sha256": "cd2a1aa2373fb311d5c5353e7d533be525d35b039339222d2262b6362840c6c2",
+   "sha256": "ba75307bbba7b26cce46c3b0d9e0692235d536f9189663415cc8941f82182b44",
    "locked": true
   },
   {
@@ -1104,7 +1196,7 @@
    "why": [
     "static"
    ],
-   "sha256": "ff39622c051d8cbdef92c37ab8a0cde4ef364d32dd7e6298d9a58294fcf8d65b",
+   "sha256": "3af9c6cf6d39094a8b77c9286a3deb2532fe829dd9640feb6844564ce264b2cf",
    "locked": true
   },
   {
@@ -1113,7 +1205,16 @@
    "why": [
     "static"
    ],
-   "sha256": "4498dee66762e5ec4dd5614f3b298ab5b3a1dd355a1afec3c007a73223f7f4f8",
+   "sha256": "ee919c8d570efa6ddb11c5bd6d0a5c39f9e8c811eaa4eafaa89379e3fc9d2bec",
+   "locked": true
+  },
+  {
+   "path": "finesub/speech/verification/separator_wipe.py",
+   "module": "finesub.speech.verification.separator_wipe",
+   "why": [
+    "static"
+   ],
+   "sha256": "238fcdd608358221e4cf34fa2b744c92b3ad4d16c6745d13975202a9f354fe3a",
    "locked": true
   },
   {
@@ -1123,7 +1224,7 @@
     "static",
     "runtime"
    ],
-   "sha256": "c61112f08123dc6ce0312a6496374702dae7ad29b34a061cecf0ac14d34f15c1",
+   "sha256": "b5f19a06f0cc4bd6e0253132d4bd96ea6ce87e3473ea6b26d23486e7e70defb1",
    "locked": false
   },
   {
@@ -1163,7 +1264,7 @@
     "static",
     "runtime"
    ],
-   "sha256": "11c9357399276c5ce2f6e971ba84a35278f66548f0853a422a89c84750b84fdd",
+   "sha256": "38da123fea4f909de058c2f326108b4cf8d5c0eb7a2a423c9a143b64302c8b60",
    "locked": true
   },
   {
@@ -1632,7 +1733,7 @@
  "compat_modules": [],
  "bootstrap_imports": {
   "finesub_bootstrap.download_routes:resolve_region": [
-   "finesub/speech/preprocessing/separator/separation.py:296"
+   "finesub/speech/preprocessing/separator/separation.py:306"
   ],
   "finesub_bootstrap.fsops:RECORD_REPLACE": [
    "finesub/media/source.py:10"
@@ -1650,17 +1751,17 @@
    "finesub/speech/runtime/hf_weights.py:84"
   ],
   "finesub_bootstrap.model_caches:SEPARATOR_CHECKPOINT": [
-   "finesub/paths.py:349",
+   "finesub/paths.py:369",
    "finesub/speech/preprocessing/separator/separation.py:26"
   ],
   "finesub_bootstrap.model_caches:WHISPER_JA_REPO_ID": [
-   "finesub/speech/recognition/vad_asr_stage.py:1028"
+   "finesub/speech/recognition/vad_asr_stage.py:1066"
   ],
   "finesub_bootstrap.model_caches:WHISPER_REPO_ID": [
-   "finesub/speech/recognition/vad_asr_stage.py:1028"
+   "finesub/speech/recognition/vad_asr_stage.py:1066"
   ],
   "finesub_bootstrap.model_caches:existing_separator_dir": [
-   "finesub/paths.py:349"
+   "finesub/paths.py:369"
   ],
   "finesub_bootstrap.model_ensure:ensure_hf_model": [
    "finesub/speech/runtime/hf_weights.py:88"
@@ -1677,14 +1778,14 @@
    "finesub/speech/runtime/hf_weights.py:109"
   ],
   "finesub_bootstrap.model_fetch": [
-   "finesub/speech/preprocessing/separator/separation.py:295"
+   "finesub/speech/preprocessing/separator/separation.py:305"
   ],
   "finesub_bootstrap.model_manifest:entry_for": [
-   "finesub/speech/preprocessing/separator/separation.py:297"
+   "finesub/speech/preprocessing/separator/separation.py:307"
   ],
   "finesub_bootstrap.paths:default_data_root": [
    "finesub/paths.py:54",
-   "finesub/speech/preprocessing/separator/separation.py:298"
+   "finesub/speech/preprocessing/separator/separation.py:308"
   ],
   "finesub_bootstrap.paths:load_app_paths": [
    "finesub/paths.py:54"
@@ -1697,7 +1798,7 @@
   ],
   "finesub_bootstrap.processes:no_window": [
    "finesub/media/ffmpeg.py:10",
-   "finesub/speech/preprocessing/separator/separator_aoti.py:26"
+   "finesub/speech/preprocessing/separator/separator_aoti.py:33"
   ],
   "finesub_bootstrap.token_counter": [
    "finesub/paths.py:9"

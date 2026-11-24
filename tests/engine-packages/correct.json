@@ -15,19 +15,19 @@
   },
   {
    "symbol": "finesub.llm.correction_mode:recorded_choice",
-   "used_at": "engines/finesub-correct/adapter/finesub_correct/engine.py:261"
+   "used_at": "engines/finesub-correct/adapter/finesub_correct/engine.py:280"
   },
   {
    "symbol": "finesub.llm.correction_mode:started",
-   "used_at": "engines/finesub-correct/adapter/finesub_correct/engine.py:261"
+   "used_at": "engines/finesub-correct/adapter/finesub_correct/engine.py:280"
   },
   {
    "symbol": "finesub.llm.correction_request:CorrectionRequest",
-   "used_at": "engines/finesub-correct/adapter/finesub_correct/engine.py:518"
+   "used_at": "engines/finesub-correct/adapter/finesub_correct/engine.py:571"
   },
   {
    "symbol": "finesub.llm.correction_translation:run_correction_task",
-   "used_at": "engines/finesub-correct/adapter/finesub_correct/engine.py:519"
+   "used_at": "engines/finesub-correct/adapter/finesub_correct/engine.py:572"
   },
   {
    "symbol": "finesub.llm.knowledge.base:<module>",
@@ -50,28 +50,40 @@
    "used_at": "engines/finesub-correct/adapter/finesub_correct/llm.py:66"
   },
   {
+   "symbol": "finesub.llm.routing.model_catalog:GEMINI_KIND",
+   "used_at": "engines/finesub-correct/adapter/finesub_correct/bridge.py:591"
+  },
+  {
+   "symbol": "finesub.llm.routing.model_catalog:LOCAL_AGENT_KIND",
+   "used_at": "engines/finesub-correct/adapter/finesub_correct/bridge.py:607"
+  },
+  {
    "symbol": "finesub.llm.routing.model_catalog:default_model_catalog",
-   "used_at": "engines/finesub-correct/adapter/finesub_correct/__main__.py:46, engines/finesub-correct/adapter/finesub_correct/bridge.py:244"
+   "used_at": "engines/finesub-correct/adapter/finesub_correct/__main__.py:46, engines/finesub-correct/adapter/finesub_correct/bridge.py:575"
+  },
+  {
+   "symbol": "finesub.llm.routing.model_catalog:load_model_catalog",
+   "used_at": "engines/finesub-correct/adapter/finesub_correct/bridge.py:591, engines/finesub-correct/adapter/finesub_correct/bridge.py:607"
   },
   {
    "symbol": "finesub.llm.routing.model_routes:default_model_routes",
-   "used_at": "engines/finesub-correct/adapter/finesub_correct/engine.py:231"
+   "used_at": "engines/finesub-correct/adapter/finesub_correct/engine.py:250"
   },
   {
    "symbol": "finesub.llm.routing.model_routes:load_model_routes",
-   "used_at": "engines/finesub-correct/adapter/finesub_correct/__main__.py:47, engines/finesub-correct/adapter/finesub_correct/bridge.py:256"
+   "used_at": "engines/finesub-correct/adapter/finesub_correct/__main__.py:47, engines/finesub-correct/adapter/finesub_correct/bridge.py:619"
   },
   {
    "symbol": "finesub.llm.routing.profiles:resolve_profile",
-   "used_at": "engines/finesub-correct/adapter/finesub_correct/engine.py:520"
+   "used_at": "engines/finesub-correct/adapter/finesub_correct/engine.py:573"
   },
   {
    "symbol": "finesub.reporting:current_reporter",
-   "used_at": "engines/finesub-correct/adapter/finesub_correct/engine.py:409, engines/finesub-correct/adapter/finesub_knowledge/client.py:188, engines/finesub-correct/adapter/finesub_knowledge/client.py:197"
+   "used_at": "engines/finesub-correct/adapter/finesub_correct/engine.py:454, engines/finesub-correct/adapter/finesub_knowledge/client.py:188, engines/finesub-correct/adapter/finesub_knowledge/client.py:197"
   },
   {
    "symbol": "finesub.reporting:quieted_libraries",
-   "used_at": "engines/finesub-correct/adapter/finesub_correct/__main__.py:143, engines/finesub-correct/adapter/finesub_correct/engine.py:305, engines/finesub-correct/adapter/finesub_correct/engine.py:322"
+   "used_at": "engines/finesub-correct/adapter/finesub_correct/__main__.py:143, engines/finesub-correct/adapter/finesub_correct/engine.py:324, engines/finesub-correct/adapter/finesub_correct/engine.py:341"
   },
   {
    "symbol": "finesub.reporting:reporter_delivers",
@@ -79,39 +91,39 @@
   },
   {
    "symbol": "finesub.reporting:reporting_to",
-   "used_at": "engines/finesub-correct/adapter/finesub_correct/__main__.py:143, engines/finesub-correct/adapter/finesub_correct/engine.py:305, engines/finesub-correct/adapter/finesub_correct/engine.py:322"
+   "used_at": "engines/finesub-correct/adapter/finesub_correct/__main__.py:143, engines/finesub-correct/adapter/finesub_correct/engine.py:324, engines/finesub-correct/adapter/finesub_correct/engine.py:341"
   },
   {
    "symbol": "finesub.speech.diarization.evidence:evidence_path",
-   "used_at": "engines/finesub-correct/adapter/finesub_correct/engine.py:108, engines/finesub-correct/adapter/finesub_correct/engine.py:426"
+   "used_at": "engines/finesub-correct/adapter/finesub_correct/engine.py:108, engines/finesub-correct/adapter/finesub_correct/engine.py:471"
   },
   {
    "symbol": "finesub.speech.diarization.product:read_product",
-   "used_at": "engines/finesub-correct/adapter/finesub_correct/engine.py:456"
+   "used_at": "engines/finesub-correct/adapter/finesub_correct/document.py:257"
   },
   {
    "symbol": "finesub.stages:_pipeline_options",
-   "used_at": "engines/finesub-correct/adapter/finesub_correct/engine.py:306"
+   "used_at": "engines/finesub-correct/adapter/finesub_correct/engine.py:325"
   },
   {
    "symbol": "finesub.stages:_prepare_run",
-   "used_at": "engines/finesub-correct/adapter/finesub_correct/engine.py:306"
+   "used_at": "engines/finesub-correct/adapter/finesub_correct/engine.py:325"
   },
   {
    "symbol": "finesub.stages:_run_diarization_stage",
-   "used_at": "engines/finesub-correct/adapter/finesub_correct/engine.py:410"
+   "used_at": "engines/finesub-correct/adapter/finesub_correct/engine.py:455"
   },
   {
    "symbol": "finesub.stages:default_pipeline_paths",
-   "used_at": "engines/finesub-correct/adapter/finesub_correct/engine.py:101, engines/finesub-correct/adapter/finesub_correct/engine.py:323"
+   "used_at": "engines/finesub-correct/adapter/finesub_correct/engine.py:101, engines/finesub-correct/adapter/finesub_correct/engine.py:342"
   },
   {
    "symbol": "finesub.stages:resolve_llm_media_for_source",
-   "used_at": "engines/finesub-correct/adapter/finesub_correct/engine.py:532"
+   "used_at": "engines/finesub-correct/adapter/finesub_correct/engine.py:585"
   },
   {
    "symbol": "finesub.stages:run_post_stable",
-   "used_at": "engines/finesub-correct/adapter/finesub_correct/engine.py:323"
+   "used_at": "engines/finesub-correct/adapter/finesub_correct/engine.py:342"
   },
   {
    "symbol": "finesub.subtitles.line_groups:in_order",
@@ -121,22 +133,22 @@
  "optional": [
   {
    "symbol": "finesub.api_http:<module>",
-   "used_at": "engines/finesub-correct/adapter/finesub_correct/bridge.py:361",
+   "used_at": "engines/finesub-correct/adapter/finesub_correct/bridge.py:723",
    "present": true
   },
   {
    "symbol": "finesub.api_http:DIRECT",
-   "used_at": "engines/finesub-correct/adapter/finesub_correct/bridge.py:382, engines/finesub-correct/adapter/finesub_correct/bridge.py:383",
+   "used_at": "engines/finesub-correct/adapter/finesub_correct/bridge.py:744, engines/finesub-correct/adapter/finesub_correct/bridge.py:745",
    "present": true
   },
   {
    "symbol": "finesub.api_http:configured_proxy",
-   "used_at": "engines/finesub-correct/adapter/finesub_correct/bridge.py:364, engines/finesub-correct/adapter/finesub_correct/bridge.py:386",
+   "used_at": "engines/finesub-correct/adapter/finesub_correct/bridge.py:726, engines/finesub-correct/adapter/finesub_correct/bridge.py:748",
    "present": true
   },
   {
    "symbol": "finesub.config:clear_config_cache",
-   "used_at": "engines/finesub-correct/adapter/finesub_correct/bridge.py:278",
+   "used_at": "engines/finesub-correct/adapter/finesub_correct/bridge.py:641",
    "present": true
   },
   {
@@ -150,51 +162,96 @@
    "present": true
   },
   {
+   "symbol": "finesub.llm.llm_runtime:<module>",
+   "used_at": "engines/finesub-correct/adapter/finesub_correct/bridge.py:817",
+   "present": true
+  },
+  {
+   "symbol": "finesub.llm.llm_runtime:_thinking_config",
+   "used_at": "engines/finesub-correct/adapter/finesub_correct/bridge.py:820, engines/finesub-correct/adapter/finesub_correct/bridge.py:830",
+   "present": true
+  },
+  {
+   "symbol": "finesub.llm.routing.model_catalog:<module>",
+   "used_at": "engines/finesub-correct/adapter/finesub_correct/bridge.py:786",
+   "present": true
+  },
+  {
+   "symbol": "finesub.llm.routing.model_routes:<module>",
+   "used_at": "engines/finesub-correct/adapter/finesub_correct/bridge.py:786",
+   "present": true
+  },
+  {
+   "symbol": "finesub.llm.routing.model_routes:BACKEND_PROVIDER_TIERS",
+   "used_at": "engines/finesub-correct/adapter/finesub_correct/bridge.py:796",
+   "present": true
+  },
+  {
+   "symbol": "finesub.llm.routing.model_routes:ExecutionTarget",
+   "used_at": "engines/finesub-correct/adapter/finesub_correct/bridge.py:803",
+   "present": true
+  },
+  {
+   "symbol": "finesub.llm.routing.model_routes:ModelRouteConfigError",
+   "used_at": "engines/finesub-correct/adapter/finesub_correct/bridge.py:799",
+   "present": true
+  },
+  {
+   "symbol": "finesub.llm.routing.model_routes:_wire_unclaimed_catalog_target",
+   "used_at": "engines/finesub-correct/adapter/finesub_correct/bridge.py:791, engines/finesub-correct/adapter/finesub_correct/bridge.py:814",
+   "present": true
+  },
+  {
    "symbol": "finesub.llm.routing.model_routes:install_runtime_preferred",
-   "used_at": "engines/finesub-correct/adapter/finesub_correct/bridge.py:430",
+   "used_at": "engines/finesub-correct/adapter/finesub_correct/bridge.py:849",
    "present": true
   },
   {
    "symbol": "finesub.llm.routing.model_routes:parse_llm_model_args",
-   "used_at": "engines/finesub-correct/adapter/finesub_correct/bridge.py:430",
+   "used_at": "engines/finesub-correct/adapter/finesub_correct/bridge.py:849",
+   "present": true
+  },
+  {
+   "symbol": "finesub.llm.routing.model_routes:target_search_tool",
+   "used_at": "engines/finesub-correct/adapter/finesub_correct/bridge.py:808",
    "present": true
   },
   {
    "symbol": "finesub_bootstrap.download_routes:<module>",
-   "used_at": "engines/finesub-correct/adapter/finesub_correct/bridge.py:398",
+   "used_at": "engines/finesub-correct/adapter/finesub_correct/bridge.py:760",
    "present": false
   },
   {
    "symbol": "finesub_bootstrap.download_routes:RouteDecision",
-   "used_at": "engines/finesub-correct/adapter/finesub_correct/bridge.py:407",
+   "used_at": "engines/finesub-correct/adapter/finesub_correct/bridge.py:769",
    "present": false
   },
   {
    "symbol": "finesub_bootstrap.download_routes:resolve_region",
-   "used_at": "engines/finesub-correct/adapter/finesub_correct/bridge.py:402, engines/finesub-correct/adapter/finesub_correct/bridge.py:411",
+   "used_at": "engines/finesub-correct/adapter/finesub_correct/bridge.py:764, engines/finesub-correct/adapter/finesub_correct/bridge.py:773",
    "present": false
   },
   {
    "symbol": "finesub_bootstrap.http_client:<module>",
-   "used_at": "engines/finesub-correct/adapter/finesub_correct/bridge.py:342",
+   "used_at": "engines/finesub-correct/adapter/finesub_correct/bridge.py:704",
    "present": true
   },
   {
    "symbol": "finesub_bootstrap.http_client:_environment_proxies",
-   "used_at": "engines/finesub-correct/adapter/finesub_correct/bridge.py:354",
+   "used_at": "engines/finesub-correct/adapter/finesub_correct/bridge.py:716",
    "present": true
   },
   {
    "symbol": "finesub_bootstrap.http_client:_windows_proxy",
-   "used_at": "engines/finesub-correct/adapter/finesub_correct/bridge.py:353",
+   "used_at": "engines/finesub-correct/adapter/finesub_correct/bridge.py:715",
    "present": true
   }
  ],
  "counts": {
-  "files": 464,
-  "py": 180,
-  "data": 284,
-  "locked": 463
+  "files": 495,
+  "py": 189,
+  "data": 306,
+  "locked": 494
  },
  "files": [
   {
@@ -224,7 +281,7 @@
     "static",
     "runtime"
    ],
-   "sha256": "67b3536df5378ab0fc53bee50c4c7f1f97a1d77e70d89af84228e00ca1e1511e",
+   "sha256": "1a64acfd314e6536f7bd178d9e1741eeb169ef40f2a6a722445eefd295e67c42",
    "locked": true
   },
   {
@@ -245,6 +302,15 @@
     "runtime"
    ],
    "sha256": "ae369f0d91627aa623673794ab11675addd6aa4f4a879e492dbfdeb20c768f39",
+   "locked": true
+  },
+  {
+   "path": "finesub/key_freeze.py",
+   "module": "finesub.key_freeze",
+   "why": [
+    "static"
+   ],
+   "sha256": "101a0981c644f1c4ea76128c779d7c3fe9af603b3d7a2a5d78c8ea79db3e2611",
    "locked": true
   },
   {
@@ -274,7 +340,7 @@
     "static",
     "runtime"
    ],
-   "sha256": "c01db5e8e731ae5ce734fe566b1d2de4c16b3e128307d3e55867255fd0692514",
+   "sha256": "d4bb30dbcc4f208cbcc70626ba80810fa6099ab3b5d49d06f0e52939cc9e67e6",
    "locked": true
   },
   {
@@ -294,7 +360,7 @@
     "static",
     "runtime"
    ],
-   "sha256": "77aa89c70a1e0da078e375f31c84695b8a381a0cac167eeac7355c31bb0f11ef",
+   "sha256": "aae6c7a50c4b923db4dd069de71a0eef1d848069a8c17be3cec894c8ba3d8e18",
    "locked": true
   },
   {
@@ -313,7 +379,7 @@
     "static",
     "runtime"
    ],
-   "sha256": "35796ed36074985af29da52de452890b27d3e277a5c313cef4a6683878d46a1b",
+   "sha256": "6b4d84aa40cff15b49252135a0cd23d5705a7a769d2570b155df2edf6f14ed66",
    "locked": true
   },
   {
@@ -323,7 +389,7 @@
     "static",
     "runtime"
    ],
-   "sha256": "eff8fbfeb50ccce8906d654de1c0f9e4a1b08757896bca6c102dbc37fab11629",
+   "sha256": "669b97e3365fba38186fbcf48813c10b7e479cf1db89161813b3b20075d21614",
    "locked": true
   },
   {
@@ -343,7 +409,7 @@
     "static",
     "runtime"
    ],
-   "sha256": "9a7fec3347c18e4856dc32c0d8866bf174d2338aeee5d8818486b78f276d9f7d",
+   "sha256": "dd24b3c771ad2f3f9457eb8188d66862562fdb93cb24cd3c3a9c7ccbb464d24f",
    "locked": true
   },
   {
@@ -376,6 +442,15 @@
    "locked": true
   },
   {
+   "path": "finesub/llm/agent/codex_login.py",
+   "module": "finesub.llm.agent.codex_login",
+   "why": [
+    "static"
+   ],
+   "sha256": "896e3707d312ec64e1c95427195e19cd0529d4027a776a0e69f30effb3f4e216",
+   "locked": true
+  },
+  {
    "path": "finesub/llm/agent/delivery.py",
    "module": "finesub.llm.agent.delivery",
    "why": [
@@ -392,7 +467,7 @@
     "static",
     "runtime"
    ],
-   "sha256": "0f452817b73e4a3176e527daf6c5e06b66c566d2bbab5197fc24d2b89b8fc554",
+   "sha256": "8790a27b9ff9fe718aac1e592110f6a448188f224fb5f8083a5968965a7ac4ad",
    "locked": true
   },
   {
@@ -402,7 +477,7 @@
     "static",
     "runtime"
    ],
-   "sha256": "8ba1cc32ed695eb6bee6ba989c83cf8f59ba7ee139223906275a2ae1c429c8f9",
+   "sha256": "288cafc913b6331217cc696954b066ef1523ac3a4834ab75eda88fdd4bff6c08",
    "locked": true
   },
   {
@@ -412,7 +487,7 @@
     "static",
     "runtime"
    ],
-   "sha256": "b4823749017bf738fd8792734c0798e51aad567913eee6fed32b2a0cb7c1595e",
+   "sha256": "82e06825d58db7885ab7abb74976e82d20aaae2cb8d4be66a3cc40376226b480",
    "locked": true
   },
   {
@@ -432,7 +507,7 @@
     "static",
     "runtime"
    ],
-   "sha256": "9000a1d5b10fb44f0083d8ff7f571781911bd56fbe47d200259a9c287b23317b",
+   "sha256": "ace4983ff3e19dd1830aa83505959880961ee47ef20325f7f2789af2f0a9fbed",
    "locked": true
   },
   {
@@ -442,7 +517,7 @@
     "static",
     "runtime"
    ],
-   "sha256": "c7b26d8f71f364976aa02e8716c02ebe1644599b6a88eb383f2e59523de8d36c",
+   "sha256": "e0f868f4e8c4bc604e11514f30a18c6f2b6e3238abd3d3cfa51c91eab82d4cfd",
    "locked": true
   },
   {
@@ -452,7 +527,7 @@
     "static",
     "runtime"
    ],
-   "sha256": "85e00f2429263b6a8060f267e3e9b0c8ff4e2a5770722d2bcbc499252dff49ff",
+   "sha256": "40ba8faf959f378a5752abe14edfee155be142d8416d0aac699cbac2391b9e21",
    "locked": true
   },
   {
@@ -462,7 +537,7 @@
     "static",
     "runtime"
    ],
-   "sha256": "6e2b418cc352c641cf1b3f3934448d60b2328c677031a0f49cb07d0e1b803862",
+   "sha256": "fc4690150617a9b7a75c4925bc2cd3cd782dde346b698f25f07256efa01b3e42",
    "locked": true
   },
   {
@@ -471,7 +546,7 @@
    "why": [
     "static"
    ],
-   "sha256": "afe28ae90cccf1780e955a5f8bae9aacd9a391c1e748e1e63200aaf2afcf781a",
+   "sha256": "b1bdc8d1238e4015c1bbbb07d970c1ac1db6e84835ecbfc28423b8ce8de45e34",
    "locked": true
   },
   {
@@ -481,7 +556,7 @@
     "static",
     "runtime"
    ],
-   "sha256": "03bbe933f6d21caa33c15cc33b9da7c7773a65bb8863db7e35c1f3b0572bcae6",
+   "sha256": "9b6893265d67703a56d28745a25fce57812dca00498cf022e0915799e5d542c0",
    "locked": true
   },
   {
@@ -491,7 +566,7 @@
     "static",
     "runtime"
    ],
-   "sha256": "2bdbb5f0b2fb121341da8f033dccdb1e02373be180e390e4911c1a5f071db317",
+   "sha256": "4f1f9dbd46a227e1b7170f79af86f9f1c6de1c4246266687c17cf4ead8edbceb",
    "locked": true
   },
   {
@@ -515,6 +590,15 @@
    "locked": true
   },
   {
+   "path": "finesub/llm/game_glossary.py",
+   "module": "finesub.llm.game_glossary",
+   "why": [
+    "static"
+   ],
+   "sha256": "fbd26dbf9cd6cb947270c0af75d4f8604f1f78e3e14056ee50855ddcf58b985a",
+   "locked": true
+  },
+  {
    "path": "finesub/llm/general_context.py",
    "module": "finesub.llm.general_context",
    "why": [
@@ -522,6 +606,35 @@
     "runtime"
    ],
    "sha256": "43d51ed747bf86627eae29b09b63a1821485491b6f58a52820aab6cd0dbf1362",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/glossary-manifest.json",
+   "read_by": [
+    "finesub/llm/glossary_store.py:155"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "bd425475cbca183ca37043c4d81622ca21aa8cd57a3c1d0b146960da21ae1f62",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/glossary_match.py",
+   "module": "finesub.llm.glossary_match",
+   "why": [
+    "static"
+   ],
+   "sha256": "64c3f3ef8acc8b7b25d82b9bef3855704eaa483c779d7c2698fdb64925be5ee7",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/glossary_store.py",
+   "module": "finesub.llm.glossary_store",
+   "why": [
+    "static"
+   ],
+   "sha256": "ce084adc051ae465d61f05ef79c14a0448af33fa7c7f73f4fdf5411fc9d6433f",
    "locked": true
   },
   {
@@ -541,7 +654,7 @@
     "static",
     "runtime"
    ],
-   "sha256": "796ef9626e72e8084d408ebc949d1e80a83ef28e3a5725d57f5ca7232b9849c4",
+   "sha256": "942a3e7a48eabf2bdcf0f0dcb4c17211507075425727992d1287ddb6fec865a9",
    "locked": true
   },
   {
@@ -552,6 +665,15 @@
     "runtime"
    ],
    "sha256": "d9f1d5d84eb75230f5aafd6322bfed1c95a6e1f405f68aa11c3a47af2f32c182",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/inline_proofread.py",
+   "module": "finesub.llm.inline_proofread",
+   "why": [
+    "static"
+   ],
+   "sha256": "9870dea41186da3af735c078f55697810befdaeed84344067bdcaa585bed358d",
    "locked": true
   },
   {
@@ -618,7 +740,7 @@
    "why": [
     "static"
    ],
-   "sha256": "67577bb31050909f8b7bd702cdf6733f2fe5ee61522941356a0ad3f9eb4918ff",
+   "sha256": "3fb9e45b51def9b34090af164a0c5b02a2c188f7facf2475edd7cbe3fe0a9ba1",
    "locked": true
   },
   {
@@ -772,7 +894,7 @@
     "static",
     "runtime"
    ],
-   "sha256": "0b1d27bd158c1f56ed5c9fb061757b200643475c911c8c8ad8ae7abc071c7ce9",
+   "sha256": "8539881a9743b99ec7c38dd4b5d53c3361fb5ef1c11625e242be3b35d6f93c51",
    "locked": true
   },
   {
@@ -782,7 +904,7 @@
     "static",
     "runtime"
    ],
-   "sha256": "b42c52822d846353342db7625fe851a3525a723299f2cf005097f783d7c2c7d3",
+   "sha256": "602d6effefdaf4b7ec2078666fc955eb8132b98827dc83d766f93de3c6cd0c69",
    "locked": true
   },
   {
@@ -811,7 +933,7 @@
    "why": [
     "static"
    ],
-   "sha256": "047547a8edb31b8ce6d5b55601d5dc5370bde2cfe0883afa63ab6450f3d92298",
+   "sha256": "1ea95e964a3d0bb782987b5a664e73ae33a5fd3f73d19e927a3246d8e357c138",
    "locked": true
   },
   {
@@ -867,7 +989,7 @@
    "why": [
     "static"
    ],
-   "sha256": "26029d06d146ad142d505047ec980fa01d25d1943921840a871cbc0d5bd78ae0",
+   "sha256": "32b306f1e40d08bf80ed9064ca7defaa1ab6ad7b744b757faabfe2f9d9edc9eb",
    "locked": true
   },
   {
@@ -886,7 +1008,7 @@
    "why": [
     "static"
    ],
-   "sha256": "c976222717bc7a04912e5a1b118b26acdcc9be1ecba76feb5f3f4666c37e09db",
+   "sha256": "21d0f339910a3113ec158fa5e269b61999bd3e9cb0c799039c031fb0f64cbed1",
    "locked": true
   },
   {
@@ -906,7 +1028,7 @@
     "static",
     "runtime"
    ],
-   "sha256": "4bb2eb54038adbf5fd1489036592a0edacca1f59aa92cb03c49090608bcd9e25",
+   "sha256": "83d23dc9508e1047d20d878728e249eea1eda7e76f85289e7374ce205a6127ea",
    "locked": true
   },
   {
@@ -935,7 +1057,7 @@
     "static",
     "runtime"
    ],
-   "sha256": "b8829584414bb2d96bc980b46abf52bcac769fccd21fd52ce450f745efea34de",
+   "sha256": "7ad3c06f80507c07b274f159d66c9f377e9936c6fb68479ca79c86c660945cb4",
    "locked": true
   },
   {
@@ -944,7 +1066,7 @@
    "why": [
     "static"
    ],
-   "sha256": "62669a53c713b2b45f1e5ad9fc125bfc0f144f68eb011fd3e4c70b0dc26d9946",
+   "sha256": "cab0ce069bc714da83c9df29162733e1494be90ca1075447a36ea0764aafc34a",
    "locked": true
   },
   {
@@ -963,7 +1085,7 @@
     "static",
     "runtime"
    ],
-   "sha256": "43f7d564872d9580dec81ded01339f741cbe9c7009c3964271b89e477799cc6c",
+   "sha256": "f01acc575ab2c0e9ca412cfcbc983492320790a3647706556bf9d21b5de82ddc",
    "locked": true
   },
   {
@@ -1103,7 +1225,7 @@
    "why": [
     "data"
    ],
-   "sha256": "cdc49641e665197f0fc1001936be9be8d0f8053115adf4bfd0e3f7ddcbaa83dc",
+   "sha256": "0238d9428dfe977357bed071f93678f47298ef1849c02673709837d78dd5eef0",
    "locked": true
   },
   {
@@ -1118,7 +1240,7 @@
    "why": [
     "data"
    ],
-   "sha256": "b53892d81f460dd28239f6f922f15bcbac6eb00e72e4176a2ddc1670304c0614",
+   "sha256": "639d0e6b4b14101f2ce56cd5d617a7dbbbc5099cf83c4dece12c2142ff6fda3b",
    "locked": true
   },
   {
@@ -1163,7 +1285,7 @@
    "why": [
     "data"
    ],
-   "sha256": "0ff88c47d699474c8bea4cd04fa4ec7e12919470e7485c17750b2113d38e1b44",
+   "sha256": "3b8a95e9239cbf1832ffa0274758680519d81bebdd59f45ecbe11244f8118de4",
    "locked": true
   },
   {
@@ -1178,7 +1300,7 @@
    "why": [
     "data"
    ],
-   "sha256": "04494ec2eeb38c3d60d62c70cf7164d999a632c62bffd1a5dddf8cfb04fd1366",
+   "sha256": "06e250436b100d54a584a5ad0649f34ad179b90bdae35f8f5e3d0788204d950e",
    "locked": true
   },
   {
@@ -1268,7 +1390,7 @@
    "why": [
     "data"
    ],
-   "sha256": "dc151eb64d2ca36055c7fc24cdd7ad9c4010e08202eb0d70e1ca5515a16dd1b2",
+   "sha256": "04d9b5766b73cacb250c964612b64555e09a42d6f342a4713d9c9fe5830a5261",
    "locked": true
   },
   {
@@ -1284,6 +1406,21 @@
     "data"
    ],
    "sha256": "0e5c7d8ce681c22dc1308638e5b0a32daa451c5f72605fbc5facc3ca3f8d7801",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/example_tracks_v1.toml",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "21586a1aeaddb1b785d016c6981e1a0b99676d3c1e59d0ec799fa3b7a3fdbd95",
    "locked": true
   },
   {
@@ -1887,6 +2024,36 @@
    "locked": true
   },
   {
+   "path": "finesub/llm/prompt_templates/fragment_game_glossary_v2.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "c4e7a64eab1cffe0caf5c576bc8bac047ab6606827c0014658f22af990555c7f",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_glossary_index_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "2c7b730def690ee016aa5d9704f5f3d205eb5e41e171f1201eb24f36fc9f80b6",
+   "locked": true
+  },
+  {
    "path": "finesub/llm/prompt_templates/fragment_goals_correction_audio_v1.md",
    "read_by": [
     "finesub/llm/prompt_tables.py:16",
@@ -2273,7 +2440,7 @@
    "why": [
     "data"
    ],
-   "sha256": "aebf56bb6424b0a34b25fc99ce07fb6c5fbca651c9ed5c4718b53c5939083715",
+   "sha256": "4c82439b7ebfeff983d0fc7d52ff7f592e9b8d6dfbb7c0a229c8df99ba8a5d99",
    "locked": true
   },
   {
@@ -2348,7 +2515,7 @@
    "why": [
     "data"
    ],
-   "sha256": "2416efb987ace8f4f56ff2383498764b1ecb7658908c02e5c78a2fd52cd792ea",
+   "sha256": "f67f45f010c1fd780575fe2ca9e886075eeaff4ccbf15d5db0d2485c0547c934",
    "locked": true
   },
   {
@@ -2363,7 +2530,7 @@
    "why": [
     "data"
    ],
-   "sha256": "ec4fd641ca447433d7e2f97e3774e06a0b7be6215c1a007e688ff37e23e2225d",
+   "sha256": "d834ab05509dbbfc7a1dc8c333f2183a2751825ccc8ab0e5440cc085f81e26ef",
    "locked": true
   },
   {
@@ -2379,6 +2546,21 @@
     "data"
    ],
    "sha256": "cf5d795ddc85b3cc19961ac57c3563af98a7db9b5ff57e88ffa37044ee839cb7",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_marks_note_tracked_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "83cdad3266e868ba91574fbf98df7d4acdaaf1fb029b77afec695b39f6be4619",
    "locked": true
   },
   {
@@ -2618,7 +2800,7 @@
    "why": [
     "data"
    ],
-   "sha256": "8b07cc1606366b7634a1627374f6530e32352cca6eb3fbb83ced005c286d8429",
+   "sha256": "8190356cfce2e7ce4766c32293edf28332177e2eecf5c018244146c4d3cf8a89",
    "locked": true
   },
   {
@@ -2937,6 +3119,36 @@
    "locked": true
   },
   {
+   "path": "finesub/llm/prompt_templates/fragment_proofread_inline_repair_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "6c4dcec94e54edbce93a632f78b5ad3861d1d8aaedfcc84c04d1467c22b145ff",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_proofread_inline_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "8c345abebc5379b467ad3a5b661893e9f33280c801ba97a4def70e4733c20d76",
+   "locked": true
+  },
+  {
    "path": "finesub/llm/prompt_templates/fragment_query_style_v1.md",
    "read_by": [
     "finesub/llm/prompt_tables.py:16",
@@ -2993,7 +3205,7 @@
    "why": [
     "data"
    ],
-   "sha256": "0a8c02aebf0de0ebca4577e657c225acba2fc921d422a6a08e07514d212c2b0e",
+   "sha256": "755c43ec1906ab439f6d71f3478d0c1a7bc75bb28880a8f79b71afc588556314",
    "locked": true
   },
   {
@@ -3222,6 +3434,21 @@
    "locked": true
   },
   {
+   "path": "finesub/llm/prompt_templates/fragment_shape_same_person_tracked_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "ebb679afbaa4e1b64d7f4ff2a17eaf93722a5045e137e174a0b918977e97f664",
+   "locked": true
+  },
+  {
    "path": "finesub/llm/prompt_templates/fragment_shape_single_v1.md",
    "read_by": [
     "finesub/llm/prompt_tables.py:16",
@@ -3234,6 +3461,36 @@
     "data"
    ],
    "sha256": "32ce336d54d949333f93a2ed8cdfffa01f1bfd7a4a2457f7018aed4fe9cedc1c",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_shape_tracked_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "078cff98dfa0f664fb79480b8558dd3d7797d8f6dc9cf884d9db76fc6d3bd794",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_shape_who_tracked_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "eaec639a6bddebb34ece50d61a0e73f09c120b3f7199769575c49758cde06b20",
    "locked": true
   },
   {
@@ -3279,6 +3536,51 @@
     "data"
    ],
    "sha256": "c47b18a0ec00335c9e9a54d67f2786cc43b3a2ddc5cdc5f13da04147a70ed746",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_speakers_input_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "2ad9b4507645c9921332d498f2636be490da3bc7292216a616cdd4d6dda99d18",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_spk_answers_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "1855aaa859e45fc48028bf51afe7228c2335f595f2a4f010c991919292fd913e",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_spk_column_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "c9da21b879cd4b0a89c67f3bf9a21c6d9c4e7ce9296e54c68fddbe0fe51d0fe0",
    "locked": true
   },
   {
@@ -3597,6 +3899,36 @@
    "locked": true
   },
   {
+   "path": "finesub/llm/prompt_templates/fragment_track_cells_tracked_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "54680e3b20542a00bf9e204ae2172e045bb9c1fd8502ddb66f8930bd8b11c9fb",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_track_column_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "ac6ea208381c21d00825a37890e0e0f464f6135149e0aef8b0823bb37cd8aecc",
+   "locked": true
+  },
+  {
    "path": "finesub/llm/prompt_templates/fragment_trailing_blocks_parallel_v1.md",
    "read_by": [
     "finesub/llm/prompt_tables.py:16",
@@ -3672,6 +4004,21 @@
    "locked": true
   },
   {
+   "path": "finesub/llm/prompt_templates/fragment_turn_cell_tracked_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "9339ed037dffdbc18a7507e4cc7a10c9b6825cde8043a699e2cb1a6621967e0c",
+   "locked": true
+  },
+  {
    "path": "finesub/llm/prompt_templates/fragment_turn_cell_v1.md",
    "read_by": [
     "finesub/llm/prompt_tables.py:16",
@@ -3684,6 +4031,21 @@
     "data"
    ],
    "sha256": "f885461475c37830e72a0e5e9290789aca66758d8cea7f961beb8f291c98f4ea",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_turn_check_tracked_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "411a342393931cb85fcc4c5aa6a5ab853461eada052816620250f0f24d3fcc99",
    "locked": true
   },
   {
@@ -3717,6 +4079,21 @@
    "locked": true
   },
   {
+   "path": "finesub/llm/prompt_templates/fragment_turn_clue_tracked_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "e8295f7592ef4912c80456d2a9d6bfed6f60a146c7cd4563f94e8d8802e49ab8",
+   "locked": true
+  },
+  {
    "path": "finesub/llm/prompt_templates/fragment_turn_column_grouped_v1.md",
    "read_by": [
     "finesub/llm/prompt_tables.py:16",
@@ -3729,6 +4106,21 @@
     "data"
    ],
    "sha256": "7c92eef5bad84545a7a39132b6e395e1cdb7a7aec58e8b61dc0aa1e026a30487",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_turn_column_tracked_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "a828a2b331f45d12494ca8a5e7b9bb2fa20549cfc779a5dcf9e765482ea96231",
    "locked": true
   },
   {
@@ -3777,6 +4169,21 @@
    "locked": true
   },
   {
+   "path": "finesub/llm/prompt_templates/fragment_turn_reminder_tracked_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "57a01622ee415a930e7b6d10482204eb182083981ca9c2edd21eb6e69669927f",
+   "locked": true
+  },
+  {
    "path": "finesub/llm/prompt_templates/fragment_turn_reminder_v1.md",
    "read_by": [
     "finesub/llm/prompt_tables.py:16",
@@ -3804,6 +4211,21 @@
     "data"
    ],
    "sha256": "889265902271b7f5fa551bf628b1490eef6fce9b2ad24f4c10025158053818db",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/prompt_templates/fragment_turn_rule_tracked_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "ae39b2e234f5b6ce2afe7fd76dc49affd35cf1c061cb3cde1fbc3bf26e611a25",
    "locked": true
   },
   {
@@ -3878,7 +4300,7 @@
    "why": [
     "data"
    ],
-   "sha256": "4cdcbbe9613abdf16e74fef02409657153e08ab14629ccd2569d51dfde87af2b",
+   "sha256": "2ccd4eff9ce6e8b3429d9d21539ae08618a3ad2ae47ec6b9f24bba8ccb42d232",
    "locked": true
   },
   {
@@ -4178,7 +4600,7 @@
    "why": [
     "data"
    ],
-   "sha256": "3073406c46346576e264c15f1036c47955b699f00e59266341a464b2a55d1d9a",
+   "sha256": "9bf11037b76de1b331c3e9c79706f025b3e45e6b8362bec795add63621cdfa64",
    "locked": true
   },
   {
@@ -4193,7 +4615,7 @@
    "why": [
     "data"
    ],
-   "sha256": "2caefeda9d10acfe7719ad014291510c43d9c97a70c02e7bacadaee0ebb516f1",
+   "sha256": "62b602b6158e61d58cb7b9f8fef6daa13ba06e67664e5ddfbd5e14f3bf9406a4",
    "locked": true
   },
   {
@@ -4238,7 +4660,7 @@
    "why": [
     "data"
    ],
-   "sha256": "e96e94947a9c1b20e795fc172178bb2661285de76c7e29e8f4ce5bf3528a107d",
+   "sha256": "4b9eec9a7ae0fe37ba9d5b88688aeecfbe27e525c7e7e709c8dfbaf3ca3ee983",
    "locked": true
   },
   {
@@ -4253,7 +4675,7 @@
    "why": [
     "data"
    ],
-   "sha256": "117e07f460241d3a3c97c23b2462eebca706dedf9f6613c257a058549405432a",
+   "sha256": "2df0743988828b392a247230c05fb8c9416ad3b789e05946c1b5c1bff36b4d79",
    "locked": true
   },
   {
@@ -4332,6 +4754,21 @@
    "locked": true
   },
   {
+   "path": "finesub/llm/prompt_templates/proofread_criteria_v1.md",
+   "read_by": [
+    "finesub/llm/prompt_tables.py:16",
+    "finesub/llm/prompt_compose.py:130",
+    "finesub/llm/example_builder.py:53",
+    "finesub/llm/agent/channels.py:50",
+    "finesub/llm/agent/local_agent.py:249"
+   ],
+   "why": [
+    "data"
+   ],
+   "sha256": "773845f4dabf0021b57451d849c75ab580fb0f3f9d3c4c73dcab971b72085912",
+   "locked": true
+  },
+  {
    "path": "finesub/llm/prompt_templates/proofread_kb_terms_v1.md",
    "read_by": [
     "finesub/llm/prompt_tables.py:16",
@@ -4373,7 +4810,7 @@
    "why": [
     "data"
    ],
-   "sha256": "441a967b5c60e3a5b84609674b44f826728555161cd4c893576ec8a4651d2c27",
+   "sha256": "f1da2eb2d140c5e1220559a5cd324fddd20db6c80c02cd96c8a6de6b28b53165",
    "locked": true
   },
   {
@@ -5148,7 +5585,7 @@
     "static",
     "runtime"
    ],
-   "sha256": "7e8d57258bd8ac30fb5854bdadaf0a2f264bc3b3b86ca09e32130d30e8ae9c13",
+   "sha256": "07c6d90d7f9248bc814d914311042321224c0423e967a2fd43bf05c35640e8a9",
    "locked": true
   },
   {
@@ -5158,7 +5595,7 @@
     "static",
     "runtime"
    ],
-   "sha256": "58cd144ddbb072c20ee4b16d58c28150eac484544801186f55e02a32b78fc226",
+   "sha256": "a098f7b2c4ce5cbb76809e4441ce16382c96bbb85fab7724be187b603e3851b6",
    "locked": true
   },
   {
@@ -5167,7 +5604,7 @@
    "why": [
     "static"
    ],
-   "sha256": "20edbd221bb7deb253736f32d7f427b8e3c031e99486a65f3d2e8f261cd5ff67",
+   "sha256": "e47eace5ec7190ba377860a439069f9ce6981a48293e275da90485c52f1c641f",
    "locked": true
   },
   {
@@ -5177,7 +5614,7 @@
     "static",
     "runtime"
    ],
-   "sha256": "d857eda3563df92e08c14d94b4c3a3679541c5096a2d57484051012c1723f225",
+   "sha256": "b4b5c102d5e656b16a34e32e5c3aefbac6d934044733199dddf16e4f44d54ce1",
    "locked": true
   },
   {
@@ -5187,7 +5624,7 @@
     "static",
     "runtime"
    ],
-   "sha256": "1c02d6ed432a9150cc9b4ae5bcce29b2091b936ba14de455da8257c8be85a3ed",
+   "sha256": "cd66cdb388cca07f42d7bcb5e9d16e232d43e589414d5988486f1575a401c7b2",
    "locked": true
   },
   {
@@ -5197,7 +5634,7 @@
     "static",
     "runtime"
    ],
-   "sha256": "88cc015b464b324553f0e83aa1691970f935c42b9bf6eedf7af82e93460b452d",
+   "sha256": "4ab9a50a08870996bce187417e50dcca0b18bcf6861557803ccbc56b5bd08d35",
    "locked": true
   },
   {
@@ -5217,7 +5654,7 @@
     "static",
     "runtime"
    ],
-   "sha256": "aabed6c009e7c676d54c2411ebf9193acadb1cdfaddcfc15381a9d4c3daa6d48",
+   "sha256": "4d45f5bf6ef6b9a2b3d530b2706bc93b035f135b487f57d953d45cf4537ed08a",
    "locked": true
   },
   {
@@ -5227,7 +5664,7 @@
     "static",
     "runtime"
    ],
-   "sha256": "5a00a0d520a50d0a3d8ae28321abe2628d0cd13fa2b8698d1ce4d131c954d412",
+   "sha256": "fbc946c52fd3079f6c1c6e57afa026a948f138e0d1a2c60a0ab8c2c1bba2cb6c",
    "locked": true
   },
   {
@@ -5237,7 +5674,7 @@
     "static",
     "runtime"
    ],
-   "sha256": "df3d8a4ee9b6d5c986d7095173193c80c149f28610d57f69ff5f60d41c93a914",
+   "sha256": "d612f55df1ade81f68d6a09ee8ff8aea4ff58a241a5ecea9c25ba25512f752d3",
    "locked": true
   },
   {
@@ -5246,7 +5683,7 @@
    "why": [
     "static"
    ],
-   "sha256": "d2fbb28333863d550b762d2d4f04c3aa9e06c5305f538b4d80c0b5d0d905868b",
+   "sha256": "b76326ef6ee78b4f225a2fe38a76fb36eb98212f1e0645b759f16a02cbe32f18",
    "locked": true
   },
   {
@@ -5256,7 +5693,7 @@
     "static",
     "runtime"
    ],
-   "sha256": "352df82da0c31811242be8da97bbdc32f2493976c24a5e0735c3d90d3cc918ef",
+   "sha256": "ecc08175e919669c0b9ca6d11903bdeee165e8f8ddcd680c516e200d443e3b7c",
    "locked": true
   },
   {
@@ -5267,7 +5704,7 @@
    "why": [
     "data"
    ],
-   "sha256": "d6b4835122f31cf356dc2916357cf2342942623ed83e74c216dd2a1a50197480",
+   "sha256": "c1bc6952d0ebff1430e55eaed4ef50b461ab189ea4c21cecceb229a3e9922286",
    "locked": true
   },
   {
@@ -5287,7 +5724,7 @@
     "static",
     "runtime"
    ],
-   "sha256": "5e4467368715b174db934f57c4b291c7d2430d62adb19fe980361c3432102448",
+   "sha256": "6e44c396f3fa744449df6b42532a23d3512f3d9896dd0fbea4f230bae5c0edd9",
    "locked": true
   },
   {
@@ -5298,7 +5735,7 @@
    "why": [
     "data"
    ],
-   "sha256": "4fa7a86062d9fbd21fde3b25b989d5829993cc7d33b66c143363b77e52d336dd",
+   "sha256": "8f80f389ba13c80c4804418e0bc457588fd00fdbf171f9a689cd33e6528407b7",
    "locked": true
   },
   {
@@ -5328,7 +5765,7 @@
     "static",
     "runtime"
    ],
-   "sha256": "cb6474cba650a4fed1903ef145d1d34d15a979c66abb75279c29f8933bd2995f",
+   "sha256": "368a395562308d0226534ea43c4b58a391d2d23acbae06f9e411c4c05fa54302",
    "locked": true
   },
   {
@@ -5377,7 +5814,7 @@
     "static",
     "runtime"
    ],
-   "sha256": "d19875a0a5c7137c3f40c2dc14a5a54155d0803308bcc74d93acba5ef6e0f587",
+   "sha256": "e576aa118e323cf00f6e7307c73fc608ecdf5c9afa20f4afa8e69b66958e1dfd",
    "locked": true
   },
   {
@@ -5387,7 +5824,7 @@
     "static",
     "runtime"
    ],
-   "sha256": "f9325b866be60a9ade5a39ddc2d4209ff6443c8c4bca1c6071e87d5095a2947a",
+   "sha256": "b23e250bdac85b8c470d76820c6d027b58ca8b658fe22a27ec705e42c0911a9f",
    "locked": true
   },
   {
@@ -5397,7 +5834,7 @@
     "static",
     "runtime"
    ],
-   "sha256": "32fb0e9fe22396b0fafa722002cb1b05924aa0953686c05aead3de9ecc383d96",
+   "sha256": "4d31d354df0ed4045631c304a578053c07a89ff9265f8701601277bc2560b64e",
    "locked": true
   },
   {
@@ -5407,7 +5844,7 @@
     "static",
     "runtime"
    ],
-   "sha256": "8c87ce10f1ddee823536b47acd49f2623d3cc9e0c7ae978c39ca1134e080d109",
+   "sha256": "6a1843b422d2a81b57f99e65c70630ea90ccf7e288c0b86e5b82b86c0f18ea66",
    "locked": true
   },
   {
@@ -5417,7 +5854,7 @@
     "static",
     "runtime"
    ],
-   "sha256": "227b1765e6bfdd05ab82c54b0dfe0617e9ce74b3dcd84cc95c15da754189097b",
+   "sha256": "fdae862906f6609a41f1707c13827cb57bbb8fe0002b593597200be147711253",
    "locked": true
   },
   {
@@ -5437,7 +5874,7 @@
     "static",
     "runtime"
    ],
-   "sha256": "0724cefe4a3aa2d2fdaedd1ea98d72711d2c8894676b78e5823611591c8786f4",
+   "sha256": "75819ba0f6c7f482f1672192ed0257d777bd2b2878dd96e31001e56d28e3ef9f",
    "locked": true
   },
   {
@@ -5447,7 +5884,7 @@
     "static",
     "runtime"
    ],
-   "sha256": "527c3c78e363b665fee2166a454f4af262419e16b3509dfce4a81b9b6d4da8a8",
+   "sha256": "e0334c1eced6e4efbf424766b8438904805d3c0d4310ed66880d37e48b89237b",
    "locked": true
   },
   {
@@ -5457,7 +5894,16 @@
     "static",
     "runtime"
    ],
-   "sha256": "6d8f85e1f5d33b60900cad432d1a4825a470dd7480b683d1b7e529f615d6ddc1",
+   "sha256": "bb79b4a56c6fa8d8ccd86913908cfe7bf49b5a64c7bb09ae4e7da8cc1b1ff6e2",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/stages/correction/speaker_book.py",
+   "module": "finesub.llm.stages.correction.speaker_book",
+   "why": [
+    "static"
+   ],
+   "sha256": "f3652cd9f2664b0556d3ab32fe37b62abb6d2de5f17fb3718ff9369ba365d663",
    "locked": true
   },
   {
@@ -5476,7 +5922,7 @@
    "why": [
     "static"
    ],
-   "sha256": "8c52afc46d37587981d727d2d6cb02b48e9d113faef3d26913d950c8d5116591",
+   "sha256": "807a41f21000131c143838ae3f7d3a419b82c8f59107c451f9516467abf812bf",
    "locked": true
   },
   {
@@ -5503,7 +5949,7 @@
    "why": [
     "static"
    ],
-   "sha256": "78c30d3f6a14eb44856fc726c9754c16e2ee03aba464151eed91962bf79e2f6c",
+   "sha256": "1ac5c9de6048a8d6509d1f02f8a089d1ee70924b9e99d5e03a660e627f981dca",
    "locked": true
   },
   {
@@ -5512,7 +5958,7 @@
    "why": [
     "static"
    ],
-   "sha256": "e506d9964274a6a72bdf94575b87ba03588e6103b1029e225dd9fb5bb0c9007e",
+   "sha256": "771f161d6ff8c77da3537093f95ed1b45354ea9a8ba354bfadb3dc39a08693a4",
    "locked": true
   },
   {
@@ -5566,7 +6012,7 @@
    "why": [
     "static"
    ],
-   "sha256": "193c2acd1cd55b5e5b5558557a8759f1d5229c11ba172db43b49e0157709e687",
+   "sha256": "2f4082c718a0f9f79e52b991e86062e9e5cf55d825408495648a9ea10025b715",
    "locked": true
   },
   {
@@ -5575,7 +6021,7 @@
    "why": [
     "static"
    ],
-   "sha256": "df056fda6afd90b8a045dff828f577354ef16d5fd3e5616fa41fd30a2d805d0f",
+   "sha256": "e111c2878c41eaf8764d9fffdc05e7557bb7fcc0e72bb4b9734768c9ef515dc1",
    "locked": true
   },
   {
@@ -5604,7 +6050,7 @@
     "static",
     "runtime"
    ],
-   "sha256": "63c713698e3a008654ccb8a716d6e27eb1158401965bdf60b1eb06d3d627ffee",
+   "sha256": "4b24df5e530ccfe22ad6bca478aed4b0215a25efeccc9e0531099c77df91c01a",
    "locked": true
   },
   {
@@ -5624,7 +6070,7 @@
     "static",
     "runtime"
    ],
-   "sha256": "466445c1c4aab6b5d3a0e85732476fc4971e0c5bfbdbb54014ad512c84d7d92b",
+   "sha256": "83feae6fcaa36b990f7da4c1e6abf5c0201338bb65e587fd57b74b15a6e49307",
    "locked": true
   },
   {
@@ -5644,7 +6090,7 @@
     "static",
     "runtime"
    ],
-   "sha256": "86fec303be446da0414d3d3469ed1abc0490a0878898c872325224b67baa2581",
+   "sha256": "5e8ee70974095e4b12f4b1777bf127dc2007b0afe8cf3fa2bbf1362a6e93bad9",
    "locked": true
   },
   {
@@ -5668,13 +6114,31 @@
    "locked": true
   },
   {
+   "path": "finesub/llm/translation_shift.py",
+   "module": "finesub.llm.translation_shift",
+   "why": [
+    "static"
+   ],
+   "sha256": "73716fad4cbf6c2a5202816ff0d7e16ea99a0c63f2118dd17742f8c85d18ed6c",
+   "locked": true
+  },
+  {
    "path": "finesub/llm/web_search.py",
    "module": "finesub.llm.web_search",
    "why": [
     "static",
     "runtime"
    ],
-   "sha256": "6514b90ba9bd93b783f5e3917e3f3262a21b987fd0d18f729ad582711cd323c0",
+   "sha256": "ee16e38cec7e131a8a8e32dc31c96e6ccb82c9cbb9003fb44f119c4a48346635",
+   "locked": true
+  },
+  {
+   "path": "finesub/llm/window_speakers.py",
+   "module": "finesub.llm.window_speakers",
+   "why": [
+    "static"
+   ],
+   "sha256": "1fe9ff9fbbd5056b0a77215317cd989ae8d6726922650d9c9a26d906d97350bf",
    "locked": true
   },
   {
@@ -5704,7 +6168,7 @@
     "static",
     "runtime"
    ],
-   "sha256": "66edaae69c9be359677de9f24e033db0d59902ced3106a0cc429a6f7ccf5f2b4",
+   "sha256": "e405b5b2342cb6c940905d395a4909f295582ca6a0ee451ed95dae42f5d0d3c1",
    "locked": true
   },
   {
@@ -5723,7 +6187,7 @@
     "static",
     "runtime"
    ],
-   "sha256": "a0769a39c1eac20ae65427971bcf4351e299ba9f8ad1538d35c23ee14c58305c",
+   "sha256": "8d02106288740ae746e53d6e949ff274a9eb3d5f905f47bc2b63e531737a4850",
    "locked": true
   },
   {
@@ -5733,7 +6197,7 @@
     "static",
     "runtime"
    ],
-   "sha256": "7b754127c23b7f8f98297feeed5aa1fe8e4cf2280fecf50844d455eaf7ca6862",
+   "sha256": "c02a4a530fc030e4a6a19e0272ab9658cabbff368fb8068adb398d6d59c8b68d",
    "locked": true
   },
   {
@@ -5753,7 +6217,7 @@
     "static",
     "runtime"
    ],
-   "sha256": "6de92ec76a081749af0309f4c1e5f802e166441b14a06dc2d3cd24a29bd75256",
+   "sha256": "013dc79bb8153e01e8b1bf1b33b970079ab6efef528293071d96fd5976a9b520",
    "locked": true
   },
   {
@@ -5809,7 +6273,7 @@
    "why": [
     "static"
    ],
-   "sha256": "b0c8e928b9eae3805f3093c95897af2b330f5e9341e044586cd69beaeafa5718",
+   "sha256": "71c9aff0a7a2afd4e4943030ee7e93064bc15b3dfb4512dabd2d27ff7c02d1a4",
    "locked": true
   },
   {
@@ -5903,7 +6367,7 @@
     "static",
     "runtime"
    ],
-   "sha256": "604cc501e480ec31915472d673d614c4c17394cbc75983c74f66541da5161fd8",
+   "sha256": "a99f0d46af9d7d1e22c393c2cb12bcc06e89a5b7b2e36b13d9b2455be1ba29c2",
    "locked": true
   },
   {
@@ -5912,7 +6376,7 @@
    "why": [
     "static"
    ],
-   "sha256": "297de0820eccdec96c388ea7ed2e19f5e2715419d430d34a96f6cc853b132570",
+   "sha256": "72414f586d23cc8ba53edf94c0b822cc71e4d0fe3a19b9884530bf047bb36e50",
    "locked": true
   },
   {
@@ -5969,7 +6433,7 @@
     "static",
     "runtime"
    ],
-   "sha256": "c730e95478e2dbad773287933d19ea68795aa3e384a349d5756d641208fcc83f",
+   "sha256": "7c3a9c9faf14bc7d5c2cbfb43a27f418662ec94f179cdbd73adf14238c5a36ca",
    "locked": true
   },
   {
@@ -6009,7 +6473,7 @@
     "static",
     "runtime"
    ],
-   "sha256": "2298e67d4191096a04bd82415f9409d09d91a1abf624d2bfb64dff60b32b4b0f",
+   "sha256": "f18bfce487647be138f803a8dd3ae7cc2c972e71e1ae6194dcd2ac8451b3faec",
    "locked": true
   },
   {
@@ -6068,7 +6532,7 @@
     "static",
     "runtime"
    ],
-   "sha256": "0a29cb5d63eaa5592fe1528b008377a01790559cd25697b72b8a3247a30373b3",
+   "sha256": "72a59ddf2e24af3bd9ddfb054cab24153d5f61f2ce5c6f412ac55d60baeda846",
    "locked": true
   },
   {
@@ -6078,7 +6542,7 @@
     "static",
     "runtime"
    ],
-   "sha256": "c61112f08123dc6ce0312a6496374702dae7ad29b34a061cecf0ac14d34f15c1",
+   "sha256": "b5f19a06f0cc4bd6e0253132d4bd96ea6ce87e3473ea6b26d23486e7e70defb1",
    "locked": false
   },
   {
@@ -6128,7 +6592,7 @@
     "static",
     "runtime"
    ],
-   "sha256": "11c9357399276c5ce2f6e971ba84a35278f66548f0853a422a89c84750b84fdd",
+   "sha256": "38da123fea4f909de058c2f326108b4cf8d5c0eb7a2a423c9a143b64302c8b60",
    "locked": true
   },
   {
@@ -6250,7 +6714,7 @@
  ],
  "bootstrap_imports": {
   "finesub_bootstrap.agy_records:agy_project_records_dir": [
-   "finesub/llm/agent/local_agent.py:7496"
+   "finesub/llm/agent/local_agent.py:8101"
   ],
   "finesub_bootstrap.artifacts:ARTIFACT_DIR_SUFFIX": [
    "finesub/llm/correction_translation.py:32",
@@ -6268,9 +6732,9 @@
    "finesub/llm/agent/local_agent.py:33"
   ],
   "finesub_bootstrap.fsops:remove_tree": [
-   "finesub/llm/agent/agent_session_host.py:392",
+   "finesub/llm/agent/agent_session_host.py:406",
    "finesub/llm/agent/local_agent.py:33",
-   "finesub/llm/client.py:2109"
+   "finesub/llm/client.py:2161"
   ],
   "finesub_bootstrap.fsops:replace_path": [
    "finesub/media/source.py:10",
@@ -6318,10 +6782,10 @@
    "finesub/state.py:22"
   ],
   "finesub_bootstrap.logs:log_directory": [
-   "finesub/paths.py:242"
+   "finesub/paths.py:262"
   ],
   "finesub_bootstrap.logs:prune": [
-   "finesub/llm/http.py:33"
+   "finesub/llm/http.py:35"
   ],
   "finesub_bootstrap.paths:default_data_root": [
    "finesub/paths.py:54"
@@ -6336,6 +6800,7 @@
    "finesub/paths.py:35"
   ],
   "finesub_bootstrap.processes:no_window": [
+   "finesub/llm/agent/codex_login.py:99",
    "finesub/llm/agent/local_agent.py:35",
    "finesub/llm/knowledge/node/importer.py:20",
    "finesub/llm/token_budget.py:33",

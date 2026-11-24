@@ -78,12 +78,12 @@ LOCAL_AGENT_PROVIDERS: Mapping[str, dict[str, Any]] = {
         "label": "本地 Codex",
         "command": "codex",
         # Which models the desktop offers on Codex, in display order -- the
-        # first is what selecting the provider fills in. GPT-6.2 rows are
-        # declared in `LOCAL_AGENT_OVERLAY_MODELS` until FineSub packages them.
+        # first is what selecting the provider fills in. FineSub 0.7.1 packages
+        # GPT-6.2 Sol in place of 6.1 Sol (Codex CLI 0.169.1 or newer); Astra
+        # is declared in `LOCAL_AGENT_OVERLAY_MODELS` until FineSub packages it.
         "models": (
             "gpt-6.2-sol",
             "gpt-6.2-astra",
-            "gpt-6.1-sol",
             "gpt-6-luna",
         ),
         # The Codex app keeps its CLI in a content-hashed directory under
@@ -98,8 +98,9 @@ LOCAL_AGENT_PROVIDERS: Mapping[str, dict[str, Any]] = {
         "command": "agy",
         # Gemini 4 (Hydrogen, Neon, Argon) and Gemini 3.8 Flash all accept
         # media; the two Claude rows are text only and share agy's Claude
-        # allowance. Hydrogen and Neon are declared in
-        # `LOCAL_AGENT_OVERLAY_MODELS` until FineSub packages them.
+        # allowance. FineSub 0.7.1 packages Hydrogen (in agy's Gemini
+        # allowance, beside 3.8 Flash); Neon is declared in
+        # `LOCAL_AGENT_OVERLAY_MODELS` until FineSub packages it.
         "models": (
             "gemini-4-hydrogen",
             "gemini-4-neon",
@@ -123,34 +124,37 @@ LOCAL_AGENT_PROVIDERS: Mapping[str, dict[str, Any]] = {
         # copy inside the WorkBuddy desktop app). It installs through npm, so
         # its shim lands on PATH and the engine finds it by name.
         "command": "codebuddy",
-        # GLM-5.3 Flash leads on the engine's own recommendation (it heads
-        # the packaged `codebuddy-capable` group): the row whose thinking tier
-        # was lowered so it stops looping on a correction window, and the
-        # cheapest in credits. Its 32000-token output ceiling is the trade.
+        # DeepSeek-V4.1 Flash leads on the engine's own recommendation: since
+        # FineSub 0.7.1 it is all the packaged `codebuddy-capable` group has
+        # (Hunyuan 4 Flash is rated low). 0.7.1 dropped `hy3` (the vendor made
+        # it an alias of `hy4flash-free`), `glm-5.3-flash` and CodeBuddy's
+        # `deepseek-v4-pro`; `LEGACY_LOCAL_MODELS` moves saved routes off them.
         #
         # ⚠ Which of these an account can actually reach is the account's
         # business, not the CLI version's: the vendor answers a wrong `--model`
-        # with the list that login is entitled to. Rows beyond the four
-        # FineSub 0.7.0 packages are declared in `LOCAL_AGENT_OVERLAY_MODELS`.
+        # with the list that login is entitled to. `hy4flash-free` is a
+        # promotion until 2026-12-01; once it leaves the account's list, a
+        # route on it stops with that answer instead of moving to `hy4flash`.
+        # Rows beyond the three FineSub 0.7.1 packages are declared in
+        # `LOCAL_AGENT_OVERLAY_MODELS`.
         "models": (
-            "glm-5.3-flash",
-            "glm-5.3",
-            "hy3",
-            "hy4-preview",
             "deepseek-v4.1-flash",
-            "deepseek-v4-pro",
+            "hy4flash-free",
+            "hy4flash",
+            "glm-5.3",
+            "hy4-preview",
             "kimi-k3",
             "minimax-m3",
         ),
         "note": (
-            "Hunyuan 3 每天有免费额度；用光之后会自动切到同一条线的付费额度"
-            "（hy3-x）把当次任务跑完，并在结束时提示切过。其余模型均按积分计费。"
-            "需要独立安装并登录 CodeBuddy Code CLI（2.164.0 或更新），不再使用 WorkBuddy 桌面端。"
+            "Hunyuan 4 Flash 免费版限时到 12 月 1 日，每天的免费额度用完后，"
+            "当次任务自动改用付费的 Hunyuan 4 Flash 跑完。其余模型按积分计费。"
+            "需要单独安装并登录 CodeBuddy Code CLI（建议 2.178.1 或更新）。"
         ),
     },
 }
 
-#: Local-agent models Nonoka offers on top of FineSub 0.7.0's quality-locked
+#: Local-agent models Nonoka offers on top of FineSub 0.7.1's quality-locked
 #: `model_catalog.toml`. Each entry is `(fact_id, catalog_row)` in FineSub's
 #: `model_catalog.toml` schema; `FineSubSettings.llm_context` emits a row into
 #: the derived `model_catalog.toml` only when a saved route selects it, and
@@ -159,18 +163,6 @@ LOCAL_AGENT_PROVIDERS: Mapping[str, dict[str, Any]] = {
 #: locked engine file.
 LOCAL_AGENT_OVERLAY_MODELS: Mapping[str, Mapping[str, tuple[str, Mapping[str, Any]]]] = {
     "local-codex": {
-        "gpt-6.2-sol": (
-            "local-codex-gpt-6_2-sol",
-            {
-                "provider_tier": "LOCAL_CODEX",
-                "display_name": "GPT-6.2 Sol via Codex",
-                "api_model_id": "gpt-6.2-sol",
-                "max_input_tokens": 272_000,
-                "context_window": 272_000,
-                "thinking": ["high", "high", "low"],
-                "capability": "high",
-            },
-        ),
         "gpt-6.2-astra": (
             "local-codex-gpt-6_2-astra",
             {
@@ -185,22 +177,6 @@ LOCAL_AGENT_OVERLAY_MODELS: Mapping[str, Mapping[str, tuple[str, Mapping[str, An
         ),
     },
     "local-agy": {
-        "gemini-4-hydrogen": (
-            "local-agy-gemini-4-hydrogen",
-            {
-                "provider_tier": "LOCAL_AGY",
-                "display_name": "Gemini 4 Hydrogen via agy",
-                "api_model_id": "gemini-4-hydrogen",
-                "max_input_tokens": 1_048_576,
-                "context_window": 1_048_576,
-                "supports_audio": True,
-                "supports_video": True,
-                "video_high_resolution_only": True,
-                "thinking": ["medium", "medium", "low"],
-                "capability": "medium",
-                "quota_pool": "AGY_HYDROGEN",
-            },
-        ),
         "gemini-4-neon": (
             "local-agy-gemini-4-neon",
             {
@@ -287,9 +263,10 @@ LEGACY_LOCAL_MODELS: Mapping[str, Mapping[str, str]] = {
     "local-codex": {
         "gpt-5.6-luna": "gpt-6-luna",
         "gpt-5.6-terra": "gpt-6-luna",
-        "gpt-5.6-sol": "gpt-6.1-sol",
-        "gpt-6-sol": "gpt-6.1-sol",
-        "gpt-6-astra": "gpt-6.1-sol",
+        "gpt-5.6-sol": "gpt-6.2-sol",
+        "gpt-6-sol": "gpt-6.2-sol",
+        "gpt-6-astra": "gpt-6.2-sol",
+        "gpt-6.1-sol": "gpt-6.2-sol",
     },
     "local-agy": {
         "claude-opus-4-6-thinking": "claude-sonnet-5-5",
@@ -298,6 +275,11 @@ LEGACY_LOCAL_MODELS: Mapping[str, Mapping[str, str]] = {
     },
     "local-codebuddy": {
         "deepseek-v4-flash": "deepseek-v4.1-flash",
+        # FineSub 0.7.1: the vendor made `hy3` an alias of `hy4flash-free`;
+        # GLM-5.3 Flash and CodeBuddy's V4-Pro go to the recommended row.
+        "hy3": "hy4flash-free",
+        "glm-5.3-flash": "deepseek-v4.1-flash",
+        "deepseek-v4-pro": "deepseek-v4.1-flash",
     },
 }
 
@@ -420,9 +402,11 @@ CORRECTION_SECRET_NAMES: tuple[str, ...] = (
 #: The packaged catalog tier of each Gemini key pool.
 _GEMINI_TIERS: Mapping[str, str] = {"gemini-free": "GEMINI_FREE", "gemini-paid": "GEMINI_PAID"}
 
-#: Gemini API models Nonoka offers on top of FineSub 0.7.0's quality-locked
+#: Gemini API models Nonoka offers on top of FineSub 0.7.1's quality-locked
 #: `model_catalog.toml`. Each entry is `(fact_id, catalog_row)` in FineSub's
 #: `model_catalog.toml` schema, shown ahead of the packaged rows in each pool.
+#: 0.7.1 packages the free tier's Hydrogen with these same values; its entry
+#: stays for the label and the first place in the free pool's list.
 #: `FineSubSettings.llm_context` emits a row into the derived
 #: `model_catalog.toml` only when a saved route selects it; `bridge.py` wires
 #: unclaimed Gemini rows as `gemini_rest` targets and enables `thinkingLevel`
@@ -798,8 +782,10 @@ def _builtin_model_options() -> dict[str, list[dict[str, Any]]]:
             }
         )
     if packaged_gemini:
+        # Overlay rows lead their pool even once FineSub packages the same
+        # model (0.7.1's free-tier Hydrogen): the list order and label stay
+        # what the desktop showed before, and the packaged copy is not listed twice.
         for provider, overlays in GEMINI_OVERLAY_MODELS.items():
-            existing = {item["id"] for item in result[provider]}
             prepended = [
                 {
                     "id": api_model_id,
@@ -809,9 +795,8 @@ def _builtin_model_options() -> dict[str, list[dict[str, Any]]]:
                     "supportsNativeSearch": bool(row.get("supports_native_search", True)),
                 }
                 for api_model_id, (_fact_id, row) in overlays.items()
-                if api_model_id not in existing
             ]
-            result[provider] = prepended + result[provider]
+            result[provider] = prepended + [item for item in result[provider] if item["id"] not in overlays]
     result[CLOUD_PROVIDER_ID] = [
         {
             "id": model,

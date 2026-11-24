@@ -80,6 +80,8 @@ def _driver(agy: _FakeAgy) -> AgyLocalAgentDriver:
     driver._hooks_command = agy  # type: ignore[method-assign]
     driver._verify_hook_output = lambda stdout, expected: None  # type: ignore[method-assign]
     driver.agy_project_records_dir = lambda: agy.records_dir  # type: ignore[method-assign]
+    # Set by `__init__` since FineSub 0.7.1: projects whose agent document agy dropped.
+    driver._dropped_agent_projects = set()
     return driver
 
 

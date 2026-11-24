@@ -8,10 +8,10 @@
   "interpreter": "launcher",
   "secrets": [],
   "upstream": {
-    "commit": "7123055da0cd6e037d8e37feb53b82f9e428c5cb",
-    "engine_bundle_id": "finesub-0.7.0+7123055da0cd",
-    "engine_version": "0.7.0",
-    "ref": "v0.7.0",
+    "commit": "e977f5220415fda4e1b8385ede66bbd1141c3b16",
+    "engine_bundle_id": "finesub-0.7.1+e977f5220415",
+    "engine_version": "0.7.1",
+    "ref": "v0.7.1",
     "repository": "https://github.com/caca2331/finesub"
   }
 }

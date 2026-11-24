@@ -158,8 +158,8 @@ interface ExecutionProvider {
   "artifact_schema": 1,
   "engine": {
     "name": "finesub",
-    "version": "0.7.0",
-    "commit": "7123055da0cd6e037d8e37feb53b82f9e428c5cb"
+    "version": "0.7.1",
+    "commit": "e977f5220415fda4e1b8385ede66bbd1141c3b16"
   },
   "features": {
     "raw_srt": true,
@@ -243,8 +243,8 @@ interface ExecutionProvider {
     "message": "正在转写"
   },
   "engine": {
-    "version": "0.7.0",
-    "commit": "7123055da0cd6e037d8e37feb53b82f9e428c5cb"
+    "version": "0.7.1",
+    "commit": "e977f5220415fda4e1b8385ede66bbd1141c3b16"
   },
   "transcription_engine": "finesub",
   "requested_capabilities": {},

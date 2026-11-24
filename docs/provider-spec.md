@@ -105,9 +105,9 @@ interface ExecutionProvider {
   "artifact_schema": 1,            // 必填，固定为 1
   "engine": {                      // 本地 Provider：已装引擎包所带的 FineSub 版本；一个包都没装时各项为空串
     "name": "finesub",             // 可选，引擎名
-    "version": "0.7.0",            // 必填，引擎版本
-    "commit": "7123055da0cd6e037d8e37feb53b82f9e428c5cb", // 必填，引擎 commit
-    "bundle_id": "finesub-0.7.0+7123055da0cd"             // 可选，引擎包标识
+    "version": "0.7.1",            // 必填，引擎版本
+    "commit": "e977f5220415fda4e1b8385ede66bbd1141c3b16", // 必填，引擎 commit
+    "bundle_id": "finesub-0.7.1+e977f5220415"             // 可选，引擎包标识
   },
   "features": {                    // 必填，六个布尔位缺一不可
     "raw_srt": true,               // 支持 target=raw-srt

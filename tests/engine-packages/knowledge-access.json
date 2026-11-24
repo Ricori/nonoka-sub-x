@@ -42,5 +42,17 @@
    "where": "node/schema.py SQLite connection"
   }
  },
- "points": []
+ "points": [
+  {
+   "caller": "finesub.llm.glossary_store:directory",
+   "file": "finesub/llm/glossary_store.py",
+   "callee": "finesub.llm.knowledge.base:knowledge_root_path",
+   "primitives": [
+    "finesub.llm.knowledge.base:knowledge_root_path"
+   ],
+   "lines": [
+    191
+   ]
+  }
+ ]
 }

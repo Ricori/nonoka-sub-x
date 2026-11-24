@@ -30,6 +30,8 @@
   "finesub_bootstrap.model_ensure:pinned_snapshot_dir",
   "finesub_bootstrap.model_ensure:pinned_snapshot_loadable",
   "finesub_bootstrap.model_fetch:fetch_fixed_files",
+  "finesub_bootstrap.model_manifest:ManifestFile",
+  "finesub_bootstrap.model_manifest:ModelEntry",
   "finesub_bootstrap.model_manifest:entry_for",
   "finesub_bootstrap.paths:default_data_root",
   "finesub_bootstrap.paths:load_app_paths",

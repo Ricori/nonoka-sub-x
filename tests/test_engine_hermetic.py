@@ -311,7 +311,7 @@ class CoverageScanTests(unittest.TestCase):
             del sys.path[0]
         pools = {node.args[0].value for node in ast.walk(ast.parse(text))
                  if isinstance(node, ast.Call) and getattr(node.func, "id", None) == "PoolSpec"}
-        self.assertEqual(pools, {"GEMINI_FREE", "GEMINI_PAID", "EXA_KEYS", "TAVILY_KEYS", "MOSS_PRO"})
+        self.assertEqual(pools, {"GEMINI_FREE", "GEMINI_PAID", "EXA_KEYS", "TAVILY_KEYS", "MOSS_PRO", "ELEVENLABS"})
         table = classified("correction")
         for name in pools:
             self.assertIn(name, table)

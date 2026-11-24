@@ -288,8 +288,8 @@
    "path": "finesub/llm/agent/agent_ping.py",
    "module": "finesub.llm.agent.agent_ping",
    "locked": true,
-   "sha256": "bdda6b35887100356ef159e3d7b3eea171d7d7c815d2170ad20ad176a46fc13f",
-   "bytes": 8283,
+   "sha256": "0763659d02c77918cb662044eb917d9547019323a569dc7d3772ac6621d510b5",
+   "bytes": 10519,
    "reached_from_cli_only": false,
    "importers": [],
    "reason": "nothing in any package imports it: a FineSub command-line entry or maintenance tool Nonoka does not run"
@@ -318,8 +318,8 @@
    "path": "finesub/llm/knowledge/maintain.py",
    "module": "finesub.llm.knowledge.maintain",
    "locked": true,
-   "sha256": "c2ad42b3e459e73193a65a394cde367fbda1d8ac712a1ae98be8b8e72cfe9234",
-   "bytes": 32001,
+   "sha256": "28c903bf606ece4433545b201daa3d0a2721b365e22442daee1b9d2612659032",
+   "bytes": 32888,
    "reached_from_cli_only": false,
    "importers": [
     "finesub/llm/knowledge/__main__.py"
@@ -504,8 +504,8 @@
    "path": "finesub/llm/knowledge/share/exchange.py",
    "module": "finesub.llm.knowledge.share.exchange",
    "locked": true,
-   "sha256": "312aab9735a692408eacbfde7b303cbffffba6f6e20f74c4d0eebffac04e25d1",
-   "bytes": 54065,
+   "sha256": "95b10faf5bc7fad796a77a3f0a3065a9dab437708cfe172e3ae03ead1989aa24",
+   "bytes": 54068,
    "reached_from_cli_only": false,
    "importers": [
     "finesub/llm/knowledge/share/cli.py",
@@ -625,16 +625,6 @@
    "reason": "nothing in any package imports it: a FineSub command-line entry or maintenance tool Nonoka does not run"
   },
   {
-   "path": "finesub/llm/token_measure.py",
-   "module": "finesub.llm.token_measure",
-   "locked": true,
-   "sha256": "5a9258e0d7a3035203d8a9216445f17b4ad584945d19ee857e78b6e0343a3fcf",
-   "bytes": 4371,
-   "reached_from_cli_only": false,
-   "importers": [],
-   "reason": "nothing in any package imports it: a FineSub command-line entry or maintenance tool Nonoka does not run"
-  },
-  {
    "path": "finesub/pipeline.py",
    "module": "finesub.pipeline",
    "locked": false,
@@ -643,6 +633,16 @@
    "reached_from_cli_only": true,
    "importers": [],
    "reason": "FineSub's batch command line (`python -m finesub.pipeline`); Nonoka never runs it, and carried into the correction package it would pull 41 transcription modules and the model machinery with it (docs/engine-packages.md section 13 item 2)"
+  },
+  {
+   "path": "finesub/quota_command.py",
+   "module": "finesub.quota_command",
+   "locked": true,
+   "sha256": "6bd1c24cc656b52706775cd96443644e6ffc5cafa87aa69a759fffbeea514c9f",
+   "bytes": 3648,
+   "reached_from_cli_only": false,
+   "importers": [],
+   "reason": "nothing in any package imports it: a FineSub command-line entry or maintenance tool Nonoka does not run"
   },
   {
    "path": "finesub/scheduler.py",
@@ -722,8 +722,8 @@
    "path": "finesub/workflows/reference_ingest.py",
    "module": "finesub.workflows.reference_ingest",
    "locked": true,
-   "sha256": "e9ac263be582bbffa609e1e6270f193cc9d7b746dee546e43f95f4a47f688a92",
-   "bytes": 30015,
+   "sha256": "dd914bb2b202c0f7e44b3f07cf9644ea26d31947a4313448090799cd9f1d963c",
+   "bytes": 30003,
    "reached_from_cli_only": false,
    "importers": [],
    "reason": "nothing in any package imports it: a FineSub command-line entry or maintenance tool Nonoka does not run"

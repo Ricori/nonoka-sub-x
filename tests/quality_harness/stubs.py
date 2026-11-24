@@ -301,6 +301,10 @@ def _device() -> types.ModuleType:
 
     functions = {
         "cuda_device_present": recorder("cuda_device_present", lambda _v: FAKE_CARD["present"]),
+        # FineSub 0.7.1 asks for the accelerator family first (Intel support):
+        # the fake card is a CUDA one.
+        "gpu_device": recorder("gpu_device", lambda _v: "cuda" if FAKE_CARD["present"] else ""),
+        "gpu_device_present": recorder("gpu_device_present", lambda _v: FAKE_CARD["present"]),
         "total_vram_gib": recorder("total_vram_gib", lambda _v: FAKE_CARD["total_vram_gib"]),
         "free_vram_gib": recorder("free_vram_gib", lambda _v: FAKE_CARD["free_vram_gib"]),
         "warn_if_an_installed_card_is_unused": recorder("warn_if_an_installed_card_is_unused", lambda _v: None),
@@ -311,8 +315,30 @@ def _device() -> types.ModuleType:
             "resolve_asr_device",
             lambda v: str(v["requested_device"]) if v["gpu_allowed"] else "cpu",
         ),
+        # FineSub 0.7.1's string rules: pure, so the same rule and not recorded.
+        "validate_device_token": _validate_device_token,
+        "device_type": _device_type,
+        "is_gpu_device": lambda device: _device_type(device) != "cpu",
     }
     return _module("finesub.speech.runtime.device", functions)
+
+
+def _validate_device_token(device: str | None) -> None:
+    """`device.validate_device_token`: `cpu`, `cuda` or `xpu`, or not chosen."""
+
+    if device is not None and str(device).strip().lower() not in {"cpu", "cuda", "xpu"}:
+        raise ValueError(f"--device takes cpu, cuda or xpu, not {device!r}")
+
+
+def _device_type(device: str | None) -> str:
+    """`device.device_type`: the family of a device string."""
+
+    text = str(device or "cpu").strip().lower()
+    if text == "cuda" or text.startswith("cuda:"):
+        return "cuda"
+    if text == "xpu" or text.startswith("xpu:"):
+        return "xpu"
+    return "cpu"
 
 
 # --- wrappers around real entry points ---------------------------------------

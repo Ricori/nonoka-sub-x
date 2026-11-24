@@ -167,9 +167,10 @@ CLASSIFICATION: tuple[Row, ...] = (
             *CORRECTION_SECRETS),
     *_rows("absent", frozenset((_C,)), "the transcription's key", *TRANSCRIPTION_SECRETS),
     *_rows("absent", _ALL,
-            "keys of the cloud ASR back ends that moved to Nonoka's own engines (WP1, WP3)",
+            "keys of the cloud ASR back ends that moved to Nonoka's own engines (WP1, WP3), and of the "
+            "ones FineSub 0.7.1 added there that Nonoka does not follow (ElevenLabs Scribe)",
             "MOSS_PRO", "OPENROUTER_API_KEY", "FINESUB_KEY_AZURE_SPEECH", "FINESUB_KEY_OPENROUTER_STT",
-            "FINESUB_AZURE_SPEECH_ENDPOINT"),
+            "FINESUB_AZURE_SPEECH_ENDPOINT", "ELEVENLABS"),
     # -- the model libraries' own, never written ---------------------------------------------------------------
     *_rows("absent", _ALL,
             "Hugging Face: everything but HF_HOME, the token and offline is the libraries' default; "
@@ -198,6 +199,9 @@ CLASSIFICATION: tuple[Row, ...] = (
             "NUMEXPR_MAX_THREADS", "VECLIB_MAXIMUM_THREADS", "KMP_DUPLICATE_LIB_OK", "NUMBA_NUM_THREADS",
             "NUMBA_DISABLE_JIT", "NUMBA_DEBUG_CACHE"),
     *_rows("absent", _ALL, "uv: only the layer build uses it", "UV_CACHE_DIR", "UV_INDEX_URL", "UV_PYTHON"),
+    *_rows("absent", _ALL,
+            "zstandard (httpx imports it when installed): its own default backend choice",
+            "PYTHON_ZSTANDARD_IMPORT_POLICY"),
     # -- found by the read audit of the real pipeline (WP-H, 2026-11-18), all absent when read --
     *_rows("absent", _ALL,
             "torch's compiler, profiler, tracing and back ends (inductor, dynamo, AOT, FX, Triton, CUTLASS, XLA, "

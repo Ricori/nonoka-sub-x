@@ -629,10 +629,10 @@ class FineSubSettingsTests(unittest.TestCase):
             )
             self.assertFalse(codex["requiresKey"])
             self.assertEqual(codex["mode"], "select")
-            # GPT-6.2 leads, with the packaged GPT-6.1 / 6 rows kept behind it.
+            # GPT-6.2 leads, with the packaged GPT-6 Luna row kept behind it.
             self.assertEqual(
                 [model["id"] for model in codex["models"]],
-                ["gpt-6.2-sol", "gpt-6.2-astra", "gpt-6.1-sol", "gpt-6-luna"],
+                ["gpt-6.2-sol", "gpt-6.2-astra", "gpt-6-luna"],
             )
             self.assertEqual(codex["defaultModel"], "gpt-6.2-sol")
             self.assertEqual(
@@ -670,15 +670,16 @@ class FineSubSettingsTests(unittest.TestCase):
         cases = (
             ("local-codex", "gpt-6.2-sol", "local-codex-gpt-6_2-sol", False),
             ("local-codex", "gpt-6.2-astra", "local-codex-gpt-6_2-astra", False),
-            ("local-codex", "gpt-6.1-sol", "local-codex-gpt-6_1-sol", False),
             ("local-codex", "gpt-6-luna", "local-codex-gpt-6-luna", False),
             ("local-agy", "gemini-4-hydrogen", "local-agy-gemini-4-hydrogen", True),
             ("local-agy", "gemini-4-neon", "local-agy-gemini-4-neon", True),
             ("local-agy", "gemini-4-argon", "local-agy-gemini-4-argon", True),
             ("local-agy", "gemini-3.8-flash", "local-agy-gemini-3_8-flash", True),
             ("local-agy", "claude-sonnet-5-5", "local-agy-sonnet-5_5", False),
+            ("local-codebuddy", "deepseek-v4.1-flash", "local-codebuddy-deepseek-v4_1-flash", False),
+            ("local-codebuddy", "hy4flash-free", "local-codebuddy-hy4flash-free", False),
+            ("local-codebuddy", "hy4flash", "local-codebuddy-hy4flash", False),
             ("local-codebuddy", "glm-5.3", "local-codebuddy-glm-5_3", False),
-            ("local-codebuddy", "hy3", "local-codebuddy-hy3", False),
             ("local-codebuddy", "hy4-preview", "local-codebuddy-hy4-preview", False),
             ("local-codebuddy", "kimi-k3", "local-codebuddy-kimi-k3", False),
             ("local-codebuddy", "minimax-m3", "local-codebuddy-minimax-m3", False),
@@ -721,7 +722,7 @@ class FineSubSettingsTests(unittest.TestCase):
         ):
             settings = FineSubSettings(temporary)
             settings.bind_environment()
-            for model in ("gpt-6-luna", "gpt-6.2-sol", "gpt-6.1-sol", "gpt-6.2-sol", "gpt-6-luna"):
+            for model in ("gpt-6-luna", "gpt-6.2-sol", "gpt-6.2-astra", "gpt-6.2-sol", "gpt-6-luna"):
                 settings.update_keys({"LLM_DEFAULT_PROVIDER": "local-codex", "LLM_DEFAULT_MODEL": model})
                 _derive(temporary)
                 _reset_engine_caches()
@@ -847,7 +848,7 @@ class FineSubSettingsTests(unittest.TestCase):
             snapshot = settings.update_keys(
                 {
                     "LLM_DEFAULT_PROVIDER": "local-codebuddy",
-                    "LLM_DEFAULT_MODEL": "glm-5.3-flash",
+                    "LLM_DEFAULT_MODEL": "deepseek-v4.1-flash",
                 }
             )
             codebuddy = next(
@@ -860,17 +861,16 @@ class FineSubSettingsTests(unittest.TestCase):
             self.assertEqual(
                 [model["id"] for model in codebuddy["models"]],
                 [
-                    "glm-5.3-flash",
-                    "glm-5.3",
-                    "hy3",
-                    "hy4-preview",
                     "deepseek-v4.1-flash",
-                    "deepseek-v4-pro",
+                    "hy4flash-free",
+                    "hy4flash",
+                    "glm-5.3",
+                    "hy4-preview",
                     "kimi-k3",
                     "minimax-m3",
                 ],
             )
-            self.assertEqual(codebuddy["defaultModel"], "glm-5.3-flash")
+            self.assertEqual(codebuddy["defaultModel"], "deepseek-v4.1-flash")
             # None of the CodeBuddy rows takes a clip: the multimodal correction
             # entry has to stay disabled on this provider rather than fail mid-run.
             self.assertFalse(any(model["supportsAudio"] for model in codebuddy["models"]))
@@ -879,7 +879,7 @@ class FineSubSettingsTests(unittest.TestCase):
             # The plain target, not the search-entitled twin: a pinned target is
             # prepended to the bound group, so `retrieval=native` has to stay
             # free to fall through to one that declares a search tool.
-            self.assertIn('default = "local-codebuddy-glm-5_3-flash"', config)
+            self.assertIn('default = "local-codebuddy-deepseek-v4_1-flash"', config)
 
             from finesub.config import clear_config_cache
             from finesub.llm.routing.model_catalog import default_model_catalog
@@ -894,7 +894,7 @@ class FineSubSettingsTests(unittest.TestCase):
             correction, _ = routes.resolve_binding(
                 routes.active_preset_id, "correction-text", "quality"
             )
-            self.assertEqual(correction.target_ids, ("local-codebuddy-glm-5_3-flash",))
+            self.assertEqual(correction.target_ids, ("local-codebuddy-deepseek-v4_1-flash",))
 
     def test_codebuddy_says_which_of_its_models_bill_automatically(self) -> None:
         """The one provider whose default behaviour spends money unprompted.
@@ -1073,7 +1073,7 @@ class FineSubSettingsTests(unittest.TestCase):
         ):
             settings = FineSubSettings(temporary)
             settings.bind_environment()
-            for model in ("gpt-5.6-terra", "gpt-6-sol", "gpt-6-astra"):
+            for model in ("gpt-5.6-terra", "gpt-6-sol", "gpt-6-astra", "gpt-6.1-sol"):
                 with self.assertRaisesRegex(ValueError, "not available in local-codex"):
                     settings.update_keys(
                         {
@@ -1081,6 +1081,44 @@ class FineSubSettingsTests(unittest.TestCase):
                             "LLM_ROUTE_CORRECTION_MODEL": model,
                         }
                     )
+            for model in ("hy3", "glm-5.3-flash", "deepseek-v4-pro"):
+                with self.assertRaisesRegex(ValueError, "not available in local-codebuddy"):
+                    settings.update_keys(
+                        {
+                            "LLM_ROUTE_CORRECTION_PROVIDER": "local-codebuddy",
+                            "LLM_ROUTE_CORRECTION_MODEL": model,
+                        }
+                    )
+
+    def test_saved_routes_on_models_finesub_0_7_1_dropped_move_to_their_successors(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary, patch.dict(
+            os.environ, {"FINESUB_ENV_PROTECT": "0"}, clear=False
+        ):
+            (Path(temporary) / "finesub.toml").write_text(
+                "[nonoka_models]\n"
+                'default_provider = "local-codebuddy"\n'
+                'default_model = "hy3"\n'
+                'correction_provider = "local-codex"\n'
+                'correction_model = "gpt-6.1-sol"\n'
+                'research_provider = "local-codebuddy"\n'
+                'research_model = "deepseek-v4-pro"\n'
+                'knowledge_provider = "local-codebuddy"\n'
+                'knowledge_model = "glm-5.3-flash"\n',
+                encoding="utf-8",
+            )
+            settings = FineSubSettings(temporary)
+            migrate.migrate_settings(temporary)
+            settings.bind_environment()
+            routing = settings.snapshot()["modelRouting"]
+            self.assertEqual(routing["defaultRoute"], {"provider": "local-codebuddy", "model": "hy4flash-free"})
+            routes = {item["id"]: item["route"] for item in routing["taskRoutes"]}
+            self.assertEqual(routes["correction"], {"provider": "local-codex", "model": "gpt-6.2-sol"})
+            self.assertEqual(routes["research"], {"provider": "local-codebuddy", "model": "deepseek-v4.1-flash"})
+            self.assertEqual(routes["knowledge"], {"provider": "local-codebuddy", "model": "deepseek-v4.1-flash"})
+            settings.refresh_model_routes()
+            config = _derived(temporary, "finesub.toml").read_text(encoding="utf-8")
+            for stale in ("hy3", "gpt-6.1-sol", "gpt-6_1-sol", "glm-5.3-flash", "glm-5_3-flash", "deepseek-v4-pro"):
+                self.assertNotIn(stale, config)
 
     def test_unknown_local_codex_model_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as temporary, patch.dict(

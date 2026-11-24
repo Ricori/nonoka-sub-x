@@ -599,7 +599,13 @@ class VerificationMemoryPolicyTests(unittest.TestCase):
             ),
             mock.patch.dict(os.environ, {"FINESUB_REFEREE_ACCEL": "0"}, clear=False),
             mock.patch.object(engine_module, "_release_cuda_cache"),
+            contextlib.ExitStack() as stack,
         ):
+            # `from finesub.speech.verification import qwen_referee` reads the package's attribute first: once an
+            # earlier test imported the real module (since FineSub 0.7.1 its siblings do), that one would win.
+            package = sys.modules.get("finesub.speech.verification")
+            if package is not None:
+                stack.enter_context(mock.patch.object(package, "qwen_referee", fake_qwen_mod, create=True))
             engine_module._install_qwen_referee_memory_policy()
 
             # 1) Low free VRAM before load triggers CPU fallback while keeping requested _device == "cuda".

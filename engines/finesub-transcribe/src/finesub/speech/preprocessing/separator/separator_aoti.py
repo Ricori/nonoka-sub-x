@@ -5,6 +5,13 @@ Transformer input signatures. Model parameters and rotary caches are injected
 from the normal checkpoint-backed model at runtime and are not serialized.
 Constant folding is deferred to load time so that every injected weight still
 reaches the kernels, and each package is validated against a second block.
+
+CUDA-only, and deliberately so: AOTInductor packages are built here with the
+Windows link list that omits ``cudart`` (see ``_compile``), the load path calls
+``torch.cuda`` directly, and the generated wrapper is an ABI match against a
+CUDA torch build. An Intel/XPU machine therefore never reaches this module --
+``accel.select_backend`` answers ``eager`` for it -- rather than being given a
+half-supported second implementation to keep alive.
 """
 
 from __future__ import annotations
@@ -299,31 +306,38 @@ def _constant_map(
 
 @contextlib.contextmanager
 def _pinned_attention_backend(module: torch.nn.Module, backend: str | None) -> Any:
-    """Build attention against one specific SDPA backend.
+    """Build attention against one specific SDPA backend, or the dispatcher's.
 
     The exported graph still holds the composite `scaled_dot_product_attention`;
     the backend is picked while Inductor lowers it, so the flags have to stay
-    set across both export and compile. `Attend.flash_attn` opens its own
-    `sdp_kernel` context during tracing, which would override them, so the
-    method is replaced for the duration. What comes out is baked into the
+    set across both export and compile. Every `Attend` in ``module`` is pointed
+    at the composite for the duration: the installed `_axis_aware_attention`
+    calls backend ops directly, which would make ``None`` ("let the dispatcher
+    choose") export the axis choice anyway. What comes out is baked into the
     package - the unstable runtime selection E3 rejected no longer applies.
     """
 
-    if backend is None:
-        yield
-        return
-
     from torch.nn.attention import SDPBackend, sdpa_kernel
 
-    selected = getattr(SDPBackend, backend)
+    if backend is None:
+        pinned: Any = contextlib.nullcontext
 
-    def forced(self: Any, query: Any, key: Any, value: Any) -> Any:
-        with sdpa_kernel(selected):
-            return torch.nn.functional.scaled_dot_product_attention(
-                query,
-                key,
-                value,
-            )
+        def forced(self: Any, query: Any, key: Any, value: Any) -> Any:
+            return torch.nn.functional.scaled_dot_product_attention(query, key, value)
+
+    else:
+        selected = getattr(SDPBackend, backend)
+
+        def pinned() -> Any:
+            return sdpa_kernel(selected)
+
+        def forced(self: Any, query: Any, key: Any, value: Any) -> Any:
+            with sdpa_kernel(selected):
+                return torch.nn.functional.scaled_dot_product_attention(
+                    query,
+                    key,
+                    value,
+                )
 
     originals = [
         (attend, attend.flash_attn)
@@ -335,7 +349,7 @@ def _pinned_attention_backend(module: torch.nn.Module, backend: str | None) -> A
     for attend, _ in originals:
         attend.flash_attn = types.MethodType(forced, attend)
     try:
-        with sdpa_kernel(selected):
+        with pinned():
             yield
     finally:
         for attend, original in originals:
@@ -446,7 +460,7 @@ def _build_target(model_instance: Any) -> Any:
         return
     with tempfile.TemporaryDirectory() as temp_output:
         yield _separation()._build_separator(
-            temp_output, "flac", 1, use_cuda=True
+            temp_output, "flac", 1, device="cuda"
         ).model_instance
 
 
@@ -500,7 +514,9 @@ def build_packages(
             with torch.inference_mode(), torch.autocast(
                 "cuda",
                 dtype=torch.float16,
-            ), _pinned_attention_backend(module, attention_backends[axis]):
+            ), _pinned_attention_backend(model, attention_backends[axis]):
+                # The whole model, not just this block: block 1 below is the
+                # cross-check, and must attend the way the package does.
                 expected = module(example)
                 export_started = time.perf_counter()
                 exported = torch.export.export(module, (example,))

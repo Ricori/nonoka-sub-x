@@ -168,7 +168,7 @@ class PackageLayoutTests(unittest.TestCase):
     def test_every_file_of_the_vendored_lock_has_a_home_or_a_reason(self) -> None:
         vendor = {entry["path"]: entry for entry in
                   json.loads((LISTS / "vendor-quality-lock.json").read_text(encoding="utf-8"))["files"]}
-        self.assertEqual(len(vendor), 550)
+        self.assertEqual(len(vendor), 582)
         carried = {entry["path"] for package in PACKAGES.values() for entry in
                    json.loads((ENGINES / package / "QUALITY_LOCK.json").read_text(encoding="utf-8"))["files"]}
         not_carried = {entry["path"]: entry for entry in

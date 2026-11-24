@@ -35,7 +35,7 @@ from ..runtime.resources import (
 from ..runtime.cuda_libs import missing_asr_backend_message
 from ..runtime.resource_usage import start_stage_memory_sampling
 from ..runtime.gpu_stage_gate import GPU_STAGE_GATE, GpuStageLease
-from ..runtime.device import resolve_asr_device
+from ..runtime.device import is_gpu_device, resolve_asr_device
 from ..runtime.support_levels import note_accelerated_stage
 from ..runtime import hf_weights, phase_timing
 from ..runtime import stall_watchdog
@@ -43,6 +43,7 @@ from ..runtime.thread_budget import bounded_intra_op_threads
 from ..preprocessing import energy as vad_energy
 from ..preprocessing import vad as vad_detection
 from ..preprocessing.audio import ensure_decodable_input
+from ..verification import separator_wipe
 from ...run_metadata import record_scratch_file, update_run_metadata
 from ... import settings
 from ...reporting import (
@@ -61,7 +62,7 @@ def parse_args() -> argparse.Namespace:
     # Every default is None: `main` passes only what was given, so the
     # signature of `run_vad_asr` stays the one place a default lives.
     parser.add_argument("--model", default=None, help="Whisper model name.")
-    parser.add_argument("--device", default=None, help="Device override (cpu/cuda).")
+    parser.add_argument("--device", default=None, help="Device override (cpu/cuda/xpu).")
     parser.add_argument(
         "--gpu-tier",
         choices=gpu_tier_cli_choices(),
@@ -571,6 +572,37 @@ def build_vad_timeline(
     }
 
 
+def _separator_wipe_note(
+    separated_from: str | Path | None,
+    vocal: str | Path,
+    segments: list[dict[str, object]],
+    audio_duration: float,
+    referee: Any,
+    align_meta: dict[str, Any],
+) -> None:
+    """Note when the separator wiped out most of the voice (`separator_wipe`).
+
+    `separated_from` is the unseparated source when the vocal track came out of
+    the separator, None otherwise. Called while the tail referee is still
+    loaded, because the third step asks it. Contained: it only decides whether
+    to print a note, so a source ffmpeg cannot decode or a referee failure
+    costs the run the note and nothing else.
+    """
+
+    if separated_from is None:
+        return
+    try:
+        record = separator_wipe.check(
+            separated_from, vocal, segments=segments, duration=audio_duration, referee=referee
+        )
+    except Exception as exc:
+        current_reporter().debug("separator wipe check failed", {"error": repr(exc)})
+        return
+    align_meta["separator_wipe"] = record
+    if record["wiped"]:
+        current_reporter().note(separator_wipe.NOTE_CODE, separator_wipe.note_message(record))
+
+
 def audio_coverage(
     intervals: list[dict[str, object]],
     audio_duration: float,
@@ -771,6 +803,12 @@ def _finish_segment_timeline(
         params=split_params,
     )
     timing["dp_split_sec"] = time.perf_counter() - t_post
+    # After the split, so a head is what the rule was measured on: a line's
+    # first word or one after a sentence end (docs/asr-align.md「句首词过长的回退」).
+    split_result_segments, heads_moved = word_starts.back_off_long_heads(
+        split_result_segments, energy_track=energy_track
+    )
+    align_meta.setdefault("word_start_correction", {})["head_backoff"] = heads_moved
     split_result_segments, time_repairs = segment_ops.normalize_segment_timeline(
         split_result_segments, audio_end=audio_duration
     )
@@ -1239,7 +1277,10 @@ def referee_warm_device(
         pool_resident=True,
         live_vram_veto=veto,
     )
-    return placed if placed.strip().lower().startswith("cuda") else None
+    # `referee_device` answers for torch, so its token can be the Intel card;
+    # a token test written against "cuda" would silently drop that warm-up and
+    # the `warmed_under_decode` evidence with it.
+    return placed if is_gpu_device(placed) else None
 
 
 class RefereeWarm:
@@ -1385,6 +1426,7 @@ def run_vad_asr(
     asr_context: str = "",
     run_metadata_path: str | Path | None = None,
     vad_prefix_path: str | Path | None = None,
+    separated_from: str | Path | None = None,
 ) -> Path:
     # Before anything else: an out-of-range knob must not surface after the
     # GPU work is already done.
@@ -1821,6 +1863,9 @@ def run_vad_asr(
                                 referee=referee,
                             ),
                             qwen_verify=qwen_verify,
+                        )
+                        _separator_wipe_note(
+                            separated_from, audio_source, segments, audio_duration, referee, align_meta
                         )
                     finally:
                         referee.close()

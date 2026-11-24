@@ -50,7 +50,7 @@ UNKNOWN_ENV = ["GEMINI_TOKEN_COUNTER_EXE", "MY_PRIVATE_TOKEN"]
 
 FAKE_TOML = """[nonoka_models]
 default_provider = "local-codex"
-default_model = "gpt-6.1-sol"
+default_model = "gpt-6.2-sol"
 correction_provider = "openai-compat"
 correction_model = "vendor-correction-model"
 planning_provider = "local-agy"
@@ -62,12 +62,12 @@ default_provider = "local-codex"
 default_model = "fake-toml-value-nnnn4444"
 
 [llm]
-default_target = "local-codex-gpt-6_1-sol"
+default_target = "local-codex-gpt-6_2-sol"
 task_route_correction = "x"
 temperature = 0.3
 
 [llm.preferred_targets]
-default = "local-codex-gpt-6_1-sol"
+default = "local-codex-gpt-6_2-sol"
 custom-group = "fake-toml-value-oooo5555"
 
 [llm.model_groups]
@@ -152,7 +152,7 @@ def test_migration_round_trip(tmp_path, protect, capsys):
     assert urls["OPENAI_COMPAT_BASE_URL"]["value"] == "https://compat.example.test/v1"
     assert urls["GEMINI_BASE_URL"]["value"] == "https://gemini.example.test/v1beta"
     routing = snapshot["modelRouting"]
-    assert routing["defaultRoute"] == {"provider": "local-codex", "model": "gpt-6.1-sol"}
+    assert routing["defaultRoute"] == {"provider": "local-codex", "model": "gpt-6.2-sol"}
     routes = {item["id"]: item["route"] for item in routing["taskRoutes"]}
     assert routes["correction"] == {"provider": "openai-compat", "model": "vendor-correction-model"}
     # The old planning route moved to research (`migrate_model_config`).
@@ -268,7 +268,7 @@ def test_what_fineSub_is_handed_after_migration(tmp_path, monkeypatch):
             assert config_text.startswith(
                 "[nonoka_models]\n"
                 'default_provider = "local-codex"\n'
-                'default_model = "gpt-6.1-sol"\n'
+                'default_model = "gpt-6.2-sol"\n'
                 'correction_provider = "openai-compat"\n'
                 'correction_model = "vendor-correction-model"\n'
                 'research_provider = "local-agy"\n'
@@ -388,7 +388,7 @@ def test_an_interrupted_migration_continues(tmp_path, monkeypatch, crash_at):
     assert report["status"] == migrate.COMPLETED
     assert not (data / OLD_ENV).exists() and not (data / OLD_TOML).exists()
     assert SecretStore.in_dir(data).read()["GEMINI_PAID"] == FAKE_ENV["GEMINI_PAID"]
-    assert FineSubSettings(data).model_config()["default_model"] == "gpt-6.1-sol"
+    assert FineSubSettings(data).model_config()["default_model"] == "gpt-6.2-sol"
 
 
 def test_the_migration_command_runs_the_settings_step(tmp_path):

@@ -11,9 +11,9 @@
       "sha256": "279a3ce87c5c748bae9ce397c6d32d90f18ee9c37de09563be87af534f53e56c"
     },
     {
-      "bytes": 11513,
+      "bytes": 11592,
       "path": "finesub/api_keys.py",
-      "sha256": "67b3536df5378ab0fc53bee50c4c7f1f97a1d77e70d89af84228e00ca1e1511e"
+      "sha256": "1a64acfd314e6536f7bd178d9e1741eeb169ef40f2a6a722445eefd295e67c42"
     },
     {
       "bytes": 23498,
@@ -36,6 +36,11 @@
       "sha256": "ae369f0d91627aa623673794ab11675addd6aa4f4a879e492dbfdeb20c768f39"
     },
     {
+      "bytes": 3215,
+      "path": "finesub/key_freeze.py",
+      "sha256": "101a0981c644f1c4ea76128c779d7c3fe9af603b3d7a2a5d78c8ea79db3e2611"
+    },
+    {
       "bytes": 180,
       "path": "finesub/llm/__init__.py",
       "sha256": "f6f3fc40b50975dabb5fadc466bf1d0a543bdb296ee4291bd4f498ddb66df149"
@@ -56,9 +61,9 @@
       "sha256": "f120b6cd67f20147ad059b26f93ff8b644c9b4eaace0e77708fcd35d2b8c5a06"
     },
     {
-      "bytes": 81179,
+      "bytes": 82203,
       "path": "finesub/llm/agent/agent_mcp_server.py",
-      "sha256": "c01db5e8e731ae5ce734fe566b1d2de4c16b3e128307d3e55867255fd0692514"
+      "sha256": "d4bb30dbcc4f208cbcc70626ba80810fa6099ab3b5d49d06f0e52939cc9e67e6"
     },
     {
       "bytes": 12416,
@@ -66,14 +71,14 @@
       "sha256": "5b034d303ca9df8d067bd67a02f59e2e9cbda6c3822d40e2198be63bde573e73"
     },
     {
-      "bytes": 8283,
+      "bytes": 10519,
       "path": "finesub/llm/agent/agent_ping.py",
-      "sha256": "bdda6b35887100356ef159e3d7b3eea171d7d7c815d2170ad20ad176a46fc13f"
+      "sha256": "0763659d02c77918cb662044eb917d9547019323a569dc7d3772ac6621d510b5"
     },
     {
-      "bytes": 19719,
+      "bytes": 18745,
       "path": "finesub/llm/agent/agent_quota.py",
-      "sha256": "77aa89c70a1e0da078e375f31c84695b8a381a0cac167eeac7355c31bb0f11ef"
+      "sha256": "aae6c7a50c4b923db4dd069de71a0eef1d848069a8c17be3cec894c8ba3d8e18"
     },
     {
       "bytes": 5486,
@@ -81,9 +86,9 @@
       "sha256": "5e208dc35857de1c744de002ae617881e260171e7c4ae466a387e3975ff7d1c3"
     },
     {
-      "bytes": 80577,
+      "bytes": 81837,
       "path": "finesub/llm/agent/agent_session_host.py",
-      "sha256": "35796ed36074985af29da52de452890b27d3e277a5c313cef4a6683878d46a1b"
+      "sha256": "6b4d84aa40cff15b49252135a0cd23d5705a7a769d2570b155df2edf6f14ed66"
     },
     {
       "bytes": 10122,
@@ -91,9 +96,9 @@
       "sha256": "981ed79a3433837e07d79c55c9042280ec384357ffec5a106f616dad81284ed0"
     },
     {
-      "bytes": 157989,
+      "bytes": 165237,
       "path": "finesub/llm/agent/agent_task_runtime.py",
-      "sha256": "eff8fbfeb50ccce8906d654de1c0f9e4a1b08757896bca6c102dbc37fab11629"
+      "sha256": "669b97e3365fba38186fbcf48813c10b7e479cf1db89161813b3b20075d21614"
     },
     {
       "bytes": 32450,
@@ -101,9 +106,9 @@
       "sha256": "410b694a399ca758a881d9cbe30425d7f9ddffabfe80756135ecaaf7d8ce95aa"
     },
     {
-      "bytes": 17546,
+      "bytes": 21135,
       "path": "finesub/llm/agent/agent_validators.py",
-      "sha256": "9a7fec3347c18e4856dc32c0d8866bf174d2338aeee5d8818486b78f276d9f7d"
+      "sha256": "dd24b3c771ad2f3f9457eb8188d66862562fdb93cb24cd3c3a9c7ccbb464d24f"
     },
     {
       "bytes": 6306,
@@ -121,24 +126,29 @@
       "sha256": "d4e1898e9d736ceb0c174ebac7572d63f5498f2cbc3c93d49c55ad93a9ce81b9"
     },
     {
+      "bytes": 7887,
+      "path": "finesub/llm/agent/codex_login.py",
+      "sha256": "896e3707d312ec64e1c95427195e19cd0529d4027a776a0e69f30effb3f4e216"
+    },
+    {
       "bytes": 13926,
       "path": "finesub/llm/agent/delivery.py",
       "sha256": "1c8160afa1912aa4f67123616534f7df2264a25428fa5ce8f7c5e24f2b44667f"
     },
     {
-      "bytes": 422936,
+      "bytes": 456505,
       "path": "finesub/llm/agent/local_agent.py",
-      "sha256": "0f452817b73e4a3176e527daf6c5e06b66c566d2bbab5197fc24d2b89b8fc554"
+      "sha256": "8790a27b9ff9fe718aac1e592110f6a448188f224fb5f8083a5968965a7ac4ad"
     },
     {
-      "bytes": 44082,
+      "bytes": 45667,
       "path": "finesub/llm/chunking.py",
-      "sha256": "8ba1cc32ed695eb6bee6ba989c83cf8f59ba7ee139223906275a2ae1c429c8f9"
+      "sha256": "288cafc913b6331217cc696954b066ef1523ac3a4834ab75eda88fdd4bff6c08"
     },
     {
-      "bytes": 189201,
+      "bytes": 193497,
       "path": "finesub/llm/client.py",
-      "sha256": "b4823749017bf738fd8792734c0798e51aad567913eee6fed32b2a0cb7c1595e"
+      "sha256": "82e06825d58db7885ab7abb74976e82d20aaae2cb8d4be66a3cc40376226b480"
     },
     {
       "bytes": 5408,
@@ -146,39 +156,39 @@
       "sha256": "9f58f386d16dc98960e2e9c4dde5cc722f15c8696e360daf03f28bcf3291dea9"
     },
     {
-      "bytes": 16450,
+      "bytes": 20860,
       "path": "finesub/llm/content_filter.py",
-      "sha256": "9000a1d5b10fb44f0083d8ff7f571781911bd56fbe47d200259a9c287b23317b"
+      "sha256": "ace4983ff3e19dd1830aa83505959880961ee47ef20325f7f2789af2f0a9fbed"
     },
     {
-      "bytes": 5613,
+      "bytes": 6804,
       "path": "finesub/llm/correction_mode.py",
-      "sha256": "c7b26d8f71f364976aa02e8716c02ebe1644599b6a88eb383f2e59523de8d36c"
+      "sha256": "e0f868f4e8c4bc604e11514f30a18c6f2b6e3238abd3d3cfa51c91eab82d4cfd"
     },
     {
-      "bytes": 10931,
+      "bytes": 10967,
       "path": "finesub/llm/correction_patch.py",
-      "sha256": "85e00f2429263b6a8060f267e3e9b0c8ff4e2a5770722d2bcbc499252dff49ff"
+      "sha256": "40ba8faf959f378a5752abe14edfee155be142d8416d0aac699cbac2391b9e21"
     },
     {
-      "bytes": 14718,
+      "bytes": 15283,
       "path": "finesub/llm/correction_request.py",
-      "sha256": "6e2b418cc352c641cf1b3f3934448d60b2328c677031a0f49cb07d0e1b803862"
+      "sha256": "fc4690150617a9b7a75c4925bc2cd3cd782dde346b698f25f07256efa01b3e42"
     },
     {
-      "bytes": 92551,
+      "bytes": 95153,
       "path": "finesub/llm/correction_translation.py",
-      "sha256": "afe28ae90cccf1780e955a5f8bae9aacd9a391c1e748e1e63200aaf2afcf781a"
+      "sha256": "b1bdc8d1238e4015c1bbbb07d970c1ac1db6e84835ecbfc28423b8ce8de45e34"
     },
     {
-      "bytes": 8052,
+      "bytes": 8805,
       "path": "finesub/llm/degeneration.py",
-      "sha256": "03bbe933f6d21caa33c15cc33b9da7c7773a65bb8863db7e35c1f3b0572bcae6"
+      "sha256": "9b6893265d67703a56d28745a25fce57812dca00498cf022e0915799e5d542c0"
     },
     {
-      "bytes": 33331,
+      "bytes": 35659,
       "path": "finesub/llm/example_builder.py",
-      "sha256": "2bdbb5f0b2fb121341da8f033dccdb1e02373be180e390e4911c1a5f071db317"
+      "sha256": "4f1f9dbd46a227e1b7170f79af86f9f1c6de1c4246266687c17cf4ead8edbceb"
     },
     {
       "bytes": 13054,
@@ -191,9 +201,29 @@
       "sha256": "cbb432ad756a3c15a9cb52e9faa1081b7184720fcc1d56375590bbb484927389"
     },
     {
+      "bytes": 12958,
+      "path": "finesub/llm/game_glossary.py",
+      "sha256": "fbd26dbf9cd6cb947270c0af75d4f8604f1f78e3e14056ee50855ddcf58b985a"
+    },
+    {
       "bytes": 13347,
       "path": "finesub/llm/general_context.py",
       "sha256": "43d51ed747bf86627eae29b09b63a1821485491b6f58a52820aab6cd0dbf1362"
+    },
+    {
+      "bytes": 394,
+      "path": "finesub/llm/glossary-manifest.json",
+      "sha256": "bd425475cbca183ca37043c4d81622ca21aa8cd57a3c1d0b146960da21ae1f62"
+    },
+    {
+      "bytes": 18437,
+      "path": "finesub/llm/glossary_match.py",
+      "sha256": "64c3f3ef8acc8b7b25d82b9bef3855704eaa483c779d7c2698fdb64925be5ee7"
+    },
+    {
+      "bytes": 14211,
+      "path": "finesub/llm/glossary_store.py",
+      "sha256": "ce084adc051ae465d61f05ef79c14a0448af33fa7c7f73f4fdf5411fc9d6433f"
     },
     {
       "bytes": 15401,
@@ -201,14 +231,19 @@
       "sha256": "9768be872ccd8c2a2e5f6d7f31521f46ee155a3357c2d23c33ffdedb8c4da2f9"
     },
     {
-      "bytes": 25946,
+      "bytes": 27610,
       "path": "finesub/llm/http.py",
-      "sha256": "796ef9626e72e8084d408ebc949d1e80a83ef28e3a5725d57f5ca7232b9849c4"
+      "sha256": "942a3e7a48eabf2bdcf0f0dcb4c17211507075425727992d1287ddb6fec865a9"
     },
     {
       "bytes": 22511,
       "path": "finesub/llm/injection_budget.py",
       "sha256": "d9f1d5d84eb75230f5aafd6322bfed1c95a6e1f405f68aa11c3a47af2f32c182"
+    },
+    {
+      "bytes": 16377,
+      "path": "finesub/llm/inline_proofread.py",
+      "sha256": "9870dea41186da3af735c078f55697810befdaeed84344067bdcaa585bed358d"
     },
     {
       "bytes": 13275,
@@ -246,14 +281,14 @@
       "sha256": "44d070e8e6bd288d74dfe83260f20a09baa5a5ef83133d5e9ae49f0c4b3a413b"
     },
     {
-      "bytes": 32001,
+      "bytes": 32888,
       "path": "finesub/llm/knowledge/maintain.py",
-      "sha256": "c2ad42b3e459e73193a65a394cde367fbda1d8ac712a1ae98be8b8e72cfe9234"
+      "sha256": "28c903bf606ece4433545b201daa3d0a2721b365e22442daee1b9d2612659032"
     },
     {
-      "bytes": 23392,
+      "bytes": 25699,
       "path": "finesub/llm/knowledge/materials.py",
-      "sha256": "67577bb31050909f8b7bd702cdf6733f2fe5ee61522941356a0ad3f9eb4918ff"
+      "sha256": "3fb9e45b51def9b34090af164a0c5b02a2c188f7facf2475edd7cbe3fe0a9ba1"
     },
     {
       "bytes": 434,
@@ -361,14 +396,14 @@
       "sha256": "20bdeb24f7674c0fe5a57a30715cb469c269bf57af2e6bc3ff35cf3d64bce861"
     },
     {
-      "bytes": 78334,
+      "bytes": 77869,
       "path": "finesub/llm/knowledge/node/proposals.py",
-      "sha256": "0b1d27bd158c1f56ed5c9fb061757b200643475c911c8c8ad8ae7abc071c7ce9"
+      "sha256": "8539881a9743b99ec7c38dd4b5d53c3361fb5ef1c11625e242be3b35d6f93c51"
     },
     {
       "bytes": 32648,
       "path": "finesub/llm/knowledge/node/render.py",
-      "sha256": "b42c52822d846353342db7625fe851a3525a723299f2cf005097f783d7c2c7d3"
+      "sha256": "602d6effefdaf4b7ec2078666fc955eb8132b98827dc83d766f93de3c6cd0c69"
     },
     {
       "bytes": 14645,
@@ -391,9 +426,9 @@
       "sha256": "cc0c54172d4c659611d611b78f0af4d9f700ec113f95bce098f3e7f5ba02f7fb"
     },
     {
-      "bytes": 23065,
+      "bytes": 22974,
       "path": "finesub/llm/knowledge/node/signals.py",
-      "sha256": "047547a8edb31b8ce6d5b55601d5dc5370bde2cfe0883afa63ab6450f3d92298"
+      "sha256": "1ea95e964a3d0bb782987b5a664e73ae33a5fd3f73d19e927a3246d8e357c138"
     },
     {
       "bytes": 28911,
@@ -441,9 +476,9 @@
       "sha256": "b6913fd451e3d01f0cc31eb0b062b0d478af9c8aa69baf8b24a37acd0cfdcec0"
     },
     {
-      "bytes": 54065,
+      "bytes": 54068,
       "path": "finesub/llm/knowledge/share/exchange.py",
-      "sha256": "312aab9735a692408eacbfde7b303cbffffba6f6e20f74c4d0eebffac04e25d1"
+      "sha256": "95b10faf5bc7fad796a77a3f0a3065a9dab437708cfe172e3ae03ead1989aa24"
     },
     {
       "bytes": 4051,
@@ -496,9 +531,9 @@
       "sha256": "08c773d5952cb535b75d2e443f927343305545fd0bbb354a235e7f41b454ed3e"
     },
     {
-      "bytes": 71736,
+      "bytes": 72572,
       "path": "finesub/llm/knowledge/update.py",
-      "sha256": "26029d06d146ad142d505047ec980fa01d25d1943921840a871cbc0d5bd78ae0"
+      "sha256": "32b306f1e40d08bf80ed9064ca7defaa1ab6ad7b744b757faabfe2f9d9edc9eb"
     },
     {
       "bytes": 8663,
@@ -511,9 +546,9 @@
       "sha256": "cb917d30466b94adab96592f80ab62ebd9213bbcee874f2e304d4bb708d5dd6b"
     },
     {
-      "bytes": 50606,
+      "bytes": 51497,
       "path": "finesub/llm/llm_runtime.py",
-      "sha256": "c976222717bc7a04912e5a1b118b26acdcc9be1ecba76feb5f3f4666c37e09db"
+      "sha256": "21d0f339910a3113ec158fa5e269b61999bd3e9cb0c799039c031fb0f64cbed1"
     },
     {
       "bytes": 21020,
@@ -521,9 +556,9 @@
       "sha256": "3a892f6ab45acf62d47f4ca41218ab5caca79048e863c684a59260c2c1690809"
     },
     {
-      "bytes": 60247,
+      "bytes": 66851,
       "path": "finesub/llm/output_protocol.py",
-      "sha256": "4bb2eb54038adbf5fd1489036592a0edacca1f59aa92cb03c49090608bcd9e25"
+      "sha256": "83d23dc9508e1047d20d878728e249eea1eda7e76f85289e7374ce205a6127ea"
     },
     {
       "bytes": 12289,
@@ -536,14 +571,14 @@
       "sha256": "c235e24794176892ba4b69d8a799a081d65f30a4765b3b0f9b8bc3c54c2dca9e"
     },
     {
-      "bytes": 19683,
+      "bytes": 19807,
       "path": "finesub/llm/prepare_prompts.py",
-      "sha256": "b8829584414bb2d96bc980b46abf52bcac769fccd21fd52ce450f745efea34de"
+      "sha256": "7ad3c06f80507c07b274f159d66c9f377e9936c6fb68479ca79c86c660945cb4"
     },
     {
-      "bytes": 12961,
+      "bytes": 15270,
       "path": "finesub/llm/prompt_artifacts.py",
-      "sha256": "62669a53c713b2b45f1e5ad9fc125bfc0f144f68eb011fd3e4c70b0dc26d9946"
+      "sha256": "cab0ce069bc714da83c9df29162733e1494be90ca1075447a36ea0764aafc34a"
     },
     {
       "bytes": 4643,
@@ -551,9 +586,9 @@
       "sha256": "832ad4a06136f9f4f7f97611ef5c36d89fe5169a0297ad9c70922503906c95a4"
     },
     {
-      "bytes": 53301,
+      "bytes": 58982,
       "path": "finesub/llm/prompt_compose.py",
-      "sha256": "43f7d564872d9580dec81ded01339f741cbe9c7009c3964271b89e477799cc6c"
+      "sha256": "f01acc575ab2c0e9ca412cfcbc983492320790a3647706556bf9d21b5de82ddc"
     },
     {
       "bytes": 4732,
@@ -603,12 +638,12 @@
     {
       "bytes": 499,
       "path": "finesub/llm/prompt_templates/agy_audio_pieces_v1.md",
-      "sha256": "cdc49641e665197f0fc1001936be9be8d0f8053115adf4bfd0e3f7ddcbaa83dc"
+      "sha256": "0238d9428dfe977357bed071f93678f47298ef1849c02673709837d78dd5eef0"
     },
     {
       "bytes": 136,
       "path": "finesub/llm/prompt_templates/agy_first_step_v1.md",
-      "sha256": "b53892d81f460dd28239f6f922f15bcbac6eb00e72e4176a2ddc1670304c0614"
+      "sha256": "639d0e6b4b14101f2ce56cd5d617a7dbbbc5099cf83c4dece12c2142ff6fda3b"
     },
     {
       "bytes": 186,
@@ -623,12 +658,12 @@
     {
       "bytes": 400,
       "path": "finesub/llm/prompt_templates/agy_tool_agent_protocol_v1.md",
-      "sha256": "0ff88c47d699474c8bea4cd04fa4ec7e12919470e7485c17750b2113d38e1b44"
+      "sha256": "3b8a95e9239cbf1832ffa0274758680519d81bebdd59f45ecbe11244f8118de4"
     },
     {
       "bytes": 328,
       "path": "finesub/llm/prompt_templates/agy_video_pieces_v1.md",
-      "sha256": "04494ec2eeb38c3d60d62c70cf7164d999a632c62bffd1a5dddf8cfb04fd1366"
+      "sha256": "06e250436b100d54a584a5ad0649f34ad179b90bdae35f8f5e3d0788204d950e"
     },
     {
       "bytes": 264,
@@ -656,14 +691,19 @@
       "sha256": "fc84b56b70ac871d317578243cd66b47132ddbf8cf1d4bacf164dd715bef848b"
     },
     {
-      "bytes": 3272,
+      "bytes": 3281,
       "path": "finesub/llm/prompt_templates/correction_user_grouped_v1.md",
-      "sha256": "dc151eb64d2ca36055c7fc24cdd7ad9c4010e08202eb0d70e1ca5515a16dd1b2"
+      "sha256": "04d9b5766b73cacb250c964612b64555e09a42d6f342a4713d9c9fe5830a5261"
     },
     {
       "bytes": 2581,
       "path": "finesub/llm/prompt_templates/correction_user_nosingles_v1.md",
       "sha256": "0e5c7d8ce681c22dc1308638e5b0a32daa451c5f72605fbc5facc3ca3f8d7801"
+    },
+    {
+      "bytes": 881,
+      "path": "finesub/llm/prompt_templates/example_tracks_v1.toml",
+      "sha256": "21586a1aeaddb1b785d016c6981e1a0b99676d3c1e59d0ec799fa3b7a3fdbd95"
     },
     {
       "bytes": 22234,
@@ -866,6 +906,16 @@
       "sha256": "08ea4c00f30de9ced3eabaf2a833e29a51a7e78a9973854c4e27823803220291"
     },
     {
+      "bytes": 1644,
+      "path": "finesub/llm/prompt_templates/fragment_game_glossary_v2.md",
+      "sha256": "c4e7a64eab1cffe0caf5c576bc8bac047ab6606827c0014658f22af990555c7f"
+    },
+    {
+      "bytes": 491,
+      "path": "finesub/llm/prompt_templates/fragment_glossary_index_v1.md",
+      "sha256": "2c7b730def690ee016aa5d9704f5f3d205eb5e41e171f1201eb24f36fc9f80b6"
+    },
+    {
       "bytes": 766,
       "path": "finesub/llm/prompt_templates/fragment_goals_correction_audio_v1.md",
       "sha256": "b01649841f45826e73614cc1190be1c913a69b123cf7d3e69fcb5cb0da4fb758"
@@ -991,9 +1041,9 @@
       "sha256": "d7e144b1f86479e1da9aaab2f5de51642d9483b04fa6225d04c5b607fa8ef9b3"
     },
     {
-      "bytes": 6701,
+      "bytes": 7080,
       "path": "finesub/llm/prompt_templates/fragment_knowledge_structure_v1.md",
-      "sha256": "aebf56bb6424b0a34b25fc99ce07fb6c5fbca651c9ed5c4718b53c5939083715"
+      "sha256": "4c82439b7ebfeff983d0fc7d52ff7f592e9b8d6dfbb7c0a229c8df99ba8a5d99"
     },
     {
       "bytes": 63,
@@ -1016,19 +1066,24 @@
       "sha256": "97d184617be87734dedb249eee9cc4d1e8da4a1aadc8e215d4acacc182860425"
     },
     {
-      "bytes": 202,
+      "bytes": 206,
       "path": "finesub/llm/prompt_templates/fragment_knowledge_update_heard_v1.md",
-      "sha256": "2416efb987ace8f4f56ff2383498764b1ecb7658908c02e5c78a2fd52cd792ea"
+      "sha256": "f67f45f010c1fd780575fe2ca9e886075eeaff4ccbf15d5db0d2485c0547c934"
     },
     {
-      "bytes": 1711,
+      "bytes": 2099,
       "path": "finesub/llm/prompt_templates/fragment_knowledge_update_inputs_v1.md",
-      "sha256": "ec4fd641ca447433d7e2f97e3774e06a0b7be6215c1a007e688ff37e23e2225d"
+      "sha256": "d834ab05509dbbfc7a1dc8c333f2183a2751825ccc8ab0e5440cc085f81e26ef"
     },
     {
       "bytes": 178,
       "path": "finesub/llm/prompt_templates/fragment_knowledge_update_refined_csv_v1.md",
       "sha256": "cf5d795ddc85b3cc19961ac57c3563af98a7db9b5ff57e88ffa37044ee839cb7"
+    },
+    {
+      "bytes": 534,
+      "path": "finesub/llm/prompt_templates/fragment_marks_note_tracked_v1.md",
+      "sha256": "83cdad3266e868ba91574fbf98df7d4acdaaf1fb029b77afec695b39f6be4619"
     },
     {
       "bytes": 135,
@@ -1106,9 +1161,9 @@
       "sha256": "49055bbb525e319e8714793ee07300b2777a0ebe942648d729071ca6fef95bf7"
     },
     {
-      "bytes": 4013,
+      "bytes": 4058,
       "path": "finesub/llm/prompt_templates/fragment_output_contract_grouped_v1.md",
-      "sha256": "8b07cc1606366b7634a1627374f6530e32352cca6eb3fbb83ced005c286d8429"
+      "sha256": "8190356cfce2e7ce4766c32293edf28332177e2eecf5c018244146c4d3cf8a89"
     },
     {
       "bytes": 3165,
@@ -1216,6 +1271,16 @@
       "sha256": "9055c2c408a5f75669ed3693dddda29487511cb6ed96f1fcd767b3f3cb68481d"
     },
     {
+      "bytes": 1023,
+      "path": "finesub/llm/prompt_templates/fragment_proofread_inline_repair_v1.md",
+      "sha256": "6c4dcec94e54edbce93a632f78b5ad3861d1d8aaedfcc84c04d1467c22b145ff"
+    },
+    {
+      "bytes": 2577,
+      "path": "finesub/llm/prompt_templates/fragment_proofread_inline_v1.md",
+      "sha256": "8c345abebc5379b467ad3a5b661893e9f33280c801ba97a4def70e4733c20d76"
+    },
+    {
       "bytes": 871,
       "path": "finesub/llm/prompt_templates/fragment_query_style_v1.md",
       "sha256": "e3e745679a01fb39fac1ebdc1993a8d56f49d3230f026e7b32f761fb4a801eab"
@@ -1233,7 +1298,7 @@
     {
       "bytes": 251,
       "path": "finesub/llm/prompt_templates/fragment_reply_spill_files_v1.md",
-      "sha256": "0a8c02aebf0de0ebca4577e657c225acba2fc921d422a6a08e07514d212c2b0e"
+      "sha256": "755c43ec1906ab439f6d71f3478d0c1a7bc75bb28880a8f79b71afc588556314"
     },
     {
       "bytes": 276,
@@ -1311,9 +1376,24 @@
       "sha256": "d8f7eee027388caa55e73863e41a2de2579d2f7877f8ded532755810a87620d9"
     },
     {
+      "bytes": 626,
+      "path": "finesub/llm/prompt_templates/fragment_shape_same_person_tracked_v1.md",
+      "sha256": "ebb679afbaa4e1b64d7f4ff2a17eaf93722a5045e137e174a0b918977e97f664"
+    },
+    {
       "bytes": 1930,
       "path": "finesub/llm/prompt_templates/fragment_shape_single_v1.md",
       "sha256": "32ce336d54d949333f93a2ed8cdfffa01f1bfd7a4a2457f7018aed4fe9cedc1c"
+    },
+    {
+      "bytes": 2401,
+      "path": "finesub/llm/prompt_templates/fragment_shape_tracked_v1.md",
+      "sha256": "078cff98dfa0f664fb79480b8558dd3d7797d8f6dc9cf884d9db76fc6d3bd794"
+    },
+    {
+      "bytes": 515,
+      "path": "finesub/llm/prompt_templates/fragment_shape_who_tracked_v1.md",
+      "sha256": "eaec639a6bddebb34ece50d61a0e73f09c120b3f7199769575c49758cde06b20"
     },
     {
       "bytes": 279,
@@ -1329,6 +1409,21 @@
       "bytes": 492,
       "path": "finesub/llm/prompt_templates/fragment_share_conflict_surface_v1.md",
       "sha256": "c47b18a0ec00335c9e9a54d67f2786cc43b3a2ddc5cdc5f13da04147a70ed746"
+    },
+    {
+      "bytes": 266,
+      "path": "finesub/llm/prompt_templates/fragment_speakers_input_v1.md",
+      "sha256": "2ad9b4507645c9921332d498f2636be490da3bc7292216a616cdd4d6dda99d18"
+    },
+    {
+      "bytes": 3675,
+      "path": "finesub/llm/prompt_templates/fragment_spk_answers_v1.md",
+      "sha256": "1855aaa859e45fc48028bf51afe7228c2335f595f2a4f010c991919292fd913e"
+    },
+    {
+      "bytes": 270,
+      "path": "finesub/llm/prompt_templates/fragment_spk_column_v1.md",
+      "sha256": "c9da21b879cd4b0a89c67f3bf9a21c6d9c4e7ce9296e54c68fddbe0fe51d0fe0"
     },
     {
       "bytes": 88,
@@ -1436,6 +1531,16 @@
       "sha256": "f2ae8c4118b7bd2aab785c44d434527b5c6bfe59243eec250271be28d6648d6f"
     },
     {
+      "bytes": 186,
+      "path": "finesub/llm/prompt_templates/fragment_track_cells_tracked_v1.md",
+      "sha256": "54680e3b20542a00bf9e204ae2172e045bb9c1fd8502ddb66f8930bd8b11c9fb"
+    },
+    {
+      "bytes": 199,
+      "path": "finesub/llm/prompt_templates/fragment_track_column_v1.md",
+      "sha256": "ac6ea208381c21d00825a37890e0e0f464f6135149e0aef8b0823bb37cd8aecc"
+    },
+    {
       "bytes": 41,
       "path": "finesub/llm/prompt_templates/fragment_trailing_blocks_parallel_v1.md",
       "sha256": "3f6848c1fffd512a9be373a21bd60fc58d9c76ddc21dfc4e58d31c7faf17d66e"
@@ -1461,9 +1566,19 @@
       "sha256": "ee8772e2a3d4481541f425386f6a157072607bb137cfdece1ff0c5957c56b1c4"
     },
     {
+      "bytes": 41,
+      "path": "finesub/llm/prompt_templates/fragment_turn_cell_tracked_v1.md",
+      "sha256": "9339ed037dffdbc18a7507e4cc7a10c9b6825cde8043a699e2cb1a6621967e0c"
+    },
+    {
       "bytes": 28,
       "path": "finesub/llm/prompt_templates/fragment_turn_cell_v1.md",
       "sha256": "f885461475c37830e72a0e5e9290789aca66758d8cea7f961beb8f291c98f4ea"
+    },
+    {
+      "bytes": 89,
+      "path": "finesub/llm/prompt_templates/fragment_turn_check_tracked_v1.md",
+      "sha256": "411a342393931cb85fcc4c5aa6a5ab853461eada052816620250f0f24d3fcc99"
     },
     {
       "bytes": 82,
@@ -1476,9 +1591,19 @@
       "sha256": "bad370f97056b45ed99937dfd2f302fa1de5bb502fa90488584a79513ce02c21"
     },
     {
+      "bytes": 158,
+      "path": "finesub/llm/prompt_templates/fragment_turn_clue_tracked_v1.md",
+      "sha256": "e8295f7592ef4912c80456d2a9d6bfed6f60a146c7cd4563f94e8d8802e49ab8"
+    },
+    {
       "bytes": 288,
       "path": "finesub/llm/prompt_templates/fragment_turn_column_grouped_v1.md",
       "sha256": "7c92eef5bad84545a7a39132b6e395e1cdb7a7aec58e8b61dc0aa1e026a30487"
+    },
+    {
+      "bytes": 285,
+      "path": "finesub/llm/prompt_templates/fragment_turn_column_tracked_v1.md",
+      "sha256": "a828a2b331f45d12494ca8a5e7b9bb2fa20549cfc779a5dcf9e765482ea96231"
     },
     {
       "bytes": 171,
@@ -1496,6 +1621,11 @@
       "sha256": "62cf776a24f104fbdd7e6af5a01e634a088da41d02fdfc2d06d61e59c97a4e88"
     },
     {
+      "bytes": 75,
+      "path": "finesub/llm/prompt_templates/fragment_turn_reminder_tracked_v1.md",
+      "sha256": "57a01622ee415a930e7b6d10482204eb182083981ca9c2edd21eb6e69669927f"
+    },
+    {
       "bytes": 60,
       "path": "finesub/llm/prompt_templates/fragment_turn_reminder_v1.md",
       "sha256": "01779f4e5ee6c54c2449867155c12c41be9a0b21e25e8a7246dd4d6780db8615"
@@ -1504,6 +1634,11 @@
       "bytes": 133,
       "path": "finesub/llm/prompt_templates/fragment_turn_rule_single_v1.md",
       "sha256": "889265902271b7f5fa551bf628b1490eef6fce9b2ad24f4c10025158053818db"
+    },
+    {
+      "bytes": 384,
+      "path": "finesub/llm/prompt_templates/fragment_turn_rule_tracked_v1.md",
+      "sha256": "ae39b2e234f5b6ce2afe7fd76dc49affd35cf1c061cb3cde1fbc3bf26e611a25"
     },
     {
       "bytes": 147,
@@ -1526,9 +1661,9 @@
       "sha256": "59cecb300415108f04f311ba458ef4fc2bce10f13600846d3bbc45ad4140cbb3"
     },
     {
-      "bytes": 409,
+      "bytes": 423,
       "path": "finesub/llm/prompt_templates/fragment_user_reminders_text_v1.md",
-      "sha256": "4cdcbbe9613abdf16e74fef02409657153e08ab14629ccd2569d51dfde87af2b"
+      "sha256": "2ccd4eff9ce6e8b3429d9d21539ae08618a3ad2ae47ec6b9f24bba8ccb42d232"
     },
     {
       "bytes": 556,
@@ -1626,14 +1761,14 @@
       "sha256": "e5e972276ae3ba8abfb581271035d7290b7b2e725e3a0b9d1d5d3af74f61c746"
     },
     {
-      "bytes": 1141,
+      "bytes": 1142,
       "path": "finesub/llm/prompt_templates/knowledge_update_artifacts_only_v1.md",
-      "sha256": "3073406c46346576e264c15f1036c47955b699f00e59266341a464b2a55d1d9a"
+      "sha256": "9bf11037b76de1b331c3e9c79706f025b3e45e6b8362bec795add63621cdfa64"
     },
     {
-      "bytes": 5322,
+      "bytes": 5359,
       "path": "finesub/llm/prompt_templates/knowledge_update_refined_v1.md",
-      "sha256": "2caefeda9d10acfe7719ad014291510c43d9c97a70c02e7bacadaee0ebb516f1"
+      "sha256": "62b602b6158e61d58cb7b9f8fef6daa13ba06e67664e5ddfbd5e14f3bf9406a4"
     },
     {
       "bytes": 255,
@@ -1646,14 +1781,14 @@
       "sha256": "013b6674d568d241059cbca244a2d5f5272316279af3330a93e7b76729b1910f"
     },
     {
-      "bytes": 17606,
+      "bytes": 17844,
       "path": "finesub/llm/prompt_templates/mode_texts_v1.toml",
-      "sha256": "e96e94947a9c1b20e795fc172178bb2661285de76c7e29e8f4ce5bf3528a107d"
+      "sha256": "4b9eec9a7ae0fe37ba9d5b88688aeecfbe27e525c7e7e709c8dfbaf3ca3ee983"
     },
     {
-      "bytes": 12371,
+      "bytes": 15914,
       "path": "finesub/llm/prompt_templates/phrases_v1.toml",
-      "sha256": "117e07f460241d3a3c97c23b2462eebca706dedf9f6613c257a058549405432a"
+      "sha256": "2df0743988828b392a247230c05fb8c9416ad3b789e05946c1b5c1bff36b4d79"
     },
     {
       "bytes": 633,
@@ -1681,6 +1816,11 @@
       "sha256": "4462c3f80508590a110e5a3dd9f777bc43ef8a893f8c196b9887d4f648cf28c1"
     },
     {
+      "bytes": 4023,
+      "path": "finesub/llm/prompt_templates/proofread_criteria_v1.md",
+      "sha256": "773845f4dabf0021b57451d849c75ab580fb0f3f9d3c4c73dcab971b72085912"
+    },
+    {
       "bytes": 239,
       "path": "finesub/llm/prompt_templates/proofread_kb_terms_v1.md",
       "sha256": "95322afa576cbce2fb7220411cf42a87f10654815b82efd803ba068f3e739ca6"
@@ -1691,9 +1831,9 @@
       "sha256": "5855fc01fe007d1b83ef069ab1677905e2d3ca7c9be33cc348263df453eb1b28"
     },
     {
-      "bytes": 6094,
+      "bytes": 2081,
       "path": "finesub/llm/prompt_templates/proofread_system_v1.md",
-      "sha256": "441a967b5c60e3a5b84609674b44f826728555161cd4c893576ec8a4651d2c27"
+      "sha256": "f1da2eb2d140c5e1220559a5cd324fddd20db6c80c02cd96c8a6de6b28b53165"
     },
     {
       "bytes": 338,
@@ -1951,34 +2091,34 @@
       "sha256": "33b8ec2d863a4b11b778d7f8444248157ecb9843612c861751199b1a490d892c"
     },
     {
-      "bytes": 18364,
+      "bytes": 23971,
       "path": "finesub/llm/prompt_variants.py",
-      "sha256": "7e8d57258bd8ac30fb5854bdadaf0a2f264bc3b3b86ca09e32130d30e8ae9c13"
+      "sha256": "07c6d90d7f9248bc814d914311042321224c0423e967a2fd43bf05c35640e8a9"
     },
     {
-      "bytes": 47713,
+      "bytes": 49055,
       "path": "finesub/llm/prompts.py",
-      "sha256": "58cd144ddbb072c20ee4b16d58c28150eac484544801186f55e02a32b78fc226"
+      "sha256": "a098f7b2c4ce5cbb76809e4441ce16382c96bbb85fab7724be187b603e3851b6"
     },
     {
-      "bytes": 19866,
+      "bytes": 26297,
       "path": "finesub/llm/provider_transports.py",
-      "sha256": "20edbd221bb7deb253736f32d7f427b8e3c031e99486a65f3d2e8f261cd5ff67"
+      "sha256": "e47eace5ec7190ba377860a439069f9ce6981a48293e275da90485c52f1c641f"
     },
     {
-      "bytes": 38279,
+      "bytes": 38493,
       "path": "finesub/llm/rate_limit.py",
-      "sha256": "d857eda3563df92e08c14d94b4c3a3679541c5096a2d57484051012c1723f225"
+      "sha256": "b4b5c102d5e656b16a34e32e5c3aefbac6d934044733199dddf16e4f44d54ce1"
     },
     {
-      "bytes": 15427,
+      "bytes": 15651,
       "path": "finesub/llm/request_prompts.py",
-      "sha256": "1c02d6ed432a9150cc9b4ae5bcce29b2091b936ba14de455da8257c8be85a3ed"
+      "sha256": "cd66cdb388cca07f42d7bcb5e9d16e232d43e589414d5988486f1575a401c7b2"
     },
     {
-      "bytes": 68741,
+      "bytes": 69175,
       "path": "finesub/llm/research.py",
-      "sha256": "88cc015b464b324553f0e83aa1691970f935c42b9bf6eedf7af82e93460b452d"
+      "sha256": "4ab9a50a08870996bce187417e50dcca0b18bcf6861557803ccbc56b5bd08d35"
     },
     {
       "bytes": 1287,
@@ -1986,34 +2126,34 @@
       "sha256": "25b66bc8d2b2fbe5809398c4397bb5e001f6265ee88ebdeeec5e48e6228a1c12"
     },
     {
-      "bytes": 24975,
+      "bytes": 25002,
       "path": "finesub/llm/routing/capabilities.py",
-      "sha256": "aabed6c009e7c676d54c2411ebf9193acadb1cdfaddcfc15381a9d4c3daa6d48"
+      "sha256": "4d45f5bf6ef6b9a2b3d530b2706bc93b035f135b487f57d953d45cf4537ed08a"
     },
     {
-      "bytes": 21407,
+      "bytes": 21781,
       "path": "finesub/llm/routing/config.py",
-      "sha256": "5a00a0d520a50d0a3d8ae28321abe2628d0cd13fa2b8698d1ce4d131c954d412"
+      "sha256": "fbc946c52fd3079f6c1c6e57afa026a948f138e0d1a2c60a0ab8c2c1bba2cb6c"
     },
     {
-      "bytes": 17963,
+      "bytes": 18736,
       "path": "finesub/llm/routing/execution_policy.py",
-      "sha256": "df3d8a4ee9b6d5c986d7095173193c80c149f28610d57f69ff5f60d41c93a914"
+      "sha256": "d612f55df1ade81f68d6a09ee8ff8aea4ff58a241a5ecea9c25ba25512f752d3"
     },
     {
-      "bytes": 15335,
+      "bytes": 15470,
       "path": "finesub/llm/routing/migrate_catalog.py",
-      "sha256": "d2fbb28333863d550b762d2d4f04c3aa9e06c5305f538b4d80c0b5d0d905868b"
+      "sha256": "b76326ef6ee78b4f225a2fe38a76fb36eb98212f1e0645b759f16a02cbe32f18"
     },
     {
-      "bytes": 44360,
+      "bytes": 44375,
       "path": "finesub/llm/routing/model_catalog.py",
-      "sha256": "352df82da0c31811242be8da97bbdc32f2493976c24a5e0735c3d90d3cc918ef"
+      "sha256": "ecc08175e919669c0b9ca6d11903bdeee165e8f8ddcd680c516e200d443e3b7c"
     },
     {
-      "bytes": 9876,
+      "bytes": 12467,
       "path": "finesub/llm/routing/model_catalog.toml",
-      "sha256": "d6b4835122f31cf356dc2916357cf2342942623ed83e74c216dd2a1a50197480"
+      "sha256": "c1bc6952d0ebff1430e55eaed4ef50b461ab189ea4c21cecceb229a3e9922286"
     },
     {
       "bytes": 25453,
@@ -2021,14 +2161,14 @@
       "sha256": "aba5f0ed10c56be60e917cd2d83369eac3612d901dd34662140f0a188f54a986"
     },
     {
-      "bytes": 77707,
+      "bytes": 77760,
       "path": "finesub/llm/routing/model_routes.py",
-      "sha256": "5e4467368715b174db934f57c4b291c7d2430d62adb19fe980361c3432102448"
+      "sha256": "6e44c396f3fa744449df6b42532a23d3512f3d9896dd0fbea4f230bae5c0edd9"
     },
     {
-      "bytes": 17356,
+      "bytes": 18604,
       "path": "finesub/llm/routing/model_routes.toml",
-      "sha256": "4fa7a86062d9fbd21fde3b25b989d5829993cc7d33b66c143363b77e52d336dd"
+      "sha256": "8f80f389ba13c80c4804418e0bc457588fd00fdbf171f9a689cd33e6528407b7"
     },
     {
       "bytes": 14206,
@@ -2041,9 +2181,9 @@
       "sha256": "d4880e87b989a656c113ce0b5ec8e682b027a74dd0e39c1a44fb7a59e98e2824"
     },
     {
-      "bytes": 5455,
+      "bytes": 6931,
       "path": "finesub/llm/serial_shift.py",
-      "sha256": "cb6474cba650a4fed1903ef145d1d34d15a979c66abb75279c29f8933bd2995f"
+      "sha256": "368a395562308d0226534ea43c4b58a391d2d23acbae06f9e411c4c05fa54302"
     },
     {
       "bytes": 7974,
@@ -2071,29 +2211,29 @@
       "sha256": "e3e4cce875bd922440aaa88beecb7d92732be070f974062ff37dda688a36c315"
     },
     {
-      "bytes": 59592,
+      "bytes": 72656,
       "path": "finesub/llm/stages/correction/attempts.py",
-      "sha256": "d19875a0a5c7137c3f40c2dc14a5a54155d0803308bcc74d93acba5ef6e0f587"
+      "sha256": "e576aa118e323cf00f6e7307c73fc608ecdf5c9afa20f4afa8e69b66958e1dfd"
     },
     {
-      "bytes": 11371,
+      "bytes": 11675,
       "path": "finesub/llm/stages/correction/commit.py",
-      "sha256": "f9325b866be60a9ade5a39ddc2d4209ff6443c8c4bca1c6071e87d5095a2947a"
+      "sha256": "b23e250bdac85b8c470d76820c6d027b58ca8b658fe22a27ec705e42c0911a9f"
     },
     {
-      "bytes": 25194,
+      "bytes": 27533,
       "path": "finesub/llm/stages/correction/context.py",
-      "sha256": "32fb0e9fe22396b0fafa722002cb1b05924aa0953686c05aead3de9ecc383d96"
+      "sha256": "4d31d354df0ed4045631c304a578053c07a89ff9265f8701601277bc2560b64e"
     },
     {
-      "bytes": 10538,
+      "bytes": 10078,
       "path": "finesub/llm/stages/correction/metadata.py",
-      "sha256": "8c87ce10f1ddee823536b47acd49f2623d3cc9e0c7ae978c39ca1134e080d109"
+      "sha256": "6a1843b422d2a81b57f99e65c70630ea90ccf7e288c0b86e5b82b86c0f18ea66"
     },
     {
-      "bytes": 21322,
+      "bytes": 21321,
       "path": "finesub/llm/stages/correction/parallel.py",
-      "sha256": "227b1765e6bfdd05ab82c54b0dfe0617e9ce74b3dcd84cc95c15da754189097b"
+      "sha256": "fdae862906f6609a41f1707c13827cb57bbb8fe0002b593597200be147711253"
     },
     {
       "bytes": 2317,
@@ -2101,19 +2241,24 @@
       "sha256": "72869a990a270bb08e252c4d5dfba8300b674c6adfde219792fcceae08b6921e"
     },
     {
-      "bytes": 25869,
+      "bytes": 26558,
       "path": "finesub/llm/stages/correction/request_turn.py",
-      "sha256": "0724cefe4a3aa2d2fdaedd1ea98d72711d2c8894676b78e5823611591c8786f4"
+      "sha256": "75819ba0f6c7f482f1672192ed0257d777bd2b2878dd96e31001e56d28e3ef9f"
     },
     {
-      "bytes": 59454,
+      "bytes": 61936,
       "path": "finesub/llm/stages/correction/run.py",
-      "sha256": "527c3c78e363b665fee2166a454f4af262419e16b3509dfce4a81b9b6d4da8a8"
+      "sha256": "e0334c1eced6e4efbf424766b8438904805d3c0d4310ed66880d37e48b89237b"
     },
     {
-      "bytes": 12189,
+      "bytes": 12405,
       "path": "finesub/llm/stages/correction/serial.py",
-      "sha256": "6d8f85e1f5d33b60900cad432d1a4825a470dd7480b683d1b7e529f615d6ddc1"
+      "sha256": "bb79b4a56c6fa8d8ccd86913908cfe7bf49b5a64c7bb09ae4e7da8cc1b1ff6e2"
+    },
+    {
+      "bytes": 10947,
+      "path": "finesub/llm/stages/correction/speaker_book.py",
+      "sha256": "f3652cd9f2664b0556d3ab32fe37b62abb6d2de5f17fb3718ff9369ba365d663"
     },
     {
       "bytes": 15344,
@@ -2121,9 +2266,9 @@
       "sha256": "681bcbd408477dc06ac4a8ac2049d05cf073f77ca35935756a0a107182c9c7fa"
     },
     {
-      "bytes": 30614,
+      "bytes": 31373,
       "path": "finesub/llm/stages/prepare_task.py",
-      "sha256": "8c52afc46d37587981d727d2d6cb02b48e9d113faef3d26913d950c8d5116591"
+      "sha256": "807a41f21000131c143838ae3f7d3a419b82c8f59107c451f9516467abf812bf"
     },
     {
       "bytes": 733,
@@ -2136,14 +2281,14 @@
       "sha256": "3c148714dcf0aa36caeb088e6b52e39d198978d9c7229dc880a81dcbf80f7b2c"
     },
     {
-      "bytes": 10731,
+      "bytes": 11125,
       "path": "finesub/llm/stages/proofread/prompt.py",
-      "sha256": "78c30d3f6a14eb44856fc726c9754c16e2ee03aba464151eed91962bf79e2f6c"
+      "sha256": "1ac5c9de6048a8d6509d1f02f8a089d1ee70924b9e99d5e03a660e627f981dca"
     },
     {
-      "bytes": 21172,
+      "bytes": 21340,
       "path": "finesub/llm/stages/proofread/run.py",
-      "sha256": "e506d9964274a6a72bdf94575b87ba03588e6103b1029e225dd9fb5bb0c9007e"
+      "sha256": "771f161d6ff8c77da3537093f95ed1b45354ea9a8ba354bfadb3dc39a08693a4"
     },
     {
       "bytes": 486,
@@ -2171,14 +2316,14 @@
       "sha256": "c3d4abc26cef62cd76bd7628f610d40fef67b0e87e826eedc9f9961b64a1f0f3"
     },
     {
-      "bytes": 47772,
+      "bytes": 48000,
       "path": "finesub/llm/stages/speaker_judge/run.py",
-      "sha256": "193c2acd1cd55b5e5b5558557a8759f1d5229c11ba172db43b49e0157709e687"
+      "sha256": "2f4082c718a0f9f79e52b991e86062e9e5cf55d825408495648a9ea10025b715"
     },
     {
-      "bytes": 9499,
+      "bytes": 9942,
       "path": "finesub/llm/stages/speaker_judge/task.py",
-      "sha256": "df056fda6afd90b8a045dff828f577354ef16d5fd3e5616fa41fd30a2d805d0f"
+      "sha256": "e111c2878c41eaf8764d9fffdc05e7557bb7fcc0e72bb4b9734768c9ef515dc1"
     },
     {
       "bytes": 4138,
@@ -2191,9 +2336,9 @@
       "sha256": "c7148ec2e146aaa7f9e15153144d7e13fbda7558fbd5d2fa6de71b2a097458e6"
     },
     {
-      "bytes": 15807,
+      "bytes": 25713,
       "path": "finesub/llm/stages/three_pass.py",
-      "sha256": "63c713698e3a008654ccb8a716d6e27eb1158401965bdf60b1eb06d3d627ffee"
+      "sha256": "4b24df5e530ccfe22ad6bca478aed4b0215a25efeccc9e0531099c77df91c01a"
     },
     {
       "bytes": 20739,
@@ -2201,9 +2346,9 @@
       "sha256": "5d3610d3d5c7837d9c0e54e197b5ab502995b1a74364a02b5336bdf4273fc257"
     },
     {
-      "bytes": 26212,
+      "bytes": 26672,
       "path": "finesub/llm/task_report.py",
-      "sha256": "466445c1c4aab6b5d3a0e85732476fc4971e0c5bfbdbb54014ad512c84d7d92b"
+      "sha256": "83feae6fcaa36b990f7da4c1e6abf5c0201338bb65e587fd57b74b15a6e49307"
     },
     {
       "bytes": 836,
@@ -2211,9 +2356,9 @@
       "sha256": "5030410afe068be872aa72229e485a53d4cfe7d180a5147c91313bc12c67925f"
     },
     {
-      "bytes": 14943,
+      "bytes": 16182,
       "path": "finesub/llm/token_books.py",
-      "sha256": "86fec303be446da0414d3d3469ed1abc0490a0878898c872325224b67baa2581"
+      "sha256": "5e8ee70974095e4b12f4b1777bf127dc2007b0afe8cf3fa2bbf1362a6e93bad9"
     },
     {
       "bytes": 28747,
@@ -2221,19 +2366,24 @@
       "sha256": "08b61274efab53c822c3043c206afd11c98643f5161ff49e197cbacb51b8b28e"
     },
     {
-      "bytes": 4371,
-      "path": "finesub/llm/token_measure.py",
-      "sha256": "5a9258e0d7a3035203d8a9216445f17b4ad584945d19ee857e78b6e0343a3fcf"
-    },
-    {
       "bytes": 12859,
       "path": "finesub/llm/token_truncate.py",
       "sha256": "7a67ce3ce3d92b899090e6640900556a4ba239aedd789d2079e95256e7da7e76"
     },
     {
-      "bytes": 82628,
+      "bytes": 6742,
+      "path": "finesub/llm/translation_shift.py",
+      "sha256": "73716fad4cbf6c2a5202816ff0d7e16ea99a0c63f2118dd17742f8c85d18ed6c"
+    },
+    {
+      "bytes": 83380,
       "path": "finesub/llm/web_search.py",
-      "sha256": "6514b90ba9bd93b783f5e3917e3f3262a21b987fd0d18f729ad582711cd323c0"
+      "sha256": "ee16e38cec7e131a8a8e32dc31c96e6ccb82c9cbb9003fb44f119c4a48346635"
+    },
+    {
+      "bytes": 9558,
+      "path": "finesub/llm/window_speakers.py",
+      "sha256": "1fe9ff9fbbd5056b0a77215317cd989ae8d6726922650d9c9a26d906d97350bf"
     },
     {
       "bytes": 60,
@@ -2246,9 +2396,9 @@
       "sha256": "e6d3a9f8bbb931614fd0574daabddce9286e92d3abff46d79ad8d10051307161"
     },
     {
-      "bytes": 23532,
+      "bytes": 23703,
       "path": "finesub/media/ffmpeg.py",
-      "sha256": "66edaae69c9be359677de9f24e033db0d59902ced3106a0cc429a6f7ccf5f2b4"
+      "sha256": "e405b5b2342cb6c940905d395a4909f295582ca6a0ee451ed95dae42f5d0d3c1"
     },
     {
       "bytes": 19466,
@@ -2256,14 +2406,19 @@
       "sha256": "f4e76e050b36ba7b7f93e7e9dcb706c2c3b0f0cccdef08caaf47ad7faea62daa"
     },
     {
-      "bytes": 17388,
+      "bytes": 18307,
       "path": "finesub/paths.py",
-      "sha256": "a0769a39c1eac20ae65427971bcf4351e299ba9f8ad1538d35c23ee14c58305c"
+      "sha256": "8d02106288740ae746e53d6e949ff274a9eb3d5f905f47bc2b63e531737a4850"
     },
     {
-      "bytes": 27996,
+      "bytes": 3648,
+      "path": "finesub/quota_command.py",
+      "sha256": "6bd1c24cc656b52706775cd96443644e6ffc5cafa87aa69a759fffbeea514c9f"
+    },
+    {
+      "bytes": 28715,
       "path": "finesub/reporting.py",
-      "sha256": "7b754127c23b7f8f98297feeed5aa1fe8e4cf2280fecf50844d455eaf7ca6862"
+      "sha256": "c02a4a530fc030e4a6a19e0272ab9658cabbff368fb8068adb398d6d59c8b68d"
     },
     {
       "bytes": 12480,
@@ -2276,9 +2431,9 @@
       "sha256": "ad85b49d9bd03353caee13ddd28b505f8c894138e2603175d5ed966d7fa1d0f5"
     },
     {
-      "bytes": 14892,
+      "bytes": 15250,
       "path": "finesub/settings.py",
-      "sha256": "6de92ec76a081749af0309f4c1e5f802e166441b14a06dc2d3cd24a29bd75256"
+      "sha256": "013dc79bb8153e01e8b1bf1b33b970079ab6efef528293071d96fd5976a9b520"
     },
     {
       "bytes": 78,
@@ -2311,9 +2466,9 @@
       "sha256": "a08aa509f366b930b53744740b57e9b61be70efbba1edfa9b924ff5e8c1d8907"
     },
     {
-      "bytes": 8113,
+      "bytes": 6918,
       "path": "finesub/speech/diarization/diarizen_assemble.py",
-      "sha256": "b0c8e928b9eae3805f3093c95897af2b330f5e9341e044586cd69beaeafa5718"
+      "sha256": "71c9aff0a7a2afd4e4943030ee7e93064bc15b3dfb4512dabd2d27ff7c02d1a4"
     },
     {
       "bytes": 11139,
@@ -2381,14 +2536,14 @@
       "sha256": "62cf590c687e4cafa4cf47b5bffa326711ac8ee2ce91312f3acbf37947b6041f"
     },
     {
-      "bytes": 7678,
+      "bytes": 7875,
       "path": "finesub/speech/diarization/product.py",
-      "sha256": "604cc501e480ec31915472d673d614c4c17394cbc75983c74f66541da5161fd8"
+      "sha256": "a99f0d46af9d7d1e22c393c2cb12bcc06e89a5b7b2e36b13d9b2455be1ba29c2"
     },
     {
-      "bytes": 10378,
+      "bytes": 10374,
       "path": "finesub/speech/diarization/row_split.py",
-      "sha256": "297de0820eccdec96c388ea7ed2e19f5e2715419d430d34a96f6cc853b132570"
+      "sha256": "72414f586d23cc8ba53edf94c0b822cc71e4d0fe3a19b9884530bf047bb36e50"
     },
     {
       "bytes": 12132,
@@ -2431,9 +2586,9 @@
       "sha256": "bb91a29c77ae3cd68e6ab351ab2c4442321a16fb10b89dc54b3c14afa9620582"
     },
     {
-      "bytes": 21309,
+      "bytes": 21436,
       "path": "finesub/speech/postprocessing/recall_repair.py",
-      "sha256": "c730e95478e2dbad773287933d19ea68795aa3e384a349d5756d641208fcc83f"
+      "sha256": "7c3a9c9faf14bc7d5c2cbfb43a27f418662ec94f179cdbd73adf14238c5a36ca"
     },
     {
       "bytes": 13768,
@@ -2456,9 +2611,9 @@
       "sha256": "acea3b3276645211c65637664152d14b68a4da8f5a0d3a2f7148cb23eeda4d23"
     },
     {
-      "bytes": 41731,
+      "bytes": 41848,
       "path": "finesub/speech/postprocessing/stabilization.py",
-      "sha256": "2298e67d4191096a04bd82415f9409d09d91a1abf624d2bfb64dff60b32b4b0f"
+      "sha256": "f18bfce487647be138f803a8dd3ae7cc2c972e71e1ae6194dcd2ac8451b3faec"
     },
     {
       "bytes": 67,
@@ -2481,9 +2636,9 @@
       "sha256": "95b18b3ee9073e32c7c7dbaa75226473673945abc3aa4ab156afdbf7e95ae5f9"
     },
     {
-      "bytes": 22133,
+      "bytes": 23042,
       "path": "finesub/speech/preprocessing/separator/accel.py",
-      "sha256": "e46ac41b46c563b86b382ce84bfc70e3c27b5e1e9991ba44d30642cb8e96b584"
+      "sha256": "456f8a8fe53cdc16803e8910721f2deeb2b65553c3944f83a6f59aeddafb3a7e"
     },
     {
       "bytes": 8475,
@@ -2496,19 +2651,19 @@
       "sha256": "a6f887c5bbd81a14a0a3c710903e39621d4fcff512e9706e3ade4fc52c8a1fb2"
     },
     {
-      "bytes": 61043,
+      "bytes": 72015,
       "path": "finesub/speech/preprocessing/separator/separation.py",
-      "sha256": "e1628311e00daad70de0e6f482f9b3334ae05c9febade4a925f3190234c8af31"
+      "sha256": "52353efc51848c714aa026be0676a710b5f5273aa9a92c9dd59d2b88ceb7559b"
     },
     {
-      "bytes": 30557,
+      "bytes": 31537,
       "path": "finesub/speech/preprocessing/separator/separator_aoti.py",
-      "sha256": "2c38a11b51a16487e3c54e3489f64705b7e01a51de22f012329a2dfcbdef5a04"
+      "sha256": "31a6c63ca9d7fd3e425d08f660f6fd822a971f9d95e03c26803a6d34d2273d39"
     },
     {
-      "bytes": 21366,
+      "bytes": 21040,
       "path": "finesub/speech/preprocessing/silero_ghost.py",
-      "sha256": "ecd00f919567077369808926f723320bd2a4cefba861da0101f6f55ff342ba78"
+      "sha256": "3610a08bbfb6e56ab681847b0b9d5400a694c5aed5aa0b21d5b071ed2efb3f5d"
     },
     {
       "bytes": 19670,
@@ -2576,9 +2731,9 @@
       "sha256": "e8a001efd28a1f5a9a5994a9249e148f4e9e8d62e09cbb207d514f3cb5f4538a"
     },
     {
-      "bytes": 34383,
+      "bytes": 35157,
       "path": "finesub/speech/recognition/lang_redecode.py",
-      "sha256": "0e44691c387c793045502de1647ada280ae201d07685ff352f168191f2a687d4"
+      "sha256": "c21c8d399601aef1190ddc4634fc107002db98cf44ae7baca1fbce2d41ad5cac"
     },
     {
       "bytes": 29428,
@@ -2586,19 +2741,19 @@
       "sha256": "57cbae3cace69871826f2f63e9751cbc7f2c46a8546fcedc3b260775bfa23802"
     },
     {
-      "bytes": 124144,
+      "bytes": 123476,
       "path": "finesub/speech/recognition/transcribe.py",
-      "sha256": "d5d71a931361f3c4cd1088a9e0812b98ffb81287fcd42c69ef3b5ba6bdafc684"
+      "sha256": "6dab77de65bf25bda440ef04f81783c6283eae1f359003bece94aa4416779d0f"
     },
     {
-      "bytes": 82646,
+      "bytes": 84659,
       "path": "finesub/speech/recognition/vad_asr_stage.py",
-      "sha256": "56329a755e46c83fd00387c0be997c85335678f6d58ae78f430707ad54f7fef2"
+      "sha256": "12ba76b05e9e1bb9cd54031582a3322bc74c4f882e629551652e2d4d240d4da7"
     },
     {
-      "bytes": 16997,
+      "bytes": 24397,
       "path": "finesub/speech/recognition/word_starts.py",
-      "sha256": "c6f00764a7c226a6854521181b4d638b1b9edcb1eba34c794b7e456bd6114abf"
+      "sha256": "cdb224507100e80291e26eba94b9354387e16f8c1c2d604d02d30199f4195f51"
     },
     {
       "bytes": 73,
@@ -2606,14 +2761,14 @@
       "sha256": "c967487723650914383d1e30270095336c0f52be7215666edf48f8a27f8cb4b1"
     },
     {
-      "bytes": 16712,
+      "bytes": 18039,
       "path": "finesub/speech/runtime/cuda_libs.py",
-      "sha256": "249776a9332710abeee421dc4981ad6e4f306ea4fe58ddda5b9dd88bda2f2fde"
+      "sha256": "79af0c7a715b8c3a0e53c68556175869ae0a0519426cb6959575377e2e122d41"
     },
     {
-      "bytes": 44472,
+      "bytes": 73234,
       "path": "finesub/speech/runtime/device.py",
-      "sha256": "57327d704f7832448448efa8628cdc77fca01bdeae95d43f2a4ccc0ec34cbdda"
+      "sha256": "2f03114d828b54945d7b4b64eb31f4881f88fc4ddb51a1a2ec7d84eb96a5459b"
     },
     {
       "bytes": 1989,
@@ -2636,14 +2791,14 @@
       "sha256": "5943e4b41cb64d34ca265bf582a6bf3969ce3737346d80dc09d2df62a4cdba9a"
     },
     {
-      "bytes": 8735,
+      "bytes": 7860,
       "path": "finesub/speech/runtime/resource_usage.py",
-      "sha256": "9e5f6fccdcab9028d6fcef2ad32bd4f799c5e211f0da1f363277f80eae26bf53"
+      "sha256": "674d6488522904d48a56c6f673958f7c681792e74b21a5ec9d8039cd3cb2d7e2"
     },
     {
-      "bytes": 26148,
+      "bytes": 30049,
       "path": "finesub/speech/runtime/resources.py",
-      "sha256": "0a29cb5d63eaa5592fe1528b008377a01790559cd25697b72b8a3247a30373b3"
+      "sha256": "72a59ddf2e24af3bd9ddfb054cab24153d5f61f2ce5c6f412ac55d60baeda846"
     },
     {
       "bytes": 6583,
@@ -2651,14 +2806,14 @@
       "sha256": "6da760334cf71f04fe705d5f49c9835b9b4429e5f850b5d37fb37c38f64e560f"
     },
     {
-      "bytes": 4174,
+      "bytes": 4419,
       "path": "finesub/speech/runtime/support_levels.py",
-      "sha256": "a2e96abfdd959695263dbc8032900d5ae39432927fd81ff9218f9bb329cea201"
+      "sha256": "1196acf9cc4e2e0cbcb549d809fb8a69a3eeec619c083ba1ef5a4f0ed83c8a25"
     },
     {
-      "bytes": 1622,
+      "bytes": 3713,
       "path": "finesub/speech/runtime/thread_budget.py",
-      "sha256": "cd2a1aa2373fb311d5c5353e7d533be525d35b039339222d2262b6362840c6c2"
+      "sha256": "ba75307bbba7b26cce46c3b0d9e0692235d536f9189663415cc8941f82182b44"
     },
     {
       "bytes": 84,
@@ -2671,14 +2826,19 @@
       "sha256": "0ac84dbeef795abea4b7bf0ccbb3bf900880eaa93d31133e0b296309221d07da"
     },
     {
-      "bytes": 44927,
+      "bytes": 45718,
       "path": "finesub/speech/verification/qwen_referee.py",
-      "sha256": "ff39622c051d8cbdef92c37ab8a0cde4ef364d32dd7e6298d9a58294fcf8d65b"
+      "sha256": "3af9c6cf6d39094a8b77c9286a3deb2532fe829dd9640feb6844564ce264b2cf"
     },
     {
-      "bytes": 28675,
+      "bytes": 29507,
       "path": "finesub/speech/verification/recall_decode.py",
-      "sha256": "4498dee66762e5ec4dd5614f3b298ab5b3a1dd355a1afec3c007a73223f7f4f8"
+      "sha256": "ee919c8d570efa6ddb11c5bd6d0a5c39f9e8c811eaa4eafaa89379e3fc9d2bec"
+    },
+    {
+      "bytes": 6680,
+      "path": "finesub/speech/verification/separator_wipe.py",
+      "sha256": "238fcdd608358221e4cf34fa2b744c92b3ad4d16c6745d13975202a9f354fe3a"
     },
     {
       "bytes": 3886,
@@ -2711,9 +2871,9 @@
       "sha256": "be99c850217ce7ff949cdfc9a27b4bf863138cc15cf489241ad1c8914252855b"
     },
     {
-      "bytes": 11253,
+      "bytes": 11382,
       "path": "finesub/subtitles/model.py",
-      "sha256": "11c9357399276c5ce2f6e971ba84a35278f66548f0853a422a89c84750b84fdd"
+      "sha256": "38da123fea4f909de058c2f326108b4cf8d5c0eb7a2a423c9a143b64302c8b60"
     },
     {
       "bytes": 17950,
@@ -2746,9 +2906,9 @@
       "sha256": "012d2b6f03d778d23450338e49ff728ae6704679f5cf4de00c935664aba0edba"
     },
     {
-      "bytes": 30015,
+      "bytes": 30003,
       "path": "finesub/workflows/reference_ingest.py",
-      "sha256": "e9ac263be582bbffa609e1e6270f193cc9d7b746dee546e43f95f4a47f688a92"
+      "sha256": "dd914bb2b202c0f7e44b3f07cf9644ea26d31947a4313448090799cd9f1d963c"
     }
   ],
   "root": "third_party/finesub/src",
