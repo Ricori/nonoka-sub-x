@@ -859,9 +859,9 @@ export function OnboardingPage(props: OnboardingPageProps) {
                       <strong>本地服务已就绪</strong>
                       <p>
                         {hardware.hasGpu
-                          ? `检测到你的牛逼 N 卡：${hardware.gpuName}${hardware.gpuMemoryMb ? `（${formatVram(hardware.gpuMemoryMb)}）` : ""}，畅享 AI 加速！`
+                          ? `检测到你的牛逼显卡：${hardware.gpuName}${hardware.gpuMemoryMb ? `（${formatVram(hardware.gpuMemoryMb)}）` : ""}，畅享 AI 加速！`
                           : hardware.runtimeSupported
-                            ? "未检测到 NVIDIA 显卡，下一步可灵活选择云端转写或本机运行。"
+                            ? "未检测到 NVIDIA 或 Intel 显卡，下一步可选云端转写或本机运行。"
                             : `当前平台为 ${provision?.platform ?? "当前系统"}，支持轻量工具层搭配云端转写与云 API。`}
                       </p>
                     </div>
@@ -904,7 +904,7 @@ export function OnboardingPage(props: OnboardingPageProps) {
                     ? `本机硬件：${hardware.gpuName}${hardware.gpuMemoryMb ? ` · ${formatVram(hardware.gpuMemoryMb)}` : ""}`
                     : !hardware.runtimeSupported
                       ? `当前系统（${provision?.platform ?? ""}）不支持本机 GPU 转写，推荐使用云端或云 API`
-                      : "未检测到 NVIDIA 独立显卡，推荐 Nonoka Cloud 或第三方云 API"}
+                      : "未检测到 NVIDIA 或 Intel 显卡，推荐 Nonoka Cloud 或第三方云 API"}
                 </span>
               </div>
 
