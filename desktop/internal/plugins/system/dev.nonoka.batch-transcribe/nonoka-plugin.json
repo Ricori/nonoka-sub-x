@@ -1,0 +1,27 @@
+{
+  "id": "dev.nonoka.batch-transcribe",
+  "name": "批量转录",
+  "version": "1.0.0",
+  "apiVersion": 1,
+  "description": "一次选多个视频，排队转录，字幕存成 SRT 文件",
+  "publisher": "Nonoka X",
+  "license": "MIT",
+  "permissions": [
+    "media.list",
+    "engine.run",
+    "engine.artifacts",
+    "subtitle.export",
+    "state.persist"
+  ],
+  "contributes": {
+    "tools": [
+      {
+        "id": "batch",
+        "title": "批量转录",
+        "icon": "list",
+        "page": "ui/index.html",
+        "order": 20
+      }
+    ]
+  }
+}

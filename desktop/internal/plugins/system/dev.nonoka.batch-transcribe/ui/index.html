@@ -1,0 +1,889 @@
+<!doctype html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>批量转录</title>
+  <style>
+    /* 宿主把 iframe 撑满工作区，body 保持透明让宿主底色透上来。
+       配色与宿主 styles.css / design-system.css 保持一致（抄自视频下载插件）。 */
+    :root {
+      color-scheme: dark;
+      --fg: #f5f2fb;
+      --mut: #aeaac6;
+      --faint: #8b86a8;
+      --line: #363c59;
+      --line-soft: #2b3048;
+      --panel: #191c2d;
+      --field: #252a42;
+      --accent: #9caef7;
+      --accent-dim: rgba(156, 174, 247, .13);
+      --accent-line: rgba(156, 174, 247, .36);
+      --accent-border: rgba(156, 174, 247, .50);
+      --grad: linear-gradient(120deg, #9caef7, #d8afe8);
+      --on-grad: #1b2140;
+      --glow: rgba(241, 154, 183, .22);
+      --ok: #70dcc2;
+      --err: #f08fae;
+      --shadow-sm: 0 1px 2px rgba(0, 0, 0, .08), 0 6px 18px rgba(0, 0, 0, .10);
+      font-family: "Segoe UI Variable Text", "Segoe UI", "Microsoft YaHei UI", "PingFang SC", "Noto Sans SC", sans-serif;
+    }
+
+    body.light {
+      --fg: #383344;
+      --mut: #5f5a6e;
+      --faint: #79738a;
+      --line: #ded8ea;
+      --line-soft: #ebe7f1;
+      --panel: #fff;
+      --field: #f4f1fa;
+      --accent: #6b4fd0;
+      --accent-dim: rgba(107, 79, 208, .10);
+      --accent-line: rgba(107, 79, 208, .32);
+      --accent-border: rgba(107, 79, 208, .50);
+      --grad: linear-gradient(120deg, #6d5bd6, #9c4fb6);
+      --on-grad: #fff;
+      --glow: rgba(183, 77, 120, .16);
+      --ok: #18796b;
+      --err: #bd4670;
+      --shadow-sm: 0 1px 2px rgba(60, 46, 84, .05), 0 6px 20px rgba(60, 46, 84, .06);
+    }
+
+    * { box-sizing: border-box; }
+    [hidden] { display: none !important; }
+    html, body { background: transparent; }
+
+    body {
+      margin: 0;
+      padding: 4px 0 28px;
+      color: var(--fg);
+      font-size: 13px;
+    }
+
+    main { display: grid; gap: 16px; width: 100%; }
+
+    .card {
+      border: 1px solid var(--line-soft);
+      border-radius: 16px;
+      padding: 20px 22px;
+      background: var(--panel);
+      box-shadow: var(--shadow-sm);
+    }
+
+    .card-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 14px;
+    }
+
+    .card-head h2 { margin: 0; font-size: 14px; font-weight: 600; }
+    .card-head small { margin-left: 8px; color: var(--faint); font-size: 12px; font-weight: 400; }
+    .head-actions { display: flex; gap: 8px; }
+
+    .note { margin: 12px 0 0; color: var(--faint); font-size: 12px; line-height: 1.6; }
+
+    .options {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    label.field { display: grid; gap: 6px; color: var(--mut); font-size: 12px; font-weight: 500; }
+
+    .select-wrap { position: relative; }
+
+    .select-wrap select {
+      width: 100%;
+      height: 36px;
+      appearance: none;
+      -webkit-appearance: none;
+      border: 1px solid var(--line);
+      border-radius: 9px;
+      padding: 0 32px 0 12px;
+      background: var(--field);
+      color: var(--fg);
+      font: inherit;
+      font-size: 13px;
+      outline: none;
+      cursor: pointer;
+    }
+
+    .select-wrap select:focus { border-color: var(--accent-border); box-shadow: 0 0 0 3px var(--accent-dim); }
+
+    .select-wrap::after {
+      content: "";
+      position: absolute;
+      right: 12px;
+      top: 50%;
+      width: 6px;
+      height: 6px;
+      margin-top: -4px;
+      border-right: 1.5px solid var(--mut);
+      border-bottom: 1.5px solid var(--mut);
+      transform: rotate(45deg);
+      pointer-events: none;
+    }
+
+    .folder-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-top: 12px;
+    }
+
+    .folder-path {
+      flex: 1;
+      min-width: 0;
+      height: 36px;
+      display: flex;
+      align-items: center;
+      border: 1px solid var(--line);
+      border-radius: 9px;
+      padding: 0 12px;
+      background: var(--field);
+      color: var(--fg);
+      overflow: hidden;
+      white-space: nowrap;
+      text-overflow: ellipsis;
+    }
+
+    .folder-path.empty { color: var(--faint); }
+
+    .check {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 12px;
+      color: var(--mut);
+      font-size: 12px;
+      cursor: pointer;
+      user-select: none;
+    }
+
+    input[type="checkbox"] { width: 15px; height: 15px; margin: 0; accent-color: var(--accent); cursor: pointer; }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      height: 36px;
+      border: 1px solid transparent;
+      border-radius: 9px;
+      padding: 0 16px;
+      font: inherit;
+      font-size: 13px;
+      font-weight: 600;
+      white-space: nowrap;
+      cursor: pointer;
+    }
+
+    .btn-primary { height: 40px; background: var(--grad); color: var(--on-grad); box-shadow: 0 4px 12px var(--glow); }
+    .btn-primary:hover:not(:disabled) { filter: brightness(1.05) saturate(1.04); }
+    .btn-secondary { border-color: var(--line); background: var(--panel); color: var(--fg); }
+    .btn-secondary:hover:not(:disabled) { border-color: var(--accent-border); color: var(--accent); }
+    .btn-danger { border-color: color-mix(in srgb, var(--err) 36%, transparent); background: color-mix(in srgb, var(--err) 12%, transparent); color: var(--err); }
+    .btn-sm { height: 30px; border-radius: 8px; padding: 0 11px; font-size: 12px; }
+    .btn:disabled { opacity: .5; cursor: not-allowed; box-shadow: none; filter: none; }
+
+    .list {
+      display: grid;
+      max-height: 340px;
+      overflow-y: auto;
+      border: 1px solid var(--line-soft);
+      border-radius: 12px;
+    }
+
+    .row {
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 12px;
+      padding: 10px 14px;
+      border-bottom: 1px solid var(--line-soft);
+    }
+
+    .row:last-child { border-bottom: 0; }
+    label.row { cursor: pointer; }
+    label.row:hover { background: var(--accent-dim); }
+    .row.off { opacity: .55; cursor: default; }
+
+    .row-title { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+    .row-detail { margin-top: 3px; color: var(--faint); font-size: 12px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+    .row-detail.err { color: var(--err); white-space: normal; }
+    .row-meta { color: var(--faint); font-size: 12px; font-variant-numeric: tabular-nums; }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      height: 22px;
+      border-radius: 99px;
+      padding: 0 9px;
+      background: var(--field);
+      color: var(--mut);
+      font-size: 11px;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+
+    .badge.running { background: var(--accent-dim); color: var(--accent); }
+    .badge.done { background: color-mix(in srgb, var(--ok) 14%, transparent); color: var(--ok); }
+    .badge.failed { background: color-mix(in srgb, var(--err) 14%, transparent); color: var(--err); }
+
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--line); }
+    .dot.running { background: var(--accent); animation: pulse 1.2s ease-in-out infinite; }
+    .dot.done { background: var(--ok); }
+    .dot.failed { background: var(--err); }
+
+    .empty-state { padding: 26px 14px; color: var(--faint); text-align: center; font-size: 12px; }
+
+    .actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 14px; }
+    .actions .hint { color: var(--faint); font-size: 12px; }
+
+    .status {
+      margin-top: 12px;
+      border: 1px solid color-mix(in srgb, var(--err) 38%, transparent);
+      border-radius: 10px;
+      padding: 10px 14px;
+      color: var(--err);
+      background: color-mix(in srgb, var(--err) 8%, transparent);
+      font-size: 12px;
+      line-height: 1.6;
+    }
+
+    @keyframes pulse { 50% { opacity: .35; } }
+
+    @media (max-width: 640px) { .options { grid-template-columns: 1fr; } }
+  </style>
+</head>
+
+<body>
+  <main>
+    <section class="card">
+      <div class="card-head">
+        <h2>转录设置</h2>
+      </div>
+      <div class="options">
+        <label class="field">视频语言
+          <span class="select-wrap">
+            <select id="language">
+              <option value="ja">日语</option>
+              <option value="en">英语</option>
+              <option value="zh">中文</option>
+            </select>
+          </span>
+        </label>
+        <label class="field">字幕内容
+          <span class="select-wrap">
+            <select id="output">
+              <option value="raw">只要原文（不翻译，最快）</option>
+              <option value="both">双语（原文 + 中文翻译）</option>
+              <option value="zh">只要中文翻译</option>
+            </select>
+          </span>
+        </label>
+      </div>
+      <div class="folder-row">
+        <div id="folder" class="folder-path empty">还没选保存位置</div>
+        <button id="chooseFolder" class="btn btn-secondary" type="button">选择文件夹</button>
+      </div>
+      <label class="check"><input id="skipSeparation" type="checkbox">跳过人声分离（更快，适合没有背景音乐的视频）</label>
+      <p class="note">用本机 FineSub 转录，不读知识库。字幕只存成 SRT 文件，不进媒体库。一次只跑一个视频。</p>
+    </section>
+
+    <section class="card">
+      <div class="card-head">
+        <h2>选择视频<small id="pickCount"></small></h2>
+        <div class="head-actions">
+          <button id="selectAll" class="btn btn-secondary btn-sm" type="button">全选</button>
+          <button id="reload" class="btn btn-secondary btn-sm" type="button">刷新</button>
+        </div>
+      </div>
+      <div id="mediaList" class="list"></div>
+      <div class="actions">
+        <span class="hint">视频要先拖进媒体库才会出现在这里。</span>
+        <button id="start" class="btn btn-primary" type="button" disabled>加入队列</button>
+      </div>
+      <div id="error" class="status" hidden></div>
+    </section>
+
+    <section class="card">
+      <div class="card-head">
+        <h2>队列<small id="queueCount"></small></h2>
+        <div class="head-actions">
+          <button id="resume" class="btn btn-secondary btn-sm" type="button" hidden>继续</button>
+          <button id="stop" class="btn btn-danger btn-sm" type="button" hidden>停止</button>
+          <button id="retry" class="btn btn-secondary btn-sm" type="button" hidden>重试失败的</button>
+          <button id="clear" class="btn btn-secondary btn-sm" type="button" hidden>清除已结束</button>
+        </div>
+      </div>
+      <div id="queueList" class="list"></div>
+      <p class="note">离开这个页面时，队列会停在当前这个视频；回到这里会自动接着跑。</p>
+    </section>
+  </main>
+
+  <script>
+    const STATE_KEY = "batch.v1";
+    const POLL_MS = 3000;
+
+    const languageSelect = document.querySelector("#language");
+    const outputSelect = document.querySelector("#output");
+    const skipSeparation = document.querySelector("#skipSeparation");
+    const folderBox = document.querySelector("#folder");
+    const mediaList = document.querySelector("#mediaList");
+    const queueList = document.querySelector("#queueList");
+    const startButton = document.querySelector("#start");
+    const errorBox = document.querySelector("#error");
+
+    const LANGUAGE_SUFFIX = { ja: " - 日文", en: " - 英文", zh: " - 中文原文" };
+    const STAGE_LABELS = {
+      queued: "排队中",
+      vocal: "分离人声",
+      aligned: "识别语音",
+      stable: "整理时间轴",
+      "raw-srt": "生成原文字幕",
+      "translated-srt": "纠错翻译",
+      "final-srt": "整理成品",
+    };
+    const STATUS_LABELS = {
+      waiting: "等待", running: "转录中", saving: "保存中", done: "完成", failed: "失败", stopped: "已停止",
+    };
+
+    // ---- host rpc -------------------------------------------------------------------------------
+
+    let sequence = 0;
+    const pending = new Map();
+
+    function rpc(method, params) {
+      const id = "rpc-" + (++sequence) + "-" + Date.now();
+      return new Promise(function (resolve, reject) {
+        pending.set(id, { resolve: resolve, reject: reject });
+        window.nonoka.post(method, params || {}, id);
+      });
+    }
+
+    window.addEventListener("message", function (event) {
+      const message = event.data;
+      if (!message || message.source !== "nonoka-host") return;
+      if (message.method === "host.info") {
+        const light = message.result && message.result.theme === "light";
+        document.body.classList.toggle("light", light);
+        document.documentElement.style.colorScheme = light ? "light" : "dark";
+        return;
+      }
+      if (message.method !== "rpc.result") return;
+      const call = pending.get(message.id);
+      if (!call) return;
+      pending.delete(message.id);
+      if (message.error) call.reject(new Error(message.error));
+      else call.resolve(message.result);
+    });
+
+    // ---- state ----------------------------------------------------------------------------------
+
+    // items: { mediaId, title, opts, status, taskId, detail, error, saved: [key], files: [name] }
+    let state = { settings: { language: "ja", output: "both", skipSeparation: false }, items: [], active: false };
+    let media = [];
+    let selected = new Set();
+    let folder = "";
+    let ticking = false;
+    let loaded = false;
+
+    async function loadState() {
+      try {
+        const raw = await rpc("state.get", { key: STATE_KEY });
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (parsed && Array.isArray(parsed.items)) state = Object.assign(state, parsed);
+        }
+      } catch (_) { /* a damaged record starts an empty queue */ }
+      // 页面上次被销毁在「正在开始」那一刻：任务 id 没记下来，只能当作还没开始。
+      state.items.forEach(function (item) {
+        if (item.status === "running" && !item.taskId) item.status = "waiting";
+      });
+      lastSaved = JSON.stringify(state);
+      loaded = true;
+    }
+
+    // 轮询每 3 秒走一次，什么都没变时不重写状态文件
+    let lastSaved = "";
+
+    function saveState() {
+      if (!loaded) return Promise.resolve();
+      const value = JSON.stringify(state);
+      if (value === lastSaved) return Promise.resolve();
+      lastSaved = value;
+      return rpc("state.set", { key: STATE_KEY, value: value }).catch(function () { lastSaved = ""; });
+    }
+
+    // ---- settings -------------------------------------------------------------------------------
+
+    function readSettings() {
+      return { language: languageSelect.value, output: outputSelect.value, skipSeparation: skipSeparation.checked };
+    }
+
+    function applySettings() {
+      languageSelect.value = state.settings.language || "ja";
+      outputSelect.value = state.settings.output || "both";
+      skipSeparation.checked = !!state.settings.skipSeparation;
+      syncOutputOptions();
+    }
+
+    // 中文视频没有要翻译成中文的东西，只能出原文
+    function syncOutputOptions() {
+      const chinese = languageSelect.value === "zh";
+      Array.from(outputSelect.options).forEach(function (option) {
+        option.disabled = chinese && option.value !== "raw";
+      });
+      if (chinese) outputSelect.value = "raw";
+    }
+
+    [languageSelect, outputSelect, skipSeparation].forEach(function (control) {
+      control.addEventListener("change", function () {
+        syncOutputOptions();
+        state.settings = readSettings();
+        saveState();
+      });
+    });
+
+    function renderFolder() {
+      folderBox.textContent = folder || "还没选保存位置";
+      folderBox.title = folder;
+      folderBox.classList.toggle("empty", !folder);
+    }
+
+    async function loadFolder() {
+      try {
+        folder = (await rpc("subtitle.folder")).path || "";
+      } catch (_) {
+        folder = "";
+      }
+      renderFolder();
+    }
+
+    async function chooseFolder() {
+      try {
+        const picked = (await rpc("subtitle.chooseFolder")).path;
+        if (picked) folder = picked;
+      } catch (error) {
+        showError(error.message);
+      }
+      renderFolder();
+      return folder;
+    }
+
+    document.querySelector("#chooseFolder").addEventListener("click", chooseFolder);
+
+    // ---- media picker ---------------------------------------------------------------------------
+
+    function formatDuration(seconds) {
+      const total = Math.max(0, Math.round(Number(seconds) || 0));
+      const h = Math.floor(total / 3600), m = Math.floor(total % 3600 / 60), s = total % 60;
+      const pad = function (n) { return String(n).padStart(2, "0"); };
+      return h ? h + ":" + pad(m) + ":" + pad(s) : m + ":" + pad(s);
+    }
+
+    function queuedIds() {
+      return new Set(state.items.filter(function (item) {
+        return item.status === "waiting" || item.status === "running" || item.status === "saving";
+      }).map(function (item) { return item.mediaId; }));
+    }
+
+    function renderMedia() {
+      mediaList.textContent = "";
+      const busy = queuedIds();
+      if (media.length === 0) {
+        mediaList.innerHTML = '<div class="empty-state">媒体库里还没有视频</div>';
+      }
+      media.forEach(function (entry) {
+        const usable = entry.available && !busy.has(entry.id);
+        const row = document.createElement("label");
+        row.className = "row" + (usable ? "" : " off");
+        const box = document.createElement("input");
+        box.type = "checkbox";
+        box.disabled = !usable;
+        box.checked = usable && selected.has(entry.id);
+        box.addEventListener("change", function () {
+          if (box.checked) selected.add(entry.id); else selected.delete(entry.id);
+          renderPickCount();
+        });
+        const body = document.createElement("div");
+        const title = document.createElement("div");
+        title.className = "row-title";
+        title.textContent = entry.title;
+        body.appendChild(title);
+        if (!usable) {
+          const detail = document.createElement("div");
+          detail.className = "row-detail";
+          detail.textContent = !entry.available ? "找不到视频文件" : "已在队列里";
+          body.appendChild(detail);
+        }
+        const meta = document.createElement("span");
+        meta.className = "row-meta";
+        meta.textContent = formatDuration(entry.duration);
+        row.append(box, body, meta);
+        mediaList.appendChild(row);
+      });
+      renderPickCount();
+    }
+
+    function usableIds() {
+      const busy = queuedIds();
+      return media.filter(function (entry) { return entry.available && !busy.has(entry.id); })
+        .map(function (entry) { return entry.id; });
+    }
+
+    function renderPickCount() {
+      const usable = new Set(usableIds());
+      selected.forEach(function (id) { if (!usable.has(id)) selected.delete(id); });
+      document.querySelector("#pickCount").textContent = selected.size ? "已选 " + selected.size + " 个" : "";
+      startButton.disabled = selected.size === 0;
+      startButton.textContent = selected.size ? "加入队列（" + selected.size + " 个）" : "加入队列";
+      document.querySelector("#selectAll").textContent = usable.size && selected.size === usable.size ? "全不选" : "全选";
+    }
+
+    async function loadMedia() {
+      try {
+        media = (await rpc("media.list")) || [];
+        hideError();
+      } catch (error) {
+        media = [];
+        showError("读不到媒体库：" + error.message);
+      }
+      renderMedia();
+    }
+
+    document.querySelector("#reload").addEventListener("click", loadMedia);
+    document.querySelector("#selectAll").addEventListener("click", function () {
+      const usable = usableIds();
+      if (selected.size === usable.length) selected.clear();
+      else usable.forEach(function (id) { selected.add(id); });
+      renderMedia();
+    });
+
+    startButton.addEventListener("click", async function () {
+      hideError();
+      if (!folder && !(await chooseFolder())) {
+        showError("先选一个保存字幕的文件夹。");
+        return;
+      }
+      const opts = readSettings();
+      media.forEach(function (entry) {
+        if (!selected.has(entry.id)) return;
+        // 同一个视频以前跑过（完成或失败）的那条记录换成新的
+        state.items = state.items.filter(function (item) { return item.mediaId !== entry.id; });
+        state.items.push({ mediaId: entry.id, title: entry.title, opts: opts, status: "waiting", saved: [], files: [] });
+      });
+      selected.clear();
+      state.active = true;
+      await saveState();
+      renderAll();
+      tick();
+    });
+
+    // ---- queue ----------------------------------------------------------------------------------
+
+    function renderQueue() {
+      queueList.textContent = "";
+      const items = state.items;
+      if (items.length === 0) {
+        queueList.innerHTML = '<div class="empty-state">选好视频后点「加入队列」</div>';
+      }
+      items.forEach(function (item) {
+        const row = document.createElement("div");
+        row.className = "row";
+        const tone = item.status === "running" || item.status === "saving" ? "running"
+          : item.status === "done" ? "done" : item.status === "failed" ? "failed" : "";
+        const dot = document.createElement("span");
+        dot.className = "dot " + tone;
+        const body = document.createElement("div");
+        const title = document.createElement("div");
+        title.className = "row-title";
+        title.textContent = item.title;
+        body.appendChild(title);
+        const savedText = item.files && item.files.length
+          ? "已保存：" + item.files.join("、") + (item.note ? "（" + item.note + "）" : "") : "";
+        const text = item.error || item.detail || savedText;
+        if (text) {
+          const detail = document.createElement("div");
+          detail.className = "row-detail" + (item.error ? " err" : "");
+          detail.textContent = text;
+          detail.title = text;
+          body.appendChild(detail);
+        }
+        const badge = document.createElement("span");
+        badge.className = "badge " + tone;
+        badge.textContent = item.status === "waiting" && !state.active ? "已暂停" : STATUS_LABELS[item.status] || item.status;
+        row.append(dot, body, badge);
+        queueList.appendChild(row);
+      });
+
+      const count = function (status) { return items.filter(function (item) { return item.status === status; }).length; };
+      const done = count("done"), failed = count("failed"), stopped = count("stopped");
+      const open = count("waiting") + count("running") + count("saving");
+      document.querySelector("#queueCount").textContent = items.length
+        ? "完成 " + done + " / " + items.length + (failed ? "，失败 " + failed : "") : "";
+      document.querySelector("#stop").hidden = !state.active || open === 0;
+      document.querySelector("#resume").hidden = state.active || count("waiting") === 0;
+      document.querySelector("#retry").hidden = failed + stopped === 0;
+      document.querySelector("#clear").hidden = done + failed + stopped === 0;
+    }
+
+    function renderAll() {
+      renderMedia();
+      renderQueue();
+    }
+
+    document.querySelector("#stop").addEventListener("click", async function () {
+      state.active = false;
+      const current = state.items.find(function (item) { return item.status === "running"; });
+      if (current && current.taskId) {
+        try { await rpc("engine.cancel", { taskId: current.taskId }); } catch (_) { /* reported by the next status */ }
+        current.status = "stopped";
+        current.detail = "";
+      }
+      await saveState();
+      renderAll();
+    });
+
+    document.querySelector("#resume").addEventListener("click", async function () {
+      state.active = true;
+      await saveState();
+      renderQueue();
+      tick();
+    });
+
+    document.querySelector("#retry").addEventListener("click", async function () {
+      state.items.forEach(function (item) {
+        if (item.status !== "failed" && item.status !== "stopped") return;
+        Object.assign(item, { status: "waiting", taskId: "", error: "", detail: "", note: "", saved: [], files: [] });
+      });
+      state.active = true;
+      await saveState();
+      renderAll();
+      tick();
+    });
+
+    document.querySelector("#clear").addEventListener("click", async function () {
+      state.items = state.items.filter(function (item) {
+        return item.status === "waiting" || item.status === "running" || item.status === "saving";
+      });
+      await saveState();
+      renderAll();
+    });
+
+    function describe(snapshot) {
+      const progress = snapshot.progress;
+      const stage = STAGE_LABELS[snapshot.stage] || "处理中";
+      if (progress && progress.message) return stage + " · " + progress.message;
+      if (progress && progress.total) return stage + " · " + Math.round(progress.completed / progress.total * 100) + "%";
+      return stage;
+    }
+
+    // 一次只推进一步：查当前这个的状态，或者开始下一个。页面被销毁后，队列停在原地，
+    // 已经在跑的那个任务由 sidecar 接着跑，下次打开页面从这里续上。
+    async function tick() {
+      if (ticking || !loaded) return;
+      ticking = true;
+      try {
+        const current = state.items.find(function (item) { return item.status === "running" || item.status === "saving"; });
+        if (current) {
+          await advance(current);
+        } else if (state.active) {
+          const next = state.items.find(function (item) { return item.status === "waiting"; });
+          if (next) await begin(next);
+          else state.active = false;
+        }
+      } catch (error) {
+        showError(error.message);
+      } finally {
+        ticking = false;
+        await saveState();
+        renderQueue();
+        // 有视频进出队列时，选择列表里「已在队列里」的灰显也要跟着变
+        const busyKey = Array.from(queuedIds()).sort().join("|");
+        if (busyKey !== lastBusyKey) {
+          lastBusyKey = busyKey;
+          renderMedia();
+        }
+      }
+    }
+
+    let lastBusyKey = "";
+
+    async function begin(item) {
+      item.status = "running";
+      item.detail = "正在开始";
+      item.error = "";
+      renderQueue();
+      try {
+        const snapshot = await rpc("engine.startTask", {
+          mediaId: item.mediaId,
+          target: item.opts.output === "raw" ? "raw-srt" : "final-srt",
+          language: item.opts.language,
+          skipSeparation: !!item.opts.skipSeparation,
+        });
+        item.taskId = snapshot.task_id;
+        item.detail = describe(snapshot);
+      } catch (error) {
+        item.taskId = "";
+        // 主界面或别的插件正在用引擎：不算失败，等它跑完再开始
+        if (/already running/i.test(error.message)) {
+          item.status = "waiting";
+          item.detail = "本机有别的任务在跑，等它结束后开始";
+        } else {
+          item.status = "failed";
+          item.detail = "";
+          item.error = error.message;
+        }
+      }
+    }
+
+    async function advance(item) {
+      if (item.status === "saving") {
+        await finish(item);
+        return;
+      }
+      let snapshot;
+      try {
+        snapshot = await rpc("engine.status", { taskId: item.taskId });
+      } catch (error) {
+        item.status = "failed";
+        item.error = "查不到任务状态：" + error.message;
+        return;
+      }
+      if (snapshot.state === "completed") {
+        item.status = "saving";
+        item.detail = "正在保存字幕";
+        renderQueue();
+        await finish(item);
+      } else if (snapshot.state === "failed") {
+        item.status = "failed";
+        item.detail = "";
+        item.error = (snapshot.error && snapshot.error.message) || "转录失败";
+      } else if (snapshot.state === "cancelled") {
+        item.status = "stopped";
+        item.detail = "";
+      } else if (snapshot.state === "interrupted") {
+        // 应用关闭时被打断。插件没有续跑的接口，只能重新开始这一个。
+        item.status = "waiting";
+        item.taskId = "";
+        item.detail = "上次被中断，重新开始";
+      } else {
+        item.detail = describe(snapshot);
+      }
+    }
+
+    // ---- outputs --------------------------------------------------------------------------------
+
+    function baseName(title) {
+      return String(title || "subtitle").replace(/\.[a-z0-9]{2,4}$/i, "") || "subtitle";
+    }
+
+    function srtTime(seconds) {
+      let ms = Math.max(0, Math.round(seconds * 1000));
+      const h = Math.floor(ms / 3600000); ms -= h * 3600000;
+      const m = Math.floor(ms / 60000); ms -= m * 60000;
+      const s = Math.floor(ms / 1000); ms -= s * 1000;
+      const pad = function (n) { return String(n).padStart(2, "0"); };
+      return pad(h) + ":" + pad(m) + ":" + pad(s) + "," + String(ms).padStart(3, "0");
+    }
+
+    // correction.json → SRT，与编辑器导出同一个口径：双语时译文在上、原文在下，空句跳过
+    function correctionSrt(document, output) {
+      const lines = Array.isArray(document && document.lines) ? document.lines.slice() : [];
+      lines.sort(function (a, b) { return a.start - b.start || a.end - b.end; });
+      const cues = [];
+      lines.forEach(function (line) {
+        const parts = [];
+        const translation = String(line.translation || "").trim();
+        const source = String(line.source || "").trim();
+        if (output !== "ja" && translation) parts.push(translation);
+        if (output !== "zh" && source) parts.push(source);
+        if (parts.length) cues.push(srtTime(line.start) + " --> " + srtTime(line.end) + "\n" + parts.join("\n"));
+      });
+      return cues.map(function (cue, index) { return (index + 1) + "\n" + cue + "\n\n"; }).join("");
+    }
+
+    async function readCorrection(taskId) {
+      try {
+        return JSON.parse(await rpc("engine.readArtifact", { taskId: taskId, name: "correction_json" }));
+      } catch (_) {
+        return null;
+      }
+    }
+
+    // 要存哪几个文件。correction.json 超过 8 MB（大约两小时以上的视频）读不进来，
+    // 双语就改存「中文」「原文」两个文件。
+    async function plannedOutputs(item) {
+      const base = baseName(item.title);
+      const sourceSuffix = LANGUAGE_SUFFIX[item.opts.language] || " - 原文";
+      const artifact = function (name) {
+        return function () { return rpc("engine.readArtifact", { taskId: item.taskId, name: name }); };
+      };
+      const output = item.opts.output;
+      if (output === "raw") return [{ key: "raw", name: base + sourceSuffix + ".srt", text: artifact("raw_srt") }];
+      if (output === "zh") return [{ key: "zh", name: base + " - 中文.srt", text: artifact("final_srt") }];
+      const correction = await readCorrection(item.taskId);
+      if (correction) {
+        return [{ key: "both", name: base + ".srt", text: function () { return correctionSrt(correction, "both"); } }];
+      }
+      return [
+        { key: "zh", name: base + " - 中文.srt", text: artifact("final_srt") },
+        { key: "raw", name: base + sourceSuffix + ".srt", text: artifact("raw_srt") },
+      ];
+    }
+
+    async function finish(item) {
+      try {
+        const outputs = await plannedOutputs(item);
+        item.saved = item.saved || [];
+        item.files = item.files || [];
+        for (const planned of outputs) {
+          if (item.saved.indexOf(planned.key) >= 0) continue;
+          const content = await planned.text();
+          if (!String(content || "").trim()) throw new Error("这个视频没有识别出字幕");
+          const saved = await rpc("subtitle.saveToFolder", { fileName: planned.name, content: content });
+          item.saved.push(planned.key);
+          item.files.push(String(saved.path || planned.name).split(/[\\/]/).pop());
+          await saveState();
+        }
+        item.status = "done";
+        item.detail = "";
+        item.note = outputs.length > 1 ? "视频太长，双语分成了两个文件" : "";
+      } catch (error) {
+        item.status = "failed";
+        item.detail = "";
+        item.error = "保存失败：" + error.message;
+      }
+    }
+
+    // ---- misc -----------------------------------------------------------------------------------
+
+    function showError(text) {
+      errorBox.textContent = text;
+      errorBox.hidden = false;
+    }
+
+    function hideError() {
+      errorBox.hidden = true;
+    }
+
+    async function boot() {
+      await loadState();
+      applySettings();
+      renderQueue();
+      await Promise.all([loadMedia(), loadFolder()]);
+      renderAll();
+      tick();
+      setInterval(tick, POLL_MS);
+    }
+
+    boot();
+  </script>
+</body>
+
+</html>

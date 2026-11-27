@@ -26,6 +26,14 @@ var systemPackages embed.FS
 
 const systemPackageRoot = "system"
 
+// systemOffByDefault names the built-ins that ship installed but switched off:
+// tools only some users need, which they turn on in the plugin manager. Kept
+// here rather than in the manifest, for the same reason System is: whether a
+// built-in starts mounted is the host's decision, not the package's.
+var systemOffByDefault = map[string]bool{
+	"dev.nonoka.batch-transcribe": true,
+}
+
 // ensureSystemPlugins materialises the embedded packages under the system root
 // so every path-based reader (manifest parsing, page loading, validation) keeps
 // working unchanged. Publication is keyed by the content digest rather than the

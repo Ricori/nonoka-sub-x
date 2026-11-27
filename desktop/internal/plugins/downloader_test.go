@@ -16,7 +16,7 @@ func TestDownloaderReportsWhichToolsAreStillMissing(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	builtin := systemPlugin(t, service)
+	builtin := builtinPlugin(t, service, "dev.nonoka.youtube-downloader")
 	settings, err := service.LoadDownloaderSettings(builtin.ID)
 	if err != nil {
 		t.Fatal(err)
@@ -41,7 +41,7 @@ func TestDownloaderReportsARunningDownloadToAFreshPage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	builtin := systemPlugin(t, service)
+	builtin := builtinPlugin(t, service, "dev.nonoka.youtube-downloader")
 	settings, err := service.LoadDownloaderSettings(builtin.ID)
 	if err != nil {
 		t.Fatal(err)
@@ -65,7 +65,7 @@ func TestCancelDownloadOnlyFiresAtARunningJob(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	builtin := systemPlugin(t, service)
+	builtin := builtinPlugin(t, service, "dev.nonoka.youtube-downloader")
 	// Nothing running: the button must say so rather than silently doing nothing.
 	if err := service.CancelDownload(builtin.ID); err == nil {
 		t.Fatal("cancelling with no download running was accepted")
@@ -97,7 +97,7 @@ func TestDownloadLogSurvivesAPageThatWasTornDown(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	builtin := systemPlugin(t, service)
+	builtin := builtinPlugin(t, service, "dev.nonoka.youtube-downloader")
 
 	for i := 0; i < downloadLogRetained+50; i++ {
 		service.recordDownloadLog(fmt.Sprintf("[download] line %d", i))

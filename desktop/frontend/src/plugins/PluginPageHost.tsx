@@ -87,6 +87,10 @@ export function PluginPageHost({ mounted, theme, onOpenManager, onOpenLibrary, o
         return { text: documentSrt(document, language as SrtLang, range(params)), rev: document.rev };
       },
       "subtitle.save": (params) => desktopPlugins.saveSubtitleFile(plugin, text(params.fileName), text(params.content)),
+      "subtitle.chooseFolder": async () => ({ path: await desktopPlugins.chooseSubtitleFolder(plugin) }),
+      "subtitle.folder": async () => ({ path: await desktopPlugins.subtitleFolder(plugin) }),
+      "subtitle.saveToFolder": async (params) =>
+        ({ path: await desktopPlugins.saveSubtitleToFolder(plugin, text(params.fileName), text(params.content)) }),
       // FineSub 引擎的三样能力。参数在这里整形成 Go 侧的请求结构，能不能调、
       // 调多少、产物能不能读，全部由 Go 校验。
       "llm.complete": (params) => desktopPlugins.llmComplete(plugin, llmRequest(params)),

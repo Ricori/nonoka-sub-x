@@ -466,13 +466,14 @@ func (s *Service) pluginHomeLocked(id string) (root string, system bool) {
 }
 
 // enabledLocked reports whether a plugin's entry points are mounted. System
-// plugins ship switched on, so an id the registry has never recorded counts as
-// enabled; user plugins stay off until Install writes their entry.
+// plugins ship switched on unless systemOffByDefault names them, so an id the
+// registry has never recorded counts as enabled; user plugins stay off until
+// Install writes their entry.
 func (s *Service) enabledLocked(id string, system bool) bool {
 	if enabled, recorded := s.registry.Enabled[id]; recorded {
 		return enabled
 	}
-	return system
+	return system && !systemOffByDefault[id]
 }
 
 func (s *Service) installedManifestLocked(id string) (Manifest, string, bool, error) {

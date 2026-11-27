@@ -7,16 +7,29 @@ import (
 	"testing"
 )
 
-// systemPlugin returns the single built-in the binary ships, failing the test if
-// the embedded tree stopped producing one.
+// systemPlugin returns one of the built-ins that ship switched on, failing the
+// test if the embedded tree stopped producing any.
 func systemPlugin(t *testing.T, service *Service) InstalledPlugin {
 	t.Helper()
 	for _, plugin := range service.List() {
-		if plugin.System {
+		if plugin.System && !systemOffByDefault[plugin.ID] {
 			return plugin
 		}
 	}
 	t.Fatal("no system plugin was published")
+	return InstalledPlugin{}
+}
+
+// builtinPlugin returns the built-in with that id, for tests of one built-in's
+// own capabilities.
+func builtinPlugin(t *testing.T, service *Service, id string) InstalledPlugin {
+	t.Helper()
+	for _, plugin := range service.List() {
+		if plugin.System && plugin.ID == id {
+			return plugin
+		}
+	}
+	t.Fatalf("system plugin %s was not published", id)
 	return InstalledPlugin{}
 }
 
@@ -143,5 +156,70 @@ func TestSystemPluginsCannotBeUninstalledOrShadowed(t *testing.T) {
 	}
 	if still := systemPlugin(t, service); still.Publisher != builtin.Publisher {
 		t.Fatalf("system plugin was replaced: %#v", still)
+	}
+}
+
+func TestEverySystemPluginServesItsPages(t *testing.T) {
+	service, err := New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	count := 0
+	for _, plugin := range service.List() {
+		if !plugin.System {
+			continue
+		}
+		count++
+		if len(plugin.Contributes.Tools) == 0 {
+			t.Fatalf("system plugin %s contributes no tools: %#v", plugin.ID, plugin)
+		}
+		if plugin.Enabled == systemOffByDefault[plugin.ID] {
+			t.Fatalf("system plugin %s enabled=%v on first launch", plugin.ID, plugin.Enabled)
+		}
+		if !plugin.Enabled {
+			if _, err := service.SetEnabled(plugin.ID, true); err != nil {
+				t.Fatal(err)
+			}
+		}
+		for _, tool := range plugin.Contributes.Tools {
+			page, err := service.PageHTML(plugin.ID, tool.ID)
+			if err != nil {
+				t.Fatalf("%s/%s: %v", plugin.ID, tool.ID, err)
+			}
+			if !strings.Contains(page, "window.nonoka") {
+				t.Fatalf("%s/%s did not receive the host bridge", plugin.ID, tool.ID)
+			}
+		}
+	}
+	if count < 2 {
+		t.Fatalf("expected the downloader and batch transcription built-ins, found %d", count)
+	}
+}
+
+func TestBatchTranscribeShipsSwitchedOff(t *testing.T) {
+	root := t.TempDir()
+	service, err := New(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const id = "dev.nonoka.batch-transcribe"
+	batch := builtinPlugin(t, service, id)
+	if batch.Enabled {
+		t.Fatal("batch transcription should wait for the user to turn it on")
+	}
+	if _, err := service.PageHTML(id, batch.Contributes.Tools[0].ID); err == nil {
+		t.Fatal("a plugin that is off should not serve its page")
+	}
+	// Off by default is only a default: once the user turns it on, a relaunch
+	// keeps it on.
+	if _, err := service.SetEnabled(id, true); err != nil {
+		t.Fatal(err)
+	}
+	relaunched, err := New(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !builtinPlugin(t, relaunched, id).Enabled {
+		t.Fatal("a relaunch switched off a built-in the user turned on")
 	}
 }

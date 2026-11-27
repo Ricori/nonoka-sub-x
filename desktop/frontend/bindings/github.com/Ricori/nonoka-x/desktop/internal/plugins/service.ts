@@ -22,6 +22,15 @@ export function CancelEngineTask(pluginID: string, taskID: string): $Cancellable
     return $Call.ByID(928340474, pluginID, taskID);
 }
 
+/**
+ * ChooseSubtitleFolder opens the folder picker and remembers the pick as this
+ * plugin's output folder. A cancelled dialog keeps the previous choice and
+ * returns an empty string.
+ */
+export function ChooseSubtitleFolder(pluginID: string): $CancellablePromise<string> {
+    return $Call.ByID(191449482, pluginID);
+}
+
 export function ClearCookies(pluginID: string): $CancellablePromise<$models.DownloaderSettings> {
     return $Call.ByID(1670581179, pluginID);
 }
@@ -178,6 +187,15 @@ export function SaveSubtitleFile(pluginID: string, fileName: string, content: st
     return $Call.ByID(1181628, pluginID, fileName, content);
 }
 
+/**
+ * SaveSubtitleToFolder writes plugin-built subtitle text into the remembered
+ * folder. The name is reduced to a safe bare file name, and a name already
+ * taken becomes "name (2).srt" rather than overwriting what is there.
+ */
+export function SaveSubtitleToFolder(pluginID: string, fileName: string, content: string): $CancellablePromise<string> {
+    return $Call.ByID(677304971, pluginID, fileName, content);
+}
+
 export function SetEnabled(id: string, enabled: boolean): $CancellablePromise<$models.InstalledPlugin> {
     return $Call.ByID(859294938, id, enabled);
 }
@@ -209,6 +227,14 @@ export function StateKeys(pluginID: string): $CancellablePromise<string[] | null
  */
 export function StateSet(pluginID: string, key: string, value: string | null): $CancellablePromise<void> {
     return $Call.ByID(2492305260, pluginID, key, value);
+}
+
+/**
+ * SubtitleFolder is the remembered output folder, or an empty string when none
+ * was chosen or the folder has since gone away.
+ */
+export function SubtitleFolder(pluginID: string): $CancellablePromise<string> {
+    return $Call.ByID(1423991435, pluginID);
 }
 
 export function Uninstall(id: string, removeData: boolean): $CancellablePromise<void> {

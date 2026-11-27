@@ -126,6 +126,9 @@ window.nonoka.post("host.getInfo", {});
 - `document.save`：需要 `document.write` 权限。参数 `{ mediaId, document }`，宿主只取 `rev`、`subtitles`、`tracks`、`track_meta`、`effects`、`title`、`styles` 七个字段写回，返回保存后的文档。**注意 `styles` 是这个视频的 ASS 样式表原文**：写回它等于改变字幕的长相（字体、字号、颜色、位置），上限 1 MiB。想只改字幕内容就把读到的那份原样带回去。
 - `subtitle.ass` / `subtitle.srt`：需要 `document.read` 权限。参数 `{ mediaId, t0?, t1?, lang? }`，返回 `{ text, rev }`。字幕由宿主用编辑器那条拼装管线现拼，套的是该文档自己的样式表（`styles` 字段，没有则用本机默认模板），因此与编辑器导出的逐字相同；给了 `t0`/`t1` 就裁成区间并把时间轴平移到 0，`lang` 只对 SRT 有效（`both` / `zh` / `ja`）。
 - `subtitle.save`：需要 `subtitle.export` 权限。参数 `{ fileName, content }`，宿主弹保存对话框并落盘，返回最终路径；用户取消时返回空串。扩展名只接受 `.ass` 和 `.srt`，目录由对话框决定。
+- `subtitle.chooseFolder`：需要 `subtitle.export` 权限。宿主弹选择文件夹的对话框，把选中的文件夹记成这个插件的保存位置，返回 `{ path }`；用户取消时 `path` 为空串，原来的选择不变。
+- `subtitle.folder`：需要 `subtitle.export` 权限。返回记下的保存位置 `{ path }`；没选过或文件夹已经不在了时为空串。
+- `subtitle.saveToFolder`：需要 `subtitle.export` 权限。参数 `{ fileName, content }`，不弹对话框，直接写进记下的保存位置，返回 `{ path }`。给批量导出用：用户只选一次文件夹。文件名只取最后一段，Windows 不允许的字符换成 `_`；同名文件已经存在时存成 `名字 (2).srt`，**从不覆盖**。没选过保存位置、或文件夹已经不在了时报错。
 - `media.exportVideo`：需要 `media.export-video` 权限。参数 `{ mediaId, ass, fileName?, t0?, t1?, height? }`，宿主用托管的 FFmpeg 把 ASS 压制进视频，返回 `{ path, format, size }`。编码参数（CRF 21、preset medium、AAC 192k）由宿主固定，`height` 只能是 0（原分辨率）或 240–4320。压制期间宿主会向页面推送 `media.progress` 消息（`{ done, total }`，单位秒）。
 - `ffmpeg.extractAudio`：需要 `ffmpeg.extract-audio` 权限。参数为 `{ mediaId, format }`，其中格式只能是 `wav`、`flac`、`mp3` 或 `m4a`。Nonoka Sub X 负责解析输入、选择输出位置、构造 FFmpeg 参数和原子发布结果。
 - `tools.runYtDLP`：需要 `tools.yt-dlp` 和 `media.import` 权限。插件传入 `{ url, args }`，自行决定受支持的 yt-dlp 参数；Nonoka Sub X 解析项目托管的 yt-dlp/FFmpeg、让用户选择输出位置，并在命令成功后自动导入媒体库。yt-dlp 以 Python wheel 形式安装，因此该能力同时依赖 Nonoka Sub X 的 Python 运行时。下载单次上限 20 分钟，超时会结束子进程并报错，避免卡住的分片服务器一直占着媒体任务锁。下载期间宿主向页面推送 `download.progress` 消息（`{ done, total }`，`total` 恒为 100，即百分比），节流到 400ms 一条。
@@ -146,7 +149,7 @@ window.nonoka.post("host.getInfo", {});
 - 媒体一律用 `media.list` 给的 ID 定位，插件永远拿不到本地路径；字幕文档由本地 Provider 提供，sidecar 没起来时这些调用会失败而不是读到半份文档。
 - `document.save` 必须带上读到的 `rev`。编辑器同时保存过同一份文档时 rev 已经前进，宿主返回 `revision_conflict`，插件应重新读一次再改。
 - 宿主会校验句子形状（`t0`/`t1` 有限且 `t1 >= t0`，`ja`/`zh` 是文本），但不认识的字段（词级时间、置信度）原样带过去，因此「读—改—写」不会丢数据。
-- `subtitle.save` 与 `media.exportVideo` 的落盘位置永远由保存对话框决定，插件给的文件名只当默认值用，路径部分会被剥掉。
+- `subtitle.save` 与 `media.exportVideo` 的落盘位置永远由保存对话框决定，插件给的文件名只当默认值用，路径部分会被剥掉。`subtitle.saveToFolder` 也一样，只是那个文件夹是用户事先在 `subtitle.chooseFolder` 的对话框里选的；插件不能自己指定目录。
 
 `tools.runYtDLP` 当前只接受公开的 YouTube、youtu.be 和 Twitch HTTPS 地址，并且只允许以下参数：
 
@@ -328,12 +331,13 @@ NonokaXData/
 - 安装新版本通过 `current.json` 切换活动版本。
 - 停用只隐藏菜单入口，代码和数据仍保留。
 - 卸载可以选择保留或删除 `plugin-data/<id>`；系统插件不能卸载。
-- `plugin-registry.json` 只记录用户显式改过的开关。系统插件没有记录时算启用，用户插件没有记录时算停用。
+- `plugin-registry.json` 只记录用户显式改过的开关。系统插件没有记录时算启用（`system.go` 的 `systemOffByDefault` 点名的除外，它们装好了但默认停用），用户插件没有记录时算停用。
 - 插件变化通过 `plugins:changed` 事件同步到所有前端状态。
 
 内置的系统插件：
 
 - `desktop/internal/plugins/system/dev.nonoka.youtube-downloader`：下载公开的 YouTube/Twitch 视频并自动导入媒体库，带进度条，可选画质到 2160p、并发分片到 16；装了可选工具 aria2c 时自动走多连接加速。
+- `desktop/internal/plugins/system/dev.nonoka.batch-transcribe`：从媒体库勾选多个视频，用 `engine.startTask` 逐个转录，把字幕用 `subtitle.saveToFolder` 存进选好的文件夹。可以只出原文（跑到 `raw-srt`），也可以出双语或只要中文（跑到 `final-srt`，双语从 `correction_json` 拼，读不进来时改存两个文件）。队列记在 `state.persist` 里，页面切走后停在当前那个视频，回来接着跑。默认停用，要在插件管理里手动启用。
 
 可运行示例：
 

@@ -66,6 +66,10 @@ export const desktopPlugins = {
     return await PluginService.SaveDocument(pluginId, mediaId, document as Record<string, unknown>) as unknown as EditDocument;
   },
   saveSubtitleFile: PluginService.SaveSubtitleFile,
+  // 批量导出：用户选一次文件夹，之后插件只能往这个文件夹里写新文件
+  chooseSubtitleFolder: PluginService.ChooseSubtitleFolder,
+  subtitleFolder: PluginService.SubtitleFolder,
+  saveSubtitleToFolder: PluginService.SaveSubtitleToFolder,
   exportVideo: PluginService.ExportVideo,
   // FineSub 引擎：一次 LLM 调用、按阶段跑一次流水线、取回那次运行的产物。
   // 三样各有各的权限，都在 Go 侧校验，这里只转发。
