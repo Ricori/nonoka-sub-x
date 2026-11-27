@@ -34,6 +34,8 @@ export const BLK_DETAIL_W = 12;   // 窄于此就不画手柄和文字
 export const BLK_MARGIN = 1;      // 视口左右各多画一屏当缓冲
 export const AGG_W = 7;           // 窄于此的连片块并成一条密度块
 export const AGG_SPAN = 100;      // 单条密度块最多覆盖这么宽
+/** 跨轨拖动时横向偏移在这么多像素以内，时间就锁在原位（防止换轨时手抖拖歪） */
+export const CROSS_TRACK_LOCK_PX = 24;
 
 // 列表虚拟化：上下各多渲染一屏
 export const LIST_MARGIN = 1;

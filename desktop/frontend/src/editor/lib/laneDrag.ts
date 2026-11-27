@@ -1,4 +1,4 @@
-import { MIN_DUR } from '../constants';
+import { CROSS_TRACK_LOCK_PX, MIN_DUR } from '../constants';
 import { bumpDoc, locateSeg, orderedTis, segsOf, tiPos, trackName } from '../store/docStore';
 import { dragStore } from '../store/dragStore';
 import { layoutStore } from '../store/layoutStore';
@@ -43,6 +43,10 @@ function moveSegToTrack(s: Seg, from: Ti, to: Ti) {
 }
 
 const setDropTi = (ti: Ti | null) => dragStore.set({ dropTi: ti });
+
+/** 已换到别的轨、且横向只偏了一点：视为纯纵向换轨，时间不动 */
+const crossTrackLocked = (crossed: boolean, dx: number) =>
+  crossed && Math.abs(dx) <= CROSS_TRACK_LOCK_PX;
 
 /**
  * 整组拖动（仿 Pr）：横向所有句按同一 dt 平移，dt 被每句到目标轨上非选中相邻句的空隙
@@ -125,7 +129,8 @@ function groupMove(startEv: React.PointerEvent, originTi: Ti, grabbedSeg: Seg) {
   const onMove = (ev: PointerEvent) => {
     if (!moved) pushHistory();
     moved = true;
-    const dtWanted = snapDt(dtAt(gMin, ev.clientX - startX));
+    const dx = ev.clientX - startX;
+    const dtFree = snapDt(dtAt(gMin, dx));
     const hoverTi = laneTiAt(ev.clientY);
     let desired = curDPos;
     if (hoverTi != null) { const p = tiPos(hoverTi); if (p >= 0) desired = p - tiPos(originTi); }
@@ -133,6 +138,7 @@ function groupMove(startEv: React.PointerEvent, originTi: Ti, grabbedSeg: Seg) {
     for (const cand of (desired === curDPos ? [curDPos] : [desired, curDPos])) {
       const rg = dtRange(cand);
       if (!rg) continue;
+      const dtWanted = crossTrackLocked(cand !== 0, dx) ? 0 : dtFree;
       place(Math.max(rg.lo, Math.min(rg.hi, dtWanted)), cand);
       curDPos = cand;
       break;
@@ -242,7 +248,9 @@ export function onLanePointerDown(e: React.PointerEvent, ti: Ti) {
       // 跨轨：光标压到别的轨上，且那儿的空隙放得下，就把这句挪过去
       const hover = laneTiAt(ev.clientY);
       if (hover != null && hover !== dstTi) {
-        const g = gapIn(hover, tAtClientX(ev.clientX), dur);
+        // 落在锁定范围内时按原位置找空隙，免得光标偏一点压到邻句就换不过去
+        const tc = crossTrackLocked(hover !== ti, dx) ? (start.t0 + start.t1) / 2 : tAtClientX(ev.clientX);
+        const g = gapIn(hover, tc, dur);
         if (g) {
           gap = g;
           moveSegToTrack(s, dstTi, hover);
@@ -250,7 +258,8 @@ export function onLanePointerDown(e: React.PointerEvent, ti: Ti) {
           setDropTi(dstTi !== ti ? dstTi : null);
         }
       }
-      const nt0 = Math.min(Math.max(snapTo(start.t0 + dt, segsOf(dstTi)), gap.lo), gap.hi - dur);
+      const want = crossTrackLocked(dstTi !== ti, dx) ? start.t0 : snapTo(start.t0 + dt, segsOf(dstTi));
+      const nt0 = Math.min(Math.max(want, gap.lo), gap.hi - dur);
       s.t0 = nt0; s.t1 = nt0 + dur;
     } else if (mode === "l") {
       s.t0 = Math.min(Math.max(snapTo(start.t0 + dt, arr), srcGap.lo), s.t1 - MIN_DUR);
