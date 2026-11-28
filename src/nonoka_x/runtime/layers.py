@@ -1095,7 +1095,9 @@ class LayerManager:
 
     def _cleanup_partial_download(self, entry: LayerEntry) -> None:
         base = self.downloads / f"{entry.archive.sha256}.tar.zst"
-        for candidate in (base, base.with_name(base.name + ".part"), base.with_suffix(base.suffix + ".lock")):
+        partial = base.with_name(base.name + ".part")
+        for candidate in (base, partial, partial.with_name(partial.name + ".pieces"),
+                          partial.with_name(partial.name + ".expect"), base.with_suffix(base.suffix + ".lock")):
             try:
                 candidate.unlink(missing_ok=True)
             except OSError:

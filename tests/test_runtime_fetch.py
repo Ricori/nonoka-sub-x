@@ -6,6 +6,7 @@ httpx client asks for the absolute URL of a plain-HTTP origin.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 import hashlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
@@ -13,6 +14,7 @@ import os
 from pathlib import Path
 import sys
 import threading
+import time
 
 import httpx
 import pytest
@@ -35,28 +37,59 @@ PAYLOAD = bytes(range(256)) * 64  # 16 KiB
 class _Server:
     """A local origin that serves one payload, honouring `Range`, and records what it was asked."""
 
-    def __init__(self, payload: bytes, *, ignore_range: bool = False, status: int | None = None) -> None:
+    def __init__(
+        self,
+        payload: bytes,
+        *,
+        ignore_range: bool = False,
+        status: int | None = None,
+        cut: Callable[[str | None], int | None] | None = None,
+        delay: float = 0.0,
+    ) -> None:
         self.payload = payload
         self.requests: list[tuple[str, str | None]] = []
+        self.active = 0
+        self.most_at_once = 0
+        lock = threading.Lock()
         outer = self
 
         class Handler(BaseHTTPRequestHandler):
             def do_GET(self) -> None:
                 wanted = self.headers.get("Range")
-                outer.requests.append((self.path, wanted))
+                with lock:
+                    outer.requests.append((self.path, wanted))
+                    outer.active += 1
+                    outer.most_at_once = max(outer.most_at_once, outer.active)
+                try:
+                    self._answer(wanted)
+                finally:
+                    with lock:
+                        outer.active -= 1
+
+            def _answer(self, wanted: str | None) -> None:
                 if status is not None:
                     self.send_error(status)
                     return
                 body = outer.payload
                 if wanted and not ignore_range:
-                    start = int(wanted.removeprefix("bytes=").split("-")[0])
-                    body = body[start:]
+                    first, _, last = wanted.removeprefix("bytes=").partition("-")
+                    start = int(first)
+                    end = int(last) if last else len(outer.payload) - 1
+                    body = body[start:end + 1]
                     self.send_response(206)
-                    self.send_header("Content-Range", f"bytes {start}-{len(outer.payload) - 1}/{len(outer.payload)}")
+                    self.send_header("Content-Range", f"bytes {start}-{end}/{len(outer.payload)}")
                 else:
                     self.send_response(200)
                 self.send_header("Content-Length", str(len(body)))
                 self.end_headers()
+                if delay:
+                    time.sleep(delay)
+                # A cut connection: fewer bytes than promised, then hang up.
+                limit = cut(wanted) if cut is not None else None
+                if limit is not None and limit < len(body):
+                    self.wfile.write(body[:limit])
+                    self.close_connection = True
+                    return
                 self.wfile.write(body)
 
             def log_message(self, *args) -> None:
@@ -235,6 +268,196 @@ def test_every_route_failing_names_each_one(tmp_path):
 
     with pytest.raises(fetch.NetworkConnectionError, match="所有连接方式均失败.*直连"):
         download_file(asset, tmp_path / "tool.zip", routes=_direct)
+
+
+# --- segmented downloads ---------------------------------------------------------------------------------------
+
+BIG = bytes((index * 7 + index // 251) % 256 for index in range(1024 * 1024))  # 1 MiB, 8 pieces of 128 KiB
+PIECE = 128 * 1024
+
+
+@pytest.fixture
+def segmented(monkeypatch):
+    """Scale the segmented download down so a 1 MiB file is cut into 8 pieces over 4 connections."""
+
+    monkeypatch.setattr(fetch, "SEGMENT_MIN_SIZE", 256 * 1024)
+    monkeypatch.setattr(fetch, "SEGMENT_CONNECTIONS", 4)
+    monkeypatch.setattr(fetch, "SEGMENT_PIECE_MIN", 64 * 1024)
+    monkeypatch.setattr(fetch, "SEGMENT_PIECE_MAX", PIECE)
+    monkeypatch.setattr(fetch, "SEGMENT_TICK_SEC", 0.02)
+
+
+def _ranges(origin: _Server) -> list[str | None]:
+    return sorted((wanted for _path, wanted in origin.requests), key=lambda value: value or "")
+
+
+def _piece_ranges(*indexes: int, size: int = len(BIG)) -> list[str]:
+    return sorted(f"bytes={index * PIECE}-{min((index + 1) * PIECE, size) - 1}" for index in indexes)
+
+
+def test_a_big_file_comes_in_pieces_over_several_connections(server, segmented, tmp_path):
+    origin = server(BIG, delay=0.05)
+    reported: list[fetch.DownloadProgress] = []
+    destination = tmp_path / "layer.tar.zst"
+
+    download_file(_asset(origin.base, BIG), destination, reported.append, routes=_direct)
+
+    assert destination.read_bytes() == BIG
+    assert _ranges(origin) == _piece_ranges(*range(8))
+    assert origin.most_at_once > 1
+    assert reported[-1].downloaded == reported[-1].total == len(BIG)
+    partial = fetch.part_path(destination)
+    assert not partial.exists()
+    assert not fetch._pieces_path(partial).exists()
+
+
+def test_a_segmented_download_resumes_from_its_record(server, segmented, tmp_path):
+    origin = server(BIG)
+    asset = _asset(origin.base, BIG)
+    destination = tmp_path / "layer.tar.zst"
+    partial = fetch.part_path(destination)
+    # What an interrupted run leaves: the whole-size `.part`, pieces 0 and 2 done, piece 5 half done.
+    written = [PIECE, 0, PIECE, 0, 0, PIECE // 2, 0, 0]
+    image = bytearray(len(BIG))
+    for index, count in enumerate(written):
+        image[index * PIECE:index * PIECE + count] = BIG[index * PIECE:index * PIECE + count]
+    partial.write_bytes(bytes(image))
+    Path(f"{partial}.expect").write_text(asset.sha256, encoding="utf-8")
+    fetch._pieces_path(partial).write_text(
+        json.dumps({"sha256": asset.sha256, "size": len(BIG), "piece": PIECE, "written": written}), encoding="utf-8",
+    )
+
+    download_file(asset, destination, routes=_direct)
+
+    assert destination.read_bytes() == BIG
+    half = 5 * PIECE + PIECE // 2
+    assert _ranges(origin) == sorted([*_piece_ranges(1, 3, 4, 6, 7), f"bytes={half}-{6 * PIECE - 1}"])
+
+
+def test_a_single_stream_partial_is_resumed_in_pieces(server, segmented, tmp_path):
+    """A `.part` from before segmented downloads is a prefix: only what follows it is fetched."""
+
+    origin = server(BIG)
+    asset = _asset(origin.base, BIG)
+    destination = tmp_path / "layer.tar.zst"
+    partial = fetch.part_path(destination)
+    partial.write_bytes(BIG[: 3 * PIECE + 1000])
+    Path(f"{partial}.expect").write_text(asset.sha256, encoding="utf-8")
+
+    download_file(asset, destination, routes=_direct)
+
+    assert destination.read_bytes() == BIG
+    assert _ranges(origin) == sorted([*_piece_ranges(4, 5, 6, 7), f"bytes={3 * PIECE + 1000}-{4 * PIECE - 1}"])
+
+
+def test_a_server_without_ranges_gets_one_stream(server, segmented, tmp_path):
+    origin = server(BIG, ignore_range=True)
+    destination = tmp_path / "layer.tar.zst"
+
+    download_file(_asset(origin.base, BIG), destination, routes=_direct)
+
+    assert destination.read_bytes() == BIG
+    # The probe, then one plain request: no other connection was opened against it.
+    assert _ranges(origin) == [None, f"bytes=0-{PIECE - 1}"]
+    assert not fetch._pieces_path(fetch.part_path(destination)).exists()
+
+
+def test_a_piece_that_breaks_off_is_fetched_again(server, segmented, tmp_path):
+    cuts = {f"bytes={2 * PIECE}-{3 * PIECE - 1}": 1}  # Piece 2 hangs up once, a fifth of the way in.
+
+    def cut(wanted: str | None) -> int | None:
+        if wanted in cuts and cuts[wanted] > 0:
+            cuts[wanted] -= 1
+            return PIECE // 5
+        return None
+
+    origin = server(BIG, cut=cut)
+    destination = tmp_path / "layer.tar.zst"
+
+    download_file(_asset(origin.base, BIG), destination, routes=_direct)
+
+    assert destination.read_bytes() == BIG
+    assert f"bytes={2 * PIECE + PIECE // 5}-{3 * PIECE - 1}" in _ranges(origin)
+
+
+def test_a_piece_that_keeps_breaking_fails_the_route(server, segmented, monkeypatch, tmp_path):
+    monkeypatch.setattr(fetch, "SEGMENT_RETRIES", 1)
+    def cut(wanted: str | None) -> int | None:
+        start = int(wanted.removeprefix("bytes=").split("-")[0]) if wanted else 0
+        return 10 if 3 * PIECE <= start < 4 * PIECE else None  # Piece 3 always hangs up after 10 bytes.
+
+    origin = server(BIG, cut=cut)
+    destination = tmp_path / "layer.tar.zst"
+
+    with pytest.raises(fetch.NetworkConnectionError, match="直连"):
+        download_file(_asset(origin.base, BIG), destination, routes=_direct)
+    # What did arrive is kept for the next try.
+    record = json.loads(fetch._pieces_path(fetch.part_path(destination)).read_text(encoding="utf-8"))
+    assert record["written"][0] == PIECE
+    assert record["written"][3] == 20
+
+
+def test_a_paused_segmented_download_keeps_its_pieces(server, segmented, tmp_path):
+    origin = server(BIG, delay=0.05)
+    asset = _asset(origin.base, BIG)
+    destination = tmp_path / "layer.tar.zst"
+    started = time.perf_counter()
+
+    with pytest.raises(DownloadPaused):
+        download_file(asset, destination, should_pause=lambda: time.perf_counter() - started > 0.12, routes=_direct)
+
+    record = fetch._pieces_path(fetch.part_path(destination))
+    assert record.is_file()
+    done_before = json.loads(record.read_text(encoding="utf-8"))["written"]
+    origin.requests.clear()
+
+    download_file(asset, destination, routes=_direct)
+
+    assert destination.read_bytes() == BIG
+    finished_before = sum(1 for index, count in enumerate(done_before) if count == PIECE)
+    assert len(origin.requests) == 8 - finished_before
+
+
+def test_a_dead_proxy_falls_back_to_direct_for_pieces(server, segmented, tmp_path):
+    origin = server(BIG)
+    routes = [NetworkRoute("代理", "http://127.0.0.1:9"), NetworkRoute("直连", None)]
+
+    download_file(_asset(origin.base, BIG), tmp_path / "layer.tar.zst", routes=lambda: routes)
+
+    assert (tmp_path / "layer.tar.zst").read_bytes() == BIG
+    assert _ranges(origin) == _piece_ranges(*range(8))
+
+
+def test_a_segmented_http_error_is_not_retried_on_another_route(server, segmented, tmp_path):
+    origin = server(BIG, status=404)
+    routes = [NetworkRoute("直连", None), NetworkRoute("直连（第二条）", None)]
+
+    with pytest.raises(httpx.HTTPStatusError):
+        download_file(_asset(origin.base, BIG), tmp_path / "layer.tar.zst", routes=lambda: routes)
+    assert len(origin.requests) == 1
+
+
+def test_wrong_bytes_in_pieces_are_quarantined(server, segmented, tmp_path):
+    origin = server(BIG)
+    destination = tmp_path / "layer.tar.zst"
+
+    with pytest.raises(DigestMismatch):
+        download_file(_asset(origin.base, BIG, sha256="0" * 64), destination, routes=_direct)
+
+    partial = fetch.part_path(destination)
+    assert Path(f"{partial}.bad").read_bytes() == BIG
+    assert not fetch._pieces_path(partial).exists()
+
+
+def test_the_real_pieces_stay_under_the_rate_limit():
+    """50 requests per 10 s per IP guard the layer prefixes (docs/runtime-layers.md 2.5)."""
+
+    python_archive = 2_681_919_360
+    assert fetch.piece_size_for(python_archive) == 64 * 1024 * 1024
+    assert -(-python_archive // fetch.piece_size_for(python_archive)) == 40
+    # Even at 1 Gbit/s a 64 MiB piece lasts over half a second: under 20 requests in 10 s.
+    assert 10 * 125_000_000 / fetch.SEGMENT_PIECE_MAX < 20
+    assert fetch.piece_size_for(260_000_000) == 32_500_000
 
 
 def test_an_asset_is_validated_like_finesubs():
