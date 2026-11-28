@@ -3,6 +3,7 @@ import { useState } from "react";
 import type { PythonBootstrapState, RuntimeCleanupItem, RuntimeCleanupPlan, RuntimeInstallTarget, RuntimeItem, RuntimeLayerId, RuntimeLayerOverview, RuntimeProvisionState } from "../bridge/runtime.ts";
 import type { RelocationProgress, StorageDestination, StorageStatus, StorageTarget } from "../bridge/storage.ts";
 import type { RuntimeCacheState } from "./runtimeCache.ts";
+import { OFFLINE_PACK_URL, openOfflinePackPage } from "../app/offlinePack.ts";
 import { cleanupView, layerLabel } from "./engineLayers.ts";
 import { InfoTip } from "./InfoTip.tsx";
 import { Mark } from "./Mark.tsx";
@@ -171,7 +172,17 @@ function ProvisionProgress({
         <span>{progress?.bytes_per_second ? `${formatBytes(progress.bytes_per_second)}/s` : job.stage === "offline" ? "离线包校验后自动安装" : "校验后自动安装"}</span>
       </div>
       {slowDownload && onSwitchToOffline && (
-        <p className="provision-slow-hint">当前在线下载较慢，可随时点击「改用离线包…」直接导入本地 .tar.zst 压缩包。</p>
+        <p className="provision-slow-hint">
+          当前在线下载较慢，可随时点击「改用离线包…」直接导入本地 .tar.zst 压缩包。
+          {OFFLINE_PACK_URL && (
+            <>
+              {" "}
+              <a className="inline-link" href={OFFLINE_PACK_URL} onClick={(event) => { event.preventDefault(); openOfflinePackPage(); }}>
+                下载离线包
+              </a>
+            </>
+          )}
+        </p>
       )}
       <div className="provision-phase-list">
         {installPhases.map((phase, index) => (

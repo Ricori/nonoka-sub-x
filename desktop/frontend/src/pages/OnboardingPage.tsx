@@ -20,6 +20,7 @@ import type {
 } from "../bridge/storage.ts";
 import type { Theme } from "../app/types.ts";
 import { transcriptionEngineLabel } from "../app/format.ts";
+import { OFFLINE_PACK_URL, openOfflinePackPage } from "../app/offlinePack.ts";
 import type { EngineChoice } from "../components/engineChoices.ts";
 import { layerLabel } from "../components/engineLayers.ts";
 import { LlmConfigurationCard } from "../components/LlmConfigurationCard.tsx";
@@ -1237,6 +1238,11 @@ export function OnboardingPage(props: OnboardingPageProps) {
                           <button type="button" className="quiet-button btn-sm" onClick={() => setProxyModalOpen(true)}>
                             配置网络代理
                           </button>
+                          {hardware.runtimeSupported && OFFLINE_PACK_URL && (
+                            <button type="button" className="quiet-button btn-sm" onClick={openOfflinePackPage}>
+                              下载离线包
+                            </button>
+                          )}
                           {activeDownloadLayer && (
                             <button
                               type="button"
@@ -1430,6 +1436,11 @@ export function OnboardingPage(props: OnboardingPageProps) {
                       <span>你是否已准备好本地离线包（.tar.zst）？</span>
                       {installSource === "online" && installPlan.missingDownloadBytes > 0 && (
                         <Mark tone="accent">在线预计下载 {formatStorageBytes(installPlan.missingDownloadBytes)}</Mark>
+                      )}
+                      {installSource === "offline" && OFFLINE_PACK_URL && (
+                        <a className="inline-link" href={OFFLINE_PACK_URL} onClick={(event) => { event.preventDefault(); openOfflinePackPage(); }}>
+                          还没有？下载离线包
+                        </a>
                       )}
                     </div>
                     <div className="onboarding-source-grid" role="radiogroup" aria-label="获取方式">
