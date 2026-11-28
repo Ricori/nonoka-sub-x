@@ -223,3 +223,28 @@ func TestBatchTranscribeShipsSwitchedOff(t *testing.T) {
 		t.Fatal("a relaunch switched off a built-in the user turned on")
 	}
 }
+
+func TestSystemPluginsListInSideMenuOrder(t *testing.T) {
+	service, err := New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var builtins []string
+	for _, plugin := range service.List() {
+		if plugin.System {
+			builtins = append(builtins, plugin.ID)
+		}
+	}
+	downloader, batch := -1, -1
+	for index, id := range builtins {
+		switch id {
+		case "dev.nonoka.youtube-downloader":
+			downloader = index
+		case "dev.nonoka.batch-transcribe":
+			batch = index
+		}
+	}
+	if downloader < 0 || batch < 0 || batch < downloader {
+		t.Fatalf("batch transcription should list after the downloader: %v", builtins)
+	}
+}

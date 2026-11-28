@@ -449,9 +449,27 @@ func (s *Service) listLocked() []InstalledPlugin {
 		if result[i].System != result[j].System {
 			return result[i].System
 		}
+		// Built-ins keep the order their tools take in the side menu, which
+		// sorts by tool order; user plugins have no shared scale, so by name.
+		if result[i].System {
+			if left, right := firstToolOrder(result[i].Manifest), firstToolOrder(result[j].Manifest); left != right {
+				return left < right
+			}
+		}
 		return strings.ToLower(result[i].Name) < strings.ToLower(result[j].Name)
 	})
 	return result
+}
+
+// firstToolOrder is where a plugin's earliest tool sits in the side menu.
+func firstToolOrder(manifest Manifest) int {
+	order := 0
+	for index, tool := range manifest.Contributes.Tools {
+		if index == 0 || tool.Order < order {
+			order = tool.Order
+		}
+	}
+	return order
 }
 
 // pluginHomeLocked resolves which tree owns an id. System plugins are looked up
